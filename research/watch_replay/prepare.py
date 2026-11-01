@@ -13,13 +13,30 @@ from pathlib import Path
 
 from research.colab_cli import canary
 from research.t34_exit_b8 import public_inputs
+from research.watch_replay.preflight import CANARY_HORIZON_BY_CONTROLLER
 from research.watch_replay.run import ROOT, allocation, completed, identity
 from research.watch_replay.source import source_paths
 from research.watch_replay.uploads import CHECKPOINTS, METADATA, check_uploads, pack_inputs
 from tools.ops.package_spec import Input, digest, empty_ledger, publish_json, stage_inputs
+from web.backend.watch_replay import CONTROLLERS
 
 GPU_RATES: dict[str, float] = {"L4": 1.54, "A100": 8.0}
 DEFAULT_WORKERS_BY_GPU: dict[str, int] = {"L4": 4, "A100": 6}
+SCREEN_MEAN_ROOTS_BY_CONTROLLER: dict[str, float] = {
+    "bare-b8": 0.0,
+    "exact-stop-l2-prime": 403.7291666666667,
+    "exact-stop-l1": 1200.125,
+}
+SCREEN_MEAN_BRANCHES_BY_CONTROLLER: dict[str, float] = {
+    "bare-b8": 0.0,
+    "exact-stop-l2-prime": 449.6041666666667,
+    "exact-stop-l1": 1268.5208333333333,
+}
+BRANCH_TAIL_MARGIN = 1.35
+CLOUD_SLOWDOWN_PROJECTION = 3.5
+CONTENTION_PROJECTION = 1.5
+MIRROR_BASE_COLAB_SECONDS = 600.0
+SETUP_EXPORT_MINUTES = 30
 
 
 def release_bundle(bundle: Path, pins: dict) -> None:
@@ -75,12 +92,14 @@ def prepare(
     if measured["commit"] != commit:
         raise ValueError("Mac preflight must match current commit")
     out.mkdir(parents=True, exist_ok=False)
+    canary_horizon = CANARY_HORIZON_BY_CONTROLLER[controller]
     contracts = {
         "main": {**allocation(namespace, count, controller), "commit": commit},
-        # Frozen excluded prefix from the measured full-session fixture. It reaches
-        # L>=600/search within 3,000 frames and fits the 30-minute canary guard.
+        # Frozen excluded prefix from the measured full-session fixture. L2' reaches
+        # L>=600/search within 3,000 frames; L>=1 exercises 60 roots within 300 frames
+        # while fitting the fixed 15/30-minute canary guard.
         "canary": {
-            **allocation("t34-watch-replay-full-size-fixture-v1", 1, controller, 3000),
+            **allocation("t34-watch-replay-full-size-fixture-v1", 1, controller, canary_horizon),
             "commit": commit,
         },
     }
@@ -172,24 +191,47 @@ def prepare(
     staged = pack_inputs(raw_staged, out / METADATA)
     metadata_sha256 = next(row["sha256"] for row in staged if row["dest"] == METADATA)
     singleton = max(t["seconds"] / t["branches"] for t in measured["branch_timings"])
-    # Planning assumptions, explicitly not measured Colab throughput or a hard bound.
-    session_seconds = 1200 * 1.2 * singleton * 3 * 1.5
-    minutes = math.ceil(session_seconds * math.ceil(count / resolved_workers) / 60 + 20)
+    screen_roots = SCREEN_MEAN_ROOTS_BY_CONTROLLER[controller]
+    screen_branches = SCREEN_MEAN_BRANCHES_BY_CONTROLLER[controller]
+    l2_prime_branches = SCREEN_MEAN_BRANCHES_BY_CONTROLLER["exact-stop-l2-prime"]
+    search_multiplier = screen_branches / l2_prime_branches if l2_prime_branches else 0.0
+    branches_forecast = screen_branches * BRANCH_TAIL_MARGIN
+    # Planning assumptions calibrated to the N=48 screen (~2.82x search cost for exact-stop-l1).
+    search_seconds = (
+        branches_forecast * singleton * CLOUD_SLOWDOWN_PROJECTION * CONTENTION_PROJECTION
+    )
+    session_seconds = MIRROR_BASE_COLAB_SECONDS + search_seconds
+    minutes = math.ceil(
+        session_seconds * math.ceil(count / resolved_workers) / 60 + SETUP_EXPORT_MINUTES
+    )
     if minutes > 600:
         raise ValueError("forecast exceeds bounded runtime; use separate frozen packets")
     forecast = {
+        "controller": controller,
+        "canary_horizon": canary_horizon,
         "mac_h300_singleton_seconds": singleton,
-        "roots_per_session_max": 1200,
-        "branches_per_root_forecast": 1.2,
+        "screen_mean_roots_per_session": screen_roots,
+        "screen_mean_branches_per_session": screen_branches,
+        "search_cost_multiplier_vs_l2_prime": round(search_multiplier, 6),
+        "branch_tail_margin": BRANCH_TAIL_MARGIN,
+        "branches_per_session_forecast": branches_forecast,
+        "roots_per_session_max": 1200 if controller != "bare-b8" else 0,
         "branches_per_root_max": 6,
-        "cloud_slowdown_projection": 3,
-        "contention_projection": 1.5,
+        "cloud_slowdown_projection": CLOUD_SLOWDOWN_PROJECTION,
+        "contention_projection": CONTENTION_PROJECTION,
+        "mirror_base_colab_seconds_per_session": MIRROR_BASE_COLAB_SECONDS,
+        "setup_export_minutes": SETUP_EXPORT_MINUTES,
+        "search_colab_seconds_per_session": search_seconds,
+        "session_colab_seconds": session_seconds,
         "gpu": gpu,
         "workers": resolved_workers,
         "base_minutes": minutes,
         "effective_minutes": 2 * minutes,
         "expected_sessions_per_colab_hour": resolved_workers * 3600 / session_seconds,
-        "scope": "projection, not measured Colab throughput; excludes setup/export",
+        "scope": (
+            "N=48 screen branch-calibrated projection (~2.82x exact-stop-l1 vs l2-prime search "
+            "cost); includes mirror + setup/export"
+        ),
     }
     publish_json(out / "forecast.json", forecast)
     rate = GPU_RATES[gpu]
@@ -294,9 +336,7 @@ def main() -> None:
     parser.add_argument("--benchmark", type=Path, required=True)
     parser.add_argument("--namespace", default="t34-watch-replay-fix-20261030-bank01")
     parser.add_argument("--count", type=int, default=12)
-    parser.add_argument(
-        "--controller", choices=["exact-stop-l2-prime", "bare-b8"], default="exact-stop-l2-prime"
-    )
+    parser.add_argument("--controller", choices=sorted(CONTROLLERS), default="exact-stop-l2-prime")
     parser.add_argument("--gpu", choices=list(GPU_RATES), default="L4")
     parser.add_argument("--workers", type=int)
     parser.add_argument("--canary-receipt", type=Path)

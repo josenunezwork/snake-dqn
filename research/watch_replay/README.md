@@ -15,7 +15,11 @@ mirror state every frame. No inference, search, or resimulation runs in playback
 
 `exact-stop-l2-prime` retains L>=600, every fifth eligible decision, H300,
 bare-first/descending-Q alternatives, first-survivor stop, unchanged all-die
-ranking, and trigger reset on respawn. `bare-b8` is a separate optional bank.
+ranking, and trigger reset on respawn. `exact-stop-l1` reuses
+`research/watch6_alllen_screen/protocol.py` (`exact_stop_alllen`: `min_length=1`,
+`interval=5`, H300, respawn trigger reset) and retains the `"Recorded assisted hero"`
+label; `web/backend/watch_replay.py` accepts `"exact-stop-l1"` after a web server
+restart. `bare-b8` is a separate optional bank.
 
 ## Format and controls
 

@@ -18,6 +18,8 @@ from typing import Any, Iterator
 SCHEMA = "snake-watch-replay/v1"
 B8_SHA = "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
 FRP3_SHA = "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+ASSISTED_CONTROLLERS = frozenset({"exact-stop-l2-prime", "exact-stop-l1"})
+CONTROLLERS = ASSISTED_CONTROLLERS | {"bare-b8"}
 MAX_COMPRESSED = 128 * 1024**2
 MAX_DECODED = 512 * 1024**2
 MAX_LINE = 2 * 1024**2
@@ -47,7 +49,7 @@ def validate_header(header: dict, *, product: bool = True) -> None:
     """Reject wrong controllers, checkpoints, horizon and world contracts."""
     if (
         header.get("schema") != SCHEMA
-        or header.get("controller") not in {"exact-stop-l2-prime", "bare-b8"}
+        or header.get("controller") not in CONTROLLERS
         or header.get("checkpoint_shas") != {"hero": B8_SHA, "opponents": FRP3_SHA}
         or header.get("world") != "watch6-mechanics-v2-continuous-respawn"
         or header.get("protocol_version") != 2
@@ -239,7 +241,7 @@ class Recording:
         return {
             "label": (
                 "Recorded assisted hero"
-                if self.header["controller"] == "exact-stop-l2-prime"
+                if self.header["controller"] in ASSISTED_CONTROLLERS
                 else "Recorded bare B8"
             ),
             "controller": self.header["controller"],

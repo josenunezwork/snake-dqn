@@ -12,22 +12,37 @@ from pathlib import Path
 
 from research.watch_replay.run import allocation, identity
 from tools.ops.package_spec import empty_ledger, publish_json
+from web.backend.watch_replay import CONTROLLERS
+
+CANARY_HORIZON_BY_CONTROLLER: dict[str, int] = {
+    "exact-stop-l2-prime": 3000,
+    "bare-b8": 3000,
+    "exact-stop-l1": 300,
+}
 
 
 def segment_proof(path: Path) -> dict:
-    """Require a completed long-body search segment and expose size/cost evidence."""
+    """Require a completed search segment and expose size/cost evidence."""
     units = json.loads(path.read_text())
     if units.get("completed") != 1 or units.get("exclusions"):
         raise ValueError("canary long-body segment must complete")
     unit = units["units"][0]
     stats = unit["stats"]
     contract = json.loads((path.parent / "contract.json").read_text())
-    if contract["horizon"] != 3000 or stats["mirror_identity_frames"] != 3000:
-        raise ValueError("canary requires a full 3,000-frame segment")
+    expected_horizon = CANARY_HORIZON_BY_CONTROLLER.get(contract.get("controller", ""), 3000)
+    if (
+        contract["horizon"] != expected_horizon
+        or stats["mirror_identity_frames"] != expected_horizon
+    ):
+        raise ValueError(f"canary requires a full {expected_horizon}-frame segment")
     if contract["controller"] == "exact-stop-l2-prime" and (
         stats["max_hero_length"] < 600 or stats["search_roots"] < 1
     ):
         raise ValueError("canary segment did not exercise long-body search")
+    if contract["controller"] == "exact-stop-l1" and (
+        stats["search_roots"] < max(1, expected_horizon // 10)
+    ):
+        raise ValueError("canary segment did not exercise all-length search")
     return unit
 
 
@@ -80,6 +95,7 @@ def branches(out: Path, segment_operational: Path | None = None) -> list[dict]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", required=True, type=Path)
+    parser.add_argument("--controller", choices=sorted(CONTROLLERS), default="exact-stop-l2-prime")
     parser.add_argument("--branches-only", action="store_true")
     parser.add_argument("--segment-operational", type=Path)
     args = parser.parse_args()
@@ -89,7 +105,7 @@ def main() -> None:
     args.out.mkdir(parents=True, exist_ok=False)
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
     contract = {
-        **allocation("t34-watch-replay-mac-fixture-v1", 3, "exact-stop-l2-prime", 12),
+        **allocation("t34-watch-replay-mac-fixture-v1", 3, args.controller, 12),
         "commit": commit,
     }
     publish_json(args.out / "contract.json", contract)
@@ -120,6 +136,7 @@ def main() -> None:
         args.out / "benchmark.json",
         {
             "commit": commit,
+            "controller": args.controller,
             "tiny_seconds": elapsed,
             "tiny_units": 3,
             "tiny_horizon": 12,

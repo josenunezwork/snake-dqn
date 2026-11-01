@@ -14,6 +14,25 @@ from research.bl_served_search import ceiling, exact_stop
 from research.bl_served_search.ruler_operator import _clone_root, _root_bytes
 from research.t3_rollout_labels_20261015.bank_engine import prepared_q, rollout_all
 from research.t3_rollout_labels_20261015.trigger import DenseTrigger
+from research.watch6_alllen_screen import protocol as alllen_protocol
+
+CONTROLLER_TO_ALLLEN_ARM: dict[str, str] = {
+    "bare-b8": "bare",
+    "exact-stop-l2-prime": "l2_prime_600",
+    "exact-stop-l1": "exact_stop_alllen",
+}
+
+
+def controller_arm_spec(dense_or_controller: bool | str) -> tuple[str, dict[str, Any]]:
+    """Resolve Watch replay controller (or legacy dense bool) via watch6_alllen_screen.ARM_SPECS."""
+    if type(dense_or_controller) is bool:
+        controller = "exact-stop-l2-prime" if dense_or_controller else "bare-b8"
+    elif isinstance(dense_or_controller, str) and dense_or_controller in CONTROLLER_TO_ALLLEN_ARM:
+        controller = dense_or_controller
+    else:
+        raise ValueError(f"unsupported watch_replay controller: {dense_or_controller!r}")
+    arm = CONTROLLER_TO_ALLLEN_ARM[controller]
+    return controller, alllen_protocol.ARM_SPECS[arm]
 
 
 def dense_batch(world: Any, decision: int, q: np.ndarray, legal: np.ndarray) -> dict:
@@ -65,7 +84,7 @@ def step_guard(check: Callable[[], None]) -> Any:
 
 def run_arm(
     seed: int,
-    dense: bool,
+    dense: bool | str,
     check: Callable[[], None],
     horizon: int = 6000,
     record: Callable[[dict], None] | None = None,
@@ -75,6 +94,9 @@ def run_arm(
     from src.simd_env.ego_raster import EgoRasterConfig, build_ego_raster
     from src.simd_env.eval_engine import _dispatch_actions
 
+    controller, spec = controller_arm_spec(dense)
+    min_length: int | None = spec["min_length"]
+    interval: int = int(spec["interval"])
     if not 1 <= horizon <= 14400:
         raise ValueError("horizon must be 1..14400")
     check()
@@ -92,7 +114,9 @@ def run_arm(
     _assert_mixed(session.live, 6)
     roster = roster_identity(session.live)
     life, was_alive = 1, True
-    trigger = DenseTrigger(min_length=600, interval=5)
+    trigger = (
+        DenseTrigger(min_length=min_length, interval=interval) if min_length is not None else None
+    )
     last_progress = time.monotonic()
     try:
         with step_guard(check):
@@ -106,7 +130,8 @@ def run_arm(
                     active = bool(sim.alive[0, 0])
                     if active and not was_alive:
                         life += 1
-                        trigger = DenseTrigger(min_length=600, interval=5)
+                        if min_length is not None:
+                            trigger = DenseTrigger(min_length=min_length, interval=interval)
                     actions = np.ones((1, sim.S), dtype=np.int64)
                     if active:
                         obs = build_ego_raster(
@@ -119,7 +144,9 @@ def run_arm(
                         advisory = sim.get_advisory_action_mask()[0, 0]
                         legal, bare = ceiling._legal(q, advisory)
                         chosen = bare
-                        fired = dense and trigger.fires(len(decisions), int(sim.length[0, 0]), True)
+                        fired = trigger is not None and trigger.fires(
+                            len(decisions), int(sim.length[0, 0]), True
+                        )
                         if fired and advisory.any():
                             batch = dense_batch(world, frame - 1, q, legal)
                             chosen = int(batch["chosen"])
@@ -222,7 +249,7 @@ def run_arm(
                 )
                 if time.monotonic() - last_progress >= 60:
                     print(
-                        f"Watch6 efficacy seed={seed} arm={'dense' if dense else 'bare'} "
+                        f"Watch6 efficacy seed={seed} arm={controller} "
                         f"frames={frame}/{horizon}",
                         flush=True,
                     )

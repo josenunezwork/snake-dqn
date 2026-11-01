@@ -12,13 +12,14 @@ from pathlib import Path
 from typing import Any
 
 from research.bl_served_search import bank
+from research.watch6_alllen_screen.protocol import BRANCH_BENCHMARK_SEEDS
 from research.watch_replay.run import ROOT, allocation
 from tools.ops.package_spec import digest, publish_json
 
 DEFAULT_NAMESPACES: tuple[str, ...] = (
-    "t34-watch-replay-20261031-bank05",
-    "t34-watch-replay-20261031-bank06",
-    "t34-watch-replay-20261031-bank07",
+    "t34-watch-replay-20261101-bank14l1",
+    "t34-watch-replay-20261101-bank15l1",
+    "t34-watch-replay-20261101-bank16l1",
 )
 
 KNOWN_NAMESPACE_PREFIXES: tuple[tuple[str, int], ...] = (
@@ -40,10 +41,11 @@ KNOWN_NAMESPACE_PREFIXES: tuple[tuple[str, int], ...] = (
     ("t34-explore-watch6-alllen-screen-20261031-r1", 256),
     ("t34-explore-watch6-alllen-canary-20261031-r1", 32),
     ("t34-explore-watch6-alllen-preflight-20261031-r1", 32),
-    # Previous Watch replay banks 01-04 (plus 20261030 01-08 margin) + replay fixtures
-    *((f"t34-watch-replay-fix-20261030-bank{i:02d}", 128) for i in range(1, 9)),
-    *((f"t34-watch-replay-20261030-bank{i:02d}", 128) for i in range(1, 9)),
-    *((f"t34-watch-replay-20261031-bank{i:02d}", 128) for i in range(1, 5)),
+    # Previous Watch replay banks 01-13 + replay fixtures
+    *((f"t34-watch-replay-fix-20261030-bank{i:02d}", 128) for i in range(1, 14)),
+    *((f"t34-watch-replay-20261030-bank{i:02d}", 128) for i in range(1, 14)),
+    *((f"t34-watch-replay-20261031-bank{i:02d}", 128) for i in range(1, 14)),
+    *((f"t34-watch-replay-20261101-bank{i:02d}", 128) for i in range(1, 14)),
     ("t34-watch-replay-full-size-fixture-v1", 32),
     ("t34-watch-replay-mac-fixture-v1", 32),
     ("t34-watch-replay-parity-fixture-v1", 32),
@@ -60,6 +62,7 @@ KNOWN_FIXTURE_SEEDS: frozenset[int] = frozenset(
         91841002,
         91841003,
         91842001,
+        *BRANCH_BENCHMARK_SEEDS,
         93841001,
         93841002,
         93841003,
@@ -133,18 +136,15 @@ def audit(
     repo: Path = ROOT,
     artifacts: Path | None = None,
     extra_worktrees: list[Path] | None = None,
+    *,
+    read_live_bank: bool = False,
 ) -> dict[str, Any]:
-    """Verify replay bank seeds are disjoint from Watch6 V2/V3, alllen screen, and banks 01-04."""
+    """Verify replay bank seeds are disjoint from Watch6 V2/V3, alllen screen, and banks 01-13."""
     namespaces = tuple(namespaces)
     if not namespaces:
         raise ValueError("at least one namespace is required")
     artifacts = (repo.parent / "snake-dqn-artifacts") if artifacts is None else artifacts
-    default_v3 = repo.parent / "snake-dqn-argon-v3-confirm"
-    worktrees = (
-        list(extra_worktrees)
-        if extra_worktrees is not None
-        else ([default_v3] if default_v3.is_dir() else [])
-    )
+    worktrees = list(extra_worktrees) if extra_worktrees is not None else []
 
     banks_by_ns: dict[str, list[dict[str, int]]] = {}
     bank_seeds: set[int] = set()
@@ -184,7 +184,9 @@ def audit(
         if overlap:
             collisions.append({"source": f"discovered:{label}", "seeds": sorted(overlap)})
 
-    live_headers = _live_bank_headers(artifacts / "watch-replay-bank-live")
+    live_headers = (
+        _live_bank_headers(artifacts / "watch-replay-bank-live") if read_live_bank else []
+    )
     live_seeds = {row["seed"] for row in live_headers}
     if bank_seeds & live_seeds:
         collisions.append(
@@ -195,11 +197,18 @@ def audit(
         )
 
     prior_contracts: dict[str, int] = {}
+    candidate_ns_set = set(namespaces)
     if (artifacts / "t34-sol").is_dir():
-        for contract_path in sorted(
-            (artifacts / "t34-sol").glob("watch-replay*/*/main-contract.json")
-        ):
+        contract_paths = sorted(
+            {
+                *(artifacts / "t34-sol").glob("watch-replay*/*/main-contract.json"),
+                *(artifacts / "t34-sol").glob("*/packet-bank*/main-contract.json"),
+            }
+        )
+        for contract_path in contract_paths:
             payload = json.loads(contract_path.read_text(encoding="utf-8"))
+            if payload.get("namespace") in candidate_ns_set:
+                continue
             c_seeds = {int(r["seed"]) for r in payload.get("rows", [])}
             prior_contracts[str(contract_path)] = len(c_seeds)
             if bank_seeds & c_seeds:
@@ -253,8 +262,10 @@ def audit(
         "!**/exports/**",
         "!**/pair-*.json",
         "!**/*.watch.gz",
+        "!**/watch-replay-bank-live*/**",
         "!**/t34-sol/watch6-efficacy*/**",
         "!**/t34-sol/argon-replay-banks/**",
+        "!**/t34-sol/argon-banks-l1/**",
         "!**/research/watch_replay/seed_audit.py",
     ):
         command += ["--glob", excluded]

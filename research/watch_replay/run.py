@@ -19,6 +19,7 @@ from pathlib import Path
 from tools.ops.package_spec import publish_immutable, publish_json, read_ledger, unit_id
 from web.backend.watch_replay import (
     B8_SHA,
+    CONTROLLERS,
     FRP3_SHA,
     MAX_DECODED,
     MAX_LINE,
@@ -40,7 +41,7 @@ def initialize_worker(stop_event: object) -> None:
 def allocation(namespace: str, count: int, controller: str, horizon: int = 6000) -> dict:
     """Freeze identities before execution; no outcome-dependent session choice."""
     unit_id(namespace, "sessions", 0)
-    if not 1 <= count <= 128 or controller not in {"exact-stop-l2-prime", "bare-b8"}:
+    if not 1 <= count <= 128 or controller not in CONTROLLERS:
         raise ValueError("invalid session allocation")
     if not 1 <= horizon <= 6000:
         raise ValueError("invalid horizon")
@@ -130,7 +131,7 @@ def generate(task: tuple[dict, dict, str]) -> dict:
         try:
             raw = run_arm(
                 row["seed"],
-                contract["controller"] == "exact-stop-l2-prime",
+                contract["controller"],
                 check,
                 horizon=contract["horizon"],
                 record=record,

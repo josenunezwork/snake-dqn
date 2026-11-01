@@ -11,17 +11,18 @@ from unittest.mock import patch
 
 from research.watch_replay.run import allocation, identity
 from tools.ops.package_spec import digest, empty_ledger, publish_json
-from web.backend.watch_replay import Recording
+from web.backend.watch_replay import ASSISTED_CONTROLLERS, CONTROLLERS, Recording
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", required=True, type=Path)
+    parser.add_argument("--controller", choices=sorted(CONTROLLERS), default="exact-stop-l2-prime")
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=False)
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
     contract = {
-        **allocation("t34-watch-replay-parity-fixture-v1", 3, "exact-stop-l2-prime", 12),
+        **allocation("t34-watch-replay-parity-fixture-v1", 3, args.controller, 12),
         "commit": commit,
     }
     publish_json(args.out / "contract.json", contract)
@@ -80,6 +81,13 @@ def main() -> None:
             with client.websocket_connect("/ws/stream") as ws:
                 got = ws.receive_json()
                 assert got["session"]["watch_source"] == "replay"
+                assert got["session"]["replay"]["controller"] == args.controller
+                expected_label = (
+                    "Recorded assisted hero"
+                    if args.controller in ASSISTED_CONTROLLERS
+                    else "Recorded bare B8"
+                )
+                assert got["session"]["replay"]["label"] == expected_label
                 for key in ("snakes", "food", "stats", "inspector", "netviz", "events"):
                     assert got[key] == json.loads(json.dumps(expected[key]))
                 assert session.game.frame == live_frame
@@ -104,6 +112,7 @@ def main() -> None:
         {
             "status": "PASS",
             "commit": commit,
+            "controller": args.controller,
             "horizon": 12,
             "fixture_units": 3,
             "serial_equals_parallel_sha256": checksums,

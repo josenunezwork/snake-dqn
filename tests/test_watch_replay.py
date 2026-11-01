@@ -853,3 +853,209 @@ def test_prepare_a100_defaults_to_w6_and_single_metadata_input(tmp_path, monkeyp
     assert len(canary_manifest["inputs"]) == 1
     assert canary_manifest["inputs"][0]["dest"] == "input-metadata.tar.gz"
     assert main_manifest["inputs"] == canary_manifest["inputs"]
+
+
+def test_validate_header_and_recording_info_accept_exact_stop_l1_assisted_label(tmp_path):
+    from web.backend.watch_replay import validate_header
+
+    base_header = {
+        "schema": SCHEMA,
+        "controller": "exact-stop-l1",
+        "horizon": 6000,
+        "world": "watch6-mechanics-v2-continuous-respawn",
+        "protocol_version": 2,
+        "checkpoint_shas": {"hero": B8_SHA, "opponents": FRP3_SHA},
+        "seed": 123,
+        "unit_id": "bank14l1/sessions/000000",
+        "fixture": False,
+        "stats": {},
+    }
+    validate_header(base_header, product=True)
+    with pytest.raises(ValueError, match="foreign replay metadata"):
+        validate_header({**base_header, "controller": "exact-stop-alllen"}, product=True)
+
+    l1_path = recording(tmp_path, "l1_unit", controller="exact-stop-l1")
+    bare_path = recording(tmp_path, "bare_unit", controller="bare-b8")
+    l1_rec = Recording(l1_path)
+    bare_rec = Recording(bare_path)
+    assert l1_rec.info()["controller"] == "exact-stop-l1"
+    assert l1_rec.info()["label"] == "Recorded assisted hero"
+    assert bare_rec.info()["label"] == "Recorded bare B8"
+
+    session = shell_session()
+    snap = l1_rec.snapshot(session)
+    assert snap["session"]["replay"]["controller"] == "exact-stop-l1"
+    assert snap["session"]["replay"]["label"] == "Recorded assisted hero"
+
+    bank = ReplayBank(tmp_path)
+    picked = {pick_ready(bank).header["controller"], pick_ready(bank).header["controller"]}
+    assert picked == {"exact-stop-l1", "bare-b8"}
+
+
+def test_canary_exact_stop_l1_segment_coverage_guard(tmp_path):
+    from research.watch_replay.preflight import segment_proof
+
+    stats = {"max_hero_length": 22, "search_roots": 60, "mirror_identity_frames": 300}
+    report = {"completed": 1, "exclusions": [], "units": [{"stats": stats}]}
+    contract = {"horizon": 300, "controller": "exact-stop-l1"}
+    (tmp_path / "contract.json").write_text(json.dumps(contract))
+    path = tmp_path / "operational.json"
+    path.write_text(json.dumps(report))
+    assert segment_proof(path)["stats"]["search_roots"] == 60
+
+    for bad_contract, bad_stats in (
+        ({"horizon": 3000, "controller": "exact-stop-l1"}, stats),
+        (contract, {**stats, "mirror_identity_frames": 299}),
+        (contract, {**stats, "search_roots": 29}),
+    ):
+        (tmp_path / "contract.json").write_text(json.dumps(bad_contract))
+        path.write_text(json.dumps({**report, "units": [{"stats": bad_stats}]}))
+        with pytest.raises(ValueError, match="canary"):
+            segment_proof(path)
+
+
+def test_prepare_exact_stop_l1_a100_budgets_2_8x_search_cost_and_2x_timeouts(tmp_path, monkeypatch):
+    from research.watch_replay import prepare as prep
+    from research.watch_replay.source import source_paths
+
+    paths = source_paths()
+    assert "research/watch6_alllen_screen/__init__.py" in paths
+    assert "research/watch6_alllen_screen/protocol.py" in paths
+
+    commit = "2" * 40
+    monkeypatch.setattr(
+        prep.subprocess,
+        "check_output",
+        lambda argv, **kw: ("  origin/main\n" if "branch" in argv else b""),
+    )
+    monkeypatch.setattr(
+        prep,
+        "check_uploads",
+        lambda manifest: {
+            "status": "PASS",
+            "normal_transfer_count": len(manifest["inputs"]) + 2,
+            "transfer_count": len(manifest["inputs"]) + 3,
+            "estimated_transfer_seconds": 21.6,
+        },
+    )
+    benchmark = tmp_path / "benchmark.json"
+    benchmark.write_text(
+        json.dumps({"commit": commit, "branch_timings": [{"seconds": 6.6, "branches": 6}]}) + "\n"
+    )
+    l2_out = tmp_path / "packet-l2-a100"
+    l1_out = tmp_path / "packet-bank14l1-a100"
+    l2_forecast = prep.prepare(
+        l2_out,
+        commit,
+        benchmark,
+        "t34-watch-replay-20261031-bank08",
+        12,
+        "exact-stop-l2-prime",
+        gpu="A100",
+    )
+    l1_forecast = prep.prepare(
+        l1_out,
+        commit,
+        benchmark,
+        "t34-watch-replay-20261101-bank14l1",
+        12,
+        "exact-stop-l1",
+        gpu="A100",
+    )
+    expected_ratio = 1268.5208333333333 / 449.6041666666667
+    assert l1_forecast["search_cost_multiplier_vs_l2_prime"] == pytest.approx(
+        expected_ratio, rel=1e-5
+    )
+    assert l1_forecast["search_colab_seconds_per_session"] == pytest.approx(
+        l2_forecast["search_colab_seconds_per_session"] * expected_ratio
+    )
+    assert l1_forecast["canary_horizon"] == 300
+    canary_contract = json.loads((l1_out / "canary-contract.json").read_text())
+    assert canary_contract["controller"] == "exact-stop-l1"
+    assert canary_contract["horizon"] == 300
+    main_manifest = json.loads((l1_out / "main-unsealed.json").read_text())
+    assert main_manifest["timeout_minutes"] == 2 * main_manifest["requirements"]["est_minutes"]
+    assert main_manifest["timeout_minutes"] == l1_forecast["effective_minutes"]
+    assert main_manifest["budget"]["unit_cap"] == pytest.approx(
+        2 * main_manifest["watch_replay"]["base_unit_cap"]
+    )
+
+
+def test_exact_stop_l1_reuses_alllen_arm_spec_and_is_byte_identical_to_screen_arm(
+    tmp_path, monkeypatch
+):
+    from research.t1_commitment_20261015.replay import configure_cpu
+    from research.watch6_alllen_screen.engine import run_arm as screen_run_arm
+    from research.watch6_alllen_screen.protocol import ARM_SPECS, ROOT
+    from research.watch_replay.engine import controller_arm_spec
+    from research.watch_replay.engine import run_arm as replay_run_arm
+    from web.backend.watch_replay import validate_frame
+
+    controller, spec = controller_arm_spec("exact-stop-l1")
+    assert controller == "exact-stop-l1"
+    assert spec is ARM_SPECS["exact_stop_alllen"]
+
+    saved = None
+    for candidate in (ROOT.parent / "snake-dqn/saved_snakes", ROOT / "saved_snakes"):
+        if (candidate / "b8_s3_t7_20261016.pth").is_file() and (
+            candidate / "frp3_m3_s12_u60000_20261005.pth"
+        ).is_file():
+            saved = candidate
+            break
+    if saved is None:
+        pytest.skip("product checkpoints unavailable in test environment")
+    monkeypatch.setenv("SNAKE_CKPT_DIR", str(saved))
+    monkeypatch.setenv("SNAKE_DQN_DEVICE", "cpu")
+
+    configure_cpu()
+    seed = 42424242
+    horizon = 12
+    recorded_frames: list[dict] = []
+    replay_out = replay_run_arm(
+        seed,
+        "exact-stop-l1",
+        lambda: None,
+        horizon=horizon,
+        record=recorded_frames.append,
+    )
+    screen_out = screen_run_arm(
+        seed,
+        "exact_stop_alllen",
+        lambda: None,
+        horizon=horizon,
+        audit_live_mirror=True,
+        include_raw=True,
+    )
+    assert len(replay_out["batches"]) == 3
+    assert screen_out["search_roots"] == 3
+    assert canonical(replay_out["frames"]) == canonical(screen_out["raw"]["frames"])
+    assert canonical(replay_out["decisions"]) == canonical(screen_out["raw"]["decisions"])
+    assert replay_out["batches"][0]["root_sha256"] == screen_out["raw"]["batches"][0]["root_sha256"]
+
+    def strip_rng(rows: list[dict]) -> list[dict]:
+        return [{k: v for k, v in row.items() if k != "root_sha256"} for row in rows]
+
+    assert canonical(strip_rng(replay_out["batches"])) == canonical(
+        strip_rng(screen_out["raw"]["batches"])
+    )
+    assert canonical(replay_out["roster"]) == canonical(screen_out["roster"])
+    assert replay_out["mirror_identity_frames"] == screen_out["mirror_identity_frames"] == horizon
+    assert len(recorded_frames) == horizon
+    for idx, dto in enumerate(recorded_frames, 1):
+        validate_frame(dto, idx)
+
+    contract = {
+        **allocation("t34-watch-replay-l1-unit-test", 1, "exact-stop-l1", horizon),
+        "commit": "3" * 40,
+    }
+    contract["rows"][0]["seed"] = seed
+    ledger = tmp_path / "ledger.json"
+    publish_json(ledger, empty_ledger(contract["namespace"], "sessions", identity(contract)))
+    rows = run(contract, ledger, tmp_path / "sessions", 1)
+    assert len(rows) == 1
+    rec = Recording(tmp_path / "sessions/000000.watch.gz", product=False)
+    assert rec.header["controller"] == "exact-stop-l1"
+    assert rec.info()["label"] == "Recorded assisted hero"
+    assert rec.header["stats"]["search_roots"] == screen_out["search_roots"] == 3
+    assert rec.header["stats"]["hero_mass_integral"] == pytest.approx(screen_out["mass_integral"])
+    assert rec.header["stats"]["hero_deaths"] == screen_out["deaths"]
