@@ -35,7 +35,9 @@ product Watch6 v2, `5× frp3-s12 + v8` opponents, 6,000-frame sessions; pipeline
   unset `SNAKE_WATCH_SOURCE` (or set `=live`) until `set_epsilon`/`set_food`-scoped `_replay_opted_out`
   (cleared on `_build` / split `"new_game"`, leaving `Play -> Watch` intact) and the multi-entrypoint
   mixed-Watch6 `b8-s3` guard tracked in [research/ROADMAP.md](research/ROADMAP.md) §2.1 land on `main`
-  (leaving V3 worktrees untouched, and decoupling shared search helpers out of `web/backend/` into `src/`).
+  (leaving V3 worktrees untouched, moving shared search helpers to `src/`, patching `"SNAKE_WATCH_SOURCE": "live"`
+  in `open_watch`, and hashing `open_watch`'s exact AST import closure so `watch_replay.py` and `app.py`
+  decouple from confirmation hashes).
 - **`exact-stop-l1` validator, mixed-controller bank & first-cycle ordering (`73974411` & `395eacbb`, 2026-11-01):**
   `web/backend/watch_replay.py` and `research/watch_replay/` accept `"exact-stop-l1"` (`L >= 1`,
   `interval = 5`, `H = 300`) in `ASSISTED_CONTROLLERS` alongside `"exact-stop-l2-prime"`, and
@@ -156,11 +158,13 @@ For synthesized current-round and later-round research plans (**advice, not deci
     ROC-AUC `0.474–0.521`, `0` passing thresholds).
   - **R7 macro-option fallback** ([`research/r7_macro_fallback/`](../research/r7_macro_fallback/),
     `t34-sol/argon-r7-repack/R7_READOUT.json`) — **`KILL`** (`3/5` bars on C/T train `1-step-all-die` roots:
-    `0.316 ms` Mac 1-thread p95, `33.0%` vs `9.0%` `L >= 800` `all-die` rescue — `+66.7 pp` among
-    `t = 300` survivors before tick-`30` greedy-B8 re-entry trapped `16/25`, while `all_die_sel0` fired on
-    only `9/129` `7.0%` of `L >= 800` death roots — failing `+3.85 pp < +10.0 pp` total `L >= 600` lift
-    and `2 > 0` newly caused ordinary lethal flips from single-suffix `sel0` and aggressive `O3`/`O5`;
-    `0` assessment roots opened; informs `DualCert-v8` advice in [research/ROADMAP.md](research/ROADMAP.md) §3).
+    `0.316 ms` Mac 1-thread p95, `33.0%` vs `9.0%` `L >= 800` `all_die_sel0` rescue on `25/129` `19.4%`
+    `L >= 800` death roots — `9/25` `36.0%` `macro_triggered` at `+66.7 pp` rescue when triggered vs `16/25`
+    `64.0%` re-trapped after tick-`30` greedy-B8 handback, while `104/129` `80.6%` survived `H = 300` inside
+    uncertified coils and `options.py` vacuously set `t_cert = 1` on `ext_gain == 0` internal tail cells —
+    failing `+3.85 pp < +10.0 pp` total `L >= 600` lift and `2 > 0` newly caused ordinary lethal flips from
+    single-suffix `sel0` and aggressive `O3`/`O5`; `0` assessment roots opened; informs `ExtCert-v9` advice
+    in [research/ROADMAP.md](research/ROADMAP.md) §3).
 
 ---
 
