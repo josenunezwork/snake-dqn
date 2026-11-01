@@ -373,6 +373,7 @@ def _write_never_allocated_shard_fixture(
     shard: int = 0,
     with_update_banner: bool = True,
     refusal_kind: str = "precondition",
+    notebook_hash: str = "2e58e2f564224b838cd96581c0f8bd29",
 ) -> tuple[Path, Path, Path, Path, Path]:
     """Build a complete synthetic Ruling Point 4 never-allocated attempt + accounted sessions."""
     (ops_dir / "manifests").mkdir(parents=True, exist_ok=True)
@@ -470,19 +471,56 @@ def _write_never_allocated_shard_fixture(
             f"[colab] Creating session '{session}'...\n"
             f"{dispatch.ALLOCATION_UNAVAILABLE}\n"
         )
+    elif refusal_kind == "503_padded":
+        padded_nbh = (
+            f"{notebook_hash[:8]}_{notebook_hash[8:12]}_{notebook_hash[12:16]}_"
+            f"{notebook_hash[16:20]}_{notebook_hash[20:]}........"
+        )
+        detail = (
+            f"colab new failed (1): {banner}"
+            f"[colab] Creating session '{session}'...\n"
+            "ColabRequestError: Failed to issue request POST "
+            "https://colab.research.google.com/tun/m/assign"
+            f"?nbh={padded_nbh}&variant=GPU&accelerator=L4: "
+            "503 Service Unavailable\n"
+        )
     else:
         detail = (
             f"colab new failed (1): {banner}"
             f"[colab] Creating session '{session}'...\n"
             "ColabRequestError: Failed to issue request POST "
             "https://colab.research.google.com/tun/m/assign"
-            "?nbh=0123456789abcdef0123456789abcdef&variant=GPU&accelerator=L4: "
+            f"?nbh={notebook_hash}&variant=GPU&accelerator=L4: "
             "503 Service Unavailable\n"
         )
+
+    baseline_assignments = [
+        {
+            "endpoint": "m-s-peer1111",
+            "rate_units_per_hour": 1.94,
+            "session": "?",
+            "source": "broker.active",
+        }
+    ]
+    (out_dir / "accounting-baseline.json").write_text(
+        json.dumps(
+            {
+                "assignments": baseline_assignments,
+                "baseline_balance_units": 900.0,
+                "baseline_rate_units_per_hour": 1.94,
+                "declared_other_rate_units_per_hour": 1.94,
+                "unaccounted_endpoints": [],
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
     receipt = {
         "accounting": {
             "allocated_endpoint": None,
+            "assignments": baseline_assignments,
             "calibration": None,
             "last_crosscheck": None,
             "observed_rate_units_per_hour": None,
@@ -521,20 +559,22 @@ def _write_never_allocated_shard_fixture(
     receipt_path = out_dir / "receipt.json"
     receipt_path.write_text(json.dumps(receipt, sort_keys=True) + "\n", encoding="utf-8")
 
-    lane_state = base_dir / "lane-state/colab-cli"
+    lane_state = ops_dir / "state" / ops_name / job_id
     lane_state.mkdir(parents=True, exist_ok=True)
     pending_path = account_dir / f"pending-{session}.json"
     # Note: pending_path is NOT created on disk because pending_action == "unlink_after_archive".
+    pending_record = {
+        "assignment_record": str(lane_state / "sessions.assignment.json"),
+        "before": ["m-s-peer1111"],
+        "config": str(lane_state / "sessions.json"),
+        "notebook_hash": notebook_hash,
+        "output": str(out_dir),
+        "session": session,
+    }
 
     proof_payload = {
         "classification": "ALLOCATION_UNAVAILABLE",
         "endpoint_ever_assigned": False,
-        "job_id": job_id,
-        "log": str(log_path),
-        "manifest": {
-            "path": str(ops_mf_path),
-            "sha256": digest(ops_mf_path),
-        },
         "membership": {
             "added": {},
             "removed": {},
@@ -555,28 +595,17 @@ def _write_never_allocated_shard_fixture(
         "mode": "LIVE",
         "pending": {
             "path": str(pending_path),
-            "record": {
-                "assignment_record": str(lane_state / "sessions.assignment.json"),
-                "before": ["m-s-peer1111"],
-                "config": str(lane_state / "sessions.json"),
-                "notebook_hash": "2e58e2f564224b838cd96581c0f8bd29",
-                "output": str(out_dir),
-                "pid": 12345,
-                "recorded_at": 1793482441.5881562,
-                "session": session,
-            },
-            "sha256": "a1df38ae0a503a7f5870dbad2ba5be5d56d8455cbda818e6b9226681c742670d",
+            "record": pending_record,
+            "sha256": proof.canonical_pending_sha256(pending_record),
         },
         "pending_action": "unlink_after_archive",
         "receipt": {
             "path": str(receipt_path),
             "sha256": digest(receipt_path),
         },
-        "reconciled_at": 1793484862.587209,
         "recovery": {"endpoint": None},
         "requested_accelerator": "L4",
         "schema": proof.PROOF_SCHEMA,
-        "session": session,
         "sessions_stdout": (
             "[snake-peer-active-l4-job-aaaaaaaaaaaa] m-s-peer1111 | "
             "Hardware: NVIDIA L4 | Shape: High-RAM | Variant: GPU\n"
@@ -643,8 +672,10 @@ def test_live_shard00_proof_and_receipt_verified_readonly() -> None:
 
     before_sha = digest(live_receipt)
     before_stat = live_receipt.stat()
+    before_proof_sha = digest(live_proof)
+    before_proof_stat = live_proof.stat()
     assert before_sha == SHARD00_RECEIPT_SHA256
-    assert digest(live_proof) == SHARD00_PROOF_SHA256
+    assert before_proof_sha == SHARD00_PROOF_SHA256
 
     ops_dir = art / "ops"
     summary = proof.verify_never_allocated_attempt(live_receipt.parent, ops_dir=ops_dir)
@@ -654,21 +685,37 @@ def test_live_shard00_proof_and_receipt_verified_readonly() -> None:
     assert len(summary["proof_paths"]) == 2
 
     rec_obj = json.loads(live_receipt.read_text(encoding="utf-8"))
+    assert proof.is_proven_never_allocated_attempt(rec_obj, live_receipt.parent, ops_dir=ops_dir)
     assert admission.is_prestart_transport_failure(rec_obj, live_receipt.parent, ops_dir=ops_dir)
     _, verified_rec = resume.verify_bound_receipt(live_receipt, ops_dir=ops_dir)
     assert verified_rec["stop_verified"] is False
     assert verified_rec["cleanup_error"] == RETAINED_PENDING_CLEANUP_ERROR
+    assert (
+        dispatch._attempt_state(
+            ops_dir,
+            "watch6-v3-fix3-shard-00",
+            ops_dir / "manifests/watch6-v3-fix3-shard-00.json",
+            {},
+            live_receipt.parent,
+            ops_dir / "logs/watch6-v3-fix3-shard-00.log",
+        )
+        == "DONE"
+    )
 
-    # Verify receipt.json was NEVER rewritten or touched:
+    # Verify receipt.json and unallocated proof were NEVER rewritten or touched:
     after_stat = live_receipt.stat()
+    after_proof_stat = live_proof.stat()
     assert digest(live_receipt) == before_sha
     assert after_stat.st_mtime_ns == before_stat.st_mtime_ns
     assert after_stat.st_size == before_stat.st_size
+    assert digest(live_proof) == before_proof_sha
+    assert after_proof_stat.st_mtime_ns == before_proof_stat.st_mtime_ns
+    assert after_proof_stat.st_size == before_proof_stat.st_size
 
 
 @pytest.mark.parametrize(
     ("with_banner", "refusal_kind"),
-    [(True, "precondition"), (False, "precondition"), (True, "503")],
+    [(True, "precondition"), (False, "precondition"), (True, "503"), (True, "503_padded")],
 )
 def test_never_allocated_proof_positive_variants(
     tmp_path: Path,
@@ -676,12 +723,29 @@ def test_never_allocated_proof_positive_variants(
     refusal_kind: str,
 ) -> None:
     ops_dir = tmp_path / "ops"
-    r_path, _, _, _, _ = _write_never_allocated_shard_fixture(
+    r_path, p_top, p_disp, _, _ = _write_never_allocated_shard_fixture(
         tmp_path,
         ops_dir=ops_dir,
         with_update_banner=with_banner,
         refusal_kind=refusal_kind,
     )
+    # Optional explicit auth_ok=True, sessions_ok=True and consistent pre-alloc state/events pass:
+    if refusal_kind == "503_padded":
+        obj = json.loads(p_top.read_text(encoding="utf-8"))
+        obj["auth_ok"] = True
+        obj["sessions_ok"] = True
+        raw = json.dumps(obj, indent=2, sort_keys=True) + "\n"
+        p_top.write_text(raw, encoding="utf-8")
+        p_disp.write_text(raw, encoding="utf-8")
+        (r_path.parent / "state.json").write_text(
+            json.dumps({"status": "REFUSED", "endpoint": None, "polls": 0}) + "\n",
+            encoding="utf-8",
+        )
+        (r_path.parent / "events.jsonl").write_text(
+            json.dumps({"event": "new", "status": "failed", "returncode": 1, "endpoint": None})
+            + "\n",
+            encoding="utf-8",
+        )
     rec = json.loads(r_path.read_text(encoding="utf-8"))
     assert proof.is_proven_never_allocated_attempt(rec, r_path.parent, ops_dir=ops_dir) is True
     assert admission.is_prestart_transport_failure(rec, r_path.parent, ops_dir=ops_dir) is True
@@ -689,6 +753,346 @@ def test_never_allocated_proof_positive_variants(
     assert bound_rec["stop_verified"] is False
     assert bound_rec["cleanup_error"] == RETAINED_PENDING_CLEANUP_ERROR
     assert dispatch.reconcile_staging(ops_dir)["status"] == "RECONCILED"
+
+
+def _assert_all_callers_refuse_never_allocated(ops_dir: Path, r_path: Path) -> None:
+    rec = json.loads(r_path.read_text(encoding="utf-8"))
+    with pytest.raises(ValueError):
+        proof.verify_never_allocated_attempt(r_path.parent, receipt=rec, ops_dir=ops_dir)
+    assert proof.is_proven_never_allocated_attempt(rec, r_path.parent, ops_dir=ops_dir) is False
+    assert admission.is_prestart_transport_failure(rec, r_path.parent, ops_dir=ops_dir) is False
+    with pytest.raises(ValueError):
+        resume.verify_bound_receipt(r_path, ops_dir=ops_dir)
+    with pytest.raises(RuntimeError, match="REFUSE"):
+        dispatch.reconcile_staging(ops_dir)
+    (ops_dir / dispatch.RECONCILE_MARKER_NAME).unlink(missing_ok=True)
+    with pytest.raises(ValueError, match="INVALID_OR_INCOMPLETE"):
+        final_look._verify_attempt_stop_and_hashes(
+            r_path.parent,
+            ops_dir=ops_dir,
+            ops_name="watch6-v3-fix3-shard-00",
+        )
+
+
+def _assert_live_shard00_virtual_proof_mutation_refused(mutate_fn) -> None:
+    """Apply an in-memory mutation to the real shard-00 proof without touching any file on disk."""
+    art = artifacts_root(ADAPTER_ROOT)
+    live_proof = art / SHARD00_PROOF_REL
+    live_receipt = art / SHARD00_RECEIPT_REL
+    if not (live_proof.is_file() and live_receipt.is_file()):
+        return
+    ops_dir = art / "ops"
+    before_rec_sha = digest(live_receipt)
+    before_proof_sha = digest(live_proof)
+    orig_reader = proof._read_regular_json_dict
+
+    def patched_reader(path: Path, label: str) -> dict:
+        data = json.loads(json.dumps(orig_reader(path, label)))
+        if label == "unallocated proof":
+            mutate_fn(data)
+        return data
+
+    rec = json.loads(live_receipt.read_text(encoding="utf-8"))
+    with patch.object(proof, "_read_regular_json_dict", side_effect=patched_reader):
+        with pytest.raises(ValueError):
+            proof.verify_never_allocated_attempt(live_receipt.parent, ops_dir=ops_dir)
+        assert (
+            proof.is_proven_never_allocated_attempt(rec, live_receipt.parent, ops_dir=ops_dir)
+            is False
+        )
+        assert (
+            admission.is_prestart_transport_failure(rec, live_receipt.parent, ops_dir=ops_dir)
+            is False
+        )
+        with pytest.raises(ValueError):
+            resume.verify_bound_receipt(live_receipt, ops_dir=ops_dir)
+    assert digest(live_receipt) == before_rec_sha
+    assert digest(live_proof) == before_proof_sha
+
+
+def _assert_live_shard00_virtual_file_refused(filename: str, content: str) -> None:
+    """Inject a virtual file into real shard-00 output_dir in memory without touching disk."""
+    art = artifacts_root(ADAPTER_ROOT)
+    live_proof = art / SHARD00_PROOF_REL
+    live_receipt = art / SHARD00_RECEIPT_REL
+    if not (live_proof.is_file() and live_receipt.is_file()):
+        return
+    ops_dir = art / "ops"
+    before_rec_sha = digest(live_receipt)
+    before_proof_sha = digest(live_proof)
+    target = live_receipt.parent / filename
+    orig_exists = Path.exists
+    orig_is_file = Path.is_file
+    orig_read_text = Path.read_text
+
+    rec = json.loads(live_receipt.read_text(encoding="utf-8"))
+    with (
+        patch.object(Path, "exists", lambda self: True if self == target else orig_exists(self)),
+        patch.object(Path, "is_file", lambda self: True if self == target else orig_is_file(self)),
+        patch.object(
+            Path,
+            "read_text",
+            lambda self, *a, **kw: content if self == target else orig_read_text(self, *a, **kw),
+        ),
+    ):
+        with pytest.raises(ValueError):
+            proof.verify_never_allocated_attempt(live_receipt.parent, ops_dir=ops_dir)
+        assert (
+            proof.is_proven_never_allocated_attempt(rec, live_receipt.parent, ops_dir=ops_dir)
+            is False
+        )
+        assert (
+            admission.is_prestart_transport_failure(rec, live_receipt.parent, ops_dir=ops_dir)
+            is False
+        )
+        with pytest.raises(ValueError):
+            resume.verify_bound_receipt(live_receipt, ops_dir=ops_dir)
+    assert digest(live_receipt) == before_rec_sha
+    assert digest(live_proof) == before_proof_sha
+
+
+def test_astra_probe_1_refuses_false_auth_and_sessions_flags(tmp_path: Path) -> None:
+    """Astra Probe 1: LIVE proof with auth_ok/sessions_ok not exactly boolean True fails closed."""
+    _assert_live_shard00_virtual_proof_mutation_refused(
+        lambda d: d.update(auth_ok=False, sessions_ok=False)
+    )
+    for idx, bad_flags in enumerate(
+        (
+            {"auth_ok": False, "sessions_ok": False},
+            {"auth_ok": False, "sessions_ok": True},
+            {"auth_ok": True, "sessions_ok": False},
+            {"auth_ok": False},
+            {"sessions_ok": False},
+            {"auth_ok": True},
+            {"sessions_ok": True},
+            {"auth_ok": 1, "sessions_ok": True},
+            {"auth_ok": True, "sessions_ok": "true"},
+            {"auth_ok": None, "sessions_ok": None},
+        )
+    ):
+        case_dir = tmp_path / f"probe1-{idx}"
+        ops_dir = case_dir / "ops"
+        r_path, p_top, p_disp, _, _ = _write_never_allocated_shard_fixture(
+            case_dir, ops_dir=ops_dir
+        )
+        obj = json.loads(p_top.read_text(encoding="utf-8"))
+        obj.update(bad_flags)
+        raw = json.dumps(obj, indent=2, sort_keys=True) + "\n"
+        p_top.write_text(raw, encoding="utf-8")
+        p_disp.write_text(raw, encoding="utf-8")
+        _assert_all_callers_refuse_never_allocated(ops_dir, r_path)
+
+
+def test_astra_probe_2_refuses_zero_or_mismatched_pending_sha256(tmp_path: Path) -> None:
+    """Astra Probe 2: pending.sha256 not equal to actual SHA-256 of archived pending payload."""
+    _assert_live_shard00_virtual_proof_mutation_refused(
+        lambda d: d["pending"].update(sha256="0" * 64)
+    )
+    for idx, bad_sha in enumerate(("0" * 64, "f" * 64)):
+        case_dir = tmp_path / f"probe2-{idx}"
+        ops_dir = case_dir / "ops"
+        r_path, p_top, p_disp, _, _ = _write_never_allocated_shard_fixture(
+            case_dir, ops_dir=ops_dir
+        )
+        obj = json.loads(p_top.read_text(encoding="utf-8"))
+        obj["pending"]["sha256"] = bad_sha
+        raw = json.dumps(obj, indent=2, sort_keys=True) + "\n"
+        p_top.write_text(raw, encoding="utf-8")
+        p_disp.write_text(raw, encoding="utf-8")
+        _assert_all_callers_refuse_never_allocated(ops_dir, r_path)
+
+
+def test_astra_probe_3_refuses_foreign_or_unbound_notebook_hash(tmp_path: Path) -> None:
+    """Astra Probe 3: foreign/non-UUIDv4/unbound notebook_hash/nbh fails closed even if rehashed."""
+    _assert_live_shard00_virtual_proof_mutation_refused(
+        lambda d: d["pending"]["record"].update(notebook_hash="0" * 32)
+    )
+
+    def _mutate_live_foreign_uuid4(d: dict) -> None:
+        d["pending"]["record"]["notebook_hash"] = "3f1aebc3989f44b39163a8838dc302bb"
+        d["pending"]["sha256"] = proof.canonical_pending_sha256(d["pending"]["record"])
+
+    def _mutate_live_fresh_uuid4(d: dict) -> None:
+        d["pending"]["record"]["notebook_hash"] = "ffffffffffff4fff8fffffffffffffff"
+        d["pending"]["sha256"] = proof.canonical_pending_sha256(d["pending"]["record"])
+
+    _assert_live_shard00_virtual_proof_mutation_refused(_mutate_live_foreign_uuid4)
+    _assert_live_shard00_virtual_proof_mutation_refused(_mutate_live_fresh_uuid4)
+
+    # 3a. Exact Astra Probe 3 ('0' * 32) on synthetic fixture (both raw and with recomputed sha256):
+    for rehash in (False, True):
+        case_dir = tmp_path / f"probe3-zeros-{rehash}"
+        ops_dir = case_dir / "ops"
+        r_path, p_top, p_disp, _, _ = _write_never_allocated_shard_fixture(
+            case_dir, ops_dir=ops_dir
+        )
+        obj = json.loads(p_top.read_text(encoding="utf-8"))
+        obj["pending"]["record"]["notebook_hash"] = "0" * 32
+        if rehash:
+            obj["pending"]["sha256"] = proof.canonical_pending_sha256(obj["pending"]["record"])
+        raw = json.dumps(obj, indent=2, sort_keys=True) + "\n"
+        p_top.write_text(raw, encoding="utf-8")
+        p_disp.write_text(raw, encoding="utf-8")
+        _assert_all_callers_refuse_never_allocated(ops_dir, r_path)
+
+    # 3b. Valid UUIDv4 notebook_hash with recomputed sha256 that disagrees with 503 URL nbh:
+    case_503 = tmp_path / "probe3-503-nbh-mismatch"
+    ops_503 = case_503 / "ops"
+    r_503, p_top_503, p_disp_503, _, _ = _write_never_allocated_shard_fixture(
+        case_503, ops_dir=ops_503, refusal_kind="503"
+    )
+    obj_503 = json.loads(p_top_503.read_text(encoding="utf-8"))
+    obj_503["pending"]["record"]["notebook_hash"] = "9b2f5a9164224b838cd96581c0f8bd29"
+    obj_503["pending"]["sha256"] = proof.canonical_pending_sha256(obj_503["pending"]["record"])
+    raw_503 = json.dumps(obj_503, indent=2, sort_keys=True) + "\n"
+    p_top_503.write_text(raw_503, encoding="utf-8")
+    p_disp_503.write_text(raw_503, encoding="utf-8")
+    _assert_all_callers_refuse_never_allocated(ops_503, r_503)
+
+    # 3c. Replayed UUIDv4 notebook_hash belonging to a foreign assignment or unallocated proof:
+    case_replay = tmp_path / "probe3-replayed-nbh"
+    ops_replay = case_replay / "ops"
+    r_rep, p_top_rep, p_disp_rep, _, _ = _write_never_allocated_shard_fixture(
+        case_replay, ops_dir=ops_replay
+    )
+    foreign_nbh = "7c8e5a9164224b838cd96581c0f8bd29"
+    foreign_lane = ops_replay / "state/peer-active-l4-job/peer-active-l4-job"
+    foreign_lane.mkdir(parents=True, exist_ok=True)
+    (foreign_lane / "sessions.assignment.json").write_text(
+        json.dumps({"notebook_hash": foreign_nbh, "endpoint": "m-s-peer1111"}) + "\n",
+        encoding="utf-8",
+    )
+    obj_rep = json.loads(p_top_rep.read_text(encoding="utf-8"))
+    obj_rep["pending"]["record"]["notebook_hash"] = foreign_nbh
+    obj_rep["pending"]["sha256"] = proof.canonical_pending_sha256(obj_rep["pending"]["record"])
+    raw_rep = json.dumps(obj_rep, indent=2, sort_keys=True) + "\n"
+    p_top_rep.write_text(raw_rep, encoding="utf-8")
+    p_disp_rep.write_text(raw_rep, encoding="utf-8")
+    _assert_all_callers_refuse_never_allocated(ops_replay, r_rep)
+
+    # 3d. Pending config path pointing to a foreign job lane (even with recomputed pending.sha256):
+    case_lane = tmp_path / "probe3-foreign-lane"
+    ops_lane = case_lane / "ops"
+    r_ln, p_top_ln, p_disp_ln, _, _ = _write_never_allocated_shard_fixture(
+        case_lane, ops_dir=ops_lane
+    )
+    bad_lane = ops_lane / "state/foreign-lane/foreign-job"
+    bad_lane.mkdir(parents=True, exist_ok=True)
+    obj_ln = json.loads(p_top_ln.read_text(encoding="utf-8"))
+    obj_ln["pending"]["record"]["config"] = str(bad_lane / "sessions.json")
+    obj_ln["pending"]["record"]["assignment_record"] = str(bad_lane / "sessions.assignment.json")
+    obj_ln["pending"]["sha256"] = proof.canonical_pending_sha256(obj_ln["pending"]["record"])
+    raw_ln = json.dumps(obj_ln, indent=2, sort_keys=True) + "\n"
+    p_top_ln.write_text(raw_ln, encoding="utf-8")
+    p_disp_ln.write_text(raw_ln, encoding="utf-8")
+    _assert_all_callers_refuse_never_allocated(ops_lane, r_ln)
+
+
+def test_astra_probe_4_refuses_runtime_measurement_and_supervisor_postalloc_artifacts(
+    tmp_path: Path,
+) -> None:
+    """Astra Probe 4: runtime-measurement.json + every supervisor post-allocation artifact."""
+    _assert_live_shard00_virtual_file_refused("runtime-measurement.json", "{}")
+    for idx, artifact_name in enumerate(
+        (
+            "runtime-measurement.json",
+            "backup.json",
+            "session-release.json",
+            "ready.json",
+            "rate-calibration.json",
+            "rate-calibration-000.json",
+            "source-delivery.json",
+            "input-hashes.json",
+            "usage-allocated.json",
+            "usage-000000.json",
+            "recovery-179348-99.json",
+            "spec.json",
+            "lease.json",
+            "job.log",
+            "supervisor.log",
+        )
+    ):
+        case_dir = tmp_path / f"probe4-{idx}"
+        ops_dir = case_dir / "ops"
+        r_path, _, _, _, _ = _write_never_allocated_shard_fixture(case_dir, ops_dir=ops_dir)
+        (r_path.parent / artifact_name).write_text("{}\n", encoding="utf-8")
+        _assert_all_callers_refuse_never_allocated(ops_dir, r_path)
+
+
+def test_astra_probe_5_refuses_scientific_fault_artifact(tmp_path: Path) -> None:
+    """Astra Probe 5: scientific-fault.json fails closed across never-allocated & retry paths."""
+    fault_payload = '{"error":"ValueError: scientific failure"}'
+    _assert_live_shard00_virtual_file_refused("scientific-fault.json", fault_payload)
+
+    case_dir = tmp_path / "probe5"
+    ops_dir = case_dir / "ops"
+    r_path, _, _, _, _ = _write_never_allocated_shard_fixture(case_dir, ops_dir=ops_dir)
+    (r_path.parent / "scientific-fault.json").write_text(fault_payload + "\n", encoding="utf-8")
+    _assert_all_callers_refuse_never_allocated(ops_dir, r_path)
+
+    # Also verify allocated prestart/compute transport classifiers refuse scientific-fault.json:
+    comp_rec_path = _write_v3_attempt(
+        tmp_path / "probe5-compute", shard=1, mode="compute_transport"
+    )
+    (comp_rec_path.parent / "scientific-fault.json").write_text(
+        fault_payload + "\n", encoding="utf-8"
+    )
+    comp_rec = json.loads(comp_rec_path.read_text(encoding="utf-8"))
+    assert admission.is_external_transport_compute_failure(comp_rec, comp_rec_path.parent) is False
+
+
+def test_astra_probe_6_refuses_allocated_or_contradictory_state_json(tmp_path: Path) -> None:
+    """Astra Probe 6: contradictory state.json (allocated endpoint, polls>0, assigned status)."""
+    _assert_live_shard00_virtual_file_refused(
+        "state.json", '{"endpoint":"allocated-but-unstopped","polls":1}'
+    )
+    for idx, state_payload in enumerate(
+        (
+            {"endpoint": "allocated-but-unstopped", "polls": 1},
+            {"status": "allocated", "endpoint": None},
+            {"status": "assigned", "endpoint": None},
+            {"status": "running", "pid": 4242},
+            {"status": "REFUSED", "allocated": True},
+            {"status": "REFUSED", "assigned": True},
+            {"status": "REFUSED", "polls": 1},
+            {"status": "REFUSED", "uploaded": 1},
+        )
+    ):
+        case_dir = tmp_path / f"probe6-{idx}"
+        ops_dir = case_dir / "ops"
+        r_path, _, _, _, _ = _write_never_allocated_shard_fixture(case_dir, ops_dir=ops_dir)
+        (r_path.parent / "state.json").write_text(
+            json.dumps(state_payload) + "\n", encoding="utf-8"
+        )
+        _assert_all_callers_refuse_never_allocated(ops_dir, r_path)
+
+
+def test_astra_probe_7_refuses_exec_or_command_event_in_events_jsonl(tmp_path: Path) -> None:
+    """Astra Probe 7: contradictory events.jsonl (exec/command/post-new/allocated event)."""
+    _assert_live_shard00_virtual_file_refused(
+        "events.jsonl", '{"endpoint":"allocated-but-unstopped","event":"exec"}\n'
+    )
+    for idx, event_payload in enumerate(
+        (
+            {"endpoint": "allocated-but-unstopped", "event": "exec"},
+            {"event": "exec"},
+            {"command": "exec"},
+            {"event": "command"},
+            {"operation": "exec"},
+            {"event": "allocated"},
+            {"event": "assigned"},
+            {"event": "upload"},
+            {"event": "stop"},
+            {"event": "new", "status": "completed", "returncode": 0},
+        )
+    ):
+        case_dir = tmp_path / f"probe7-{idx}"
+        ops_dir = case_dir / "ops"
+        r_path, _, _, _, _ = _write_never_allocated_shard_fixture(case_dir, ops_dir=ops_dir)
+        (r_path.parent / "events.jsonl").write_text(
+            json.dumps(event_payload) + "\n", encoding="utf-8"
+        )
+        _assert_all_callers_refuse_never_allocated(ops_dir, r_path)
 
 
 def test_never_allocated_proof_negative_and_tamper_vectors(tmp_path: Path) -> None:
@@ -701,11 +1105,7 @@ def test_never_allocated_proof_negative_and_tamper_vectors(tmp_path: Path) -> No
         return ops_dir, r_path, p_top, p_disp, pend, lane
 
     def assert_refused(ops_dir: Path, r_path: Path) -> None:
-        rec = json.loads(r_path.read_text(encoding="utf-8"))
-        assert proof.is_proven_never_allocated_attempt(rec, r_path.parent, ops_dir=ops_dir) is False
-        assert admission.is_prestart_transport_failure(rec, r_path.parent, ops_dir=ops_dir) is False
-        with pytest.raises(ValueError):
-            resume.verify_bound_receipt(r_path, ops_dir=ops_dir)
+        _assert_all_callers_refuse_never_allocated(ops_dir, r_path)
 
     # 1. Missing LIVE proof files:
     ops, r_p, p_top, p_disp, _, _ = make_case("missing-proof")
@@ -716,7 +1116,7 @@ def test_never_allocated_proof_negative_and_tamper_vectors(tmp_path: Path) -> No
     # 2. Divergent / non-identical proof copies:
     ops, r_p, p_top, p_disp, _, _ = make_case("divergent-proof")
     tampered = json.loads(p_disp.read_text(encoding="utf-8"))
-    tampered["reconciled_at"] += 1.0
+    tampered["sessions_stdout"] += "\n"
     p_disp.write_text(json.dumps(tampered) + "\n", encoding="utf-8")
     assert_refused(ops, r_p)
 

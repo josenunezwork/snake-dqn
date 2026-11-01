@@ -8,12 +8,9 @@ attempts (Ruling Point 4) and requiring Astra's re-ratified accounting receipt b
 
 from __future__ import annotations
 
-import ast
 import fcntl
-import hashlib
 import json
 import os
-import re
 import subprocess
 import sys
 import tempfile
@@ -22,11 +19,14 @@ from pathlib import Path
 
 from research.watch6_search_efficacy_v3 import dispatch as v3_dispatch
 from research.watch6_search_efficacy_v3 import protocol as p
+from tools.ops.package_spec import digest
 from tools.watch6_v3_accounting import ADAPTER_ROOT, verify_baseline_closure
 from tools.watch6_v3_accounting.admission import admit
 from tools.watch6_v3_accounting.proof import (
+    FORBIDDEN_OUTPUT_ENTRIES,
+    has_forbidden_or_contradictory_output_artifacts,
     is_proven_never_allocated_attempt,
-    strip_colab_update_notice,
+    verify_no_receipt_unallocated_proof,
 )
 from tools.watch6_v3_accounting.ratify import (
     validate_ruling_receipt,
@@ -40,15 +40,12 @@ RECONCILE_MARKER_NAME = v3_dispatch.RECONCILE_MARKER_NAME
 FALLBACK_SUFFIX = v3_dispatch.FALLBACK_SUFFIX
 RETRY_SUFFIX = v3_dispatch.RETRY_SUFFIX
 ALLOCATION_UNAVAILABLE = v3_dispatch.ALLOCATION_UNAVAILABLE
-POST_ALLOCATION_ARTIFACTS = v3_dispatch.POST_ALLOCATION_ARTIFACTS
+POST_ALLOCATION_ARTIFACTS = FORBIDDEN_OUTPUT_ENTRIES
 
 _fallback_sibling_name = v3_dispatch._fallback_sibling_name
 _read_regular_json_object = v3_dispatch._read_regular_json_object
 _log_has_exit = v3_dispatch._log_has_exit
 _has_upload_measurement = v3_dispatch._has_upload_measurement
-_has_stopped_or_unassigned_receipt = v3_dispatch._has_stopped_or_unassigned_receipt
-_has_post_allocation_artifacts = v3_dispatch._has_post_allocation_artifacts
-_has_live_unallocated_proof = v3_dispatch._has_live_unallocated_proof
 _is_aborted_prestart_dispatch = v3_dispatch._is_aborted_prestart_dispatch
 _load_ops_manifest = v3_dispatch._load_ops_manifest
 _collect_attempts = v3_dispatch._collect_attempts
@@ -56,94 +53,56 @@ _collect_own_attempts = v3_dispatch._collect_own_attempts
 _parse_reconcile_ops_dir = v3_dispatch._parse_reconcile_ops_dir
 
 
-def _has_preassignment_refusal_receipt(
-    manifest_data: dict[str, object],
-    out_dir: Path,
-    log_path: Path,
-) -> bool:
-    """Positive proof that colab new was refused by the server before any endpoint assignment."""
-    if v3_dispatch._has_preassignment_refusal_receipt(manifest_data, out_dir, log_path):
-        return True
-    if not _log_has_exit(log_path, nonzero_only=True) or _has_post_allocation_artifacts(out_dir):
-        return False
-    receipt_path = out_dir / "receipt.json"
-    exec_path = out_dir / "manifest.json"
-    receipt = _read_regular_json_object(receipt_path)
-    exec_manifest = _read_regular_json_object(exec_path)
-    if receipt is None or exec_manifest is None:
-        return False
-    try:
-        exec_sha = hashlib.sha256(exec_path.read_bytes()).hexdigest()
-    except OSError:
-        return False
-    job_id = manifest_data.get("job_id")
-    commit = manifest_data.get("commit")
-    if (
-        receipt.get("manifest_sha256") != exec_sha
-        or not isinstance(job_id, str)
-        or not job_id
-        or receipt.get("job_id") != exec_manifest.get("job_id")
-        or exec_manifest.get("job_id") != job_id
-        or not isinstance(commit, str)
-        or not commit
-        or receipt.get("commit") != exec_manifest.get("commit")
-        or exec_manifest.get("commit") != commit
-    ):
-        return False
+def _has_post_allocation_artifacts(out_dir: Path) -> bool:
+    return has_forbidden_or_contradictory_output_artifacts(out_dir)
 
-    req = manifest_data.get("requirements")
-    accelerator = req.get("gpu") if isinstance(req, dict) else None
-    if not isinstance(accelerator, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", accelerator):
+
+def _has_stopped_or_unassigned_receipt(receipt_path: Path) -> bool:
+    if not v3_dispatch._has_stopped_or_unassigned_receipt(receipt_path):
         return False
+    receipt = _read_regular_json_object(receipt_path)
+    if receipt is None:
+        return False
+    if receipt.get("stop_verified") is True:
+        return True
+    job_id = receipt.get("job_id")
     session = receipt.get("session")
-    if not isinstance(session, str) or not re.fullmatch(r"snake-[a-z0-9_-]+-[a-f0-9]{12}", session):
-        return False
-    error = receipt.get("error", "")
-    if not isinstance(error, str) or not error.startswith("Refused(") or not error.endswith(")"):
-        return False
-    try:
-        detail = ast.literal_eval(error[len("Refused(") : -1])
-    except (ValueError, SyntaxError):
-        return False
-    if not isinstance(detail, str):
-        return False
-    normalized = strip_colab_update_notice(detail)
-    expected = (
-        f"colab new failed (1): [colab] Creating session '{session}'...\n"
-        f"{ALLOCATION_UNAVAILABLE}\n"
+    return not has_forbidden_or_contradictory_output_artifacts(
+        receipt_path.parent,
+        job_id=job_id if isinstance(job_id, str) else None,
+        session=session if isinstance(session, str) else None,
     )
-    service_unavailable = normalized.startswith("colab new failed (1): ")
-    if service_unavailable:
-        lines = normalized.removeprefix("colab new failed (1): ").strip().splitlines()
-        service_unavailable = (
-            re.fullmatch(
-                r"ColabRequestError: Failed to issue request POST "
-                r"https://colab\.research\.google\.com/tun/m/assign"
-                r"\?nbh=[a-f0-9_.-]+&variant=GPU&accelerator=" + re.escape(accelerator) + r": "
-                r"(?:Service Unavailable|503(?: Service Unavailable)?)",
-                lines[-1] if lines else "",
-            )
-            is not None
-        )
-    calls = receipt.get("cli_calls")
-    return (
-        (normalized == expected or service_unavailable)
-        and receipt.get("status") == "INCOMPLETE"
-        and receipt.get("failure_class") == "SUPERVISOR"
-        and receipt.get("endpoint") is None
-        and isinstance(receipt.get("accounting"), dict)
-        and receipt["accounting"].get("allocated_endpoint") is None
-        and receipt.get("terminal") is None
-        and receipt.get("cleanup_error") == "ALLOCATION_UNRESOLVED: retained pending record"
-        and receipt.get("stop_verified") is False
-        and all(receipt.get(k) == [] for k in ("exports", "transfers", "contents_transfers"))
-        and receipt.get("control_operations", []) == []
-        and isinstance(calls, list)
-        and all(isinstance(call, dict) for call in calls)
-        and sum(call.get("command") == "new" for call in calls) == 1
-        and all(call.get("command") in {"version", "sessions", "usage", "new"} for call in calls)
-        and next(call for call in calls if call["command"] == "new").get("status") == "failed"
-    )
+
+
+def _has_live_unallocated_proof(ops_dir: Path, name: str, out_dir: Path) -> bool:
+    receipt_path = out_dir / "receipt.json"
+    if receipt_path.exists() or receipt_path.is_symlink():
+        return is_proven_never_allocated_attempt(None, out_dir, ops_dir=ops_dir, ops_name=name)
+    if _has_post_allocation_artifacts(out_dir):
+        return False
+    disp_dir = ops_dir / "dispatch" / name
+    raw_candidates = [
+        disp_dir / "unavailable.json",
+        *(sorted(disp_dir.glob("unallocated*.json")) if disp_dir.is_dir() else []),
+        *sorted(ops_dir.glob(f"unallocated-{name}*.json")),
+    ]
+    existing: list[Path] = []
+    seen: set[Path] = set()
+    for cand in raw_candidates:
+        if cand.is_symlink():
+            return False
+        if cand.exists():
+            if not cand.is_file():
+                return False
+            key = cand.resolve()
+            if key not in seen:
+                seen.add(key)
+                existing.append(cand)
+    if not existing:
+        return False
+    if len({digest(c) for c in existing}) != 1:
+        return False
+    return all(verify_no_receipt_unallocated_proof(cand, out_dir) for cand in existing)
 
 
 def _attempt_state(
@@ -154,15 +113,17 @@ def _attempt_state(
     out_dir: Path,
     log_path: Path,
 ) -> str:
+    del data
+    receipt_path = out_dir / "receipt.json"
+    if receipt_path.exists() or receipt_path.is_symlink():
+        if _has_stopped_or_unassigned_receipt(receipt_path):
+            return "DONE"
+        if is_proven_never_allocated_attempt(None, out_dir, ops_dir=ops_dir, ops_name=name):
+            return "DONE"
+        return "FENCE"
     if _has_upload_measurement(out_dir):
         return "DONE"
-    if _has_stopped_or_unassigned_receipt(out_dir / "receipt.json"):
-        return "DONE"
-    if is_proven_never_allocated_attempt(None, out_dir, ops_dir=ops_dir, ops_name=name):
-        return "DONE"
     if _has_live_unallocated_proof(ops_dir, name, out_dir):
-        return "DONE"
-    if _has_preassignment_refusal_receipt(data, out_dir, log_path):
         return "DONE"
     if _log_has_exit(log_path):
         if not out_dir.exists() and not out_dir.is_symlink():

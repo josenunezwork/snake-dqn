@@ -45,8 +45,10 @@ from tools.watch6_v3_accounting.dispatch import (
     _log_has_exit,
 )
 from tools.watch6_v3_accounting.proof import (
+    has_forbidden_or_contradictory_output_artifacts,
     is_proven_never_allocated_attempt,
     verify_never_allocated_attempt,
+    verify_no_receipt_unallocated_proof,
 )
 from tools.watch6_v3_accounting.ratify import validate_ruling_receipt
 from tools.watch6_v3_accounting.resume import PAIR_NAME_RE
@@ -87,27 +89,14 @@ def _verify_auto_retry_sidecar(path: Path) -> None:
 
 
 def _is_valid_no_output_unallocated_proof(proof_path: Path, out_dir: Path) -> bool:
-    if proof_path.is_symlink() or not proof_path.is_file():
-        return False
-    if (out_dir / "receipt.json").exists() or (out_dir / "receipt.json").is_symlink():
-        return False
-    try:
-        proof = json.loads(proof_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return False
-    return (
-        isinstance(proof, dict)
-        and proof.get("schema") == "colab-allocation-unavailable/v1"
-        and proof.get("mode") == "LIVE"
-        and proof.get("endpoint_ever_assigned") is False
-        and proof.get("vm_compute_started") is False
-        and proof.get("recovery") == {"endpoint": None}
-    )
+    return verify_no_receipt_unallocated_proof(proof_path, out_dir)
 
 
 def _is_proven_unallocated_without_receipt(ops_dir: Path, name: str, out_dir: Path) -> bool:
     """True iff an ops manifest exited before creating receipt.json and never allocated."""
     if (out_dir / "receipt.json").exists() or (out_dir / "receipt.json").is_symlink():
+        return False
+    if has_forbidden_or_contradictory_output_artifacts(out_dir):
         return False
     log_path = ops_dir / "logs" / f"{name}.log"
     if (
@@ -117,11 +106,29 @@ def _is_proven_unallocated_without_receipt(ops_dir: Path, name: str, out_dir: Pa
         and _log_has_exit(log_path)
     ):
         return True
-    proof_candidates = [
-        ops_dir / "dispatch" / name / "unavailable.json",
+    disp_dir = ops_dir / "dispatch" / name
+    raw_candidates = [
+        disp_dir / "unavailable.json",
+        *(sorted(disp_dir.glob("unallocated*.json")) if disp_dir.is_dir() else []),
         *sorted(ops_dir.glob(f"unallocated-{name}*.json")),
     ]
-    return any(_is_valid_no_output_unallocated_proof(cand, out_dir) for cand in proof_candidates)
+    existing: list[Path] = []
+    seen: set[Path] = set()
+    for cand in raw_candidates:
+        if cand.is_symlink():
+            return False
+        if cand.exists():
+            if not cand.is_file():
+                return False
+            key = cand.resolve()
+            if key not in seen:
+                seen.add(key)
+                existing.append(cand)
+    if not existing:
+        return False
+    if len({digest(c) for c in existing}) != 1:
+        return False
+    return all(_is_valid_no_output_unallocated_proof(cand, out_dir) for cand in existing)
 
 
 def _classify_attempt(
@@ -192,6 +199,15 @@ def _verify_attempt_stop_and_hashes(
         receipt.get("endpoint") is None
         and receipt.get("stop_verified") is False
         and receipt.get("cleanup_error") is None
+        and not has_forbidden_or_contradictory_output_artifacts(
+            attempt_dir,
+            job_id=(
+                exec_manifest.get("job_id")
+                if isinstance(exec_manifest.get("job_id"), str)
+                else None
+            ),
+            session=receipt.get("session") if isinstance(receipt.get("session"), str) else None,
+        )
         and v3_admission.is_prestart_transport_failure(receipt, attempt_dir)
     )
     never_alloc_proof: dict | None = None

@@ -25,7 +25,10 @@ from tools.watch6_v3_accounting import (
     BASELINE_SCIENCE,
     verify_baseline_closure,
 )
-from tools.watch6_v3_accounting.proof import is_proven_never_allocated_attempt
+from tools.watch6_v3_accounting.proof import (
+    has_forbidden_or_contradictory_output_artifacts,
+    is_proven_never_allocated_attempt,
+)
 
 PAIR_NAME_RE = v3_resume.PAIR_NAME_RE
 
@@ -63,6 +66,11 @@ def verify_bound_receipt(
         receipt.get("endpoint") is None
         and receipt.get("stop_verified") is False
         and receipt.get("cleanup_error") is None
+        and not has_forbidden_or_contradictory_output_artifacts(
+            resolved_receipt.parent,
+            job_id=manifest.get("job_id") if isinstance(manifest.get("job_id"), str) else None,
+            session=receipt.get("session") if isinstance(receipt.get("session"), str) else None,
+        )
         and v3_admission.is_prestart_transport_failure(receipt, resolved_receipt.parent)
     )
     proven_never_allocated = is_proven_never_allocated_attempt(

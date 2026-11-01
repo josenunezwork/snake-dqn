@@ -40,6 +40,8 @@ SHARD00_RECEIPT_REL = (
 )
 SHARD00_RECEIPT_SHA256 = "2dbb41da38b386fd5289b0ef6bec4b873a81afc2d479cacdff9fa9ff9ebc80ad"
 SHARD00_EXEC_MANIFEST_SHA256 = "c83b0acc19b06b75e11a6c9d104aeb5516d40bf46385606939b2bf5cd1cb818b"
+SHARD00_PENDING_SHA256 = "09d48c3de15c900834cae050bc8193d5a86d6e7dad2a3daa77f92e7bb0944c31"
+SHARD00_NOTEBOOK_HASH = "f04a62f8d103480f8420adb74f9a34a2"
 
 RETAINED_PENDING_CLEANUP_ERROR = "ALLOCATION_UNRESOLVED: retained pending record"
 ADAPTER_PACKAGE_REL = "tools/watch6_v3_accounting"
@@ -65,11 +67,11 @@ def artifacts_root(repo: Path | None = None) -> Path:
 
 
 def default_artifact_dir(repo: Path | None = None) -> Path:
-    return artifacts_root(repo) / "t34-sol/argon-v3-accounting"
+    return artifacts_root(repo) / "t34-sol/argon-v3-accounting-fix1"
 
 
 def default_amendment_path(repo: Path | None = None) -> Path:
-    return default_artifact_dir(repo) / "WATCH6_V3_ACCOUNTING_AMENDMENT_20261031.md"
+    return default_artifact_dir(repo) / "WATCH6_V3_ACCOUNTING_AMENDMENT_V2_20261031.md"
 
 
 def default_ruling_json_path(repo: Path | None = None) -> Path:

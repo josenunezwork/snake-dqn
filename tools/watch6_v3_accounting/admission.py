@@ -25,7 +25,10 @@ from tools.watch6_v3_accounting import (
     BASELINE_SCIENCE,
     verify_baseline_closure,
 )
-from tools.watch6_v3_accounting.proof import is_proven_never_allocated_attempt
+from tools.watch6_v3_accounting.proof import (
+    has_forbidden_or_contradictory_output_artifacts,
+    is_proven_never_allocated_attempt,
+)
 
 EXTERNAL_TRANSPORT_CLASSES = v3_admission.EXTERNAL_TRANSPORT_CLASSES
 FORBIDDEN_TIMEOUT_SUBSTRINGS = v3_admission.FORBIDDEN_TIMEOUT_SUBSTRINGS
@@ -44,6 +47,21 @@ def is_prestart_transport_failure(
     ops_name: str | None = None,
 ) -> bool:
     """True iff baseline V3 pre-start proof or Ruling Point 4 never-allocated proof passes."""
+    if isinstance(output_dir, Path):
+        for fault_file in ("runtime-measurement.json", "scientific-fault.json"):
+            if (output_dir / fault_file).exists() or (output_dir / fault_file).is_symlink():
+                return False
+        if output_dir.is_dir() and (
+            any(output_dir.glob("runtime-measurement*"))
+            or any(output_dir.glob("scientific-fault*"))
+        ):
+            return False
+        if receipt.get("endpoint") is None and has_forbidden_or_contradictory_output_artifacts(
+            output_dir,
+            job_id=receipt.get("job_id") if isinstance(receipt.get("job_id"), str) else None,
+            session=receipt.get("session") if isinstance(receipt.get("session"), str) else None,
+        ):
+            return False
     if v3_admission.is_prestart_transport_failure(receipt, output_dir):
         return True
     return is_proven_never_allocated_attempt(
@@ -59,6 +77,13 @@ def is_external_transport_compute_failure(
     output_dir: Path | None = None,
 ) -> bool:
     """Allocated compute failures continue to require verified stop and clean telemetry."""
+    if isinstance(output_dir, Path):
+        if (output_dir / "scientific-fault.json").exists() or (
+            output_dir / "scientific-fault.json"
+        ).is_symlink():
+            return False
+        if output_dir.is_dir() and any(output_dir.glob("scientific-fault*")):
+            return False
     return v3_admission.is_external_transport_compute_failure(receipt, output_dir)
 
 
