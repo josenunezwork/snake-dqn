@@ -8,37 +8,45 @@ silently. Releases are explicit and need the owner's OK.
 
 ![architecture](docs/architecture.svg)
 
-## Served agent (as of 2026-10-17)
+## Served Watch & Play setup (as of 2026-11-01)
 
-The Watch hero is **bare B8 seed 3 (`b8-s3`), served without a veto**
-(checkpoint SHA prefix `3e649783`). Watch defaults to a **mixed** roster: the B8
-hero faces `frp3-s12 + v8` opponents. The release claim is **more mass at equal
-survival against the previously served agent, with no veto**. It does not claim
-that B8 is safer. Evidence: T7 Phase R `STRICT_PASS` + Tier 2 PASS, then the
-T12/T15 serving checks. See the
-[release record](docs/research/b8_s3_release_2026-10-17.md) and the
-[mixed-Watch erratum](docs/research/b8_s3_release_erratum_mixed_watch_2026-10-17.md).
+Start with **[docs/INDEX.md](docs/INDEX.md)** for the full project map and
+**[docs/STATUS.md](docs/STATUS.md)** for binding release pins, monitoring
+thresholds, and standing operating rules.
+
+- **Watch:** plays a **108-session Colab-precomputed `exact-stop-l2-prime` replay
+  bank** (`snake-dqn-artifacts/watch-replay-bank-live-108`, banks `01–08` + `10`,
+  6,000-frame Watch6-v2 sessions, `b8-s3` hero vs `5× frp3-s12 + v8`), visibly
+  labelled **"Recorded assisted hero"** (`SNAKE_WATCH_SOURCE=replay` and
+  `SNAKE_WATCH_REPLAY_DIR` in `.claude/launch.json`). Live bare `b8-s3` is the
+  automatic fallback if the bank is unset, empty, or invalid.
+- **Play (and live Watch fallback):** runs **live bare B8 seed 3 (`b8-s3`), served
+  without a veto** (checkpoint SHA prefix `3e649783`) against the **mixed**
+  `frp3-s12 + v8` roster. Its release claim (2026-10-17) is **more mass at equal
+  survival against the previously served agent, with no veto** (not a safety claim;
+  T7 Phase R `STRICT_PASS` + Tier 2 PASS, then T12/T15 serving checks). See the
+  [release record](docs/research/b8_s3_release_2026-10-17.md) and the
+  [mixed-Watch erratum](docs/research/b8_s3_release_erratum_mixed_watch_2026-10-17.md).
 
 Rollback means restarting the server with an explicit selection:
 
 ```bash
-SNAKE_SERVE_WATCH_ROSTER=all_b8 ./venv/bin/python web/serve.py   # all-B8 roster
+SNAKE_WATCH_SOURCE=live ./venv/bin/python web/serve.py           # live bare b8-s3 Watch
+SNAKE_SERVE_WATCH_ROSTER=all_b8 ./venv/bin/python web/serve.py   # all-B8 live roster
 SNAKE_SERVE_CHECKPOINT=frp3-s12 ./venv/bin/python web/serve.py   # frp3-s12 + v8
 SNAKE_SERVE_CHECKPOINT=champion ./venv/bin/python web/serve.py   # champion + v8
 ```
 
-[docs/STATUS.md](docs/STATUS.md) is the authority for the released agent,
-monitoring thresholds, and operating rules.
-
 ## Current campaign
 
-The active campaign is **T34 ExIt-B8**: an exact-simulator search teacher plus
-DAgger into the B8 network. Start here:
+The active campaign is **T34 ExIt-B8** (Watch6 V3 exact-stop confirmation running;
+recent exploration outcomes in [docs/INDEX.md](docs/INDEX.md) and
+[docs/STATUS.md](docs/STATUS.md)). Start here:
 
-1. [docs/research/final_run_20261019/HANDOFF_2026-10-20.md](docs/research/final_run_20261019/HANDOFF_2026-10-20.md)
-   (read the **START HERE** section)
-2. [CAMPAIGN_LOG.md](docs/research/final_run_20261019/CAMPAIGN_LOG.md): decisions and results
-3. [docs/STATUS.md](docs/STATUS.md): the "Campaign authority" block and the binding contract documents
+1. [docs/INDEX.md](docs/INDEX.md): project overview, served Watch/Play setup, active studies, and commands
+2. [docs/STATUS.md](docs/STATUS.md): standing owner rules, release pins, and binding contract documents
+3. [CAMPAIGN_LOG.md](docs/research/final_run_20261019/CAMPAIGN_LOG.md) and
+   [HANDOFF_2026-10-20.md](docs/research/final_run_20261019/HANDOFF_2026-10-20.md): chronological T34 decisions and results
 
 ## Quick start
 
@@ -72,6 +80,7 @@ make format             # isort + black at line length 100
 Do not run the suite while a governed study is using the Mac's CPU slots. The
 compute rules are in [AGENTS.md](AGENTS.md) and [docs/STATUS.md](docs/STATUS.md).
 
+<a id="redesign-in-progress"></a>
 ## Training and evaluation
 
 - **Legacy Apex DQN (vector61):**
@@ -96,17 +105,19 @@ corrected claims, for example that CNNs were never trained in the older trials.
 
 | What | Where |
 |---|---|
-| Documentation map | [docs/README.md](docs/README.md) |
-| Glossary | [docs/GLOSSARY.md](docs/GLOSSARY.md) (study terms: [docs/research/GLOSSARY.md](docs/research/GLOSSARY.md)) |
+| Project & experiment map (start here) | [docs/INDEX.md](docs/INDEX.md) |
+| Current status & standing rules | [docs/STATUS.md](docs/STATUS.md) |
+| Documentation status guide | [docs/README.md](docs/README.md) |
+| `docs/` directory layout | [docs/MAP.md](docs/MAP.md) |
+| Cited project notes & glossary | [docs/notes/README.md](docs/notes/README.md) ([docs/notes/GLOSSARY.md](docs/notes/GLOSSARY.md); evaluation glossary: [docs/research/GLOSSARY.md](docs/research/GLOSSARY.md)) |
 | Timeline | [docs/TIMELINE.md](docs/TIMELINE.md) |
-| Research study packages | [research/INDEX.md](research/INDEX.md) |
+| Research study packages (`research/`) | [research/INDEX.md](research/INDEX.md) |
+| Research narrative records (`docs/research/`) | [docs/research/INDEX.md](docs/research/INDEX.md) |
 | Specs | [docs/research/specs/INDEX.md](docs/research/specs/INDEX.md) |
 | Advisor advice | [docs/research/advice/INDEX.md](docs/research/advice/INDEX.md) |
-| Research catalog | [docs/research/catalog/](docs/research/catalog/) |
-| Source map (`src/`) | [docs/architecture/SRC_MAP.md](docs/architecture/SRC_MAP.md) |
+| Research package catalog | [docs/research/catalog/](docs/research/catalog/) |
 | Tests map (`tests/`) | [docs/architecture/TESTS_MAP.md](docs/architecture/TESTS_MAP.md) |
 | Web app map (`web/`) | [docs/architecture/WEB_MAP.md](docs/architecture/WEB_MAP.md) |
-| Repository top level | [docs/architecture/REPO_TOP_LEVEL.md](docs/architecture/REPO_TOP_LEVEL.md) |
 | Agent working rules | [AGENTS.md](AGENTS.md) |
 | Algorithm design (Apex DQN) | [docs/ml_algorithm.md](docs/ml_algorithm.md) |
 | Simulator contract | [docs/simd_env_spec.md](docs/simd_env_spec.md) |
