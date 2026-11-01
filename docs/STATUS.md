@@ -35,9 +35,9 @@ product Watch6 v2, `5× frp3-s12 + v8` opponents, 6,000-frame sessions; pipeline
   unset `SNAKE_WATCH_SOURCE` (or set `=live`) until `set_epsilon`/`set_food`-scoped `_replay_opted_out`
   (cleared on `_build` / split `"new_game"`, leaving `Play -> Watch` intact) and the multi-entrypoint
   mixed-Watch6 `b8-s3` guard tracked in [research/ROADMAP.md](research/ROADMAP.md) §2.1 land on `main`
-  (leaving V3 worktrees untouched, moving shared search helpers to `src/`, patching `"SNAKE_WATCH_SOURCE": "live"`
-  in `open_watch`, and hashing `open_watch`'s exact AST import closure so `watch_replay.py` and `app.py`
-  decouple from confirmation hashes).
+  (leaving V3 worktrees untouched, patching `"SNAKE_WATCH_SOURCE": "live"` in `open_watch`, and
+  explicitly excluding `watch_replay.py` — imported by `session.py:568` — and `app.py` from
+  confirmation source closures).
 - **`exact-stop-l1` validator, mixed-controller bank & first-cycle ordering (`73974411` & `395eacbb`, 2026-11-01):**
   `web/backend/watch_replay.py` and `research/watch_replay/` accept `"exact-stop-l1"` (`L >= 1`,
   `interval = 5`, `H = 300`) in `ASSISTED_CONTROLLERS` alongside `"exact-stop-l2-prime"`, and
@@ -47,10 +47,11 @@ product Watch6 v2, `5× frp3-s12 + v8` opponents, 6,000-frame sessions; pipeline
   walks `sorted(root.glob("*.watch.gz"))[:1024]` on cycle 1 before `SystemRandom().shuffle` runs on
   cycle 2 (`132 × 250 s = 9.17 h` of `bank01–12` `l2-prime` play before `bank14l1–16l1` after a
   restart, fixable via injectable `shuffle_discovery=True`), while `verify_payload` sleeps
-  `stop.wait(0.001)` per frame (`~8–10 s` cold load, fixable via a `64`-frame cooperative yield
-  without `24 fps` GIL stalls); and (2) restricting playback to a single confirmed controller
-  (`exact-stop-l2-prime`-only via `watch-replay-bank-live-132`, or `exact-stop-l1`-only after
-  confirmation) requires a single-controller `SNAKE_WATCH_REPLAY_DIR` or landing
+  `stop.wait(0.001)` per frame (`~8.5 s` cold load / `~200` live-B8 fallback ticks, fixable via a
+  `64`-frame cooperative yield `< 0.35 s` + shallow `Recording.snapshot`); and (2) restricting
+  playback to a single confirmed controller (`exact-stop-l2-prime`-only via
+  `watch-replay-bank-live-132`, or `exact-stop-l1`-only after confirmation) requires a
+  single-controller `SNAKE_WATCH_REPLAY_DIR` or landing line-1 `.watch.gz` header filtering via
   `SNAKE_WATCH_REPLAY_CONTROLLER`.
 - **Product efficacy measurement status:** synchronous `exact-stop-l2-prime` efficacy vs bare B8 in the
   product H14400 setting is **not yet confirmed and is currently running in Watch6 V3**
@@ -124,7 +125,7 @@ For synthesized current-round and later-round research plans (**advice, not deci
   - `bare` (`b8-s3`): mass **`351.1`** (`CI95 [320.2, 381.9]`), deaths **`0.288/1k`** (`83` deaths: `53` at `L < 600`, `30` at `L >= 600`, `21` at `L >= 800`).
   - `l2_prime_600` (served `L >= 600`): mass **`461.2`** (`+110.1` vs `bare`, `CI95 [+72.1, +148.1]`), deaths **`0.160/1k`** (`-44.6%` vs `bare`; `46` deaths: `34` at `L < 600`, `12` at `L >= 600`, `11` at `L >= 800`), `449.6` mean branches/session.
   - **`exact_stop_alllen` (`L >= 1`, `interval = 5`, `H = 300`):** mass **`559.4`** (**`+208.4` vs `bare`**, `CI95 [+170.1, +246.7]`; **`+98.3` vs `L >= 600`**, `CI95 [+50.6, +146.0]`), deaths **`0.052/1k`** (**`-81.9%` vs `bare`**; **`-67.4%` / `-0.108/1k` vs `L >= 600`**, `CI95 [-0.161, -0.054]`; `15` total deaths: **`1` at `L < 600`**, **`14` at `L >= 600`**, **`13` at `L >= 800`**), **`2.82×` search branches** (`1,268.5` mean branches/session, `0.142%` `L < 600` overrides, `mean_max_length = 1,096.0`).
-  - Pre-stated adoption rule (`>= +15.0` incremental mass and `<= 0.0` `deaths/1k` vs `L >= 600`) met: commit `73974411` added `"exact-stop-l1"` to `research/watch_replay/` and `web/backend/watch_replay.py`, and A100 `W = 6` banks `14l1–16l1` (`3 × 12` = `36/36` verified sessions on disjoint seeds in **`3.03–3.07 h/bank`, `~61.5 A100 u` observed total** at `6.73 u/h`; `t34-sol/argon-banks-l1/SUMMARY.md`, noting `~2.8–3.2×` superlinear late-game compute scaling across `6,000..14,400`) were verified and merged into `watch-replay-bank-live-168` (`395eacbb`, `web/serve.py` restarted on `b5b63cd1`). Exploration screen only — confirming `exact-stop-l1` as a Claim-B release still requires prospective H14400 confirmation (`Watch6-L1-V1` in [research/ROADMAP.md](research/ROADMAP.md) §2.3).
+  - Pre-stated adoption rule (`>= +15.0` incremental mass and `<= 0.0` `deaths/1k` vs `L >= 600`) met: commit `73974411` added `"exact-stop-l1"` to `research/watch_replay/` and `web/backend/watch_replay.py`, and A100 `W = 6` banks `14l1–16l1` (`3 × 12` = `36/36` verified sessions on disjoint seeds in **`3.03–3.07 h/bank`, `~61.5 A100 u` observed total** at `6.73 u/h`; `t34-sol/argon-banks-l1/SUMMARY.md`, noting `~2.9–3.3×` superlinear late-game compute scaling across `6,000..14,400`) were verified and merged into `watch-replay-bank-live-168` (`395eacbb`, `web/serve.py` restarted on `b5b63cd1`). Exploration screen only — confirming `exact-stop-l1` as a Claim-B release still requires prospective H14400 confirmation (`Watch6-L1-V1` in [research/ROADMAP.md](research/ROADMAP.md) §2.3).
 - **Completed parity — GPU `DeviceSim` v2 parity `PASS` on A100**
   ([`research/devicesim_v2_parity/`](../research/devicesim_v2_parity/),
   `t34-sol/argon-devicesim-v2/packet-a100-v2-parity-01/main-run-01/receipt.json`): **`0` mismatches**
@@ -161,9 +162,10 @@ For synthesized current-round and later-round research plans (**advice, not deci
     `0.316 ms` Mac 1-thread p95, `33.0%` vs `9.0%` `L >= 800` `all_die_sel0` rescue on `25/129` `19.4%`
     `L >= 800` death roots — `9/25` `36.0%` `macro_triggered` at `+66.7 pp` rescue when triggered vs `16/25`
     `64.0%` re-trapped after tick-`30` greedy-B8 handback, while `104/129` `80.6%` survived `H = 300` inside
-    uncertified coils and `options.py` vacuously set `t_cert = 1` on `ext_gain == 0` internal tail cells —
+    uncertified coils and `options.py` hardcoded `min_boost_length = 10` vs live `5`, restricted `omega1` to
+    static `tau <= 1`, and vacuously set `t_cert = 1` on `ext_gain == 0` internal tail cells —
     failing `+3.85 pp < +10.0 pp` total `L >= 600` lift and `2 > 0` newly caused ordinary lethal flips from
-    single-suffix `sel0` and aggressive `O3`/`O5`; `0` assessment roots opened; informs `ExtCert-v9` advice
+    single-suffix `sel0` and aggressive `O3`/`O5`; `0` assessment roots opened; informs `CausalCert-v10` advice
     in [research/ROADMAP.md](research/ROADMAP.md) §3).
 
 ---

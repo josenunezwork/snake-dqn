@@ -24,7 +24,7 @@ is missing, `GET /` returns a JSON hint instead of the UI.
 | Module | Role |
 |---|---|
 | [`app.py`](../../web/backend/app.py) | FastAPI app: hub with the single shared `GameSession`, broadcast engine loop, REST routes, `/ws/stream`, control dispatch table `_CONTROL_HANDLERS`, static serve of `frontend/dist`. |
-| [`session.py`](../../web/backend/session.py) | `GameSession`: owns one `GameState` + selected policy; modes watch / play / train; resolves served checkpoint and Watch roster; installs vetoes, Path B hook, speed ceiling. |
+| [`session.py`](../../web/backend/session.py) | `GameSession`: owns one `GameState` + selected policy; modes watch / play / train (train refused on forward-only `ego2s-*` and `raster31v2`); resolves served checkpoint and Watch roster; installs vetoes, Path B hook, speed ceiling. |
 | [`serialize.py`](../../web/backend/serialize.py) | `GameState` -> frame DTO (`type: "frame"`); the wire contract. `PROTOCOL_VERSION = 2`. |
 | [`served_checkpoint.py`](../../web/backend/served_checkpoint.py) | Pinned registry (`champion`, `frp3-s12`, `b8-s3`) and fail-closed resolution from `SNAKE_SERVE_CHECKPOINT`; Watch roster constants. |
 | [`served_checkpoint_pins.json`](../../web/backend/served_checkpoint_pins.json) | Strict-gate receipt pins (sha256 + evidence paths) authorizing non-champion checkpoints. |

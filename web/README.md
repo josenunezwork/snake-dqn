@@ -69,7 +69,8 @@ The arena is always on screen; the other six are tabs beside it.
   views with top action, margin, and activity.
 - **Dashboard** — eval leaderboard parsed from `logs/eval_*.json` + the checkpoint inventory.
 - **Controls** — play/pause, reset, speed, epsilon, hero selector, checkpoint loader, and a
-  watch/train toggle (train rebuilds the policy in training mode).
+  watch/train toggle (train rebuilds legacy `vector61` policies in training mode and is refused on
+  forward-only `ego2s-*` / `b8-s3` and `raster31v2` checkpoints).
 
 ### Play / leaderboard REST
 

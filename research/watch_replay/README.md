@@ -59,8 +59,9 @@ traverses `sorted(root.glob("*.watch.gz"))[:1024]` deterministically on cycle 1
 (so lexicographically earlier banks play first after a restart) and runs
 `SystemRandom().shuffle` without reusing a unit within a cycle or immediately
 repeating the boundary unit from cycle 2 onward (injectable `shuffle_discovery=True`
-for cycle 1 and `64`-frame cooperative `stop.wait(0.0005)` cold-load speedup in
-`verify_payload` are tracked in
+for cycle 1, line-1 `.watch.gz` header filtering via `SNAKE_WATCH_REPLAY_CONTROLLER`,
+shallow `Recording.snapshot`, and `64`-frame cooperative `stop.wait(0.0005)` cold-load
+speedup from `~8.5 s` to `< 0.35 s` in `verify_payload` are tracked in
 [`docs/research/ROADMAP.md`](../../docs/research/ROADMAP.md) §2.1). Empty/exhausted single-session banks use live B8. No bad file is repeatedly
 hashed on live ticks.
 
