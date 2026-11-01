@@ -59,11 +59,12 @@ The arena is always on screen; the other six are tabs beside it.
   **SQLite leaderboard**. Server-authoritative: the run freezes until your first key, your death
   ends the run (AI opponents keep respawning), the score is computed on the server from
   length/food/kills/survival (can't be spoofed), and you pick the opponent count for difficulty.
-- **Inspector** — the active policy's state and Q-values; vector checkpoints expose the 61-D
-  free-space features and raster checkpoints expose their ego-raster observation.
-- **Raster** — what a `raster31v2` snake sees: the heading-rotated ego-centric 31×31 tactical
-  stack (head centred, facing up), as a colour-coded composite or a single isolated channel
-  (brightness = the value byte). Shows a placeholder when the served policy is the 61-D vector.
+- **Inspector** — the active policy's scalar state, dueling Q/value/advantages, and replay search
+  override markers (`"Move from search"`); `ego2s-bv8` (`b8-s3`) exposes its 60-D scalar band,
+  `raster31v2` exposes its 26-D scalars, and `vector61` exposes the 61-D free-space vector.
+- **Raster** — what a `raster31v2` snake sees: the heading-rotated ego-centric 31×31 tactical and
+  25×25 strategic stacks (head centred, facing up), as a colour-coded composite or a single isolated
+  channel (brightness = the value byte). Shows a placeholder on `ego2s-*` (`b8-s3`) and `vector61`.
 - **Network** — live dueling-Q details and, where the served policy exposes them, activation
   views with top action, margin, and activity.
 - **Dashboard** — eval leaderboard parsed from `logs/eval_*.json` + the checkpoint inventory.

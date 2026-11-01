@@ -32,8 +32,10 @@ product Watch6 v2, `5× frp3-s12 + v8` opponents, 6,000-frame sessions; pipeline
   `served_checkpoint == "b8-s3"`, `watch_roster == "mixed"`, `Watch6`, or prior `set_epsilon`/`set_food`
   live opt-outs across `reset_game`), so any env-var checkpoint/roster rollback
   (`SNAKE_SERVE_CHECKPOINT=frp3-s12|champion` or `SNAKE_SERVE_WATCH_ROSTER=all_b8`) must also unset
-  `SNAKE_WATCH_SOURCE` (or set `=live`) until `_replay_opted_out` and the multi-entrypoint
-  mixed-Watch6 `b8-s3` guard tracked in [research/ROADMAP.md](research/ROADMAP.md) §2.1 land.
+  `SNAKE_WATCH_SOURCE` (or set `=live`) until `set_epsilon`/`set_food`-scoped `_replay_opted_out`
+  (cleared on `_build` / split `"new_game"`, leaving `Play -> Watch` intact) and the multi-entrypoint
+  mixed-Watch6 `b8-s3` guard tracked in [research/ROADMAP.md](research/ROADMAP.md) §2.1 land on `main`
+  (leaving V3 worktrees untouched, since `watch6_search_efficacy_v3/protocol.py` hashes `web/backend/`).
 - **`exact-stop-l1` validator, mixed-controller bank & first-cycle ordering (`73974411` & `395eacbb`, 2026-11-01):**
   `web/backend/watch_replay.py` and `research/watch_replay/` accept `"exact-stop-l1"` (`L >= 1`,
   `interval = 5`, `H = 300`) in `ASSISTED_CONTROLLERS` alongside `"exact-stop-l2-prime"`, and
@@ -105,11 +107,12 @@ For synthesized current-round and later-round research plans (**advice, not deci
   mirror; governs `exact-stop-l2-prime` only, not the `36` `exact-stop-l1` recordings in
   `watch-replay-bank-live-168`). Accounting adapter **V6.1** ratified (`75471246`; at `05:01 PT` on
   2026-11-01: `14/24` `PASS` shards `01..08, 10, 11, 13..16`, `6/24` active `17, 18, 20..23`, and
-  `4/24` V6.1-accepted mechanical failures `00, 09, 12, 19`). **Linear-retry & bytecode guards:**
-  `final_look.py:_verify_shard_lineage` rejects forked attempt trees sharing a parent receipt, so
-  shards `09, 19` must use **only** their already-staged `ops/auto-retry` packets (**never** run
-  `recover.py` on `09, 19`), shards `00, 12` dispatch `recovery-shard-{00,12}-01` via
-  `python -B -m tools.watch6_v3_accounting.dispatch`, and the sole final look **must be invoked under
+  `4/24` V6.1-accepted mechanical failures `00, 09, 12, 19`). **Linear-retry, `web/backend/` hash-coupling & bytecode guards:**
+  `final_look.py:_verify_shard_lineage` rejects forked attempt trees sharing a parent receipt, and
+  `watch6_search_efficacy_v3/protocol.py` hashes `web/backend/` into V3's `identity()` — keep all V3
+  worktrees untouched, use **only** the already-staged `ops/auto-retry` packets on shards `09, 19`
+  (**never** run `recover.py` on `09, 19`), dispatch `recovery-shard-{00,12}-01` on `00, 12` via
+  `python -B -m tools.watch6_v3_accounting.dispatch`, and invoke the sole final look **under
   `python -B`** (`./venv/bin/python -B -m tools.watch6_v3_accounting.final_look ...`) from clean
   `snake-dqn-argon-v3-accounting` because `_forbid_pycache_directory` fails closed on any
   `__pycache__`/`.pyc` inside the V3 closure.
@@ -123,8 +126,9 @@ For synthesized current-round and later-round research plans (**advice, not deci
 - **Completed parity — GPU `DeviceSim` v2 parity `PASS` on A100**
   ([`research/devicesim_v2_parity/`](../research/devicesim_v2_parity/),
   `t34-sol/argon-devicesim-v2/packet-a100-v2-parity-01/main-run-01/receipt.json`): **`0` mismatches**
-  across **`1,536,000` snake-ticks** (`E = 256 × 1,000` Watch6-v2 ticks, commit `b500d111`, subject to
-  `<= 1e-4` CUDA FP32 near-tie Q re-decision checks), following `553 passed` local tests and Mac
+  across **`1,536,000` snake-ticks** (`E = 256 × 1,000` Watch6-v2 ticks in `3,505.6 s` = `1,434.6`
+  steps/s under 5-opponent CUDA flood launches, SplitMix64 RNG, commit `b500d111`, subject to `<= 1e-4`
+  CUDA FP32 near-tie Q re-decision checks), following `553 passed` local tests and Mac
   `E = 4 × 8` preflight `PASS`.
 - **Completed Oct 30 Claim-A exploration receipts awaiting Mac readout (and `spatial-student-pilot` fit canceled):**
   - `b8-head-closedloop` (`origin/astra-doom-auc-smoke`, `N = 192` v1 H5000 worlds, `m in {0, 10, 25, 50}`, run without `boost_decisions` logging): A100 receipt **`PASS`** (`t34-sol/b8-head-closedloop/main-01/output/receipt.json`), awaiting `< 3 min` Mac `closedloop_readout.py` (plus a `0 u`, `10 min` v2 boost `[0.5%, 10%]` check if any arm survives).
@@ -152,8 +156,10 @@ For synthesized current-round and later-round research plans (**advice, not deci
     ROC-AUC `0.474–0.521`, `0` passing thresholds).
   - **R7 macro-option fallback** ([`research/r7_macro_fallback/`](../research/r7_macro_fallback/),
     `t34-sol/argon-r7-repack/R7_READOUT.json`) — **`KILL`** (`3/5` bars on C/T train `1-step-all-die` roots:
-    `0.316 ms` Mac 1-thread p95, `33.0%` vs `9.0%` `L >= 800` `all-die` rescue, but `+3.85 pp < +10.0 pp`
-    total `L >= 600` lift and `2 > 0` newly caused ordinary lethal flips from aggressive `O3`/`O5`; `0` assessment roots opened).
+    `0.316 ms` Mac 1-thread p95, `33.0%` vs `9.0%` `L >= 800` `all-die` rescue — `+66.7 pp` among
+    `t = 300` survivors before tick-`30` greedy-B8 re-entry trapped `16/25` — but `+3.85 pp < +10.0 pp`
+    total `L >= 600` lift and `2 > 0` newly caused ordinary lethal flips from single-suffix `sel0` and
+    aggressive `O3`/`O5`; `0` assessment roots opened).
 
 ---
 

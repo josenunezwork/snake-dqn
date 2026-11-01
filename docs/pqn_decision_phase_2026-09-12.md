@@ -33,7 +33,7 @@ witness did not train a network or select a checkpoint.
 
 The portfolio ledger retains the failed witness attempts and the accepted v4
 outcome, along with the deferred learning probe:
-[experiment ledger](</Users/josenunez/Projects/ml/snake-dqn-research-portfolio/docs/experiments/rl_research_portfolio_2026-09-12/EXPERIMENT_LEDGER.md>).
+[experiment ledger](experiments/rl_research_portfolio_2026-09-12/EXPERIMENT_LEDGER.md).
 The planned two-seed LP1 learning probe consumed **zero** MPS arms and zero
 evaluation calls; its former manifest is a deferral record, not a negative
 PQN result.

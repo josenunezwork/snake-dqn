@@ -423,15 +423,18 @@ for current capacity. Unknown inventory stops submissions. It reserves at most
 **six** occupied/pending runtime slots across competing daemons (`ACCOUNT_ASSIGNMENT_CAP = 6`
 since 2026-10-31) and enforces an L4 sub-cap of at most **three** concurrent L4 runtimes
 (`ACCOUNT_L4_CAP = 3` in `ready_queue.py`; standalone `dispatch.sh` calls must also respect
-`L4 <= 3`). Proposed Round-06 unified v2 transport/ops hardening — additive `qualification.py add`
-qualified via `0 u` `fake_colab.py` fault replay + `~0.4–0.5 L4 u` 2-unit poll-drop canary
-(unbundled `inputs/verified-ledger.json` + HTTPS checkpoint URLs for `4` PUTs `< 150 KB`,
-outcome-free `.meta.json` + post-loop `contract.json`, `0` post-`ready.json` WS calls via `60 s`
-Contents `state.json` GET, `release-credential.next.json` PUT $\rightarrow$ in-VM `chmod(0o600)` +
-atomic `os.replace` satisfying `load_release_credential`, keeping `lease_seconds = 180` + `900 s`
-OAuth floor inside the `1,800 s` L4 acceptance budget, `2×` `body == []` warmup recovery, `<= 90 s`
-`finally:` Contents `export_file` salvage before `stop_verified`, `alloc.lock` `L4 <= 3` /
-`total <= 6` + `reconcile_unavailable`, monotonic-ledger `canary.check` + `ops-ledger-retry/v2`, and
+`L4 <= 3`). Proposed Round-07 unified v2 transport/ops hardening — additive `qualification.py add`
+qualified at `~1.6 u` (`0 u` `fake_colab.py` fault matrix + `~1.2 u` additive `11/11` `requalify.sh` +
+`~0.4 u` 2-unit L4 WS-cut canary: standalone `frp3_m3_s12_u60000_20261005.pth` URL +
+`ACCOUNT_ROOT/url-cache/` + `validate_public_input`, unbundled monotonic `inputs/verified-ledger.json` +
+`defer_verify=True` cutting staging to `2` WS RPCs, `observer is None`-gated `60 s` Contents `state.json`
++ `root/terminal.json` GETs, `release-credential.next.json` PUT $\rightarrow$ in-VM `chmod(0o600)` +
+atomic `os.replace` keeping `lease_seconds = 180` + `900 s` OAuth floor inside the `1,800 s` L4
+acceptance budget, `contents_only=True` `<= 8 MiB` `export_file` GETs + `<= 90 s` `finally:` salvage +
+outcome-free `.meta.json` / post-loop `contract.json`, transient `KERNEL_CREATION_GUARD_ERROR` + `2×`
+`empty_inventory` warmup recovery, `ops/alloc.lock` `L4 <= 3` / `total <= 6` + `reconcile_unavailable` in
+`dispatch.py` retiring `-retry-1`/`recover.py`, and progress-resetting retries keeping
+`max_outcome_blind_retries: 2` as the consecutive zero-progress stall cap on the same x86 GPU family +
 zero-judge `python -B -m tools.ops.confirm_audit`) — is tracked as advice (pending
 requalification) in [`docs/research/ROADMAP.md`](../../docs/research/ROADMAP.md) §2.2; the supervisor independently enforces account
 allocation and pending-identity fences. Packages with many small contract/sidecar inputs
