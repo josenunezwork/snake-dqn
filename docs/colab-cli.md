@@ -1,5 +1,8 @@
 # Colab CLI supervisor
 
+> [!NOTE]
+> **2026-10-31 operational update:** Active transport trees are managed through the multi-tree qualification registry `ops/colab-cli-qualified.json` and [`tools/ops/dispatch.sh`](../tools/ops/dispatch.sh) / [`tools/ops/ready_queue.py`](../tools/ops/ready_queue.py) (see [`tools/ops/README.md`](../tools/ops/README.md)). Since 2026-10-31, the measured Colab account cap is **`6` total assignments** (`ACCOUNT_ASSIGNMENT_CAP = 6`) with an **`L4 <= 3` concurrent sub-cap** (`ACCOUNT_L4_CAP = 3` in `ready_queue.py`), and multi-file metadata/sidecars pack into one deterministic `input-metadata.tar.gz` (`research/metadata_archive.py`) to keep staging well under 300 s. Do **not** edit files inside `research/colab_cli/` (including `ROBUSTNESS.md`) without an explicit transport requalification, because `dispatch.sh` and `watchd` verify `research/colab_cli`'s exact Git tree SHA. The October 18 sections below preserve the original design and initial acceptance provenance.
+
 This is the operator guide for a new Snake DQN Colab job. The Mac-side
 supervisor is the only allocator and releaser for new work. It produces
 hash-verified local artifacts and a backend-verified release receipt without
