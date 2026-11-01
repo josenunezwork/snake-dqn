@@ -1,4 +1,4 @@
-"""Bounded 2 MiB checkpoint parts, packed metadata archive, and offline upload budget gate."""
+"""Pack small immutable inputs/sidecars into one deterministic archive (<=8 transfers, <=60 s)."""
 
 from __future__ import annotations
 
@@ -6,79 +6,118 @@ import gzip
 import hashlib
 import io
 import json
+import math
 import os
 import subprocess
 import tarfile
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
+from urllib.error import URLError
+from urllib.request import urlopen
 
 from research.colab_cli import source, transfer_policy
+from research.t34_exit_b8 import public_inputs
 from research.watch6_alllen_screen import protocol as p
-from tools.ops.package_spec import Input, digest, verify_immutable
+from tools.ops.package_spec import _relative, digest, publish_immutable, verify_immutable
 
-PART_BYTES = 2 * 1024**2
+CHUNK_BYTES = 2 * 1024**2
+PART_BYTES = CHUNK_BYTES
 MAX_FILE_BYTES = 4 * 1024**2
 MAX_METADATA_BYTES = MAX_FILE_BYTES
 METADATA = "input-metadata.tar.gz"
 INDEX = "input-inventory.json"
 
-# Measured packet-01 upload model (~5 s/RPC + ~1 MB/s) and target budget (<=12 transfers, <=90 s).
-MAX_TRANSFERS = 12
+# Target budget: <= 8 transfers and <= 60 s offline forecast under 5 s/RPC-wave + 1 MB/s model.
+MAX_TRANSFERS = 8
 SECONDS_PER_TRANSFER = 5.0
 BYTES_PER_SECOND = 1_000_000
-MAX_ESTIMATED_TRANSFER_SECONDS = 90.0
+MAX_ESTIMATED_TRANSFER_SECONDS = 60.0
+DOWNLOAD_ATTEMPTS = 3
 
 CHECKPOINTS: dict[str, tuple[str, int]] = {
     "b8_s3_t7_20261016.pth": ("b8-s3", 6_562_005),
     "frp3_m3_s12_u60000_20261005.pth": ("frp3-s12", 6_906_247),
 }
 
-
-def part_names() -> set[str]:
-    """Exact 2 MiB checkpoint part destinations uploaded individually."""
-    return {
-        f"checkpoint-parts/{name}.{index:03d}.part"
-        for name, (_, size) in CHECKPOINTS.items()
-        for index in range((size + PART_BYTES - 1) // PART_BYTES)
-    }
+SMALL_PAYLOADS: tuple[str, ...] = (
+    "main-contract.json",
+    "main-ledger.json",
+    "canary-contract.json",
+    "canary-ledger.json",
+    "release-evidence.tar.gz",
+    "public-inputs.json",
+)
 
 
 def metadata_names() -> set[str]:
     """Exact small payloads and all .sha256/.complete sidecars bundled into METADATA."""
-    names = {
-        f"{name}{suffix}"
-        for name in (
-            "main-contract.json",
-            "main-ledger.json",
-            "canary-contract.json",
-            "canary-ledger.json",
-            "release-evidence.tar.gz",
-        )
-        for suffix in ("", ".sha256", ".complete")
-    }
-    names.update(f"{part}{suffix}" for part in part_names() for suffix in (".sha256", ".complete"))
-    return names
+    return {f"{name}{suffix}" for name in SMALL_PAYLOADS for suffix in ("", ".sha256", ".complete")}
 
 
-def pack_inputs(rows: list[dict[str, Any]], archive_path: Path) -> list[dict[str, Any]]:
-    """Bundle small immutable files and sidecars; keep each 2 MiB checkpoint part separate."""
+def _verify_checkpoint_pins(root_or_catalog: Path) -> None:
+    pins = json.loads(
+        (p.ROOT / "web/backend/served_checkpoint_pins.json").read_text(encoding="utf-8")
+    )
+    if root_or_catalog.is_file():
+        rows, _assets = public_inputs._load(root_or_catalog)
+        by_name = {str(item["name"]): item for item in rows}
+        catalog_map = {
+            "b8_s3_t7_20261016.pth": "B8_s3_final.pth",
+            "frp3_m3_s12_u60000_20261005.pth": "frp3_m3_s12_u60000_20261005.pth",
+        }
+        for name, (pin, size) in CHECKPOINTS.items():
+            row = by_name[catalog_map[name]]
+            if (
+                int(row["size_bytes"]) != size
+                or row["sha256"] != pins["checkpoints"][pin]["checkpoint_sha256"]
+            ):
+                raise ValueError(f"public catalog checkpoint differs from released pin: {name}")
+        return
+    for name, (pin, size) in CHECKPOINTS.items():
+        path = root_or_catalog / "checkpoints" / name
+        verified = verify_immutable(path)
+        if (
+            verified["size"] != size
+            or verified["sha256"] != pins["checkpoints"][pin]["checkpoint_sha256"]
+        ):
+            raise ValueError(f"staged checkpoint differs from released pin: {name}")
+
+
+def _assert_safe_new_target(root: Path, rel_name: str) -> Path:
+    _relative(rel_name, "staged member")
+    target = root / rel_name
+    if target.exists() or target.is_symlink():
+        raise ValueError(f"metadata destination already exists or is unsafe: {rel_name}")
+    cur = target.parent
+    while cur != root:
+        if cur.is_symlink():
+            raise ValueError(f"metadata parent directory is a symlink: {cur}")
+        cur = cur.parent
+    return target
+
+
+def pack_inputs(
+    rows: list[dict[str, Any]], archive_path: Path, *, verify_pins: bool = True
+) -> list[dict[str, Any]]:
+    """Bundle all small immutable payloads and sidecars into one <=2 MiB METADATA archive."""
     expected_small = metadata_names()
-    expected_parts = part_names()
-    small = [row for row in rows if row["dest"] in expected_small]
-    parts = [row for row in rows if row["dest"] not in expected_small]
-    if {row["dest"] for row in small} != expected_small or len(small) != len(expected_small):
+    if {row["dest"] for row in rows} != expected_small or len(rows) != len(expected_small):
         raise ValueError("metadata inventory differs from frozen schema")
-    if {row["dest"] for row in parts} != expected_parts or len(parts) != len(expected_parts):
-        raise ValueError("checkpoint part inventory differs from frozen schema")
-    for row in parts:
-        if int(row["size_bytes"]) > PART_BYTES:
-            raise ValueError(f"checkpoint part exceeds 2 MiB single-chunk bound: {row['dest']}")
+    by_dest = {row["dest"]: row for row in rows}
+    for name in SMALL_PAYLOADS:
+        verified = verify_immutable(Path(by_dest[name]["path"]))
+        if verified["size"] != int(by_dest[name]["size_bytes"]) or verified["sha256"] != str(
+            by_dest[name]["sha256"]
+        ):
+            raise ValueError(f"staged payload metadata mismatch: {name}")
+    if verify_pins:
+        _verify_checkpoint_pins(Path(by_dest["public-inputs.json"]["path"]))
 
     inventory = {
-        row["dest"]: {"sha256": row["sha256"], "size": int(row["size_bytes"])} for row in small
+        row["dest"]: {"sha256": row["sha256"], "size": int(row["size_bytes"])} for row in rows
     }
-    payloads = {row["dest"]: Path(row["path"]).read_bytes() for row in small}
+    payloads = {row["dest"]: Path(row["path"]).read_bytes() for row in rows}
     payloads[INDEX] = json.dumps(inventory, sort_keys=True).encode("utf-8")
     if sum(map(len, payloads.values())) > MAX_METADATA_BYTES:
         raise ValueError("metadata exceeds 4 MiB unpacked size bound")
@@ -91,12 +130,18 @@ def pack_inputs(rows: list[dict[str, Any]], archive_path: Path) -> list[dict[str
         for name, data in sorted(payloads.items()):
             member = tarfile.TarInfo(name)
             member.size = len(data)
+            member.mtime = 0
+            member.mode = 0o444
+            member.uid = 0
+            member.gid = 0
+            member.uname = ""
+            member.gname = ""
             archive.addfile(member, io.BytesIO(data))
 
     archive_size = archive_path.stat().st_size
-    if archive_size > MAX_FILE_BYTES:
-        raise ValueError("compressed metadata archive exceeds 4 MiB per-file bound")
-    return parts + [
+    if archive_size > CHUNK_BYTES:
+        raise ValueError("compressed metadata archive exceeds 2 MiB single-chunk bound")
+    return [
         {
             "path": str(archive_path),
             "dest": METADATA,
@@ -106,14 +151,171 @@ def pack_inputs(rows: list[dict[str, Any]], archive_path: Path) -> list[dict[str
     ]
 
 
-def stage_metadata(root: Path, expected_sha256: str) -> None:
-    """Verify the manifest-bound archive and every member before create-only publication."""
+def _download_verified_asset(
+    asset: dict[str, Any],
+    target: Path,
+    opener: Callable[..., Any],
+) -> None:
+    last_error: BaseException | None = None
+    for _attempt in range(1, DOWNLOAD_ATTEMPTS + 1):
+        target.unlink(missing_ok=True)
+        written = 0
+        hasher = hashlib.sha256()
+        try:
+            with opener(str(asset["url"]), timeout=60) as response, target.open("xb") as stream:
+                while block := response.read(public_inputs.CHUNK):
+                    written += len(block)
+                    if written > int(asset["size_bytes"]):
+                        raise public_inputs.PublicInputError(
+                            f"release asset exceeds declared size: {asset['name']}"
+                        )
+                    hasher.update(block)
+                    stream.write(block)
+                stream.flush()
+                os.fsync(stream.fileno())
+            if written != int(asset["size_bytes"]) or hasher.hexdigest() != str(asset["sha256"]):
+                raise public_inputs.PublicInputError(f"release asset bytes differ: {asset['name']}")
+            return
+        except public_inputs.PublicInputError:
+            target.unlink(missing_ok=True)
+            raise
+        except (OSError, URLError) as exc:
+            target.unlink(missing_ok=True)
+            last_error = exc
+    raise public_inputs.PublicInputError(
+        f"failed to fetch public asset {asset.get('name')}: {last_error}"
+    ) from last_error
+
+
+def materialize_watch_checkpoints(
+    root: Path,
+    *,
+    verify_pins: bool = True,
+    opener: Callable[..., Any] = urlopen,
+    local_saved_dir: Path | None = None,
+) -> dict[str, str]:
+    """Download public release assets (or copy offline preflight dir) and publish Watch6 ckpts."""
+    root = root.resolve(strict=True)
+    catalog = root / "public-inputs.json"
+    verify_immutable(catalog)
+    rows, assets = public_inputs._load(catalog)
+    by_name = {str(item["name"]): item for item in rows}
+
+    for ckpt_name in CHECKPOINTS:
+        for suffix in ("", ".sha256", ".complete"):
+            _assert_safe_new_target(root, f"checkpoints/{ckpt_name}{suffix}")
+
+    offline_env = os.environ.get("WATCH6_ALLLEN_OFFLINE_SAVED_DIR", "").strip()
+    saved_dir = local_saved_dir or (Path(offline_env).resolve() if offline_env else None)
+    published: dict[str, str] = {}
+
+    if saved_dir is not None:
+        catalog_map = {
+            "b8_s3_t7_20261016.pth": "B8_s3_final.pth",
+            "frp3_m3_s12_u60000_20261005.pth": "frp3_m3_s12_u60000_20261005.pth",
+        }
+        for ckpt_name in CHECKPOINTS:
+            src_path = saved_dir / ckpt_name
+            row = by_name[catalog_map[ckpt_name]]
+            if not src_path.is_file() or src_path.is_symlink():
+                raise public_inputs.PublicInputError(f"offline checkpoint missing: {src_path}")
+            payload = src_path.read_bytes()
+            if len(payload) != int(row["size_bytes"]) or hashlib.sha256(payload).hexdigest() != str(
+                row["sha256"]
+            ):
+                raise public_inputs.PublicInputError(
+                    f"offline checkpoint bytes differ from catalog: {ckpt_name}"
+                )
+            pub = publish_immutable(root / f"checkpoints/{ckpt_name}", payload)
+            published[f"checkpoints/{ckpt_name}"] = str(pub["sha256"])
+    else:
+        try:
+            import certifi
+        except ImportError:
+            pass
+        else:
+            os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+
+        with tempfile.TemporaryDirectory(prefix=".watch-ckpts-", dir=root) as tmp_str:
+            tmp = Path(tmp_str)
+            b8_row = by_name["B8_s3_final.pth"]
+            b8_tmp = tmp / "B8_s3_final.pth"
+            _download_verified_asset(assets["B8_s3_final.pth"], b8_tmp, opener)
+            if b8_tmp.stat().st_size != int(b8_row["size_bytes"]) or digest(b8_tmp) != str(
+                b8_row["sha256"]
+            ):
+                raise public_inputs.PublicInputError("B8 checkpoint bytes differ from catalog")
+            pub_b8 = publish_immutable(
+                root / "checkpoints/b8_s3_t7_20261016.pth",
+                b8_tmp.read_bytes(),
+            )
+            published["checkpoints/b8_s3_t7_20261016.pth"] = str(pub_b8["sha256"])
+
+            frp3_name = "frp3_m3_s12_u60000_20261005.pth"
+            frp3_row = by_name[frp3_name]
+            league_tmp = tmp / "league.tar.gz"
+            _download_verified_asset(assets["league.tar.gz"], league_tmp, opener)
+            with tarfile.open(league_tmp, "r:gz") as tar:
+                members = {
+                    Path(member.name).name: member for member in tar.getmembers() if member.isfile()
+                }
+                member = members.get(frp3_name)
+                if member is None:
+                    raise public_inputs.PublicInputError(
+                        f"league archive lacks required checkpoint {frp3_name}"
+                    )
+                extracted = tar.extractfile(member)
+                if extracted is None:
+                    raise public_inputs.PublicInputError(f"unreadable league member {frp3_name}")
+                ckpt_tmp = tmp / frp3_name
+                written = 0
+                hasher = hashlib.sha256()
+                with extracted, ckpt_tmp.open("xb") as stream:
+                    while block := extracted.read(public_inputs.CHUNK):
+                        written += len(block)
+                        if written > int(frp3_row["size_bytes"]):
+                            raise public_inputs.PublicInputError(
+                                f"league member exceeds declared size: {frp3_name}"
+                            )
+                        hasher.update(block)
+                        stream.write(block)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                if written != int(frp3_row["size_bytes"]) or hasher.hexdigest() != str(
+                    frp3_row["sha256"]
+                ):
+                    raise public_inputs.PublicInputError(
+                        f"checkpoint member bytes differ: {frp3_name}"
+                    )
+                pub_frp3 = publish_immutable(
+                    root / f"checkpoints/{frp3_name}",
+                    ckpt_tmp.read_bytes(),
+                )
+                published[f"checkpoints/{frp3_name}"] = str(pub_frp3["sha256"])
+
+    if verify_pins:
+        _verify_checkpoint_pins(root)
+    else:
+        for ckpt_name in CHECKPOINTS:
+            verify_immutable(root / "checkpoints" / ckpt_name)
+    return published
+
+
+def stage_metadata(
+    root: Path,
+    expected_sha256: str,
+    *,
+    verify_pins: bool = True,
+    materialize_checkpoints: bool = True,
+    opener: Callable[..., Any] = urlopen,
+) -> None:
+    """Verify METADATA archive, unpack create-only with .complete last, materialize checkpoints."""
     root = root.resolve(strict=True)
     path = root / METADATA
     if (
         path.is_symlink()
         or not path.is_file()
-        or path.stat().st_size > MAX_METADATA_BYTES
+        or path.stat().st_size > CHUNK_BYTES
         or digest(path) != expected_sha256
     ):
         raise ValueError("metadata archive SHA256 or size mismatch")
@@ -143,14 +345,7 @@ def stage_metadata(root: Path, expected_sha256: str) -> None:
     for name, data in payloads.items():
         if inventory[name] != {"sha256": hashlib.sha256(data).hexdigest(), "size": len(data)}:
             raise ValueError(f"metadata member digest/size mismatch: {name}")
-        target = root / name
-        if target.exists() or target.is_symlink():
-            raise ValueError(f"metadata destination already exists or is unsafe: {name}")
-        cur = target.parent
-        while cur != root:
-            if cur.is_symlink():
-                raise ValueError(f"metadata parent directory is a symlink: {cur}")
-            cur = cur.parent
+        _assert_safe_new_target(root, name)
 
     # Publish all payloads and .sha256 sidecars first, then .complete markers last.
     with tempfile.TemporaryDirectory(prefix=".metadata-", dir=root) as temporary:
@@ -163,71 +358,43 @@ def stage_metadata(root: Path, expected_sha256: str) -> None:
             target.parent.mkdir(parents=True, exist_ok=True)
             os.link(staged, target)
 
-
-def checkpoint_inputs(saved: Path, directory: Path) -> list[Input]:
-    """Split exact released checkpoint bytes into 2 MiB parts without reserializing."""
-    pins = json.loads((p.ROOT / "web/backend/served_checkpoint_pins.json").read_text("utf-8"))
-    directory.mkdir(parents=True, exist_ok=False)
-    inputs: list[Input] = []
-    for name, (pin, size) in CHECKPOINTS.items():
-        path = saved / name
-        if (
-            path.stat().st_size != size
-            or digest(path) != pins["checkpoints"][pin]["checkpoint_sha256"]
-        ):
-            raise ValueError(f"released checkpoint identity differs: {name}")
-        with path.open("rb") as stream:
-            for index in range((size + PART_BYTES - 1) // PART_BYTES):
-                part = directory / f"{name}.{index:03d}.part"
-                with part.open("xb") as output:
-                    output.write(stream.read(PART_BYTES))
-                inputs.append(Input(part, "checkpoint-parts/" + part.name))
-    return inputs
+    for payload_name in SMALL_PAYLOADS:
+        verify_immutable(root / payload_name)
+    if materialize_checkpoints:
+        materialize_watch_checkpoints(root, verify_pins=verify_pins, opener=opener)
 
 
-def stage_checkpoints(input_root: Path) -> None:
-    """Verify every immutable checkpoint part, then atomically publish full checkpoints."""
-    pins = json.loads((p.ROOT / "web/backend/served_checkpoint_pins.json").read_text("utf-8"))
-    output = input_root / "checkpoints"
-    output.mkdir(exist_ok=False)
-    for name, (pin, size) in CHECKPOINTS.items():
-        with tempfile.NamedTemporaryFile(dir=output, delete=False) as stream:
-            temporary = Path(stream.name)
-            try:
-                for index in range((size + PART_BYTES - 1) // PART_BYTES):
-                    part = input_root / "checkpoint-parts" / f"{name}.{index:03d}.part"
-                    verified = verify_immutable(part)
-                    if verified["size"] != min(PART_BYTES, size - index * PART_BYTES):
-                        raise ValueError(f"checkpoint part size differs: {part.name}")
-                    stream.write(part.read_bytes())
-                stream.flush()
-                os.fsync(stream.fileno())
-                if (
-                    temporary.stat().st_size != size
-                    or digest(temporary) != pins["checkpoints"][pin]["checkpoint_sha256"]
-                ):
-                    raise ValueError(f"reassembled checkpoint digest differs from pin: {name}")
-                temporary.chmod(0o444)
-                os.link(temporary, output / name)
-            finally:
-                temporary.unlink(missing_ok=True)
+def _serial_rpcs_for_size(size: int) -> int:
+    """Count effective serial RPC waves (2 parallel chunk workers + 1 assemble RPC if >2 MiB)."""
+    if size <= CHUNK_BYTES:
+        return 1
+    chunks = math.ceil(size / CHUNK_BYTES)
+    return math.ceil(chunks / 2) + 1
 
 
 def check_uploads(manifest: dict[str, Any]) -> dict[str, Any]:
-    """Enforce <= 4 MiB per file, <= 12 transfers, and <= 90 s at 5 s/RPC + 1 MB/s."""
+    """Enforce <= 8 transfers, <= 2 MiB per local input, <= 4 MiB max file, and <= 60 s est."""
     limit = int(manifest["max_export_bytes"])
     if limit <= 0 or limit > MAX_FILE_BYTES:
         raise ValueError(f"manifest max_export_bytes must be in 1..{MAX_FILE_BYTES}, got {limit}")
     rows: list[dict[str, Any]] = []
 
-    def check(name: str, size: int) -> None:
+    def check(name: str, size: int, *, local_input: bool = False) -> None:
         if size > limit:
             raise ValueError(f"upload exceeds bounded transfer size: {name}: {size} > {limit}")
+        if local_input and size > CHUNK_BYTES:
+            raise ValueError(
+                f"unsplit local input exceeds 2 MiB single-chunk bound: "
+                f"{name}: {size} > {CHUNK_BYTES}"
+            )
         rows.append({"dest": name, "size_bytes": size})
 
     for item in manifest["inputs"]:
         if "path" in item:
-            check("inputs/" + item["dest"], Path(item["path"]).stat().st_size)
+            in_path = Path(item["path"])
+            if in_path.is_symlink() or not in_path.is_file():
+                raise ValueError(f"missing or symlinked input path: {in_path}")
+            check("inputs/" + item["dest"], in_path.stat().st_size, local_input=True)
 
     with tempfile.TemporaryDirectory(prefix="watch6-alllen-upload-preflight-") as temporary:
         staging = Path(temporary)
@@ -256,34 +423,47 @@ def check_uploads(manifest: dict[str, Any]) -> dict[str, Any]:
 
     normal_count = len(normal_transfers)
     normal_bytes = sum(int(row["size_bytes"]) for row in normal_transfers)
-    normal_estimated = normal_count * SECONDS_PER_TRANSFER + normal_bytes / BYTES_PER_SECOND
+    normal_waves = sum(_serial_rpcs_for_size(int(row["size_bytes"])) for row in normal_transfers)
+    normal_estimated = normal_waves * SECONDS_PER_TRANSFER + normal_bytes / BYTES_PER_SECOND
 
     count = len(fallback_transfers)
     total_bytes = sum(int(row["size_bytes"]) for row in fallback_transfers)
-    estimated = count * SECONDS_PER_TRANSFER + total_bytes / BYTES_PER_SECOND
+    fallback_waves = sum(
+        _serial_rpcs_for_size(int(row["size_bytes"])) for row in fallback_transfers
+    )
+    chunk_puts = sum(
+        max(1, math.ceil(int(row["size_bytes"]) / CHUNK_BYTES)) for row in fallback_transfers
+    )
+    estimated = fallback_waves * SECONDS_PER_TRANSFER + total_bytes / BYTES_PER_SECOND
 
     transfer_cap = transfer_policy.transfer_limit(manifest)
     staging_estimated = estimated + source.FETCH_TIMEOUT_SECONDS
     if (
-        count > MAX_TRANSFERS
+        normal_count > MAX_TRANSFERS
+        or count > MAX_TRANSFERS
+        or chunk_puts > MAX_TRANSFERS
+        or normal_estimated > MAX_ESTIMATED_TRANSFER_SECONDS
         or estimated > MAX_ESTIMATED_TRANSFER_SECONDS
         or estimated >= transfer_cap
         or staging_estimated >= transfer_policy.MAX_STAGING_SECONDS
     ):
         raise ValueError(
-            f"upload transfer forecast refuses offline: {count} transfers (max {MAX_TRANSFERS}), "
-            f"{estimated:.3f}s (budget {MAX_ESTIMATED_TRANSFER_SECONDS:g}s, "
-            f"cap {transfer_cap:g}s); {staging_estimated:.3f}s staging forecast"
+            f"upload transfer forecast refuses offline: {count} transfers / {chunk_puts} chunk "
+            f"PUTs (max {MAX_TRANSFERS}), {estimated:.3f}s (budget "
+            f"{MAX_ESTIMATED_TRANSFER_SECONDS:g}s, cap {transfer_cap:g}s); "
+            f"{staging_estimated:.3f}s staging forecast"
         )
 
     return {
         "status": "PASS",
         "max_upload_bytes": limit,
+        "max_input_part_bytes": CHUNK_BYTES,
         "files": rows,
         "normal_transfer_count": normal_count,
         "normal_transfer_bytes": normal_bytes,
         "normal_estimated_transfer_seconds": normal_estimated,
         "transfer_count": count,
+        "chunk_put_count": chunk_puts,
         "transfer_bytes": total_bytes,
         "seconds_per_transfer": SECONDS_PER_TRANSFER,
         "bytes_per_second": BYTES_PER_SECOND,
@@ -293,5 +473,5 @@ def check_uploads(manifest: dict[str, Any]) -> dict[str, Any]:
         "transfer_cap_seconds": transfer_cap,
         "estimated_staging_seconds": staging_estimated,
         "staging_cap_seconds": transfer_policy.MAX_STAGING_SECONDS,
-        "scope": "offline forecast (normal + sparse fallback) under 5 s/RPC + 1 MB/s model",
+        "scope": "offline forecast (normal + sparse fallback) under 5 s/RPC-wave + 1 MB/s model",
     }

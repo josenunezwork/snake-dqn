@@ -13,16 +13,186 @@ from typing import Any
 from research.colab_cli import canary
 from research.watch6_alllen_screen import protocol as p
 from research.watch6_alllen_screen import seed_audit
-from research.watch6_alllen_screen.run import completed
+from research.watch6_alllen_screen.run import completed, shard_unverified_rows
 from research.watch6_alllen_screen.uploads import (
     MAX_FILE_BYTES,
     METADATA,
     check_uploads,
-    checkpoint_inputs,
     pack_inputs,
 )
 from research.watch_replay.prepare import release_bundle
 from tools.ops.package_spec import Input, digest, empty_ledger, publish_json, stage_inputs
+
+# Measured packet-02 L4 W4 wall rate: 9 completed 3-arm H=6000 units in 5.7 h across 4 workers
+# (~2.0 h = 7,200 s per 3-arm H=6000 unit per worker).
+MEASURED_COLAB_W4_UNIT_SECONDS_H6000 = 7200.0
+
+# Empirical 12-vCPU Colab Xeon scaling (watch6-canary-transport01, 6 physical cores / 12 threads):
+# W=4 -> 4.0180 s/root; W=6 -> 4.1444 s/root (+3.15% contention, 1.45x machine throughput);
+# W=8 -> 5.3798 s/root (+33.89% SMT oversubscription slowdown).
+CONTENTION_FACTORS_12VCPU: dict[int, float] = {
+    1: 1.0,
+    2: 1.0,
+    4: 1.0,
+    6: round(4.1444 / 4.0180, 6),
+    8: round(5.3798 / 4.0180, 6),
+}
+
+GPU_RATES: dict[str, float] = {
+    "L4": 1.54,
+    "A100": 8.0,
+}
+
+
+def compute_forecast(
+    measured: dict[str, Any],
+    *,
+    assigned_units: int,
+    total_remaining_units: int,
+    horizon: int,
+    workers: int,
+    gpu: str,
+    shard_index: int = 0,
+    shard_count: int = 1,
+) -> dict[str, Any]:
+    """Compute measured ~2 h/unit/worker Colab forecast with 12-vCPU contention scaling."""
+    if workers not in CONTENTION_FACTORS_12VCPU:
+        raise ValueError("workers must be in {1, 2, 4, 6, 8}")
+    if gpu not in GPU_RATES:
+        raise ValueError(f"unsupported gpu: {gpu}")
+    singleton = float(
+        statistics.median(
+            float(item["seconds"]) / max(1, int(item["branches"]))
+            for item in measured["branch_timings"]
+        )
+    )
+    horizon_scale = horizon / 6000.0
+    contention = CONTENTION_FACTORS_12VCPU[workers]
+    colab_unit_seconds = MEASURED_COLAB_W4_UNIT_SECONDS_H6000 * horizon_scale * contention
+    waves = math.ceil(assigned_units / workers) if assigned_units > 0 else 0
+    base_minutes = (
+        30 if waves == 0 else max(30, math.ceil(colab_unit_seconds * waves / 60.0 + 25.0))
+    )
+    if base_minutes > 660:
+        raise ValueError("base forecast exceeds 11h (22h effective 2x cap); split across shards")
+    central_hours = round(colab_unit_seconds * waves / 3600.0, 2)
+    return {
+        "basis": (
+            "measured Colab packet-02 L4 W4 rate (9/48 3-arm H=6000 units in 5.7 h = ~7200 s "
+            "per unit per worker) scaled by 12-vCPU Colab contention factor"
+        ),
+        "mac_h300_l900_singleton_median_seconds": singleton,
+        "measured_colab_w4_h6000_unit_seconds": MEASURED_COLAB_W4_UNIT_SECONDS_H6000,
+        "contention_factor_vs_w4": contention,
+        "projected_unit_seconds_per_worker": round(colab_unit_seconds, 2),
+        "gpu": gpu,
+        "rate_units_per_hour": GPU_RATES[gpu],
+        "workers": workers,
+        "shard_index": shard_index,
+        "shard_count": shard_count,
+        "total_remaining_units": total_remaining_units,
+        "assigned_units": assigned_units,
+        "remaining_units": assigned_units,
+        "waves": waves,
+        "base_minutes": base_minutes,
+        "effective_timeout_minutes": 2 * base_minutes,
+        "expected_runtime_hours_central": central_hours,
+        "owner_2x_rule": "effective timeout, unit_cap, and reserve_units are 2x base forecast",
+    }
+
+
+def build_manifest(
+    *,
+    job_id: str,
+    commit: str,
+    output_dir: Path,
+    gpu: str,
+    base_minutes: int,
+    contract: dict[str, Any],
+    attempt: int,
+    forecast: dict[str, Any],
+    staged_inputs: list[dict[str, Any]],
+    metadata_sha256: str,
+    label: str,
+    workers: int,
+    is_probe: bool,
+    shard_index: int = 0,
+    shard_count: int = 1,
+) -> dict[str, Any]:
+    """Construct one validated canary or main shard manifest."""
+    rate = GPU_RATES[gpu]
+    base = 15 if is_probe else base_minutes
+    base_units = round(base / 60.0 * rate, 4)
+    base_reserve = round(base_units * 0.2, 4)
+    manifest: dict[str, Any] = {
+        "job_id": job_id,
+        "commit": commit,
+        "script": p.SCRIPT,
+        "source_paths": p.source_paths(),
+        "device": "cpu",
+        "lease_seconds": 300,
+        "timeout_minutes": 2 * base,
+        "output_dir": str(output_dir),
+        "max_export_bytes": MAX_FILE_BYTES,
+        "requirements": {
+            "gpu": gpu,
+            "allowed_gpus": [gpu],
+            "min_vcpu": 12,
+            "est_minutes": base,
+        },
+        "budget": {
+            "unit_cap": round(2.0 * base_units, 4),
+            "reserve_units": round(2.0 * base_reserve, 4),
+            "rate_units_per_hour": rate,
+            "other_assignments": {},
+        },
+        "watch6_alllen_screen": {
+            "lane": p.LANE,
+            "decision_rule": p.DECISION_RULE,
+            "allocation": p.contract_identity(contract),
+            "attempt": attempt,
+            "shard_index": 0 if is_probe else shard_index,
+            "shard_count": 1 if is_probe else shard_count,
+            "base_minutes": base,
+            "effective_timeout_minutes": 2 * base,
+            "base_unit_cap": base_units,
+            "effective_unit_cap": round(2.0 * base_units, 4),
+            "base_reserve_units": base_reserve,
+            "effective_reserve_units": round(2.0 * base_reserve, 4),
+            "forecast": forecast,
+        },
+        "resume": {
+            "unit_kind": p.UNIT_KIND,
+            "ledger_path": f"inputs/{label}-ledger.json",
+            "skip_verified": True,
+            "max_outcome_blind_retries": 2,
+        },
+        "required_exports": ["units/operational.json", "units/contract.json"],
+        "inputs": [{k: row[k] for k in ("path", "dest", "sha256")} for row in staged_inputs],
+        "env": {
+            "COLAB_CLI_REQUIREMENTS": "research/bl_served_search/requirements.txt",
+            "PYTHONUNBUFFERED": "1",
+            "SNAKE_DQN_DEVICE": "cpu",
+            "WATCH6_ALLLEN_CONTRACT": f"{label}-contract.json",
+            "WATCH6_ALLLEN_LEDGER": f"{label}-ledger.json",
+            "WATCH6_ALLLEN_METADATA_SHA256": metadata_sha256,
+            "WATCH6_ALLLEN_SHARD_INDEX": "0" if is_probe else str(shard_index),
+            "WATCH6_ALLLEN_SHARD_COUNT": "1" if is_probe else str(shard_count),
+            "WATCH6_ALLLEN_WORKERS": "1" if is_probe else str(workers),
+        },
+    }
+    if is_probe:
+        manifest["required_exports"].extend(["units/unit-000000.json", "branches.json"])
+        manifest["env"].update(
+            SNAKE_COLAB_CANARY="1",
+            SNAKE_COLAB_CANARY_PACKAGE=p.PACKAGE,
+        )
+        manifest["canary"] = {
+            "schema": canary.SCHEMA,
+            "mode": "probe",
+            "family": canary.family(manifest),
+        }
+    return manifest
 
 
 def prepare(
@@ -33,17 +203,22 @@ def prepare(
     namespace: str = p.NAMESPACE,
     count: int = p.COUNT,
     horizon: int = p.HORIZON,
+    gpu: str = "L4",
     workers: int = 4,
+    shard_index: int = 0,
+    shard_count: int = 1,
     canary_receipt: Path | None = None,
     ledger: Path | None = None,
     previous_receipts: list[Path] | None = None,
     skip_seed_audit: bool = False,
 ) -> dict[str, Any]:
-    """Stage identical inputs for short canary and 48-pair main exploration run."""
+    """Stage packed inputs (<=8 transfers, <=60 s) for canary and sharded/single main run."""
     if not 1 <= count <= 64:
         raise ValueError("packet count must be 1..64")
-    if workers not in (1, 2, 4, 6, 8):
+    if workers not in CONTENTION_FACTORS_12VCPU:
         raise ValueError("workers must be in {1, 2, 4, 6, 8}")
+    if gpu not in GPU_RATES:
+        raise ValueError(f"gpu must be one of {sorted(GPU_RATES)}")
     refs = subprocess.check_output(
         ["git", "branch", "-r", "--contains", commit], cwd=p.ROOT, text=True
     )
@@ -150,136 +325,58 @@ def prepare(
             ]
         )
 
-    saved_dir = p.ROOT.parent / "snake-dqn" / "saved_snakes"
-    if not saved_dir.is_dir():
-        saved_dir = p.ROOT / "saved_snakes"
-    inputs.extend(checkpoint_inputs(saved_dir, out / "checkpoint-parts"))
-
     pins = json.loads(
         (p.ROOT / "web/backend/served_checkpoint_pins.json").read_text(encoding="utf-8")
     )
     bundle = out / "release-evidence.tar.gz"
     release_bundle(bundle, pins)
     inputs.append(Input(bundle, "release-evidence.tar.gz"))
+    inputs.append(Input(p.ROOT / "research/t34_exit_b8/PUBLIC_INPUTS.json", "public-inputs.json"))
     staged = pack_inputs(stage_inputs(out / "staged", inputs), out / METADATA)
     metadata_sha256 = next(row["sha256"] for row in staged if row["dest"] == METADATA)
 
-    singleton = float(
-        statistics.median(
-            float(item["seconds"]) / max(1, int(item["branches"]))
-            for item in measured["branch_timings"]
-        )
+    skip_set = {int(row["index"]) for row in verified}
+    assigned_rows = shard_unverified_rows(
+        contracts["main"], skip_set, shard_index=shard_index, shard_count=shard_count
     )
-    # 3-arm H6000 unit forecast: bare (0 roots) + L2' (~420 roots at L>=600) +
-    # L>=1 (~720 roots at L<600 weighted 0.65x L=900 cost + ~420 roots at L>=600),
-    # ~1.2 branches/root via exact_stop, plus main-loop GridBatchSim step time.
-    horizon_scale = horizon / 6000.0
-    expected_roots_3arm = (420.0 + 1140.0) * horizon_scale
-    weighted_l900_equiv_roots = (840.0 + 720.0 * 0.65) * horizon_scale
-    expected_branches_3arm = expected_roots_3arm * 1.2
-    mac_unit_seconds = weighted_l900_equiv_roots * 1.2 * singleton + 90.0 * horizon_scale
-    colab_unit_seconds = mac_unit_seconds * 1.35 * 1.15
-    remaining_units = count - len(verified)
-    waves = math.ceil(max(1, remaining_units) / workers)
-    base_minutes = max(360, math.ceil(colab_unit_seconds * waves / 60.0 + 25.0))
-    if base_minutes > 660:
-        raise ValueError("base forecast exceeds 11h (22h effective 2x cap); split packet")
-
-    forecast = {
-        "mac_h300_l900_singleton_median_seconds": singleton,
-        "expected_roots_per_3arm_unit": expected_roots_3arm,
-        "expected_branches_per_3arm_unit": expected_branches_3arm,
-        "cloud_slowdown_projection": 1.35,
-        "contention_projection": 1.15,
-        "workers": workers,
-        "remaining_units": remaining_units,
-        "base_minutes": base_minutes,
-        "effective_timeout_minutes": 2 * base_minutes,
-        "expected_l4_hours_central": round(colab_unit_seconds * waves / 3600.0, 2),
-        "owner_2x_rule": "effective timeout, unit_cap, and reserve_units are 2x base forecast",
-    }
+    forecast = compute_forecast(
+        measured,
+        assigned_units=len(assigned_rows),
+        total_remaining_units=count - len(skip_set),
+        horizon=horizon,
+        workers=workers,
+        gpu=gpu,
+        shard_index=shard_index,
+        shard_count=shard_count,
+    )
     publish_json(out / "forecast.json", forecast)
 
-    rate = 1.54
     for label in ("canary", "main"):
         is_probe = label == "canary"
-        base = 15 if is_probe else base_minutes
-        base_units = round(base / 60.0 * rate, 4)
-        base_reserve = round(base_units * 0.2, 4)
-        manifest: dict[str, Any] = {
-            "job_id": f"watch6-alllen-{label}-{out.name}",
-            "commit": commit,
-            "script": p.SCRIPT,
-            "source_paths": p.source_paths(),
-            "device": "cpu",
-            "lease_seconds": 300,
-            "timeout_minutes": 2 * base,
-            "output_dir": str(out / f"output-{label}"),
-            "max_export_bytes": MAX_FILE_BYTES,
-            "requirements": {
-                "gpu": "L4",
-                "allowed_gpus": ["L4"],
-                "min_vcpu": 12,
-                "est_minutes": base,
-            },
-            "budget": {
-                "unit_cap": round(2.0 * base_units, 4),
-                "reserve_units": round(2.0 * base_reserve, 4),
-                "rate_units_per_hour": rate,
-                "other_assignments": {},
-            },
-            "watch6_alllen_screen": {
-                "lane": p.LANE,
-                "decision_rule": p.DECISION_RULE,
-                "allocation": p.contract_identity(contracts[label]),
-                "attempt": len(previous_receipts) + 1,
-                "base_minutes": base,
-                "effective_timeout_minutes": 2 * base,
-                "base_unit_cap": base_units,
-                "effective_unit_cap": round(2.0 * base_units, 4),
-                "base_reserve_units": base_reserve,
-                "effective_reserve_units": round(2.0 * base_reserve, 4),
-                "forecast": forecast,
-            },
-            "resume": {
-                "unit_kind": p.UNIT_KIND,
-                "ledger_path": f"inputs/{label}-ledger.json",
-                "skip_verified": True,
-                "max_outcome_blind_retries": 2,
-            },
-            "required_exports": ["units/operational.json", "units/contract.json"],
-            "inputs": [{k: row[k] for k in ("path", "dest", "sha256")} for row in staged],
-            "env": {
-                "COLAB_CLI_REQUIREMENTS": "research/bl_served_search/requirements.txt",
-                "PYTHONUNBUFFERED": "1",
-                "SNAKE_DQN_DEVICE": "cpu",
-                "WATCH6_ALLLEN_CONTRACT": f"{label}-contract.json",
-                "WATCH6_ALLLEN_LEDGER": f"{label}-ledger.json",
-                "WATCH6_ALLLEN_METADATA_SHA256": metadata_sha256,
-                "WATCH6_ALLLEN_WORKERS": "1" if is_probe else str(workers),
-            },
-        }
+        manifest = build_manifest(
+            job_id=f"watch6-alllen-{label}-{out.name}",
+            commit=commit,
+            output_dir=out / f"output-{label}",
+            gpu=gpu,
+            base_minutes=int(forecast["base_minutes"]),
+            contract=contracts[label],
+            attempt=len(previous_receipts) + 1,
+            forecast=forecast,
+            staged_inputs=staged,
+            metadata_sha256=metadata_sha256,
+            label=label,
+            workers=workers,
+            is_probe=is_probe,
+            shard_index=shard_index,
+            shard_count=shard_count,
+        )
+        upload_report = check_uploads(manifest)
+        publish_json(out / f"{label}-upload-preflight.json", upload_report)
         if is_probe:
-            manifest["required_exports"].extend(["units/unit-000000.json", "branches.json"])
-            manifest["env"].update(
-                SNAKE_COLAB_CANARY="1",
-                SNAKE_COLAB_CANARY_PACKAGE=p.PACKAGE,
-            )
-            manifest["canary"] = {
-                "schema": canary.SCHEMA,
-                "mode": "probe",
-                "family": canary.family(manifest),
-            }
-            upload_report = check_uploads(manifest)
-            publish_json(out / f"{label}-upload-preflight.json", upload_report)
             (out / "canary.json").write_text(
                 json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
             )
         else:
-            upload_report = check_uploads(manifest)
-            publish_json(out / f"{label}-upload-preflight.json", upload_report)
-            # Always write main-unsealed.json so ready_queue --prepare-command can seal
-            # main.json create-only once the canary receipt exists.
             (out / "main-unsealed.json").write_text(
                 json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
             )
@@ -307,7 +404,10 @@ def main() -> None:
     parser.add_argument("--namespace", default=p.NAMESPACE)
     parser.add_argument("--count", type=int, default=p.COUNT)
     parser.add_argument("--horizon", type=int, default=p.HORIZON)
+    parser.add_argument("--gpu", default="L4", choices=sorted(GPU_RATES))
     parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--shard-index", type=int, default=0)
+    parser.add_argument("--shard-count", type=int, default=1)
     parser.add_argument("--canary-receipt", type=Path)
     parser.add_argument("--ledger", type=Path)
     parser.add_argument("--previous-receipts", type=Path, nargs="*", default=[])
@@ -321,7 +421,10 @@ def main() -> None:
                 namespace=args.namespace,
                 count=args.count,
                 horizon=args.horizon,
+                gpu=args.gpu,
                 workers=args.workers,
+                shard_index=args.shard_index,
+                shard_count=args.shard_count,
                 canary_receipt=args.canary_receipt,
                 ledger=args.ledger,
                 previous_receipts=args.previous_receipts,

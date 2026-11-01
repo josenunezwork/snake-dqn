@@ -34,6 +34,22 @@ def completed(ledger: Path, contract: dict[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
+def shard_unverified_rows(
+    contract: dict[str, Any],
+    skip: set[int],
+    *,
+    shard_index: int = 0,
+    shard_count: int = 1,
+) -> list[dict[str, Any]]:
+    """Deterministically partition remaining unverified rows across disjoint shards."""
+    if not 1 <= shard_count <= 16:
+        raise ValueError("shard_count must be in 1..16")
+    if not 0 <= shard_index < shard_count:
+        raise ValueError("shard_index must be in 0..shard_count-1")
+    unverified = [row for row in contract["rows"] if row["index"] not in skip]
+    return unverified[shard_index::shard_count]
+
+
 def validate_contract(contract: dict[str, Any]) -> None:
     """Ensure the runtime contract matches the deterministic protocol constructor."""
     if "commit" not in contract or not isinstance(contract["commit"], str):
@@ -161,17 +177,28 @@ def generate(task: tuple[dict[str, Any], dict[str, Any], str]) -> dict[str, Any]
     }
 
 
-def run(contract: dict[str, Any], ledger: Path, out: Path, workers: int) -> list[dict[str, Any]]:
-    """Skip uploaded Mac-verified units; execute remaining units across worker pool."""
+def run(
+    contract: dict[str, Any],
+    ledger: Path,
+    out: Path,
+    workers: int,
+    *,
+    shard_index: int = 0,
+    shard_count: int = 1,
+) -> list[dict[str, Any]]:
+    """Skip uploaded Mac-verified units; execute assigned shard units across worker pool."""
     validate_contract(contract)
-    if not 1 <= workers <= min(os.cpu_count() or 1, 10):
+    if not 1 <= workers <= min(os.cpu_count() or 1, 12):
         raise ValueError("invalid worker count")
     verified = completed(ledger, contract)
     skip = {row["index"] for row in verified}
+    assigned_rows = shard_unverified_rows(
+        contract, skip, shard_index=shard_index, shard_count=shard_count
+    )
     out.mkdir(parents=True, exist_ok=False)
     publish_json(out / "contract.json", contract)
 
-    tasks = [(contract, row, str(out)) for row in contract["rows"] if row["index"] not in skip]
+    tasks = [(contract, row, str(out)) for row in assigned_rows]
     rows: list[dict[str, Any]] = []
     exclusions: list[dict[str, Any]] = []
 
@@ -189,7 +216,7 @@ def run(contract: dict[str, Any], ledger: Path, out: Path, workers: int) -> list
             rows.append(result)
 
     try:
-        if workers == 1:
+        if workers == 1 or not tasks:
             for task in tasks:
                 try:
                     collect(task, generate(task))
@@ -201,7 +228,7 @@ def run(contract: dict[str, Any], ledger: Path, out: Path, workers: int) -> list
             context = multiprocessing.get_context("spawn")
             stop_event = context.Event()
             with ProcessPoolExecutor(
-                max_workers=workers,
+                max_workers=min(workers, len(tasks)),
                 mp_context=context,
                 initializer=initialize_worker,
                 initargs=(stop_event,),
@@ -225,6 +252,9 @@ def run(contract: dict[str, Any], ledger: Path, out: Path, workers: int) -> list
             out / "operational.json",
             {
                 "allocation": p.contract_identity(contract),
+                "shard_index": shard_index,
+                "shard_count": shard_count,
+                "assigned_indices": [int(row["index"]) for row in assigned_rows],
                 "completed": len(rows),
                 "skipped": sorted(skip),
                 "total": contract["count"],
@@ -243,10 +273,24 @@ def main() -> None:
     parser.add_argument("--ledger", required=True, type=Path)
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--shard-index", type=int, default=0)
+    parser.add_argument("--shard-count", type=int, default=1)
     args = parser.parse_args()
     contract = json.loads(args.contract.read_text(encoding="utf-8"))
     validate_contract(contract)
-    print(json.dumps(run(contract, args.ledger, args.out, args.workers), sort_keys=True))
+    print(
+        json.dumps(
+            run(
+                contract,
+                args.ledger,
+                args.out,
+                args.workers,
+                shard_index=args.shard_index,
+                shard_count=args.shard_count,
+            ),
+            sort_keys=True,
+        )
+    )
 
 
 if __name__ == "__main__":

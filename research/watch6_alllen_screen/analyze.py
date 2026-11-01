@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import platform
+import re
 from pathlib import Path
 from typing import Any
 
@@ -12,7 +13,11 @@ import numpy as np
 from scipy.stats import t
 
 from research.watch6_alllen_screen import protocol as p
+from tools.ops import auto_retry, ready_queue
 from tools.ops.package_spec import publish_json, verify_immutable
+from web.backend.watch_replay import B8_SHA, FRP3_SHA
+
+COMMIT_RE = re.compile(r"[0-9a-f]{40}")
 
 
 def _paired_ci(diff: np.ndarray, confidence: float = 0.95) -> list[float]:
@@ -178,17 +183,23 @@ def analyze(
     ):
         raise ValueError("incomplete or duplicate unit union; refusing readout")
     rows = sorted(rows, key=lambda r: r["allocation"]["index"])
-    expected_alloc = p.allocation(expected_namespace, expected_count, expected_horizon)
-    contract_hashes = {r["contract_identity"]["contract_sha256"] for r in rows}
-    source_commits = {r["source_commit"] for r in rows}
-    if len(contract_hashes) != 1 or len(source_commits) != 1:
-        raise ValueError("mixed contract identities or commits across units")
+    expected_alloc = p.allocation(
+        expected_namespace, expected_count, expected_horizon, audit_live_mirror=False
+    )
+    source_commits: set[str] = set()
+    contract_hashes: set[str] = set()
 
     for row, exp_row in zip(rows, expected_alloc["rows"]):
+        commit = row.get("source_commit")
+        if not isinstance(commit, str) or COMMIT_RE.fullmatch(commit) is None:
+            raise ValueError("unit missing 40-char hex source_commit")
+        expected_cid = p.contract_identity({**expected_alloc, "commit": commit})
         if (
             row.get("schema") != p.UNIT_SCHEMA
             or row.get("namespace") != expected_namespace
             or row["allocation"] != {**exp_row, "horizon": expected_horizon}
+            or row.get("contract_identity") != expected_cid
+            or row.get("checkpoint_shas") != {"hero": B8_SHA, "opponents": FRP3_SHA}
             or (not allow_fixture and row.get("fixture") is not False)
         ):
             raise ValueError("foreign namespace, fixture, or corrupted unit allocation")
@@ -197,6 +208,8 @@ def analyze(
         for arm in p.ARMS:
             if row["arms"][arm]["frames"] != expected_horizon:
                 raise ValueError(f"incomplete horizon in arm {arm}")
+        source_commits.add(commit)
+        contract_hashes.add(expected_cid["contract_sha256"])
 
     incremental = _compare_pair(rows, "exact_stop_alllen", "l2_prime_600", expected_horizon)
     l2_vs_bare = _compare_pair(rows, "l2_prime_600", "bare", expected_horizon)
@@ -205,6 +218,8 @@ def analyze(
     mass_bar_met = incremental["mass_delta_mean"] >= p.ADOPT_MASS_DELTA_MIN
     deaths_bar_met = incremental["deaths_per_1k_delta_mean"] <= p.ADOPT_DEATH_DELTA_PER_1K_MAX
     adopt_alllen = bool(mass_bar_met and deaths_bar_met)
+    sorted_commits = sorted(source_commits)
+    sorted_hashes = sorted(contract_hashes)
 
     return {
         "schema": "watch6-alllen-screen-readout/v1",
@@ -214,8 +229,10 @@ def analyze(
             "controller selection; not release or confirmation evidence"
         ),
         "namespace": expected_namespace,
-        "source_commit": next(iter(source_commits)),
-        "contract_sha256": next(iter(contract_hashes)),
+        "source_commit": sorted_commits[-1],
+        "source_commits": sorted_commits,
+        "contract_sha256": sorted_hashes[-1],
+        "contract_sha256s": sorted_hashes,
         "n": expected_count,
         "horizon": expected_horizon,
         "decision_rule": {
@@ -243,6 +260,7 @@ def analyze(
             {
                 "index": row["allocation"]["index"],
                 "seed": row["allocation"]["seed"],
+                "source_commit": row["source_commit"],
                 "arm_execution_order": row["arm_execution_order"],
                 "bare_mass": row["arms"]["bare"]["mass_integral"],
                 "l2_prime_600_mass": row["arms"]["l2_prime_600"]["mass_integral"],
@@ -258,27 +276,51 @@ def analyze(
     }
 
 
+def resolve_queue_unit_dirs(ops: Path, queue_ids: list[str]) -> list[Path]:
+    """Resolve queue IDs across auto-retry and -retry-1 chains to their exports/units dirs."""
+    queue = auto_retry.read(ops / "ready-queue.json")
+    dirs: list[Path] = []
+    for qid in queue_ids:
+        row = ready_queue.latest(queue, qid)
+        name = row["argv"][1]
+        internal = ops / "manifests" / f"{name}-retry-1.json"
+        manifest_path = internal if internal.exists() else Path(row["manifest"])
+        manifest = auto_retry.read(manifest_path)
+        dirs.append(Path(manifest["output_dir"]) / "exports" / "units")
+    return dirs
+
+
 def collect_unit_files(roots_or_files: list[Path]) -> list[Path]:
-    """Expand export directories (`unit-*.json`) or explicit unit file paths."""
+    """Expand export directories (completed `unit-*.json` with `.complete`) or explicit files."""
     files: list[Path] = []
     for item in roots_or_files:
         if item.is_dir():
-            files.extend(sorted(item.glob("unit-*.json")))
-        else:
+            for marker in sorted(item.glob("unit-*.json.complete")):
+                files.append(item / marker.name[: -len(".complete")])
+        elif item.exists():
             files.append(item)
     if not files:
-        raise ValueError("no unit-*.json files found in supplied paths")
+        raise ValueError("no completed unit-*.json files found in supplied paths")
     return files
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--units", nargs="+", type=Path, required=True)
+    parser.add_argument("--units", nargs="*", type=Path, default=[])
+    parser.add_argument("--ops", type=Path)
+    parser.add_argument("--queue-ids", nargs="*", default=[])
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     if platform.system() != "Darwin":
         parser.error("analysis readout is Mac-only")
-    unit_paths = collect_unit_files([path.resolve() for path in args.units])
+    if bool(args.queue_ids) and args.ops is None:
+        parser.error("--queue-ids requires --ops")
+    search_paths = [path.resolve() for path in args.units]
+    if args.queue_ids and args.ops is not None:
+        search_paths.extend(resolve_queue_unit_dirs(args.ops.resolve(), list(args.queue_ids)))
+    if not search_paths:
+        parser.error("supply --units and/or --ops with --queue-ids")
+    unit_paths = collect_unit_files(search_paths)
     for path in unit_paths:
         verify_immutable(path)
     rows = [json.loads(path.read_text(encoding="utf-8")) for path in unit_paths]
@@ -289,6 +331,7 @@ def main() -> None:
             {
                 "decision": result["decision_rule"]["decision"],
                 "n": result["n"],
+                "source_commits": result["source_commits"],
                 "incremental_L1_minus_L600": {
                     "mass_delta": result["comparisons"]["exact_stop_alllen_vs_l2_prime_600"][
                         "mass_delta_mean"

@@ -125,7 +125,7 @@ def run_local_preflight(
     horizon: int = p.PREFLIGHT_HORIZON,
 ) -> dict[str, Any]:
     """Execute the real job.sh bash entrypoint on tiny excluded inputs and measure timings."""
-    from research.watch6_alllen_screen.uploads import METADATA, checkpoint_inputs, pack_inputs
+    from research.watch6_alllen_screen.uploads import METADATA, pack_inputs
     from research.watch_replay.prepare import release_bundle
     from tools.ops.package_spec import Input, stage_inputs
 
@@ -163,12 +163,12 @@ def run_local_preflight(
             ]
         )
 
-    inputs.extend(checkpoint_inputs(saved_dir, build_dir / "checkpoint-parts"))
     pins = json.loads(
         (p.ROOT / "web/backend/served_checkpoint_pins.json").read_text(encoding="utf-8")
     )
     release_bundle(build_dir / "release-evidence.tar.gz", pins)
     inputs.append(Input(build_dir / "release-evidence.tar.gz", "release-evidence.tar.gz"))
+    inputs.append(Input(p.ROOT / "research/t34_exit_b8/PUBLIC_INPUTS.json", "public-inputs.json"))
     packed = pack_inputs(stage_inputs(build_dir / "staged", inputs), build_dir / METADATA)
     metadata_sha256 = next(row["sha256"] for row in packed if row["dest"] == METADATA)
 
@@ -191,6 +191,7 @@ def run_local_preflight(
         "WATCH6_ALLLEN_LEDGER": "canary-ledger.json",
         "WATCH6_ALLLEN_METADATA_SHA256": metadata_sha256,
         "WATCH6_ALLLEN_WORKERS": "1",
+        "WATCH6_ALLLEN_OFFLINE_SAVED_DIR": str(saved_dir),
         "SNAKE_COLAB_CANARY": "1",
         "SNAKE_DQN_DEVICE": "cpu",
     }

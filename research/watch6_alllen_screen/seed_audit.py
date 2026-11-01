@@ -177,6 +177,7 @@ def audit(
         "!**/*.watch.gz",
         "!**/t34-sol/watch6-efficacy*/**",
         "!**/t34-sol/argon-alllen-screen*/**",
+        "!**/t34-sol/argon-alllen-a100*/**",
         "!**/research/watch6_alllen_screen/**",
     ):
         command += ["--glob", excluded]

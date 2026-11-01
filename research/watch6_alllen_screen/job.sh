@@ -16,13 +16,15 @@ export SNAKE_CKPT_DIR="$COLAB_INPUT_DIR/checkpoints"
 export WATCH6_RELEASE_EVIDENCE="$COLAB_INPUT_DIR/release-evidence"
 
 PY="$COLAB_CLI_ROOT/.venv/bin/python"
-"$PY" -c 'from pathlib import Path; import os; from research.watch6_alllen_screen.uploads import stage_metadata, stage_checkpoints; root = Path(os.environ["COLAB_INPUT_DIR"]); stage_metadata(root, os.environ["WATCH6_ALLLEN_METADATA_SHA256"]); stage_checkpoints(root)'
+"$PY" -c 'from pathlib import Path; import os; from research.watch6_alllen_screen.uploads import stage_metadata; root = Path(os.environ["COLAB_INPUT_DIR"]); stage_metadata(root, os.environ["WATCH6_ALLLEN_METADATA_SHA256"])'
 "$PY" -c 'from pathlib import Path; import os; from research.watch_replay.product import stage_release_evidence; stage_release_evidence(Path(os.environ["COLAB_INPUT_DIR"]))'
 "$PY" -m research.watch6_alllen_screen.run \
   --contract "$COLAB_INPUT_DIR/$WATCH6_ALLLEN_CONTRACT" \
   --ledger "$COLAB_INPUT_DIR/$WATCH6_ALLLEN_LEDGER" \
   --out "$COLAB_OUTPUT_DIR/units" \
-  --workers "$WATCH6_ALLLEN_WORKERS"
+  --workers "$WATCH6_ALLLEN_WORKERS" \
+  --shard-index "${WATCH6_ALLLEN_SHARD_INDEX:-0}" \
+  --shard-count "${WATCH6_ALLLEN_SHARD_COUNT:-1}"
 
 if [[ "${SNAKE_COLAB_CANARY:-0}" == 1 ]]; then
   "$PY" -m research.watch6_alllen_screen.preflight \
