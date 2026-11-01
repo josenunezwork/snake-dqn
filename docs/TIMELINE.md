@@ -1,4 +1,4 @@
-# Project timeline (2026-06-16 → 2026-10-20)
+# Project timeline (2026-06-16 → 2026-11-01)
 
 A dated history of snake-dqn milestones. Dates are Pacific; clock times (from the campaign log) are approximate PT.
 Each row names the outcome as the linked record states it. For the current state and binding rules, use
@@ -69,5 +69,16 @@ Each row names the outcome as the linked record states it. For the current state
 | 2026-10-20 ~19:40 | **T35 two-deviation probe** | Pooled KILL: 2/7 primary rescues (both known paths), EXTEND 26/26 not rescued; GPU search not funded | [result](../research/t35_two_deviation/RESULT_EXTEND.md) |
 | 2026-10-20 ~19:55 | **Boost-share floor: owner decision = relative floor** (pre-look) | Candidate share ≥ 0.5 × paired bare-B8 share (bare B8 s3 delivered 0.12 % < the old 0.5 % absolute floor); ceiling 10 % unchanged; amendments under review | [campaign log](research/final_run_20261019/CAMPAIGN_LOG.md#decisions-chronological) |
 
-**Open as of tonight:** Phase 0 (ETA 10-21), Round 0 chunks 001/002 (48 h dispatch deadline ~10-22 16:45), Path B
+**Open as of 2026-10-20 (resolved below):** Phase 0 (ETA 10-21), Round 0 chunks 001/002 (48 h dispatch deadline ~10-22 16:45), Path B
 retention after Phase 0, Round 0-D draft, Claim A rulings. See the campaign log's "Current status".
+
+## October 21 – November 1: Big-Lever, GPU engine, Watch6 replay serving & V3 confirmation
+
+| Date | Milestone | Outcome | Record |
+|---|---|---|---|
+| 2026-10-21 → 10-23 | Round 0 integrity closure; Claim A D0 & Path B smokes; K-1 native `v8` kernel | Round 0 closed pre-look (`INTEGRITY_FAILURE`); Claim A D0 `KILL`, Path B smoke `STOP`; K-1 `PASS` (`20.13×`, `294/294` exact) | [Round 0 ruling](research/advice/2026-10-20_a100/RULING_label_ordering.md), [K-1](../research/bl_k1/README.md) |
+| 2026-10-24 → 10-26 | F0 label factory (`D256`/`D1024`), F4 residual dose study, F5 closure | F4 `STOP_FUNDING` (`D1024` harm screen `H = 0`); F5 closed pre-fit (`81863023`) → redirect to served search + GPU engine | [F0](../research/bl_labels/README.md), [F4](../research/bl_residual/README.md), [campaign log](research/final_run_20261019/CAMPAIGN_LOG.md) |
+| 2026-10-27 → 10-28 | Served search `L2'` ceiling vs Mac `M1`; Sandbox A-3 GPU-resident throughput | `L2'` offline `FUND_SYSTEMS` (`+83.0` pooled), live Mac `M1` `KEEP_B8`; A-3 `PASS` (`28.1k` hero rows/s on A100); Argon/Astra cross-review rule | [served search](../research/bl_served_search/README.md), [Sandbox A](../research/sandbox_a_resident/README.md) |
+| 2026-10-29 → 10-31 | Single-pass learned tracks & standalone macro options closed | TRAIN-01 PPO (`+8.09 < +40`), C/T Stage-2 distillation (`FAIL`), Doom U-Net (`GRAY`), B8 head OOF (`FAIL`), T4 Gate-1 (`0/8` `KILL_T4`), R6 (`KILL`), R7 (`KILL`) | [STATUS](STATUS.md), [ROADMAP](research/ROADMAP.md) |
+| 2026-10-30 → 10-31 | Fast-process rule; Watch replay serving (`48 → 132` sessions); Watch6 V2 → V3 | Two-lane rule standing; Watch switched to `"Recorded assisted hero"` replays; V2 `INVALID_OR_INCOMPLETE` (`88/96`, sealed) → fresh `96`-pair V3 launched | [STATUS](STATUS.md#fast-process-rule-owner-2026-10-30-standing--overrides-older-ceremony-rules), [watch_replay](../research/watch_replay/README.md) |
+| 2026-11-01 | `watch6_alllen_screen` `ADOPT`; `watch-replay-bank-live-168`; A100 `DeviceSim` v2 parity `PASS`; Watch6 V3 `14/24 PASS` | `exact-stop-l1` (`L >= 1`) `559.4` mass / `0.052/1k` deaths (`13/15` at `L >= 800`); `36/36` A100 `14l1–16l1` sessions live in `168`-session bank; `0/1.536M` A100 v2 mismatches; V3 V6.1 running (`python -B final_look`) | [alllen screen](../research/watch6_alllen_screen/README.md), [DeviceSim v2](../research/devicesim_v2_parity/README.md), [ROADMAP](research/ROADMAP.md) |
