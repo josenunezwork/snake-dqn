@@ -13,8 +13,9 @@ permission to resume an old plan.
 
 | Document or collection | Status | Use it for |
 | --- | --- | --- |
-| [INDEX.md](INDEX.md) | **Current entry map** | Project overview, served Watch (108-session replay bank) & Play (live `b8-s3`), active T34 state, package locations, and commands. |
+| [INDEX.md](INDEX.md) | **Current entry map** | Project overview, served Watch (132-session replay bank) & Play (live `b8-s3`), active T34 state, package locations, and commands. |
 | [STATUS.md](STATUS.md) | **Current authority** | Served Watch/Play setup, released `b8-s3` without a veto, standing owner rules, active campaign verdicts, and historical snapshots. |
+| [research/ROADMAP.md](research/ROADMAP.md) | **Advice only (not ratified decisions)** | Round-01 synthesized current-round and later-round research roadmap, Watch6 V3 routing tree, and settled panel disagreements. |
 | [../research/INDEX.md](../research/INDEX.md) | **Current package map** | One-row-per-directory index of all 162 study and tooling packages under `research/`. |
 | [research/INDEX.md](research/INDEX.md) | **Current record map** | Chronological locator for loose research and decision documents in `docs/research/`. |
 | [notes/README.md](notes/README.md) | **Cited reference (as of 2026-10-25)** | Fact-only, line-cited topic notes and [notes glossary](notes/GLOSSARY.md) covering models, redesign, T34, Big-Lever, F0/F4, and compute. |
@@ -37,12 +38,13 @@ permission to resume an old plan.
 | [research/governance_amendment_long_horizon_screen_2026-10-04_erratum_2026-10-08.md](research/governance_amendment_long_horizon_screen_2026-10-04_erratum_2026-10-08.md) | **Erratum** | The branch-only LH-1 amendment (`lh1-screen`) opens with `DRAFT`; it was ratified 2026-10-05 (`ecddfab`). The file is hash-bound and left unedited. |
 | [research/governance_tiers_2026-09-26.md](research/governance_tiers_2026-09-26.md) and [governance_amendment_sequential_gates_2026-10-02.md](research/governance_amendment_sequential_gates_2026-10-02.md) | **Historical policy base, amended** | Original tier and sequential-gate rules. Read later amendments before using either as an operating rule. |
 
-Today, **Watch** plays the 108-session Colab-precomputed `exact-stop-l2-prime`
-replay bank (`watch-replay-bank-live-108`, visibly labelled `"Recorded assisted hero"`,
-with live bare `b8-s3` as fallback; rollback: `SNAKE_WATCH_SOURCE=live`), while
-**Play** runs live **b8-s3 without a veto** (`3e649783`, mixed `frp3-s12 + v8`
-opponents). `b8-s3`'s release claim is **more mass at equal survival against the
-previously served agent, with no veto**; it is not a safety claim. To roll back
+Today, **Watch** plays the 132-session Colab-precomputed `exact-stop-l2-prime`
+replay bank (`watch-replay-bank-live-132`, banks `01–08` and `10–12`, visibly
+labelled `"Recorded assisted hero"`, with live bare `b8-s3` as fallback; rollback:
+`SNAKE_WATCH_SOURCE=live`), while **Play** runs live **b8-s3 without a veto**
+(`3e649783`, mixed `frp3-s12 + v8` opponents). `b8-s3`'s release claim is **more
+mass at equal survival against the previously served agent, with no veto**; it is
+not a safety claim. To roll back
 the live checkpoint, restart the server with `SNAKE_SERVE_CHECKPOINT=frp3-s12`
 for `frp3-s12 + v8` or `SNAKE_SERVE_CHECKPOINT=champion` for `champion + v8`,
 with the remaining serving environment at defaults. See [STATUS.md](STATUS.md)

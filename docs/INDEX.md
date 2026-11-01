@@ -30,7 +30,7 @@ approval ([STATUS.md](STATUS.md)).
 
 | Mode | What runs today | Hero & roster | Configuration / launch |
 | --- | --- | --- | --- |
-| **Watch** | **108-session exact-search replay bank** (`exact-stop-l2-prime`, 6,000 frames/session), visibly labelled **"Recorded assisted hero"** | `b8-s3` hero + `exact_stop` (`L >= 600`, interval 5, `H = 300`) vs `5× frp3-s12 + v8` | `.claude/launch.json` (`snake-web`): `SNAKE_WATCH_SOURCE=replay` and `SNAKE_WATCH_REPLAY_DIR=.../snake-dqn-artifacts/watch-replay-bank-live-108` (banks `01–08` + `10`). Live bare `b8-s3` is the automatic fallback if the bank is unset, empty, or invalid. |
+| **Watch** | **132-session exact-search replay bank** (`exact-stop-l2-prime`, 6,000 frames/session), visibly labelled **"Recorded assisted hero"** | `b8-s3` hero + `exact_stop` (`L >= 600`, interval 5, `H = 300`) vs `5× frp3-s12 + v8` | `.claude/launch.json` (`snake-web`): `SNAKE_WATCH_SOURCE=replay` and `SNAKE_WATCH_REPLAY_DIR=.../snake-dqn-artifacts/watch-replay-bank-live-132` (banks `01–08` and `10–12`). Live bare `b8-s3` is the automatic fallback if the bank is unset, empty, or invalid. |
 | **Play** | **Live bare `b8-s3`** (no veto, no replay) | Live `b8-s3` (SHA prefix `3e649783`) + `frp3-s12 + v8` mixed roster | Always runs live server simulation and inference ([`web/backend/served_checkpoint.py`](../web/backend/served_checkpoint.py)). |
 
 **Rollbacks** (restart [`web/serve.py`](../web/serve.py) with explicit env vars):
@@ -50,22 +50,27 @@ Active campaign authority: [SUCCESS_CONTRACT.md](research/final_run_20261019/SUC
 [CAMPAIGN_LOG.md](research/final_run_20261019/CAMPAIGN_LOG.md).
 Under the owner's standing [Fast-process rule](STATUS.md#fast-process-rule-owner-2026-10-30-standing--overrides-older-ceremony-rules),
 work runs in two lanes: **Confirmation** (full pre-data rigor, fresh worlds, paired statistics) and
-**Exploration** (fast screens/probes without pre-registration ceremony).
+**Exploration** (fast screens/probes without pre-registration ceremony). Current-round and later-round
+research plans (**advice, not decisions**) are synthesized in **[research/ROADMAP.md](research/ROADMAP.md)**.
 
-### Running / active
+### Running / queued
 
-- **Watch6 V3 confirmation (running, confirmation lane):** [`research/watch6_search_efficacy_v3/`](../research/watch6_search_efficacy_v3/) — 96 fresh paired `H = 14,400` Watch6-v2 sessions testing synchronous `exact-stop-l2-prime` (`L >= 600`, `H = 300`) against bare `b8-s3` with frame-by-frame live/`GridBatchSim` mirror verification. Follows Watch6 V2 ([`research/watch6_search_efficacy/`](../research/watch6_search_efficacy/)), which closed `INVALID_OR_INCOMPLETE` on 2026-10-31 after pre-start transport failures exhausted attempts on one shard (no outcome read).
-- **Watch6 all-length screen (exploration lane):** [`research/watch6_alllen_screen/`](../research/watch6_alllen_screen/) — 48 fresh paired `H = 6,000` Watch6-v2 sessions comparing `exact_stop` at `L >= 1` vs served `L >= 600` (`L2'`) vs bare `b8-s3` for future replay banks.
-- **Watch replay pipeline:** [`research/watch_replay/`](../research/watch_replay/) — deterministic `snake-watch-replay/v1` session generator, verifier, and bank installer feeding Watch replay mode.
+- **Watch6 V3 confirmation (running, confirmation lane):** [`research/watch6_search_efficacy_v3/`](../research/watch6_search_efficacy_v3/) — `24 × 4` L4 `W = 4` shards (`96` fresh paired `H = 14,400` Watch6-v2 sessions) testing synchronous `exact-stop-l2-prime` (`L >= 600`, `H = 300`) against bare `b8-s3` with frame-by-frame live/`GridBatchSim` mirror verification. Follows Watch6 V2 ([`research/watch6_search_efficacy/`](../research/watch6_search_efficacy/)), which closed `INVALID_OR_INCOMPLETE` on 2026-10-31 after pre-start transport failures exhausted attempts on one shard (no outcome read).
+- **Watch6 all-length screen (running, exploration lane):** [`research/watch6_alllen_screen/`](../research/watch6_alllen_screen/) — `48` fresh paired `H = 6,000` Watch6-v2 sessions comparing `exact_stop` at `L >= 1` vs served `L >= 600` (`L2'`) vs bare `b8-s3` for future replay banks.
+- **GPU `DeviceSim` v2 parity (CPU preflight PASS; A100 main queued):** [`research/devicesim_v2_parity/`](../research/devicesim_v2_parity/) — local mechanics-v2 parity suite (`553 passed`) and Mac `E = 4 × 8` preflight passed (`0` mismatches across GPU `DeviceSim`, `CTDeviceSim`, and `GridBatchSim`); A100 `E = 64 × 32` canary and `E = 256 × 1,000` main parity packet queued.
+- **Branch-queued Claim-A tails:** `b8-head-closedloop` (`origin/astra-doom-auc-smoke`, 192-world v1 H5000 margin screen) and `spatial-qbytes-ruler-01` -> `spatial-student-pilot` (`origin/astra-spatial-student-pilot`).
+- **Watch replay pipeline:** [`research/watch_replay/`](../research/watch_replay/) — deterministic `snake-watch-replay/v1` (`.watch.jsonl.gz`) session generator, verifier, and bank installer feeding the 132-session Watch replay bank.
 
-### Recent exploration verdicts (2026-10-31 / 2026-11-01)
+### Closed Oct 29–31 exploration & development verdicts
 
-| Study | Package | Lane | Verdict | Summary |
+| Study | Package / artifact | Lane | Verdict | Summary |
 | --- | --- | --- | --- | --- |
-| **DeviceSim v2 parity** | [`research/devicesim_v2_parity/`](../research/devicesim_v2_parity/) | Exploration / infra | **PASS** | Product mechanics-v2 parity harness across GPU `DeviceSim`, `CTDeviceSim`, and `GridBatchSim`. |
-| **R6 early-game harvest census** | [`research/r6_l600_census/`](../research/r6_l600_census/) | Exploration | **KILL** | 64-world Watch6-v2 `L < 600` safe-harvest counterfactual & 5-fold OOF separability census (+2 FIFO corpse/trail planes + 4 scalars vs `ego2s-bv8`). |
-| **R7 macro-option fallback** | [`research/r7_macro_fallback/`](../research/r7_macro_fallback/) | Exploration | **KILL** | Pruned depth-2 `K = 15` spatial macro-options (`O_0..O_5`) strictly gated onto 1-step-all-die C/T train roots. |
-| **T4 Gate-1 factored critic** | [`research/t4_gate1/`](../research/t4_gate1/) | Exploration | **KILL** | Clean-slate privileged full-arena factored critic (competing-bin survival hazard + short-gamma foraging mass flux) on Watch6-v2 `DeviceSim` harvest. |
+| **TRAIN-01 GPU-resident PPO** | [`research/sandbox_a_resident/`](../research/sandbox_a_resident/) (`train01-closeout`) | Exploration | **Closed** | `384` updates (`100.7M` rows): H5000 equal-mix paired mass `+8.09` (`CI95 [-18.66, +34.85]`; mixed `-4.90`) vs `>= +40` bar; no gate nomination. |
+| **C/T Stage-2 distillation** | `t34-sol/ct-stage2-verdict/SUMMARY.md` | Exploration | **FAIL** | `22/32` (`68.75%`) deaths rescuable (`<= 65` ticks), but student retention `46.9–50.0%` (`0 pp` over `frozen_phi`), ordinary flips `44.4–64.5%` (bar `<= 1%`), `3–5` lethal. |
+| **Doom U-Net & B8 head OOF** | `doom-result-01` / `b8-head-test` | Exploration | **GRAY / FAIL** | Spatial U-Net doom AUC `0.7626 < 0.8226` bare B8; B8 head OOF `+30.09` late H300 mass but `26.42%` rescue and `97.60%` non-death flips (Fable selectivity FAIL). |
+| **T4 Gate-1 factored critic** | [`research/t4_gate1/`](../research/t4_gate1/) | Exploration | **KILL** | `0/8` bars on `384` disjoint Watch6-v2 worlds (`L >= 600` residual EV `+0.0266`, doom AUC `0.5617`, ordinary mass `-22.21`, `3.13%` lethal flips). |
+| **R6 early-game harvest census** | [`research/r6_l600_census/`](../research/r6_l600_census/) | Exploration | **KILL** | `64`-world (`384`-root) Watch6-v2 `L < 600` census: `34.90%` (`134/384`) oracle-harvestable roots, `7.69%` non-bare lethal flips, 5-fold OOF AUC `0.474–0.521`. |
+| **R7 macro-option fallback** | [`research/r7_macro_fallback/`](../research/r7_macro_fallback/) | Exploration | **KILL** | Depth-2 (`K = 15`) spatial macro-options (`O_0..O_5`) on `1-step-all-die` C/T train roots: `33.0%` vs `9.0%` `L >= 800` rescue (`0.316 ms` p95), but `+3.85 pp < +10 pp` `L >= 600` lift and `2` ordinary lethal flips. |
 
 ---
 
@@ -76,6 +81,7 @@ work runs in two lanes: **Confirmation** (full pre-data rigor, fresh worlds, pai
 | Document | Purpose |
 | --- | --- |
 | [STATUS.md](STATUS.md) | **Single source of truth** for current served state, standing owner rules, release pins, monitoring thresholds, and historical milestones. |
+| [research/ROADMAP.md](research/ROADMAP.md) | **Synthesized research roadmap (Round-01 advice, not decisions):** current-round Watch6 V3 routing, ops hardening, and later-round `LexSearch-v2` plan. |
 | [README.md](README.md) | Per-document status guide (`Current`, `Historical`, `Superseded`) and reconciled historical discrepancies. |
 | [MAP.md](MAP.md) | Directory-by-directory layout of `docs/`. |
 | [TIMELINE.md](TIMELINE.md) | Chronological project milestones from 2026-06-16 through the T34 launch. |
@@ -96,9 +102,9 @@ and key files.
 
 | Family | Directories under `research/` | Scope |
 | --- | --- | --- |
-| **Watch6 confirmation, replay & Oct 31 screens** | `watch6_search_efficacy`, `watch6_search_efficacy_v3`, `watch_replay`, `watch6_alllen_screen`, `devicesim_v2_parity`, `r6_l600_census`, `r7_macro_fallback`, `t4_gate1` | Product Watch6 exact-stop confirmation, replay bank pipeline, `DeviceSim` v2 parity (PASS), and R6/R7/T4 exploration screens (KILL). |
-| **Sandbox A/B & GPU engine (`gpu_sim_spike`, `sandbox_*`)** | `gpu_sim_spike`, `sandbox_a_resident`, `sandbox_b_ppo`, `ct_devicesim` | GPU-resident simulator (`DeviceSim` / `CTDeviceSim`), throughput rulers, and resident PPO/actor-learner experiments. |
-| **Big-Lever program (`bl_*`)** | `bl_served_search`, `bl_labels`, `bl_residual`, `bl_e16`, `bl_round30_calibration`, `bl_round32_rehearsal`, `bl_f5_calendar`, `bl_offline_critic`, `bl_step_ruler`, `bl_future_noise`, `bl_audit`, `bl_sim_audit`, `bl_d1_gate`, `bl_density2`, `bl_m0_*`, `bl_t4a_invariance`, ... | Exact-stop served search (`L2'`), hindsight label factory (`F0`), frozen-B8 residual dose study (`F4`, `STOP_FUNDING`), Round 30/32 calibration, and offline probes. |
+| **Watch6 confirmation, replay & Oct 31 screens** | `watch6_search_efficacy`, `watch6_search_efficacy_v3`, `watch_replay`, `watch6_alllen_screen`, `devicesim_v2_parity`, `r6_l600_census`, `r7_macro_fallback`, `t4_gate1` | Product Watch6 exact-stop confirmation, 132-session replay bank pipeline, `DeviceSim` v2 parity (CPU preflight PASS, A100 queued), and R6/R7/T4 exploration screens (`KILL`). |
+| **Sandbox A/B & GPU engine (`gpu_sim_spike`, `sandbox_*`)** | `gpu_sim_spike`, `sandbox_a_resident`, `sandbox_b_heads`, `a100_a2`, `a3_p1_ceiling` | GPU-resident simulator (`DeviceSim` / `CTDeviceSim` in `gpu_sim_spike`), A-1..A-3 throughput rulers, `TRAIN-01` resident PPO, and 60-config successor head sweeps. |
+| **Big-Lever program (`bl_*`, `r3*`)** | `bl_served_search`, `bl_labels`, `bl_residual`, `bl_ppo`, `bl_round30`, `r32_rehearsal`, `r33_ops`, `r33_verification`, `bl_k1`, `bl_mac_latency`, `bl_paced_identity`, `bl_step_ruler`, `bl_future_noise`, `bl_density`, `bl_info_value`, `bl_e16`, `bl_prefix`, `bl_evidence`, `bl_upload`, `bl_v0`, `bl_x5` | Exact-stop served search (`L2'`), hindsight label factory (`F0`), frozen-B8 residual dose study (`F4`, `STOP_FUNDING`), K-1 native `v8` kernel (`20.13×`), Round 30/32/33 harnesses, and offline probes. |
 | **T34 / T35 ExIt-B8 (`t34_*`, `t35_*`, `phase0_*`)** | `t34_exit_b8`, `t34_exit_b8_fit`, `t34_round0`, `t34_round0d`, `t34_pathb`, `t34_claim_a`, `t34_shadow`, `t35_outcome_head`, `t35_two_deviation`, `phase0_search_20261019` | Search-teacher engine, student distillation fit, Path B paced retention, Round 0, shadow measurements, and T35 probes. |
 | **October Redesign & B8 release (`redesign_*`, `t1_*`..`t24_*`, `s1_*`, `q0q1_*`)** | `redesign_scope_20261007`, `redesign_m2_*`..`m6_*`, `redesign_t7_phase_r_20261016`, `t1_*`..`t24_*`, `b8_death_census_20261014`, `s1_mature_20261018`, `q0q1_20261017` | `GridBatchSim` + `ego2s-bv8` distillation/RL producing `b8-s3` (`T7 STRICT_PASS`, `T12/T15 SERVING_PASS`), plus late-death diagnostics and closed fine-tune arms. |
 | **Apex vetoes, FRP & governance (`apex_*`, `frp*`, `sequential_*`)** | `apex_safety_20260926`, `apex_veto_*`, `frp3_strict_20261005`, `frp3_checkpoint_serving_20261005`, `death_census_v8_20261003`, `trap_horizon_20261001`, `sequential_*`, `survival_band_v2_20261006` | `vector61` safety vetoes (`v2`–`v8`), `frp3-s12 + v8` release (2026-10-06), and group-sequential strict-gate templates. |
@@ -133,9 +139,9 @@ make install-dev        # dev tools + pre-commit hooks
 # Build frontend & start live server at http://localhost:8000 (live b8-s3 Watch + Play)
 make web
 
-# Serve Watch from the precomputed 108-session exact-stop replay bank (matches .claude/launch.json)
+# Serve Watch from the precomputed 132-session exact-stop replay bank (matches .claude/launch.json)
 SNAKE_WATCH_SOURCE=replay \
-SNAKE_WATCH_REPLAY_DIR=/Users/josenunez/Projects/ml/snake-dqn-artifacts/watch-replay-bank-live-108 \
+SNAKE_WATCH_REPLAY_DIR=/Users/josenunez/Projects/ml/snake-dqn-artifacts/watch-replay-bank-live-132 \
 ./venv/bin/python web/serve.py
 
 # Frontend hot-reload dev server (proxies API/WS to :8000)

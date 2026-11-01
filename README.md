@@ -14,8 +14,8 @@ Start with **[docs/INDEX.md](docs/INDEX.md)** for the full project map and
 **[docs/STATUS.md](docs/STATUS.md)** for binding release pins, monitoring
 thresholds, and standing operating rules.
 
-- **Watch:** plays a **108-session Colab-precomputed `exact-stop-l2-prime` replay
-  bank** (`snake-dqn-artifacts/watch-replay-bank-live-108`, banks `01–08` + `10`,
+- **Watch:** plays a **132-session Colab-precomputed `exact-stop-l2-prime` replay
+  bank** (`snake-dqn-artifacts/watch-replay-bank-live-132`, banks `01–08` and `10–12`,
   6,000-frame Watch6-v2 sessions, `b8-s3` hero vs `5× frp3-s12 + v8`), visibly
   labelled **"Recorded assisted hero"** (`SNAKE_WATCH_SOURCE=replay` and
   `SNAKE_WATCH_REPLAY_DIR` in `.claude/launch.json`). Live bare `b8-s3` is the
@@ -45,7 +45,8 @@ recent exploration outcomes in [docs/INDEX.md](docs/INDEX.md) and
 
 1. [docs/INDEX.md](docs/INDEX.md): project overview, served Watch/Play setup, active studies, and commands
 2. [docs/STATUS.md](docs/STATUS.md): standing owner rules, release pins, and binding contract documents
-3. [CAMPAIGN_LOG.md](docs/research/final_run_20261019/CAMPAIGN_LOG.md) and
+3. [docs/research/ROADMAP.md](docs/research/ROADMAP.md): synthesized current-round and later-round research roadmap (*advice, not decisions*)
+4. [CAMPAIGN_LOG.md](docs/research/final_run_20261019/CAMPAIGN_LOG.md) and
    [HANDOFF_2026-10-20.md](docs/research/final_run_20261019/HANDOFF_2026-10-20.md): chronological T34 decisions and results
 
 ## Quick start
@@ -107,6 +108,7 @@ corrected claims, for example that CNNs were never trained in the older trials.
 |---|---|
 | Project & experiment map (start here) | [docs/INDEX.md](docs/INDEX.md) |
 | Current status & standing rules | [docs/STATUS.md](docs/STATUS.md) |
+| Research roadmap (Round-01 advice, not decisions) | [docs/research/ROADMAP.md](docs/research/ROADMAP.md) |
 | Documentation status guide | [docs/README.md](docs/README.md) |
 | `docs/` directory layout | [docs/MAP.md](docs/MAP.md) |
 | Cited project notes & glossary | [docs/notes/README.md](docs/notes/README.md) ([docs/notes/GLOSSARY.md](docs/notes/GLOSSARY.md); evaluation glossary: [docs/research/GLOSSARY.md](docs/research/GLOSSARY.md)) |

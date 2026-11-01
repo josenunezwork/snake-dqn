@@ -8,15 +8,16 @@ overview and command reference start at [INDEX.md](INDEX.md); for per-document s
 
 1. [INDEX.md](INDEX.md): project overview, served Watch/Play setup today, active experiments, and commands.
 2. [STATUS.md](STATUS.md): released agent, Watch replay bank status, standing owner rules, and campaign authority.
-3. [research/final_run_20261019/CAMPAIGN_LOG.md](research/final_run_20261019/CAMPAIGN_LOG.md) and
+3. [research/ROADMAP.md](research/ROADMAP.md): synthesized current-round and later-round research plans (*advice, not decisions*).
+4. [research/final_run_20261019/CAMPAIGN_LOG.md](research/final_run_20261019/CAMPAIGN_LOG.md) and
    [HANDOFF_2026-10-20.md](research/final_run_20261019/HANDOFF_2026-10-20.md): active T34 campaign log and initial handoff.
-4. [research/final_run_20261019/SUCCESS_CONTRACT.md](research/final_run_20261019/SUCCESS_CONTRACT.md) and
+5. [research/final_run_20261019/SUCCESS_CONTRACT.md](research/final_run_20261019/SUCCESS_CONTRACT.md) and
    [P7_STATISTICS.md](research/final_run_20261019/P7_STATISTICS.md): ratified pass rules.
-5. [notes/README.md](notes/README.md) ([notes/GLOSSARY.md](notes/GLOSSARY.md)),
+6. [notes/README.md](notes/README.md) ([notes/GLOSSARY.md](notes/GLOSSARY.md)),
    [research/GLOSSARY.md](research/GLOSSARY.md), and [TIMELINE.md](TIMELINE.md).
-6. [architecture/WEB_MAP.md](architecture/WEB_MAP.md), [architecture/TESTS_MAP.md](architecture/TESTS_MAP.md),
+7. [architecture/WEB_MAP.md](architecture/WEB_MAP.md), [architecture/TESTS_MAP.md](architecture/TESTS_MAP.md),
    and [ml_algorithm.md](ml_algorithm.md): how the system works.
-7. [../research/INDEX.md](../research/INDEX.md) and [research/INDEX.md](research/INDEX.md): find any study package or dated decision.
+8. [../research/INDEX.md](../research/INDEX.md) and [research/INDEX.md](research/INDEX.md): find any study package or dated decision.
 
 ## Current campaign & governance
 
@@ -24,6 +25,7 @@ overview and command reference start at [INDEX.md](INDEX.md); for per-document s
 | --- | --- |
 | [INDEX.md](INDEX.md) | Top-level project map: what the repo is, served Watch/Play today, active T34 studies, experiment locations, and run commands. |
 | [STATUS.md](STATUS.md) | Current state (snapshot 2026-11-01; Watch bank 2026-10-31; live `b8-s3` release 2026-10-17) and standing owner rules. |
+| [research/ROADMAP.md](research/ROADMAP.md) | Round-01 synthesized current-round and later-round research roadmap (advice only, not ratified decisions). |
 | [research/final_run_20261019/](research/final_run_20261019/) | T34 "ExIt-B8" campaign: handoff, campaign log, final/merged plans, design v2, success contract, P7 statistics, speed advice. |
 | `research/governance_*.md` & [research/governance_a100_sandbox_20261026/](research/governance_a100_sandbox_20261026/) | Governance tiers (2026-09-26), dated amendments, and A100 sandbox governance; [README.md](README.md) lists which are current. |
 | [research/ops/](research/ops/) | 2026-10-20 operational snapshots: artifacts inventory, worktree inventory, Colab units ledger. |

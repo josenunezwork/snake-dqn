@@ -1,6 +1,6 @@
 # Current state — snapshot updated 2026-11-01; Watch bank updated 2026-10-31; live checkpoint released 2026-10-17
 
-Start: [project index](INDEX.md) · [documentation map](README.md) · [study packages](../research/INDEX.md) · [research record](research/INDEX.md) · [glossary](research/GLOSSARY.md).
+Start: [project index](INDEX.md) · [research roadmap (advice)](research/ROADMAP.md) · [documentation map](README.md) · [study packages](../research/INDEX.md) · [research record](research/INDEX.md) · [glossary](research/GLOSSARY.md).
 
 This is a dated documentary snapshot, not a live job or deployment check. The owner-ratified campaign
 documents and standing rules below take precedence over older launch notes and external memory; this
@@ -68,24 +68,50 @@ visibly labelled **"Recorded assisted hero"**:
 
 ## Active campaign state (T34 ExIt-B8 — 2026-11-01)
 
+For synthesized current-round and later-round research plans (**advice, not decisions**), see
+[research/ROADMAP.md](research/ROADMAP.md).
+
 - **Confirmation running:** **Watch6 V3 exact-stop efficacy ceiling**
-  ([`research/watch6_search_efficacy_v3/`](../research/watch6_search_efficacy_v3/)) — 96 fresh paired
-  `H = 14,400` Watch6-v2 sessions (`b8-s3` bare vs synchronous `exact-stop-l2-prime` at `L >= 600`,
-  `H = 300`, `5× frp3-s12 + v8`, frame-exact live/`GridBatchSim` mirror), reusing V2 science with
-  hardened transport/failure handling.
-- **Active exploration:** **Watch6 all-length screen**
-  ([`research/watch6_alllen_screen/`](../research/watch6_alllen_screen/)) — 48 fresh paired `H = 6,000`
-  Watch6-v2 sessions comparing `exact_stop` at `L >= 1` vs `L >= 600` (`L2'`) vs bare `b8-s3`.
-- **Recent exploration verdicts (2026-10-31 / 2026-11-01):**
-  - **DeviceSim v2 parity** ([`research/devicesim_v2_parity/`](../research/devicesim_v2_parity/)) — **CPU preflight PASS; A100 main queued**
-    (local mechanics-v2 parity suite & Mac `E = 4×8` preflight passed with `0` mismatches across GPU `DeviceSim`, `CTDeviceSim`, and `GridBatchSim`; A100 `E = 64×32` canary + `E = 256×1,000` main queued).
-  - **R6 early-game `L < 600` safe-harvest census** ([`research/r6_l600_census/`](../research/r6_l600_census/)) — **KILL**
-    (64-world Watch6-v2 `L < 600` counterfactual & 5-fold OOF separability census comparing `+2` FIFO
-    corpse/trail planes + 4 scalars against `ego2s-bv8`).
-  - **R7 macro-option fallback** ([`research/r7_macro_fallback/`](../research/r7_macro_fallback/)) — **KILL**
-    (pruned depth-2 `K = 15` spatial macro-options `O_0..O_5` strictly gated onto 1-step-all-die C/T train roots).
-  - **T4 Gate-1 privileged factored critic** ([`research/t4_gate1/`](../research/t4_gate1/)) — **KILL**
-    (clean-slate privileged full-arena survival-hazard + foraging mass-flux critic on Watch6-v2 `DeviceSim` harvest).
+  ([`research/watch6_search_efficacy_v3/`](../research/watch6_search_efficacy_v3/)) — `24 × 4` L4 `W = 4`
+  shards (`96` fresh paired `H = 14,400` Watch6-v2 sessions: `b8-s3` bare vs synchronous
+  `exact-stop-l2-prime` at `L >= 600`, `H = 300`, `5× frp3-s12 + v8`, frame-exact live/`GridBatchSim`
+  mirror), reusing V2 science with hardened transport/accounting (`tools/watch6_v3_accounting/`).
+- **Active / queued exploration:**
+  - **Watch6 all-length screen** ([`research/watch6_alllen_screen/`](../research/watch6_alllen_screen/)) —
+    `48` fresh paired `H = 6,000` Watch6-v2 sessions comparing `exact_stop` at `L >= 1` vs `L >= 600` (`L2'`)
+    vs bare `b8-s3` (adopt `L >= 1` for new replay banks iff incremental mass `>= +15.0` and `deaths/1k <= 0.0`).
+  - **GPU `DeviceSim` v2 parity** ([`research/devicesim_v2_parity/`](../research/devicesim_v2_parity/),
+    `t34-sol/argon-devicesim-v2/SUMMARY.md`) — local mechanics-v2 parity suite (`553 passed`, commit `b500d111`)
+    and Mac `E = 4 × 8` preflight **PASS** (`0` mismatches across GPU `DeviceSim`, `CTDeviceSim`, and
+    `GridBatchSim`); A100 `E = 64 × 32` canary and `E = 256 × 1,000` main parity packet queued.
+  - **Branch-queued Claim-A tails:** `b8-head-closedloop` (`origin/astra-doom-auc-smoke`, 192-world v1 H5000
+    margin-gated B8 head screen, `t34-sol/b8-head-closedloop/SUMMARY.md`) and `spatial-qbytes-ruler-01` ->
+    `spatial-student-pilot` (`origin/astra-spatial-student-pilot`, `t34-sol/spatial-qbytes-fix/SUMMARY.md`).
+- **Closed Oct 29–31 learned-policy, critic, and macro-fallback verdicts:**
+  - **TRAIN-01 GPU-resident PPO** ([`research/sandbox_a_resident/`](../research/sandbox_a_resident/),
+    `t34-sol/train01-closeout/SUMMARY.md`) — **Closed** after `384` updates (`100.7M` rows): H5000 equal-mix
+    paired mass **`+8.09`** (`CI95 [-18.66, +34.85]`; scripted `+26.32`, frozen `+2.85`, mixed `-4.90`;
+    update-320 peak `+14.23` `[-11.86, +40.32]`) vs bar `>= +40`; no strict-gate nomination.
+  - **C/T Stage-2 distillation** (`t34-sol/ct-stage2-verdict/SUMMARY.md`) — **`FAIL_DISTILLATION_RETENTION_OR_SAFETY`**
+    (`22/32` `68.75%` deaths rescuable, `22/32 <= 65` ticks, indep-suffix H300 `+66.77`; student retention
+    `46.9–50.0%` with `0 pp` over `frozen_phi`, topology AUC `0.5752 < 0.83`, ordinary flips `44.4–64.5%`
+    vs `<= 1%`, `3–5` lethal ordinary flips).
+  - **Doom U-Net** (`t34-sol/doom-result-01/result.json`) — **`GRAY` / no edge** (spatial U-Net per-action
+    death-lookback doom ROC-AUC `0.7626` vs bare B8 `0.8226`).
+  - **B8 advantage head offline OOF** (`t34-sol/b8-head-test/RESULT.md`) — **Selectivity `FAIL`** (late H300
+    mass `+30.09`, `LB90 +23.96`, but `26.42%` late rescue vs `>= 35%` and `97.60%` non-death flips vs `<= 15%`).
+  - **T4 Gate-1 privileged factored critic** ([`research/t4_gate1/`](../research/t4_gate1/),
+    `t34-sol/argon-t4-gate1-fix2/queue-03/READOUT.json`) — **`KILL_T4`** (`0/8` bars on `384` disjoint
+    Watch6-v2 worlds: `L >= 600` residual EV `+0.0266`, death-root H300 rescue `+19.99`, mature doom AUC
+    `0.5617`, ordinary H300 mass `-22.21`, lethal flips `3.13%`).
+  - **R6 early-game `L < 600` safe-harvest census** ([`research/r6_l600_census/`](../research/r6_l600_census/),
+    `t34-sol/argon-mac-checks/r6-census/RESULT.json`) — **`KILL`** (`64` worlds / `384` roots: `34.90%`
+    `134/384` oracle-harvestable roots `>= +5` H500 mass, `7.69%` non-bare H500 lethal flips, 5-fold OOF
+    ROC-AUC `0.474–0.521`, `0` passing thresholds).
+  - **R7 macro-option fallback** ([`research/r7_macro_fallback/`](../research/r7_macro_fallback/),
+    `t34-sol/argon-r7-repack/R7_READOUT.json`) — **`KILL`** (`3/5` bars on C/T train `1-step-all-die` roots:
+    `0.316 ms` Mac 1-thread p95, `33.0%` vs `9.0%` `L >= 800` `all-die` rescue, but `+3.85 pp < +10.0 pp`
+    total `L >= 600` lift and `2 > 0` newly caused ordinary lethal flips; `0` assessment roots opened).
 
 ---
 
@@ -98,7 +124,7 @@ Stronger models now; cut ceremony that does not pay for itself.
 3. **Fewer canaries.** Unchanged transport tree + unchanged job package (only parameters/seeds differ) → dispatch the main run directly. One canary on H100 *or* A100 suffices; never block on an H100 proof when H100 returns 503.
 4. **Automatic mechanical retries.** Verified stop + no outputs + known mechanical class (transport timeout, upload cap, allocation refused) → retry automatically with a fresh identity up to the package's limit, no new review/packet cycle; report afterwards.
 5. **Transport registry holds several qualified trees.** Activating a fixed transport must never block or race jobs queued/running on the previous qualified tree.
-6. **Dispatch.** Keep all Colab runtimes busy (account cap 6 since 2026-10-31; transport tree with cap 6 pending canary) from a ready queue; don't ask the owner about operational steps; do multiple requested things in parallel.
+6. **Dispatch.** Keep all Colab runtimes busy (measured account cap 6 total, L4 sub-cap 3 in `tools/ops/ready_queue.py` since 2026-10-31) from a ready queue; don't ask the owner about operational steps; do multiple requested things in parallel.
 7. **Always kept, any lane:** held-out/test data never used for training or tuning; honest reporting of what was actually measured; verified stops and runtime cleanup; safety-prohibited actions excluded; releases need the confirmation lane plus normal sign-off.
 
 ---
