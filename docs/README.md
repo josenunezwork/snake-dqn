@@ -13,7 +13,7 @@ permission to resume an old plan.
 
 | Document or collection | Status | Use it for |
 | --- | --- | --- |
-| [INDEX.md](INDEX.md) | **Current entry map** | Project overview, served Watch (132-session replay bank) & Play (live `b8-s3`), active T34 state, package locations, and commands. |
+| [INDEX.md](INDEX.md) | **Current entry map** | Project overview, served Watch (168-session replay bank) & Play (live `b8-s3`), active T34 state, package locations, and commands. |
 | [STATUS.md](STATUS.md) | **Current authority** | Served Watch/Play setup, released `b8-s3` without a veto, standing owner rules, active campaign verdicts, and historical snapshots. |
 | [research/ROADMAP.md](research/ROADMAP.md) | **Advice only (not ratified decisions)** | Round-04 synthesized current-round and later-round research roadmap (Claim-A readout, Watch replay guards, zero-WS transport, `Watch6 V3` / `Watch6-L1-V1` routing, and `CycleLatch-v4` + `LiveMac-C15-Latch`), plus settled panel disagreements. |
 | [../research/INDEX.md](../research/INDEX.md) | **Current package map** | One-row-per-directory index of all 162 study and tooling packages under `research/`. |
@@ -38,8 +38,8 @@ permission to resume an old plan.
 | [research/governance_amendment_long_horizon_screen_2026-10-04_erratum_2026-10-08.md](research/governance_amendment_long_horizon_screen_2026-10-04_erratum_2026-10-08.md) | **Erratum** | The branch-only LH-1 amendment (`lh1-screen`) opens with `DRAFT`; it was ratified 2026-10-05 (`ecddfab`). The file is hash-bound and left unedited. |
 | [research/governance_tiers_2026-09-26.md](research/governance_tiers_2026-09-26.md) and [governance_amendment_sequential_gates_2026-10-02.md](research/governance_amendment_sequential_gates_2026-10-02.md) | **Historical policy base, amended** | Original tier and sequential-gate rules. Read later amendments before using either as an operating rule. |
 
-Today, **Watch** plays the 132-session Colab-precomputed `exact-stop-l2-prime`
-replay bank (`watch-replay-bank-live-132`, banks `01–08` and `10–12`, visibly
+Today, **Watch** plays the 168-session Colab-precomputed exact-stop
+replay bank (`watch-replay-bank-live-168`: `132` `exact-stop-l2-prime` sessions from banks `01–08, 10–12` + `36` `exact-stop-l1` sessions from banks `14l1–16l1`, visibly
 labelled `"Recorded assisted hero"`, with live bare `b8-s3` as fallback; rollback:
 `SNAKE_WATCH_SOURCE=live`), while **Play** runs live **b8-s3 without a veto**
 (`3e649783`, mixed `frp3-s12 + v8` opponents). `b8-s3`'s release claim is **more

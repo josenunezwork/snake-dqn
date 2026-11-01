@@ -30,7 +30,7 @@ approval ([STATUS.md](STATUS.md)).
 
 | Mode | What runs today | Hero & roster | Configuration / launch |
 | --- | --- | --- | --- |
-| **Watch** | **132-session exact-search replay bank** (`exact-stop-l2-prime`, 6,000 frames/session), visibly labelled **"Recorded assisted hero"** | `b8-s3` hero + `exact_stop` (`L >= 600`, interval 5, `H = 300`) vs `5× frp3-s12 + v8` | `.claude/launch.json` (`snake-web`): `SNAKE_WATCH_SOURCE=replay` and `SNAKE_WATCH_REPLAY_DIR=.../snake-dqn-artifacts/watch-replay-bank-live-132` (banks `01–08` and `10–12`). Live bare `b8-s3` is the automatic fallback if the bank is unset, empty, or invalid. |
+| **Watch** | **168-session exact-search replay bank** (`132` `exact-stop-l2-prime` + `36` `exact-stop-l1`, 6,000 frames/session), visibly labelled **"Recorded assisted hero"** | `b8-s3` hero + `exact_stop` (`L >= 600` or `L >= 1`, interval 5, `H = 300`) vs `5× frp3-s12 + v8` | `.claude/launch.json` (`snake-web`): `SNAKE_WATCH_SOURCE=replay` and `SNAKE_WATCH_REPLAY_DIR=.../snake-dqn-artifacts/watch-replay-bank-live-168` (banks `01–08`, `10–12`, and `14l1–16l1`; `395eacbb`). Live bare `b8-s3` is the automatic fallback if the bank is unset, empty, or invalid. |
 | **Play** | **Live bare `b8-s3`** (no veto, no replay) | Live `b8-s3` (SHA prefix `3e649783`) + `frp3-s12 + v8` mixed roster | Always runs live server simulation and inference ([`web/backend/served_checkpoint.py`](../web/backend/served_checkpoint.py)). |
 
 **Rollbacks** (restart [`web/serve.py`](../web/serve.py) with explicit env vars; always unset `SNAKE_WATCH_SOURCE` or set `SNAKE_WATCH_SOURCE=live` when rolling back live rosters or checkpoints, because `GameSession.__init__` attaches `ReplayBank` whenever `SNAKE_WATCH_SOURCE=replay` and `checkpoint is None`):
@@ -56,7 +56,7 @@ research plans (**advice, not decisions**) are synthesized in **[research/ROADMA
 ### Running / active
 
 - **Watch6 V3 confirmation (running, confirmation lane):** [`research/watch6_search_efficacy_v3/`](../research/watch6_search_efficacy_v3/) — `24 × 4` L4 `W = 4` shards (`96` fresh paired `H = 14,400` Watch6-v2 sessions) testing synchronous `exact-stop-l2-prime` (`L >= 600`, `H = 300`) against bare `b8-s3` with frame-by-frame live/`GridBatchSim` mirror verification. Accounting adapter **V6.1** is ratified (`75471246`; sole final look via `tools.watch6_v3_accounting.final_look`). Follows Watch6 V2 ([`research/watch6_search_efficacy/`](../research/watch6_search_efficacy/)), which closed `INVALID_OR_INCOMPLETE` on 2026-10-31 after pre-start transport failures exhausted attempts on one shard (no outcome read).
-- **Watch replay pipeline & `exact-stop-l1` bank generation:** [`research/watch_replay/`](../research/watch_replay/) — deterministic `snake-watch-replay/v1` (`.watch.gz`, gzipped canonical JSONL) session generator, verifier, and bank installer feeding the live 132-session `exact-stop-l2-prime` Watch replay bank. Commit `73974411` added `"exact-stop-l1"` (`L >= 1`, `interval = 5`, `H = 300`), and A100 `W = 6` banks `14l1–16l1` (`3 × 12` disjoint seeds) are actively generating (`t34-sol/argon-banks-l1/SUMMARY.md`; serving `exact-stop-l1` recordings requires prospective confirmation, owner approval, `git pull`, and a [`web/serve.py`](../web/serve.py) restart).
+- **Watch replay pipeline & `watch-replay-bank-live-168` (`395eacbb`):** [`research/watch_replay/`](../research/watch_replay/) — deterministic `snake-watch-replay/v1` (`.watch.gz`, gzipped canonical JSONL) session generator, verifier, and bank installer feeding the live 168-session Watch replay bank (`132` `exact-stop-l2-prime` sessions from banks `01–08, 10–12` + `36` all-length `exact-stop-l1` sessions from banks `14l1–16l1`, verified `36/36` and live on `web/serve.py` restarted at `b5b63cd1`; prospective `Watch6-L1-V1` H14400 confirmation remains pending).
 - **Completed Oct 30 Claim-A exploration receipts awaiting Mac readout:** `b8-head-closedloop` (`origin/astra-doom-auc-smoke`, 192-world v1 H5000 margin screen; A100 receipt `PASS`) and `spatial-qbytes-01` (`origin/astra-spatial-student-pilot`; A100 Q-byte ruler receipt `PASS`) await `< 2.5 min` Mac readouts; the `40–48 A100 u` `spatial-student-pilot` GPU fit is canceled (`0 u`, retaining `.so` caches; `t34-sol/student-direction/{astra,fable}.md`, T4 Gate-1 `KILL_T4`).
 
 ### Oct 29 – Nov 1 exploration, parity & development verdicts
@@ -102,7 +102,7 @@ and key files.
 
 | Family | Directories under `research/` | Scope |
 | --- | --- | --- |
-| **Watch6 confirmation, replay & Oct 31–Nov 1 screens** | `watch6_search_efficacy`, `watch6_search_efficacy_v3`, `watch_replay`, `watch6_alllen_screen`, `devicesim_v2_parity`, `r6_l600_census`, `r7_macro_fallback`, `t4_gate1` | Product Watch6 exact-stop confirmation, 132-session replay bank pipeline (`exact-stop-l2-prime` + `exact-stop-l1`), all-length screen (`ADOPT`), A100 `DeviceSim` v2 parity (`PASS`, `0` mismatches / `1.536M` snake-ticks), and R6/R7/T4 exploration screens (`KILL`). |
+| **Watch6 confirmation, replay & Oct 31–Nov 1 screens** | `watch6_search_efficacy`, `watch6_search_efficacy_v3`, `watch_replay`, `watch6_alllen_screen`, `devicesim_v2_parity`, `r6_l600_census`, `r7_macro_fallback`, `t4_gate1` | Product Watch6 exact-stop confirmation, 168-session replay bank pipeline (`exact-stop-l2-prime` + `exact-stop-l1`), all-length screen (`ADOPT`), A100 `DeviceSim` v2 parity (`PASS`, `0` mismatches / `1.536M` snake-ticks), and R6/R7/T4 exploration screens (`KILL`). |
 | **Sandbox A/B & GPU engine (`gpu_sim_spike`, `sandbox_*`)** | `gpu_sim_spike`, `sandbox_a_resident`, `sandbox_b_heads`, `a100_a2`, `a3_p1_ceiling` | GPU-resident simulator (`DeviceSim` / `CTDeviceSim` in `gpu_sim_spike`), A-1..A-3 throughput rulers, `TRAIN-01` resident PPO, and 60-config successor head sweeps. |
 | **Big-Lever program (`bl_*`, `r3*`)** | `bl_served_search`, `bl_labels`, `bl_residual`, `bl_ppo`, `bl_round30`, `r32_rehearsal`, `r33_ops`, `r33_verification`, `bl_k1`, `bl_mac_latency`, `bl_paced_identity`, `bl_step_ruler`, `bl_future_noise`, `bl_density`, `bl_info_value`, `bl_e16`, `bl_prefix`, `bl_evidence`, `bl_upload`, `bl_v0`, `bl_x5` | Exact-stop served search (`L2'`), hindsight label factory (`F0`), frozen-B8 residual dose study (`F4`, `STOP_FUNDING`), K-1 native `v8` kernel (`20.13×`), Round 30/32/33 harnesses, and offline probes. |
 | **T34 / T35 ExIt-B8 (`t34_*`, `t35_*`, `phase0_*`)** | `t34_exit_b8`, `t34_exit_b8_fit`, `t34_round0`, `t34_round0d`, `t34_pathb`, `t34_claim_a`, `t34_shadow`, `t35_outcome_head`, `t35_two_deviation`, `phase0_search_20261019` | Search-teacher engine, student distillation fit, Path B paced retention, Round 0, shadow measurements, and T35 probes. |
@@ -139,9 +139,9 @@ make install-dev        # dev tools + pre-commit hooks
 # Build frontend & start live server at http://localhost:8000 (live b8-s3 Watch + Play)
 make web
 
-# Serve Watch from the precomputed 132-session exact-stop replay bank (matches .claude/launch.json)
+# Serve Watch from the precomputed 168-session exact-stop replay bank (matches .claude/launch.json)
 SNAKE_WATCH_SOURCE=replay \
-SNAKE_WATCH_REPLAY_DIR=/Users/josenunez/Projects/ml/snake-dqn-artifacts/watch-replay-bank-live-132 \
+SNAKE_WATCH_REPLAY_DIR=/Users/josenunez/Projects/ml/snake-dqn-artifacts/watch-replay-bank-live-168 \
 ./venv/bin/python web/serve.py
 
 # Frontend hot-reload dev server (proxies API/WS to :8000)

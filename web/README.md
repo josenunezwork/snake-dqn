@@ -8,12 +8,11 @@ over a WebSocket. No game logic or model inference runs in the browser.
 
 **Served setup:** Play runs live bare **B8 seed 3** (`b8-s3`, no veto) in the `mixed`
 `frp3-s12 + v8` roster (released 2026-10-17). In `.claude/launch.json`, Watch plays the
-132-session Colab-precomputed `exact-stop-l2-prime` replay bank (`SNAKE_WATCH_SOURCE=replay`,
-`SNAKE_WATCH_REPLAY_DIR=.../watch-replay-bank-live-132`, `.watch.gz` gzipped canonical JSONL
-recordings visibly labelled `"Recorded assisted hero"`), with live bare `b8-s3` as automatic
-fallback (`SNAKE_WATCH_SOURCE=live`). Commit `73974411` also enabled `"exact-stop-l1"` in
-`watch_replay.py` (`ASSISTED_CONTROLLERS`; serving `exact-stop-l1` recordings requires owner
-approval plus `git pull` and restarting `web/serve.py`). Live checkpoint/roster rollback by restart:
+168-session Colab-precomputed exact-stop replay bank (`SNAKE_WATCH_SOURCE=replay`,
+`SNAKE_WATCH_REPLAY_DIR=.../watch-replay-bank-live-168`: `132` `exact-stop-l2-prime` + `36`
+all-length `exact-stop-l1` `.watch.gz` gzipped canonical JSONL recordings visibly labelled
+`"Recorded assisted hero"`, switched in `395eacbb`), with live bare `b8-s3` as automatic
+fallback (`SNAKE_WATCH_SOURCE=live`). Live checkpoint/roster rollback by restart:
 unset `SNAKE_WATCH_SOURCE` (or set `SNAKE_WATCH_SOURCE=live`, because `GameSession.__init__` attaches
 `ReplayBank` whenever `SNAKE_WATCH_SOURCE=replay` and `checkpoint is None`) and set
 `SNAKE_SERVE_CHECKPOINT=frp3-s12` (or `=champion`, or `SNAKE_SERVE_WATCH_ROSTER=all_b8`). Full map of modules, the WebSocket

@@ -1,4 +1,4 @@
-# Current state — snapshot updated 2026-11-01; Watch bank updated 2026-10-31; live checkpoint released 2026-10-17
+# Current state — snapshot updated 2026-11-01; Watch bank updated 2026-11-01; live checkpoint released 2026-10-17
 
 Start: [project index](INDEX.md) · [research roadmap (advice)](research/ROADMAP.md) · [documentation map](README.md) · [study packages](../research/INDEX.md) · [research record](research/INDEX.md) · [glossary](research/GLOSSARY.md).
 
@@ -10,16 +10,18 @@ file is updated when they change.
 
 ## Current served setup (Watch & Play)
 
-### Watch: 132-session exact-search replay bank (owner "Switch now", 2026-10-30 ~16:10 PT; expanded 2026-10-31 ~23:25 PT)
+### Watch: 168-session exact-search replay bank (owner "Switch now", 2026-10-30 ~16:10 PT; expanded 2026-10-31 & 2026-11-01)
 
-Watch plays **Colab-precomputed replays** (`exact-stop-l2-prime` search hero over product Watch6 v2,
-`5× frp3-s12 + v8` opponents, 6,000-frame sessions; pipeline in [`research/watch_replay/`](../research/watch_replay/))
-visibly labelled **"Recorded assisted hero"**:
+Watch plays **Colab-precomputed replays** (`exact-stop-l2-prime` and `exact-stop-l1` search heroes over
+product Watch6 v2, `5× frp3-s12 + v8` opponents, 6,000-frame sessions; pipeline in
+[`research/watch_replay/`](../research/watch_replay/)) visibly labelled **"Recorded assisted hero"**:
 
-- **Active bank:** `snake-dqn-artifacts/watch-replay-bank-live-168` (**132 verified sessions** = banks
-  `01–08` and `10–12`, all `exact-stop-l2-prime`, distinct seeds; switched 2026-10-31; previous
-  48-session bank kept at `watch-replay-bank-live`). Bank-02 descriptive stats: mean 412 mass/session,
-  0 deaths in the 5 sessions reaching `L > 1,000`.
+- **Active bank:** `snake-dqn-artifacts/watch-replay-bank-live-168` (**168 verified sessions** = `132`
+  `exact-stop-l2-prime` sessions from banks `01–08` and `10–12` + `36` all-length `exact-stop-l1`
+  sessions from banks `14l1–16l1`, verified `36/36` on distinct seeds and switched 2026-11-01 in
+  `395eacbb`; previous 132-session and 48-session banks kept at `watch-replay-bank-live-132` and
+  `watch-replay-bank-live`). Bank-02 descriptive stats: mean 412 mass/session, 0 deaths in the 5
+  sessions reaching `L > 1,000`.
 - **Launch & fallback:** `.claude/launch.json` (`snake-web`) sets `SNAKE_WATCH_SOURCE=replay` and
   `SNAKE_WATCH_REPLAY_DIR`. **Live bare `b8-s3` remains the automatic fallback** (empty, invalid, or
   exhausted bank), and **Play always stays live** (`b8-s3` without a veto).
@@ -30,17 +32,20 @@ visibly labelled **"Recorded assisted hero"**:
   env-var checkpoint/roster rollback (`SNAKE_SERVE_CHECKPOINT=frp3-s12|champion` or
   `SNAKE_SERVE_WATCH_ROSTER=all_b8`) must also unset `SNAKE_WATCH_SOURCE` (or set `=live`) until the
   mixed-Watch6 `b8-s3` guard tracked in [research/ROADMAP.md](research/ROADMAP.md) lands.
-- **`exact-stop-l1` validator support (`73974411`, 2026-11-01):** `web/backend/watch_replay.py` and
-  `research/watch_replay/` accept `"exact-stop-l1"` (`L >= 1`, `interval = 5`, `H = 300`) in
-  `ASSISTED_CONTROLLERS` alongside `"exact-stop-l2-prime"`. The active served directory
-  `watch-replay-bank-live-168` contains only `exact-stop-l2-prime` `.watch.gz` recordings
-  (`ReplayBank._prefetch` accepts any valid controller in `CONTROLLERS` without per-controller env
-  pinning; A100 `W = 6` banks `14l1–16l1` are actively generating into separate artifact packets, and
-  serving any future `exact-stop-l1` bank requires prospective confirmation, owner approval, `git pull`
-  on the main checkout, and a `web/serve.py` restart).
+- **`exact-stop-l1` validator & mixed-controller bank note (`73974411` & `395eacbb`, 2026-11-01):**
+  `web/backend/watch_replay.py` and `research/watch_replay/` accept `"exact-stop-l1"` (`L >= 1`,
+  `interval = 5`, `H = 300`) in `ASSISTED_CONTROLLERS` alongside `"exact-stop-l2-prime"`, and
+  `web/serve.py` was restarted at `b5b63cd1` to serve `watch-replay-bank-live-168` (`132`
+  `exact-stop-l2-prime` + `36` `exact-stop-l1` `.watch.gz` recordings). Because `ReplayBank._prefetch`
+  accepts any valid controller in `CONTROLLERS` without per-controller env pinning, restricting
+  playback to a single confirmed controller (e.g. `watch-replay-bank-live-132` for `exact-stop-l2-prime`
+  only, or an `exact-stop-l1`-only bank after confirmation) requires pointing `SNAKE_WATCH_REPLAY_DIR`
+  at a single-controller directory or landing `SNAKE_WATCH_REPLAY_CONTROLLER` ([research/ROADMAP.md](research/ROADMAP.md)).
 - **Product efficacy measurement status:** synchronous `exact-stop-l2-prime` efficacy vs bare B8 in the
   product H14400 setting is **not yet confirmed and is currently running in Watch6 V3**
-  ([`research/watch6_search_efficacy_v3/`](../research/watch6_search_efficacy_v3/)). The earlier Watch6 V2
+  ([`research/watch6_search_efficacy_v3/`](../research/watch6_search_efficacy_v3/)), and `exact-stop-l1`
+  H14400 efficacy (`Watch6-L1-V1` in [research/ROADMAP.md](research/ROADMAP.md)) has not yet entered
+  confirmation. The earlier Watch6 V2
   96-pair confirmation ([`research/watch6_search_efficacy/`](../research/watch6_search_efficacy/)) ended
   **`INVALID_OR_INCOMPLETE`** on 2026-10-31 (shard 6 / index 5 exhausted original + 2 completions on
   pre-start transport failures; Astra rulings `t34-sol/watch6-shard6-ruling/RULING_SHARD6.md` and
@@ -98,7 +103,7 @@ For synthesized current-round and later-round research plans (**advice, not deci
   - `bare` (`b8-s3`): mass **`351.1`** (`CI95 [320.2, 381.9]`), deaths **`0.288/1k`** (`83` deaths: `53` at `L < 600`, `30` at `L >= 600`, `21` at `L >= 800`).
   - `l2_prime_600` (served `L >= 600`): mass **`461.2`** (`+110.1` vs `bare`, `CI95 [+72.1, +148.1]`), deaths **`0.160/1k`** (`-44.6%` vs `bare`; `46` deaths: `34` at `L < 600`, `12` at `L >= 600`, `11` at `L >= 800`), `449.6` mean branches/session.
   - **`exact_stop_alllen` (`L >= 1`, `interval = 5`, `H = 300`):** mass **`559.4`** (**`+208.4` vs `bare`**, `CI95 [+170.1, +246.7]`; **`+98.3` vs `L >= 600`**, `CI95 [+50.6, +146.0]`), deaths **`0.052/1k`** (**`-81.9%` vs `bare`**; **`-67.4%` / `-0.108/1k` vs `L >= 600`**, `CI95 [-0.161, -0.054]`; `15` total deaths: **`1` at `L < 600`**, **`14` at `L >= 600`**, **`13` at `L >= 800`**), **`2.82×` search branches** (`1,268.5` mean branches/session, `0.142%` `L < 600` overrides, `mean_max_length = 1,096.0`).
-  - Pre-stated adoption rule (`>= +15.0` incremental mass and `<= 0.0` `deaths/1k` vs `L >= 600`) met: commit `73974411` added `"exact-stop-l1"` to `research/watch_replay/` and `web/backend/watch_replay.py` (requires `git pull` + `web/serve.py` restart before serving `exact-stop-l1` `.watch.gz` recordings), and A100 `W = 6` banks `14l1–16l1` (`3 × 12` disjoint seeds) are actively generating (`t34-sol/argon-banks-l1/SUMMARY.md`). Exploration screen only — serving `exact-stop-l1` as a confirmed release requires its own prospective confirmation test.
+  - Pre-stated adoption rule (`>= +15.0` incremental mass and `<= 0.0` `deaths/1k` vs `L >= 600`) met: commit `73974411` added `"exact-stop-l1"` to `research/watch_replay/` and `web/backend/watch_replay.py`, and A100 `W = 6` banks `14l1–16l1` (`3 × 12` = `36/36` verified sessions on disjoint seeds; `t34-sol/argon-banks-l1/SUMMARY.md`) were verified and merged into `watch-replay-bank-live-168` (`395eacbb`, `web/serve.py` restarted on `b5b63cd1`). Exploration screen only — confirming `exact-stop-l1` as a Claim-B release still requires prospective H14400 confirmation (`Watch6-L1-V1`).
 - **Completed parity — GPU `DeviceSim` v2 parity `PASS` on A100**
   ([`research/devicesim_v2_parity/`](../research/devicesim_v2_parity/),
   `t34-sol/argon-devicesim-v2/packet-a100-v2-parity-01/main-run-01/receipt.json`): **`0` mismatches**
@@ -171,7 +176,7 @@ Active campaign: **T34 ExIt-B8**. Binding documents on `main`, in order:
 These rules replace older conflicting text (e.g. the 5× RunPod rule, "always serverless", or
 `champion + v8` / `frp3-s12 + v8` as the served agent).
 
-- **Served defaults:** Watch = 132-session `exact-stop-l2-prime` replay bank (`watch-replay-bank-live-168`, banks `01–08` and `10–12`) with live `b8-s3` fallback; Play = live bare `b8-s3` (`3e649783`) without a veto. Rollbacks and monitoring thresholds are at the top of this file.
+- **Served defaults:** Watch = 168-session exact-stop replay bank (`watch-replay-bank-live-168`: `132` `exact-stop-l2-prime` banks `01–08, 10–12` + `36` `exact-stop-l1` banks `14l1–16l1`) with live `b8-s3` fallback; Play = live bare `b8-s3` (`3e649783`) without a veto. Rollbacks and monitoring thresholds are at the top of this file.
 - **Implementers (owner, 2026-10-27, standing):** project code is implemented and reviewed only by **Argon** (Gemini 4 Argon via Antigravity CLI, own git worktree, local commits) and **Astra** (Codex). The reviewer is always the other one; authors never review their own builds. Do not use the Sol implementer persona (`AGENTS.md`, commit `1ad5dc95`).
 - **Standing scope decisions (2026-10-17):**
   - *October redesign goal met and closed:* `b8-s3` beat `frp3-s12 + v8` without a veto.
