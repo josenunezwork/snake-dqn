@@ -39,7 +39,8 @@ product Watch6 v2, `5× frp3-s12 + v8` opponents, 6,000-frame sessions; pipeline
   (cleared on `_build` / split `"new_game"`, leaving `Play -> Watch` intact), and the multi-entrypoint
   mixed-Watch6 `b8-s3` guard tracked in [research/ROADMAP.md](research/ROADMAP.md) §2.1 land on `main`
   (leaving V3 worktrees untouched, patching `"SNAKE_WATCH_SOURCE": "live"` in `open_watch`,
-  isolating future confirmation state in `ops/studies/<namespace>/`, and hashing `git ls-tree`
+  keeping operational manifests in `ops/manifests/` for `ready_queue.py`/`dispatch.py` slot visibility
+  while isolating future confirmation lineage in `ops/studies/<namespace>/`, and hashing `git ls-tree`
   science-only `identity()` excluding `tools/ops/*` — `package_spec.py` is hashed in
   `watch6_search_efficacy_v3/protocol.py:94` — `watch_replay.py` — imported by `session.py:568` —
   and `app.py`).
@@ -57,7 +58,9 @@ product Watch6 v2, `5× frp3-s12 + v8` opponents, 6,000-frame sessions; pipeline
   playback to a single confirmed controller (`exact-stop-l2-prime`-only via
   `watch-replay-bank-live-132`, or `exact-stop-l1`-only after confirmation) requires a
   single-controller `SNAKE_WATCH_REPLAY_DIR` or landing line-1 `.watch.gz` header filtering via
-  `SNAKE_WATCH_REPLAY_CONTROLLER` (alongside `horizon in {6000, 14400}` in `validate_header`).
+  `SNAKE_WATCH_REPLAY_CONTROLLER` (recorded `.watch.gz` banks remain at `H = 6,000` under
+  `watch_replay.py`'s `MAX_DECODED = 512 MiB` cap, while `record=None` confirmation runs at
+  `H = 14,400` with guarded `if record is not None: snapshot()` in `watch_replay/engine.py`).
 - **Product efficacy measurement status:** synchronous `exact-stop-l2-prime` efficacy vs bare B8 in the
   product H14400 setting is **not yet confirmed and is currently running in Watch6 V3**
   ([`research/watch6_search_efficacy_v3/`](../research/watch6_search_efficacy_v3/)), and `exact-stop-l1`
@@ -121,7 +124,9 @@ For synthesized current-round and later-round research plans (**advice, not deci
   quarantine of **only** `23` historical non-V3 H100-503 `_attempt_state == "FENCE"` manifests +
   `.live.json` siblings in `ops/manifests/` to `ops/manifests-archive-20261101/` under `flock` on
   `ops/watch6-staging.lock` (**`0` symlinks**, because `final_look.py:473-483` fails closed on
-  `is_symlink()` before namespace filtering), unblocking `wait_other_jobs_staged` for shards `00, 12`.
+  `is_symlink()` before namespace filtering; if `ops/watch6-staging-reconcile.json` exists, clear it via
+  `python -B -m tools.watch6_v3_accounting.dispatch --reconcile-staging`), unblocking
+  `wait_other_jobs_staged` for shards `00, 12`.
   `final_look.py:_verify_shard_lineage` rejects forked attempt trees sharing a parent receipt, and
   `watch6_search_efficacy_v3/protocol.py` hashes both `tools/ops/package_spec.py` (`line 94`) and
   `web/backend/` (`line 96`) into V3's `identity()` — keep all V3
@@ -137,7 +142,7 @@ For synthesized current-round and later-round research plans (**advice, not deci
   - `bare` (`b8-s3`): mass **`351.1`** (`CI95 [320.2, 381.9]`), deaths **`0.288/1k`** (`83` deaths: `53` at `L < 600`, `30` at `L >= 600`, `21` at `L >= 800`).
   - `l2_prime_600` (served `L >= 600`): mass **`461.2`** (`+110.1` vs `bare`, `CI95 [+72.1, +148.1]`), deaths **`0.160/1k`** (`-44.6%` vs `bare`; `46` deaths: `34` at `L < 600`, `12` at `L >= 600`, `11` at `L >= 800`), `449.6` mean branches/session.
   - **`exact_stop_alllen` (`L >= 1`, `interval = 5`, `H = 300`):** mass **`559.4`** (**`+208.4` vs `bare`**, `CI95 [+170.1, +246.7]`; **`+98.3` vs `L >= 600`**, `CI95 [+50.6, +146.0]`), deaths **`0.052/1k`** (**`-81.9%` vs `bare`**; **`-67.4%` / `-0.108/1k` vs `L >= 600`**, `CI95 [-0.161, -0.054]`; `15` total deaths: **`1` at `L < 600`**, **`14` at `L >= 600`**, **`13` at `L >= 800`**), **`2.82×` search branches** (`1,268.5` mean branches/session, `0.142%` `L < 600` overrides, `mean_max_length = 1,096.0`).
-  - Pre-stated adoption rule (`>= +15.0` incremental mass and `<= 0.0` `deaths/1k` vs `L >= 600`) met: commit `73974411` added `"exact-stop-l1"` to `research/watch_replay/` and `web/backend/watch_replay.py`, and A100 `W = 6` banks `14l1–16l1` (`3 × 12` = `36/36` verified sessions on disjoint seeds in **`3.03–3.07 h/bank`, `~61.5 A100 u` observed total** at `6.73 u/h`; `t34-sol/argon-banks-l1/SUMMARY.md`, noting `~2.9–3.3×` superlinear late-game compute scaling across `6,000..14,400`) were verified and merged into `watch-replay-bank-live-168` (`395eacbb`, `web/serve.py` restarted on `b5b63cd1`). Exploration screen only — confirming `exact-stop-l1` as a Claim-B release still requires prospective H14400 confirmation (`Watch6-L1-V1` in [research/ROADMAP.md](research/ROADMAP.md) §2.3).
+  - Pre-stated adoption rule (`>= +15.0` incremental mass and `<= 0.0` `deaths/1k` vs `L >= 600`) met: commit `73974411` added `"exact-stop-l1"` to `research/watch_replay/` and `web/backend/watch_replay.py`, and A100 `W = 6` banks `14l1–16l1` (`3 × 12` = `36/36` verified `H = 6,000` sessions on disjoint seeds in **`3.03–3.07 h/bank`, `20.36–20.67 A100 u/bank` = `~61.5 A100 u` observed total** at `6.73 u/h` vs the `2.821×`-calibrated `75.6 u` base / `151.2 u` 2× forecast in `t34-sol/argon-banks-l1/SUMMARY.md:38-40`, implying `>= 2.4×` — projected `~2.4–3.1×` — superlinear `H = 14,400` compute scaling across `6,000..14,400`) were verified and merged into `watch-replay-bank-live-168` (`395eacbb`, `web/serve.py` restarted on `b5b63cd1`). Exploration screen only — confirming `exact-stop-l1` as a Claim-B release still requires prospective H14400 confirmation (`Watch6-L1-V1` in [research/ROADMAP.md](research/ROADMAP.md) §2.3).
 - **Completed parity — GPU `DeviceSim` v2 parity `PASS` on A100**
   ([`research/devicesim_v2_parity/`](../research/devicesim_v2_parity/),
   `t34-sol/argon-devicesim-v2/packet-a100-v2-parity-01/main-run-01/receipt.json`): **`0` mismatches**
@@ -175,9 +180,11 @@ For synthesized current-round and later-round research plans (**advice, not deci
     `L >= 800` death roots — `9/25` `36.0%` `macro_triggered` at `+66.7 pp` rescue when triggered vs `16/25`
     `64.0%` re-trapped after tick-`30` greedy-B8 handback, while `104/129` `80.6%` survived `H = 300` inside
     uncertified coils and `options.py` hardcoded `min_boost_length = 10` vs live `5`, restricted `omega1` to
-    static `tau <= 1`, and vacuously set `t_cert = 1` on `ext_gain == 0` internal tail cells —
+    static `tau <= 1` with `2 * min(black, white)` acting only as an upper bound on non-Hamiltonian 2-cores,
+    and vacuously set `t_cert = 1` on `ext_gain == 0` internal tail cells —
     failing `+3.85 pp < +10.0 pp` total `L >= 600` lift and `2 > 0` newly caused ordinary lethal flips from
-    single-suffix `sel0` and aggressive `O3`/`O5`; `0` assessment roots opened; informs closed-loop `CS-L1` (`TailExitCert_v8` + every-tick `CertShield` + `TailFollow`) advice
+    single-suffix `sel0` and aggressive `O3`/`O5`; `0` assessment roots opened; informs constructive `TCC-L1`
+    (`TimeClearCert = OpenEscapeCert OR ConstructiveCoilCert`) + `0`-ms branch-grafted `ShadowSpine` advice
     in [research/ROADMAP.md](research/ROADMAP.md) §3).
 
 ---

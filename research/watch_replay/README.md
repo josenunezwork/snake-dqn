@@ -60,7 +60,9 @@ traverses `sorted(root.glob("*.watch.gz"))[:1024]` deterministically on cycle 1
 `SystemRandom().shuffle` without reusing a unit within a cycle or immediately
 repeating the boundary unit from cycle 2 onward (injectable `shuffle_discovery=True`
 for cycle 1, line-1 `.watch.gz` header filtering via `SNAKE_WATCH_REPLAY_CONTROLLER`,
-`horizon in {6000, 14400}` in `validate_header`, shallow `Recording.snapshot`, and
+keeping recorded `.watch.gz` banks at `H = 6,000` under `MAX_DECODED = 512 MiB` while guarding
+`if record is not None: snapshot()` + adding `timing`/`respawns_per_slot` in `engine.py:run_arm` for
+`H = 14,400` `record=None` confirmation, shallow `Recording.snapshot`, and
 `64`-frame cooperative yield cold-load speedup from `~8.5 s` to `< 0.35 s` in `verify_payload` are tracked in
 [`docs/research/ROADMAP.md`](../../docs/research/ROADMAP.md) §2.1). Empty/exhausted single-session banks use live B8. No bad file is repeatedly
 hashed on live ticks.
