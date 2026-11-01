@@ -2,16 +2,20 @@
 
 This package lives strictly outside ``research.watch6_search_efficacy_v3.protocol.source_paths()``
 and never enters the runtime import/source closure. Runtime jobs execute unchanged commit
-``357e3504ab7f4b1e5c78209eee14391d16234c7a`` under unchanged science identity
-``b26f7fa03927509342fc1adbbbd1d1878eb3511aab4f6698d103aa010a0e1420``.
+``357e3504ab7f4b1e5c78209eee14391d16234c7a`` from the real V3 broker root
+``/Users/josenunez/Projects/ml/snake-dqn-argon-v3-confirm``, whose actual bytes compute
+``protocol.identity() == b26f7fa03927509342fc1adbbbd1d1878eb3511aab4f6698d103aa010a0e1420``.
 """
 
 from __future__ import annotations
 
 import ast
+import contextlib
 import hashlib
 import json
 import subprocess
+import types
+from collections.abc import Iterator
 from pathlib import Path
 
 from research.watch6_search_efficacy_v3 import protocol as p
@@ -21,6 +25,10 @@ BASELINE_COMMIT = "357e3504ab7f4b1e5c78209eee14391d16234c7a"
 BASELINE_SCIENCE = "b26f7fa03927509342fc1adbbbd1d1878eb3511aab4f6698d103aa010a0e1420"
 BASELINE_NAMESPACE = "t34-watch6-exact-stop-efficacy-20261031-v3"
 REGISTRATION_V3_SHA256 = "d9441b1d66285c570a3b9a67e9db87f60d4921a268579f65889612feb722ae55"
+PROTOCOL_V3_SHA256 = "c2ec1781ce0f99f704214fc6951ddb6891b9dd650da8f80d5b2d24d1aa6422c4"
+
+V3_BROKER_ROOT = Path("/Users/josenunez/Projects/ml/snake-dqn-argon-v3-confirm")
+MAIN_CHECKOUT_ROOT = Path("/Users/josenunez/Projects/ml/snake-dqn")
 
 RULING_2_REL = "t34-sol/watch6-v3-ruling-2/RULING_V3.md"
 RULING_2_SHA256 = "36a51041e86d9d55b1694f84a09cb0b444d5b7f9a38b4cf60bf9dddf7316ed51"
@@ -67,15 +75,22 @@ def artifacts_root(repo: Path | None = None) -> Path:
 
 
 def default_artifact_dir(repo: Path | None = None) -> Path:
-    return artifacts_root(repo) / "t34-sol/argon-v3-accounting-fix1"
+    return artifacts_root(repo) / "t34-sol/argon-v3-accounting-fix2"
 
 
 def default_amendment_path(repo: Path | None = None) -> Path:
-    return default_artifact_dir(repo) / "WATCH6_V3_ACCOUNTING_AMENDMENT_V2_20261031.md"
+    return default_artifact_dir(repo) / "WATCH6_V3_ACCOUNTING_AMENDMENT_V3_20261031.md"
 
 
 def default_ruling_json_path(repo: Path | None = None) -> Path:
     return default_artifact_dir(repo) / "astra-accounting-ruling.json"
+
+
+def is_forbidden_main_checkout(target: Path) -> bool:
+    """True iff target resolves to the main checkout (/Users/josenunez/Projects/ml/snake-dqn)."""
+    resolved = target.resolve()
+    forbidden = {MAIN_CHECKOUT_ROOT.resolve(), (ADAPTER_ROOT.parent / "snake-dqn").resolve()}
+    return resolved in forbidden
 
 
 def adapter_files_map(repo: Path | None = None) -> dict[str, str]:
@@ -225,40 +240,145 @@ def _assert_adapter_excluded_from_closure(root: Path, source_paths: list[str]) -
                     )
 
 
+def _safe_clear_protocol_caches() -> None:
+    if hasattr(p.source_paths, "cache_clear"):
+        p.source_paths.cache_clear()
+    if hasattr(p.identity, "cache_clear"):
+        p.identity.cache_clear()
+
+
+def _load_root_protocol_module(root: Path) -> types.ModuleType:
+    """Evaluate unmodified V3 protocol.py in-memory against root's actual bytes (zero .pyc)."""
+    for rel_dir in (Path("research"), Path("research/watch6_search_efficacy_v3")):
+        cand_dir = root / rel_dir
+        if cand_dir.is_symlink() or not cand_dir.is_dir():
+            raise ValueError(
+                f"REFUSE: missing or symlinked V3 protocol directory in {root}: {cand_dir}"
+            )
+    proto_path = root / "research/watch6_search_efficacy_v3/protocol.py"
+    if proto_path.is_symlink() or not proto_path.is_file():
+        raise ValueError(f"REFUSE: missing or symlinked V3 protocol.py in {root}")
+    proto_sha = digest(proto_path)
+    if proto_sha != PROTOCOL_V3_SHA256:
+        raise ValueError(
+            f"REFUSE: V3 protocol.py modified in {root} ({proto_sha} != {PROTOCOL_V3_SHA256}); "
+            "identity exclusions or edits to protocol.py are forbidden"
+        )
+    module = types.ModuleType("_watch6_v3_broker_protocol")
+    module.__file__ = str(proto_path)
+    code = compile(proto_path.read_bytes(), str(proto_path), "exec")
+    exec(code, module.__dict__)
+    if Path(module.ROOT).resolve() != root:
+        raise ValueError(f"REFUSE: protocol.py ROOT in {root} resolved to {module.ROOT}")
+    if hasattr(module, "ACCEPTED_PRIOR_SCIENCES") or hasattr(p, "ACCEPTED_PRIOR_SCIENCES"):
+        raise ValueError("REFUSE: ACCEPTED_PRIOR_SCIENCES bypass is forbidden by Astra ruling")
+    return module
+
+
+def compute_broker_protocol(broker_root: Path | None = None) -> dict[str, object]:
+    """Compute source_paths, registration SHA256, and protocol.identity() from actual bytes."""
+    raw = broker_root if broker_root is not None else V3_BROKER_ROOT
+    if raw.is_symlink():
+        raise ValueError(f"REFUSE: symlinked V3 broker root forbidden: {raw}")
+    if not raw.exists() or not raw.is_dir():
+        raise ValueError(f"REFUSE: missing V3 broker root directory: {raw}")
+    root = raw.resolve()
+
+    module = _load_root_protocol_module(root)
+    source_paths = list(module.source_paths())
+    for rel_name in source_paths:
+        target = root / rel_name
+        if target.is_symlink():
+            raise ValueError(f"REFUSE: symlinked V3 closure entry in {root}: {target}")
+        if target.is_dir():
+            for item in target.rglob("*"):
+                if "__pycache__" in item.parts:
+                    continue
+                if item.is_symlink():
+                    raise ValueError(f"REFUSE: symlinked file inside V3 closure in {root}: {item}")
+
+    reg_path = Path(module.registration())
+    if reg_path.is_symlink() or not reg_path.is_file():
+        raise ValueError(f"REFUSE: missing or symlinked REGISTRATION_V3.md in {root}")
+    reg_sha = digest(reg_path)
+    actual_science = str(module.identity())
+    return {
+        "broker_root": str(root),
+        "namespace": str(module.NAMESPACE),
+        "science": actual_science,
+        "source_paths": source_paths,
+        "allocation": list(module.allocation()),
+        "registration_path": str(reg_path),
+        "registration_sha256": reg_sha,
+    }
+
+
+def compute_broker_identity(broker_root: Path | None = None) -> str:
+    """Compute unmodified V3 protocol.identity() directly from the actual bytes of broker_root."""
+    return str(compute_broker_protocol(broker_root)["science"])
+
+
 def verify_baseline_closure(
-    repo: Path | None = None,
+    broker_root: Path | None = None,
     *,
     baseline_commit: str = BASELINE_COMMIT,
+    require_head_at_baseline: bool = True,
 ) -> dict[str, str]:
-    """Verify protocol.identity() == b26f7fa0... and byte-exact closure equality to 357e3504."""
-    root = (repo or ADAPTER_ROOT).resolve()
-    p.source_paths.cache_clear()
-    p.identity.cache_clear()
+    """Verify actual bytes of broker_root compute protocol.identity() == b26f7fa0... at 357e3504."""
+    raw = broker_root if broker_root is not None else V3_BROKER_ROOT
+    if raw.is_symlink():
+        raise ValueError(f"REFUSE: symlinked V3 broker root forbidden: {raw}")
+    if not raw.exists() or not raw.is_dir():
+        raise ValueError(f"REFUSE: missing V3 broker root directory: {raw}")
+    root = raw.resolve()
 
-    if hasattr(p, "ACCEPTED_PRIOR_SCIENCES"):
-        raise ValueError("REFUSE: ACCEPTED_PRIOR_SCIENCES bypass is forbidden by Astra ruling")
-    if p.NAMESPACE != BASELINE_NAMESPACE:
-        raise ValueError(f"REFUSE: unexpected protocol.NAMESPACE: {p.NAMESPACE!r}")
+    if is_forbidden_main_checkout(root):
+        try:
+            computed = compute_broker_identity(root)
+        except Exception as exc:  # noqa: BLE001
+            computed = f"<error:{exc}>"
+        raise ValueError(
+            f"REFUSE: main checkout {root} is forbidden for V3 baseline/broker verification "
+            f"(computed identity={computed}, expected={BASELINE_SCIENCE}); "
+            f"bind to {V3_BROKER_ROOT}"
+        )
 
-    source_paths = p.source_paths()
-    if root == p.ROOT.resolve():
-        _assert_adapter_excluded_from_closure(root, source_paths)
-        reg_sha = digest(p.registration())
-        if reg_sha != REGISTRATION_V3_SHA256:
-            raise ValueError(
-                f"REFUSE: REGISTRATION_V3.md SHA256 rotated ({reg_sha} != {REGISTRATION_V3_SHA256})"
-            )
-        current_science = p.identity()
-        if current_science != BASELINE_SCIENCE:
-            raise ValueError(
-                f"REFUSE: protocol.identity() rotated ({current_science} != {BASELINE_SCIENCE})"
-            )
-    else:
-        _assert_adapter_excluded_from_closure(root, source_paths)
-        reg_path = root / "research/watch6_search_efficacy_v3/REGISTRATION_V3.md"
-        if not reg_path.is_file() or digest(reg_path) != REGISTRATION_V3_SHA256:
-            raise ValueError(f"REFUSE: REGISTRATION_V3.md mismatch in {root}")
-        current_science = BASELINE_SCIENCE
+    proto_info = compute_broker_protocol(root)
+    source_paths = [str(item) for item in proto_info["source_paths"]]  # type: ignore[union-attr]
+    actual_science = str(proto_info["science"])
+    reg_sha = str(proto_info["registration_sha256"])
+    namespace = str(proto_info["namespace"])
+
+    prev_p_root = p.ROOT
+    try:
+        p.ROOT = root
+        _safe_clear_protocol_caches()
+        if hasattr(p, "ACCEPTED_PRIOR_SCIENCES"):
+            raise ValueError("REFUSE: ACCEPTED_PRIOR_SCIENCES bypass is forbidden by Astra ruling")
+        if p.NAMESPACE != BASELINE_NAMESPACE or namespace != BASELINE_NAMESPACE:
+            raise ValueError(f"REFUSE: unexpected protocol.NAMESPACE in {root}: {namespace!r}")
+        bound_science = p.identity()
+    finally:
+        p.ROOT = prev_p_root
+        _safe_clear_protocol_caches()
+
+    _assert_adapter_excluded_from_closure(root, source_paths)
+    if ADAPTER_ROOT.is_dir() and ADAPTER_ROOT.resolve() != root:
+        _assert_adapter_excluded_from_closure(ADAPTER_ROOT.resolve(), source_paths)
+
+    if reg_sha != REGISTRATION_V3_SHA256:
+        raise ValueError(
+            f"REFUSE: REGISTRATION_V3.md SHA256 rotated in {root} "
+            f"({reg_sha} != {REGISTRATION_V3_SHA256})"
+        )
+    if actual_science != BASELINE_SCIENCE or bound_science != BASELINE_SCIENCE:
+        observed = actual_science if actual_science != BASELINE_SCIENCE else bound_science
+        raise ValueError(
+            f"REFUSE: protocol.identity() rotated in {root} ({observed} != {BASELINE_SCIENCE})"
+        )
+
+    if not (root / ".git").exists():
+        raise ValueError(f"REFUSE: V3 broker/baseline root {root} is not a git checkout/worktree")
 
     obj_type = subprocess.run(
         ["git", "--no-optional-locks", "cat-file", "-t", baseline_commit],
@@ -269,6 +389,18 @@ def verify_baseline_closure(
     )
     if obj_type.returncode != 0 or obj_type.stdout.strip() != "commit":
         raise ValueError(f"REFUSE: baseline commit {baseline_commit} absent in {root}")
+
+    if require_head_at_baseline or root == V3_BROKER_ROOT.resolve():
+        head = subprocess.check_output(
+            ["git", "--no-optional-locks", "rev-parse", "HEAD"],
+            cwd=root,
+            text=True,
+            timeout=10,
+        ).strip()
+        if head != baseline_commit:
+            raise ValueError(
+                f"REFUSE: V3 broker root {root} HEAD is {head} != baseline commit {baseline_commit}"
+            )
 
     diff_bytes = subprocess.check_output(
         ["git", "--no-optional-locks", "diff", baseline_commit, "--", *source_paths],
@@ -300,8 +432,44 @@ def verify_baseline_closure(
         )
 
     return {
+        "broker_root": str(root),
         "baseline_commit": baseline_commit,
-        "science": current_science,
-        "namespace": BASELINE_NAMESPACE,
-        "registration_sha256": REGISTRATION_V3_SHA256,
+        "science": actual_science,
+        "namespace": namespace,
+        "registration_sha256": reg_sha,
     }
+
+
+@contextlib.contextmanager
+def bind_broker_protocol(
+    broker_root: Path | None = None,
+    *,
+    baseline_commit: str = BASELINE_COMMIT,
+    require_head_at_baseline: bool = True,
+) -> Iterator[dict[str, str]]:
+    """Verify broker_root from actual bytes and scope V3 protocol.ROOT to that verified broker."""
+    closure_info = verify_baseline_closure(
+        broker_root,
+        baseline_commit=baseline_commit,
+        require_head_at_baseline=require_head_at_baseline,
+    )
+    resolved_broker = Path(closure_info["broker_root"])
+    host_proto = Path(p.__file__).resolve()
+    if digest(host_proto) != PROTOCOL_V3_SHA256:
+        raise ValueError(
+            f"REFUSE: host V3 protocol.py modified ({host_proto}); edits/exclusions are forbidden"
+        )
+    prev_root = p.ROOT
+    try:
+        p.ROOT = resolved_broker
+        _safe_clear_protocol_caches()
+        live_science = p.identity()
+        if live_science != closure_info["science"] or live_science != BASELINE_SCIENCE:
+            raise ValueError(
+                f"REFUSE: bound broker protocol.identity() mismatch in {resolved_broker} "
+                f"({live_science} != {BASELINE_SCIENCE})"
+            )
+        yield closure_info
+    finally:
+        p.ROOT = prev_root
+        _safe_clear_protocol_caches()

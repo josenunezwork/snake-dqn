@@ -2,8 +2,9 @@
 
 Implements Astra Ruling Points 1, 3, and 5:
 - Verifies the immutable accounting amendment outside ``protocol.source_paths()``, including
-  baseline commit/science, original registration hash, rulings 2/3 + shard-00 path ruling hashes,
-  shard-00 proof/receipt hashes, complete 10-file adapter inventory hashes, and adapter commit.
+  baseline commit, actual broker science identity computed from ``V3_BROKER_ROOT``, original
+  registration hash, rulings 2/3 + shard-00 path ruling hashes, shard-00 proof/receipt hashes,
+  complete 10-file adapter inventory hashes, and adapter commit.
 - Reuses strict ``APPROVE`` / ``APPROVE-WITH-CONDITIONS`` verdict parsing; ``APPROVE-PATH``,
   ``REJECT``, ``NOT_RATIFIED``, missing, or conflicting verdicts are refused closed.
 """
@@ -16,7 +17,6 @@ import os
 import re
 from pathlib import Path
 
-from research.watch6_search_efficacy_v3 import protocol as p
 from research.watch6_search_efficacy_v3.ratify import ALLOWED_VERDICTS, parse_ruling_verdict
 from tools.ops.package_spec import digest, publish_json, verify_immutable
 from tools.watch6_v3_accounting import (
@@ -37,10 +37,12 @@ from tools.watch6_v3_accounting import (
     SHARD00_PROOF_SHA256,
     SHARD00_RECEIPT_REL,
     SHARD00_RECEIPT_SHA256,
+    V3_BROKER_ROOT,
     adapter_commit,
     adapter_files_map,
     adapter_inventory_sha256,
     artifacts_root,
+    compute_broker_protocol,
     default_amendment_path,
     default_ruling_json_path,
     verify_baseline_closure,
@@ -73,14 +75,23 @@ def resolve_amendment_path(override: Path | None = None, *, repo: Path | None = 
     return default_amendment_path(repo).resolve()
 
 
-def _assert_outside_source_closure(path: Path, root: Path) -> None:
+def _assert_outside_source_closure(
+    path: Path,
+    root: Path,
+    source_paths: list[str] | None = None,
+) -> None:
     resolved = path.resolve()
     try:
         rel = resolved.relative_to(root.resolve())
     except ValueError:
         return
     rel_str = rel.as_posix()
-    for entry in p.source_paths():
+    if source_paths is not None:
+        entries = source_paths
+    else:
+        raw_paths = compute_broker_protocol(V3_BROKER_ROOT)["source_paths"]
+        entries = [str(item) for item in raw_paths]  # type: ignore[union-attr]
+    for entry in entries:
         clean = entry.rstrip("/")
         if rel_str == clean or rel_str.startswith(clean + "/"):
             raise ValueError(
@@ -113,15 +124,22 @@ def verify_amendment_document(
     amendment_md: Path | None = None,
     *,
     repo: Path | None = None,
+    broker_root: Path | None = None,
     require_clean_git: bool = True,
     expected_adapter_commit: str | None = None,
 ) -> dict:
-    """Verify immutable accounting amendment sidecars and exact adapter/baseline hash bindings."""
-    root = (repo or ADAPTER_ROOT).resolve()
-    verify_baseline_closure(root)
+    """Verify immutable accounting amendment sidecars and exact adapter/broker hash bindings."""
+    adapter_repo = (repo or ADAPTER_ROOT).resolve()
+    closure_info = verify_baseline_closure(broker_root, require_head_at_baseline=True)
+    resolved_broker = Path(closure_info["broker_root"])
+    broker_proto = compute_broker_protocol(resolved_broker)
+    source_paths = [str(item) for item in broker_proto["source_paths"]]  # type: ignore[union-attr]
+    broker_science = closure_info["science"]
 
     raw_target = (
-        amendment_md if amendment_md is not None else resolve_amendment_path(None, repo=root)
+        amendment_md
+        if amendment_md is not None
+        else resolve_amendment_path(None, repo=adapter_repo)
     )
     if raw_target.is_symlink():
         raise ValueError(f"REFUSE: symlinked accounting amendment forbidden: {raw_target}")
@@ -129,7 +147,8 @@ def verify_amendment_document(
     if target.is_symlink() or not target.is_file():
         raise ValueError(f"REFUSE: missing accounting amendment document: {target}")
 
-    _assert_outside_source_closure(target, root)
+    _assert_outside_source_closure(target, adapter_repo, source_paths)
+    _assert_outside_source_closure(target, resolved_broker, source_paths)
     immutable_desc = verify_immutable(target)
     text = target.read_text(encoding="utf-8")
 
@@ -144,16 +163,17 @@ def verify_amendment_document(
         )
 
     verified_commit = adapter_commit(
-        root,
+        adapter_repo,
         require_clean=require_clean_git,
         expected_commit=bound_commit,
     )
-    files_map = adapter_files_map(root)
-    inv_sha = adapter_inventory_sha256(root)
+    files_map = adapter_files_map(adapter_repo)
+    inv_sha = adapter_inventory_sha256(adapter_repo)
 
     required_tokens = (
+        ("v3_broker_root", str(V3_BROKER_ROOT)),
         ("baseline_commit", BASELINE_COMMIT),
-        ("baseline_science", BASELINE_SCIENCE),
+        ("baseline_science", broker_science),
         ("baseline_namespace", BASELINE_NAMESPACE),
         ("registration_v3_sha256", REGISTRATION_V3_SHA256),
         ("ruling_2_rel", RULING_2_REL),
@@ -188,11 +208,13 @@ def verify_amendment_document(
                 f"REFUSE: accounting amendment {target} does not pair {rel_path} with {file_sha}"
             )
 
-    _verify_frozen_artifacts_if_present(artifacts_root(root))
+    _verify_frozen_artifacts_if_present(artifacts_root(adapter_repo))
 
     return {
         "amendment_path": str(target),
         "amendment_sha256": immutable_desc["sha256"],
+        "broker_root": str(resolved_broker),
+        "science": broker_science,
         "adapter_commit": verified_commit,
         "adapter_inventory_sha256": inv_sha,
         "adapter_files": files_map,
@@ -206,10 +228,13 @@ def record_ruling(
     out: Path | None = None,
     judge: str = "Astra",
     repo: Path | None = None,
+    broker_root: Path | None = None,
     require_clean_git: bool = True,
 ) -> dict:
-    """Bind Astra's re-ratification ruling to the immutable amendment and adapter hashes."""
-    root = (repo or ADAPTER_ROOT).resolve()
+    """Bind Astra's re-ratification ruling to the amendment, broker, and adapter hashes."""
+    adapter_repo = (repo or ADAPTER_ROOT).resolve()
+    closure_info = verify_baseline_closure(broker_root, require_head_at_baseline=True)
+    resolved_broker = Path(closure_info["broker_root"])
     if ruling_md.is_symlink():
         raise ValueError(f"REFUSE: symlinked ruling markdown forbidden: {ruling_md}")
     resolved_ruling = ruling_md.resolve(strict=True)
@@ -225,10 +250,11 @@ def record_ruling(
     verdict = parse_ruling_verdict(resolved_ruling.read_text(encoding="utf-8"))
     amend = verify_amendment_document(
         amendment_md,
-        repo=root,
+        repo=adapter_repo,
+        broker_root=resolved_broker,
         require_clean_git=require_clean_git,
     )
-    target = resolve_ruling_json(out, repo=root)
+    target = resolve_ruling_json(out, repo=adapter_repo)
     payload = {
         "schema": SCHEMA,
         "status": "RATIFIED",
@@ -236,13 +262,14 @@ def record_ruling(
         "judge": judge,
         "implementer": "Argon",
         "independent_implementation_review": True,
-        "namespace": BASELINE_NAMESPACE,
-        "science": BASELINE_SCIENCE,
-        "baseline_commit": BASELINE_COMMIT,
+        "broker_root": str(resolved_broker),
+        "namespace": closure_info["namespace"],
+        "science": closure_info["science"],
+        "baseline_commit": closure_info["baseline_commit"],
         "registration_path": str(
-            (root / "research/watch6_search_efficacy_v3/REGISTRATION_V3.md").resolve()
+            (resolved_broker / "research/watch6_search_efficacy_v3/REGISTRATION_V3.md").resolve()
         ),
-        "registration_sha256": REGISTRATION_V3_SHA256,
+        "registration_sha256": closure_info["registration_sha256"],
         "ruling_2_sha256": RULING_2_SHA256,
         "ruling_3_sha256": RULING_3_SHA256,
         "path_ruling_sha256": SHARD00_PATH_RULING_SHA256,
@@ -265,11 +292,16 @@ def validate_ruling_receipt(
     *,
     amendment_override: Path | None = None,
     repo: Path | None = None,
+    broker_root: Path | None = None,
     require_clean_git: bool = True,
 ) -> dict:
     """Fail closed if Astra's accounting re-ratification receipt is absent, unapproved, or stale."""
-    root = (repo or ADAPTER_ROOT).resolve()
-    raw_target = path if path is not None else resolve_ruling_json(None, repo=root)
+    adapter_repo = (repo or ADAPTER_ROOT).resolve()
+    closure_info = verify_baseline_closure(broker_root, require_head_at_baseline=True)
+    resolved_broker = Path(closure_info["broker_root"])
+    broker_science = closure_info["science"]
+
+    raw_target = path if path is not None else resolve_ruling_json(None, repo=adapter_repo)
     if raw_target.is_symlink():
         raise ValueError(f"REFUSE: symlinked accounting ruling receipt forbidden: {raw_target}")
     target = raw_target.resolve()
@@ -286,6 +318,13 @@ def validate_ruling_receipt(
 
     ruling_md = Path(str(receipt.get("ruling_path", "")))
     amendment_md = Path(str(receipt.get("amendment_path", "")))
+    rec_broker_raw = receipt.get("broker_root")
+    if not isinstance(rec_broker_raw, str) or Path(rec_broker_raw).resolve() != resolved_broker:
+        raise ValueError(
+            f"REFUSE: ruling receipt broker_root {rec_broker_raw!r} "
+            f"differs from verified broker {resolved_broker}"
+        )
+
     if (
         receipt.get("schema") != SCHEMA
         or receipt.get("status") != "RATIFIED"
@@ -293,9 +332,9 @@ def validate_ruling_receipt(
         or receipt.get("judge") not in ("Astra", "Fable")
         or receipt.get("implementer") != "Argon"
         or receipt.get("namespace") != BASELINE_NAMESPACE
-        or receipt.get("namespace") != p.NAMESPACE
+        or receipt.get("namespace") != closure_info["namespace"]
         or receipt.get("science") != BASELINE_SCIENCE
-        or receipt.get("science") != p.identity()
+        or receipt.get("science") != broker_science
         or receipt.get("baseline_commit") != BASELINE_COMMIT
         or receipt.get("registration_sha256") != REGISTRATION_V3_SHA256
         or receipt.get("ruling_2_sha256") != RULING_2_SHA256
@@ -329,7 +368,8 @@ def validate_ruling_receipt(
 
     amend = verify_amendment_document(
         amendment_md,
-        repo=root,
+        repo=adapter_repo,
+        broker_root=resolved_broker,
         require_clean_git=require_clean_git,
         expected_adapter_commit=rec_commit,
     )
@@ -361,13 +401,21 @@ def main() -> None:
         "--amendment",
         type=Path,
         default=None,
-        help="Path to immutable WATCH6_V3_ACCOUNTING_AMENDMENT_20261031.md",
+        help="Path to immutable WATCH6_V3_ACCOUNTING_AMENDMENT_V3_20261031.md",
     )
     parser.add_argument(
         "--out",
         type=Path,
         default=None,
         help="Output path for astra-accounting-ruling.json",
+    )
+    parser.add_argument(
+        "--broker-root",
+        "--broker",
+        dest="broker_root",
+        type=Path,
+        default=V3_BROKER_ROOT,
+        help="Path to clean V3 broker root at 357e3504",
     )
     parser.add_argument("--judge", default="Astra", choices=("Astra", "Fable"))
     args = parser.parse_args()
@@ -376,8 +424,13 @@ def main() -> None:
         amendment_md=args.amendment,
         out=args.out,
         judge=args.judge,
+        broker_root=args.broker_root,
     )
-    validate_ruling_receipt(args.out, amendment_override=args.amendment)
+    validate_ruling_receipt(
+        args.out,
+        amendment_override=args.amendment,
+        broker_root=args.broker_root,
+    )
     print(json.dumps(receipt, indent=2), flush=True)
 
 

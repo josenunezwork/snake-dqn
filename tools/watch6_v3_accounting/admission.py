@@ -1,8 +1,8 @@
 """Host-side admission adapter for Watch6 V3 (Astra Ruling Points 2, 3, 4, 6).
 
 Preserves every Watch6 V3 admission audit, 2x envelope, <=12/<=90s upload cap, L4-only W4
-placement, canary check, and runtime closure verification while adapting only the pre-start
-failure predicate to accept a PROVEN never-allocated attempt per Ruling Point 4.
+placement, canary check, and actual-byte broker closure verification while adapting only the
+pre-start failure predicate to accept a PROVEN never-allocated attempt per Ruling Point 4.
 """
 
 from __future__ import annotations
@@ -20,9 +20,11 @@ from research.watch6_search_efficacy_v3.costs import verify_report_evidence
 from research.watch6_search_efficacy_v3.uploads import METADATA, check_uploads, stage_metadata
 from tools.ops.package_spec import digest
 from tools.watch6_v3_accounting import (
-    ADAPTER_ROOT,
     BASELINE_COMMIT,
     BASELINE_SCIENCE,
+    V3_BROKER_ROOT,
+    bind_broker_protocol,
+    compute_broker_protocol,
     verify_baseline_closure,
 )
 from tools.watch6_v3_accounting.proof import (
@@ -95,8 +97,16 @@ def verify_prior_receipts_lineage(
     total_dispatches: int,
     *,
     ops_dir: Path | None = None,
+    broker_root: Path | None = None,
 ) -> None:
-    """Verify declared prior receipts match retry counters and baseline V3 science/commit."""
+    """Verify declared prior receipts match retry counters and verified broker V3 science/commit."""
+    target_broker = broker_root if broker_root is not None else V3_BROKER_ROOT
+    closure_info = verify_baseline_closure(target_broker)
+    broker_proto = compute_broker_protocol(Path(closure_info["broker_root"]))
+    broker_science = closure_info["science"]
+    broker_namespace = closure_info["namespace"]
+    broker_alloc = broker_proto["allocation"]
+
     if not isinstance(prior_receipts, list):
         raise ValueError("prior_receipts must be a list")
     if total_dispatches != 1 + prestart_used + compute_attempt or len(prior_receipts) != (
@@ -130,10 +140,10 @@ def verify_prior_receipts_lineage(
         if (
             m_data.get("commit") != BASELINE_COMMIT
             or receipt.get("commit") != BASELINE_COMMIT
-            or m_bind.get("namespace") != p.NAMESPACE
-            or m_bind.get("science") != p.identity()
+            or m_bind.get("namespace") != broker_namespace
+            or m_bind.get("science") != broker_science
             or m_bind.get("science") != BASELINE_SCIENCE
-            or m_bind.get("primary_allocation") != p.allocation()
+            or m_bind.get("primary_allocation") != broker_alloc
             or any(k in m_bind for k in ("reserve_allocation", "reserve_slots", "reserve_lineage"))
             or m_req.get("gpu") != "L4"
             or m_req.get("allowed_gpus") != ["L4"]
@@ -169,139 +179,145 @@ def admit(
     *,
     pending_qualification: bool = False,
     ops_dir: Path | None = None,
-    repo: Path | None = None,
+    broker_root: Path | None = None,
 ) -> dict:
-    """Verify baseline closure equality, controller, V3 allocation, L4 W4, uploads, and 2x caps."""
-    root = (repo or ADAPTER_ROOT).resolve()
-    verify_baseline_closure(root)
+    """Verify broker closure equality, controller, V3 allocation, L4 W4, uploads, and 2x caps."""
+    target_broker = broker_root if broker_root is not None else V3_BROKER_ROOT
+    with bind_broker_protocol(target_broker, require_head_at_baseline=True) as closure_info:
+        resolved_broker = Path(closure_info["broker_root"])
+        broker_science = closure_info["science"]
 
-    if manifest.get("commit") != BASELINE_COMMIT:
-        got_commit = manifest.get("commit")
-        raise ValueError(
-            f"Watch6 V3 runtime commit must remain {BASELINE_COMMIT}, got {got_commit!r}"
-        )
-    if manifest.get("source_paths") != p.source_paths():
-        raise ValueError("manifest source_paths differs from frozen protocol.source_paths()")
+        if manifest.get("commit") != BASELINE_COMMIT:
+            got_commit = manifest.get("commit")
+            raise ValueError(
+                f"Watch6 V3 runtime commit must remain {BASELINE_COMMIT}, got {got_commit!r}"
+            )
+        if manifest.get("source_paths") != p.source_paths():
+            raise ValueError("manifest source_paths differs from frozen protocol.source_paths()")
 
-    binding = manifest["watch6_v3"]
-    if manifest.get("pending_qualification") and not pending_qualification:
-        raise ValueError("main packet awaits genuine passing same-pin canary; finalize first")
-    if pending_qualification and manifest.get("pending_qualification") is not True:
-        raise ValueError("pending validation only accepts explicitly pending packets")
-    if any(k in binding for k in ("reserve_allocation", "reserve_slots", "reserve_lineage")):
-        raise ValueError("reserve seed substitution is forbidden in Watch6 V3")
-    if (
-        binding.get("namespace") != p.NAMESPACE
-        or binding.get("science") != p.identity()
-        or binding.get("science") != BASELINE_SCIENCE
-        or binding.get("primary_allocation") != p.allocation()
-    ):
-        raise ValueError("foreign V3 source/namespace/allocation")
-    if manifest.get("script") != p.SCRIPT or manifest.get("device") != "cpu":
-        raise ValueError("wrong V3 entrypoint or device")
-    req = manifest.get("requirements", {})
-    if (
-        req.get("gpu") != "L4"
-        or req.get("allowed_gpus") != ["L4"]
-        or "prefer" in req
-        or req.get("min_vcpu", 0) < 12
-    ):
-        raise ValueError(
-            "only registered >=12 vCPU L4 CPU placement (no A100 substitution) is admitted"
-        )
-    base_minutes = binding.get("base_minutes")
-    if type(base_minutes) is not int or not 0 < base_minutes <= 660:
-        raise ValueError("invalid base_minutes envelope")
-    if (
-        manifest.get("timeout_minutes") != 2 * base_minutes
-        or req.get("est_minutes") != base_minutes
-    ):
-        raise ValueError("requires pre-data 2x wall guard matching est_minutes")
-    budget = manifest.get("budget", {})
-    rate = budget.get("rate_units_per_hour")
-    if type(rate) not in (int, float) or not math.isfinite(rate) or rate <= 0:
-        raise ValueError("budget requires positive finite rate_units_per_hour")
-    expected_base_units = base_minutes / 60 * float(rate)
-    if not math.isclose(
-        budget.get("unit_cap", -1.0), 2 * expected_base_units, rel_tol=1e-9
-    ) or not math.isclose(
-        budget.get("reserve_units", -1.0), 2 * expected_base_units * 0.2, rel_tol=1e-9
-    ):
-        raise ValueError("requires pre-data 2x pricing envelope")
+        binding = manifest["watch6_v3"]
+        if manifest.get("pending_qualification") and not pending_qualification:
+            raise ValueError("main packet awaits genuine passing same-pin canary; finalize first")
+        if pending_qualification and manifest.get("pending_qualification") is not True:
+            raise ValueError("pending validation only accepts explicitly pending packets")
+        if any(k in binding for k in ("reserve_allocation", "reserve_slots", "reserve_lineage")):
+            raise ValueError("reserve seed substitution is forbidden in Watch6 V3")
+        if (
+            binding.get("namespace") != p.NAMESPACE
+            or binding.get("science") != broker_science
+            or binding.get("science") != BASELINE_SCIENCE
+            or binding.get("primary_allocation") != p.allocation()
+        ):
+            raise ValueError("foreign V3 source/namespace/allocation")
+        if manifest.get("script") != p.SCRIPT or manifest.get("device") != "cpu":
+            raise ValueError("wrong V3 entrypoint or device")
+        req = manifest.get("requirements", {})
+        if (
+            req.get("gpu") != "L4"
+            or req.get("allowed_gpus") != ["L4"]
+            or "prefer" in req
+            or req.get("min_vcpu", 0) < 12
+        ):
+            raise ValueError(
+                "only registered >=12 vCPU L4 CPU placement (no A100 substitution) is admitted"
+            )
+        base_minutes = binding.get("base_minutes")
+        if type(base_minutes) is not int or not 0 < base_minutes <= 660:
+            raise ValueError("invalid base_minutes envelope")
+        if (
+            manifest.get("timeout_minutes") != 2 * base_minutes
+            or req.get("est_minutes") != base_minutes
+        ):
+            raise ValueError("requires pre-data 2x wall guard matching est_minutes")
+        budget = manifest.get("budget", {})
+        rate = budget.get("rate_units_per_hour")
+        if type(rate) not in (int, float) or not math.isfinite(rate) or rate <= 0:
+            raise ValueError("budget requires positive finite rate_units_per_hour")
+        expected_base_units = base_minutes / 60 * float(rate)
+        if not math.isclose(
+            budget.get("unit_cap", -1.0), 2 * expected_base_units, rel_tol=1e-9
+        ) or not math.isclose(
+            budget.get("reserve_units", -1.0), 2 * expected_base_units * 0.2, rel_tol=1e-9
+        ):
+            raise ValueError("requires pre-data 2x pricing envelope")
 
-    probe = manifest.get("canary", {}).get("mode") == "probe"
-    prestart_used = binding.get("prestart_retries_used", 0)
-    compute_attempt = binding.get("compute_completion_attempt", 0)
-    total_dispatches = binding.get("total_dispatches_for_shard", 1)
-    top_completion = manifest.get("completion_attempt", 0)
-    phase = binding.get("phase")
-    expected_phase = "canary" if probe else "primary"
-    if (
-        phase != expected_phase
-        or type(prestart_used) is not int
-        or prestart_used < 0
-        or type(compute_attempt) is not int
-        or not 0 <= compute_attempt <= p.MAX_COMPUTE_COMPLETIONS_PER_SHARD
-        or type(top_completion) is not int
-        or not 0 <= top_completion <= p.MAX_COMPUTE_COMPLETIONS_PER_SHARD
-        or compute_attempt + top_completion > p.MAX_COMPUTE_COMPLETIONS_PER_SHARD
-        or type(total_dispatches) is not int
-        or total_dispatches != 1 + prestart_used + compute_attempt
-    ):
-        raise ValueError("retry or phase counters violate pre-registered V3 caps")
-    if probe and (
-        prestart_used != 0 or compute_attempt != 0 or total_dispatches != 1 or top_completion != 0
-    ):
-        raise ValueError("canary probe must have zero shard retry counters")
+        probe = manifest.get("canary", {}).get("mode") == "probe"
+        prestart_used = binding.get("prestart_retries_used", 0)
+        compute_attempt = binding.get("compute_completion_attempt", 0)
+        total_dispatches = binding.get("total_dispatches_for_shard", 1)
+        top_completion = manifest.get("completion_attempt", 0)
+        phase = binding.get("phase")
+        expected_phase = "canary" if probe else "primary"
+        if (
+            phase != expected_phase
+            or type(prestart_used) is not int
+            or prestart_used < 0
+            or type(compute_attempt) is not int
+            or not 0 <= compute_attempt <= p.MAX_COMPUTE_COMPLETIONS_PER_SHARD
+            or type(top_completion) is not int
+            or not 0 <= top_completion <= p.MAX_COMPUTE_COMPLETIONS_PER_SHARD
+            or compute_attempt + top_completion > p.MAX_COMPUTE_COMPLETIONS_PER_SHARD
+            or type(total_dispatches) is not int
+            or total_dispatches != 1 + prestart_used + compute_attempt
+        ):
+            raise ValueError("retry or phase counters violate pre-registered V3 caps")
+        if probe and (
+            prestart_used != 0
+            or compute_attempt != 0
+            or total_dispatches != 1
+            or top_completion != 0
+        ):
+            raise ValueError("canary probe must have zero shard retry counters")
 
-    env = manifest.get("env", {})
-    if env.get("WATCH6_FIXTURE") != ("1" if probe else "0"):
-        raise ValueError("canary/main fixture isolation mismatch")
-    if env.get("SNAKE_WATCH_SOURCE") != "live":
-        raise ValueError("requires explicit SNAKE_WATCH_SOURCE=live")
-    if int(env.get("WATCH6_BASE_MINUTES", -1)) != base_minutes:
-        raise ValueError("runtime base_minutes env mismatch")
-    if manifest.get("required_exports") != ["efficacy/operational.json", "performance.json"]:
-        raise ValueError("required_exports mismatch")
-    if manifest.get("resume") != {
-        "unit_kind": "paired-session",
-        "ledger_path": "inputs/verified-ledger.json",
-        "skip_verified": True,
-        "max_outcome_blind_retries": 2,
-    }:
-        raise ValueError("resume policy mismatch")
+        env = manifest.get("env", {})
+        if env.get("WATCH6_FIXTURE") != ("1" if probe else "0"):
+            raise ValueError("canary/main fixture isolation mismatch")
+        if env.get("SNAKE_WATCH_SOURCE") != "live":
+            raise ValueError("requires explicit SNAKE_WATCH_SOURCE=live")
+        if int(env.get("WATCH6_BASE_MINUTES", -1)) != base_minutes:
+            raise ValueError("runtime base_minutes env mismatch")
+        if manifest.get("required_exports") != ["efficacy/operational.json", "performance.json"]:
+            raise ValueError("required_exports mismatch")
+        if manifest.get("resume") != {
+            "unit_kind": "paired-session",
+            "ledger_path": "inputs/verified-ledger.json",
+            "skip_verified": True,
+            "max_outcome_blind_retries": 2,
+        }:
+            raise ValueError("resume policy mismatch")
 
-    prior_receipts = binding.get("prior_receipts", [])
-    if probe:
-        if prior_receipts != []:
-            raise ValueError("canary probe cannot carry shard prior_receipts")
-    else:
-        verify_prior_receipts_lineage(
-            int(env["WATCH6_SHARD"]),
-            prior_receipts,
-            prestart_used,
-            compute_attempt,
-            total_dispatches,
-            ops_dir=ops_dir,
-        )
+        prior_receipts = binding.get("prior_receipts", [])
+        if probe:
+            if prior_receipts != []:
+                raise ValueError("canary probe cannot carry shard prior_receipts")
+        else:
+            verify_prior_receipts_lineage(
+                int(env["WATCH6_SHARD"]),
+                prior_receipts,
+                prestart_used,
+                compute_attempt,
+                total_dispatches,
+                ops_dir=ops_dir,
+                broker_root=resolved_broker,
+            )
 
-    for item in manifest["inputs"]:
-        if digest(Path(item["path"])) != item["sha256"]:
-            raise ValueError(f"input digest mismatch: {item['dest']}")
-    upload_report = check_uploads(manifest)
-    meta_item = next(i for i in manifest["inputs"] if i["dest"] == METADATA)
-    if meta_item["sha256"] != env.get("WATCH6_METADATA_SHA256"):
-        raise ValueError("runtime metadata SHA differs from uploaded manifest input")
+        for item in manifest["inputs"]:
+            if digest(Path(item["path"])) != item["sha256"]:
+                raise ValueError(f"input digest mismatch: {item['dest']}")
+        upload_report = check_uploads(manifest)
+        meta_item = next(i for i in manifest["inputs"] if i["dest"] == METADATA)
+        if meta_item["sha256"] != env.get("WATCH6_METADATA_SHA256"):
+            raise ValueError("runtime metadata SHA differs from uploaded manifest input")
 
-    with tempfile.TemporaryDirectory(prefix="watch6-v3-acct-admission-") as temporary:
-        stage_root = Path(temporary)
-        shutil.copyfile(meta_item["path"], stage_root / METADATA)
-        stage_metadata(stage_root, env["WATCH6_METADATA_SHA256"])
-        verify_runtime(stage_root, env)
+        with tempfile.TemporaryDirectory(prefix="watch6-v3-acct-admission-") as temporary:
+            stage_root = Path(temporary)
+            shutil.copyfile(meta_item["path"], stage_root / METADATA)
+            stage_metadata(stage_root, env["WATCH6_METADATA_SHA256"])
+            verify_runtime(stage_root, env)
 
-    if not probe and not pending_qualification:
-        canary.check(manifest, root)
-    if not probe:
-        report = json.loads(env["WATCH6_MEASUREMENTS"])
-        verify_report_evidence(report)
-    return upload_report
+        if not probe and not pending_qualification:
+            canary.check(manifest, resolved_broker)
+        if not probe:
+            report = json.loads(env["WATCH6_MEASUREMENTS"])
+            verify_report_evidence(report)
+        return upload_report

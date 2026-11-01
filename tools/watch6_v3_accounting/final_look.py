@@ -2,8 +2,10 @@
 
 Implements Astra Ruling Point 7 (narrowly superseding Ruling 3's entrypoint condition; no
 standalone ``analyze.py``):
-1. Verifies Mac host, baseline V3 closure equality against ``357e3504``, and Astra's ratified
-   accounting ruling receipt binding the immutable amendment and 10-file adapter inventory.
+1. Verifies Mac host, actual-byte baseline V3 closure equality on the real V3 broker root
+   ``/Users/josenunez/Projects/ml/snake-dqn-argon-v3-confirm`` at ``357e3504`` (refusing the main
+   checkout and any cross-root substitution), and Astra's ratified accounting ruling receipt
+   binding the immutable amendment and 10-file adapter inventory.
 2. Audits the complete shared ``<ops_dir>/manifests/*.json`` registry, retaining shard 00's
    PROVEN never-allocated attempt verbatim as ``prestart`` lineage while requiring clean
    ``stop_verified=True`` (`cleanup_error is None`) on all allocated attempts.
@@ -32,7 +34,8 @@ from tools.watch6_v3_accounting import (
     ADAPTER_ROOT,
     BASELINE_COMMIT,
     BASELINE_SCIENCE,
-    verify_baseline_closure,
+    V3_BROKER_ROOT,
+    bind_broker_protocol,
 )
 from tools.watch6_v3_accounting.admission import (
     is_external_transport_compute_failure,
@@ -419,17 +422,20 @@ def _audit_pre_outcome(
     out_dir: Path,
     ruling_json: Path | None,
     amendment_md: Path | None,
-    root: Path,
+    adapter_repo: Path,
+    resolved_broker: Path,
+    closure_info: dict[str, str],
     require_clean_git: bool,
 ) -> tuple[dict, dict, list[Path], list[tuple[Path, str]], list[_ShardAttempt], list[Path], Path]:
     if platform.system() != "Darwin":
         raise _fail_prelook("final look must run on Mac")
 
-    closure_info = verify_baseline_closure(root)
+    broker_science = closure_info["science"]
     ruling_receipt = validate_ruling_receipt(
         ruling_json,
         amendment_override=amendment_md,
-        repo=root,
+        repo=adapter_repo,
+        broker_root=resolved_broker,
         require_clean_git=require_clean_git,
     )
 
@@ -461,7 +467,7 @@ def _audit_pre_outcome(
                 raise _fail_prelook(f"V3 script manifest missing watch6_v3 binding: {mf_path}")
             continue
 
-        if binding.get("science") != p.identity() or binding.get("science") != BASELINE_SCIENCE:
+        if binding.get("science") != broker_science or binding.get("science") != BASELINE_SCIENCE:
             raise _fail_prelook(f"foreign science identity under V3 namespace in {mf_path}")
         if data.get("commit") != BASELINE_COMMIT:
             raise _fail_prelook(f"foreign runtime commit under V3 namespace in {mf_path}")
@@ -528,7 +534,7 @@ def _audit_pre_outcome(
             exec_binding = exec_manifest.get("watch6_v3", {})
             if (
                 exec_binding.get("namespace") != p.NAMESPACE
-                or exec_binding.get("science") != p.identity()
+                or exec_binding.get("science") != broker_science
                 or exec_binding.get("science") != BASELINE_SCIENCE
                 or exec_binding.get("primary_allocation") != p.allocation()
                 or any(
@@ -613,7 +619,12 @@ def _audit_pre_outcome(
                         )
 
     out_dir.mkdir(parents=True, exist_ok=False)
-    ledger = build_verified_ledger(unit_paths, main_receipts, ops_dir=ops_dir, repo=root)
+    ledger = build_verified_ledger(
+        unit_paths,
+        main_receipts,
+        ops_dir=ops_dir,
+        broker_root=resolved_broker,
+    )
     ledger_path = out_dir / "final-verified-ledger.json"
     publish_json(ledger_path, ledger)
 
@@ -656,41 +667,50 @@ def run_final_look(
     ruling_json: Path | None = None,
     amendment_md: Path | None = None,
     repo: Path | None = None,
+    broker_root: Path | None = None,
     require_clean_git: bool = True,
 ) -> dict:
     """Audit all V3 ops manifests/receipts/lineages pre-outcome, seal ledger, and take 1 look."""
-    root = (repo or ADAPTER_ROOT).resolve()
+    adapter_repo = (repo or ADAPTER_ROOT).resolve()
+    target_broker = broker_root if broker_root is not None else V3_BROKER_ROOT
     try:
-        (
-            closure_info,
-            ruling_receipt,
-            passing_canaries,
-            canary_attempts,
-            ordered_main_attempts,
-            unit_paths,
-            ledger_path,
-        ) = _audit_pre_outcome(
-            ops_dir=ops_dir,
-            out_dir=out_dir,
-            ruling_json=ruling_json,
-            amendment_md=amendment_md,
-            root=root,
-            require_clean_git=require_clean_git,
-        )
+        with bind_broker_protocol(target_broker, require_head_at_baseline=True) as closure_info:
+            resolved_broker = Path(closure_info["broker_root"])
+            (
+                closure_info,
+                ruling_receipt,
+                passing_canaries,
+                canary_attempts,
+                ordered_main_attempts,
+                unit_paths,
+                ledger_path,
+            ) = _audit_pre_outcome(
+                ops_dir=ops_dir,
+                out_dir=out_dir,
+                ruling_json=ruling_json,
+                amendment_md=amendment_md,
+                adapter_repo=adapter_repo,
+                resolved_broker=resolved_broker,
+                closure_info=closure_info,
+                require_clean_git=require_clean_git,
+            )
+
+            # All pre-outcome prerequisites passed across all 24 shards / 96 slots.
+            # Open the 96 verified pair-XX.json payloads ONCE and invoke unchanged decide_v3 ONCE.
+            rows: list[dict] = []
+            for path in sorted(unit_paths, key=lambda item: item.name):
+                verify_immutable(path)
+                meta = json.loads(path.with_suffix(".meta.json").read_text(encoding="utf-8"))
+                if meta.get("seed_kind") != "primary":
+                    raise _fail_prelook(
+                        f"non-primary unit rejected before opening outcomes: {path}"
+                    )
+                rows.append(json.loads(path.read_text(encoding="utf-8")))
+
+            decision = decide_v3(rows)
     except ValueError as exc:
         raise _fail_prelook(str(exc)) from exc
 
-    # All pre-outcome prerequisites passed across all 24 shards / 96 slots.
-    # Now open the 96 verified pair-XX.json payloads ONCE and invoke unchanged decide_v3 ONCE.
-    rows: list[dict] = []
-    for path in sorted(unit_paths, key=lambda item: item.name):
-        verify_immutable(path)
-        meta = json.loads(path.with_suffix(".meta.json").read_text(encoding="utf-8"))
-        if meta.get("seed_kind") != "primary":
-            raise _fail_prelook(f"non-primary unit rejected before opening outcomes: {path}")
-        rows.append(json.loads(path.read_text(encoding="utf-8")))
-
-    decision = decide_v3(rows)
     decision["verified_receipt_count"] = len(ordered_main_attempts)
     decision["astra_ruling"] = ruling_receipt
     decision["accounting_amendment_sha256"] = ruling_receipt["amendment_sha256"]
@@ -718,12 +738,20 @@ def main() -> None:
         "--ruling-json", "--ruling-receipt", dest="ruling_json", type=Path, default=None
     )
     parser.add_argument("--amendment", dest="amendment_md", type=Path, default=None)
+    parser.add_argument(
+        "--broker-root",
+        "--broker",
+        dest="broker_root",
+        type=Path,
+        default=V3_BROKER_ROOT,
+    )
     args = parser.parse_args()
     decision = run_final_look(
         ops_dir=args.ops_dir,
         out_dir=args.out_dir.resolve(),
         ruling_json=args.ruling_json,
         amendment_md=args.amendment_md,
+        broker_root=args.broker_root,
     )
     print(
         json.dumps(

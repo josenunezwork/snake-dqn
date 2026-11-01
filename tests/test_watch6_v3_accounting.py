@@ -5,6 +5,8 @@ for the Mac-only Watch6 V3 accounting adapter (Astra Ruling Points 1-7).
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
@@ -39,6 +41,7 @@ from tools.watch6_v3_accounting import (
     BASELINE_COMMIT,
     BASELINE_NAMESPACE,
     BASELINE_SCIENCE,
+    MAIN_CHECKOUT_ROOT,
     REGISTRATION_V3_SHA256,
     RETAINED_PENDING_CLEANUP_ERROR,
     RULING_2_REL,
@@ -52,11 +55,14 @@ from tools.watch6_v3_accounting import (
     SHARD00_PROOF_SHA256,
     SHARD00_RECEIPT_REL,
     SHARD00_RECEIPT_SHA256,
+    V3_BROKER_ROOT,
     adapter_commit,
     adapter_files_map,
     adapter_inventory_sha256,
     admission,
     artifacts_root,
+    bind_broker_protocol,
+    compute_broker_identity,
     dispatch,
     final_look,
     prepare,
@@ -74,9 +80,10 @@ def _render_amendment_markdown(repo: Path | None = None, commit_sha: str | None 
     f_map = adapter_files_map(root)
     inv_sha = adapter_inventory_sha256(root)
     lines = [
-        "# Watch6 V3 Pre-Look Accounting Amendment (2026-10-31)",
+        "# Watch6 V3 Pre-Look Accounting Amendment V3 (2026-10-31)",
         "",
         f"- Namespace: `{BASELINE_NAMESPACE}`",
+        f"- V3 Broker Root: `{V3_BROKER_ROOT}`",
         f"- Baseline Runtime Commit: `{BASELINE_COMMIT}`",
         f"- Baseline Science Identity: `{BASELINE_SCIENCE}`",
         f"- Original Registration (`REGISTRATION_V3.md`) SHA256: `{REGISTRATION_V3_SHA256}`",
@@ -168,6 +175,7 @@ def _write_v3_attempt(
     if prefer is not None:
         req["prefer"] = list(prefer)
 
+    broker_science = compute_broker_identity(V3_BROKER_ROOT)
     manifest: dict = {
         "job_id": f"watch6-v3-shard-{shard:02d}-{out_dir.name}"[:64],
         "output_dir": str(out_dir),
@@ -188,12 +196,12 @@ def _write_v3_attempt(
             "WATCH6_SHARD": str(shard),
             "WATCH6_SHARDS": str(p.SHARDS),
             "WATCH6_WORKERS": str(p.WORKERS),
-            "WATCH6_SCIENCE": p.identity(),
+            "WATCH6_SCIENCE": broker_science,
             "SNAKE_WATCH_SOURCE": "live",
         },
         "watch6_v3": {
             "namespace": p.NAMESPACE,
-            "science": p.identity(),
+            "science": broker_science,
             "primary_allocation": p.allocation(),
             "shard": shard,
             "phase": "primary",
@@ -320,7 +328,7 @@ def _write_v3_attempt(
             pair_path.with_suffix(".meta.json"),
             {
                 "namespace": p.NAMESPACE,
-                "science": p.identity(),
+                "science": broker_science,
                 "seed_kind": "primary",
                 "allocation": alloc,
                 "fixture": False,
@@ -408,6 +416,7 @@ def _write_never_allocated_shard_fixture(
     generation = "d271c5f9b85947908f90f023c6c0f76c"
     session = f"snake-{job_id}-{generation[:12]}"
 
+    broker_science = compute_broker_identity(V3_BROKER_ROOT)
     manifest = {
         "job_id": job_id,
         "output_dir": str(out_dir),
@@ -433,12 +442,12 @@ def _write_never_allocated_shard_fixture(
             "WATCH6_SHARD": str(shard),
             "WATCH6_SHARDS": str(p.SHARDS),
             "WATCH6_WORKERS": str(p.WORKERS),
-            "WATCH6_SCIENCE": p.identity(),
+            "WATCH6_SCIENCE": broker_science,
             "SNAKE_WATCH_SOURCE": "live",
         },
         "watch6_v3": {
             "namespace": p.NAMESPACE,
-            "science": p.identity(),
+            "science": broker_science,
             "primary_allocation": p.allocation(),
             "shard": shard,
             "phase": "primary",
@@ -621,14 +630,17 @@ def _write_never_allocated_shard_fixture(
 
 
 def test_baseline_closure_identity_and_adapter_inventory_isolation(tmp_path: Path) -> None:
-    assert p.identity() == BASELINE_SCIENCE
+    assert compute_broker_identity(V3_BROKER_ROOT) == BASELINE_SCIENCE
     assert p.NAMESPACE == BASELINE_NAMESPACE
-    assert digest(p.registration()) == REGISTRATION_V3_SHA256
+    assert digest(V3_BROKER_ROOT / "research/watch6_search_efficacy_v3/REGISTRATION_V3.md") == (
+        REGISTRATION_V3_SHA256
+    )
     assert not hasattr(p, "ACCEPTED_PRIOR_SCIENCES")
     assert all("watch6_v3_accounting" not in entry for entry in p.source_paths())
 
-    closure = verify_baseline_closure(ADAPTER_ROOT)
+    closure = verify_baseline_closure()
     assert closure == {
+        "broker_root": str(V3_BROKER_ROOT.resolve()),
         "baseline_commit": BASELINE_COMMIT,
         "science": BASELINE_SCIENCE,
         "namespace": BASELINE_NAMESPACE,
@@ -644,12 +656,12 @@ def test_baseline_closure_identity_and_adapter_inventory_isolation(tmp_path: Pat
     # Simulated ACCEPTED_PRIOR_SCIENCES bypass or science rotation MUST fail closed:
     with patch.object(p, "ACCEPTED_PRIOR_SCIENCES", frozenset({BASELINE_SCIENCE}), create=True):
         with pytest.raises(ValueError, match="ACCEPTED_PRIOR_SCIENCES"):
-            verify_baseline_closure(ADAPTER_ROOT)
+            verify_baseline_closure(V3_BROKER_ROOT)
 
     with patch.object(p, "identity", return_value="0" * 64):
         p.identity.cache_clear = lambda: None  # type: ignore[attr-defined]
         with pytest.raises(ValueError, match="rotated"):
-            verify_baseline_closure(ADAPTER_ROOT)
+            verify_baseline_closure(V3_BROKER_ROOT)
 
     # Unexpected extra file (e.g. standalone analyze.py) in adapter package MUST be refused:
     fake_repo = tmp_path / "fake-repo"
@@ -1275,7 +1287,8 @@ def test_ratify_refuses_approve_path_and_tampered_amendment_and_accepts_approve(
     old_ruling_md = tmp_path / "OLD_V3.md"
     old_ruling_md.write_text("Verdict: APPROVE\nSTATUS: RATIFIED\n", encoding="utf-8")
     old_json = tmp_path / "old-v3-ruling.json"
-    v3_ratify.record_ruling(old_ruling_md, old_json)
+    with bind_broker_protocol(V3_BROKER_ROOT):
+        v3_ratify.record_ruling(old_ruling_md, old_json)
     with pytest.raises(ValueError, match="REFUSE"):
         ratify.validate_ruling_receipt(old_json, require_clean_git=False)
 
@@ -1324,6 +1337,7 @@ def _setup_24_shard_accounting_ops(
     # Passing L4 canary:
     canary_out = tmp_path / "output-canary"
     canary_out.mkdir(parents=True)
+    broker_science = compute_broker_identity(V3_BROKER_ROOT)
     canary_mf = {
         "job_id": "watch6-v3-canary",
         "output_dir": str(canary_out),
@@ -1333,7 +1347,7 @@ def _setup_24_shard_accounting_ops(
         "env": {"WATCH6_FIXTURE": "1"},
         "watch6_v3": {
             "namespace": p.NAMESPACE,
-            "science": p.identity(),
+            "science": broker_science,
             "primary_allocation": p.allocation(),
         },
     }
@@ -1358,7 +1372,8 @@ def _setup_24_shard_accounting_ops(
     )
     (ops_dir / "manifests/watch6-v3-canary.json").write_text(json.dumps(canary_mf) + "\n")
 
-    all_rows = {r["allocation"]["index"]: r for r in _synthetic_v3_rows()}
+    with bind_broker_protocol(V3_BROKER_ROOT):
+        all_rows = {r["allocation"]["index"]: r for r in _synthetic_v3_rows()}
 
     # Shard 00: A_1 is PROVEN never-allocated (`cleanup_error` retained, `stop_verified=False`),
     # optionally followed by `shard0_extra_compute_failures` stopped compute transport failures,
@@ -1434,10 +1449,13 @@ def test_recover_and_final_look_lineage_retry_caps_and_zero_outcome_peek(tmp_pat
 
     base_pkg = rec_case / "package-v3-fix3-01"
     base_pkg.mkdir()
-    publish_json(
-        base_pkg / "verified-ledger.json",
-        empty_ledger(p.NAMESPACE, "watch6", run.ledger_identity()),
-    )
+    with bind_broker_protocol(V3_BROKER_ROOT):
+        publish_json(
+            base_pkg / "verified-ledger.json",
+            empty_ledger(p.NAMESPACE, "watch6", run.ledger_identity()),
+        )
+        broker_exec_identity = mirror.execution_identity()
+        broker_science = p.identity()
     dummy_in = base_pkg / "input-metadata.tar.gz"
     dummy_in.write_bytes(b"metadata")
     (base_pkg / "canary.json").write_text(
@@ -1465,7 +1483,7 @@ def test_recover_and_final_look_lineage_retry_caps_and_zero_outcome_peek(tmp_pat
         )
     )
     bench = rec_case / "benchmark.json"
-    bench.write_text(json.dumps({"science": p.identity()}))
+    bench.write_text(json.dumps({"science": broker_science}))
     mir = rec_case / "mac-mirror.json"
     mir.write_text(
         json.dumps(
@@ -1473,7 +1491,7 @@ def test_recover_and_final_look_lineage_retry_caps_and_zero_outcome_peek(tmp_pat
                 "schema": "watch6-full-mirror/v3",
                 "status": "PASS",
                 "platform": "Darwin",
-                "execution_identity": mirror.execution_identity(),
+                "execution_identity": broker_exec_identity,
                 "seed": p.FIXTURE_SEEDS[0],
                 "horizon": p.HORIZON,
                 "mirror_identity_frames": p.HORIZON,
@@ -1700,7 +1718,10 @@ def test_baseline_equivalence_with_v3_host_modules(tmp_path: Path) -> None:
     v3_md = tmp_path / "base/V3_APPROVED.md"
     v3_md.write_text("Verdict: APPROVE\nSTATUS: RATIFIED\n", encoding="utf-8")
     v3_ruling_json = tmp_path / "base/v3-ruling.json"
-    v3_ratify.record_ruling(v3_md, v3_ruling_json)
+    with bind_broker_protocol(V3_BROKER_ROOT):
+        v3_ratify.record_ruling(v3_md, v3_ruling_json)
+        broker_science = p.identity()
+        rows = {r["allocation"]["index"]: r for r in _synthetic_v3_rows()}
 
     canary_out = tmp_path / "base/output-canary"
     canary_out.mkdir(parents=True)
@@ -1713,7 +1734,7 @@ def test_baseline_equivalence_with_v3_host_modules(tmp_path: Path) -> None:
         "env": {"WATCH6_FIXTURE": "1"},
         "watch6_v3": {
             "namespace": p.NAMESPACE,
-            "science": p.identity(),
+            "science": broker_science,
             "primary_allocation": p.allocation(),
         },
     }
@@ -1738,7 +1759,6 @@ def test_baseline_equivalence_with_v3_host_modules(tmp_path: Path) -> None:
     )
     (ops_base / "manifests/canary.json").write_text(json.dumps(canary_mf) + "\n")
 
-    rows = {r["allocation"]["index"]: r for r in _synthetic_v3_rows()}
     receipt_paths: list[Path] = []
     unit_paths: list[Path] = []
     for s in range(p.SHARDS):
@@ -1756,15 +1776,14 @@ def test_baseline_equivalence_with_v3_host_modules(tmp_path: Path) -> None:
             (rp.parent / "manifest.json").read_text()
         )
 
-    assert resume.build(unit_paths, receipt_paths, ops_dir=ops_base) == v3_resume.build(
-        unit_paths, receipt_paths
-    )
-
-    dec_v3 = v3_final_look.run_final_look(
-        ops_dir=ops_base,
-        out_dir=tmp_path / "base/v3-out",
-        ruling_json=v3_ruling_json,
-    )
+    with bind_broker_protocol(V3_BROKER_ROOT):
+        expected_v3_ledger = v3_resume.build(unit_paths, receipt_paths)
+        dec_v3 = v3_final_look.run_final_look(
+            ops_dir=ops_base,
+            out_dir=tmp_path / "base/v3-out",
+            ruling_json=v3_ruling_json,
+        )
+    assert resume.build(unit_paths, receipt_paths, ops_dir=ops_base) == expected_v3_ledger
     dec_acct = final_look.run_final_look(
         ops_dir=ops_base,
         out_dir=tmp_path / "base/acct-out",
@@ -1835,15 +1854,15 @@ def test_dispatch_dry_run_unratified_live_refusal_and_staging_with_never_allocat
     )
 
     with patch.object(dispatch, "admit", return_value={"status": "PASS"}):
-        # 1. --dry-run succeeds before ratification:
+        # 1. --dry-run succeeds before ratification against V3_BROKER_ROOT:
         rc_dry = dispatch.run_dispatch(
             [
                 "watch6-v3-shard-00-rec",
                 str(mf),
                 "--broker",
-                str(ADAPTER_ROOT),
+                str(V3_BROKER_ROOT),
                 "--cwd",
-                str(ADAPTER_ROOT),
+                str(V3_BROKER_ROOT),
                 "--operator-root",
                 str(op_root),
                 "--ruling-json",
@@ -1862,9 +1881,9 @@ def test_dispatch_dry_run_unratified_live_refusal_and_staging_with_never_allocat
                     "watch6-v3-shard-00-rec",
                     str(mf),
                     "--broker",
-                    str(ADAPTER_ROOT),
+                    str(V3_BROKER_ROOT),
                     "--cwd",
-                    str(ADAPTER_ROOT),
+                    str(V3_BROKER_ROOT),
                     "--operator-root",
                     str(op_root),
                     "--ruling-json",
@@ -1880,11 +1899,12 @@ def test_dispatch_dry_run_unratified_live_refusal_and_staging_with_never_allocat
         with patch.object(
             dispatch,
             "validate_ruling_receipt",
-            side_effect=lambda r, amendment_override=None, repo=None: (
+            side_effect=lambda r, amendment_override=None, repo=None, broker_root=None: (
                 ratify.validate_ruling_receipt(
                     r,
                     amendment_override=amendment_override,
                     repo=repo,
+                    broker_root=broker_root,
                     require_clean_git=False,
                 )
             ),
@@ -1894,9 +1914,9 @@ def test_dispatch_dry_run_unratified_live_refusal_and_staging_with_never_allocat
                     "watch6-v3-shard-00-rec",
                     str(mf),
                     "--broker",
-                    str(ADAPTER_ROOT),
+                    str(V3_BROKER_ROOT),
                     "--cwd",
-                    str(ADAPTER_ROOT),
+                    str(V3_BROKER_ROOT),
                     "--operator-root",
                     str(op_root),
                     "--ruling-json",
@@ -1909,3 +1929,447 @@ def test_dispatch_dry_run_unratified_live_refusal_and_staging_with_never_allocat
             )
         assert rc_live == 0
         assert (tmp_path / "out-rec/upload-measurement.json").is_file()
+
+
+def _create_clean_baseline_clone(dest: Path) -> Path:
+    """Create a fast local --shared git clone checked out at 357e3504 without touching broker."""
+    subprocess.run(
+        [
+            "git",
+            "clone",
+            "--quiet",
+            "--shared",
+            "--no-checkout",
+            str(ADAPTER_ROOT),
+            str(dest),
+        ],
+        check=True,
+        timeout=30,
+    )
+    subprocess.run(
+        [
+            "git",
+            "sparse-checkout",
+            "set",
+            "--no-cone",
+            "/.gitignore",
+            "/pyproject.toml",
+            "/research/",
+            "/src/",
+            "/web/backend/",
+            "/configs/",
+            "/tools/ops/",
+            "/docs/research/final_run_20261019/",
+        ],
+        cwd=dest,
+        check=True,
+        timeout=30,
+    )
+    subprocess.run(
+        ["git", "checkout", "--quiet", BASELINE_COMMIT],
+        cwd=dest,
+        check=True,
+        timeout=30,
+    )
+    return dest
+
+
+def test_live_v3_broker_identity_and_main_checkout_refusal(tmp_path: Path) -> None:
+    """Verify real V3 broker computes b26f7fa0... cleanly at 357e3504 and main checkout refuses."""
+    assert V3_BROKER_ROOT.is_dir()
+    before_status = subprocess.check_output(
+        [
+            "git",
+            "--no-optional-locks",
+            "status",
+            "--porcelain",
+            "--untracked-files=all",
+            "--ignored",
+        ],
+        cwd=V3_BROKER_ROOT,
+        text=True,
+        timeout=15,
+    )
+    broker_head = subprocess.check_output(
+        ["git", "--no-optional-locks", "rev-parse", "HEAD"],
+        cwd=V3_BROKER_ROOT,
+        text=True,
+        timeout=10,
+    ).strip()
+    assert broker_head == BASELINE_COMMIT
+
+    computed = compute_broker_identity(V3_BROKER_ROOT)
+    assert computed == BASELINE_SCIENCE
+    closure = verify_baseline_closure(V3_BROKER_ROOT, require_head_at_baseline=True)
+    assert closure["science"] == BASELINE_SCIENCE
+    assert closure["baseline_commit"] == BASELINE_COMMIT
+    assert closure["broker_root"] == str(V3_BROKER_ROOT.resolve())
+
+    after_status = subprocess.check_output(
+        [
+            "git",
+            "--no-optional-locks",
+            "status",
+            "--porcelain",
+            "--untracked-files=all",
+            "--ignored",
+        ],
+        cwd=V3_BROKER_ROOT,
+        text=True,
+        timeout=15,
+    )
+    assert after_status == before_status
+
+    if MAIN_CHECKOUT_ROOT.is_dir():
+        main_identity = compute_broker_identity(MAIN_CHECKOUT_ROOT)
+        if (MAIN_CHECKOUT_ROOT / "src/snake_dqn.egg-info").is_dir():
+            assert main_identity != BASELINE_SCIENCE
+        with pytest.raises(ValueError, match="REFUSE: main checkout"):
+            verify_baseline_closure(MAIN_CHECKOUT_ROOT)
+        with pytest.raises(ValueError, match="REFUSE: main checkout"):
+            dispatch.run_dispatch(
+                [
+                    "watch6-v3-main-refused",
+                    str(tmp_path / "missing.json"),
+                    "--broker",
+                    str(MAIN_CHECKOUT_ROOT),
+                    "--cwd",
+                    str(MAIN_CHECKOUT_ROOT),
+                    "--dry-run",
+                ],
+                ops_dir=tmp_path / "ops",
+            )
+        with pytest.raises(ValueError, match="INVALID_OR_INCOMPLETE.*main checkout"):
+            final_look.run_final_look(
+                ops_dir=tmp_path / "ops",
+                out_dir=tmp_path / "look-out",
+                broker_root=MAIN_CHECKOUT_ROOT,
+                require_clean_git=False,
+            )
+
+
+def test_same_root_pass_on_clean_copy_and_stray_untracked_or_ignored_refusal(
+    tmp_path: Path,
+) -> None:
+    """Point 3 requirement (4): same-root pass on clean copy; refuse untracked/ignored drift."""
+    clean_copy = _create_clean_baseline_clone(tmp_path / "clean-v3-copy")
+
+    # 1. Cross-root pass (p.ROOT != clean_copy) and same-root pass (p.ROOT == clean_copy):
+    assert compute_broker_identity(clean_copy) == BASELINE_SCIENCE
+    cross_ok = verify_baseline_closure(clean_copy, require_head_at_baseline=True)
+    assert cross_ok["science"] == BASELINE_SCIENCE
+
+    with patch.object(p, "ROOT", clean_copy):
+        p.source_paths.cache_clear()
+        p.identity.cache_clear()
+        assert p.identity() == BASELINE_SCIENCE
+        same_ok = verify_baseline_closure(clean_copy, require_head_at_baseline=True)
+        assert same_ok["science"] == BASELINE_SCIENCE
+    p.source_paths.cache_clear()
+    p.identity.cache_clear()
+
+    # 2. Stray git-ignored files (`src/snake_dqn.egg-info/*.txt`) MUST change identity (zero
+    #    exclusions!) and MUST be refused in BOTH same-root and cross-root verification:
+    egg_dir = clean_copy / "src/snake_dqn.egg-info"
+    egg_dir.mkdir(parents=True)
+    for fname in (
+        "PKG-INFO",
+        "SOURCES.txt",
+        "dependency_links.txt",
+        "requires.txt",
+        "top_level.txt",
+    ):
+        (egg_dir / fname).write_text(f"synthetic-egg-info-{fname}\n", encoding="utf-8")
+
+    # Confirm git status without --ignored treats egg-info as clean/ignored:
+    porcelain = subprocess.check_output(
+        ["git", "--no-optional-locks", "status", "--porcelain", "--untracked-files=all"],
+        cwd=clean_copy,
+        text=True,
+        timeout=10,
+    ).strip()
+    assert porcelain == ""
+
+    polluted_egg_identity = compute_broker_identity(clean_copy)
+    assert polluted_egg_identity != BASELINE_SCIENCE
+
+    # Cross-root check (while p.ROOT is clean) MUST refuse (no hardcoded BASELINE_SCIENCE!):
+    with pytest.raises(ValueError, match=polluted_egg_identity):
+        verify_baseline_closure(clean_copy, require_head_at_baseline=True)
+
+    # Same-root check (p.ROOT == clean_copy) MUST refuse with the exact same identity:
+    with patch.object(p, "ROOT", clean_copy):
+        p.source_paths.cache_clear()
+        p.identity.cache_clear()
+        with pytest.raises(ValueError, match=polluted_egg_identity):
+            verify_baseline_closure(clean_copy, require_head_at_baseline=True)
+    p.source_paths.cache_clear()
+    p.identity.cache_clear()
+
+    # Removing the ignored egg-info directory restores exact b26f7fa0... pass:
+    shutil.rmtree(egg_dir)
+    assert compute_broker_identity(clean_copy) == BASELINE_SCIENCE
+    assert verify_baseline_closure(clean_copy, require_head_at_baseline=True)["science"] == (
+        BASELINE_SCIENCE
+    )
+
+    # 3. Stray untracked file inside hashed closure (`src/stray_untracked.txt`) MUST change
+    #    identity and refuse in BOTH same-root and cross-root verification:
+    stray_txt = clean_copy / "src/stray_untracked.txt"
+    stray_txt.write_text("stray untracked payload\n", encoding="utf-8")
+    stray_identity = compute_broker_identity(clean_copy)
+    assert stray_identity != BASELINE_SCIENCE
+
+    with pytest.raises(ValueError, match=stray_identity):
+        verify_baseline_closure(clean_copy, require_head_at_baseline=True)
+
+    with patch.object(p, "ROOT", clean_copy):
+        p.source_paths.cache_clear()
+        p.identity.cache_clear()
+        with pytest.raises(ValueError, match=stray_identity):
+            verify_baseline_closure(clean_copy, require_head_at_baseline=True)
+    p.source_paths.cache_clear()
+    p.identity.cache_clear()
+    stray_txt.unlink()
+
+    # 4. Tampering with V3 protocol.py (e.g. adding an exclusion or hardcoded identity) refuses:
+    proto_file = clean_copy / "research/watch6_search_efficacy_v3/protocol.py"
+    orig_proto_bytes = proto_file.read_bytes()
+    proto_file.write_text(
+        orig_proto_bytes.decode("utf-8") + "\n# unauthorized edit\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="V3 protocol.py modified"):
+        verify_baseline_closure(clean_copy, require_head_at_baseline=True)
+    proto_file.write_bytes(orig_proto_bytes)
+
+
+def test_refusal_of_any_cross_root_substitution_across_entrypoints(tmp_path: Path) -> None:
+    """Point 3 req (4): refuse every cross-root substitution across dispatch/recover/look."""
+    clean_copy = _create_clean_baseline_clone(tmp_path / "clean-broker")
+    dirty_copy = _create_clean_baseline_clone(tmp_path / "dirty-egg-broker")
+    (dirty_copy / "src/snake_dqn.egg-info").mkdir(parents=True)
+    (dirty_copy / "src/snake_dqn.egg-info/SOURCES.txt").write_text(
+        "src/main.py\n",
+        encoding="utf-8",
+    )
+    dirty_identity = compute_broker_identity(dirty_copy)
+    assert dirty_identity != BASELINE_SCIENCE
+
+    op_root = tmp_path / "operator"
+    (op_root / "tools/ops").mkdir(parents=True)
+    called_log = tmp_path / "dispatch-invocations.log"
+    fake_dispatch = op_root / "tools/ops/dispatch.sh"
+    fake_dispatch.write_text(
+        "#!/usr/bin/env bash\n" f'echo "$@" >> "{called_log}"\n' "exit 0\n",
+        encoding="utf-8",
+    )
+    fake_dispatch.chmod(0o755)
+
+    mf = tmp_path / "shard-00.json"
+    mf.write_text(
+        json.dumps(
+            {
+                "job_id": "watch6-v3-cross-root-probe",
+                "commit": BASELINE_COMMIT,
+                "output_dir": str(tmp_path / "out-probe"),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with patch.object(dispatch, "admit", return_value={"status": "PASS"}):
+        # 1. Clean host checkout + dirty --broker (ignored egg-info) MUST refuse before dispatch.sh:
+        with pytest.raises(ValueError, match=dirty_identity):
+            dispatch.run_dispatch(
+                [
+                    "watch6-v3-cross-root-probe",
+                    str(mf),
+                    "--broker",
+                    str(dirty_copy),
+                    "--cwd",
+                    str(dirty_copy),
+                    "--operator-root",
+                    str(op_root),
+                    "--dry-run",
+                ],
+                ops_dir=tmp_path / "ops",
+            )
+        assert not called_log.exists()
+
+        # 2. Clean --broker + different --cwd MUST refuse (no --broker/--cwd split substitution):
+        with pytest.raises(ValueError, match="cross-root substitution forbidden"):
+            dispatch.run_dispatch(
+                [
+                    "watch6-v3-cross-root-probe",
+                    str(mf),
+                    "--broker",
+                    str(clean_copy),
+                    "--cwd",
+                    str(dirty_copy),
+                    "--operator-root",
+                    str(op_root),
+                    "--dry-run",
+                ],
+                ops_dir=tmp_path / "ops",
+            )
+        assert not called_log.exists()
+
+        # 3. Clean broker_root parameter + conflicting CLI --broker MUST refuse:
+        with pytest.raises(ValueError, match="cross-root substitution forbidden"):
+            dispatch.run_dispatch(
+                [
+                    "watch6-v3-cross-root-probe",
+                    str(mf),
+                    "--broker",
+                    str(V3_BROKER_ROOT),
+                    "--cwd",
+                    str(V3_BROKER_ROOT),
+                    "--operator-root",
+                    str(op_root),
+                    "--dry-run",
+                ],
+                ops_dir=tmp_path / "ops",
+                broker_root=clean_copy,
+            )
+        assert not called_log.exists()
+
+        # 4. Non-git --broker directory (previously skipped by .git check) refuses:
+        non_git_dir = tmp_path / "non-git-broker"
+        non_git_dir.mkdir()
+        with pytest.raises(ValueError, match="REFUSE"):
+            dispatch.run_dispatch(
+                [
+                    "watch6-v3-cross-root-probe",
+                    str(mf),
+                    "--broker",
+                    str(non_git_dir),
+                    "--cwd",
+                    str(non_git_dir),
+                    "--operator-root",
+                    str(op_root),
+                    "--dry-run",
+                ],
+                ops_dir=tmp_path / "ops",
+            )
+        assert not called_log.exists()
+
+        # 5. Worktree not at HEAD == 357e3504 (e.g. ADAPTER_ROOT) refused as execution broker:
+        if (
+            subprocess.check_output(
+                ["git", "--no-optional-locks", "rev-parse", "HEAD"],
+                cwd=ADAPTER_ROOT,
+                text=True,
+            ).strip()
+            != BASELINE_COMMIT
+        ):
+            with pytest.raises(ValueError, match="HEAD is"):
+                dispatch.run_dispatch(
+                    [
+                        "watch6-v3-cross-root-probe",
+                        str(mf),
+                        "--broker",
+                        str(ADAPTER_ROOT),
+                        "--cwd",
+                        str(ADAPTER_ROOT),
+                        "--operator-root",
+                        str(op_root),
+                        "--dry-run",
+                    ],
+                    ops_dir=tmp_path / "ops",
+                )
+            assert not called_log.exists()
+
+    # 6. Dirty broker_root refused across recover, final_look, admission, resume, prepare, ratify:
+    with pytest.raises(ValueError, match=dirty_identity):
+        recover.recover(
+            base_package=tmp_path,
+            receipts=[],
+            target_shards=[0],
+            out=tmp_path / "rec-dirty",
+            benchmark=tmp_path / "b.json",
+            mirror_receipt=tmp_path / "m.json",
+            empirical_costs=tmp_path / "c.json",
+            commit=BASELINE_COMMIT,
+            broker_root=dirty_copy,
+        )
+    with pytest.raises(ValueError, match=f"INVALID_OR_INCOMPLETE.*{dirty_identity}"):
+        final_look.run_final_look(
+            ops_dir=tmp_path / "ops",
+            out_dir=tmp_path / "look-dirty",
+            broker_root=dirty_copy,
+            require_clean_git=False,
+        )
+    with pytest.raises(ValueError, match=dirty_identity):
+        admission.admit({}, broker_root=dirty_copy)
+    with pytest.raises(ValueError, match=dirty_identity):
+        resume.build([], [], broker_root=dirty_copy)
+    with pytest.raises(ValueError, match=dirty_identity):
+        prepare.prepare(
+            tmp_path / "prep-dirty",
+            tmp_path / "b.json",
+            BASELINE_COMMIT,
+            tmp_path / "m.json",
+            tmp_path / "c.json",
+            broker_root=dirty_copy,
+        )
+
+    amend_path, ruling_json = _write_accounting_ruling_fixture(tmp_path / "gov-cross")
+    with pytest.raises(ValueError, match=dirty_identity):
+        ratify.verify_amendment_document(
+            amend_path,
+            broker_root=dirty_copy,
+            require_clean_git=False,
+        )
+    # Ruling receipt bound to V3_BROKER_ROOT refuses validation under a different broker_root:
+    with pytest.raises(ValueError, match="ruling receipt broker_root"):
+        ratify.validate_ruling_receipt(
+            ruling_json,
+            broker_root=clean_copy,
+            require_clean_git=False,
+        )
+
+    # 7. Invoking from a dirty host checkout (p.ROOT == dirty_copy, as on main checkout) still
+    #    refuses dirty_copy while default binding to V3_BROKER_ROOT attests V3_BROKER_ROOT's bytes:
+    with patch.object(p, "ROOT", dirty_copy):
+        p.source_paths.cache_clear()
+        p.identity.cache_clear()
+        assert p.identity() == dirty_identity
+        with pytest.raises(ValueError, match=dirty_identity):
+            verify_baseline_closure(dirty_copy)
+
+        validated = ratify.validate_ruling_receipt(ruling_json, require_clean_git=False)
+        assert validated["broker_root"] == str(V3_BROKER_ROOT.resolve())
+        assert validated["science"] == BASELINE_SCIENCE
+
+        with (
+            patch.object(dispatch, "admit", return_value={"status": "PASS"}),
+            patch.object(
+                dispatch,
+                "verify_amendment_document",
+                side_effect=lambda a, repo=None, broker_root=None: (
+                    ratify.verify_amendment_document(
+                        a,
+                        repo=repo,
+                        broker_root=broker_root,
+                        require_clean_git=False,
+                    )
+                ),
+            ),
+        ):
+            rc = dispatch.run_dispatch(
+                [
+                    str(mf),
+                    "--operator-root",
+                    str(op_root),
+                    "--amendment",
+                    str(amend_path),
+                    "--dry-run",
+                ],
+                ops_dir=tmp_path / "ops",
+            )
+            assert rc == 0
+    p.source_paths.cache_clear()
+    p.identity.cache_clear()
+    logged = called_log.read_text(encoding="utf-8")
+    assert f"--broker {V3_BROKER_ROOT.resolve()} --cwd {V3_BROKER_ROOT.resolve()}" in logged

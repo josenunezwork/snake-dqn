@@ -2,8 +2,10 @@
 
 Preserves all Watch6 V3 qualified dispatcher checks, staging locks (`watch6-staging.lock`),
 reconciliation fences (`watch6-staging-reconcile.json`), canary verification, L4-only W4
-admission, and baseline closure equality checks while recognizing PROVEN never-allocated
-attempts (Ruling Point 4) and requiring Astra's re-ratified accounting receipt before live dispatch.
+admission, and actual-byte broker closure verification bound to
+``/Users/josenunez/Projects/ml/snake-dqn-argon-v3-confirm`` at ``357e3504`` (refusing the main
+checkout and any cross-root substitution) while recognizing PROVEN never-allocated attempts
+(Ruling Point 4) and requiring Astra's re-ratified accounting receipt before live dispatch.
 """
 
 from __future__ import annotations
@@ -18,9 +20,12 @@ import time
 from pathlib import Path
 
 from research.watch6_search_efficacy_v3 import dispatch as v3_dispatch
-from research.watch6_search_efficacy_v3 import protocol as p
 from tools.ops.package_spec import digest
-from tools.watch6_v3_accounting import ADAPTER_ROOT, verify_baseline_closure
+from tools.watch6_v3_accounting import (
+    ADAPTER_ROOT,
+    V3_BROKER_ROOT,
+    bind_broker_protocol,
+)
 from tools.watch6_v3_accounting.admission import admit
 from tools.watch6_v3_accounting.proof import (
     FORBIDDEN_OUTPUT_ENTRIES,
@@ -344,11 +349,14 @@ def reconcile_staging(ops_dir: Path) -> dict[str, object]:
 
 def _parse_cli(
     argv: list[str],
-) -> tuple[str, Path, list[str], bool, Path, Path | None, Path | None, Path | None]:
-    """Parse adapter options while preserving exact tools/ops/dispatch.sh pass-through flags."""
+    *,
+    default_broker_root: Path = V3_BROKER_ROOT,
+) -> tuple[str, Path, list[str], bool, Path, Path | None, Path | None, Path, bool]:
+    """Parse adapter options and bind --broker/--cwd strictly to one verified V3 broker root."""
     operator_override: Path | None = None
     ruling_override: Path | None = None
     amendment_override: Path | None = None
+    broker_candidates: list[tuple[str, Path]] = []
     filtered: list[str] = []
     idx = 0
     while idx < len(argv):
@@ -371,46 +379,84 @@ def _parse_cli(
             amendment_override = Path(argv[idx + 1]).resolve()
             idx += 2
             continue
+        if arg == "--broker-root":
+            if idx + 1 >= len(argv):
+                raise ValueError("--broker-root requires a path")
+            raw_br = Path(argv[idx + 1])
+            if raw_br.is_symlink():
+                raise ValueError(f"REFUSE: symlinked --broker-root forbidden: {raw_br}")
+            broker_candidates.append(("--broker-root", raw_br.resolve()))
+            idx += 2
+            continue
         filtered.append(arg)
         idx += 1
 
     dry_run = "--dry-run" in filtered
-    broker_override: Path | None = None
-    positionals = []
+    remaining_flags: list[str] = []
+    positionals: list[str] = []
     idx = 0
     while idx < len(filtered):
         token = filtered[idx]
-        if token in ("--broker", "--cwd", "--state-dir", "--dispatch-txt"):
-            if token == "--broker" and idx + 1 < len(filtered):
-                broker_override = Path(filtered[idx + 1]).resolve()
+        if token in ("--broker", "--cwd"):
+            if idx + 1 >= len(filtered):
+                raise ValueError(f"{token} requires a path")
+            raw_p = Path(filtered[idx + 1])
+            if raw_p.is_symlink():
+                raise ValueError(f"REFUSE: symlinked {token} forbidden: {raw_p}")
+            broker_candidates.append((token, raw_p.resolve()))
+            idx += 2
+            continue
+        if token in ("--state-dir", "--dispatch-txt"):
+            if idx + 1 >= len(filtered):
+                raise ValueError(f"{token} requires a path")
+            remaining_flags.extend([token, filtered[idx + 1]])
             idx += 2
             continue
         if token.startswith("-"):
+            remaining_flags.append(token)
             idx += 1
             continue
         positionals.append(token)
         idx += 1
 
+    if broker_candidates:
+        distinct_brokers = {resolved for _, resolved in broker_candidates}
+        if len(distinct_brokers) != 1:
+            formatted = ", ".join(f"{flag}={path}" for flag, path in broker_candidates)
+            raise ValueError(
+                "REFUSE: cross-root substitution forbidden; conflicting broker/cwd roots: "
+                f"{formatted}"
+            )
+        effective_broker = broker_candidates[0][1]
+        explicit_broker_given = True
+    else:
+        if default_broker_root.is_symlink():
+            raise ValueError(f"REFUSE: symlinked V3 broker root forbidden: {default_broker_root}")
+        effective_broker = default_broker_root.resolve()
+        explicit_broker_given = False
+
     if len(positionals) == 1 and Path(positionals[0]).suffix == ".json":
         manifest_path = Path(positionals[0]).resolve()
         manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
         name = str(manifest_data["job_id"])
-        flags = [a for a in filtered if a != positionals[0]]
-        forward = [
-            name,
-            str(manifest_path),
-            "--broker",
-            str(p.ROOT),
-            "--cwd",
-            str(p.ROOT),
-            *flags,
-        ]
+        extra_positionals: list[str] = []
     elif len(positionals) >= 2:
         name = positionals[0]
         manifest_path = Path(positionals[1]).resolve()
-        forward = list(filtered)
+        extra_positionals = positionals[2:]
     else:
         raise ValueError("usage: dispatch.sh <NAME> <MANIFEST> --broker ... --cwd ... [--dry-run]")
+
+    forward = [
+        name,
+        str(manifest_path),
+        *extra_positionals,
+        "--broker",
+        str(effective_broker),
+        "--cwd",
+        str(effective_broker),
+        *remaining_flags,
+    ]
 
     if operator_override is not None:
         operator_root = operator_override
@@ -419,7 +465,7 @@ def _parse_cli(
     elif (DEFAULT_OPERATOR_ROOT / "tools/ops/dispatch.sh").is_file():
         operator_root = DEFAULT_OPERATOR_ROOT.resolve()
     else:
-        operator_root = p.ROOT
+        operator_root = effective_broker
     return (
         name,
         manifest_path,
@@ -428,7 +474,8 @@ def _parse_cli(
         operator_root,
         ruling_override,
         amendment_override,
-        broker_override,
+        effective_broker,
+        explicit_broker_given,
     )
 
 
@@ -439,14 +486,19 @@ def run_dispatch(
     staging_timeout: float = STAGING_WAIT_TIMEOUT_SECONDS,
     poll_seconds: float = 1.0,
     repo: Path | None = None,
+    broker_root: Path | None = None,
 ) -> int:
-    """Execute baseline closure check + V3 admission + fail-closed staging around dispatch.sh."""
+    """Execute actual-byte broker check + V3 admission + fail-closed staging around dispatch.sh."""
     if "--reconcile-staging" in argv:
         resolved = _parse_reconcile_ops_dir(argv, ops_dir)
         print(json.dumps(reconcile_staging(resolved), indent=2), flush=True)
         return 0
 
-    root = (repo or ADAPTER_ROOT).resolve()
+    adapter_repo = (repo or ADAPTER_ROOT).resolve()
+    if broker_root is not None and broker_root.is_symlink():
+        raise ValueError(f"REFUSE: symlinked broker_root forbidden: {broker_root}")
+    default_broker = broker_root if broker_root is not None else V3_BROKER_ROOT
+
     (
         name,
         manifest_path,
@@ -455,64 +507,73 @@ def run_dispatch(
         operator_root,
         ruling_override,
         amendment_override,
-        broker_override,
-    ) = _parse_cli(argv)
+        effective_broker,
+        explicit_broker_given,
+    ) = _parse_cli(argv, default_broker_root=default_broker)
 
-    verify_baseline_closure(root)
     if (
-        broker_override is not None
-        and broker_override != root
-        and (broker_override / ".git").exists()
+        broker_root is not None
+        and explicit_broker_given
+        and broker_root.resolve() != effective_broker
     ):
-        verify_baseline_closure(broker_override)
-
-    resolved_ops = (
-        ops_dir.resolve()
-        if ops_dir is not None
-        else Path(os.environ.get("OPS_DIR", str(DEFAULT_OPS_DIR))).resolve()
-    )
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    admit(manifest, ops_dir=resolved_ops, repo=root)
-
-    target_dispatch = operator_root / "tools/ops/dispatch.sh"
-    if not target_dispatch.is_file():
-        raise ValueError(f"missing operator dispatch.sh: {target_dispatch}")
-
-    if dry_run:
-        if amendment_override is not None:
-            verify_amendment_document(amendment_override, repo=root)
-        completed = subprocess.run([str(target_dispatch), *forward], check=False)
-        return completed.returncode
-
-    validate_ruling_receipt(
-        ruling_override,
-        amendment_override=amendment_override,
-        repo=root,
-    )
-    resolved_ops.mkdir(parents=True, exist_ok=True)
-    lock_path = resolved_ops / "watch6-staging.lock"
-    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
-        wait_other_jobs_staged(
-            resolved_ops, name, timeout=staging_timeout, poll_seconds=max(poll_seconds, 0.02)
+        raise ValueError(
+            "REFUSE: cross-root substitution forbidden; "
+            f"broker_root={broker_root.resolve()} != CLI broker/cwd={effective_broker}"
         )
-        completed = subprocess.run([str(target_dispatch), *forward], check=False)
-        if completed.returncode == 0:
-            wait_own_job_staged(
-                resolved_ops,
-                name,
-                manifest["output_dir"],
-                resolved_ops / "logs" / f"{name}.log",
-                timeout=staging_timeout,
-                poll_seconds=max(poll_seconds, 0.02),
-            )
-        return completed.returncode
-    finally:
+
+    with bind_broker_protocol(effective_broker, require_head_at_baseline=True):
+        resolved_ops = (
+            ops_dir.resolve()
+            if ops_dir is not None
+            else Path(os.environ.get("OPS_DIR", str(DEFAULT_OPS_DIR))).resolve()
+        )
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        admit(manifest, ops_dir=resolved_ops, broker_root=effective_broker)
+
+        target_dispatch = operator_root / "tools/ops/dispatch.sh"
+        if not target_dispatch.is_file():
+            raise ValueError(f"missing operator dispatch.sh: {target_dispatch}")
+
+        if dry_run:
+            if amendment_override is not None:
+                verify_amendment_document(
+                    amendment_override,
+                    repo=adapter_repo,
+                    broker_root=effective_broker,
+                )
+            completed = subprocess.run([str(target_dispatch), *forward], check=False)
+            return completed.returncode
+
+        validate_ruling_receipt(
+            ruling_override,
+            amendment_override=amendment_override,
+            repo=adapter_repo,
+            broker_root=effective_broker,
+        )
+        resolved_ops.mkdir(parents=True, exist_ok=True)
+        lock_path = resolved_ops / "watch6-staging.lock"
+        fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
         try:
-            fcntl.flock(fd, fcntl.LOCK_UN)
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            wait_other_jobs_staged(
+                resolved_ops, name, timeout=staging_timeout, poll_seconds=max(poll_seconds, 0.02)
+            )
+            completed = subprocess.run([str(target_dispatch), *forward], check=False)
+            if completed.returncode == 0:
+                wait_own_job_staged(
+                    resolved_ops,
+                    name,
+                    manifest["output_dir"],
+                    resolved_ops / "logs" / f"{name}.log",
+                    timeout=staging_timeout,
+                    poll_seconds=max(poll_seconds, 0.02),
+                )
+            return completed.returncode
         finally:
-            os.close(fd)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+            finally:
+                os.close(fd)
 
 
 def main() -> None:
