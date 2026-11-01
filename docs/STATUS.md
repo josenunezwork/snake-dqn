@@ -9,6 +9,14 @@ when they change.
 
 Watch now plays **Colab-precomputed replays** (exact-stop L2′ search hero over product Watch6 v2, 5× frp3-s12+v8 opponents, 6,000-frame sessions) labelled "Recorded assisted hero". Bank: `snake-dqn-artifacts/watch-replay-bank-live-132` (132 verified sessions = banks 01-08, 10-12, all exact-stop-l2-prime, distinct seeds; switched 2026-10-31 ~17:10 PT; previous 48-session bank kept at `watch-replay-bank-live`). Launch: `.claude/launch.json` `snake-web` sets `SNAKE_WATCH_SOURCE=replay` and `SNAKE_WATCH_REPLAY_DIR`. Live bare B8 s3 remains the fallback (empty/invalid/exhausted bank) and Play stays live. Rollback: unset `SNAKE_WATCH_SOURCE` (or set `live`). Efficacy vs bare B8 in the product setting is NOT measured: the Watch6 V2 96-pair confirmation ended **INVALID_OR_INCOMPLETE** on 2026-10-31 (shard 6 exhausted original + 2 completions on pre-start transport failures; Astra rulings t34-sol/watch6-shard6-ruling/RULING_SHARD6.md and t34-sol/watch6-v3-registration-q/ANSWER.md deny extra attempts and an 88+8 V3; running shards stopped 10:10 PT with verified stops; no outcome was read). A future confirmation needs a fresh, prospectively registered bank; bank-02 descriptive stats: mean 412 mass/session, 0 deaths in the 5 sessions reaching L>1,000.
 
+## Results 2026-10-31 / 11-01 (exploration lane unless noted)
+
+- **All-length exact-stop screen — ADOPT for new banks** (`research/watch6_alllen_screen`, readout `snake-dqn-artifacts/t34-sol/argon-alllen-a100/analysis.json`, N=48 paired 6,000-frame Watch6-v2 sessions): bare B8 mass 351 / deaths 0.288 per 1k; served exact-stop L≥600 mass 461 (+110, CI95 72..148), deaths −45%; **exact-stop L≥1 mass 559 (+208 vs bare, CI95 170..247; +98 vs L≥600, CI95 51..146), deaths −82% vs bare, −67% vs L≥600**; ~2.8× search branches. Pre-stated rule met → new replay banks use controller `exact-stop-l1` (banks 14l1–16l1 generating). Not a confirmation; serving it as a release needs its own registered test.
+- **KILLs:** R6 learned L<600 harvest (OOF AUC ~0.5); R7 macro-option fallback (+3.9 pp lift, 2 lethal flips); T4 gate-1 privileged critic on exact v2 sim (0/8 bars; late-game residual EV +0.027) → no clean-slate GPU RL.
+- **DeviceSim v2 parity PASS** (0 mismatches, 1.536M snake-ticks, A100).
+- **Watch6 V3 confirmation** (L≥600 vs bare, 96 pairs) running; accounting adapter V6.1 ratified (shard-00 never-allocated, shard-12 WebSocket renewal drop); sole final look via `tools.watch6_v3_accounting.final_look` with the V6.1 files.
+- **Colab caps:** 6 concurrent runtimes total, at most 3 L4.
+
 ## Fast-process rule (owner, 2026-10-30, standing) — overrides older ceremony rules
 
 Stronger models now; cut ceremony that does not pay for itself.
