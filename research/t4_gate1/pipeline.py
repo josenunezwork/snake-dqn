@@ -38,12 +38,25 @@ from research.t4_gate1 import (
     replicate_unit_id,
     replicate_unit_stem,
 )
-from research.t4_gate1.featurizer import CompactBoardDataset, featurize_dataset_batch
+from research.t4_gate1.checkpoints import (
+    ReplicateCheckpointManager,
+    branch_config_fingerprint,
+    critic_config_fingerprint,
+    harvest_config_fingerprint,
+)
+from research.t4_gate1.featurizer import (
+    CompactBoardDataset,
+    DeviceBoardDataset,
+    featurize_device_batch,
+    slice_featurized_batch,
+)
 from research.t4_gate1.harvest import (
     BranchedRootsTable,
     PreparedRootSnapshot,
+    WorldPartitionSpec,
     branch_prepared_roots,
     harvest_world_partition,
+    harvest_world_partitions_batched,
 )
 from research.t4_gate1.model import (
     LengthHorizonBaseline,
@@ -235,7 +248,7 @@ def _assert_valid_branched_roots(
 @torch.inference_mode()
 def predict_critic_on_dataset(
     critic: PrivilegedFactoredCritic,
-    dataset: CompactBoardDataset,
+    dataset: CompactBoardDataset | DeviceBoardDataset,
     *,
     batch_size: int = 256,
     device: torch.device,
@@ -257,6 +270,16 @@ def predict_critic_on_dataset(
             "hazard_nll": np.zeros(0, dtype=np.float64),
         }
 
+    dev_ds = (
+        dataset
+        if isinstance(dataset, DeviceBoardDataset) and dataset.device == device
+        else (
+            DeviceBoardDataset.from_compact(dataset, device)
+            if isinstance(dataset, CompactBoardDataset)
+            else pytest_safe_move_device_dataset(dataset, device)
+        )
+    )
+
     v_pred = np.zeros(n, dtype=np.float64)
     q_all = np.zeros((n, 6), dtype=np.float64)
     greedy_action = np.zeros(n, dtype=np.int64)
@@ -269,15 +292,16 @@ def predict_critic_on_dataset(
 
     for start in range(0, n, batch_size):
         end = min(start + batch_size, n)
-        idx = np.arange(start, end, dtype=np.int64)
-        fb = featurize_dataset_batch(dataset, idx, device=device, h_rem_override=h_rem_override)
+        idx_t = torch.arange(start, end, dtype=torch.long, device=device)
+        fb = featurize_device_batch(dev_ds, idx_t, h_rem_override=h_rem_override)
         out = critic(fb, h_rem_override=h_rem_override)
         q_f = out["q_life"].float()
         greedy_t = q_f.argmax(dim=-1)
-        q_b = q_f.detach().cpu().numpy().astype(np.float64)
-        acts_b = dataset.b8_action[idx]
-        v_pred[start:end] = q_b[np.arange(end - start), acts_b]
-        q_all[start:end] = q_b
+        b_arange = torch.arange(end - start, device=device)
+        acts_t = dev_ds.b8_action[idx_t]
+        v_pred_t = q_f[b_arange, acts_t]
+        q_all[start:end] = q_f.detach().cpu().numpy().astype(np.float64)
+        v_pred[start:end] = v_pred_t.detach().cpu().numpy().astype(np.float64)
         greedy_action[start:end] = greedy_t.detach().cpu().numpy().astype(np.int64)
         s_hrem_all[start:end] = out["s_hrem"].float().detach().cpu().numpy().astype(np.float64)
         s_hrem_logits_all[start:end] = (
@@ -289,13 +313,11 @@ def predict_critic_on_dataset(
         )
         m_300_all[start:end] = out["m_300"].float().detach().cpu().numpy().astype(np.float64)
 
-        b_arange = torch.arange(end - start, device=device)
-        acts_t = torch.as_tensor(acts_b, dtype=torch.long, device=device)
         haz_taken = out["hazard_logits"][b_arange, acts_t].float()
         nll_b = discrete_survival_nll(
             haz_taken,
-            torch.as_tensor(dataset.tau_alive[idx], dtype=torch.float32, device=device),
-            torch.as_tensor(dataset.died_in_session[idx], dtype=torch.bool, device=device),
+            dev_ds.tau_alive[idx_t],
+            dev_ds.died_in_session[idx_t],
         )
         haz_nll[start:end] = nll_b.float().detach().cpu().numpy().astype(np.float64)
 
@@ -316,6 +338,47 @@ def predict_critic_on_dataset(
     return result
 
 
+def pytest_safe_move_device_dataset(
+    dataset: DeviceBoardDataset, device: torch.device
+) -> DeviceBoardDataset:
+    """Move an existing ``DeviceBoardDataset`` if requested on a different target device."""
+    return DeviceBoardDataset(
+        num_rows=dataset.num_rows,
+        device=device,
+        h_rem=dataset.h_rem.to(device),
+        b8_action=dataset.b8_action.to(device),
+        legal_mask=dataset.legal_mask.to(device),
+        snake_alive=dataset.snake_alive.to(device),
+        snake_length=dataset.snake_length.to(device),
+        snake_seg_count=dataset.snake_seg_count.to(device),
+        snake_dir=dataset.snake_dir.to(device),
+        snake_boost_frames=dataset.snake_boost_frames.to(device),
+        snake_hunger=dataset.snake_hunger.to(device),
+        snake_respawn=dataset.snake_respawn.to(device),
+        snake_boosted=dataset.snake_boosted.to(device),
+        head_xy=dataset.head_xy.to(device),
+        tail_xy=dataset.tail_xy.to(device),
+        seg_row_offsets=dataset.seg_row_offsets.to(device),
+        seg_row_counts=dataset.seg_row_counts.to(device),
+        seg_slot=dataset.seg_slot.to(device),
+        seg_x=dataset.seg_x.to(device),
+        seg_y=dataset.seg_y.to(device),
+        seg_ttl=dataset.seg_ttl.to(device),
+        food_row_offsets=dataset.food_row_offsets.to(device),
+        food_row_counts=dataset.food_row_counts.to(device),
+        food_x=dataset.food_x.to(device),
+        food_y=dataset.food_y.to(device),
+        food_is_corpse=dataset.food_is_corpse.to(device),
+        tau_alive=dataset.tau_alive.to(device),
+        died_in_session=dataset.died_in_session.to(device),
+        return_g=dataset.return_g.to(device),
+        forage_short=dataset.forage_short.to(device),
+        forage_short_weight=dataset.forage_short_weight.to(device),
+        forage_long=dataset.forage_long.to(device),
+        forage_long_valid=dataset.forage_long_valid.to(device),
+    )
+
+
 def train_privileged_critic(
     *,
     fit_dataset: CompactBoardDataset,
@@ -331,6 +394,10 @@ def train_privileged_critic(
     seed: int,
     device: torch.device,
     use_bf16_autocast: bool | None = None,
+    early_stop_patience: int | None = None,
+    min_epochs: int = 1,
+    resume_state: Mapping[str, Any] | None = None,
+    on_epoch_end: Callable[[dict[str, Any]], None] | None = None,
     log_progress: Callable[[dict[str, Any]], None] | None = None,
 ) -> tuple[PrivilegedFactoredCritic, dict[str, Any]]:
     """Train clean-slate ``PrivilegedFactoredCritic`` strictly on ``fit`` and select on ``val``."""
@@ -386,13 +453,81 @@ def train_privileged_critic(
         use_bf16 = bool(use_bf16_autocast) and device.type in ("cuda", "cpu")
     branch_batch_size = min(32, n_branch_roots) if n_branch_roots > 0 else 0
 
+    # Stage compact CSR datasets once on target device (zero per-step CPU NumPy / H2D syncs).
+    fit_dev = DeviceBoardDataset.from_compact(fit_dataset, device)
+    val_dev = DeviceBoardDataset.from_compact(val_dataset, device)
+    if branch_batch_size > 0:
+        roots_dev = DeviceBoardDataset.from_compact(fit_roots_dataset, device)
+        roots_fb = featurize_device_batch(
+            roots_dev,
+            torch.arange(n_branch_roots, dtype=torch.long, device=device),
+            h_rem_override=float(branch_horizon),
+        )
+        branch_leg_dev = torch.as_tensor(
+            np.asarray(fit_branched_roots.legal_mask, dtype=bool),
+            dtype=torch.bool,
+            device=device,
+        )
+        branch_s_targ_dev = torch.as_tensor(
+            np.nan_to_num(fit_branched_roots.s_sel, nan=0.0),
+            dtype=torch.float32,
+            device=device,
+        )
+        branch_q_targ_dev = torch.as_tensor(
+            np.nan_to_num(fit_branched_roots.m_sel, nan=0.0) * (float(branch_horizon) / 1000.0),
+            dtype=torch.float32,
+            device=device,
+        )
+    else:
+        roots_fb = None
+        branch_leg_dev = None
+        branch_s_targ_dev = None
+        branch_q_targ_dev = None
+
+    start_epoch = 1
     best_score = float("inf")
     best_epoch = 0
     best_state = {k: v.detach().cpu().clone() for k, v in critic.state_dict().items()}
     epoch_history: list[dict[str, Any]] = []
+    resumed_from_epoch = 0
+
+    if resume_state is not None:
+        critic.load_state_dict(
+            {
+                k: v.to(device=device, dtype=torch.float32)
+                for k, v in resume_state["model_state"].items()
+            }
+        )
+        optimizer.load_state_dict(resume_state["optimizer_state"])
+        scheduler.load_state_dict(resume_state["scheduler_state"])
+        rng.bit_generator.state = copy.deepcopy(dict(resume_state["np_rng_state"]))
+        torch.set_rng_state(resume_state["torch_cpu_rng_state"].detach().cpu().to(torch.uint8))
+        best_epoch = int(resume_state["best_epoch"])
+        best_score = float(resume_state["best_score"])
+        best_state = {
+            k: v.detach().cpu().float().clone() for k, v in resume_state["best_state"].items()
+        }
+        epoch_history = [dict(x) for x in resume_state["epoch_history"]]
+        resumed_from_epoch = int(resume_state["epoch"])
+        start_epoch = resumed_from_epoch + 1
+
+    eff_min_epochs = max(1, int(min_epochs))
+    eff_patience = (
+        int(early_stop_patience)
+        if early_stop_patience is not None and int(early_stop_patience) > 0
+        else None
+    )
+    early_stopped = bool(
+        eff_patience is not None
+        and resumed_from_epoch >= eff_min_epochs
+        and best_epoch > 0
+        and (resumed_from_epoch - best_epoch) >= eff_patience
+        and resumed_from_epoch < int(epochs)
+    )
 
     with _critic_training_precision_scope(device):
-        for epoch in range(1, int(epochs) + 1):
+        for epoch in range(start_epoch, int(epochs) + 1) if not early_stopped else ():
+            ep_t0 = time.perf_counter()
             critic.train()
             perm = rng.permutation(n_fit)
             sum_loss = 0.0
@@ -405,32 +540,17 @@ def train_privileged_critic(
                 b_cur = int(idx.size)
                 if b_cur == 0:
                     continue
-                fb = featurize_dataset_batch(fit_dataset, idx, device=device)
+                idx_t = torch.as_tensor(idx, dtype=torch.long, device=device)
+                fb = featurize_device_batch(fit_dev, idx_t)
 
-                acts_t = torch.as_tensor(
-                    fit_dataset.b8_action[idx], dtype=torch.long, device=device
-                )
-                tau_t = torch.as_tensor(
-                    fit_dataset.tau_alive[idx], dtype=torch.float32, device=device
-                )
-                died_t = torch.as_tensor(
-                    fit_dataset.died_in_session[idx], dtype=torch.bool, device=device
-                )
-                ret_t = torch.as_tensor(
-                    fit_dataset.return_g[idx], dtype=torch.float32, device=device
-                )
-                fs_t = torch.as_tensor(
-                    fit_dataset.forage_short[idx], dtype=torch.float32, device=device
-                )
-                fw_t = torch.as_tensor(
-                    fit_dataset.forage_short_weight[idx], dtype=torch.float32, device=device
-                )
-                fl_t = torch.as_tensor(
-                    fit_dataset.forage_long[idx], dtype=torch.float32, device=device
-                )
-                flv_t = torch.as_tensor(
-                    fit_dataset.forage_long_valid[idx], dtype=torch.bool, device=device
-                )
+                acts_t = fit_dev.b8_action[idx_t]
+                tau_t = fit_dev.tau_alive[idx_t]
+                died_t = fit_dev.died_in_session[idx_t]
+                ret_t = fit_dev.return_g[idx_t]
+                fs_t = fit_dev.forage_short[idx_t]
+                fw_t = fit_dev.forage_short_weight[idx_t]
+                fl_t = fit_dev.forage_long[idx_t]
+                flv_t = fit_dev.forage_long_valid[idx_t]
 
                 optimizer.zero_grad(set_to_none=True)
                 amp_ctx = (
@@ -440,17 +560,13 @@ def train_privileged_critic(
                 )
                 with amp_ctx:
                     out = critic(fb)
-                    if branch_batch_size > 0:
+                    if branch_batch_size > 0 and roots_fb is not None:
                         r_idx = rng.choice(n_branch_roots, size=branch_batch_size, replace=False)
-                        fb_r = featurize_dataset_batch(
-                            fit_roots_dataset,
-                            r_idx,
-                            device=device,
-                            h_rem_override=float(branch_horizon),
-                        )
+                        r_idx_t = torch.as_tensor(r_idx, dtype=torch.long, device=device)
+                        fb_r = slice_featurized_batch(roots_fb, r_idx_t)
                         out_r = critic(fb_r, h_rem_override=float(branch_horizon))
                     else:
-                        r_idx = None
+                        r_idx_t = None
                         out_r = None
 
                 with _float32_no_autocast(device):
@@ -480,29 +596,18 @@ def train_privileged_critic(
                         loss_fl = torch.zeros((), dtype=torch.float32, device=device)
 
                     loss_branch = torch.zeros((), dtype=torch.float32, device=device)
-                    if r_idx is not None and out_r is not None:
-                        leg_np = np.asarray(fit_branched_roots.legal_mask[r_idx], dtype=bool)
-                        if not bool(leg_np.any()):
+                    if (
+                        r_idx_t is not None
+                        and out_r is not None
+                        and branch_leg_dev is not None
+                        and branch_s_targ_dev is not None
+                        and branch_q_targ_dev is not None
+                    ):
+                        leg_r = branch_leg_dev[r_idx_t]
+                        if not bool(leg_r.any()):
                             raise ValueError("Empty legal action slice in fit_branched_roots batch")
-                        s_leg_np = fit_branched_roots.s_sel[r_idx][leg_np]
-                        m_leg_np = fit_branched_roots.m_sel[r_idx][leg_np]
-                        if not (
-                            bool(np.isfinite(s_leg_np).all()) and bool(np.isfinite(m_leg_np).all())
-                        ):
-                            raise ValueError(
-                                "Non-finite branch survival/mass target on legal action"
-                            )
-                        leg_r = torch.as_tensor(leg_np, dtype=torch.bool, device=device)
-                        s_targ_leg = torch.as_tensor(
-                            s_leg_np,
-                            dtype=torch.float32,
-                            device=device,
-                        )
-                        q_targ_leg = torch.as_tensor(
-                            m_leg_np * (float(branch_horizon) / 1000.0),
-                            dtype=torch.float32,
-                            device=device,
-                        )
+                        s_targ_leg = branch_s_targ_dev[r_idx_t][leg_r]
+                        q_targ_leg = branch_q_targ_dev[r_idx_t][leg_r]
                         s_logit_leg = out_r["s_hrem_logits"][leg_r].float().clamp(-12.0, 12.0)
                         q_pred_leg = out_r["q_life"][leg_r].float()
                         bce_r = F.binary_cross_entropy_with_logits(s_logit_leg, s_targ_leg)
@@ -533,7 +638,7 @@ def train_privileged_critic(
 
             # Validation checkpoint selection strictly on val_dataset.
             val_preds = predict_critic_on_dataset(
-                critic, val_dataset, batch_size=batch_size, device=device
+                critic, val_dev, batch_size=batch_size, device=device
             )
             if val_dataset.num_rows > 0:
                 val_l = val_dataset.snake_length[:, 0]
@@ -567,6 +672,7 @@ def train_privileged_critic(
                 "val_mature_mse": round(val_mse, 6),
                 "val_mature_hazard_nll": round(val_nll, 6),
                 "val_selection_score": round(val_score, 6),
+                "epoch_wall_sec": round(time.perf_counter() - ep_t0, 3),
             }
             epoch_history.append(rec)
 
@@ -578,6 +684,43 @@ def train_privileged_critic(
             if log_progress is not None:
                 log_progress({"phase": "critic_train", **rec})
 
+            will_early_stop = bool(
+                eff_patience is not None
+                and epoch >= eff_min_epochs
+                and best_epoch > 0
+                and (epoch - best_epoch) >= eff_patience
+                and epoch < int(epochs)
+            )
+            if on_epoch_end is not None:
+                on_epoch_end(
+                    {
+                        "epoch": epoch,
+                        "is_final_or_stopped": bool(will_early_stop or epoch == int(epochs)),
+                        "critic": critic,
+                        "optimizer": optimizer,
+                        "scheduler": scheduler,
+                        "np_rng_state": copy.deepcopy(rng.bit_generator.state),
+                        "torch_cpu_rng_state": torch.get_rng_state().clone(),
+                        "best_epoch": best_epoch,
+                        "best_score": best_score,
+                        "best_state": best_state,
+                        "epoch_history": list(epoch_history),
+                    }
+                )
+            if will_early_stop:
+                early_stopped = True
+                if log_progress is not None:
+                    log_progress(
+                        {
+                            "phase": "critic_early_stop",
+                            "stopped_epoch": epoch,
+                            "best_epoch": best_epoch,
+                            "best_val_selection_score": round(best_score, 6),
+                            "patience": eff_patience,
+                        }
+                    )
+                break
+
     critic.load_state_dict(best_state)
     critic.eval()
     for p in critic.parameters():
@@ -587,6 +730,10 @@ def train_privileged_critic(
     summary = {
         "seed": int(seed),
         "epochs": int(epochs),
+        "epochs_completed": len(epoch_history),
+        "resumed_from_epoch": resumed_from_epoch,
+        "early_stopped": bool(early_stopped),
+        "early_stop_patience": eff_patience,
         "best_epoch": int(best_epoch),
         "best_val_selection_score": round(best_score, 6),
         "num_parameters": num_params,
@@ -811,6 +958,7 @@ def run_single_replicate(
     b8_checkpoint: Path,
     frp3_checkpoint: Path,
     device: torch.device,
+    checkpoint_mgr: ReplicateCheckpointManager | None = None,
     log_progress: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Execute one complete world-disjoint replicate with temporal pre-test weight freezing."""
@@ -832,8 +980,8 @@ def run_single_replicate(
         raise AssertionError("World seed overlap detected inside replicate")
 
     session_ticks = int(config["session_ticks"])
-    max_slab_envs = int(config.get("max_slab_envs", 64))
-    branch_slab_envs = int(config.get("branch_max_slab_envs", 128))
+    max_slab_envs = int(config.get("max_slab_envs", 128))
+    branch_slab_envs = int(config.get("branch_max_slab_envs", 512))
     max_capacity = int(config.get("max_capacity", 3200))
     stride_mature = int(config.get("stride_mature", 4))
     stride_early = int(config.get("stride_early", 16))
@@ -846,138 +994,350 @@ def run_single_replicate(
     train_sel_suffixes = [int(x) for x in config.get("train_branch_suffixes", [0, 1])]
     test_sel_suffixes = [int(x) for x in config.get("test_selection_suffixes", [0, 1])]
     test_score_suffixes = [int(x) for x in config.get("test_scoring_suffixes", [4, 5])]
-
-    # STEP 1: Harvest fit + val worlds and branch fit roots (test worlds NOT harvested yet).
-    fit_part = harvest_world_partition(
-        partition=f"rep{replicate_index}_fit",
-        world_rows=fit_rows,
-        b8_checkpoint=b8_checkpoint,
-        frp3_checkpoint=frp3_checkpoint,
-        session_ticks=session_ticks,
-        max_slab_envs=max_slab_envs,
-        max_capacity=max_capacity,
-        stride_mature=stride_mature,
-        stride_early=stride_early,
-        min_mature_length=min_mature_length,
-        max_roots=fit_max_roots,
-        branch_horizon=branch_horizon,
-        death_lookbacks=lookbacks,
-        ordinary_root_stride=ord_stride,
-        device=device,
-        log_progress=log_progress,
-    )
-    val_part = harvest_world_partition(
-        partition=f"rep{replicate_index}_val",
-        world_rows=val_rows,
-        b8_checkpoint=b8_checkpoint,
-        frp3_checkpoint=frp3_checkpoint,
-        session_ticks=session_ticks,
-        max_slab_envs=max_slab_envs,
-        max_capacity=max_capacity,
-        stride_mature=stride_mature,
-        stride_early=stride_early,
-        min_mature_length=min_mature_length,
-        max_roots=0,
-        branch_horizon=branch_horizon,
-        death_lookbacks=lookbacks,
-        ordinary_root_stride=ord_stride,
-        device=device,
-        log_progress=log_progress,
-    )
-    fit_branched = branch_prepared_roots(
-        fit_part.roots,
-        namespace=namespace,
-        b8_checkpoint=b8_checkpoint,
-        frp3_checkpoint=frp3_checkpoint,
-        horizon=branch_horizon,
-        selection_suffixes=train_sel_suffixes,
-        scoring_suffixes=(),
-        max_slab_envs=branch_slab_envs,
-        max_capacity=max_capacity,
-        compaction_interval=int(config.get("compaction_interval", 10)),
-        device=device,
-        log_progress=log_progress,
-    )
-
-    # STEP 2: Fit board-blind (L_t, H_rem) baseline & train PrivilegedFactoredCritic on fit/val.
-    baseline = LengthHorizonBaseline.fit(
-        fit_length=fit_part.dataset.snake_length[:, 0],
-        fit_h_rem=fit_part.dataset.h_rem,
-        fit_tau_alive=fit_part.dataset.tau_alive,
-        fit_died=fit_part.dataset.died_in_session,
-        fit_return_g=fit_part.dataset.return_g,
-        fit_forage_short=fit_part.dataset.forage_short,
-        fit_forage_weight=fit_part.dataset.forage_short_weight,
-        val_length=val_part.dataset.snake_length[:, 0],
-        val_h_rem=val_part.dataset.h_rem,
-        val_return_g=val_part.dataset.return_g,
-    )
+    critic_epochs = int(config.get("critic_epochs", 12))
+    critic_batch_size = int(config.get("critic_batch_size", 512))
+    critic_ckpt_every = max(1, int(config.get("critic_checkpoint_every", 3)))
     critic_seed = int(config.get("critic_base_seed", 17001)) + int(replicate_index) * 101
-    critic, train_summary = train_privileged_critic(
-        fit_dataset=fit_part.dataset,
-        val_dataset=val_part.dataset,
-        fit_roots_dataset=fit_part.roots_dataset,
-        fit_branched_roots=fit_branched,
-        branch_horizon=branch_horizon,
-        min_mature_length=min_mature_length,
-        epochs=int(config.get("critic_epochs", 16)),
-        batch_size=int(config.get("critic_batch_size", 256)),
-        learning_rate=float(config.get("critic_lr", 6e-4)),
-        weight_decay=float(config.get("critic_weight_decay", 1e-3)),
-        seed=critic_seed,
-        device=device,
-        log_progress=log_progress,
+
+    fit_part_name = f"rep{replicate_index}_fit"
+    val_part_name = f"rep{replicate_index}_val"
+    test_part_name = f"rep{replicate_index}_test"
+
+    fit_fp = harvest_config_fingerprint(
+        config,
+        study=STUDY,
+        namespace=namespace,
+        partition=fit_part_name,
+        world_rows=fit_rows,
+        max_roots=fit_max_roots,
+    )
+    val_fp = harvest_config_fingerprint(
+        config,
+        study=STUDY,
+        namespace=namespace,
+        partition=val_part_name,
+        world_rows=val_rows,
+        max_roots=0,
+    )
+    critic_fp = critic_config_fingerprint(
+        config,
+        study=STUDY,
+        namespace=namespace,
+        replicate_index=replicate_index,
+        critic_seed=critic_seed,
+        fit_fingerprint=fit_fp,
+        val_fingerprint=val_fp,
+        train_branch_suffixes=train_sel_suffixes,
+    )
+    test_fp = harvest_config_fingerprint(
+        config,
+        study=STUDY,
+        namespace=namespace,
+        partition=test_part_name,
+        world_rows=test_rows,
+        max_roots=test_max_roots,
     )
 
-    # STEP 3: Freeze baseline & critic digests BEFORE held-out test worlds are harvested.
-    baseline_summary = baseline.to_summary_dict()
-    frozen_critic_sha256 = critic.state_dict_sha256()
+    def _emit(payload: Mapping[str, Any]) -> None:
+        if log_progress is not None:
+            log_progress({"replicate_index": int(replicate_index), **dict(payload)})
 
-    # Free fit/val bulk arrays before test rollout to keep peak RAM tiny.
-    fit_telemetry = copy.deepcopy(fit_part.telemetry)
-    val_telemetry = copy.deepcopy(val_part.telemetry)
-    fit_branch_telemetry = copy.deepcopy(fit_branched.telemetry)
-    del fit_part, val_part, fit_branched
+    frozen = (
+        checkpoint_mgr.try_load_frozen_critic(fingerprint=critic_fp, device=device)
+        if checkpoint_mgr is not None
+        else None
+    )
+    if frozen is not None:
+        critic = frozen["critic"]
+        baseline = frozen["baseline"]
+        baseline_summary = baseline.to_summary_dict()
+        frozen_critic_sha256 = str(frozen["frozen_critic_sha256"])
+        train_summary = dict(frozen["train_summary"])
+        fit_telemetry = dict(frozen["fit_telemetry"])
+        val_telemetry = dict(frozen["val_telemetry"])
+        fit_branch_telemetry = dict(frozen["fit_branch_telemetry"])
+        _emit(
+            {
+                "phase": "resume_stage",
+                "stage": "critic-frozen",
+                "frozen_critic_sha256": frozen_critic_sha256,
+            }
+        )
+    else:
+        # STEP 1: Co-harvest fit + val worlds (1 slab when both needed) & branch fit roots.
+        fit_part = (
+            checkpoint_mgr.try_load_harvest("fit-harvest", fingerprint=fit_fp)
+            if checkpoint_mgr is not None
+            else None
+        )
+        if fit_part is not None:
+            _emit({"phase": "resume_stage", "stage": "fit-harvest"})
+        val_part = (
+            checkpoint_mgr.try_load_harvest("val-harvest", fingerprint=val_fp)
+            if checkpoint_mgr is not None
+            else None
+        )
+        if val_part is not None:
+            _emit({"phase": "resume_stage", "stage": "val-harvest"})
+
+        missing_specs: list[WorldPartitionSpec] = []
+        if fit_part is None:
+            missing_specs.append(
+                WorldPartitionSpec(
+                    partition=fit_part_name,
+                    world_rows=fit_rows,
+                    max_roots=fit_max_roots,
+                )
+            )
+        if val_part is None:
+            missing_specs.append(
+                WorldPartitionSpec(
+                    partition=val_part_name,
+                    world_rows=val_rows,
+                    max_roots=0,
+                )
+            )
+        if missing_specs:
+            harvested_list = harvest_world_partitions_batched(
+                specs=missing_specs,
+                b8_checkpoint=b8_checkpoint,
+                frp3_checkpoint=frp3_checkpoint,
+                session_ticks=session_ticks,
+                max_slab_envs=max_slab_envs,
+                max_capacity=max_capacity,
+                stride_mature=stride_mature,
+                stride_early=stride_early,
+                min_mature_length=min_mature_length,
+                branch_horizon=branch_horizon,
+                death_lookbacks=lookbacks,
+                ordinary_root_stride=ord_stride,
+                device=device,
+                log_progress=_emit,
+            )
+            harvested_map = {p.partition: p for p in harvested_list}
+            if fit_part is None:
+                fit_part = harvested_map[fit_part_name]
+                if checkpoint_mgr is not None:
+                    rec = checkpoint_mgr.save_harvest("fit-harvest", fit_part, fingerprint=fit_fp)
+                    _emit({"phase": "checkpoint_stage", **rec})
+            if val_part is None:
+                val_part = harvested_map[val_part_name]
+                if checkpoint_mgr is not None:
+                    rec = checkpoint_mgr.save_harvest("val-harvest", val_part, fingerprint=val_fp)
+                    _emit({"phase": "checkpoint_stage", **rec})
+
+        assert fit_part is not None and val_part is not None
+        fit_branch_fp = branch_config_fingerprint(
+            config,
+            study=STUDY,
+            namespace=namespace,
+            roots=fit_part.roots,
+            horizon=branch_horizon,
+            selection_suffixes=train_sel_suffixes,
+            scoring_suffixes=(),
+        )
+        fit_branched = (
+            checkpoint_mgr.try_load_branch("fit-branch", fingerprint=fit_branch_fp)
+            if checkpoint_mgr is not None
+            else None
+        )
+        if fit_branched is not None:
+            _emit({"phase": "resume_stage", "stage": "fit-branch"})
+        else:
+            fit_branched = branch_prepared_roots(
+                fit_part.roots,
+                namespace=namespace,
+                b8_checkpoint=b8_checkpoint,
+                frp3_checkpoint=frp3_checkpoint,
+                horizon=branch_horizon,
+                selection_suffixes=train_sel_suffixes,
+                scoring_suffixes=(),
+                max_slab_envs=branch_slab_envs,
+                max_capacity=max_capacity,
+                compaction_interval=int(config.get("compaction_interval", 10)),
+                device=device,
+                log_progress=_emit,
+            )
+            if checkpoint_mgr is not None:
+                rec = checkpoint_mgr.save_branch(
+                    "fit-branch", fit_branched, fingerprint=fit_branch_fp
+                )
+                _emit({"phase": "checkpoint_stage", **rec})
+
+        # STEP 2: Fit board-blind (L_t, H_rem) baseline & train PrivilegedFactoredCritic on fit/val.
+        baseline = LengthHorizonBaseline.fit(
+            fit_length=fit_part.dataset.snake_length[:, 0],
+            fit_h_rem=fit_part.dataset.h_rem,
+            fit_tau_alive=fit_part.dataset.tau_alive,
+            fit_died=fit_part.dataset.died_in_session,
+            fit_return_g=fit_part.dataset.return_g,
+            fit_forage_short=fit_part.dataset.forage_short,
+            fit_forage_weight=fit_part.dataset.forage_short_weight,
+            val_length=val_part.dataset.snake_length[:, 0],
+            val_h_rem=val_part.dataset.h_rem,
+            val_return_g=val_part.dataset.return_g,
+        )
+        resume_ep = (
+            checkpoint_mgr.try_load_latest_critic_epoch(
+                max_epochs=critic_epochs,
+                fingerprint=critic_fp,
+            )
+            if checkpoint_mgr is not None
+            else None
+        )
+        if resume_ep is not None:
+            _emit(
+                {
+                    "phase": "resume_stage",
+                    "stage": f"critic-epoch-{int(resume_ep['epoch']):02d}",
+                    "resumed_epoch": int(resume_ep["epoch"]),
+                }
+            )
+
+        def _on_critic_epoch(ep_state: dict[str, Any]) -> None:
+            if checkpoint_mgr is None:
+                return
+            ep_num = int(ep_state["epoch"])
+            if ep_num % critic_ckpt_every != 0:
+                return
+            rec = checkpoint_mgr.save_critic_epoch(
+                epoch=ep_num,
+                fingerprint=critic_fp,
+                critic=ep_state["critic"],
+                optimizer=ep_state["optimizer"],
+                scheduler=ep_state["scheduler"],
+                np_rng_state=ep_state["np_rng_state"],
+                torch_cpu_rng_state=ep_state["torch_cpu_rng_state"],
+                best_epoch=int(ep_state["best_epoch"]),
+                best_score=float(ep_state["best_score"]),
+                best_state=ep_state["best_state"],
+                epoch_history=ep_state["epoch_history"],
+            )
+            _emit({"phase": "checkpoint_stage", **rec})
+
+        critic, train_summary = train_privileged_critic(
+            fit_dataset=fit_part.dataset,
+            val_dataset=val_part.dataset,
+            fit_roots_dataset=fit_part.roots_dataset,
+            fit_branched_roots=fit_branched,
+            branch_horizon=branch_horizon,
+            min_mature_length=min_mature_length,
+            epochs=critic_epochs,
+            batch_size=critic_batch_size,
+            learning_rate=float(config.get("critic_lr", 6e-4)),
+            weight_decay=float(config.get("critic_weight_decay", 1e-3)),
+            seed=critic_seed,
+            device=device,
+            early_stop_patience=config.get("critic_early_stop_patience"),
+            min_epochs=int(config.get("critic_min_epochs", 1)),
+            resume_state=resume_ep,
+            on_epoch_end=_on_critic_epoch,
+            log_progress=_emit,
+        )
+
+        # STEP 3: Freeze baseline & critic digests BEFORE held-out test worlds are harvested.
+        baseline_summary = baseline.to_summary_dict()
+        frozen_critic_sha256 = critic.state_dict_sha256()
+
+        fit_telemetry = copy.deepcopy(fit_part.telemetry)
+        val_telemetry = copy.deepcopy(val_part.telemetry)
+        fit_branch_telemetry = copy.deepcopy(fit_branched.telemetry)
+        if checkpoint_mgr is not None:
+            rec = checkpoint_mgr.save_frozen_critic(
+                fingerprint=critic_fp,
+                critic=critic,
+                baseline=baseline,
+                train_summary=train_summary,
+                frozen_critic_sha256=frozen_critic_sha256,
+                fit_telemetry=fit_telemetry,
+                val_telemetry=val_telemetry,
+                fit_branch_telemetry=fit_branch_telemetry,
+            )
+            _emit({"phase": "checkpoint_stage", **rec})
+        del fit_part, val_part, fit_branched
 
     # STEP 4: Harvest held-out test worlds + branch held-out test roots + single frozen pass.
-    test_part = harvest_world_partition(
-        partition=f"rep{replicate_index}_test",
-        world_rows=test_rows,
-        b8_checkpoint=b8_checkpoint,
-        frp3_checkpoint=frp3_checkpoint,
-        session_ticks=session_ticks,
-        max_slab_envs=max_slab_envs,
-        max_capacity=max_capacity,
-        stride_mature=stride_mature,
-        stride_early=stride_early,
-        min_mature_length=min_mature_length,
-        max_roots=test_max_roots,
-        branch_horizon=branch_horizon,
-        death_lookbacks=lookbacks,
-        ordinary_root_stride=ord_stride,
-        device=device,
-        log_progress=log_progress,
+    test_part = (
+        checkpoint_mgr.try_load_harvest(
+            "test-harvest",
+            fingerprint=test_fp,
+            required_extra={"frozen_critic_sha256": frozen_critic_sha256},
+        )
+        if checkpoint_mgr is not None
+        else None
     )
-    test_branched = branch_prepared_roots(
-        test_part.roots,
+    if test_part is not None:
+        _emit({"phase": "resume_stage", "stage": "test-harvest"})
+    else:
+        test_part = harvest_world_partition(
+            partition=test_part_name,
+            world_rows=test_rows,
+            b8_checkpoint=b8_checkpoint,
+            frp3_checkpoint=frp3_checkpoint,
+            session_ticks=session_ticks,
+            max_slab_envs=max_slab_envs,
+            max_capacity=max_capacity,
+            stride_mature=stride_mature,
+            stride_early=stride_early,
+            min_mature_length=min_mature_length,
+            max_roots=test_max_roots,
+            branch_horizon=branch_horizon,
+            death_lookbacks=lookbacks,
+            ordinary_root_stride=ord_stride,
+            device=device,
+            log_progress=_emit,
+        )
+        if checkpoint_mgr is not None:
+            rec = checkpoint_mgr.save_harvest(
+                "test-harvest",
+                test_part,
+                fingerprint=test_fp,
+                extra_meta={"frozen_critic_sha256": frozen_critic_sha256},
+            )
+            _emit({"phase": "checkpoint_stage", **rec})
+
+    test_branch_fp = branch_config_fingerprint(
+        config,
+        study=STUDY,
         namespace=namespace,
-        b8_checkpoint=b8_checkpoint,
-        frp3_checkpoint=frp3_checkpoint,
+        roots=test_part.roots,
         horizon=branch_horizon,
         selection_suffixes=test_sel_suffixes,
         scoring_suffixes=test_score_suffixes,
-        max_slab_envs=branch_slab_envs,
-        max_capacity=max_capacity,
-        compaction_interval=int(config.get("compaction_interval", 10)),
-        device=device,
-        log_progress=log_progress,
     )
+    test_branched = (
+        checkpoint_mgr.try_load_branch("test-branch", fingerprint=test_branch_fp)
+        if checkpoint_mgr is not None
+        else None
+    )
+    if test_branched is not None:
+        _emit({"phase": "resume_stage", "stage": "test-branch"})
+    else:
+        test_branched = branch_prepared_roots(
+            test_part.roots,
+            namespace=namespace,
+            b8_checkpoint=b8_checkpoint,
+            frp3_checkpoint=frp3_checkpoint,
+            horizon=branch_horizon,
+            selection_suffixes=test_sel_suffixes,
+            scoring_suffixes=test_score_suffixes,
+            max_slab_envs=branch_slab_envs,
+            max_capacity=max_capacity,
+            compaction_interval=int(config.get("compaction_interval", 10)),
+            device=device,
+            log_progress=_emit,
+        )
+        if checkpoint_mgr is not None:
+            rec = checkpoint_mgr.save_branch(
+                "test-branch", test_branched, fingerprint=test_branch_fp
+            )
+            _emit({"phase": "checkpoint_stage", **rec})
 
     v_base_test = baseline.predict_v(test_part.dataset.snake_length[:, 0], test_part.dataset.h_rem)
     critic_preds_test = predict_critic_on_dataset(
         critic,
         test_part.dataset,
-        batch_size=int(config.get("critic_batch_size", 256)),
+        batch_size=critic_batch_size,
         device=device,
     )
     post_eval_critic_sha256 = critic.state_dict_sha256()
@@ -1038,6 +1398,14 @@ def run_single_replicate(
             "critic_train": train_summary,
             "test_harvest": test_part.telemetry,
             "test_branch": test_branched.telemetry,
+            "durability": {
+                "resumed_stages": (
+                    list(checkpoint_mgr.resumed_stages) if checkpoint_mgr is not None else []
+                ),
+                "exported_stage_checkpoints": (
+                    len(checkpoint_mgr.exported_files) if checkpoint_mgr is not None else 0
+                ),
+            },
             "replicate_wall_sec": round(time.perf_counter() - t0, 3),
         },
         "diagnostic_quick_ev": {
@@ -1056,7 +1424,8 @@ def run_pipeline(
     ledger_path: Path,
     output_dir: Path,
     device: str = "cpu",
-    max_export_bytes: int = 4 * 1024**2,
+    max_export_bytes: int = 128 * 1024**2,
+    resume_checkpoint_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Execute Gate-1 units with verified-ledger skip and atomic immutable sidecar exports."""
     t0 = time.perf_counter()
@@ -1108,6 +1477,10 @@ def run_pipeline(
 
     units_dir = output_dir / "units"
     units_dir.mkdir(parents=True, exist_ok=True)
+    persist_ckpts = bool(config.get("persist_stage_checkpoints", True))
+    resume_roots: list[Path] = []
+    if resume_checkpoint_dir is not None and resume_checkpoint_dir.is_dir():
+        resume_roots.append(resume_checkpoint_dir.resolve())
 
     def _log(msg: Mapping[str, Any]) -> None:
         print(f"T4_GATE1_PROGRESS {json.dumps(dict(msg), sort_keys=True)}", flush=True)
@@ -1122,6 +1495,14 @@ def run_pipeline(
             _log({"phase": "skip_verified_unit", "replicate_index": rep_idx, "unit_id": uid})
             continue
 
+        ckpt_mgr = ReplicateCheckpointManager(
+            study=STUDY,
+            namespace=namespace,
+            replicate_index=rep_idx,
+            export_root=(output_dir / "checkpoints" if persist_ckpts else None),
+            resume_roots=resume_roots,
+            max_export_bytes=max_export_bytes,
+        )
         unit_payload = run_single_replicate(
             replicate_index=rep_idx,
             allocation_doc=alloc_doc,
@@ -1129,6 +1510,7 @@ def run_pipeline(
             b8_checkpoint=b8_ckpt,
             frp3_checkpoint=frp3_ckpt,
             device=target,
+            checkpoint_mgr=ckpt_mgr,
             log_progress=_log,
         )
         unit_file = units_dir / f"{replicate_unit_stem(rep_idx)}.json"
@@ -1192,6 +1574,7 @@ def run_pipeline(
                 output_dir=tmp_d / "out",
                 device=device,
                 max_export_bytes=max_export_bytes,
+                resume_checkpoint_dir=resume_checkpoint_dir,
             )
             if sub_res["executed_units_count"] != 0:
                 raise RuntimeError(
@@ -1230,6 +1613,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--ledger", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--device", type=str, default="cuda")
+    parser.add_argument("--max-export-bytes", type=int, default=128 * 1024**2)
+    parser.add_argument("--resume-checkpoint-dir", type=Path, default=None)
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     summary = run_pipeline(
@@ -1238,6 +1623,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         ledger_path=args.ledger.resolve(),
         output_dir=args.output.resolve(),
         device=args.device,
+        max_export_bytes=int(args.max_export_bytes),
+        resume_checkpoint_dir=(
+            args.resume_checkpoint_dir.resolve() if args.resume_checkpoint_dir is not None else None
+        ),
     )
     print(f"T4_GATE1_DONE {json.dumps(summary, sort_keys=True)}", flush=True)
     return 0

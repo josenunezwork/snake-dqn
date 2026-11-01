@@ -40,8 +40,10 @@ from tools.ops.package_spec import (
 ROOT = Path(__file__).resolve().parents[2]
 
 PART_BYTES = 2 * 1024**2
-MAX_FILE_BYTES = 4 * 1024**2
-MAX_METADATA_BYTES = MAX_FILE_BYTES
+MAX_UPLOAD_BYTES = 4 * 1024**2
+MAX_FILE_BYTES = MAX_UPLOAD_BYTES
+MAX_EXPORT_BYTES = 128 * 1024**2
+MAX_METADATA_BYTES = MAX_UPLOAD_BYTES
 METADATA = "input-metadata.tar.gz"
 INDEX = "input-inventory.json"
 INVENTORY_SCHEMA = "t4-gate1-packed-input-inventory/v1"
@@ -528,13 +530,16 @@ def check_uploads(manifest: Mapping[str, Any], *, repo: Path = ROOT) -> dict[str
     """Enforce <= 2 MiB per local input, <= 8 transfers, and <= 60 s at 6 s/RPC + 0.8 MB/s."""
     manifest_dict = dict(manifest)
     limit = int(manifest_dict["max_export_bytes"])
-    if limit <= 0 or limit > MAX_FILE_BYTES:
-        raise ValueError(f"manifest max_export_bytes must be in 1..{MAX_FILE_BYTES}, got {limit}")
+    if limit <= 0 or limit > MAX_EXPORT_BYTES:
+        raise ValueError(f"manifest max_export_bytes must be in 1..{MAX_EXPORT_BYTES}, got {limit}")
+    upload_limit = min(limit, MAX_UPLOAD_BYTES)
     rows: list[dict[str, Any]] = []
 
     def check(name: str, size: int, *, local_input: bool = False) -> None:
-        if size > limit:
-            raise ValueError(f"upload exceeds bounded transfer size: {name}: {size} > {limit}")
+        if size > upload_limit:
+            raise ValueError(
+                f"upload exceeds bounded transfer size: {name}: {size} > {upload_limit}"
+            )
         if local_input and size > PART_BYTES:
             raise ValueError(
                 f"unsplit local input exceeds 2 MiB single-chunk bound: "
@@ -602,7 +607,8 @@ def check_uploads(manifest: Mapping[str, Any], *, repo: Path = ROOT) -> dict[str
 
     return {
         "status": "PASS",
-        "max_upload_bytes": limit,
+        "max_upload_bytes": upload_limit,
+        "max_export_bytes": limit,
         "max_input_part_bytes": PART_BYTES,
         "files": rows,
         "normal_transfer_count": normal_count,

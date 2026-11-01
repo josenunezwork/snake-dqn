@@ -49,7 +49,7 @@ from research.t4_gate1 import (
 from research.t4_gate1.pipeline import load_and_validate_ledger, publish_verified_ledger
 from research.t4_gate1.readout import aggregate_gate1_readout
 from research.t4_gate1.uploads import (
-    MAX_FILE_BYTES,
+    MAX_EXPORT_BYTES,
     METADATA,
     check_uploads,
     pack_inputs,
@@ -87,11 +87,18 @@ GPU_SIM_NATIVE_EXTENSIONS: tuple[str, ...] = (
 )
 
 # Priced A100 rate in Colab CLI accounting (8.0 u/h conservative accounting envelope;
-# observed A100 burn ~6.73 u/h -> 90m base forecast ~10.1 observed units, 12.0 priced units).
+# observed A100 burn in main-02 was ~6.73 u/h).
+# Re-forecast from measured main-02 A100 timings after 128-env fit+val co-harvest,
+# GPU-resident featurization + batch_size=512, validation early stopping (patience=4),
+# and unified 512-env H300 branching slabs:
+#   - 8.5m startup+JIT + 47.0m/rep = 55.5m (60m base -> 120m 2x timeout) for 1 remaining rep
+#   - 8.5m startup+JIT + 2 * 47.0m = 102.5m (105m base -> 210m 2x timeout) for 2 cold reps
 A100_PRICED_RATE_UNITS_PER_HOUR = 8.0
 A100_OBSERVED_RATE_UNITS_PER_HOUR = 6.73
 CANARY_BASE_EST_MINUTES = 12
-MAIN_BASE_EST_MINUTES = 90
+MAIN_SINGLE_REP_BASE_EST_MINUTES = 60
+MAIN_FULL_2REP_BASE_EST_MINUTES = 105
+MAIN_BASE_EST_MINUTES = MAIN_SINGLE_REP_BASE_EST_MINUTES
 
 
 def t4_gate1_source_paths(repo: Path = ROOT) -> list[str]:
@@ -136,9 +143,10 @@ def build_frozen_configs() -> dict[str, dict[str, Any]]:
         "allocation_key": "main",
         "canary_only": False,
         "run_skip_selfcheck": False,
+        "persist_stage_checkpoints": True,
         "session_ticks": 6000,
-        "max_slab_envs": 64,
-        "branch_max_slab_envs": 128,
+        "max_slab_envs": 128,
+        "branch_max_slab_envs": 512,
         "max_capacity": 3200,
         "stride_mature": 4,
         "stride_early": 16,
@@ -151,8 +159,11 @@ def build_frozen_configs() -> dict[str, dict[str, Any]]:
         "train_branch_suffixes": [0, 1],
         "test_selection_suffixes": [0, 1],
         "test_scoring_suffixes": [4, 5],
-        "critic_epochs": 16,
-        "critic_batch_size": 256,
+        "critic_epochs": 12,
+        "critic_batch_size": 512,
+        "critic_early_stop_patience": 4,
+        "critic_min_epochs": 4,
+        "critic_checkpoint_every": 3,
     }
     canary_cfg = {
         **common,
@@ -160,6 +171,7 @@ def build_frozen_configs() -> dict[str, dict[str, Any]]:
         "allocation_key": "canary",
         "canary_only": True,
         "run_skip_selfcheck": True,
+        "persist_stage_checkpoints": True,
         "session_ticks": 180,
         "max_slab_envs": 8,
         "branch_max_slab_envs": 32,
@@ -177,6 +189,9 @@ def build_frozen_configs() -> dict[str, dict[str, Any]]:
         "test_scoring_suffixes": [4],
         "critic_epochs": 2,
         "critic_batch_size": 32,
+        "critic_early_stop_patience": 2,
+        "critic_min_epochs": 1,
+        "critic_checkpoint_every": 2,
     }
     preflight_cfg = {
         **common,
@@ -184,6 +199,7 @@ def build_frozen_configs() -> dict[str, dict[str, Any]]:
         "allocation_key": "preflight",
         "canary_only": True,
         "run_skip_selfcheck": True,
+        "persist_stage_checkpoints": True,
         "session_ticks": 90,
         "max_slab_envs": 5,
         "branch_max_slab_envs": 16,
@@ -201,6 +217,9 @@ def build_frozen_configs() -> dict[str, dict[str, Any]]:
         "test_scoring_suffixes": [4],
         "critic_epochs": 2,
         "critic_batch_size": 16,
+        "critic_early_stop_patience": 2,
+        "critic_min_epochs": 1,
+        "critic_checkpoint_every": 1,
     }
     return {
         "main": main_cfg,
@@ -326,7 +345,7 @@ def run_local_preflight(
         ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True, timeout=10
     ).strip()
 
-    py_bin = str(Path(sys.executable).resolve().parent)
+    py_bin = str(Path(sys.executable).absolute().parent)
     env = os.environ.copy()
     env.update(
         {
@@ -507,7 +526,7 @@ def build_packet_manifests(
         "lease_seconds": 300,
         "timeout_minutes": 2 * CANARY_BASE_EST_MINUTES,
         "output_dir": str(canary_dir / "output"),
-        "max_export_bytes": MAX_FILE_BYTES,
+        "max_export_bytes": MAX_EXPORT_BYTES,
         "requirements": {
             "gpu": "A100",
             "allowed_gpus": ["A100"],
@@ -523,14 +542,16 @@ def build_packet_manifests(
         "resume_exemption": {
             "kind": "short-canary",
             "reason": (
-                "Short A100 family transport, DeviceSim v2 harvest, and CUDA 6-action "
-                "PrivilegedFactoredCritic probe (24m timeout <= 30m cap)."
+                "Short A100 family transport, DeviceSim v2 co-harvest, atomic stage checkpointing, "
+                "and GPU-resident 6-action PrivilegedFactoredCritic probe (24m timeout <= 30m cap)."
             ),
         },
         "required_exports": [
             "t4_gate1/run-summary.json",
             "t4_gate1/skip-proof.json",
             "t4_gate1/units/replicate-0000.json",
+            "t4_gate1/checkpoints/rep0000/fit-harvest.ckpt",
+            "t4_gate1/checkpoints/rep0000/critic-frozen.ckpt",
         ],
         "inputs": manifest_inputs,
         "env": {
@@ -539,6 +560,7 @@ def build_packet_manifests(
             "SNAKE_COLAB_CANARY_PACKAGE": PACKAGE,
             "T4_GATE1_CONFIG_NAME": "canary-config.json",
             "T4_GATE1_LEDGER_NAME": "canary-ledger.json",
+            "T4_GATE1_MAX_EXPORT_BYTES": str(MAX_EXPORT_BYTES),
         },
         "t4_gate1": {
             "study": STUDY,
@@ -568,13 +590,30 @@ def build_packet_manifests(
         stream.write(json.dumps(validated_canary, indent=2, sort_keys=True) + "\n")
 
     # --- 2. Main A100 Gate-1 run (unsealed template; sealed once canary passes) ---
+    raw_ledger_path = queue_dir / "raw_inputs" / "verified-ledger.json"
+    skipped_reps = (
+        load_and_validate_ledger(
+            raw_ledger_path,
+            expected_namespace=MAIN_NAMESPACE,
+            valid_replicates={0, 1},
+        )
+        if raw_ledger_path.is_file()
+        else set()
+    )
+    remaining_replicates = max(1, 2 - len(skipped_reps))
+    main_base_est_minutes = (
+        MAIN_SINGLE_REP_BASE_EST_MINUTES
+        if remaining_replicates == 1
+        else MAIN_FULL_2REP_BASE_EST_MINUTES
+    )
+
     main_dir = queue_dir / f"main-{packet_tag}"
     main_dir.mkdir(parents=True, exist_ok=False)
     main_base_priced_units = round(
-        MAIN_BASE_EST_MINUTES / 60.0 * A100_PRICED_RATE_UNITS_PER_HOUR, 4
+        main_base_est_minutes / 60.0 * A100_PRICED_RATE_UNITS_PER_HOUR, 4
     )
     main_base_observed_units = round(
-        MAIN_BASE_EST_MINUTES / 60.0 * A100_OBSERVED_RATE_UNITS_PER_HOUR, 2
+        main_base_est_minutes / 60.0 * A100_OBSERVED_RATE_UNITS_PER_HOUR, 2
     )
     main_base_reserve = 1.2
     main_template: dict[str, Any] = {
@@ -584,14 +623,14 @@ def build_packet_manifests(
         "source_paths": source_paths,
         "device": "cuda",
         "lease_seconds": 300,
-        "timeout_minutes": 2 * MAIN_BASE_EST_MINUTES,
+        "timeout_minutes": 2 * main_base_est_minutes,
         "output_dir": str(main_dir / "output"),
-        "max_export_bytes": MAX_FILE_BYTES,
+        "max_export_bytes": MAX_EXPORT_BYTES,
         "requirements": {
             "gpu": "A100",
             "allowed_gpus": ["A100"],
             "min_vcpu": 12,
-            "est_minutes": MAIN_BASE_EST_MINUTES,
+            "est_minutes": main_base_est_minutes,
         },
         "budget": {
             "rate_units_per_hour": A100_PRICED_RATE_UNITS_PER_HOUR,
@@ -614,6 +653,7 @@ def build_packet_manifests(
             **common_env,
             "T4_GATE1_CONFIG_NAME": "main-config.json",
             "T4_GATE1_LEDGER_NAME": "verified-ledger.json",
+            "T4_GATE1_MAX_EXPORT_BYTES": str(MAX_EXPORT_BYTES),
         },
         "t4_gate1": {
             "study": STUDY,
@@ -624,11 +664,13 @@ def build_packet_manifests(
             "allocation": ALLOCATION_NAME,
             "allocation_index": ALLOCATION_INDEX,
             "replicates": 2,
+            "skipped_replicates_in_ledger": sorted(skipped_reps),
+            "remaining_replicates_to_execute": remaining_replicates,
             "worlds_total": 384,
             "held_out_test_worlds_total": 128,
             "held_out_mature_roots_target": 256,
-            "base_est_minutes": MAIN_BASE_EST_MINUTES,
-            "effective_timeout_minutes": 2 * MAIN_BASE_EST_MINUTES,
+            "base_est_minutes": main_base_est_minutes,
+            "effective_timeout_minutes": 2 * main_base_est_minutes,
             "base_observed_units_forecast": main_base_observed_units,
             "base_priced_units_forecast": main_base_priced_units,
             "effective_unit_cap_2x": round(2.0 * main_base_priced_units, 4),

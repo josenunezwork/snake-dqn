@@ -17,6 +17,10 @@ STAGE_EXTRA_ARGS=()
 if [[ -n "${T4_LOCAL_CHECKPOINT_DIR:-}" ]]; then
   STAGE_EXTRA_ARGS=(--local-checkpoint-dir "$T4_LOCAL_CHECKPOINT_DIR")
 fi
+PIPELINE_EXTRA_ARGS=(--max-export-bytes "${T4_GATE1_MAX_EXPORT_BYTES:-134217728}")
+if [[ -d "$COLAB_INPUT_DIR/stage_checkpoints" ]]; then
+  PIPELINE_EXTRA_ARGS+=(--resume-checkpoint-dir "$COLAB_INPUT_DIR/stage_checkpoints")
+fi
 nice -n 15 uv --version || true
 nice -n 15 python -m research.t4_gate1.uploads stage \
   --input-dir "$COLAB_INPUT_DIR" \
@@ -27,4 +31,5 @@ exec nice -n 15 python -m research.t4_gate1.pipeline \
   --config "$COLAB_INPUT_DIR/$T4_GATE1_CONFIG_NAME" \
   --ledger "$COLAB_INPUT_DIR/$LEDGER_NAME" \
   --output "$COLAB_CLI_ROOT/output/t4_gate1" \
-  --device "$T4_GATE1_DEVICE"
+  --device "$T4_GATE1_DEVICE" \
+  "${PIPELINE_EXTRA_ARGS[@]}"

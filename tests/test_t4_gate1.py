@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import warnings
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -23,19 +24,32 @@ from research.t4_gate1 import (
     evaluate_gate1_bars,
     replicate_unit_id,
 )
+from research.t4_gate1.checkpoints import (
+    ReplicateCheckpointManager,
+    branch_config_fingerprint,
+    critic_config_fingerprint,
+    harvest_config_fingerprint,
+)
 from research.t4_gate1.featurizer import (
     ARENA_CHANNELS,
     EGO_CHANNELS,
     SCALAR_DIM,
     CompactSampleBuilder,
+    DeviceBoardDataset,
     FeaturizedBatch,
     featurize_dataset_batch,
+    featurize_device_batch,
     featurize_live_sim,
+    slice_featurized_batch,
 )
 from research.t4_gate1.harvest import (
+    _VECTOR_RUNTIME_ENV_TENSORS,
     BranchedRootsTable,
     GridBatchSim,
+    HarvestedWorldPartition,
+    _PreparedSeamRingBuffer,
     _reduce_legal_branch_outcomes,
+    capture_prepared_root,
     compute_per_life_targets,
     watch6_v2_config,
 )
@@ -73,7 +87,7 @@ from research.t4_gate1.seed_audit import seed_for, world_allocation
 from research.t4_gate1.uploads import (
     BASE_PAYLOADS,
     MAX_ESTIMATED_TRANSFER_SECONDS,
-    MAX_FILE_BYTES,
+    MAX_EXPORT_BYTES,
     MAX_TRANSFERS,
     METADATA,
     check_uploads,
@@ -609,7 +623,7 @@ def test_packed_metadata_and_upload_budget_gate(tmp_path: Path) -> None:
     staged = stage_metadata(unpack_dir, rep["metadata_sha256"])
     assert set(staged["staged_payloads"]) == set(BASE_PAYLOADS)
 
-    # Check if research/t4_gate1 is already committed on HEAD; if running pre-commit,
+    # Check if research/t4_gate1 is already committed & clean on HEAD; if running pre-commit,
     # test check_uploads against a lightweight shared git clone with current Gate-1 files committed.
     has_req_in_head = (
         subprocess.run(
@@ -620,7 +634,15 @@ def test_packed_metadata_and_upload_budget_gate(tmp_path: Path) -> None:
         ).returncode
         == 0
     )
-    if has_req_in_head:
+    dirty_gate1 = bool(
+        subprocess.check_output(
+            ["git", "status", "--porcelain", "--", "research/t4_gate1"],
+            cwd=ROOT,
+            text=True,
+            timeout=10,
+        ).strip()
+    )
+    if has_req_in_head and not dirty_gate1:
         target_repo = ROOT
         commit_sha = subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True, timeout=10
@@ -665,7 +687,7 @@ def test_packed_metadata_and_upload_budget_gate(tmp_path: Path) -> None:
         "source_paths": t4_gate1_source_paths(ROOT),
         "device": "cuda",
         "timeout_minutes": 24,
-        "max_export_bytes": MAX_FILE_BYTES,
+        "max_export_bytes": MAX_EXPORT_BYTES,
         "requirements": {
             "gpu": "A100",
             "allowed_gpus": ["A100"],
@@ -979,3 +1001,441 @@ def test_nan_guards_and_empty_slice_warning_free(tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError, match="Non-finite legal-action outcome/prediction"):
         aggregate_gate1_readout([att_nan], expected_replicates=1)
+
+
+def _make_dummy_prepared_policy(num_envs: int, device: torch.device) -> SimpleNamespace:
+    vr = SimpleNamespace(
+        **{
+            attr: torch.arange(num_envs * 6, dtype=torch.float32, device=device).reshape(
+                num_envs, 6
+            )
+            for attr in _VECTOR_RUNTIME_ENV_TENSORS
+        }
+    )
+    return SimpleNamespace(vector_prepared=True, vector_runtime=vr)
+
+
+def test_device_board_dataset_featurizer_and_ring_buffer_exact_parity() -> None:
+    """GPU-resident DeviceBoardDataset featurization and seam ring buffer must be exact."""
+    device = torch.device("cpu")
+    fit_ds, _val_ds, _roots_ds, _branched = _build_small_critic_datasets()
+    dev_ds = DeviceBoardDataset.from_compact(fit_ds, device)
+
+    perm_np = np.array([3, 0, 2, 1], dtype=np.int64)
+    perm_t = torch.as_tensor(perm_np, dtype=torch.long, device=device)
+
+    fb_cpu = featurize_dataset_batch(fit_ds, perm_np, device=device)
+    with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
+        fb_dev = featurize_device_batch(dev_ds, perm_t)
+
+    for attr in ("arena", "ego", "scalars", "hero_xy_dir", "legal_mask", "hero_length", "h_rem"):
+        assert getattr(fb_dev, attr).dtype == getattr(fb_cpu, attr).dtype
+        torch.testing.assert_close(
+            getattr(fb_dev, attr), getattr(fb_cpu, attr), rtol=1e-6, atol=1e-6
+        )
+
+    fb_cpu_h = featurize_dataset_batch(fit_ds, perm_np[:2], device=device, h_rem_override=300.0)
+    fb_dev_h = featurize_device_batch(dev_ds, perm_t[:2], h_rem_override=300.0)
+    fb_sliced = slice_featurized_batch(
+        featurize_device_batch(dev_ds, perm_t, h_rem_override=300.0),
+        torch.tensor([0, 1], dtype=torch.long, device=device),
+    )
+    for attr in ("arena", "ego", "scalars", "hero_xy_dir", "legal_mask", "hero_length", "h_rem"):
+        torch.testing.assert_close(
+            getattr(fb_dev_h, attr), getattr(fb_cpu_h, attr), rtol=1e-6, atol=1e-6
+        )
+        torch.testing.assert_close(
+            getattr(fb_sliced, attr), getattr(fb_dev_h, attr), rtol=0.0, atol=0.0
+        )
+
+    # Verify _PreparedSeamRingBuffer wraparound matches capture_prepared_root bit-for-bit.
+    cfg = watch6_v2_config(2, max_capacity=256)
+    cpu_sim = GridBatchSim(
+        cfg,
+        seeds=[seed_for(MAIN_NAMESPACE, 501), seed_for(MAIN_NAMESPACE, 502)],
+        train_mode=False,
+        allow_respawn=True,
+    )
+    sim = DeviceSim.from_reference(cpu_sim, device=device, hero_respawn=True, exact_mechanics=True)
+    sim._prepared = True
+    dummy_pol = _make_dummy_prepared_policy(2, device)
+    ring_span = 4
+    ring = _PreparedSeamRingBuffer(
+        ring_span=ring_span,
+        env_indices=torch.tensor([0, 1], dtype=torch.long, device=device),
+        sim=sim,
+        policy=dummy_pol,
+    )
+    actions = torch.tensor([[1, 1, 1, 1, 1, 1], [0, 2, 1, 1, 1, 1]], dtype=torch.long)
+
+    ref_snaps: dict[int, object] = {}
+    for tick in range(1, 8):
+        sim._prepared = True
+        for attr in _VECTOR_RUNTIME_ENV_TENSORS:
+            getattr(dummy_pol.vector_runtime, attr).add_(1.0)
+        legal_mask = sim.advisory_mask()[:, 0]
+        slot = tick % ring_span
+        ring.record_tick(
+            slot,
+            sim,
+            dummy_pol,
+            mature_r=torch.tensor([True, True], dtype=torch.bool, device=device),
+            tick=tick,
+            h_rem=6000 - tick + 1,
+            life_ids_r=torch.tensor([0, 1], dtype=torch.int32, device=device),
+            b8_act_r=actions[:, 0],
+            legal_r=legal_mask,
+        )
+        if tick in (4, 6, 7):
+            ref_snaps[tick] = capture_prepared_root(
+                sim,
+                dummy_pol,
+                env=1,
+                root_uid=f"ref-{tick}",
+                kind="death_lookback",
+                lookback=7 - tick,
+                world_id=9,
+                seed=777,
+                life_id=1,
+                tick=tick,
+                h_rem=6000 - tick + 1,
+                b8_action=int(actions[1, 0]),
+                legal_mask=legal_mask[1].detach().cpu().numpy(),
+            )
+        sim.step(actions)
+
+    for tick in (4, 6, 7):
+        slot = tick % ring_span
+        assert int(ring.tick_buf[slot, 1].item()) == tick
+        got = ring.extract_snapshot(
+            slot,
+            1,
+            root_uid=f"ref-{tick}",
+            kind="death_lookback",
+            lookback=7 - tick,
+            world_id=9,
+            seed=777,
+        )
+        ref = ref_snaps[tick]
+        assert got.tick == ref.tick and got.h_rem == ref.h_rem and got.frame == ref.frame
+        assert got.hero_length == ref.hero_length and got.b8_action == ref.b8_action
+        np.testing.assert_array_equal(got.legal_mask, ref.legal_mask)
+        for s in range(6):
+            np.testing.assert_array_equal(got.body_segments[s], ref.body_segments[s])
+        for field in (
+            "seg_count",
+            "length",
+            "alive",
+            "direction",
+            "boost_frames",
+            "frames_since_food",
+            "respawn_timer",
+            "reward_prev_length",
+            "boosted_this_step",
+            "last_reward",
+            "last_done",
+            "last_death_cause",
+            "last_kills",
+            "last_food_ate",
+            "last_ambient_food_ate",
+            "last_corpse_food_ate",
+            "last_transition_valid",
+            "food_cells",
+            "corpse_food",
+        ):
+            np.testing.assert_array_equal(getattr(got, field), getattr(ref, field))
+        assert set(got.vec_tensors.keys()) == set(ref.vec_tensors.keys())
+        for vk in got.vec_tensors:
+            np.testing.assert_array_equal(got.vec_tensors[vk], ref.vec_tensors[vk])
+
+    # Evicted tick (tick 3 slot 3 was overwritten by tick 7 in ring_span=4).
+    assert int(ring.tick_buf[3 % ring_span, 1].item()) == 7
+
+
+def test_sub_replicate_checkpoint_roundtrip_epoch_resume_and_early_stopping(
+    tmp_path: Path,
+) -> None:
+    """Stage & critic-epoch checkpoints must verify sidecars, resume identically, and early-stop."""
+    device = torch.device("cpu")
+    fit_ds, val_ds, roots_ds, branched = _build_small_critic_datasets()
+
+    cfg_sim = watch6_v2_config(2, max_capacity=256)
+    cpu_sim = GridBatchSim(
+        cfg_sim,
+        seeds=[seed_for(MAIN_NAMESPACE, 601), seed_for(MAIN_NAMESPACE, 602)],
+        train_mode=False,
+        allow_respawn=True,
+    )
+    sim = DeviceSim.from_reference(cpu_sim, device=device, hero_respawn=True, exact_mechanics=True)
+    sim._prepared = True
+    dummy_pol = _make_dummy_prepared_policy(2, device)
+    roots = [
+        capture_prepared_root(
+            sim,
+            dummy_pol,
+            env=i,
+            root_uid=f"ckpt-r{i}",
+            kind="ordinary",
+            lookback=None,
+            world_id=i,
+            seed=601 + i,
+            life_id=0,
+            tick=10,
+            h_rem=5990,
+            b8_action=1,
+            legal_mask=np.ones(6, dtype=bool),
+        )
+        for i in range(2)
+    ]
+    part = HarvestedWorldPartition(
+        partition="rep0_fit",
+        world_ids=[0, 1, 2, 3],
+        seeds=[201, 202, 203, 204],
+        dataset=fit_ds,
+        roots=roots,
+        roots_dataset=roots_ds,
+        telemetry={"partition": "rep0_fit", "sampled_rows": 4},
+    )
+
+    cfg = {
+        "b8_sha256": "b8",
+        "frp3_sha256": "frp3",
+        "session_ticks": 6000,
+        "max_capacity": 256,
+        "branch_horizon": 300,
+        "min_mature_length": 600,
+        "critic_epochs": 3,
+        "critic_batch_size": 2,
+        "critic_lr": 6e-4,
+        "critic_weight_decay": 1e-3,
+    }
+    world_rows = [{"global_index": i, "seed": 201 + i} for i in range(4)]
+    fit_fp = harvest_config_fingerprint(
+        cfg,
+        study=STUDY,
+        namespace=MAIN_NAMESPACE,
+        partition="rep0_fit",
+        world_rows=world_rows,
+        max_roots=2,
+    )
+    val_fp = harvest_config_fingerprint(
+        cfg,
+        study=STUDY,
+        namespace=MAIN_NAMESPACE,
+        partition="rep0_val",
+        world_rows=world_rows[:2],
+        max_roots=0,
+    )
+    br_fp = branch_config_fingerprint(
+        cfg,
+        study=STUDY,
+        namespace=MAIN_NAMESPACE,
+        roots=roots,
+        horizon=300,
+        selection_suffixes=[0, 1],
+        scoring_suffixes=[],
+    )
+    crit_fp = critic_config_fingerprint(
+        cfg,
+        study=STUDY,
+        namespace=MAIN_NAMESPACE,
+        replicate_index=0,
+        critic_seed=17001,
+        fit_fingerprint=fit_fp,
+        val_fingerprint=val_fp,
+        train_branch_suffixes=[0, 1],
+    )
+
+    ckpt_dir = tmp_path / "checkpoints"
+    mgr = ReplicateCheckpointManager(
+        study=STUDY,
+        namespace=MAIN_NAMESPACE,
+        replicate_index=0,
+        export_root=ckpt_dir,
+        max_export_bytes=MAX_EXPORT_BYTES,
+    )
+    h_rec = mgr.save_harvest(
+        "fit-harvest", part, fingerprint=fit_fp, extra_meta={"frozen_critic_sha256": "abc"}
+    )
+    assert Path(f"{h_rec['path']}.complete").is_file()
+    assert Path(f"{h_rec['path']}.sha256").is_file()
+    mgr.save_branch("fit-branch", branched, fingerprint=br_fp)
+
+    mgr_load = ReplicateCheckpointManager(
+        study=STUDY,
+        namespace=MAIN_NAMESPACE,
+        replicate_index=0,
+        export_root=None,
+        resume_roots=[ckpt_dir],
+        max_export_bytes=MAX_EXPORT_BYTES,
+    )
+    loaded_part = mgr_load.try_load_harvest(
+        "fit-harvest", fingerprint=fit_fp, required_extra={"frozen_critic_sha256": "abc"}
+    )
+    assert loaded_part is not None
+    assert loaded_part.dataset.num_rows == 4
+    np.testing.assert_allclose(loaded_part.dataset.return_g, fit_ds.return_g)
+    assert len(loaded_part.roots) == 2
+    np.testing.assert_array_equal(loaded_part.roots[0].food_cells, roots[0].food_cells)
+
+    with pytest.raises(ValueError, match="anti-leakage metadata check"):
+        mgr_load.try_load_harvest(
+            "fit-harvest", fingerprint=fit_fp, required_extra={"frozen_critic_sha256": "wrong"}
+        )
+    with pytest.raises(ValueError, match="mismatched config_fingerprint"):
+        mgr_load.try_load_harvest("fit-harvest", fingerprint="0" * 64)
+
+    foreign_mgr = ReplicateCheckpointManager(
+        study=STUDY,
+        namespace="foreign-ns",
+        replicate_index=0,
+        export_root=None,
+        resume_roots=[ckpt_dir],
+    )
+    with pytest.raises(ValueError, match="Refusing foreign checkpoint"):
+        foreign_mgr.try_load_branch("fit-branch", fingerprint=br_fp)
+
+    loaded_br = mgr_load.try_load_branch("fit-branch", fingerprint=br_fp)
+    assert loaded_br is not None
+    np.testing.assert_allclose(
+        loaded_br.s_sel[loaded_br.legal_mask], branched.s_sel[branched.legal_mask]
+    )
+
+    # 1) Uninterrupted 3-epoch critic training vs interrupted after epoch 1 + resumed epoch 2..3.
+    critic_full, summary_full = train_privileged_critic(
+        fit_dataset=fit_ds,
+        val_dataset=val_ds,
+        fit_roots_dataset=roots_ds,
+        fit_branched_roots=branched,
+        branch_horizon=300,
+        min_mature_length=600,
+        epochs=3,
+        batch_size=2,
+        learning_rate=6e-4,
+        weight_decay=1e-3,
+        seed=17001,
+        device=device,
+    )
+
+    class _StopAfterEpoch1(Exception):
+        pass
+
+    def _save_and_abort_ep1(ep_state: dict) -> None:
+        if int(ep_state["epoch"]) == 1:
+            mgr.save_critic_epoch(
+                epoch=1,
+                fingerprint=crit_fp,
+                critic=ep_state["critic"],
+                optimizer=ep_state["optimizer"],
+                scheduler=ep_state["scheduler"],
+                np_rng_state=ep_state["np_rng_state"],
+                torch_cpu_rng_state=ep_state["torch_cpu_rng_state"],
+                best_epoch=int(ep_state["best_epoch"]),
+                best_score=float(ep_state["best_score"]),
+                best_state=ep_state["best_state"],
+                epoch_history=ep_state["epoch_history"],
+            )
+            raise _StopAfterEpoch1()
+
+    with pytest.raises(_StopAfterEpoch1):
+        train_privileged_critic(
+            fit_dataset=fit_ds,
+            val_dataset=val_ds,
+            fit_roots_dataset=roots_ds,
+            fit_branched_roots=branched,
+            branch_horizon=300,
+            min_mature_length=600,
+            epochs=3,
+            batch_size=2,
+            learning_rate=6e-4,
+            weight_decay=1e-3,
+            seed=17001,
+            device=device,
+            on_epoch_end=_save_and_abort_ep1,
+        )
+
+    resumed_ep = mgr_load.try_load_latest_critic_epoch(max_epochs=3, fingerprint=crit_fp)
+    assert resumed_ep is not None and resumed_ep["epoch"] == 1
+
+    critic_resumed, summary_resumed = train_privileged_critic(
+        fit_dataset=fit_ds,
+        val_dataset=val_ds,
+        fit_roots_dataset=roots_ds,
+        fit_branched_roots=branched,
+        branch_horizon=300,
+        min_mature_length=600,
+        epochs=3,
+        batch_size=2,
+        learning_rate=6e-4,
+        weight_decay=1e-3,
+        seed=17001,
+        device=device,
+        resume_state=resumed_ep,
+    )
+    assert summary_resumed["resumed_from_epoch"] == 1
+    assert summary_resumed["epochs_completed"] == 3
+    for e_full, e_res in zip(summary_full["epoch_history"], summary_resumed["epoch_history"]):
+        for k in ("train_loss", "val_selection_score", "val_mature_mse", "val_mature_hazard_nll"):
+            assert e_full[k] == pytest.approx(e_res[k], abs=1e-6)
+    assert critic_resumed.state_dict_sha256() == critic_full.state_dict_sha256()
+
+    # Frozen critic + baseline round-trip check.
+    baseline = LengthHorizonBaseline.fit(
+        fit_length=fit_ds.snake_length[:, 0],
+        fit_h_rem=fit_ds.h_rem,
+        fit_tau_alive=fit_ds.tau_alive,
+        fit_died=fit_ds.died_in_session,
+        fit_return_g=fit_ds.return_g,
+        fit_forage_short=fit_ds.forage_short,
+        fit_forage_weight=fit_ds.forage_short_weight,
+        val_length=val_ds.snake_length[:, 0],
+        val_h_rem=val_ds.h_rem,
+        val_return_g=val_ds.return_g,
+    )
+    mgr.save_frozen_critic(
+        fingerprint=crit_fp,
+        critic=critic_resumed,
+        baseline=baseline,
+        train_summary=summary_resumed,
+        frozen_critic_sha256=critic_resumed.state_dict_sha256(),
+        fit_telemetry={"rows": 4},
+        val_telemetry={"rows": 2},
+        fit_branch_telemetry={"roots": 2},
+    )
+    frozen_loaded = mgr_load.try_load_frozen_critic(fingerprint=crit_fp, device=device)
+    assert frozen_loaded is not None
+    assert frozen_loaded["frozen_critic_sha256"] == critic_full.state_dict_sha256()
+    assert (
+        frozen_loaded["baseline"].to_summary_dict()["sha256"]
+        == baseline.to_summary_dict()["sha256"]
+    )
+
+    # 2) Validation early stopping check (best_epoch=1 at epoch=2 with patience=1).
+    fake_resume = dict(resumed_ep)
+    fake_resume["epoch"] = 2
+    fake_resume["best_epoch"] = 1
+    fake_resume["best_score"] = -999.0
+    fake_resume["epoch_history"] = [
+        resumed_ep["epoch_history"][0],
+        {**resumed_ep["epoch_history"][0], "epoch": 2, "val_selection_score": 10.0},
+    ]
+    _c_es, summary_es = train_privileged_critic(
+        fit_dataset=fit_ds,
+        val_dataset=val_ds,
+        fit_roots_dataset=roots_ds,
+        fit_branched_roots=branched,
+        branch_horizon=300,
+        min_mature_length=600,
+        epochs=6,
+        batch_size=2,
+        learning_rate=6e-4,
+        weight_decay=1e-3,
+        seed=17001,
+        device=device,
+        early_stop_patience=1,
+        min_epochs=2,
+        resume_state=fake_resume,
+    )
+    assert summary_es["early_stopped"] is True
+    assert summary_es["epochs_completed"] == 2
+    assert summary_es["best_epoch"] == 1

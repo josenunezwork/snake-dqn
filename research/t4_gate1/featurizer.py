@@ -761,6 +761,498 @@ def featurize_dataset_batch(
     )
 
 
+@dataclass
+class DeviceBoardDataset:
+    """Device-resident mirror of ``CompactBoardDataset`` for zero-H2D-copy GPU training/eval."""
+
+    num_rows: int
+    device: torch.device
+    h_rem: torch.Tensor  # (N,) float32
+    b8_action: torch.Tensor  # (N,) int64
+    legal_mask: torch.Tensor  # (N, 6) bool
+
+    snake_alive: torch.Tensor  # (N, 6) bool
+    snake_length: torch.Tensor  # (N, 6) float32
+    snake_seg_count: torch.Tensor  # (N, 6) float32
+    snake_dir: torch.Tensor  # (N, 6) int64
+    snake_boost_frames: torch.Tensor  # (N, 6) float32
+    snake_hunger: torch.Tensor  # (N, 6) float32
+    snake_respawn: torch.Tensor  # (N, 6) float32
+    snake_boosted: torch.Tensor  # (N, 6) float32
+    head_xy: torch.Tensor  # (N, 6, 2) int64
+    tail_xy: torch.Tensor  # (N, 6, 2) int64
+
+    seg_row_offsets: torch.Tensor  # (N + 1,) int64
+    seg_row_counts: torch.Tensor  # (N,) int64
+    seg_slot: torch.Tensor  # (M_seg,) uint8
+    seg_x: torch.Tensor  # (M_seg,) uint8
+    seg_y: torch.Tensor  # (M_seg,) uint8
+    seg_ttl: torch.Tensor  # (M_seg,) int16
+
+    food_row_offsets: torch.Tensor  # (N + 1,) int64
+    food_row_counts: torch.Tensor  # (N,) int64
+    food_x: torch.Tensor  # (M_food,) uint8
+    food_y: torch.Tensor  # (M_food,) uint8
+    food_is_corpse: torch.Tensor  # (M_food,) bool
+
+    tau_alive: torch.Tensor  # (N,) float32
+    died_in_session: torch.Tensor  # (N,) bool
+    return_g: torch.Tensor  # (N,) float32
+    forage_short: torch.Tensor  # (N,) float32
+    forage_short_weight: torch.Tensor  # (N,) float32
+    forage_long: torch.Tensor  # (N,) float32
+    forage_long_valid: torch.Tensor  # (N,) bool
+
+    @classmethod
+    def from_compact(
+        cls,
+        dataset: CompactBoardDataset,
+        device: str | torch.device,
+    ) -> "DeviceBoardDataset":
+        target = torch.device(device)
+        return cls(
+            num_rows=int(dataset.num_rows),
+            device=target,
+            h_rem=torch.as_tensor(dataset.h_rem, dtype=torch.float32, device=target),
+            b8_action=torch.as_tensor(dataset.b8_action, dtype=torch.long, device=target),
+            legal_mask=torch.as_tensor(dataset.legal_mask, dtype=torch.bool, device=target),
+            snake_alive=torch.as_tensor(dataset.snake_alive, dtype=torch.bool, device=target),
+            snake_length=torch.as_tensor(dataset.snake_length, dtype=torch.float32, device=target),
+            snake_seg_count=torch.as_tensor(
+                dataset.snake_seg_count, dtype=torch.float32, device=target
+            ),
+            snake_dir=torch.as_tensor(dataset.snake_dir, dtype=torch.long, device=target) % 4,
+            snake_boost_frames=torch.as_tensor(
+                dataset.snake_boost_frames, dtype=torch.float32, device=target
+            ),
+            snake_hunger=torch.as_tensor(dataset.snake_hunger, dtype=torch.float32, device=target),
+            snake_respawn=torch.as_tensor(
+                dataset.snake_respawn, dtype=torch.float32, device=target
+            ),
+            snake_boosted=torch.as_tensor(
+                dataset.snake_boosted, dtype=torch.float32, device=target
+            ),
+            head_xy=torch.as_tensor(dataset.head_xy, dtype=torch.long, device=target),
+            tail_xy=torch.as_tensor(dataset.tail_xy, dtype=torch.long, device=target),
+            seg_row_offsets=torch.as_tensor(
+                dataset.seg_row_offsets, dtype=torch.long, device=target
+            ),
+            seg_row_counts=torch.as_tensor(dataset.seg_row_counts, dtype=torch.long, device=target),
+            seg_slot=torch.as_tensor(dataset.seg_slot, dtype=torch.uint8, device=target),
+            seg_x=torch.as_tensor(dataset.seg_x, dtype=torch.uint8, device=target),
+            seg_y=torch.as_tensor(dataset.seg_y, dtype=torch.uint8, device=target),
+            seg_ttl=torch.as_tensor(dataset.seg_ttl, dtype=torch.int16, device=target),
+            food_row_offsets=torch.as_tensor(
+                dataset.food_row_offsets, dtype=torch.long, device=target
+            ),
+            food_row_counts=torch.as_tensor(
+                dataset.food_row_counts, dtype=torch.long, device=target
+            ),
+            food_x=torch.as_tensor(dataset.food_x, dtype=torch.uint8, device=target),
+            food_y=torch.as_tensor(dataset.food_y, dtype=torch.uint8, device=target),
+            food_is_corpse=torch.as_tensor(dataset.food_is_corpse, dtype=torch.bool, device=target),
+            tau_alive=torch.as_tensor(dataset.tau_alive, dtype=torch.float32, device=target),
+            died_in_session=torch.as_tensor(
+                dataset.died_in_session, dtype=torch.bool, device=target
+            ),
+            return_g=torch.as_tensor(dataset.return_g, dtype=torch.float32, device=target),
+            forage_short=torch.as_tensor(dataset.forage_short, dtype=torch.float32, device=target),
+            forage_short_weight=torch.as_tensor(
+                dataset.forage_short_weight, dtype=torch.float32, device=target
+            ),
+            forage_long=torch.as_tensor(dataset.forage_long, dtype=torch.float32, device=target),
+            forage_long_valid=torch.as_tensor(
+                dataset.forage_long_valid, dtype=torch.bool, device=target
+            ),
+        )
+
+
+def _csr_gather_indices_device(
+    row_offsets: torch.Tensor,
+    row_counts: torch.Tensor,
+    batch_indices: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Pure-device CSR flat index + batch-row ID gather using a single repeat_interleave."""
+    dev = batch_indices.device
+    b = int(batch_indices.numel())
+    if b == 0:
+        empty = torch.zeros(0, dtype=torch.long, device=dev)
+        return empty, empty
+    counts = row_counts.index_select(0, batch_indices)
+    batch_row_id = torch.repeat_interleave(
+        torch.arange(b, dtype=torch.long, device=dev),
+        counts,
+    )
+    total = int(batch_row_id.numel())
+    if total == 0:
+        empty = torch.zeros(0, dtype=torch.long, device=dev)
+        return empty, empty
+    starts = row_offsets.index_select(0, batch_indices)
+    cum = torch.cumsum(counts, dim=0) - counts
+    shifts = (starts - cum).index_select(0, batch_row_id)
+    flat_idx = torch.arange(total, dtype=torch.long, device=dev) + shifts
+    return flat_idx, batch_row_id
+
+
+def slice_featurized_batch(
+    batch: FeaturizedBatch,
+    indices: torch.Tensor | np.ndarray,
+) -> FeaturizedBatch:
+    """Index-select rows of an already device-featurized batch with zero recomputation."""
+    dev = batch.arena.device
+    if isinstance(indices, torch.Tensor):
+        idx_t = indices.to(device=dev, dtype=torch.long).reshape(-1)
+    else:
+        idx_t = torch.as_tensor(indices, dtype=torch.long, device=dev).reshape(-1)
+    return FeaturizedBatch(
+        arena=batch.arena.index_select(0, idx_t),
+        ego=batch.ego.index_select(0, idx_t),
+        scalars=batch.scalars.index_select(0, idx_t),
+        hero_xy_dir=batch.hero_xy_dir.index_select(0, idx_t),
+        legal_mask=batch.legal_mask.index_select(0, idx_t),
+        hero_length=batch.hero_length.index_select(0, idx_t),
+        h_rem=batch.h_rem.index_select(0, idx_t),
+    )
+
+
+def featurize_device_batch(
+    dataset: DeviceBoardDataset,
+    batch_indices: torch.Tensor | np.ndarray,
+    *,
+    h_rem_override: np.ndarray | torch.Tensor | int | float | None = None,
+) -> FeaturizedBatch:
+    """Pure-device privileged featurizer matching ``featurize_dataset_batch`` without H2D syncs."""
+    target = dataset.device
+    if isinstance(batch_indices, torch.Tensor):
+        idx_t = batch_indices.to(device=target, dtype=torch.long).reshape(-1)
+    else:
+        idx_t = torch.as_tensor(batch_indices, dtype=torch.long, device=target).reshape(-1)
+    b = int(idx_t.numel())
+    hw = ARENA_H * ARENA_W
+
+    no_amp = (
+        torch.autocast(device_type=target.type, enabled=False)
+        if target.type in ("cuda", "cpu")
+        else torch.enable_grad()
+    )
+    with no_amp:
+        arena = torch.zeros(
+            (b, ARENA_CHANNELS, ARENA_H, ARENA_W), dtype=torch.float32, device=target
+        )
+        if b == 0:
+            return FeaturizedBatch(
+                arena=arena,
+                ego=torch.zeros(
+                    (0, EGO_CHANNELS, EGO_SIZE, EGO_SIZE), dtype=torch.float32, device=target
+                ),
+                scalars=torch.zeros((0, SCALAR_DIM), dtype=torch.float32, device=target),
+                hero_xy_dir=torch.zeros((0, 3), dtype=torch.long, device=target),
+                legal_mask=torch.zeros((0, 6), dtype=torch.bool, device=target),
+                hero_length=torch.zeros(0, dtype=torch.float32, device=target),
+                h_rem=torch.zeros(0, dtype=torch.float32, device=target),
+            )
+
+        alive_t = dataset.snake_alive.index_select(0, idx_t)  # (B, 6) bool
+        len_t = dataset.snake_length.index_select(0, idx_t)  # (B, 6) float32
+        seg_cnt_t = dataset.snake_seg_count.index_select(0, idx_t)  # (B, 6) float32
+        dir_t = dataset.snake_dir.index_select(0, idx_t)  # (B, 6) int64 in 0..3
+        boost_f_t = dataset.snake_boost_frames.index_select(0, idx_t)  # (B, 6) float32
+        hunger_t = dataset.snake_hunger.index_select(0, idx_t)  # (B, 6) float32
+        respawn_t = dataset.snake_respawn.index_select(0, idx_t)  # (B, 6) float32
+        boosted_t = dataset.snake_boosted.index_select(0, idx_t)  # (B, 6) float32
+        head_t = dataset.head_xy.index_select(0, idx_t)  # (B, 6, 2) int64
+        tail_t = dataset.tail_xy.index_select(0, idx_t)  # (B, 6, 2) int64
+        legal_t = dataset.legal_mask.index_select(0, idx_t)  # (B, 6) bool
+
+        if h_rem_override is None:
+            h_rem_t = dataset.h_rem.index_select(0, idx_t)
+        elif isinstance(h_rem_override, (int, float)):
+            h_rem_t = torch.full((b,), float(h_rem_override), dtype=torch.float32, device=target)
+        elif isinstance(h_rem_override, torch.Tensor):
+            h_rem_t = h_rem_override.to(device=target, dtype=torch.float32).reshape(b)
+        else:
+            h_rem_t = torch.as_tensor(h_rem_override, dtype=torch.float32, device=target).reshape(b)
+
+        # Deterministic integer Manhattan-distance opponent sort with slot tie-break (0..4 < 8).
+        hx_i = head_t[:, 0, 0]
+        hy_i = head_t[:, 0, 1]
+        ox_i = head_t[:, 1:, 0]
+        oy_i = head_t[:, 1:, 1]
+        opp_alive_t = alive_t[:, 1:]  # (B, 5)
+        man_dist = (ox_i - hx_i[:, None]).abs() + (oy_i - hy_i[:, None]).abs()
+        slot_tie = torch.arange(5, dtype=torch.long, device=target)[None, :]
+        sort_key = (
+            torch.where(opp_alive_t, man_dist, torch.full_like(man_dist, 10000)) * 8 + slot_tie
+        )
+        opp_order = torch.argsort(sort_key, dim=1)  # (B, 5)
+        opp_rank_of_slot = torch.argsort(opp_order, dim=1)  # (B, 5)
+
+        seg_flat_idx, seg_b = _csr_gather_indices_device(
+            dataset.seg_row_offsets, dataset.seg_row_counts, idx_t
+        )
+        arena_flat = arena.view(-1)
+        if int(seg_flat_idx.numel()) > 0:
+            seg_s = dataset.seg_slot.index_select(0, seg_flat_idx).to(torch.long)
+            seg_x = dataset.seg_x.index_select(0, seg_flat_idx).to(torch.long)
+            seg_y = dataset.seg_y.index_select(0, seg_flat_idx).to(torch.long)
+            seg_ttl = dataset.seg_ttl.index_select(0, seg_flat_idx).to(torch.float32)
+
+            cell_off = seg_y * ARENA_W + seg_x
+            base_row = seg_b * (ARENA_CHANNELS * hw)
+
+            own_mask = seg_s == 0
+            ob = base_row[own_mask]
+            if int(ob.numel()) > 0:
+                oc = cell_off[own_mask]
+                ottl = seg_ttl[own_mask]
+                ones_o = torch.ones_like(ottl)
+                arena_flat.scatter_reduce_(
+                    0, ob + 0 * hw + oc, ones_o, reduce="amax", include_self=True
+                )
+                arena_flat.scatter_reduce_(
+                    0,
+                    ob + 1 * hw + oc,
+                    ottl.clamp(0.0, 64.0) / 64.0,
+                    reduce="amax",
+                    include_self=True,
+                )
+                arena_flat.scatter_reduce_(
+                    0,
+                    ob + 2 * hw + oc,
+                    ottl.clamp(0.0, 300.0) / 300.0,
+                    reduce="amax",
+                    include_self=True,
+                )
+                arena_flat.scatter_reduce_(
+                    0,
+                    ob + 3 * hw + oc,
+                    ottl.clamp(0.0, 1200.0) / 1200.0,
+                    reduce="amax",
+                    include_self=True,
+                )
+
+            ene_mask = seg_s > 0
+            eb = base_row[ene_mask]
+            if int(eb.numel()) > 0:
+                ec = cell_off[ene_mask]
+                ettl = seg_ttl[ene_mask]
+                eslot0 = seg_s[ene_mask] - 1
+                ones_e = torch.ones_like(ettl)
+                t300_e = ettl.clamp(0.0, 300.0) / 300.0
+                arena_flat.scatter_reduce_(
+                    0, eb + 6 * hw + ec, ones_e, reduce="amax", include_self=True
+                )
+                arena_flat.scatter_reduce_(
+                    0,
+                    eb + 7 * hw + ec,
+                    ettl.clamp(0.0, 64.0) / 64.0,
+                    reduce="amax",
+                    include_self=True,
+                )
+                arena_flat.scatter_reduce_(
+                    0, eb + 8 * hw + ec, t300_e, reduce="amax", include_self=True
+                )
+                arena_flat.scatter_reduce_(
+                    0,
+                    eb + 9 * hw + ec,
+                    ettl.clamp(0.0, 1200.0) / 1200.0,
+                    reduce="amax",
+                    include_self=True,
+                )
+                erank = opp_rank_of_slot[seg_b[ene_mask], eslot0]
+                arena_flat.scatter_reduce_(
+                    0, eb + (14 + erank) * hw + ec, t300_e, reduce="amax", include_self=True
+                )
+
+        b_arange = torch.arange(b, dtype=torch.long, device=target)
+        hero_alive_f = alive_t[:, 0].to(torch.float32)
+        arena[b_arange, 4, head_t[:, 0, 1], head_t[:, 0, 0]] = hero_alive_f
+        arena[b_arange, 5, tail_t[:, 0, 1], tail_t[:, 0, 0]] = hero_alive_f
+
+        card_t = torch.as_tensor(_CARDINAL_NP, dtype=torch.long, device=target)
+        turns_t = torch.tensor((-1, 0, 1), dtype=torch.long, device=target)
+        hero_len_col = len_t[:, 0:1]
+        opp_len = len_t[:, 1:]
+
+        hero_wins = opp_alive_t & (hero_len_col >= HEADON_SIZE_RATIO * opp_len)
+        hero_loses = opp_alive_t & (opp_len >= HEADON_SIZE_RATIO * hero_len_col)
+        mutual_die = opp_alive_t & (~hero_wins) & (~hero_loses)
+
+        opp_heads = head_t[:, 1:]
+        opp_dirs = dir_t[:, 1:]
+        oh_b = b_arange[:, None].expand(b, 5)
+        oh_pos = (
+            oh_b * (ARENA_CHANNELS * hw) + 10 * hw + opp_heads[..., 1] * ARENA_W + opp_heads[..., 0]
+        )
+        arena_flat.scatter_reduce_(
+            0,
+            oh_pos.reshape(-1),
+            opp_alive_t.to(torch.float32).reshape(-1),
+            reduce="amax",
+            include_self=True,
+        )
+
+        cand_dirs = (opp_dirs[..., None] + turns_t[None, None, :]) % 4
+        deltas = card_t[cand_dirs]
+        step1 = opp_heads[:, :, None, :] + deltas
+        step2 = opp_heads[:, :, None, :] + 2 * deltas
+        can_opp_boost = opp_alive_t & (opp_len >= 5.0)
+
+        for step_cells, weight, valid_base in (
+            (step1, 1.0, opp_alive_t),
+            (step2, 0.5, can_opp_boost),
+        ):
+            tx = step_cells[..., 0]
+            ty = step_cells[..., 1]
+            inb = valid_base[..., None] & (tx >= 0) & (tx < ARENA_W) & (ty >= 0) & (ty < ARENA_H)
+            t_cell = ty.clamp(0, ARENA_H - 1) * ARENA_W + tx.clamp(0, ARENA_W - 1)
+            tb = b_arange[:, None, None].expand_as(t_cell) * (ARENA_CHANNELS * hw)
+            for ch_idx, rel_mask in ((11, hero_loses), (12, mutual_die), (13, hero_wins)):
+                vals = torch.where(
+                    inb & rel_mask[..., None],
+                    torch.full_like(tx, weight, dtype=torch.float32),
+                    torch.zeros_like(tx, dtype=torch.float32),
+                )
+                arena_flat.scatter_reduce_(
+                    0,
+                    (tb + ch_idx * hw + t_cell).reshape(-1),
+                    vals.reshape(-1),
+                    reduce="amax",
+                    include_self=True,
+                )
+
+        food_flat_idx, food_b = _csr_gather_indices_device(
+            dataset.food_row_offsets, dataset.food_row_counts, idx_t
+        )
+        amb_counts = torch.zeros(b, dtype=torch.float32, device=target)
+        cor_counts = torch.zeros(b, dtype=torch.float32, device=target)
+        food_total = int(food_flat_idx.numel())
+        if food_total > 0:
+            is_cor = dataset.food_is_corpse.index_select(0, food_flat_idx)
+            cor_counts.index_add_(0, food_b, is_cor.to(torch.float32))
+            amb_counts.index_add_(0, food_b, (~is_cor).to(torch.float32))
+            fx = dataset.food_x.index_select(0, food_flat_idx).to(torch.long)
+            fy = dataset.food_y.index_select(0, food_flat_idx).to(torch.long)
+            fch = 19 + is_cor.to(torch.long)
+            fpos = food_b * (ARENA_CHANNELS * hw) + fch * hw + fy * ARENA_W + fx
+            arena_flat.scatter_reduce_(
+                0,
+                fpos,
+                torch.ones(food_total, dtype=torch.float32, device=target),
+                reduce="amax",
+                include_self=True,
+            )
+
+        free_cell = ((arena[:, 0] == 0.0) & (arena[:, 6] == 0.0)).to(torch.float32)
+        deg = torch.zeros_like(free_cell)
+        deg[:, 1:, :] += free_cell[:, :-1, :]
+        deg[:, :-1, :] += free_cell[:, 1:, :]
+        deg[:, :, 1:] += free_cell[:, :, :-1]
+        deg[:, :, :-1] += free_cell[:, :, 1:]
+        arena[:, 21] = deg * 0.25
+
+        hero_dir = dir_t[:, 0]
+        fwd = card_t[hero_dir]
+        rgt = card_t[(hero_dir + 1) % 4]
+        offs = torch.arange(-EGO_HALF, EGO_HALF + 1, dtype=torch.long, device=target)
+        du = offs[:, None]
+        dv = offs[None, :]
+        hx_t = head_t[:, 0, 0][:, None, None]
+        hy_t = head_t[:, 0, 1][:, None, None]
+        wx = (
+            hx_t
+            + (-du)[None, :, :] * fwd[:, 0, None, None]
+            + dv[None, :, :] * rgt[:, 0, None, None]
+        )
+        wy = (
+            hy_t
+            + (-du)[None, :, :] * fwd[:, 1, None, None]
+            + dv[None, :, :] * rgt[:, 1, None, None]
+        )
+        inb_ego = (wx >= 0) & (wx < ARENA_W) & (wy >= 0) & (wy < ARENA_H)
+        ego_cell = wy.clamp(0, ARENA_H - 1) * ARENA_W + wx.clamp(0, ARENA_W - 1)
+        arena_by_cell = arena.view(b, ARENA_CHANNELS, hw)
+        gathered_ego = arena_by_cell.gather(
+            2, ego_cell.view(b, 1, EGO_SIZE * EGO_SIZE).expand(-1, ARENA_CHANNELS, -1)
+        ).view(b, ARENA_CHANNELS, EGO_SIZE, EGO_SIZE)
+        gathered_ego = gathered_ego * inb_ego[:, None, :, :].to(torch.float32)
+        ego = torch.cat((gathered_ego, (~inb_ego)[:, None, :, :].to(torch.float32)), dim=1)
+
+        # Build 64-D privileged scalar vector directly on device.
+        sc = torch.zeros((b, SCALAR_DIM), dtype=torch.float32, device=target)
+        l0 = len_t[:, 0]
+        l0_pos = l0.clamp_min(0.0)
+        h_rem_clamped = h_rem_t.clamp_min(0.0)
+        sc[:, 0] = l0 / 1000.0
+        sc[:, 1] = torch.log1p(l0_pos) / 8.0
+        sc[:, 2] = torch.sqrt(l0_pos / 1000.0)
+        sc[:, 3] = seg_cnt_t[:, 0] / l0.clamp_min(1.0)
+        sc[:, 4] = h_rem_clamped / 6000.0
+        sc[:, 5] = h_rem_clamped.clamp_max(300.0) / 300.0
+        sc[:, 6] = h_rem_clamped.clamp_max(1200.0) / 1200.0
+        sc[:, 7] = (l0 / 1000.0) * (h_rem_clamped / 6000.0)
+        sc.scatter_(1, (8 + hero_dir)[:, None], 1.0)
+        sc[:, 12] = boost_f_t[:, 0] / 3.0
+        sc[:, 13] = (l0 >= 5.0).to(torch.float32)
+        sc[:, 14] = boosted_t[:, 0]
+        sc[:, 15] = hunger_t[:, 0].clamp_max(300.0) / 300.0
+
+        hx_f = hx_i.to(torch.float32)
+        hy_f = hy_i.to(torch.float32)
+        wall_by_dir = torch.stack(
+            (hy_f + 1.0, float(ARENA_W) - hx_f, float(ARENA_H) - hy_f, hx_f + 1.0), dim=1
+        )
+        sc[:, 16] = wall_by_dir.gather(1, hero_dir[:, None]).squeeze(1) / 145.0
+        sc[:, 17] = wall_by_dir.gather(1, ((hero_dir - 1) % 4)[:, None]).squeeze(1) / 145.0
+        sc[:, 18] = wall_by_dir.gather(1, ((hero_dir + 1) % 4)[:, None]).squeeze(1) / 145.0
+
+        sc[:, 19:25] = legal_t.to(torch.float32)
+        sc[:, 25] = amb_counts / 300.0
+        sc[:, 26] = cor_counts / 150.0
+        opp_alive_f = opp_alive_t.to(torch.float32)
+        sc[:, 27] = opp_alive_f.sum(dim=1) / 5.0
+        sc[:, 28] = (opp_len * opp_alive_f).sum(dim=1) / 4000.0
+
+        fwd_f = fwd.to(torch.float32)
+        rgt_f = rgt.to(torch.float32)
+        opp_al_sorted = opp_alive_f.gather(1, opp_order)  # (B, 5)
+        opp_len_raw_sorted = opp_len.gather(1, opp_order)  # (B, 5)
+        opp_resp_sorted = respawn_t[:, 1:].gather(1, opp_order)  # (B, 5)
+        opp_hx_sorted = ox_i.gather(1, opp_order).to(torch.float32)  # (B, 5)
+        opp_hy_sorted = oy_i.gather(1, opp_order).to(torch.float32)  # (B, 5)
+
+        for rank in range(5):
+            al_j = opp_al_sorted[:, rank]
+            raw_ln_j = opp_len_raw_sorted[:, rank]
+            ln_j = raw_ln_j * al_j
+            win_j = ((l0 >= HEADON_SIZE_RATIO * raw_ln_j) & (al_j > 0.5)).to(torch.float32)
+            lose_j = ((raw_ln_j >= HEADON_SIZE_RATIO * l0) & (al_j > 0.5)).to(torch.float32)
+            dx_j = opp_hx_sorted[:, rank] - hx_f
+            dy_j = opp_hy_sorted[:, rank] - hy_f
+            rel_fwd = ((dx_j * fwd_f[:, 0] + dy_j * fwd_f[:, 1]) / 145.0) * al_j
+            rel_rgt = ((dx_j * rgt_f[:, 0] + dy_j * rgt_f[:, 1]) / 145.0) * al_j
+
+            col = 29 + rank * 7
+            sc[:, col + 0] = al_j
+            sc[:, col + 1] = ln_j / 1000.0
+            sc[:, col + 2] = ((l0 - ln_j) / 1000.0) * al_j
+            sc[:, col + 3] = win_j
+            sc[:, col + 4] = lose_j
+            sc[:, col + 5] = rel_fwd
+            sc[:, col + 6] = torch.where(al_j > 0.5, rel_rgt, -opp_resp_sorted[:, rank] / 5.0)
+
+        hero_xy_dir = torch.stack((head_t[:, 0, 0], head_t[:, 0, 1], hero_dir), dim=1)
+        return FeaturizedBatch(
+            arena=arena,
+            ego=ego,
+            scalars=sc,
+            hero_xy_dir=hero_xy_dir,
+            legal_mask=legal_t,
+            hero_length=l0,
+            h_rem=h_rem_clamped,
+        )
+
+
 @torch.inference_mode()
 def featurize_live_sim(
     sim: Any,
