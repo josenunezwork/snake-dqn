@@ -37,10 +37,11 @@ from tools.watch6_v3_accounting import (
     SHARD00_NOTEBOOK_HASH,
     SHARD00_PENDING_SHA256,
     SHARD00_RECEIPT_SHA256,
+    SHARD12_EVIDENCE_SIDECAR_REL,
     SHARD12_EXEC_MANIFEST_SHA256,
     SHARD12_RECEIPT_SHA256,
     V3_BROKER_ROOT,
-    compute_broker_protocol,
+    artifacts_root,
     default_artifact_dir,
     ensure_cli_dash_b,
     isolated_broker_execution,
@@ -1512,17 +1513,49 @@ def _file_descriptor(path: Path, label: str) -> dict[str, object]:
     }
 
 
-def _iter_json_string_values(value: object, json_path: str) -> list[tuple[str, str]]:
-    found: list[tuple[str, str]] = []
-    if isinstance(value, dict):
-        for k, v in value.items():
-            found.extend(_iter_json_string_values(v, f"{json_path}.{k}"))
-    elif isinstance(value, list):
-        for idx, item in enumerate(value):
-            found.extend(_iter_json_string_values(item, f"{json_path}[{idx}]"))
-    elif isinstance(value, str):
-        found.append((json_path, value))
-    return found
+_PINNED_SUPERVISOR_CLI_CALL_KEYS: frozenset[str] = frozenset(
+    {
+        "attempt",
+        "command",
+        "elapsed_seconds",
+        "ended_monotonic",
+        "operation",
+        "started_monotonic",
+        "status",
+        "thread",
+        "timeout_seconds",
+    }
+)
+_HARDWARE_VCPU_KEYS: tuple[str, ...] = ("vcpu", "vcpus", "cpu_count", "min_vcpu")
+_FORBIDDEN_NONNULL_FAULT_KEYS: frozenset[str] = frozenset(
+    {
+        "error",
+        "reason",
+        "traceback",
+        "last_traceback_line",
+        "scientific_fault",
+        "unassign_error",
+        "cleanup_error",
+        "terminal_error",
+        "exception",
+        "fault",
+    }
+)
+_ANYWHERE_EXCEPTION_OR_FAULT_RE = re.compile(
+    r"(?:"
+    r"\b(?:[A-Za-z_][A-Za-z0-9_.]*\.)?[A-Za-z_][A-Za-z0-9_]*(?:Error|Exception|Fault|Exit)\s*:"
+    r"|\bRuntimeError\b"
+    r"|\bChildProcessError\b"
+    r"|\bSubprocessError\b"
+    r"|\bCalledProcessError\b"
+    r"|\bBrokenProcessPool\b"
+    r"|\bProcessLookupError\b"
+    r"|\bchild\b[^\n]*\b(?:fail|crash|abort|error|fault|killed|died|nonzero|timeout)\b"
+    r"|\bworker\b[^\n]*\b(?:fail|crash|abort|error|fault|killed|died|nonzero|timeout)\b"
+    r"|\btraceback\b"
+    r")",
+    re.IGNORECASE,
+)
 
 
 def _assert_clean_text_value(text: str, label: str) -> None:
@@ -1530,8 +1563,47 @@ def _assert_clean_text_value(text: str, label: str) -> None:
         has_non_transport_fault(text)
         or "Traceback (most recent call last)" in text
         or v3_admission._GENERIC_LOG_EXCEPTION_RE.search(text) is not None
+        or _ANYWHERE_EXCEPTION_OR_FAULT_RE.search(text) is not None
     ):
         raise ValueError(f"child/scientific/integrity/timeout fault text in {label}")
+
+
+def _assert_clean_operational_json(
+    value: object,
+    json_path: str,
+    *,
+    allow_root_receipt_error: bool = False,
+    forbid_failure_class_and_returncode: bool = True,
+) -> None:
+    if isinstance(value, dict):
+        for k, v in value.items():
+            cur_path = f"{json_path}.{k}"
+            is_allowed_receipt_err = allow_root_receipt_error and cur_path == "receipt.json.error"
+            if k in _FORBIDDEN_NONNULL_FAULT_KEYS and v is not None and not is_allowed_receipt_err:
+                raise ValueError(f"non-null operational fault field at {cur_path}")
+            if (
+                forbid_failure_class_and_returncode
+                and k in {"failure_class", "returncode"}
+                and v is not None
+            ):
+                raise ValueError(f"non-null operational fault/returncode field at {cur_path}")
+            if not is_allowed_receipt_err:
+                _assert_clean_operational_json(
+                    v,
+                    cur_path,
+                    allow_root_receipt_error=False,
+                    forbid_failure_class_and_returncode=forbid_failure_class_and_returncode,
+                )
+    elif isinstance(value, list):
+        for idx, item in enumerate(value):
+            _assert_clean_operational_json(
+                item,
+                f"{json_path}[{idx}]",
+                allow_root_receipt_error=False,
+                forbid_failure_class_and_returncode=forbid_failure_class_and_returncode,
+            )
+    elif isinstance(value, str):
+        _assert_clean_text_value(value, json_path)
 
 
 def _extract_rich_box_code_line(line: str) -> tuple[bool, str] | None:
@@ -1631,6 +1703,8 @@ def _parse_renewal_ws_error_signature(error_raw: object) -> dict[str, object]:
         parsed_code = _extract_rich_box_code_line(box_line)
         if parsed_code is not None:
             extracted_code.append(parsed_code)
+        if parsed_code != (True, EXACT_WS_RAISE_CODE):
+            _assert_clean_text_value(box_line, "receipt.error.rich_box")
 
     matched_ws_send_pair = any(
         extracted_code[idx] == (False, EXACT_WS_SEND_CODE)
@@ -1688,8 +1762,11 @@ def _verify_allocated_zero_export_state_and_events(
             raise ValueError("non-null terminal/returncode in state.json")
         if "exports" in state and state["exports"] not in ([], 0, None):
             raise ValueError("nonzero exports recorded in state.json")
-        for jpath, sval in _iter_json_string_values(state, "state.json"):
-            _assert_clean_text_value(sval, jpath)
+        _assert_clean_operational_json(
+            state,
+            "state.json",
+            forbid_failure_class_and_returncode=False,
+        )
 
     events_path = directory / "events.jsonl"
     if events_path.exists() or events_path.is_symlink():
@@ -1721,8 +1798,7 @@ def _verify_allocated_zero_export_state_and_events(
                 raise ValueError("nonzero exports in events.jsonl")
             if ev.get("command") == "download" or ev.get("direction") == "download":
                 raise ValueError("download event forbidden in zero-export attempt events.jsonl")
-            for jpath, sval in _iter_json_string_values(ev, f"events.jsonl[{idx}]"):
-                _assert_clean_text_value(sval, jpath)
+            _assert_clean_operational_json(ev, f"events.jsonl[{idx}]")
 
 
 def _discover_single_ops_manifest_for_renewal_ws(
@@ -1844,6 +1920,30 @@ def _verify_ops_manifest_relationship(
                 raise ValueError(
                     f"ops accounting record live manifest hash mismatch: {acct_rec_path}"
                 )
+        sanitized_acct = dict(acct_data)
+        sanitized_acct.pop("source_manifest", None)
+        sanitized_acct.pop("manifest", None)
+        _assert_clean_operational_json(sanitized_acct, acct_rec_path.name)
+
+    disp_run_dir = ops_dir / "dispatch" / run_name
+    if disp_run_dir.is_symlink():
+        raise ValueError(f"symlinked ops dispatch directory forbidden: {disp_run_dir}")
+    if disp_run_dir.is_dir():
+        for disp_item in sorted(disp_run_dir.iterdir()):
+            if disp_item.is_symlink():
+                raise ValueError(f"symlinked entry in ops dispatch directory: {disp_item}")
+            if not disp_item.is_file() or disp_item == acct_rec_path:
+                continue
+            if disp_item.name.startswith("transport-evidence") or disp_item.name.endswith(
+                (".sha256", ".complete")
+            ):
+                continue
+            if disp_item.suffix == ".json":
+                d_obj = _read_regular_json_dict(disp_item, disp_item.name)
+                _assert_clean_operational_json(d_obj, f"dispatch/{run_name}/{disp_item.name}")
+            else:
+                d_txt = disp_item.read_text(encoding="utf-8", errors="replace")
+                _assert_clean_text_value(d_txt, f"dispatch/{run_name}/{disp_item.name}")
 
     return {
         "ops_name": run_name,
@@ -1889,7 +1989,15 @@ def _verify_operational_and_queue_logs(
             continue
         if raw_line.startswith("OPS_ALLOCATION_SUCCESS calibration="):
             calib_raw = raw_line.split("=", 1)[1].strip()
-            if not calib_raw or Path(calib_raw).resolve() != expected_calib:
+            allowed_calibs = {
+                str(output_dir / "rate-calibration.json"),
+                str(expected_calib),
+            }
+            if (
+                not calib_raw
+                or calib_raw not in allowed_calibs
+                or Path(calib_raw).resolve() != expected_calib
+            ):
                 raise ValueError(
                     f"operational log calibration path mismatch at {log_path}:{line_no}"
                 )
@@ -1916,10 +2024,13 @@ def _verify_operational_and_queue_logs(
                 )
             max_reported_exports = max(max_reported_exports, exp_val)
             tail = jline.get("job_log_tail")
-            if tail is not None:
-                if not isinstance(tail, str):
-                    raise ValueError(f"non-string job_log_tail at {log_path}:{line_no}")
-                _assert_clean_text_value(tail, f"{log_path.name}:{line_no}.job_log_tail")
+            if tail is not None and not isinstance(tail, str):
+                raise ValueError(f"non-string job_log_tail at {log_path}:{line_no}")
+            _assert_clean_operational_json(
+                jline,
+                f"{log_path.name}:{line_no}",
+                forbid_failure_class_and_returncode=True,
+            )
             poll_lines_count += 1
             continue
         if raw_line.startswith("INCOMPLETE: "):
@@ -1929,7 +2040,12 @@ def _verify_operational_and_queue_logs(
                     f"{log_path}:{line_no}"
                 )
             rec_suffix = raw_line[len(expected_incomplete_prefix) :].strip()
-            if not rec_suffix or Path(rec_suffix).resolve() != receipt_path.resolve():
+            allowed_rec_paths = {str(receipt_path), str(receipt_path.resolve())}
+            if (
+                not rec_suffix
+                or rec_suffix not in allowed_rec_paths
+                or Path(rec_suffix).resolve() != receipt_path.resolve()
+            ):
                 raise ValueError(
                     f"operational log INCOMPLETE receipt path mismatch at {log_path}:{line_no}"
                 )
@@ -1953,17 +2069,82 @@ def _verify_operational_and_queue_logs(
 
     logs_dir = ops_dir / "logs"
     if logs_dir.is_dir() and not logs_dir.is_symlink():
-        needles = (job_id, run_name, session, generation)
-        for qlog in sorted(logs_dir.glob("queue-*.log")):
-            if qlog.is_symlink() or not qlog.is_file():
+        manifests_dir = ops_dir / "manifests"
+        dispatch_root = ops_dir / "dispatch"
+        other_run_names: set[str] = set()
+        if manifests_dir.is_dir() and not manifests_dir.is_symlink():
+            for mf in manifests_dir.glob("*.json"):
+                stem = mf.name[:-5]
+                if stem.endswith(".live"):
+                    stem = stem[:-5]
+                if stem != run_name:
+                    other_run_names.add(stem)
+        if dispatch_root.is_dir() and not dispatch_root.is_symlink():
+            for ddir in dispatch_root.iterdir():
+                if ddir.is_dir() and ddir.name != run_name:
+                    other_run_names.add(ddir.name)
+
+        unique_needles = tuple(tok for tok in (job_id, session) if tok)
+        run_name_re = re.compile(rf"(?<![A-Za-z0-9_-]){re.escape(run_name)}(?![A-Za-z0-9_-])")
+        resolved_primary_log = log_path.resolve()
+        for qlog in sorted(logs_dir.glob("*.log")):
+            if qlog.is_symlink():
+                raise ValueError(f"symlinked log file forbidden in ops/logs: {qlog}")
+            if not qlog.is_file() or qlog.resolve() == resolved_primary_log:
                 continue
+            is_other_run_log = any(
+                qlog.stem == other
+                or qlog.name.startswith(f"{other}.")
+                or qlog.name == f"{other}-retry-1.log"
+                for other in other_run_names
+            )
             qtext = qlog.read_text(encoding="utf-8", errors="replace")
-            for qline in qtext.splitlines():
-                if not any(tok in qline for tok in needles):
-                    continue
-                sanitized = qline.replace(receipt_error, "")
-                if has_non_transport_fault(sanitized):
-                    raise ValueError(f"non-transport fault recorded for {run_name} in {qlog}")
+            if is_other_run_log and not any(tok in qtext for tok in unique_needles):
+                continue
+            is_run_specific_log = not is_other_run_log and (
+                qlog.stem == run_name
+                or qlog.name.startswith(f"{run_name}.")
+                or qlog.name.startswith(f"{run_name}-")
+            )
+            for qline_no, qline in enumerate(qtext.splitlines(), start=1):
+                if is_other_run_log:
+                    if not any(tok in qline for tok in unique_needles):
+                        continue
+                elif not is_run_specific_log:
+                    matched_shared = any(tok in qline for tok in unique_needles) or (
+                        run_name_re.search(qline) is not None
+                    )
+                    if (
+                        not matched_shared
+                        and generation
+                        and generation in qline
+                        and not any(other in qline for other in other_run_names)
+                    ):
+                        matched_shared = True
+                    if not matched_shared:
+                        continue
+                sanitized = (
+                    qline.replace(receipt_error, "")
+                    .replace(str(receipt_path.resolve()), "")
+                    .replace(str(receipt_path), "")
+                    .replace(str(output_dir.resolve()), "")
+                    .replace(str(output_dir), "")
+                    .replace(str(ops_dir.resolve()), "")
+                    .replace(str(ops_dir), "")
+                )
+                if sanitized.strip().startswith("{"):
+                    try:
+                        qj = json.loads(sanitized.strip())
+                    except ValueError:
+                        qj = None
+                    if isinstance(qj, dict):
+                        _assert_clean_operational_json(
+                            qj,
+                            f"{qlog.name}:{qline_no}",
+                            forbid_failure_class_and_returncode=True,
+                        )
+                        continue
+                _assert_clean_text_value(sanitized, f"{qlog.name}:{qline_no}")
 
     return {
         **log_desc,
@@ -1995,7 +2176,7 @@ def _collect_verified_renewal_ws_evidence(
             f"broker supervisor.py SHA256 mismatch ({digest(sup_path)} != "
             f"{PINNED_SUPERVISOR_SHA256})"
         )
-    broker_alloc = compute_broker_protocol(eff_broker)["allocation"]
+    broker_alloc = p.allocation()
 
     for forbidden_name in FORBIDDEN_RENEWAL_WS_OUTPUT_ENTRIES:
         f_target = output_dir / forbidden_name
@@ -2096,6 +2277,7 @@ def _collect_verified_renewal_ws_evidence(
         or binding.get("science") != BASELINE_SCIENCE
         or env.get("WATCH6_SCIENCE") != BASELINE_SCIENCE
         or env.get("SNAKE_WATCH_SOURCE") != "live"
+        or env.get("WATCH6_WORKERS") != str(p.WORKERS)
         or binding.get("primary_allocation") != broker_alloc
         or any(k in binding for k in ("reserve_allocation", "reserve_slots", "reserve_lineage"))
         or req.get("gpu") != "L4"
@@ -2106,6 +2288,36 @@ def _collect_verified_renewal_ws_evidence(
         or env.get("WATCH6_FIXTURE") != "0"
     ):
         raise ValueError("foreign science/namespace/allocation or non-L4 W4 manifest binding")
+
+    for container_label, container in (
+        ("manifest", exec_manifest),
+        ("watch6_v3", binding),
+        ("requirements", req),
+    ):
+        if "workers" in container and (
+            type(container["workers"]) is not int or container["workers"] != p.WORKERS
+        ):
+            raise ValueError(
+                f"invalid workers={container['workers']!r} in {container_label} "
+                f"(expected {p.WORKERS})"
+            )
+
+    if "WATCH6_FROZEN_LAYOUT" in env:
+        raw_layout = env["WATCH6_FROZEN_LAYOUT"]
+        if not isinstance(raw_layout, str) or not raw_layout.strip():
+            raise ValueError("malformed WATCH6_FROZEN_LAYOUT in executed manifest")
+        try:
+            frozen_layout = json.loads(raw_layout)
+        except ValueError as exc:
+            raise ValueError("corrupt JSON in WATCH6_FROZEN_LAYOUT") from exc
+        if (
+            not isinstance(frozen_layout, dict)
+            or type(frozen_layout.get("workers")) is not int
+            or frozen_layout["workers"] != p.WORKERS
+            or type(frozen_layout.get("shards")) is not int
+            or frozen_layout["shards"] != p.SHARDS
+        ):
+            raise ValueError("WATCH6_FROZEN_LAYOUT workers/shards mismatch (requires W=4, S=24)")
 
     try:
         total_shards = int(env.get("WATCH6_SHARDS", -1))
@@ -2160,6 +2372,34 @@ def _collect_verified_renewal_ws_evidence(
         or hw_info.get("kind") != "L4"
     ):
         raise ValueError("hardware.json missing ready=True on L4")
+    min_vcpu = req["min_vcpu"]
+    present_vcpus: list[tuple[str, object]] = []
+    for hw_loc, hw_obj in (("hardware.json", hw_data), ("hardware.json.hardware", hw_info)):
+        for vcpu_key in _HARDWARE_VCPU_KEYS:
+            if vcpu_key in hw_obj:
+                present_vcpus.append((f"{hw_loc}.{vcpu_key}", hw_obj[vcpu_key]))
+    if present_vcpus:
+        for vcpu_loc, vcpu_val in present_vcpus:
+            if type(vcpu_val) is not int or vcpu_val < min_vcpu:
+                raise ValueError(f"hardware vCPU {vcpu_loc}={vcpu_val!r} fails min_vcpu={min_vcpu}")
+        if len({int(v) for _, v in present_vcpus}) != 1:  # type: ignore[arg-type]
+            raise ValueError("contradictory vCPU fields in hardware.json")
+    else:
+        hw_name = hw_info.get("name")
+        hw_cc = hw_info.get("compute_cap")
+        if (
+            disk_receipt.get("supervisor_sha256") != PINNED_SUPERVISOR_SHA256
+            or set(hw_data.keys()) != {"ready", "hardware"}
+            or set(hw_info.keys()) != {"kind", "name", "compute_cap"}
+            or not isinstance(hw_name, str)
+            or "L4" not in hw_name
+            or not isinstance(hw_cc, str)
+            or not hw_cc.strip()
+        ):
+            raise ValueError(
+                "hardware.json lacks explicit vcpu >= min_vcpu and does not match pinned "
+                "supervisor GPU admission schema"
+            )
 
     warmup_data = _read_regular_json_dict(
         output_dir / "warmup-measurement.json", "warmup-measurement.json"
@@ -2300,9 +2540,49 @@ def _collect_verified_renewal_ws_evidence(
             f"expected exactly 1 non-completed MainThread CLI call, found {failed_main_cli_indices}"
         )
     failed_cli_index = failed_main_cli_indices[0]
+    has_any_returncode_key = any("returncode" in c for c in cli_calls)
+    if has_any_returncode_key:
+        for call_idx, call_obj in enumerate(cli_calls):
+            if "returncode" in call_obj and type(call_obj["returncode"]) is not int:
+                raise ValueError(
+                    f"non-integer returncode={call_obj['returncode']!r} in cli_calls[{call_idx}]"
+                )
+            if call_obj.get("thread") == "MainThread":
+                if "returncode" not in call_obj or type(call_obj["returncode"]) is not int:
+                    raise ValueError(
+                        f"missing or null returncode on MainThread cli_calls[{call_idx}]"
+                    )
+            elif "returncode" in call_obj and call_obj.get("status") == "completed":
+                if call_obj["returncode"] != 0:
+                    raise ValueError(
+                        f"completed background CLI call had nonzero returncode at [{call_idx}]"
+                    )
+    else:
+        if disk_receipt.get("supervisor_sha256") != PINNED_SUPERVISOR_SHA256:
+            raise ValueError("cli_calls missing returncode under unpinned supervisor")
+        for call_idx, call_obj in enumerate(cli_calls):
+            c_el = call_obj.get("elapsed_seconds")
+            c_to = call_obj.get("timeout_seconds")
+            if (
+                set(call_obj.keys()) != _PINNED_SUPERVISOR_CLI_CALL_KEYS
+                or type(call_obj.get("attempt")) is not int
+                or call_obj["attempt"] < 1
+                or not _is_finite_number(call_obj.get("started_monotonic"))
+                or not _is_finite_number(call_obj.get("ended_monotonic"))
+                or not _is_finite_number(c_el)
+                or not _is_finite_number(c_to)
+                or not (0.0 <= float(c_el) < float(c_to))  # type: ignore[arg-type]
+            ):
+                raise ValueError(
+                    f"cli_calls[{call_idx}] violates pinned supervisor call_records schema"
+                )
+
     for prev_call in cli_calls[:failed_cli_index]:
-        if prev_call.get("thread") == "MainThread" and prev_call.get("returncode") not in (None, 0):
-            raise ValueError("earlier MainThread CLI call had nonzero returncode")
+        if prev_call.get("thread") == "MainThread":
+            if prev_call.get("status") != "completed":
+                raise ValueError("earlier MainThread CLI call was not completed")
+            if has_any_returncode_key and prev_call.get("returncode") != 0:
+                raise ValueError("earlier MainThread CLI call had nonzero returncode")
 
     failed_cli = cli_calls[failed_cli_index]
     cli_start = failed_cli.get("started_monotonic")
@@ -2315,6 +2595,7 @@ def _collect_verified_renewal_ws_evidence(
         or failed_cli.get("thread") != "MainThread"
         or failed_cli.get("status") != "failed"
         or failed_cli.get("attempt") != 1
+        or (has_any_returncode_key and failed_cli.get("returncode") != 1)
         or not _is_finite_number(cli_start)
         or not _is_finite_number(cli_end)
         or not _is_finite_number(cli_elapsed)
@@ -2328,8 +2609,8 @@ def _collect_verified_renewal_ws_evidence(
         or not (0.0 < float(cli_elapsed) < float(cli_timeout))  # type: ignore[arg-type]
     ):
         raise ValueError(
-            "failed MainThread exec/renewal CLI interval is missing, timed out, or not nested "
-            "inside failed renewal control interval"
+            "failed MainThread exec/renewal CLI interval is missing, lacks failing returncode, "
+            "timed out, or is not nested inside failed renewal control interval"
         )
 
     post_calls = cli_calls[failed_cli_index + 1 :]
@@ -2342,11 +2623,11 @@ def _collect_verified_renewal_ws_evidence(
             post_call.get("thread") != "MainThread"
             or post_call.get("operation") != "control"
             or post_call.get("status") != "completed"
-            or post_call.get("returncode") not in (None, 0)
+            or (has_any_returncode_key and post_call.get("returncode") != 0)
             or not _is_finite_number(post_call.get("started_monotonic"))
             or not _is_finite_number(post_call.get("ended_monotonic"))
         ):
-            raise ValueError("post-failure cleanup CLI call incomplete or malformed")
+            raise ValueError("post-failure cleanup CLI call incomplete, non-zero, or malformed")
 
     stop_cli_index = failed_cli_index + 1
     sessions_cli_index = failed_cli_index + 2
@@ -2384,10 +2665,14 @@ def _collect_verified_renewal_ws_evidence(
         if json_file.name == "manifest.json":
             continue
         jdata = _read_regular_json_dict(json_file, json_file.name)
-        for jpath, sval in _iter_json_string_values(jdata, json_file.name):
-            if jpath == "receipt.json.error":
-                continue
-            _assert_clean_text_value(sval, jpath)
+        _assert_clean_operational_json(
+            jdata,
+            json_file.name,
+            allow_root_receipt_error=(json_file.name == "receipt.json"),
+            forbid_failure_class_and_returncode=(
+                json_file.name not in {"receipt.json", "state.json"}
+            ),
+        )
 
     resolved_ops = (ops_dir or DEFAULT_OPS_DIR).resolve()
     if resolved_ops.is_symlink() or not resolved_ops.is_dir():
@@ -2494,11 +2779,18 @@ def _resolve_transport_evidence_dirs(
             raise ValueError(f"missing or symlinked WATCH6_V3_TRANSPORT_EVIDENCE_DIR: {env_dir}")
         return [env_dir.resolve()]
     if ops_dir.resolve() == DEFAULT_OPS_DIR.resolve():
-        def_dir = default_artifact_dir()
-        if def_dir.is_symlink():
-            raise ValueError(f"symlinked default_artifact_dir forbidden: {def_dir}")
-        if def_dir.is_dir():
-            return [def_dir.resolve()]
+        found_dirs: list[Path] = []
+        seen_dirs: set[Path] = set()
+        shard12_ev_parent = artifacts_root() / Path(SHARD12_EVIDENCE_SIDECAR_REL).parent
+        for cand_dir in (default_artifact_dir(), shard12_ev_parent):
+            if cand_dir.is_symlink():
+                raise ValueError(f"symlinked default transport evidence dir forbidden: {cand_dir}")
+            if cand_dir.is_dir():
+                resolved_cand = cand_dir.resolve()
+                if resolved_cand not in seen_dirs:
+                    seen_dirs.add(resolved_cand)
+                    found_dirs.append(resolved_cand)
+        return found_dirs
     return []
 
 

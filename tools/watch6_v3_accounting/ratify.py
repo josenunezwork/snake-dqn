@@ -21,6 +21,8 @@ from tools.watch6_v3_accounting import (
     ADAPTER_ROOT,
     AMENDMENT_V5_REL,
     AMENDMENT_V5_SHA256,
+    AMENDMENT_V6_REL,
+    AMENDMENT_V6_SHA256,
     BASELINE_COMMIT,
     BASELINE_NAMESPACE,
     BASELINE_SCIENCE,
@@ -33,6 +35,8 @@ from tools.watch6_v3_accounting import (
     RULING_3_SHA256,
     RULING_VERIFY_5_REL,
     RULING_VERIFY_5_SHA256,
+    RULING_VERIFY_6_REL,
+    RULING_VERIFY_6_SHA256,
     SHARD00_EXEC_MANIFEST_SHA256,
     SHARD00_PATH_RULING_REL,
     SHARD00_PATH_RULING_SHA256,
@@ -134,6 +138,8 @@ def _verify_frozen_artifacts_if_present(art_root: Path) -> None:
         (SHARD12_PATH_RULING_REL, SHARD12_PATH_RULING_SHA256, False),
         (SHARD12_RECEIPT_REL, SHARD12_RECEIPT_SHA256, False),
         (SHARD12_EVIDENCE_SIDECAR_REL, SHARD12_EVIDENCE_SIDECAR_SHA256, True),
+        (AMENDMENT_V6_REL, AMENDMENT_V6_SHA256, True),
+        (RULING_VERIFY_6_REL, RULING_VERIFY_6_SHA256, False),
     )
     for rel, expected_sha, require_sidecar in expected_artifacts:
         candidate = art_root / rel
@@ -155,17 +161,12 @@ def verify_amendment_document(
     broker_root: Path | None = None,
     require_clean_git: bool = True,
     expected_adapter_commit: str | None = None,
-    _verified_closure: dict[str, str] | None = None,
 ) -> dict:
     """Verify immutable accounting amendment sidecars and exact adapter/broker hash bindings."""
     eff_broker = broker_root if broker_root is not None else V3_BROKER_ROOT
     with isolated_broker_execution("ratify-amendment", broker_root=eff_broker):
         adapter_repo = (repo or ADAPTER_ROOT).resolve()
-        closure_info = (
-            _verified_closure
-            if _verified_closure is not None
-            else verify_baseline_closure(eff_broker, require_head_at_baseline=True)
-        )
+        closure_info = verify_baseline_closure(eff_broker, require_head_at_baseline=True)
         resolved_broker = Path(closure_info["broker_root"])
         broker_proto = compute_broker_protocol(resolved_broker)
         raw_sp = broker_proto["source_paths"]
@@ -236,6 +237,10 @@ def verify_amendment_document(
             ("amendment_v5_sha256", AMENDMENT_V5_SHA256),
             ("ruling_verify_5_rel", RULING_VERIFY_5_REL),
             ("ruling_verify_5_sha256", RULING_VERIFY_5_SHA256),
+            ("amendment_v6_rel", AMENDMENT_V6_REL),
+            ("amendment_v6_sha256", AMENDMENT_V6_SHA256),
+            ("ruling_verify_6_rel", RULING_VERIFY_6_REL),
+            ("ruling_verify_6_sha256", RULING_VERIFY_6_SHA256),
             ("shard12_path_ruling_rel", SHARD12_PATH_RULING_REL),
             ("shard12_path_ruling_sha256", SHARD12_PATH_RULING_SHA256),
             ("shard12_evidence_sidecar_rel", SHARD12_EVIDENCE_SIDECAR_REL),
@@ -319,7 +324,6 @@ def record_ruling(
             repo=adapter_repo,
             broker_root=resolved_broker,
             require_clean_git=require_clean_git,
-            _verified_closure=closure_info,
         )
         target = resolve_ruling_json(out, repo=adapter_repo)
         payload = {
@@ -346,6 +350,8 @@ def record_ruling(
             "shard00_receipt_sha256": SHARD00_RECEIPT_SHA256,
             "amendment_v5_sha256": AMENDMENT_V5_SHA256,
             "verify_5_ruling_sha256": RULING_VERIFY_5_SHA256,
+            "amendment_v6_sha256": AMENDMENT_V6_SHA256,
+            "verify_6_ruling_sha256": RULING_VERIFY_6_SHA256,
             "shard12_path_ruling_sha256": SHARD12_PATH_RULING_SHA256,
             "shard12_evidence_sidecar_sha256": SHARD12_EVIDENCE_SIDECAR_SHA256,
             "shard12_receipt_sha256": SHARD12_RECEIPT_SHA256,
@@ -421,6 +427,8 @@ def validate_ruling_receipt(
             or receipt.get("shard00_receipt_sha256") != SHARD00_RECEIPT_SHA256
             or receipt.get("amendment_v5_sha256") != AMENDMENT_V5_SHA256
             or receipt.get("verify_5_ruling_sha256") != RULING_VERIFY_5_SHA256
+            or receipt.get("amendment_v6_sha256") != AMENDMENT_V6_SHA256
+            or receipt.get("verify_6_ruling_sha256") != RULING_VERIFY_6_SHA256
             or receipt.get("shard12_path_ruling_sha256") != SHARD12_PATH_RULING_SHA256
             or receipt.get("shard12_evidence_sidecar_sha256") != SHARD12_EVIDENCE_SIDECAR_SHA256
             or receipt.get("shard12_receipt_sha256") != SHARD12_RECEIPT_SHA256
@@ -458,7 +466,6 @@ def validate_ruling_receipt(
             broker_root=resolved_broker,
             require_clean_git=require_clean_git,
             expected_adapter_commit=rec_commit,
-            _verified_closure=closure_info,
         )
         if (
             receipt.get("amendment_sha256") != amend["amendment_sha256"]
@@ -490,7 +497,7 @@ def main() -> None:
         "--amendment",
         type=Path,
         default=None,
-        help="Path to immutable WATCH6_V3_ACCOUNTING_AMENDMENT_V6_20261101.md",
+        help="Path to immutable WATCH6_V3_ACCOUNTING_AMENDMENT_V6_1_20261101.md",
     )
     parser.add_argument(
         "--out",

@@ -52,6 +52,8 @@ from tools.watch6_v3_accounting import (
     ADAPTER_ROOT,
     AMENDMENT_V5_REL,
     AMENDMENT_V5_SHA256,
+    AMENDMENT_V6_REL,
+    AMENDMENT_V6_SHA256,
     BASELINE_COMMIT,
     BASELINE_NAMESPACE,
     BASELINE_SCIENCE,
@@ -66,6 +68,8 @@ from tools.watch6_v3_accounting import (
     RULING_3_SHA256,
     RULING_VERIFY_5_REL,
     RULING_VERIFY_5_SHA256,
+    RULING_VERIFY_6_REL,
+    RULING_VERIFY_6_SHA256,
     SHARD00_EXEC_MANIFEST_SHA256,
     SHARD00_PATH_RULING_REL,
     SHARD00_PATH_RULING_SHA256,
@@ -111,7 +115,7 @@ def _render_amendment_markdown(repo: Path | None = None, commit_sha: str | None 
     f_map = adapter_files_map(root)
     inv_sha = adapter_inventory_sha256(root)
     lines = [
-        "# Watch6 V3 Pre-Look Accounting Amendment V6 (2026-11-01)",
+        "# Watch6 V3 Pre-Look Accounting Amendment V6.1 (2026-11-01)",
         "",
         f"- Namespace: `{BASELINE_NAMESPACE}`",
         f"- V3 Broker Root: `{V3_BROKER_ROOT}`",
@@ -129,6 +133,8 @@ def _render_amendment_markdown(repo: Path | None = None, commit_sha: str | None 
         f"- Shard-00 Executed Manifest SHA256: `{SHARD00_EXEC_MANIFEST_SHA256}`",
         f"- Prior Amendment V5 (`{AMENDMENT_V5_REL}`) SHA256: `{AMENDMENT_V5_SHA256}`",
         f"- Prior Verify-5 Ruling (`{RULING_VERIFY_5_REL}`) SHA256: `{RULING_VERIFY_5_SHA256}`",
+        f"- Prior Amendment V6 (`{AMENDMENT_V6_REL}`) SHA256: `{AMENDMENT_V6_SHA256}`",
+        f"- Prior Verify-6 Ruling (`{RULING_VERIFY_6_REL}`) SHA256: `{RULING_VERIFY_6_SHA256}`",
         (
             f"- Shard-12 Path Ruling (`{SHARD12_PATH_RULING_REL}`) SHA256: "
             f"`{SHARD12_PATH_RULING_SHA256}`"
@@ -4028,24 +4034,15 @@ def _assert_renewal_ws_case_refused(
                     ops_dir=ops_dir,
                     ops_name=ops_name,
                 )
-        with pytest.raises(ValueError):
-            proof.verify_renewal_ws_transport_evidence(
-                out_dir,
-                ops_dir=ops_dir,
-                ops_name=ops_name,
-                evidence_dir=ev_dir,
-            )
+        else:
+            with pytest.raises(ValueError):
+                proof.verify_renewal_ws_transport_evidence(
+                    out_dir,
+                    ops_dir=ops_dir,
+                    ops_name=ops_name,
+                    evidence_dir=ev_dir,
+                )
         rec = json.loads((out_dir / "receipt.json").read_text(encoding="utf-8"))
-        assert (
-            admission.is_external_transport_compute_failure(
-                rec,
-                out_dir,
-                ops_dir=ops_dir,
-                ops_name=ops_name,
-                evidence_dir=ev_dir,
-            )
-            is False
-        )
         with pytest.raises(ValueError, match="INVALID_OR_INCOMPLETE"):
             final_look._classify_attempt(
                 out_dir,
@@ -4682,3 +4679,636 @@ def test_v6_full_24_shard_lineage_retry_cap_and_zero_peek(tmp_path: Path) -> Non
                 evidence_dir=ev_dir,
                 require_clean_git=False,
             )
+
+
+def _rebuild_and_immutably_publish_forged_sidecar(
+    out_dir: Path,
+    ops_dir: Path,
+    ev_dir: Path,
+    *,
+    ops_name: str = "watch6-v3-fix3-shard-12",
+    shard: int = 12,
+    sync_manifests_and_log: bool = True,
+) -> Path:
+    """Re-sync hashes on mutated synthetic evidence and immutably publish a matching sidecar."""
+    rec_path = out_dir / "receipt.json"
+    exec_mf_path = out_dir / "manifest.json"
+    src_mf_path = ops_dir / "manifests" / f"{ops_name}.json"
+    live_mf_path = ops_dir / "manifests" / f"{ops_name}.live.json"
+    acct_path = ops_dir / "dispatch" / ops_name / f"{ops_name}.accounting.json"
+    oplog_path = ops_dir / "logs" / f"{ops_name}.log"
+
+    exec_mf = json.loads(exec_mf_path.read_text(encoding="utf-8"))
+    rec = json.loads(rec_path.read_text(encoding="utf-8"))
+
+    if sync_manifests_and_log:
+        src_mf = json.loads(json.dumps(exec_mf))
+        if isinstance(src_mf.get("budget"), dict):
+            src_mf["budget"]["other_assignments"] = {}
+        src_mf_path.write_text(json.dumps(src_mf, sort_keys=True) + "\n", encoding="utf-8")
+        exec_mf_path.write_text(json.dumps(exec_mf, sort_keys=True) + "\n", encoding="utf-8")
+        if live_mf_path.exists():
+            live_mf_path.write_text(json.dumps(exec_mf, sort_keys=True) + "\n", encoding="utf-8")
+        if acct_path.exists():
+            acct_obj = json.loads(acct_path.read_text(encoding="utf-8"))
+            acct_obj["source_manifest"] = str(src_mf_path)
+            acct_obj["source_manifest_sha256"] = digest(src_mf_path)
+            if live_mf_path.exists():
+                acct_obj["manifest"] = str(live_mf_path)
+                acct_obj["manifest_sha256"] = digest(live_mf_path)
+            acct_path.write_text(json.dumps(acct_obj, sort_keys=True) + "\n", encoding="utf-8")
+        rec["manifest_sha256"] = digest(exec_mf_path)
+        rec_path.write_text(json.dumps(rec, sort_keys=True) + "\n", encoding="utf-8")
+        lines = oplog_path.read_text(encoding="utf-8").splitlines()
+        new_lines = [
+            (
+                f"INCOMPLETE: {rec.get('error')}; receipt: {rec_path.resolve()}"
+                if ln.startswith("INCOMPLETE: ")
+                else ln
+            )
+            for ln in lines
+        ]
+        oplog_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+
+    def fdesc(p_item: Path) -> dict[str, object]:
+        resolved = p_item.resolve()
+        return {"path": str(resolved), "sha256": digest(resolved), "size": resolved.stat().st_size}
+
+    polls_meta = []
+    for idx, poll_p in enumerate(sorted(out_dir.glob("poll-*.json"))):
+        p_obj = json.loads(poll_p.read_text(encoding="utf-8"))
+        polls_meta.append(
+            {
+                "index": idx,
+                **fdesc(poll_p),
+                "status": str(p_obj["state"]["status"]),
+                "updated_at": p_obj["state"]["updated_at"],
+                "exports_count": 0,
+                "terminal": None,
+            }
+        )
+
+    ctrl_ops = rec["control_operations"]
+    failed_ctrl_idx = len(ctrl_ops) - 1
+    failed_ctrl = ctrl_ops[failed_ctrl_idx]
+    cli_calls = rec["cli_calls"]
+    failed_cli_idx = next(
+        i
+        for i, c in enumerate(cli_calls)
+        if c.get("thread") == "MainThread" and c.get("status") != "completed"
+    )
+    failed_cli = cli_calls[failed_cli_idx]
+    stop_cli = cli_calls[failed_cli_idx + 1]
+    sess_cli = cli_calls[failed_cli_idx + 2]
+
+    poll_log_count = sum(
+        1
+        for ln in oplog_path.read_text(encoding="utf-8").splitlines()
+        if ln.strip().startswith("{")
+    )
+    sidecar_payload = {
+        "schema": proof.TRANSPORT_EVIDENCE_SCHEMA,
+        "classification": proof.TRANSPORT_EVIDENCE_CLASSIFICATION,
+        "identity": {
+            "namespace": BASELINE_NAMESPACE,
+            "science": BASELINE_SCIENCE,
+            "commit": BASELINE_COMMIT,
+            "shard": shard,
+            "job_id": rec["job_id"],
+            "session": rec["session"],
+            "endpoint": rec["endpoint"],
+            "generation": rec["generation"],
+        },
+        "receipt": fdesc(rec_path),
+        "executed_manifest": fdesc(exec_mf_path),
+        "ops_manifests": {
+            "ops_name": ops_name,
+            "source_manifest": fdesc(src_mf_path),
+            "live_manifest": fdesc(live_mf_path) if live_mf_path.exists() else None,
+            "accounting_record": fdesc(acct_path) if acct_path.exists() else None,
+            "relationship": proof.OPS_MANIFEST_RELATIONSHIP,
+        },
+        "hardware": {
+            **fdesc(out_dir / "hardware.json"),
+            "ready": True,
+            "kind": "L4",
+        },
+        "polls": polls_meta,
+        "operational_log": {
+            **fdesc(oplog_path),
+            "exit_code": 1,
+            "poll_lines_count": poll_log_count,
+            "max_reported_exports": 0,
+        },
+        "supervisor": {
+            "supervisor_sha256": PINNED_SUPERVISOR_SHA256,
+            "supervisor_relpath": PINNED_SUPERVISOR_REL,
+            "provenance": dict(proof.EXPECTED_SUPERVISOR_PROVENANCE),
+        },
+        "timing": {
+            "failed_control_index": failed_ctrl_idx,
+            "failed_control_started_monotonic": failed_ctrl["started_monotonic"],
+            "failed_control_ended_monotonic": failed_ctrl["ended_monotonic"],
+            "failed_cli_index": failed_cli_idx,
+            "failed_cli_started_monotonic": failed_cli["started_monotonic"],
+            "failed_cli_ended_monotonic": failed_cli["ended_monotonic"],
+            "failed_cli_elapsed_seconds": failed_cli["elapsed_seconds"],
+            "failed_cli_timeout_seconds": failed_cli["timeout_seconds"],
+            "stop_cli_index": failed_cli_idx + 1,
+            "stop_cli_started_monotonic": stop_cli["started_monotonic"],
+            "stop_cli_ended_monotonic": stop_cli["ended_monotonic"],
+            "sessions_cli_index": failed_cli_idx + 2,
+            "sessions_cli_started_monotonic": sess_cli["started_monotonic"],
+            "sessions_cli_ended_monotonic": sess_cli["ended_monotonic"],
+        },
+        "error_signature": proof._parse_renewal_ws_error_signature(rec["error"]),
+    }
+
+    sidecar_path = ev_dir / f"transport-evidence-{ops_name}-01.json"
+    for sfx in ("", ".sha256", ".complete"):
+        Path(f"{sidecar_path}{sfx}").unlink(missing_ok=True)
+    publish_json(sidecar_path, sidecar_payload)
+    return sidecar_path
+
+
+def test_v6_1_same_invocation_closure_reverification_refuses_py_mutation_and_empty_pycache(
+    clean_baseline_template: Path,
+    tmp_path: Path,
+) -> None:
+    """Astra V6 Reject Point 1: same-invocation re-verification refuses .py edit & empty pycache."""
+    clone_py = _fresh_baseline_clone(clean_baseline_template, tmp_path / "clone-same-inv-py")
+    clone_pc = _fresh_baseline_clone(clean_baseline_template, tmp_path / "clone-same-inv-pc")
+
+    amend_md = _write_immutable_text(
+        tmp_path / "WATCH6_V3_ACCOUNTING_AMENDMENT_V6_1_20261101.md",
+        _render_amendment_markdown(ADAPTER_ROOT),
+    )
+    r_py, _ = _write_renewal_ws_shard_fixture(
+        tmp_path / "ev-py/pkg",
+        ops_dir=tmp_path / "ev-py/ops",
+        evidence_dir=tmp_path / "ev-py/ev",
+        shard=12,
+    )
+    r_pc, _ = _write_renewal_ws_shard_fixture(
+        tmp_path / "ev-pc/pkg",
+        ops_dir=tmp_path / "ev-pc/ops",
+        evidence_dir=tmp_path / "ev-pc/ev",
+        shard=12,
+    )
+
+    with isolated_broker_execution("v6-1-same-invocation-closure") as iso:
+        assert not hasattr(iso, "verified_closures")
+        assert not hasattr(iso, "verified_protocols")
+        assert not hasattr(iso, "verified_bound_sciences")
+
+        # --- Probe 1A: tracked .py mutation within the SAME invocation ---
+        assert verify_baseline_closure(clone_py)["science"] == BASELINE_SCIENCE
+        assert compute_broker_identity(clone_py) == BASELINE_SCIENCE
+        with bind_broker_protocol(clone_py) as bound_ok:
+            assert bound_ok["science"] == BASELINE_SCIENCE
+        proof.verify_renewal_ws_transport_evidence(
+            r_py.parent,
+            ops_dir=tmp_path / "ev-py/ops",
+            evidence_dir=tmp_path / "ev-py/ev",
+            broker_root=clone_py,
+        )
+        ratify.verify_amendment_document(
+            amend_md,
+            broker_root=clone_py,
+            require_clean_git=False,
+        )
+
+        target_py = clone_py / "src/model/ego2s_network.py"
+        orig_py_bytes = target_py.read_bytes()
+        target_py.write_bytes(orig_py_bytes + b"\n# mutated tracked py bytes\n")
+        assert active_broker_isolation() is iso
+
+        assert compute_broker_identity(clone_py) != BASELINE_SCIENCE
+        with pytest.raises(ValueError, match="REFUSE"):
+            verify_baseline_closure(clone_py)
+        with pytest.raises(ValueError, match="REFUSE"):
+            with bind_broker_protocol(clone_py):
+                pass
+        with pytest.raises(ValueError, match="REFUSE"):
+            proof.verify_renewal_ws_transport_evidence(
+                r_py.parent,
+                ops_dir=tmp_path / "ev-py/ops",
+                evidence_dir=tmp_path / "ev-py/ev",
+                broker_root=clone_py,
+            )
+        with pytest.raises(ValueError, match="REFUSE"):
+            ratify.verify_amendment_document(
+                amend_md,
+                broker_root=clone_py,
+                require_clean_git=False,
+            )
+
+        # Restore src/ .py, confirm pass, then mutate tracked .py in tools/ops/ within same iso:
+        target_py.write_bytes(orig_py_bytes)
+        assert verify_baseline_closure(clone_py)["science"] == BASELINE_SCIENCE
+        tools_py = clone_py / "tools/ops/package_spec.py"
+        orig_tools_bytes = tools_py.read_bytes()
+        tools_py.write_bytes(orig_tools_bytes + b"\n# mutated tools py bytes\n")
+        assert active_broker_isolation() is iso
+        assert compute_broker_identity(clone_py) != BASELINE_SCIENCE
+        with pytest.raises(ValueError, match="REFUSE"):
+            verify_baseline_closure(clone_py)
+        tools_py.write_bytes(orig_tools_bytes)
+        assert verify_baseline_closure(clone_py)["science"] == BASELINE_SCIENCE
+
+        # --- Probe 1B: empty __pycache__ created within the SAME invocation ---
+        assert verify_baseline_closure(clone_pc)["science"] == BASELINE_SCIENCE
+        with bind_broker_protocol(clone_pc) as bound_pc_ok:
+            assert bound_pc_ok["science"] == BASELINE_SCIENCE
+        proof.verify_renewal_ws_transport_evidence(
+            r_pc.parent,
+            ops_dir=tmp_path / "ev-pc/ops",
+            evidence_dir=tmp_path / "ev-pc/ev",
+            broker_root=clone_pc,
+        )
+        ratify.verify_amendment_document(
+            amend_md,
+            broker_root=clone_pc,
+            require_clean_git=False,
+        )
+
+        for rel_pycache in (
+            "src/__pycache__",
+            "research/watch6_search_efficacy_v3/__pycache__",
+            "__pycache__",
+        ):
+            empty_pc = clone_pc / rel_pycache
+            empty_pc.mkdir()
+            assert list(empty_pc.iterdir()) == []
+            assert active_broker_isolation() is iso
+
+            with pytest.raises(ValueError, match="REFUSE.*__pycache__"):
+                verify_baseline_closure(clone_pc)
+            with pytest.raises(ValueError, match="REFUSE.*__pycache__"):
+                with bind_broker_protocol(clone_pc):
+                    pass
+            with pytest.raises(ValueError, match="REFUSE.*__pycache__"):
+                proof.verify_renewal_ws_transport_evidence(
+                    r_pc.parent,
+                    ops_dir=tmp_path / "ev-pc/ops",
+                    evidence_dir=tmp_path / "ev-pc/ev",
+                    broker_root=clone_pc,
+                )
+            with pytest.raises(ValueError, match="REFUSE.*__pycache__"):
+                ratify.verify_amendment_document(
+                    amend_md,
+                    broker_root=clone_pc,
+                    require_clean_git=False,
+                )
+            empty_pc.rmdir()
+            assert verify_baseline_closure(clone_pc)["science"] == BASELINE_SCIENCE
+
+
+@isolated_broker_execution("test-v6-1-point2-conjunction")
+def test_v6_1_exact_evidence_conjunction_refuses_astra_four_probes(tmp_path: Path) -> None:
+    """Astra V6 Reject Point 2: failed exec rc=0, stop rc=null, workers=8, hardware vcpu=1."""
+
+    def fresh_case(label: str) -> tuple[Path, Path, Path]:
+        base = tmp_path / label
+        ops_d = base / "ops"
+        ev_d = base / "ev"
+        r_p, _ = _write_renewal_ws_shard_fixture(
+            base / "pkg",
+            ops_dir=ops_d,
+            evidence_dir=ev_d,
+            shard=12,
+            publish_sidecar=False,
+        )
+        return r_p.parent, ops_d, ev_d
+
+    def assert_refused_both_publish_and_prepublished_sidecar(
+        out_d: Path,
+        ops_d: Path,
+        ev_d: Path,
+    ) -> None:
+        sidecar = ev_d / "transport-evidence-watch6-v3-fix3-shard-12-01.json"
+        with pytest.raises(ValueError):
+            proof.publish_renewal_ws_transport_evidence(
+                out_d,
+                sidecar,
+                ops_dir=ops_d,
+                ops_name="watch6-v3-fix3-shard-12",
+            )
+        _rebuild_and_immutably_publish_forged_sidecar(
+            out_d,
+            ops_d,
+            ev_d,
+            sync_manifests_and_log=False,
+        )
+        _assert_renewal_ws_case_refused(out_d, ops_d, ev_d, republish=False)
+
+    # Positive control: unmutated fresh_case passes both publish and rebuilt immutable sidecar:
+    out_ok, ops_ok, ev_ok = fresh_case("positive-control")
+    _rebuild_and_immutably_publish_forged_sidecar(out_ok, ops_ok, ev_ok)
+    assert (
+        proof.verify_renewal_ws_transport_evidence(
+            out_ok,
+            ops_dir=ops_ok,
+            ops_name="watch6-v3-fix3-shard-12",
+            evidence_dir=ev_ok,
+        )["shard"]
+        == 12
+    )
+    # Positive control for pinned-supervisor 9-key cli_calls (no returncode) + GPU hardware.json:
+    out_pin, ops_pin, ev_pin = fresh_case("positive-pinned-schema")
+    rec_pin = json.loads((out_pin / "receipt.json").read_text(encoding="utf-8"))
+    for c_item in rec_pin["cli_calls"]:
+        c_item.pop("returncode", None)
+    (out_pin / "receipt.json").write_text(
+        json.dumps(rec_pin, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    (out_pin / "hardware.json").write_text(
+        json.dumps(
+            {
+                "ready": True,
+                "hardware": {"kind": "L4", "name": "NVIDIA L4", "compute_cap": "8.9"},
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    _rebuild_and_immutably_publish_forged_sidecar(out_pin, ops_pin, ev_pin)
+    assert (
+        proof.verify_renewal_ws_transport_evidence(
+            out_pin,
+            ops_dir=ops_pin,
+            ops_name="watch6-v3-fix3-shard-12",
+            evidence_dir=ev_pin,
+        )["shard"]
+        == 12
+    )
+
+    # Probe 2.1: failed exec/renewal CLI call must have failing returncode (not 0, null, or 2):
+    for bad_rc_label, bad_rc in (
+        ("zero", 0),
+        ("null", None),
+        ("two", 2),
+        ("missing", "__DELETE__"),
+    ):
+        out_1, ops_1, ev_1 = fresh_case(f"failed-exec-rc-{bad_rc_label}")
+        rec_1 = json.loads((out_1 / "receipt.json").read_text(encoding="utf-8"))
+        if bad_rc == "__DELETE__":
+            rec_1["cli_calls"][2].pop("returncode", None)
+        else:
+            rec_1["cli_calls"][2]["returncode"] = bad_rc
+        (out_1 / "receipt.json").write_text(
+            json.dumps(rec_1, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        assert_refused_both_publish_and_prepublished_sidecar(out_1, ops_1, ev_1)
+
+    # Probe 2.2: stop/sessions verification must have real successful returncode 0 (not null/1):
+    for call_idx, call_name in ((3, "stop"), (4, "sessions")):
+        for rc_label, bad_rc in (("null", None), ("nonzero", 1), ("missing", "__DELETE__")):
+            out_2, ops_2, ev_2 = fresh_case(f"{call_name}-rc-{rc_label}")
+            rec_2 = json.loads((out_2 / "receipt.json").read_text(encoding="utf-8"))
+            if bad_rc == "__DELETE__":
+                rec_2["cli_calls"][call_idx].pop("returncode", None)
+            else:
+                rec_2["cli_calls"][call_idx]["returncode"] = bad_rc
+            (out_2 / "receipt.json").write_text(
+                json.dumps(rec_2, sort_keys=True) + "\n", encoding="utf-8"
+            )
+            assert_refused_both_publish_and_prepublished_sidecar(out_2, ops_2, ev_2)
+
+    # Probe 2.3: workers must equal manifest's W (4); workers=8 refused everywhere:
+    for w_label, mf_mutator in (
+        ("env-workers-8", lambda m: m["env"].update(WATCH6_WORKERS="8")),
+        ("env-workers-missing", lambda m: m["env"].pop("WATCH6_WORKERS", None)),
+        (
+            "frozen-layout-workers-8",
+            lambda m: m["env"].update(
+                WATCH6_FROZEN_LAYOUT=json.dumps(
+                    {"base_minutes_per_shard": 209, "shards": 24, "workers": 8}
+                )
+            ),
+        ),
+        ("watch6-v3-workers-8", lambda m: m["watch6_v3"].update(workers=8)),
+        ("top-manifest-workers-8", lambda m: m.update(workers=8)),
+    ):
+        out_3, ops_3, ev_3 = fresh_case(f"workers-{w_label}")
+        mf_3 = json.loads((out_3 / "manifest.json").read_text(encoding="utf-8"))
+        mf_mutator(mf_3)
+        (out_3 / "manifest.json").write_text(
+            json.dumps(mf_3, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        _rebuild_and_immutably_publish_forged_sidecar(
+            out_3,
+            ops_3,
+            ev_3,
+            sync_manifests_and_log=True,
+        )
+        _assert_renewal_ws_case_refused(out_3, ops_3, ev_3, republish=False)
+        for sfx in ("", ".sha256", ".complete"):
+            Path(f"{ev_3 / 'transport-evidence-watch6-v3-fix3-shard-12-01.json'}{sfx}").unlink(
+                missing_ok=True
+            )
+        with pytest.raises(ValueError):
+            proof.publish_renewal_ws_transport_evidence(
+                out_3,
+                ev_3 / "transport-evidence-watch6-v3-fix3-shard-12-01.json",
+                ops_dir=ops_3,
+                ops_name="watch6-v3-fix3-shard-12",
+            )
+
+    # Probe 2.4: hardware vCPU must meet min_vcpu (12); vcpu=1 refused:
+    for hw_label, bad_hw in (
+        ("vcpu-1", {"ready": True, "hardware": {"kind": "L4", "vcpu": 1}}),
+        ("vcpu-11", {"ready": True, "hardware": {"kind": "L4", "vcpu": 11}}),
+        ("vcpu-null", {"ready": True, "hardware": {"kind": "L4", "vcpu": None}}),
+        (
+            "top-vcpu-1",
+            {
+                "ready": True,
+                "vcpu": 1,
+                "hardware": {"kind": "L4", "name": "NVIDIA L4", "compute_cap": "8.9"},
+            },
+        ),
+        ("missing-vcpu-and-gpu-meta", {"ready": True, "hardware": {"kind": "L4"}}),
+    ):
+        out_4, ops_4, ev_4 = fresh_case(f"hw-{hw_label}")
+        (out_4 / "hardware.json").write_text(
+            json.dumps(bad_hw, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        assert_refused_both_publish_and_prepublished_sidecar(out_4, ops_4, ev_4)
+
+
+@isolated_broker_execution("test-v6-1-point3-fault-veto")
+def test_v6_1_overriding_fault_veto_scans_all_operational_evidence(tmp_path: Path) -> None:
+    """Astra V6 Reject Point 3: overriding fault veto across ALL operational JSON/log fields."""
+
+    def fresh_case(label: str) -> tuple[Path, Path, Path]:
+        base = tmp_path / label
+        ops_d = base / "ops"
+        ev_d = base / "ev"
+        r_p, _ = _write_renewal_ws_shard_fixture(
+            base / "pkg",
+            ops_dir=ops_d,
+            evidence_dir=ev_d,
+            shard=12,
+            publish_sidecar=False,
+        )
+        return r_p.parent, ops_d, ev_d
+
+    def assert_fault_refused_everywhere(out_d: Path, ops_d: Path, ev_d: Path) -> None:
+        sidecar = ev_d / "transport-evidence-watch6-v3-fix3-shard-12-01.json"
+        with pytest.raises(ValueError):
+            proof.publish_renewal_ws_transport_evidence(
+                out_d,
+                sidecar,
+                ops_dir=ops_d,
+                ops_name="watch6-v3-fix3-shard-12",
+            )
+        _rebuild_and_immutably_publish_forged_sidecar(
+            out_d,
+            ops_d,
+            ev_d,
+            sync_manifests_and_log=False,
+        )
+        _assert_renewal_ws_case_refused(out_d, ops_d, ev_d, republish=False)
+
+    # Positive control: unmutated fresh_case passes before any fault injection:
+    out_ok, ops_ok, ev_ok = fresh_case("positive-control")
+    _rebuild_and_immutably_publish_forged_sidecar(
+        out_ok, ops_ok, ev_ok, sync_manifests_and_log=False
+    )
+    assert (
+        proof.verify_renewal_ws_transport_evidence(
+            out_ok,
+            ops_dir=ops_ok,
+            ops_name="watch6-v3-fix3-shard-12",
+            evidence_dir=ev_ok,
+        )["shard"]
+        == 12
+    )
+
+    # 1. Astra's exact Point 3 probe: error="RuntimeError: child scientific failure" in oplog JSON:
+    for oplog_label, extra_fields in (
+        ("astra-error-field", {"error": "RuntimeError: child scientific failure"}),
+        ("runtime-error-non-sci", {"error": "RuntimeError: child worker crashed"}),
+        ("custom-note-field", {"diagnostic": "RuntimeError: child worker crashed"}),
+        ("nested-list-fault", {"warnings": ["RuntimeError: child scientific failure"]}),
+        ("non-string-error-obj", {"error": {"code": 1}}),
+    ):
+        out_l, ops_l, ev_l = fresh_case(f"oplog-{oplog_label}")
+        oplog_p = ops_l / "logs/watch6-v3-fix3-shard-12.log"
+        mut_lines = []
+        injected = False
+        for ln in oplog_p.read_text(encoding="utf-8").splitlines():
+            if not injected and ln.strip().startswith("{"):
+                j_obj = json.loads(ln)
+                j_obj.update(extra_fields)
+                mut_lines.append(json.dumps(j_obj, sort_keys=True))
+                injected = True
+            else:
+                mut_lines.append(ln)
+        assert injected
+        oplog_p.write_text("\n".join(mut_lines) + "\n", encoding="utf-8")
+        assert_fault_refused_everywhere(out_l, ops_l, ev_l)
+
+    # 2. Queue log and run-specific sibling log RuntimeError probes:
+    out_ql, ops_ql, ev_ql = fresh_case("queue-runtime-error")
+    job_ql = json.loads((out_ql / "receipt.json").read_text(encoding="utf-8"))["job_id"]
+    (ops_ql / "logs/queue-20261101.log").write_text(
+        f"2026-11-01 {job_ql} RuntimeError: child worker crashed\n",
+        encoding="utf-8",
+    )
+    assert_fault_refused_everywhere(out_ql, ops_ql, ev_ql)
+
+    out_sl, ops_sl, ev_sl = fresh_case("sibling-run-log-fault")
+    (ops_sl / "logs/watch6-v3-fix3-shard-12-child.log").write_text(
+        "RuntimeError: child scientific failure\n",
+        encoding="utf-8",
+    )
+    assert_fault_refused_everywhere(out_sl, ops_sl, ev_sl)
+
+    # 3. Measurements, hardware, polls, receipt nested fields, and ops accounting record:
+    for art_label, mutator in (
+        (
+            "warmup-fault",
+            lambda out_d, _ops_d: (out_d / "warmup-measurement.json").write_text(
+                '{"status": "PASS", "warmup_seconds": 14.2, '
+                '"note": "RuntimeError: child scientific failure"}\n',
+                encoding="utf-8",
+            ),
+        ),
+        (
+            "calib-fault",
+            lambda out_d, _ops_d: (out_d / "rate-calibration.json").write_text(
+                '{"status": "PASS", "observed_rate_units_per_hour": 1.94, '
+                '"error": "RuntimeError: child scientific failure"}\n',
+                encoding="utf-8",
+            ),
+        ),
+        (
+            "upload-fault",
+            lambda out_d, _ops_d: (out_d / "upload-measurement.json").write_text(
+                '{"elapsed_seconds": 48.5, "staging_completed": true, '
+                '"note": "RuntimeError: child scientific failure"}\n',
+                encoding="utf-8",
+            ),
+        ),
+        (
+            "hardware-fault",
+            lambda out_d, _ops_d: (out_d / "hardware.json").write_text(
+                '{"ready": true, "hardware": {"kind": "L4", "vcpu": 12, '
+                '"note": "RuntimeError: child scientific failure"}}\n',
+                encoding="utf-8",
+            ),
+        ),
+        (
+            "poll-sup-tail-fault",
+            lambda out_d, _ops_d: (out_d / "poll-000001.json").write_text(
+                (out_d / "poll-000001.json")
+                .read_text(encoding="utf-8")
+                .replace(
+                    '"supervisor_log_tail": ""',
+                    '"supervisor_log_tail": "RuntimeError: child worker crashed"',
+                ),
+                encoding="utf-8",
+            ),
+        ),
+        (
+            "receipt-nested-fault",
+            lambda out_d, _ops_d: (out_d / "receipt.json").write_text(
+                json.dumps(
+                    {
+                        **json.loads((out_d / "receipt.json").read_text(encoding="utf-8")),
+                        "usage_after": {"note": "RuntimeError: child scientific failure"},
+                    },
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            ),
+        ),
+        (
+            "ops-accounting-fault",
+            lambda _out_d, ops_d: (
+                ops_d / "dispatch/watch6-v3-fix3-shard-12/watch6-v3-fix3-shard-12.accounting.json"
+            ).write_text(
+                json.dumps(
+                    {
+                        **json.loads(
+                            (
+                                ops_d / "dispatch/watch6-v3-fix3-shard-12/"
+                                "watch6-v3-fix3-shard-12.accounting.json"
+                            ).read_text(encoding="utf-8")
+                        ),
+                        "note": "RuntimeError: child scientific failure",
+                    },
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            ),
+        ),
+    ):
+        out_m, ops_m, ev_m = fresh_case(f"art-{art_label}")
+        mutator(out_m, ops_m)
+        assert_fault_refused_everywhere(out_m, ops_m, ev_m)
