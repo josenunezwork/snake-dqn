@@ -75,9 +75,9 @@ question has not launched a new experiment.
 
 ## Source records
 
-- [Frozen intent](../../../runs/pqn-controlled-encounter-native-td-low-lr/intent.json)
+- Frozen intent (`runs/pqn-controlled-encounter-native-td-low-lr/intent.json`)
   — SHA-256 `804e8e728f034d890f6c6791477d47821f7c8e6c30c3eb8ce7383217c63d2520`.
-- [Staged analyzer](../../../runs/pqn-controlled-encounter-native-td-low-lr/analyze.py)
+- Staged analyzer (`runs/pqn-controlled-encounter-native-td-low-lr/analyze.py`)
   — fixed eight-world pairing and preserved gate evaluation.
 - [Saved low-LR analysis](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-native-td-low-lr/analysis/report.json)
   — SHA-256 `105e320604276d7978e1f6a1d96b0830571a435d3bb70ea76cd07fd87402d6ec`.

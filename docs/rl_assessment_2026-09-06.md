@@ -21,7 +21,7 @@ This report separates three questions that should not be conflated:
 The intended reader is choosing the next learning experiment on this Mac and
 the conditions for a later GPU run. It assumes familiarity with discounted
 returns and paired evaluation. Every reported result comes from completed local
-artifacts under [`runs/rl_assessment_20260906`](../runs/rl_assessment_20260906/);
+artifacts under `runs/rl_assessment_20260906/`;
 they are review evidence, not published model artifacts.
 
 ## Current objective and the first correctness issue
@@ -71,13 +71,13 @@ become the production reward.
 ## What was run and how it is reproducible
 
 The coordinator, evaluation script, analysis script, raw result JSON, and plot
-are retained locally as
-[`run_training.py`](../runs/rl_assessment_20260906/run_training.py),
-[`evaluate_reward_pairs.py`](../runs/rl_assessment_20260906/evaluate_reward_pairs.py),
-[`analyze_results.py`](../runs/rl_assessment_20260906/analyze_results.py),
-[`reward_pair_eval.json`](../runs/rl_assessment_20260906/reward_pair_eval.json),
-[`analysis.json`](../runs/rl_assessment_20260906/analysis.json), and
-[`results.png`](../runs/rl_assessment_20260906/results.png). Use
+are retained locally under `runs/rl_assessment_20260906/` as
+`run_training.py`,
+`evaluate_reward_pairs.py`,
+`analyze_results.py`,
+`reward_pair_eval.json`,
+`analysis.json`, and
+`results.png`. Use
 `/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python` when inspecting or
 recreating work; the assessment worktree's temporary `venv` symlink has been
 removed. Do not re-run the coordinator into these nonempty
@@ -108,9 +108,9 @@ matched after excluding wall-time and profiling fields. It is an exact replay
 of one seed, **not** a fourth independent training replicate.
 
 One provenance repair matters. The first `control_s101` manifest had a path bug
-and omitted imported modules. The supplemental
-[`source_snapshot.zip`](../runs/rl_assessment_20260906/source_snapshot.zip) and
-[`source_manifest.json`](../runs/rl_assessment_20260906/source_manifest.json)
+and omitted imported modules. The supplemental local
+`runs/rl_assessment_20260906/source_snapshot.zip` and
+`runs/rl_assessment_20260906/source_manifest.json`
 provide the source-size/hash audit; later arm manifests are complete. The
 analysis records this limitation rather than silently treating the first per-arm
 manifest as complete.
@@ -269,8 +269,8 @@ The final non-slow suite completed in 56.37 seconds:
 Three skips require an optional champion checkpoint absent from this worktree;
 three reward-mismatch cases are inapplicable because the active config's reward
 contract already matches the checkpoint. Three tests marked slow were deselected.
-The captured output is
-[`pytest_non_slow_final.log`](../runs/rl_assessment_20260906/pytest_non_slow_final.log).
+The captured output is local
+`runs/rl_assessment_20260906/pytest_non_slow_final.log`.
 All changed Python files passed Black at the repository's 100-character limit,
 isort with the Black profile, flake8, and `git diff --check`; the original main
 checkout remains clean at `950d583`. Static checks are distinct from the

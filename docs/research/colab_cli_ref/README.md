@@ -183,13 +183,13 @@ For comprehensive architectural overviews and deep-dives into specific CLI sub-s
 * [Authentication Providers & VM Automation](docs/04_automation_and_utility.md)
 * [Ephemeral Job Runner Design](docs/05_run_command.md)
 
-To view interactive walkthroughs of eleven real-world automated scenarios, check out the [Demo Walkthroughs](docs/demos.md).
+To view interactive walkthroughs of eleven real-world automated scenarios, check out `docs/demos.md` in the upstream repository.
 
 ---
 
 ## Contributing
 
-Feedback and contributions are welcome! Please read [`CONTRIBUTING.md`](./CONTRIBUTING.md) for details.
+Feedback and contributions are welcome! Please read `CONTRIBUTING.md` in the upstream repository for details.
 
 ---
 

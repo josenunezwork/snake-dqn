@@ -11,7 +11,7 @@ This is a performance design and bounded local measurement, not a production cha
 training result, promotion, or claim of achieved speed-up. No production source, running
 job, CUDA/MPS service, or tmux session was changed. Baseline checkout: `42dae602e1e8a6bf4030a17d12cc2d82bc48f081`,
 branch `persona-actor-20261017`, initially clean. Current release is bare B8, per
-[`docs/STATUS.md`](../../STATUS.md#L7); historical hero-only actor results are not equivalent
+[`docs/STATUS.md`](../../STATUS.md); historical hero-only actor results are not equivalent
 to six-slot self-play.
 
 ## 1. Evidence and accounting
@@ -77,12 +77,12 @@ learner cost, and eliminating pure wait would recover less.
 about 18.3k tr/s at K2. The target requires **84.375 updates/s, 11.852 ms/update** at the
 unchanged 256-transition recipe. The older smoke-02 **23–25k** A100 ceiling was a planning
 estimate, not a smoke-03 observation
-([results:30](../t16_colab_smoke02_results_2026-10-17.md#L30)). Actor optimization must be
+([results:30](../t16_colab_smoke02_results_2026-10-17.md)). Actor optimization must be
 paired with a measured reduction in learner/device contention or learner work.
 
 **Upstream update reviewed before publication:** commit `a22c03a9` adds an isolated
 same-A100 learner measurement: raw/g3/fp32/K2 takes **12.82 ms/update (~78 updates/s,
-~20k tr/s)** without actors ([smoke-03 append](../t16_colab_smoke02_results_2026-10-17.md#L187)).
+~20k tr/s)** without actors ([smoke-03 append:187](../t16_colab_smoke02_results_2026-10-17.md)).
 That is still below 84.375 updates/s; removing actor interference alone is therefore
 insufficient at the measured current learner configuration. It needs at least another
 ~7.6% reduction from 12.82 ms to 11.852 ms, plus end-to-end overhead headroom. The raw
@@ -309,7 +309,7 @@ It **does not merge CUDA contexts or remove the host synchronization needed for 
 Planning range: **0–30% shorter actor forward leg**, only **0–3%** direct actor-frame
 gain at the observed 9.7% share, plus an unmeasured learner/contention effect. Historical
 4090 hero-only results found **no actor compile gain within ±5%**
-([quiet results:56](../../../research/perf_quiet_20261013/RESULTS.md#L56)); do not promise
+([quiet results:56](../../../research/perf_quiet_20261013/RESULTS.md)); do not promise
 a large win. Four actor compilations also consume startup time and memory; serialize
 warm-up/limit compile workers and include startup in deployment economics.
 

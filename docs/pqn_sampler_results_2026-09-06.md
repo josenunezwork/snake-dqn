@@ -175,8 +175,8 @@ Portable review evidence is under
 [source manifest](experiments/pqn_sampler_2026-09-06/campaign_source_manifest.json),
 and [test log](experiments/pqn_sampler_2026-09-06/pytest-nonslow-final.log).
 Full local histories, checkpoints, coordinator/evaluation/analysis scripts,
-and the source snapshot ZIP remain under
-[`runs/pqn_coverage_final_20260906`](../runs/pqn_coverage_final_20260906/).
+and the source snapshot ZIP remain locally under
+`runs/pqn_coverage_final_20260906/`.
 Revisions 1 and 2 remain in their original separate run directories.
 
 Use the shared project venv from the assessment worktree. A fresh arm can be

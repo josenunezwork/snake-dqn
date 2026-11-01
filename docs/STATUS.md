@@ -26,16 +26,16 @@ product Watch6 v2, `5× frp3-s12 + v8` opponents, 6,000-frame sessions; pipeline
   `SNAKE_WATCH_REPLAY_DIR`. **Live bare `b8-s3` remains the automatic fallback** (empty, invalid, or
   exhausted bank), and **Play always stays live** (`b8-s3` without a veto).
 - **Watch replay rollback & serving caveats:** unset `SNAKE_WATCH_SOURCE` (or set
-  `SNAKE_WATCH_SOURCE=live`) and restart. Note: [`GameSession`](../web/backend/session.py)
-  (`__init__`, `reset_game`, and `set_mode`) currently selects `ReplayBank` whenever
-  `SNAKE_WATCH_SOURCE=replay` and `checkpoint is None` (without checking
+  `SNAKE_WATCH_SOURCE=live`) and restart. While `GameSession.load_checkpoint` (`session.py:1541-1544`)
+  already exits replay and closes `_replay_bank`, `__init__`, `reset_game`, and `set_mode` still
+  select `ReplayBank` whenever `SNAKE_WATCH_SOURCE=replay` and `checkpoint is None` (without checking
   `served_checkpoint == "b8-s3"`, `watch_roster == "mixed"`, `Watch6`, or prior `set_epsilon`/`set_food`
-  live opt-outs across `reset_game`), so any env-var checkpoint/roster rollback
-  (`SNAKE_SERVE_CHECKPOINT=frp3-s12|champion` or `SNAKE_SERVE_WATCH_ROSTER=all_b8`) must also unset
-  `SNAKE_WATCH_SOURCE` (or set `=live`) until `set_epsilon`/`set_food`-scoped `_replay_opted_out`
+  live opt-outs across `reset_game`). Any env-var checkpoint/roster rollback
+  (`SNAKE_SERVE_CHECKPOINT=frp3-s12|champion` or `SNAKE_SERVE_WATCH_ROSTER=all_b8`) must therefore also
+  unset `SNAKE_WATCH_SOURCE` (or set `=live`) until `set_epsilon`/`set_food`-scoped `_replay_opted_out`
   (cleared on `_build` / split `"new_game"`, leaving `Play -> Watch` intact) and the multi-entrypoint
   mixed-Watch6 `b8-s3` guard tracked in [research/ROADMAP.md](research/ROADMAP.md) §2.1 land on `main`
-  (leaving V3 worktrees untouched, since `watch6_search_efficacy_v3/protocol.py` hashes `web/backend/`).
+  (leaving V3 worktrees untouched, and decoupling shared search helpers out of `web/backend/` into `src/`).
 - **`exact-stop-l1` validator, mixed-controller bank & first-cycle ordering (`73974411` & `395eacbb`, 2026-11-01):**
   `web/backend/watch_replay.py` and `research/watch_replay/` accept `"exact-stop-l1"` (`L >= 1`,
   `interval = 5`, `H = 300`) in `ASSISTED_CONTROLLERS` alongside `"exact-stop-l2-prime"`, and
@@ -122,7 +122,7 @@ For synthesized current-round and later-round research plans (**advice, not deci
   - `bare` (`b8-s3`): mass **`351.1`** (`CI95 [320.2, 381.9]`), deaths **`0.288/1k`** (`83` deaths: `53` at `L < 600`, `30` at `L >= 600`, `21` at `L >= 800`).
   - `l2_prime_600` (served `L >= 600`): mass **`461.2`** (`+110.1` vs `bare`, `CI95 [+72.1, +148.1]`), deaths **`0.160/1k`** (`-44.6%` vs `bare`; `46` deaths: `34` at `L < 600`, `12` at `L >= 600`, `11` at `L >= 800`), `449.6` mean branches/session.
   - **`exact_stop_alllen` (`L >= 1`, `interval = 5`, `H = 300`):** mass **`559.4`** (**`+208.4` vs `bare`**, `CI95 [+170.1, +246.7]`; **`+98.3` vs `L >= 600`**, `CI95 [+50.6, +146.0]`), deaths **`0.052/1k`** (**`-81.9%` vs `bare`**; **`-67.4%` / `-0.108/1k` vs `L >= 600`**, `CI95 [-0.161, -0.054]`; `15` total deaths: **`1` at `L < 600`**, **`14` at `L >= 600`**, **`13` at `L >= 800`**), **`2.82×` search branches** (`1,268.5` mean branches/session, `0.142%` `L < 600` overrides, `mean_max_length = 1,096.0`).
-  - Pre-stated adoption rule (`>= +15.0` incremental mass and `<= 0.0` `deaths/1k` vs `L >= 600`) met: commit `73974411` added `"exact-stop-l1"` to `research/watch_replay/` and `web/backend/watch_replay.py`, and A100 `W = 6` banks `14l1–16l1` (`3 × 12` = `36/36` verified sessions on disjoint seeds in **`3.03–3.07 h/bank`, `~61.5 A100 u` observed total** at `6.73 u/h`; `t34-sol/argon-banks-l1/SUMMARY.md`) were verified and merged into `watch-replay-bank-live-168` (`395eacbb`, `web/serve.py` restarted on `b5b63cd1`). Exploration screen only — confirming `exact-stop-l1` as a Claim-B release still requires prospective H14400 confirmation (`Watch6-L1-V1`).
+  - Pre-stated adoption rule (`>= +15.0` incremental mass and `<= 0.0` `deaths/1k` vs `L >= 600`) met: commit `73974411` added `"exact-stop-l1"` to `research/watch_replay/` and `web/backend/watch_replay.py`, and A100 `W = 6` banks `14l1–16l1` (`3 × 12` = `36/36` verified sessions on disjoint seeds in **`3.03–3.07 h/bank`, `~61.5 A100 u` observed total** at `6.73 u/h`; `t34-sol/argon-banks-l1/SUMMARY.md`, noting `~2.8–3.2×` superlinear late-game compute scaling across `6,000..14,400`) were verified and merged into `watch-replay-bank-live-168` (`395eacbb`, `web/serve.py` restarted on `b5b63cd1`). Exploration screen only — confirming `exact-stop-l1` as a Claim-B release still requires prospective H14400 confirmation (`Watch6-L1-V1` in [research/ROADMAP.md](research/ROADMAP.md) §2.3).
 - **Completed parity — GPU `DeviceSim` v2 parity `PASS` on A100**
   ([`research/devicesim_v2_parity/`](../research/devicesim_v2_parity/),
   `t34-sol/argon-devicesim-v2/packet-a100-v2-parity-01/main-run-01/receipt.json`): **`0` mismatches**
@@ -157,9 +157,10 @@ For synthesized current-round and later-round research plans (**advice, not deci
   - **R7 macro-option fallback** ([`research/r7_macro_fallback/`](../research/r7_macro_fallback/),
     `t34-sol/argon-r7-repack/R7_READOUT.json`) — **`KILL`** (`3/5` bars on C/T train `1-step-all-die` roots:
     `0.316 ms` Mac 1-thread p95, `33.0%` vs `9.0%` `L >= 800` `all-die` rescue — `+66.7 pp` among
-    `t = 300` survivors before tick-`30` greedy-B8 re-entry trapped `16/25` — but `+3.85 pp < +10.0 pp`
-    total `L >= 600` lift and `2 > 0` newly caused ordinary lethal flips from single-suffix `sel0` and
-    aggressive `O3`/`O5`; `0` assessment roots opened).
+    `t = 300` survivors before tick-`30` greedy-B8 re-entry trapped `16/25`, while `all_die_sel0` fired on
+    only `9/129` `7.0%` of `L >= 800` death roots — failing `+3.85 pp < +10.0 pp` total `L >= 600` lift
+    and `2 > 0` newly caused ordinary lethal flips from single-suffix `sel0` and aggressive `O3`/`O5`;
+    `0` assessment roots opened; informs `DualCert-v8` advice in [research/ROADMAP.md](research/ROADMAP.md) §3).
 
 ---
 
