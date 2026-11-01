@@ -111,6 +111,14 @@ product Watch6 v2, `5× frp3-s12 + v8` opponents, 6,000-frame sessions; pipeline
 For synthesized current-round and later-round research plans (**advice, not decisions**), see
 [research/ROADMAP.md](research/ROADMAP.md).
 
+- **RELEASED 2026-11-01 ~16:00 PT — Watch serves only the 132 confirmed `exact-stop-l2-prime` replays**
+  (merge `fec81656`: controller filter + serving guards + Mac qualification `research/watch_replay/qualify.py`,
+  all bars PASS — `t34-sol/argon-replay-qual/{SUMMARY.md,qualification.json}`; Fable review
+  `APPROVE_WITH_CONDITIONS`, conditions C2/C3 fixed). `.claude/launch.json` `snake-web` now sets
+  `SNAKE_WATCH_REPLAY_DIR=.../watch-replay-bank-live-132` **and** `SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l2-prime`;
+  verified on port 8000 (replay `controller == exact-stop-l2-prime`, error null). The `36` unconfirmed `exact-stop-l1`
+  sessions are no longer served. Rollback: previous config (`watch-replay-bank-live-168`, no controller var), or
+  `SNAKE_WATCH_SOURCE=live` for bare `b8-s3`. Post-release: watch `update_ms`/overrun telemetry (C4).
 - **Confirmation DONE — Watch6 V3 exact-stop efficacy: `GO_EFFICACY_ONLY` (2026-11-01 14:40 PT)**
   ([`research/watch6_search_efficacy_v3/`](../research/watch6_search_efficacy_v3/)): sole registered final
   look via the V6.1 accounting adapter (`75471246`) over all `96` fresh paired `H = 14,400` Watch6-v2 sessions

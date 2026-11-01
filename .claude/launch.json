@@ -6,7 +6,8 @@
       "runtimeExecutable": "/usr/bin/env",
       "runtimeArgs": [
         "SNAKE_WATCH_SOURCE=replay",
-        "SNAKE_WATCH_REPLAY_DIR=/Users/josenunez/Projects/ml/snake-dqn-artifacts/watch-replay-bank-live-168",
+        "SNAKE_WATCH_REPLAY_DIR=/Users/josenunez/Projects/ml/snake-dqn-artifacts/watch-replay-bank-live-132",
+        "SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l2-prime",
         "./venv/bin/python",
         "web/serve.py"
       ],
