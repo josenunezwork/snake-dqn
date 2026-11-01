@@ -17,8 +17,6 @@ import os
 import re
 from pathlib import Path
 
-from research.watch6_search_efficacy_v3.ratify import ALLOWED_VERDICTS, parse_ruling_verdict
-from tools.ops.package_spec import digest, publish_json, verify_immutable
 from tools.watch6_v3_accounting import (
     ADAPTER_ROOT,
     BASELINE_COMMIT,
@@ -45,8 +43,15 @@ from tools.watch6_v3_accounting import (
     compute_broker_protocol,
     default_amendment_path,
     default_ruling_json_path,
+    ensure_cli_dash_b,
+    isolated_broker_execution,
     verify_baseline_closure,
 )
+
+# isort: split
+
+from research.watch6_search_efficacy_v3.ratify import ALLOWED_VERDICTS, parse_ruling_verdict
+from tools.ops.package_spec import digest, publish_json, verify_immutable
 
 SCHEMA = "watch6-v3-accounting-ruling/v1"
 _ADAPTER_COMMIT_LINE_RE = re.compile(
@@ -130,100 +135,106 @@ def verify_amendment_document(
     _verified_closure: dict[str, str] | None = None,
 ) -> dict:
     """Verify immutable accounting amendment sidecars and exact adapter/broker hash bindings."""
-    adapter_repo = (repo or ADAPTER_ROOT).resolve()
-    closure_info = (
-        _verified_closure
-        if _verified_closure is not None
-        else verify_baseline_closure(broker_root, require_head_at_baseline=True)
-    )
-    resolved_broker = Path(closure_info["broker_root"])
-    broker_proto = compute_broker_protocol(resolved_broker)
-    source_paths = [str(item) for item in broker_proto["source_paths"]]  # type: ignore[union-attr]
-    broker_science = closure_info["science"]
-
-    raw_target = (
-        amendment_md
-        if amendment_md is not None
-        else resolve_amendment_path(None, repo=adapter_repo)
-    )
-    if raw_target.is_symlink():
-        raise ValueError(f"REFUSE: symlinked accounting amendment forbidden: {raw_target}")
-    target = raw_target.resolve()
-    if target.is_symlink() or not target.is_file():
-        raise ValueError(f"REFUSE: missing accounting amendment document: {target}")
-
-    _assert_outside_source_closure(target, adapter_repo, source_paths)
-    _assert_outside_source_closure(target, resolved_broker, source_paths)
-    immutable_desc = verify_immutable(target)
-    text = target.read_text(encoding="utf-8")
-
-    commit_matches = list(dict.fromkeys(_ADAPTER_COMMIT_LINE_RE.findall(text)))
-    if expected_adapter_commit is not None:
-        bound_commit = expected_adapter_commit
-    elif len(commit_matches) == 1:
-        bound_commit = commit_matches[0]
-    else:
-        raise ValueError(
-            f"REFUSE: accounting amendment {target} must bind exactly one 40-hex Adapter Commit"
+    eff_broker = broker_root if broker_root is not None else V3_BROKER_ROOT
+    with isolated_broker_execution("ratify-amendment", broker_root=eff_broker):
+        adapter_repo = (repo or ADAPTER_ROOT).resolve()
+        closure_info = (
+            _verified_closure
+            if _verified_closure is not None
+            else verify_baseline_closure(eff_broker, require_head_at_baseline=True)
         )
+        resolved_broker = Path(closure_info["broker_root"])
+        broker_proto = compute_broker_protocol(resolved_broker)
+        raw_sp = broker_proto["source_paths"]
+        source_paths = [str(item) for item in raw_sp]  # type: ignore[union-attr]
+        broker_science = closure_info["science"]
 
-    verified_commit = adapter_commit(
-        adapter_repo,
-        require_clean=require_clean_git,
-        expected_commit=bound_commit,
-    )
-    files_map = adapter_files_map(adapter_repo)
-    inv_sha = adapter_inventory_sha256(adapter_repo)
+        raw_target = (
+            amendment_md
+            if amendment_md is not None
+            else resolve_amendment_path(None, repo=adapter_repo)
+        )
+        if raw_target.is_symlink():
+            raise ValueError(f"REFUSE: symlinked accounting amendment forbidden: {raw_target}")
+        target = raw_target.resolve()
+        if target.is_symlink() or not target.is_file():
+            raise ValueError(f"REFUSE: missing accounting amendment document: {target}")
 
-    required_tokens = (
-        ("v3_broker_root", str(V3_BROKER_ROOT)),
-        ("baseline_commit", BASELINE_COMMIT),
-        ("baseline_science", broker_science),
-        ("baseline_namespace", BASELINE_NAMESPACE),
-        ("registration_v3_sha256", REGISTRATION_V3_SHA256),
-        ("ruling_2_rel", RULING_2_REL),
-        ("ruling_2_sha256", RULING_2_SHA256),
-        ("ruling_3_rel", RULING_3_REL),
-        ("ruling_3_sha256", RULING_3_SHA256),
-        ("shard00_path_ruling_rel", SHARD00_PATH_RULING_REL),
-        ("shard00_path_ruling_sha256", SHARD00_PATH_RULING_SHA256),
-        ("shard00_proof_rel", SHARD00_PROOF_REL),
-        ("shard00_proof_sha256", SHARD00_PROOF_SHA256),
-        ("shard00_receipt_rel", SHARD00_RECEIPT_REL),
-        ("shard00_receipt_sha256", SHARD00_RECEIPT_SHA256),
-        ("shard00_exec_manifest_sha256", SHARD00_EXEC_MANIFEST_SHA256),
-        ("adapter_commit", verified_commit),
-        ("adapter_inventory_sha256", inv_sha),
-    )
-    for label, token in required_tokens:
-        if token not in text:
+        _assert_outside_source_closure(target, adapter_repo, source_paths)
+        _assert_outside_source_closure(target, resolved_broker, source_paths)
+        immutable_desc = verify_immutable(target)
+        text = target.read_text(encoding="utf-8")
+
+        commit_matches = list(dict.fromkeys(_ADAPTER_COMMIT_LINE_RE.findall(text)))
+        if expected_adapter_commit is not None:
+            bound_commit = expected_adapter_commit
+        elif len(commit_matches) == 1:
+            bound_commit = commit_matches[0]
+        else:
             raise ValueError(
-                f"REFUSE: accounting amendment {target} missing required {label} binding ({token})"
+                f"REFUSE: accounting amendment {target} must bind exactly one 40-hex Adapter Commit"
             )
 
-    for rel_path, file_sha in sorted(files_map.items()):
-        if rel_path not in text or file_sha not in text:
-            raise ValueError(
-                f"REFUSE: accounting amendment {target} missing exact hash binding for {rel_path}"
-            )
-        pattern = re.compile(re.escape(rel_path) + r"[^\n]*" + re.escape(file_sha))
-        rev_pattern = re.compile(re.escape(file_sha) + r"[^\n]*" + re.escape(rel_path))
-        if pattern.search(text) is None and rev_pattern.search(text) is None:
-            raise ValueError(
-                f"REFUSE: accounting amendment {target} does not pair {rel_path} with {file_sha}"
-            )
+        verified_commit = adapter_commit(
+            adapter_repo,
+            require_clean=require_clean_git,
+            expected_commit=bound_commit,
+        )
+        files_map = adapter_files_map(adapter_repo)
+        inv_sha = adapter_inventory_sha256(adapter_repo)
 
-    _verify_frozen_artifacts_if_present(artifacts_root(adapter_repo))
+        required_tokens = (
+            ("v3_broker_root", str(V3_BROKER_ROOT)),
+            ("baseline_commit", BASELINE_COMMIT),
+            ("baseline_science", broker_science),
+            ("baseline_namespace", BASELINE_NAMESPACE),
+            ("registration_v3_sha256", REGISTRATION_V3_SHA256),
+            ("ruling_2_rel", RULING_2_REL),
+            ("ruling_2_sha256", RULING_2_SHA256),
+            ("ruling_3_rel", RULING_3_REL),
+            ("ruling_3_sha256", RULING_3_SHA256),
+            ("shard00_path_ruling_rel", SHARD00_PATH_RULING_REL),
+            ("shard00_path_ruling_sha256", SHARD00_PATH_RULING_SHA256),
+            ("shard00_proof_rel", SHARD00_PROOF_REL),
+            ("shard00_proof_sha256", SHARD00_PROOF_SHA256),
+            ("shard00_receipt_rel", SHARD00_RECEIPT_REL),
+            ("shard00_receipt_sha256", SHARD00_RECEIPT_SHA256),
+            ("shard00_exec_manifest_sha256", SHARD00_EXEC_MANIFEST_SHA256),
+            ("adapter_commit", verified_commit),
+            ("adapter_inventory_sha256", inv_sha),
+        )
+        for label, token in required_tokens:
+            if token not in text:
+                raise ValueError(
+                    f"REFUSE: accounting amendment {target} missing required {label} "
+                    f"binding ({token})"
+                )
 
-    return {
-        "amendment_path": str(target),
-        "amendment_sha256": immutable_desc["sha256"],
-        "broker_root": str(resolved_broker),
-        "science": broker_science,
-        "adapter_commit": verified_commit,
-        "adapter_inventory_sha256": inv_sha,
-        "adapter_files": files_map,
-    }
+        for rel_path, file_sha in sorted(files_map.items()):
+            if rel_path not in text or file_sha not in text:
+                raise ValueError(
+                    f"REFUSE: accounting amendment {target} missing exact hash binding "
+                    f"for {rel_path}"
+                )
+            pattern = re.compile(re.escape(rel_path) + r"[^\n]*" + re.escape(file_sha))
+            rev_pattern = re.compile(re.escape(file_sha) + r"[^\n]*" + re.escape(rel_path))
+            if pattern.search(text) is None and rev_pattern.search(text) is None:
+                raise ValueError(
+                    f"REFUSE: accounting amendment {target} does not pair "
+                    f"{rel_path} with {file_sha}"
+                )
+
+        _verify_frozen_artifacts_if_present(artifacts_root(adapter_repo))
+
+        return {
+            "amendment_path": str(target),
+            "amendment_sha256": immutable_desc["sha256"],
+            "broker_root": str(resolved_broker),
+            "science": broker_science,
+            "adapter_commit": verified_commit,
+            "adapter_inventory_sha256": inv_sha,
+            "adapter_files": files_map,
+        }
 
 
 def record_ruling(
@@ -237,60 +248,64 @@ def record_ruling(
     require_clean_git: bool = True,
 ) -> dict:
     """Bind Astra's re-ratification ruling to the amendment, broker, and adapter hashes."""
-    adapter_repo = (repo or ADAPTER_ROOT).resolve()
-    closure_info = verify_baseline_closure(broker_root, require_head_at_baseline=True)
-    resolved_broker = Path(closure_info["broker_root"])
-    if ruling_md.is_symlink():
-        raise ValueError(f"REFUSE: symlinked ruling markdown forbidden: {ruling_md}")
-    resolved_ruling = ruling_md.resolve(strict=True)
-    if (
-        resolved_ruling.is_symlink()
-        or not resolved_ruling.is_file()
-        or resolved_ruling.stat().st_size == 0
-    ):
-        raise ValueError(f"ruling markdown must be a nonempty regular file: {resolved_ruling}")
-    if judge not in ("Astra", "Fable"):
-        raise ValueError("independent judge must be Astra (or Fable stand-in)")
+    eff_broker = broker_root if broker_root is not None else V3_BROKER_ROOT
+    with isolated_broker_execution("ratify-record", broker_root=eff_broker):
+        adapter_repo = (repo or ADAPTER_ROOT).resolve()
+        closure_info = verify_baseline_closure(eff_broker, require_head_at_baseline=True)
+        resolved_broker = Path(closure_info["broker_root"])
+        if ruling_md.is_symlink():
+            raise ValueError(f"REFUSE: symlinked ruling markdown forbidden: {ruling_md}")
+        resolved_ruling = ruling_md.resolve(strict=True)
+        if (
+            resolved_ruling.is_symlink()
+            or not resolved_ruling.is_file()
+            or resolved_ruling.stat().st_size == 0
+        ):
+            raise ValueError(f"ruling markdown must be a nonempty regular file: {resolved_ruling}")
+        if judge not in ("Astra", "Fable"):
+            raise ValueError("independent judge must be Astra (or Fable stand-in)")
 
-    verdict = parse_ruling_verdict(resolved_ruling.read_text(encoding="utf-8"))
-    amend = verify_amendment_document(
-        amendment_md,
-        repo=adapter_repo,
-        broker_root=resolved_broker,
-        require_clean_git=require_clean_git,
-        _verified_closure=closure_info,
-    )
-    target = resolve_ruling_json(out, repo=adapter_repo)
-    payload = {
-        "schema": SCHEMA,
-        "status": "RATIFIED",
-        "verdict": verdict,
-        "judge": judge,
-        "implementer": "Argon",
-        "independent_implementation_review": True,
-        "broker_root": str(resolved_broker),
-        "namespace": closure_info["namespace"],
-        "science": closure_info["science"],
-        "baseline_commit": closure_info["baseline_commit"],
-        "registration_path": str(
-            (resolved_broker / "research/watch6_search_efficacy_v3/REGISTRATION_V3.md").resolve()
-        ),
-        "registration_sha256": closure_info["registration_sha256"],
-        "ruling_2_sha256": RULING_2_SHA256,
-        "ruling_3_sha256": RULING_3_SHA256,
-        "path_ruling_sha256": SHARD00_PATH_RULING_SHA256,
-        "shard00_proof_sha256": SHARD00_PROOF_SHA256,
-        "shard00_receipt_sha256": SHARD00_RECEIPT_SHA256,
-        "amendment_path": amend["amendment_path"],
-        "amendment_sha256": amend["amendment_sha256"],
-        "adapter_commit": amend["adapter_commit"],
-        "adapter_inventory_sha256": amend["adapter_inventory_sha256"],
-        "adapter_files": amend["adapter_files"],
-        "ruling_path": str(resolved_ruling),
-        "ruling_sha256": digest(resolved_ruling),
-    }
-    publish_json(target, payload)
-    return payload
+        verdict = parse_ruling_verdict(resolved_ruling.read_text(encoding="utf-8"))
+        amend = verify_amendment_document(
+            amendment_md,
+            repo=adapter_repo,
+            broker_root=resolved_broker,
+            require_clean_git=require_clean_git,
+            _verified_closure=closure_info,
+        )
+        target = resolve_ruling_json(out, repo=adapter_repo)
+        payload = {
+            "schema": SCHEMA,
+            "status": "RATIFIED",
+            "verdict": verdict,
+            "judge": judge,
+            "implementer": "Argon",
+            "independent_implementation_review": True,
+            "broker_root": str(resolved_broker),
+            "namespace": closure_info["namespace"],
+            "science": closure_info["science"],
+            "baseline_commit": closure_info["baseline_commit"],
+            "registration_path": str(
+                (
+                    resolved_broker / "research/watch6_search_efficacy_v3/REGISTRATION_V3.md"
+                ).resolve()
+            ),
+            "registration_sha256": closure_info["registration_sha256"],
+            "ruling_2_sha256": RULING_2_SHA256,
+            "ruling_3_sha256": RULING_3_SHA256,
+            "path_ruling_sha256": SHARD00_PATH_RULING_SHA256,
+            "shard00_proof_sha256": SHARD00_PROOF_SHA256,
+            "shard00_receipt_sha256": SHARD00_RECEIPT_SHA256,
+            "amendment_path": amend["amendment_path"],
+            "amendment_sha256": amend["amendment_sha256"],
+            "adapter_commit": amend["adapter_commit"],
+            "adapter_inventory_sha256": amend["adapter_inventory_sha256"],
+            "adapter_files": amend["adapter_files"],
+            "ruling_path": str(resolved_ruling),
+            "ruling_sha256": digest(resolved_ruling),
+        }
+        publish_json(target, payload)
+        return payload
 
 
 def validate_ruling_receipt(
@@ -302,98 +317,105 @@ def validate_ruling_receipt(
     require_clean_git: bool = True,
 ) -> dict:
     """Fail closed if Astra's accounting re-ratification receipt is absent, unapproved, or stale."""
-    adapter_repo = (repo or ADAPTER_ROOT).resolve()
-    closure_info = verify_baseline_closure(broker_root, require_head_at_baseline=True)
-    resolved_broker = Path(closure_info["broker_root"])
-    broker_science = closure_info["science"]
+    eff_broker = broker_root if broker_root is not None else V3_BROKER_ROOT
+    with isolated_broker_execution("ratify-validate", broker_root=eff_broker):
+        adapter_repo = (repo or ADAPTER_ROOT).resolve()
+        closure_info = verify_baseline_closure(eff_broker, require_head_at_baseline=True)
+        resolved_broker = Path(closure_info["broker_root"])
+        broker_science = closure_info["science"]
 
-    raw_target = path if path is not None else resolve_ruling_json(None, repo=adapter_repo)
-    if raw_target.is_symlink():
-        raise ValueError(f"REFUSE: symlinked accounting ruling receipt forbidden: {raw_target}")
-    target = raw_target.resolve()
-    if target.is_symlink() or not target.is_file():
-        raise ValueError(
-            f"REFUSE: missing ratified Astra accounting ruling receipt at {target} "
-            "(run `python -m tools.watch6_v3_accounting.ratify --ruling <RULING.md>`)"
+        raw_target = path if path is not None else resolve_ruling_json(None, repo=adapter_repo)
+        if raw_target.is_symlink():
+            raise ValueError(f"REFUSE: symlinked accounting ruling receipt forbidden: {raw_target}")
+        target = raw_target.resolve()
+        if target.is_symlink() or not target.is_file():
+            raise ValueError(
+                f"REFUSE: missing ratified Astra accounting ruling receipt at {target} "
+                "(run `python -m tools.watch6_v3_accounting.ratify --ruling <RULING.md>`)"
+            )
+
+        verify_immutable(target)
+        receipt = json.loads(target.read_text(encoding="utf-8"))
+        if not isinstance(receipt, dict):
+            raise ValueError(f"REFUSE: corrupt accounting ruling receipt at {target}")
+
+        ruling_md = Path(str(receipt.get("ruling_path", "")))
+        amendment_md = Path(str(receipt.get("amendment_path", "")))
+        rec_broker_raw = receipt.get("broker_root")
+        if not isinstance(rec_broker_raw, str) or Path(rec_broker_raw).resolve() != resolved_broker:
+            raise ValueError(
+                f"REFUSE: ruling receipt broker_root {rec_broker_raw!r} "
+                f"differs from verified broker {resolved_broker}"
+            )
+
+        if (
+            receipt.get("schema") != SCHEMA
+            or receipt.get("status") != "RATIFIED"
+            or receipt.get("verdict") not in ALLOWED_VERDICTS
+            or receipt.get("judge") not in ("Astra", "Fable")
+            or receipt.get("implementer") != "Argon"
+            or receipt.get("namespace") != BASELINE_NAMESPACE
+            or receipt.get("namespace") != closure_info["namespace"]
+            or receipt.get("science") != BASELINE_SCIENCE
+            or receipt.get("science") != broker_science
+            or receipt.get("baseline_commit") != BASELINE_COMMIT
+            or receipt.get("registration_sha256") != REGISTRATION_V3_SHA256
+            or receipt.get("ruling_2_sha256") != RULING_2_SHA256
+            or receipt.get("ruling_3_sha256") != RULING_3_SHA256
+            or receipt.get("path_ruling_sha256") != SHARD00_PATH_RULING_SHA256
+            or receipt.get("shard00_proof_sha256") != SHARD00_PROOF_SHA256
+            or receipt.get("shard00_receipt_sha256") != SHARD00_RECEIPT_SHA256
+            or not ruling_md.is_absolute()
+            or ruling_md.is_symlink()
+            or not ruling_md.is_file()
+            or digest(ruling_md) != receipt.get("ruling_sha256")
+            or not amendment_md.is_absolute()
+        ):
+            raise ValueError(
+                "REFUSE: Astra accounting ruling receipt is stale, invalid, or hash-mismatched"
+            )
+
+        if (
+            amendment_override is not None
+            and amendment_md.resolve() != amendment_override.resolve()
+        ):
+            raise ValueError(
+                f"REFUSE: ruling receipt amendment_path {amendment_md} "
+                f"differs from {amendment_override}"
+            )
+
+        parsed_verdict = parse_ruling_verdict(ruling_md.read_text(encoding="utf-8"))
+        if parsed_verdict != receipt.get("verdict"):
+            raise ValueError("REFUSE: ruling markdown verdict does not match recorded receipt")
+
+        rec_commit = receipt.get("adapter_commit")
+        if not isinstance(rec_commit, str):
+            raise ValueError("REFUSE: ruling receipt missing adapter_commit")
+
+        amend = verify_amendment_document(
+            amendment_md,
+            repo=adapter_repo,
+            broker_root=resolved_broker,
+            require_clean_git=require_clean_git,
+            expected_adapter_commit=rec_commit,
+            _verified_closure=closure_info,
         )
+        if (
+            receipt.get("amendment_sha256") != amend["amendment_sha256"]
+            or receipt.get("adapter_commit") != amend["adapter_commit"]
+            or receipt.get("adapter_inventory_sha256") != amend["adapter_inventory_sha256"]
+            or receipt.get("adapter_files") != amend["adapter_files"]
+        ):
+            raise ValueError(
+                "REFUSE: live adapter files or accounting amendment differ from ratified "
+                "Astra receipt"
+            )
 
-    verify_immutable(target)
-    receipt = json.loads(target.read_text(encoding="utf-8"))
-    if not isinstance(receipt, dict):
-        raise ValueError(f"REFUSE: corrupt accounting ruling receipt at {target}")
-
-    ruling_md = Path(str(receipt.get("ruling_path", "")))
-    amendment_md = Path(str(receipt.get("amendment_path", "")))
-    rec_broker_raw = receipt.get("broker_root")
-    if not isinstance(rec_broker_raw, str) or Path(rec_broker_raw).resolve() != resolved_broker:
-        raise ValueError(
-            f"REFUSE: ruling receipt broker_root {rec_broker_raw!r} "
-            f"differs from verified broker {resolved_broker}"
-        )
-
-    if (
-        receipt.get("schema") != SCHEMA
-        or receipt.get("status") != "RATIFIED"
-        or receipt.get("verdict") not in ALLOWED_VERDICTS
-        or receipt.get("judge") not in ("Astra", "Fable")
-        or receipt.get("implementer") != "Argon"
-        or receipt.get("namespace") != BASELINE_NAMESPACE
-        or receipt.get("namespace") != closure_info["namespace"]
-        or receipt.get("science") != BASELINE_SCIENCE
-        or receipt.get("science") != broker_science
-        or receipt.get("baseline_commit") != BASELINE_COMMIT
-        or receipt.get("registration_sha256") != REGISTRATION_V3_SHA256
-        or receipt.get("ruling_2_sha256") != RULING_2_SHA256
-        or receipt.get("ruling_3_sha256") != RULING_3_SHA256
-        or receipt.get("path_ruling_sha256") != SHARD00_PATH_RULING_SHA256
-        or receipt.get("shard00_proof_sha256") != SHARD00_PROOF_SHA256
-        or receipt.get("shard00_receipt_sha256") != SHARD00_RECEIPT_SHA256
-        or not ruling_md.is_absolute()
-        or ruling_md.is_symlink()
-        or not ruling_md.is_file()
-        or digest(ruling_md) != receipt.get("ruling_sha256")
-        or not amendment_md.is_absolute()
-    ):
-        raise ValueError(
-            "REFUSE: Astra accounting ruling receipt is stale, invalid, or hash-mismatched"
-        )
-
-    if amendment_override is not None and amendment_md.resolve() != amendment_override.resolve():
-        raise ValueError(
-            f"REFUSE: ruling receipt amendment_path {amendment_md} "
-            f"differs from {amendment_override}"
-        )
-
-    parsed_verdict = parse_ruling_verdict(ruling_md.read_text(encoding="utf-8"))
-    if parsed_verdict != receipt.get("verdict"):
-        raise ValueError("REFUSE: ruling markdown verdict does not match recorded receipt")
-
-    rec_commit = receipt.get("adapter_commit")
-    if not isinstance(rec_commit, str):
-        raise ValueError("REFUSE: ruling receipt missing adapter_commit")
-
-    amend = verify_amendment_document(
-        amendment_md,
-        repo=adapter_repo,
-        broker_root=resolved_broker,
-        require_clean_git=require_clean_git,
-        expected_adapter_commit=rec_commit,
-        _verified_closure=closure_info,
-    )
-    if (
-        receipt.get("amendment_sha256") != amend["amendment_sha256"]
-        or receipt.get("adapter_commit") != amend["adapter_commit"]
-        or receipt.get("adapter_inventory_sha256") != amend["adapter_inventory_sha256"]
-        or receipt.get("adapter_files") != amend["adapter_files"]
-    ):
-        raise ValueError(
-            "REFUSE: live adapter files or accounting amendment differ from ratified Astra receipt"
-        )
-
-    return receipt
+        return receipt
 
 
 def main() -> None:
+    ensure_cli_dash_b("tools.watch6_v3_accounting.ratify")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--ruling",
@@ -408,7 +430,7 @@ def main() -> None:
         "--amendment",
         type=Path,
         default=None,
-        help="Path to immutable WATCH6_V3_ACCOUNTING_AMENDMENT_V4_20261031.md",
+        help="Path to immutable WATCH6_V3_ACCOUNTING_AMENDMENT_V5_20261031.md",
     )
     parser.add_argument(
         "--out",

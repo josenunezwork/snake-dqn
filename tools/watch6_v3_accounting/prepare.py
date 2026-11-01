@@ -15,6 +15,18 @@ import subprocess
 import tarfile
 from pathlib import Path
 
+from tools.watch6_v3_accounting import (
+    BASELINE_COMMIT,
+    BASELINE_SCIENCE,
+    V3_BROKER_ROOT,
+    bind_broker_protocol,
+    compute_broker_protocol,
+    ensure_cli_dash_b,
+    isolated_broker_execution,
+)
+
+# isort: split
+
 from research.colab_cli import canary
 from research.watch6_search_efficacy_v3 import protocol as p
 from research.watch6_search_efficacy_v3.costs import empirical_forecast, verify_report_evidence
@@ -23,13 +35,6 @@ from research.watch6_search_efficacy_v3.prepare import ALLOWED_REMOTE_BRANCHES
 from research.watch6_search_efficacy_v3.run import ledger_identity
 from research.watch6_search_efficacy_v3.uploads import METADATA, checkpoint_inputs, pack_inputs
 from tools.ops.package_spec import Input, digest, empty_ledger, publish_json, stage_inputs
-from tools.watch6_v3_accounting import (
-    BASELINE_COMMIT,
-    BASELINE_SCIENCE,
-    V3_BROKER_ROOT,
-    bind_broker_protocol,
-    compute_broker_protocol,
-)
 from tools.watch6_v3_accounting.admission import admit, completed_ledger
 
 
@@ -89,7 +94,10 @@ def prepare(
 ) -> dict:
     """Prepare V3 L4 W4 shard manifests pinned to baseline commit 357e3504 offline."""
     target_broker = broker_root if broker_root is not None else V3_BROKER_ROOT
-    with bind_broker_protocol(target_broker, require_head_at_baseline=True) as closure_info:
+    with (
+        isolated_broker_execution("prepare", broker_root=target_broker),
+        bind_broker_protocol(target_broker, require_head_at_baseline=True) as closure_info,
+    ):
         resolved_broker = Path(closure_info["broker_root"])
         broker_science = closure_info["science"]
 
@@ -354,6 +362,7 @@ def prepare(
 
 
 def main() -> None:
+    ensure_cli_dash_b("tools.watch6_v3_accounting.prepare")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--benchmark", type=Path, required=True)

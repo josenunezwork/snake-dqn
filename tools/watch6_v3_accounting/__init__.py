@@ -5,29 +5,38 @@ and never enters the runtime import/source closure. Runtime jobs execute unchang
 ``357e3504ab7f4b1e5c78209eee14391d16234c7a`` from the real V3 broker root
 ``/Users/josenunez/Projects/ml/snake-dqn-argon-v3-confirm``, whose actual bytes compute
 ``protocol.identity() == b26f7fa03927509342fc1adbbbd1d1878eb3511aab4f6698d103aa010a0e1420``.
+
+Fail-closed cache rule (Astra Ruling 4 Points 3 & 4):
+- Zero cache whitelist inside the broker closure: every ``__pycache__`` directory (even empty),
+  every Numba ``.nbi``/``.nbc`` native cache payload, every CPython ``.pyc``/``.pyo`` bytecode
+  cache, and every other untracked or git-ignored file or directory inside the broker closure is
+  refused outright without opening, unmarshalling, or unpickling untrusted cache payloads.
+- Every Mac adapter entrypoint executes with ``-B``, ``PYTHONDONTWRITEBYTECODE=1``,
+  ``PYTHONPYCACHEPREFIX`` outside the broker tree, and ``NUMBA_CACHE_DIR`` set to a fresh, empty,
+  verified-empty, single-use adapter-owned directory outside the broker tree (with
+  ``NUMBA_CACHE_LOCATOR_CLASSES=UserProvidedCacheLocator``), so no cache is ever written back into
+  the broker tree.
 """
 
 from __future__ import annotations
 
 import ast
+import atexit
 import contextlib
 import hashlib
-import importlib.util
-import io
 import json
-import marshal
-import math
 import os
-import pickletools
-import re
+import shlex
+import shutil
 import subprocess
 import sys
+import tempfile
+import threading
 import types
+import uuid
 from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
-
-from research.watch6_search_efficacy_v3 import protocol as p
-from tools.ops.package_spec import digest
 
 BASELINE_COMMIT = "357e3504ab7f4b1e5c78209eee14391d16234c7a"
 BASELINE_SCIENCE = "b26f7fa03927509342fc1adbbbd1d1878eb3511aab4f6698d103aa010a0e1420"
@@ -43,6 +52,9 @@ RULING_2_SHA256 = "36a51041e86d9d55b1694f84a09cb0b444d5b7f9a38b4cf60bf9dddf7316e
 
 RULING_3_REL = "t34-sol/watch6-v3-ruling-3/RULING_V3.md"
 RULING_3_SHA256 = "fc160389ccdbdb048a57aa436a2d7d93010982feef7a68bf364d8953b5b50176"
+
+RULING_VERIFY_4_REL = "t34-sol/watch6-v3-accounting-verify-4/RULING_ACCOUNTING.md"
+RULING_VERIFY_4_SHA256 = "16033cb89602260dd9557a02df9626358acd126686b84d658142e7f26367006d"
 
 SHARD00_PATH_RULING_REL = "t34-sol/watch6-v3-shard00-ruling/RULING.md"
 SHARD00_PATH_RULING_SHA256 = "80bb687aeb801fe5659f9bba9dcf185dd4dac136090b7845979871ef749c0308"
@@ -77,17 +89,345 @@ ADAPTER_FILES: tuple[str, ...] = (
 )
 
 
+def _forbidden_cache_trees(extra_broker: Path | None = None) -> tuple[Path, ...]:
+    candidates = [V3_BROKER_ROOT, ADAPTER_ROOT, MAIN_CHECKOUT_ROOT]
+    if extra_broker is not None:
+        candidates.append(extra_broker)
+    resolved: list[Path] = []
+    seen: set[Path] = set()
+    for cand in candidates:
+        try:
+            target = cand.resolve()
+        except OSError:
+            target = Path(os.path.abspath(str(cand)))
+        if target not in seen:
+            seen.add(target)
+            resolved.append(target)
+    return tuple(resolved)
+
+
+def _is_strictly_outside_trees(candidate: Path, forbidden_trees: tuple[Path, ...]) -> bool:
+    resolved = candidate.resolve()
+    for tree in forbidden_trees:
+        if resolved == tree or resolved.is_relative_to(tree) or tree.is_relative_to(resolved):
+            return False
+    return True
+
+
+def _select_external_temp_base(forbidden_trees: tuple[Path, ...]) -> Path:
+    raw_candidates = [Path(tempfile.gettempdir()), Path("/private/tmp"), Path("/tmp")]
+    for raw in raw_candidates:
+        if not raw.exists() or not raw.is_dir():
+            continue
+        resolved = raw.resolve()
+        if any(resolved == tree or resolved.is_relative_to(tree) for tree in forbidden_trees):
+            continue
+        return resolved
+    raise RuntimeError(
+        "REFUSE: unable to locate an external temporary base directory outside broker/repo trees"
+    )
+
+
+# Enforce zero in-tree bytecode/Numba cache emission before importing any project/broker module.
+sys.dont_write_bytecode = True
+os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
+_BOOTSTRAP_FORBIDDEN = _forbidden_cache_trees()
+_BOOTSTRAP_ISOLATION_ROOT = Path(
+    tempfile.mkdtemp(
+        prefix="watch6-v3-acct-bootstrap-",
+        dir=str(_select_external_temp_base(_BOOTSTRAP_FORBIDDEN)),
+    )
+).resolve()
+os.chmod(_BOOTSTRAP_ISOLATION_ROOT, 0o700)
+_BOOTSTRAP_NUMBA_CACHE_DIR = _BOOTSTRAP_ISOLATION_ROOT / "numba_cache"
+_BOOTSTRAP_PYCACHE_DIR = _BOOTSTRAP_ISOLATION_ROOT / "cpython_pycache"
+_BOOTSTRAP_NUMBA_CACHE_DIR.mkdir(mode=0o700, exist_ok=False)
+_BOOTSTRAP_PYCACHE_DIR.mkdir(mode=0o700, exist_ok=False)
+sys.pycache_prefix = str(_BOOTSTRAP_PYCACHE_DIR)
+os.environ["PYTHONPYCACHEPREFIX"] = str(_BOOTSTRAP_PYCACHE_DIR)
+os.environ["NUMBA_CACHE_DIR"] = str(_BOOTSTRAP_NUMBA_CACHE_DIR)
+os.environ["NUMBA_CACHE_LOCATOR_CLASSES"] = "UserProvidedCacheLocator"
+atexit.register(shutil.rmtree, _BOOTSTRAP_ISOLATION_ROOT, True)
+
+from research.watch6_search_efficacy_v3 import protocol as p  # noqa: E402
+from tools.ops.package_spec import digest  # noqa: E402
+
+_ISOLATION_TLS = threading.local()
+_USED_CACHE_LOCK = threading.Lock()
+_USED_NUMBA_CACHE_DIRS: set[str] = set()
+
+
+@dataclass(frozen=True)
+class IsolatedBrokerEnv:
+    """Fresh, single-use, verified-empty external cache isolation state for one invocation."""
+
+    entrypoint: str
+    invocation_id: str
+    root_dir: Path
+    numba_cache_dir: Path
+    pycache_prefix_dir: Path
+    bin_dir: Path
+    python_wrapper: Path
+    real_python: str
+    verified_empty_before_use: bool
+
+    def verify_outside(self, broker_root: Path | None = None) -> None:
+        forbidden = _forbidden_cache_trees(broker_root)
+        for target in (self.root_dir, self.numba_cache_dir, self.pycache_prefix_dir, self.bin_dir):
+            if target.is_symlink() or not target.is_dir():
+                raise ValueError(f"REFUSE: missing or symlinked isolated cache directory: {target}")
+            if not _is_strictly_outside_trees(target, forbidden):
+                raise ValueError(
+                    f"REFUSE: isolated cache directory {target} overlaps broker/repo tree"
+                )
+
+    def subprocess_env(
+        self,
+        base_env: dict[str, str] | None = None,
+        *,
+        prepend_wrapper_to_path: bool = True,
+    ) -> dict[str, str]:
+        env = dict(os.environ if base_env is None else base_env)
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        env["PYTHONPYCACHEPREFIX"] = str(self.pycache_prefix_dir)
+        env["NUMBA_CACHE_DIR"] = str(self.numba_cache_dir)
+        env["NUMBA_CACHE_LOCATOR_CLASSES"] = "UserProvidedCacheLocator"
+        env["SNAKE_DQN_PYTHON"] = str(self.python_wrapper)
+        if prepend_wrapper_to_path:
+            existing_path = env.get("PATH", "")
+            env["PATH"] = (
+                f"{self.bin_dir}{os.pathsep}{existing_path}" if existing_path else str(self.bin_dir)
+            )
+        return env
+
+
+def active_broker_isolation() -> IsolatedBrokerEnv | None:
+    """Return the active per-invocation ``IsolatedBrokerEnv`` if inside an entrypoint context."""
+    current = getattr(_ISOLATION_TLS, "active", None)
+    return current if isinstance(current, IsolatedBrokerEnv) else None
+
+
+def used_numba_cache_dirs() -> frozenset[str]:
+    """Return all single-use ``NUMBA_CACHE_DIR`` paths allocated during this process lifetime."""
+    with _USED_CACHE_LOCK:
+        return frozenset(_USED_NUMBA_CACHE_DIRS)
+
+
+def _sync_loaded_numba_cache_config(*, rebind_dispatchers: bool) -> None:
+    """Reload ``numba.core.config`` and rebind already-loaded cached dispatchers if imported."""
+    nb_cfg = sys.modules.get("numba.core.config")
+    if nb_cfg is not None and hasattr(nb_cfg, "reload_config"):
+        nb_cfg.reload_config()
+    if not rebind_dispatchers:
+        return
+    nb_disp_mod = sys.modules.get("numba.core.dispatcher")
+    nb_cache_mod = sys.modules.get("numba.core.caching")
+    if nb_disp_mod is None or nb_cache_mod is None:
+        return
+    disp_cls = getattr(nb_disp_mod, "Dispatcher", None)
+    null_cache_cls = getattr(nb_cache_mod, "NullCache", None)
+    if disp_cls is None or null_cache_cls is None:
+        return
+    seen_ids: set[int] = set()
+    for mod in list(sys.modules.values()):
+        mod_dict = getattr(mod, "__dict__", None)
+        if not isinstance(mod_dict, dict):
+            continue
+        for obj in list(mod_dict.values()):
+            obj_id = id(obj)
+            if obj_id in seen_ids:
+                continue
+            seen_ids.add(obj_id)
+            if isinstance(obj, disp_cls):
+                cur_cache = getattr(obj, "_cache", None)
+                if cur_cache is not None and not isinstance(cur_cache, null_cache_cls):
+                    obj.enable_caching()
+
+
+@contextlib.contextmanager
+def isolated_broker_execution(
+    entrypoint: str,
+    broker_root: Path | None = None,
+) -> Iterator[IsolatedBrokerEnv]:
+    """Run an adapter entrypoint with a fresh, verified-empty, single-use ``NUMBA_CACHE_DIR``."""
+    sys.dont_write_bytecode = True
+    os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
+
+    current = active_broker_isolation()
+    if current is not None:
+        current.verify_outside(broker_root)
+        if (
+            not sys.dont_write_bytecode
+            or os.environ.get("PYTHONDONTWRITEBYTECODE") != "1"
+            or os.environ.get("NUMBA_CACHE_DIR") != str(current.numba_cache_dir)
+            or os.environ.get("NUMBA_CACHE_LOCATOR_CLASSES") != "UserProvidedCacheLocator"
+        ):
+            raise RuntimeError("REFUSE: active broker cache isolation environment was mutated")
+        yield current
+        return
+
+    forbidden = _forbidden_cache_trees(broker_root)
+    temp_base = _select_external_temp_base(forbidden)
+    clean_ep = "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in entrypoint)[:32]
+    inv_id = uuid.uuid4().hex[:12]
+    inv_root = Path(
+        tempfile.mkdtemp(
+            prefix=f"watch6-v3-acct-{clean_ep}-{inv_id}-",
+            dir=str(temp_base),
+        )
+    ).resolve()
+    os.chmod(inv_root, 0o700)
+
+    try:
+        numba_cache_dir = inv_root / "numba_cache"
+        pycache_prefix_dir = inv_root / "cpython_pycache"
+        bin_dir = inv_root / "bin"
+        numba_cache_dir.mkdir(mode=0o700, exist_ok=False)
+        pycache_prefix_dir.mkdir(mode=0o700, exist_ok=False)
+        bin_dir.mkdir(mode=0o700, exist_ok=False)
+
+        for created_dir in (inv_root, numba_cache_dir, pycache_prefix_dir, bin_dir):
+            if created_dir.is_symlink() or not created_dir.is_dir():
+                raise ValueError(f"REFUSE: unsafe isolated cache directory: {created_dir}")
+            if not _is_strictly_outside_trees(created_dir, forbidden):
+                raise ValueError(
+                    f"REFUSE: isolated cache directory {created_dir} lies inside broker/repo tree"
+                )
+
+        if any(numba_cache_dir.iterdir()):
+            raise ValueError(f"REFUSE: NUMBA_CACHE_DIR not empty before use: {numba_cache_dir}")
+        if any(pycache_prefix_dir.iterdir()):
+            raise ValueError(
+                f"REFUSE: PYTHONPYCACHEPREFIX not empty before use: {pycache_prefix_dir}"
+            )
+
+        numba_key = str(numba_cache_dir)
+        with _USED_CACHE_LOCK:
+            if numba_key in _USED_NUMBA_CACHE_DIRS:
+                raise ValueError(f"REFUSE: NUMBA_CACHE_DIR reuse forbidden: {numba_cache_dir}")
+            _USED_NUMBA_CACHE_DIRS.add(numba_key)
+
+        real_python = os.path.abspath(sys.executable)
+        wrapper_script = (
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "export PYTHONDONTWRITEBYTECODE=1\n"
+            f"export PYTHONPYCACHEPREFIX={shlex.quote(str(pycache_prefix_dir))}\n"
+            f"export NUMBA_CACHE_DIR={shlex.quote(str(numba_cache_dir))}\n"
+            "export NUMBA_CACHE_LOCATOR_CLASSES=UserProvidedCacheLocator\n"
+            f'exec {shlex.quote(real_python)} -B "$@"\n'
+        )
+        python_wrapper = bin_dir / "python"
+        python3_wrapper = bin_dir / "python3"
+        for wrap in (python_wrapper, python3_wrapper):
+            wrap.write_text(wrapper_script, encoding="utf-8")
+            wrap.chmod(0o700)
+
+        iso = IsolatedBrokerEnv(
+            entrypoint=entrypoint,
+            invocation_id=inv_id,
+            root_dir=inv_root,
+            numba_cache_dir=numba_cache_dir,
+            pycache_prefix_dir=pycache_prefix_dir,
+            bin_dir=bin_dir,
+            python_wrapper=python_wrapper,
+            real_python=real_python,
+            verified_empty_before_use=True,
+        )
+        iso.verify_outside(broker_root)
+    except Exception:
+        shutil.rmtree(inv_root, ignore_errors=True)
+        raise
+
+    tracked_env_keys = (
+        "PYTHONDONTWRITEBYTECODE",
+        "PYTHONPYCACHEPREFIX",
+        "NUMBA_CACHE_DIR",
+        "NUMBA_CACHE_LOCATOR_CLASSES",
+        "SNAKE_DQN_PYTHON",
+    )
+    saved_env = {key: os.environ.get(key) for key in tracked_env_keys}
+    try:
+        sys.dont_write_bytecode = True
+        sys.pycache_prefix = str(pycache_prefix_dir)
+        os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
+        os.environ["PYTHONPYCACHEPREFIX"] = str(pycache_prefix_dir)
+        os.environ["NUMBA_CACHE_DIR"] = str(numba_cache_dir)
+        os.environ["NUMBA_CACHE_LOCATOR_CLASSES"] = "UserProvidedCacheLocator"
+        os.environ["SNAKE_DQN_PYTHON"] = str(python_wrapper)
+        _sync_loaded_numba_cache_config(rebind_dispatchers=True)
+        _ISOLATION_TLS.active = iso
+        yield iso
+    finally:
+        _ISOLATION_TLS.active = None
+        sys.dont_write_bytecode = True
+        for key, prev_val in saved_env.items():
+            if prev_val is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = prev_val
+        os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
+        sys.pycache_prefix = str(_BOOTSTRAP_PYCACHE_DIR)
+        restored_nb = os.environ.get("NUMBA_CACHE_DIR")
+        need_safe_nb = True
+        if restored_nb:
+            cand_nb = Path(restored_nb)
+            if (
+                cand_nb.is_dir()
+                and not cand_nb.is_symlink()
+                and _is_strictly_outside_trees(cand_nb, forbidden)
+            ):
+                need_safe_nb = False
+        if need_safe_nb:
+            os.environ["NUMBA_CACHE_DIR"] = str(_BOOTSTRAP_NUMBA_CACHE_DIR)
+            os.environ["NUMBA_CACHE_LOCATOR_CLASSES"] = "UserProvidedCacheLocator"
+            _sync_loaded_numba_cache_config(rebind_dispatchers=False)
+            if saved_env["NUMBA_CACHE_DIR"] is not None:
+                os.environ["NUMBA_CACHE_DIR"] = saved_env["NUMBA_CACHE_DIR"]
+            else:
+                os.environ["NUMBA_CACHE_DIR"] = str(_BOOTSTRAP_NUMBA_CACHE_DIR)
+        else:
+            _sync_loaded_numba_cache_config(rebind_dispatchers=False)
+        shutil.rmtree(inv_root, ignore_errors=True)
+
+
+def ensure_cli_dash_b(module_name: str, argv: list[str] | None = None) -> None:
+    """Guarantee CLI entrypoints execute under CPython ``-B`` + ``PYTHONDONTWRITEBYTECODE=1``."""
+    sys.dont_write_bytecode = True
+    os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
+    if sys.flags.dont_write_bytecode:
+        return
+    if os.environ.get("_WATCH6_V3_ACCT_DASH_B_REEXEC") == "1":
+        raise RuntimeError(
+            "REFUSE: Python interpreter failed to enable -B (sys.flags.dont_write_bytecode == 0)"
+        )
+    eff_argv = list(sys.argv[1:] if argv is None else argv)
+    child_env = dict(os.environ)
+    child_env["PYTHONDONTWRITEBYTECODE"] = "1"
+    child_env["_WATCH6_V3_ACCT_DASH_B_REEXEC"] = "1"
+    child_env["PYTHONPYCACHEPREFIX"] = str(_BOOTSTRAP_PYCACHE_DIR)
+    child_env["NUMBA_CACHE_DIR"] = str(_BOOTSTRAP_NUMBA_CACHE_DIR)
+    child_env["NUMBA_CACHE_LOCATOR_CLASSES"] = "UserProvidedCacheLocator"
+    real_python = os.path.abspath(sys.executable)
+    completed = subprocess.run(
+        [real_python, "-B", "-m", module_name, *eff_argv],
+        env=child_env,
+        check=False,
+    )
+    raise SystemExit(completed.returncode)
+
+
 def artifacts_root(repo: Path | None = None) -> Path:
     root = (repo or ADAPTER_ROOT).resolve()
     return (root.parent / "snake-dqn-artifacts").resolve()
 
 
 def default_artifact_dir(repo: Path | None = None) -> Path:
-    return artifacts_root(repo) / "t34-sol/argon-v3-accounting-fix3"
+    return artifacts_root(repo) / "t34-sol/argon-v3-accounting-fix4"
 
 
 def default_amendment_path(repo: Path | None = None) -> Path:
-    return default_artifact_dir(repo) / "WATCH6_V3_ACCOUNTING_AMENDMENT_V4_20261031.md"
+    return default_artifact_dir(repo) / "WATCH6_V3_ACCOUNTING_AMENDMENT_V5_20261031.md"
 
 
 def default_ruling_json_path(repo: Path | None = None) -> Path:
@@ -210,39 +550,28 @@ def adapter_commit(
     return target_commit
 
 
-_PYC_CACHE_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\.(cpython-\d+)(?:\.opt-([12]))?\.pyc$")
-_NUMBA_NBI_RE = re.compile(
-    r"^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)-(\d+)\.py\d+\.nbi$"
-)
-_NUMBA_NBC_RE = re.compile(
-    r"^([A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*-\d+\.py\d+)\.\d+\.nbc$"
-)
+_NUMBA_CACHE_SUFFIXES: tuple[str, ...] = (".nbi", ".nbc")
+_CPYTHON_BYTECODE_SUFFIXES: tuple[str, ...] = (".pyc", ".pyo")
 _EXTENSION_MODULE_SUFFIXES: tuple[str, ...] = (".so", ".pyd", ".dylib")
 _PACKAGING_DIR_SUFFIXES: tuple[str, ...] = (".egg-info", ".dist-info", ".egg")
 _IMPORTABLE_HAZARD_SUFFIXES: tuple[str, ...] = (
     ".py",
     ".pyc",
     ".pyo",
+    ".nbi",
+    ".nbc",
+    ".pkl",
+    ".pickle",
     ".so",
     ".pyd",
     ".dylib",
     ".pth",
     ".egg",
-)
-_SAFE_NUMBA_PICKLE_GLOBALS: frozenset[tuple[str, str]] = frozenset(
-    {
-        ("builtins", "object"),
-        ("copyreg", "_reconstructor"),
-    }
-)
-_FORBIDDEN_PICKLE_OPCODES: frozenset[str] = frozenset(
-    {"INST", "OBJ", "EXT1", "EXT2", "EXT4", "PERSID", "BINPERSID"}
+    ".o",
+    ".a",
 )
 _CACHED_PROTOCOL_MODULES: dict[tuple[str, str, str], types.ModuleType] = {}
-_VERIFIED_NUMBA_STREAM_COUNTS: dict[str, int] = {}
-_CACHED_NUMBA_FUNCS_BY_SRC_SHA: dict[bytes, frozenset[tuple[str, int]]] = {}
-_VERIFIED_NUMBA_NBI_BY_SHA: dict[str, tuple[frozenset[bytes], tuple[str, ...]]] = {}
-_CACHED_BASELINE_TREES: dict[tuple[str, str], tuple[set[str], dict[str, str]]] = {}
+_CACHED_BASELINE_TREES: dict[tuple[str, str], tuple[set[str], dict[str, str], set[str]]] = {}
 _LAST_P_SOURCE_FINGERPRINT: tuple[str, str] | None = None
 
 
@@ -367,363 +696,54 @@ def _classify_foreign_closure_file(rel_posix: str) -> str:
     parts = Path(rel_posix).parts
     name = parts[-1] if parts else rel_posix
     lower = name.lower()
+    if lower.endswith(_NUMBA_CACHE_SUFFIXES):
+        return "Numba native cache payload (.nbi/.nbc)"
+    if lower.endswith(_CPYTHON_BYTECODE_SUFFIXES):
+        return "CPython bytecode cache / stray Python source or bytecode (.pyc/.pyo)"
     if any(
         any(seg.lower().endswith(sfx) for sfx in _PACKAGING_DIR_SUFFIXES) for seg in parts
     ) or lower.endswith(".pth"):
         return "packaging metadata or path-hook (.pth/.egg-info/.dist-info/.egg)"
     if any(lower.endswith(sfx) for sfx in _EXTENSION_MODULE_SUFFIXES):
         return "native extension module (.so/.pyd/.dylib)"
-    if lower.endswith((".py", ".pyc", ".pyo")):
+    if lower.endswith(".py"):
         return "stray Python source or bytecode (.py/.pyc/.pyo)"
+    if "__pycache__" in parts or lower.endswith((".pkl", ".pickle", ".npy", ".npz", ".cache")):
+        return "non-CPython cache payload"
     return "untracked or ignored closure file"
 
 
-def _const_structurally_equal(left: object, right: object) -> bool:
-    if type(left) is not type(right):
-        return False
-    if isinstance(left, types.CodeType) and isinstance(right, types.CodeType):
-        return _code_structurally_equal(left, right)
-    if isinstance(left, tuple) and isinstance(right, tuple):
-        return len(left) == len(right) and all(
-            _const_structurally_equal(a, b) for a, b in zip(left, right)
-        )
-    if isinstance(left, frozenset) and isinstance(right, frozenset):
-        return len(left) == len(right) and left == right
-    if isinstance(left, float) and isinstance(right, float) and math.isnan(left):
-        return math.isnan(right)
-    return left == right
-
-
-def _code_structurally_equal(c1: types.CodeType, c2: types.CodeType) -> bool:
-    code_attrs = (
-        "co_argcount",
-        "co_posonlyargcount",
-        "co_kwonlyargcount",
-        "co_nlocals",
-        "co_stacksize",
-        "co_flags",
-        "co_code",
-        "co_names",
-        "co_varnames",
-        "co_freevars",
-        "co_cellvars",
-        "co_name",
-        "co_qualname",
-        "co_firstlineno",
-        "co_linetable",
-        "co_exceptiontable",
-    )
-    if any(getattr(c1, attr) != getattr(c2, attr) for attr in code_attrs):
-        return False
-    return _const_structurally_equal(c1.co_consts, c2.co_consts)
-
-
-def _verify_pyc_against_tracked_source(
-    pyc_path: Path,
-    src_py: Path,
-    opt_level: int,
-    root: Path,
-) -> None:
-    """Verify PEP-552 header (magic, flags, mtime+size or source_hash) AND compiled CodeType."""
-    rel_pyc = pyc_path.relative_to(root).as_posix()
-    rel_src = src_py.relative_to(root).as_posix()
-    src_bytes = src_py.read_bytes()
-    src_stat = src_py.stat()
-    pyc_bytes = pyc_path.read_bytes()
-    max_allowed = max(1_048_576, 16 * len(src_bytes) + 65_536)
-    if len(pyc_bytes) <= 16 or len(pyc_bytes) > max_allowed:
-        raise ValueError(f"REFUSE: malformed or oversized bytecode file in {root}: {rel_pyc}")
-    if pyc_bytes[:4] != importlib.util.MAGIC_NUMBER:
-        raise ValueError(f"REFUSE: foreign or mismatched Python magic number in {root}: {rel_pyc}")
-
-    bit_field = int.from_bytes(pyc_bytes[4:8], "little")
-    if bit_field == 0:
-        mtime_u32 = int.from_bytes(pyc_bytes[8:12], "little")
-        size_u32 = int.from_bytes(pyc_bytes[12:16], "little")
-        expected_mtime = int(src_stat.st_mtime) & 0xFFFFFFFF
-        expected_size = src_stat.st_size & 0xFFFFFFFF
-        if mtime_u32 != expected_mtime or size_u32 != expected_size:
-            raise ValueError(
-                f"REFUSE: stale or mismatched timestamp .pyc header in {root}: {rel_pyc} "
-                f"does not match tracked {rel_src}"
-            )
-    elif bit_field in (0b01, 0b11):
-        expected_hash = importlib.util.source_hash(src_bytes)
-        if pyc_bytes[8:16] != expected_hash:
-            raise ValueError(
-                f"REFUSE: mismatched PEP-552 source_hash in .pyc header in {root}: {rel_pyc} "
-                f"does not match tracked {rel_src}"
-            )
-    else:
-        raise ValueError(
-            f"REFUSE: unsupported PEP-552 bit_field={bit_field:#x} in {root}: {rel_pyc}"
-        )
-
-    try:
-        expected_code = compile(
-            src_bytes,
-            str(src_py),
-            "exec",
-            dont_inherit=True,
-            optimize=opt_level,
-        )
-        loaded_code = marshal.loads(pyc_bytes[16:])
-    except Exception as exc:  # noqa: BLE001
-        raise ValueError(f"REFUSE: corrupt marshalled bytecode in {root}: {rel_pyc}") from exc
-    if not isinstance(loaded_code, types.CodeType) or not _code_structurally_equal(
-        loaded_code, expected_code
-    ):
-        raise ValueError(
-            f"REFUSE: bytecode body in {root}:{rel_pyc} does not match compiled tracked {rel_src}"
-        )
-
-
-def _inspect_safe_numba_pickle_streams(
-    raw: bytes,
-    target_path: Path,
-    root: Path,
-) -> list[list[tuple[str, object]]]:
-    """Inspect Numba .nbi/.nbc pickle opcodes safely via pickletools (never unpickling)."""
-    rel = target_path.relative_to(root).as_posix()
-    if not raw:
-        raise ValueError(f"REFUSE: empty Numba cache file in {root}: {rel}")
-    buf = io.BytesIO(raw)
-    streams: list[list[tuple[str, object]]] = []
-    try:
-        while buf.tell() < len(raw):
-            memo: dict[int, object] = {}
-            stack: list[object] = []
-            next_memo = 0
-            ops: list[tuple[str, object]] = []
-            for op, arg, _ in pickletools.genops(buf):
-                if op.name in _FORBIDDEN_PICKLE_OPCODES:
-                    raise ValueError(
-                        f"REFUSE: forbidden pickle opcode {op.name} in Numba cache {root}:{rel}"
-                    )
-                ops.append((op.name, arg))
-                if op.name in ("SHORT_BINUNICODE", "BINUNICODE", "UNICODE"):
-                    stack.append(arg)
-                elif op.name == "MEMOIZE":
-                    if stack:
-                        memo[next_memo] = stack[-1]
-                    next_memo += 1
-                elif op.name in ("BINPUT", "LONG_BINPUT", "PUT"):
-                    if stack and arg is not None:
-                        memo[int(arg)] = stack[-1]
-                elif op.name in ("BINGET", "LONG_BINGET", "GET"):
-                    stack.append(memo.get(int(arg)) if arg is not None else None)
-                elif op.name == "GLOBAL":
-                    parts = str(arg).split(" ", 1)
-                    pair = (parts[0], parts[1] if len(parts) > 1 else "")
-                    if pair not in _SAFE_NUMBA_PICKLE_GLOBALS and not pair[0].startswith("numba."):
-                        raise ValueError(
-                            f"REFUSE: foreign pickle global {pair!r} in Numba cache {root}:{rel}"
-                        )
-                    stack.append(None)
-                elif op.name == "STACK_GLOBAL":
-                    attr_name = stack.pop() if stack else None
-                    mod_name = stack.pop() if stack else None
-                    if not isinstance(mod_name, str) or not isinstance(attr_name, str):
-                        raise ValueError(
-                            f"REFUSE: unresolved STACK_GLOBAL in Numba cache {root}:{rel}"
-                        )
-                    pair = (mod_name, attr_name)
-                    if pair not in _SAFE_NUMBA_PICKLE_GLOBALS and not mod_name.startswith("numba."):
-                        raise ValueError(
-                            f"REFUSE: foreign pickle global {pair!r} in Numba cache {root}:{rel}"
-                        )
-                    stack.append(None)
-                else:
-                    stack.append(None)
-            if not ops or ops[-1][0] != "STOP":
-                raise ValueError(f"REFUSE: truncated Numba cache stream in {root}:{rel}")
-            streams.append(ops)
-    except ValueError:
-        raise
-    except Exception as exc:  # noqa: BLE001
-        raise ValueError(f"REFUSE: corrupt Numba cache stream in {root}:{rel}") from exc
-    if buf.tell() != len(raw):
-        raise ValueError(f"REFUSE: trailing bytes in Numba cache {root}:{rel}")
-    return streams
-
-
-def _cached_numba_functions_for_source(
-    src_bytes: bytes,
-    src_sha: bytes,
-) -> frozenset[tuple[str, int]]:
-    cached = _CACHED_NUMBA_FUNCS_BY_SRC_SHA.get(src_sha)
-    if cached is not None:
-        return cached
-    tree = ast.parse(src_bytes.decode("utf-8"))
-    found: set[tuple[str, int]] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.decorator_list:
-            first_line = min([node.lineno, *(dec.lineno for dec in node.decorator_list)])
-            for dec in node.decorator_list:
-                if isinstance(dec, ast.Call):
-                    for kw in dec.keywords:
-                        if (
-                            kw.arg == "cache"
-                            and isinstance(kw.value, ast.Constant)
-                            and kw.value.value is True
-                        ):
-                            found.add((node.name, first_line))
-    result = frozenset(found)
-    _CACHED_NUMBA_FUNCS_BY_SRC_SHA[src_sha] = result
-    return result
-
-
-def _verify_pycache_directory(
-    root: Path,
-    cache_dir: Path,
-    tracked_blobs: set[str],
-) -> None:
-    """Validate <pkg>/__pycache__ entries fail-closed against tracked baseline .py files."""
-    if cache_dir.is_symlink() or not cache_dir.is_dir():
-        raise ValueError(f"REFUSE: unsafe __pycache__ directory in {root}: {cache_dir}")
+def _forbid_pycache_directory(root: Path, cache_dir: Path) -> None:
+    """Unconditionally refuse any ``__pycache__`` directory or cache payload (never unpickling)."""
     rel_cache = cache_dir.relative_to(root).as_posix()
-    entries = sorted(cache_dir.iterdir(), key=lambda item: item.name)
-    if not entries:
-        return
-
-    pkg_dir = cache_dir.parent
-    if pkg_dir == root:
-        raise ValueError(f"REFUSE: top-level __pycache__ files forbidden in {root}: {rel_cache}")
-    pkg_rel = pkg_dir.relative_to(root).as_posix()
-    if not any(
-        tracked.startswith(pkg_rel + "/")
-        and "/" not in tracked[len(pkg_rel) + 1 :]
-        and tracked.endswith(".py")
-        for tracked in tracked_blobs
-    ):
+    if cache_dir.is_symlink() or not cache_dir.is_dir():
         raise ValueError(
-            f"REFUSE: __pycache__ in directory without tracked baseline .py sources "
-            f"in {root}: {rel_cache}"
+            f"REFUSE: forbidden __pycache__ entry inside V3 closure in {root}: {rel_cache}"
         )
-
-    expected_tag = sys.implementation.cache_tag
-    nbi_entries: list[tuple[Path, str, str, int]] = []
-    nbc_by_name: dict[str, Path] = {}
-
-    for item in entries:
-        item_rel = item.relative_to(root).as_posix()
-        if item.is_symlink():
-            raise ValueError(f"REFUSE: symlink inside __pycache__ forbidden in {root}: {item_rel}")
-        if item.is_dir() or not item.is_file():
+    with os.scandir(cache_dir) as it:
+        child_names = sorted(entry.name for entry in it)
+    for child_name in child_names:
+        if child_name.lower().endswith(_NUMBA_CACHE_SUFFIXES):
             raise ValueError(
-                f"REFUSE: non-file entry inside __pycache__ forbidden in {root}: {item_rel}"
+                f"REFUSE: forbidden Numba native cache payload (.nbi/.nbc) inside V3 closure "
+                f"in {root}: {rel_cache}/{child_name}"
             )
-        pyc_match = _PYC_CACHE_RE.fullmatch(item.name)
-        if pyc_match is not None:
-            mod_name, cache_tag, opt_raw = pyc_match.groups()
-            if cache_tag != expected_tag:
-                raise ValueError(
-                    f"REFUSE: foreign interpreter cache tag {cache_tag!r} != {expected_tag!r} "
-                    f"in {root}: {item_rel}"
-                )
-            src_rel = f"{pkg_rel}/{mod_name}.py"
-            src_py = root / src_rel
-            if src_rel not in tracked_blobs or src_py.is_symlink() or not src_py.is_file():
-                raise ValueError(
-                    f"REFUSE: orphan .pyc without tracked baseline {src_rel} in {root}: {item_rel}"
-                )
-            opt_level = int(opt_raw) if opt_raw is not None else 0
-            _verify_pyc_against_tracked_source(item, src_py, opt_level, root)
-            continue
-
-        nbi_match = _NUMBA_NBI_RE.fullmatch(item.name)
-        if nbi_match is not None:
-            nbi_entries.append(
-                (item, nbi_match.group(1), nbi_match.group(2), int(nbi_match.group(3)))
+    for child_name in child_names:
+        if child_name.lower().endswith(_CPYTHON_BYTECODE_SUFFIXES):
+            raise ValueError(
+                f"REFUSE: forbidden CPython bytecode cache (.pyc/.pyo) inside V3 closure "
+                f"in {root}: {rel_cache}/{child_name}"
             )
-            continue
-
-        nbc_match = _NUMBA_NBC_RE.fullmatch(item.name)
-        if nbc_match is not None:
-            nbc_by_name[item.name] = item
-            continue
-
+    if child_names:
+        first_rel = f"{rel_cache}/{child_names[0]}"
         raise ValueError(
-            f"REFUSE: foreign file inside __pycache__ ({_classify_foreign_closure_file(item_rel)}) "
-            f"in {root}: {item_rel}"
+            f"REFUSE: forbidden non-CPython cache payload "
+            f"({_classify_foreign_closure_file(first_rel)}) inside __pycache__ "
+            f"in {root}: {first_rel}"
         )
-
-    referenced_nbc: set[str] = set()
-    src_funcs_cache: dict[str, frozenset[tuple[str, int]]] = {}
-    src_sha_cache: dict[str, bytes] = {}
-
-    for nbi_path, mod_name, func_name, lineno in nbi_entries:
-        nbi_rel = nbi_path.relative_to(root).as_posix()
-        src_rel = f"{pkg_rel}/{mod_name}.py"
-        src_py = root / src_rel
-        if src_rel not in tracked_blobs or src_py.is_symlink() or not src_py.is_file():
-            raise ValueError(
-                f"REFUSE: orphan Numba .nbi without tracked baseline {src_rel} "
-                f"in {root}: {nbi_rel}"
-            )
-        if src_rel not in src_sha_cache:
-            raw_src = src_py.read_bytes()
-            raw_sha = hashlib.sha256(raw_src).digest()
-            src_sha_cache[src_rel] = raw_sha
-            src_funcs_cache[src_rel] = _cached_numba_functions_for_source(raw_src, raw_sha)
-        if (func_name, lineno) not in src_funcs_cache[src_rel]:
-            raise ValueError(
-                f"REFUSE: Numba .nbi {nbi_rel} does not match any cache=True function "
-                f"{func_name}@{lineno} in tracked {src_rel}"
-            )
-        nbi_raw = nbi_path.read_bytes()
-        nbi_sha = hashlib.sha256(nbi_raw).hexdigest()
-        nbi_meta = _VERIFIED_NUMBA_NBI_BY_SHA.get(nbi_sha)
-        if nbi_meta is None:
-            streams = _inspect_safe_numba_pickle_streams(nbi_raw, nbi_path, root)
-            if len(streams) != 2:
-                raise ValueError(f"REFUSE: malformed Numba .nbi stream count in {root}: {nbi_rel}")
-            bytes_args = frozenset(
-                arg for _, arg in streams[1] if isinstance(arg, (bytes, bytearray))
-            )
-            nbc_args = tuple(
-                arg for _, arg in streams[1] if isinstance(arg, str) and arg.endswith(".nbc")
-            )
-            nbi_meta = (bytes_args, nbc_args)
-            _VERIFIED_NUMBA_NBI_BY_SHA[nbi_sha] = nbi_meta
-        bytes_stamps, nbc_refs = nbi_meta
-        expected_stamp = src_sha_cache[src_rel]
-        if expected_stamp not in bytes_stamps:
-            raise ValueError(
-                f"REFUSE: stale or mismatched SHA-256 source stamp in Numba .nbi "
-                f"in {root}: {nbi_rel}"
-            )
-        nbi_stem = nbi_path.name[: -len(".nbi")]
-        for arg in nbc_refs:
-            if not arg.startswith(nbi_stem + ".") or _NUMBA_NBC_RE.fullmatch(arg) is None:
-                raise ValueError(
-                    f"REFUSE: cross-function Numba .nbc reference {arg!r} in {root}: {nbi_rel}"
-                )
-            referenced_nbc.add(arg)
-
-    orphan_nbc = sorted(set(nbc_by_name) - referenced_nbc)
-    if orphan_nbc:
-        raise ValueError(
-            f"REFUSE: orphan Numba .nbc file(s) not referenced by verified .nbi "
-            f"in {root}:{rel_cache}: {orphan_nbc}"
-        )
-    missing_nbc = sorted(referenced_nbc - set(nbc_by_name))
-    if missing_nbc:
-        raise ValueError(
-            f"REFUSE: missing Numba .nbc file(s) referenced by .nbi "
-            f"in {root}:{rel_cache}: {missing_nbc}"
-        )
-    for nbc_name in sorted(nbc_by_name):
-        nbc_path = nbc_by_name[nbc_name]
-        nbc_raw = nbc_path.read_bytes()
-        nbc_sha = hashlib.sha256(nbc_raw).hexdigest()
-        stream_count = _VERIFIED_NUMBA_STREAM_COUNTS.get(nbc_sha)
-        if stream_count is None:
-            stream_count = len(_inspect_safe_numba_pickle_streams(nbc_raw, nbc_path, root))
-            _VERIFIED_NUMBA_STREAM_COUNTS[nbc_sha] = stream_count
-        if stream_count != 1:
-            nbc_rel = nbc_path.relative_to(root).as_posix()
-            raise ValueError(f"REFUSE: malformed Numba .nbc stream count in {root}: {nbc_rel}")
+    raise ValueError(
+        f"REFUSE: forbidden __pycache__ directory inside V3 closure in {root}: {rel_cache}"
+    )
 
 
 def _closure_scan_targets(root: Path, source_paths: list[str]) -> tuple[list[str], list[str]]:
@@ -768,8 +788,8 @@ def _baseline_tracked_entries(
     root: Path,
     baseline_commit: str,
     source_paths: list[str],
-) -> tuple[set[str], dict[str, str]]:
-    """Return (tracked_regular_blobs, tracked_symlink_git_oid_by_path) at baseline_commit."""
+) -> tuple[set[str], dict[str, str], set[str]]:
+    """Return (tracked_regular_blobs, tracked_symlinks, tracked_parent_dirs) at baseline_commit."""
     cache_key = (str(root), baseline_commit)
     cached = _CACHED_BASELINE_TREES.get(cache_key)
     if cached is None:
@@ -780,12 +800,16 @@ def _baseline_tracked_entries(
         )
         tracked_blobs: set[str] = set()
         tracked_symlinks: dict[str, str] = {}
+        tracked_dirs: set[str] = set()
         for record in raw.split(b"\0"):
             if not record:
                 continue
             header, rel_bytes = record.split(b"\t", 1)
             mode, obj_type, oid = header.decode("ascii").split(" ")
             rel_posix = rel_bytes.decode("utf-8")
+            parts = rel_posix.split("/")
+            for idx in range(1, len(parts)):
+                tracked_dirs.add("/".join(parts[:idx]))
             if mode == "120000" and obj_type == "blob":
                 tracked_symlinks[rel_posix] = oid
                 continue
@@ -794,10 +818,10 @@ def _baseline_tracked_entries(
                     raise ValueError(f"REFUSE: non-blob mode {mode} in baseline tree: {rel_posix}")
                 continue
             tracked_blobs.add(rel_posix)
-        cached = (tracked_blobs, tracked_symlinks)
+        cached = (tracked_blobs, tracked_symlinks, tracked_dirs)
         _CACHED_BASELINE_TREES[cache_key] = cached
 
-    tracked_blobs, tracked_symlinks = cached
+    tracked_blobs, tracked_symlinks, tracked_dirs = cached
     direct_source_dirs = tuple(
         entry.rstrip("/") + "/" for entry in source_paths if (root / entry).is_dir()
     )
@@ -807,7 +831,7 @@ def _baseline_tracked_entries(
             raise ValueError(
                 f"REFUSE: symlink mode 120000 inside direct V3 source_paths: {rel_posix}"
             )
-    return tracked_blobs, tracked_symlinks
+    return tracked_blobs, tracked_symlinks, tracked_dirs
 
 
 def _git_blob_sha1(payload: bytes) -> str:
@@ -879,8 +903,10 @@ def _verify_clean_tracked_closure(
     source_paths: list[str],
     baseline_commit: str,
 ) -> None:
-    """Enumerate ALL closure files (including git-ignored) via Git + fs walk and refuse foreigns."""
-    tracked_blobs, tracked_symlinks = _baseline_tracked_entries(root, baseline_commit, source_paths)
+    """Enumerate ALL closure files/dirs (including git-ignored) and refuse any cache or foreign."""
+    tracked_blobs, tracked_symlinks, tracked_dirs = _baseline_tracked_entries(
+        root, baseline_commit, source_paths
+    )
     recursive_dirs, top_files = _closure_scan_targets(root, source_paths)
 
     for req_dir in (
@@ -918,6 +944,8 @@ def _verify_clean_tracked_closure(
         top_rel = top_entry.name
         if top_entry.is_symlink():
             raise ValueError(f"REFUSE: symlinked top-level entry forbidden in {root}: {top_rel}")
+        if top_rel == "__pycache__":
+            _forbid_pycache_directory(root, top_entry)
         if any(top_rel.lower().endswith(sfx) for sfx in _PACKAGING_DIR_SUFFIXES):
             raise ValueError(f"REFUSE: foreign top-level packaging metadata ({top_rel}) in {root}")
         if top_entry.is_file():
@@ -931,9 +959,6 @@ def _verify_clean_tracked_closure(
             continue
         if not top_entry.is_dir():
             raise ValueError(f"REFUSE: irregular top-level filesystem entry in {root}: {top_rel}")
-        if top_rel == "__pycache__":
-            _verify_pycache_directory(root, top_entry, tracked_blobs)
-            continue
         if top_rel in recursive_top_set or top_rel in tracked_top_dirs:
             continue
 
@@ -946,9 +971,9 @@ def _verify_clean_tracked_closure(
                 child_rel = child_dir.relative_to(root).as_posix()
                 if child_dir.is_symlink():
                     raise ValueError(f"REFUSE: symlinked directory in {root}: {child_rel}")
-                if dn == "__pycache__" or any(
-                    dn.lower().endswith(sfx) for sfx in _PACKAGING_DIR_SUFFIXES
-                ):
+                if dn == "__pycache__":
+                    _forbid_pycache_directory(root, child_dir)
+                if any(dn.lower().endswith(sfx) for sfx in _PACKAGING_DIR_SUFFIXES):
                     raise ValueError(
                         f"REFUSE: forbidden cache/packaging directory inside untracked "
                         f"top-level tree in {root}: {child_rel}"
@@ -978,9 +1003,8 @@ def _verify_clean_tracked_closure(
             f"REFUSE: V3 source closure in {root} differs from baseline commit {baseline_commit}"
         )
 
-    # Full recursive filesystem walk across all closure trees (including git-ignored directories):
+    # Full recursive filesystem walk across all closure trees (zero cache whitelist):
     fs_files: set[str] = set()
-    pycache_dirs: set[Path] = set()
 
     for rel_dir in recursive_dirs:
         base_dir = root / rel_dir
@@ -990,31 +1014,27 @@ def _verify_clean_tracked_closure(
             continue
         if not base_dir.is_dir():
             raise ValueError(f"REFUSE: expected directory for closure tree in {root}: {rel_dir}")
+        if base_dir.name == "__pycache__":
+            _forbid_pycache_directory(root, base_dir)
 
-        stack: list[tuple[str, str, bool]] = [
-            (str(base_dir), rel_dir, base_dir.name == "__pycache__")
-        ]
+        stack: list[tuple[str, str]] = [(str(base_dir), rel_dir)]
         while stack:
-            abs_dp, rel_dp, in_pycache = stack.pop()
-            if in_pycache:
-                parent_rel = rel_dp.rsplit("/", 1)[0] if "/" in rel_dp else ""
-                if "__pycache__" in parent_rel.split("/"):
-                    raise ValueError(f"REFUSE: nested __pycache__ forbidden in {root}: {rel_dp}")
-                pycache_dirs.add(Path(abs_dp))
-
+            abs_dp, rel_dp = stack.pop()
             with os.scandir(abs_dp) as it:
                 entries = sorted(it, key=lambda e: e.name)
-            next_dirs: list[tuple[str, str, bool]] = []
+            next_dirs: list[tuple[str, str]] = []
             for entry in entries:
                 name = entry.name
                 sub_rel = f"{rel_dp}/{name}"
+                if name == "__pycache__":
+                    _forbid_pycache_directory(root, Path(entry.path))
                 if entry.is_symlink():
                     if entry.is_dir(follow_symlinks=True):
                         raise ValueError(
                             f"REFUSE: symlinked directory inside V3 closure in {root}: {sub_rel}"
                         )
                     expected_oid = tracked_symlinks.get(sub_rel)
-                    if expected_oid is not None and not in_pycache:
+                    if expected_oid is not None:
                         link_target_bytes = os.readlink(entry.path).encode("utf-8")
                         if _git_blob_sha1(link_target_bytes) == expected_oid:
                             continue
@@ -1033,12 +1053,11 @@ def _verify_clean_tracked_closure(
                             f"REFUSE: foreign packaging metadata directory ({sub_rel}) "
                             f"inside V3 closure in {root}"
                         )
-                    if in_pycache:
-                        raise ValueError(
-                            f"REFUSE: subdirectory inside __pycache__ forbidden "
-                            f"in {root}: {sub_rel}"
-                        )
-                    next_dirs.append((entry.path, sub_rel, name == "__pycache__"))
+                    if sub_rel not in tracked_dirs:
+                        # Scan inside untracked dir first so file-specific payload reason surfaces:
+                        next_dirs.append((entry.path, sub_rel))
+                    else:
+                        next_dirs.append((entry.path, sub_rel))
                 else:
                     if name == ".git" or not entry.is_file(follow_symlinks=False):
                         raise ValueError(
@@ -1046,6 +1065,11 @@ def _verify_clean_tracked_closure(
                             f"in {root}: {sub_rel}"
                         )
                     fs_files.add(sub_rel)
+            if rel_dp not in tracked_dirs and not entries:
+                raise ValueError(
+                    f"REFUSE: foreign untracked or ignored directory inside V3 closure "
+                    f"in {root}: {rel_dp}"
+                )
             for item in reversed(next_dirs):
                 stack.append(item)
 
@@ -1056,6 +1080,10 @@ def _verify_clean_tracked_closure(
         if not clean_git_rel:
             continue
         git_target = root / clean_git_rel
+        if git_target.name == "__pycache__" or "__pycache__" in Path(clean_git_rel).parts:
+            parts = Path(clean_git_rel).parts
+            pc_idx = parts.index("__pycache__")
+            _forbid_pycache_directory(root, root / Path(*parts[: pc_idx + 1]))
         if git_target.is_symlink():
             raise ValueError(
                 f"REFUSE: symlinked untracked/ignored closure entry in {root}: {clean_git_rel}"
@@ -1069,35 +1097,31 @@ def _verify_clean_tracked_closure(
                 f"REFUSE: foreign ignored/untracked packaging metadata in {root}: {clean_git_rel}"
             )
         if git_target.is_dir():
-            if git_target.name == "__pycache__":
-                pycache_dirs.add(git_target)
             for sub in sorted(git_target.rglob("*")):
+                if sub.name == "__pycache__":
+                    _forbid_pycache_directory(root, sub)
                 if sub.is_symlink():
                     raise ValueError(
                         f"REFUSE: symlink inside ignored directory in {root}: "
                         f"{sub.relative_to(root).as_posix()}"
                     )
-                if sub.is_dir() and sub.name == "__pycache__":
-                    pycache_dirs.add(sub)
-                elif sub.is_file():
+                if sub.is_file():
                     combined_candidates.add(sub.relative_to(root).as_posix())
+            if clean_git_rel not in tracked_dirs and not any(git_target.iterdir()):
+                raise ValueError(
+                    f"REFUSE: foreign untracked or ignored directory inside V3 closure "
+                    f"in {root}: {clean_git_rel}"
+                )
         elif git_target.exists():
             combined_candidates.add(clean_git_rel)
 
     untracked_closure_files = sorted(combined_candidates - tracked_blobs)
     for rel_posix in untracked_closure_files:
-        parts = Path(rel_posix).parts
-        if len(parts) >= 2 and parts[-2] == "__pycache__" and parts.count("__pycache__") == 1:
-            pycache_dirs.add((root / rel_posix).parent)
-            continue
         kind = _classify_foreign_closure_file(rel_posix)
         raise ValueError(
             f"REFUSE: foreign {kind} not tracked at baseline commit {baseline_commit} "
             f"in {root}: {rel_posix}"
         )
-
-    for cache_dir in sorted(pycache_dirs):
-        _verify_pycache_directory(root, cache_dir, tracked_blobs)
 
 
 def compute_broker_protocol(broker_root: Path | None = None) -> dict[str, object]:
@@ -1109,45 +1133,46 @@ def compute_broker_protocol(broker_root: Path | None = None) -> dict[str, object
         raise ValueError(f"REFUSE: missing V3 broker root directory: {raw}")
     root = raw.resolve()
 
-    py_tree_sha = _py_closure_tree_digest(root)
-    module = _load_root_protocol_module(root, py_tree_sha=py_tree_sha)
-    source_paths = list(module.source_paths())
-    for rel_name in source_paths:
-        target = root / rel_name
-        if target.is_symlink():
-            raise ValueError(f"REFUSE: symlinked V3 closure entry in {root}: {target}")
-        if target.is_dir():
-            dir_stack = [str(target)]
-            while dir_stack:
-                cur_dir = dir_stack.pop()
-                with os.scandir(cur_dir) as it:
-                    for entry in it:
-                        if entry.name == "__pycache__":
-                            continue
-                        if entry.is_symlink():
-                            raise ValueError(
-                                f"REFUSE: symlinked file inside V3 closure in {root}: {entry.path}"
-                            )
-                        if entry.is_dir(follow_symlinks=False):
-                            dir_stack.append(entry.path)
+    with isolated_broker_execution("compute-broker-protocol", broker_root=root):
+        py_tree_sha = _py_closure_tree_digest(root)
+        module = _load_root_protocol_module(root, py_tree_sha=py_tree_sha)
+        source_paths = list(module.source_paths())
+        for rel_name in source_paths:
+            target = root / rel_name
+            if target.is_symlink():
+                raise ValueError(f"REFUSE: symlinked V3 closure entry in {root}: {target}")
+            if target.is_dir():
+                dir_stack = [str(target)]
+                while dir_stack:
+                    cur_dir = dir_stack.pop()
+                    with os.scandir(cur_dir) as it:
+                        for entry in it:
+                            if entry.is_symlink():
+                                raise ValueError(
+                                    f"REFUSE: symlinked file inside V3 closure in {root}: "
+                                    f"{entry.path}"
+                                )
+                            if entry.is_dir(follow_symlinks=False):
+                                if entry.name != "__pycache__":
+                                    dir_stack.append(entry.path)
 
-    reg_path = Path(module.registration())
-    if reg_path.is_symlink() or not reg_path.is_file():
-        raise ValueError(f"REFUSE: missing or symlinked REGISTRATION_V3.md in {root}")
-    reg_sha = digest(reg_path)
-    if hasattr(module.identity, "cache_clear"):
-        module.identity.cache_clear()
-    actual_science = str(module.identity())
-    return {
-        "broker_root": str(root),
-        "namespace": str(module.NAMESPACE),
-        "science": actual_science,
-        "source_paths": source_paths,
-        "allocation": list(module.allocation()),
-        "registration_path": str(reg_path),
-        "registration_sha256": reg_sha,
-        "_py_tree_sha256": py_tree_sha,
-    }
+        reg_path = Path(module.registration())
+        if reg_path.is_symlink() or not reg_path.is_file():
+            raise ValueError(f"REFUSE: missing or symlinked REGISTRATION_V3.md in {root}")
+        reg_sha = digest(reg_path)
+        if hasattr(module.identity, "cache_clear"):
+            module.identity.cache_clear()
+        actual_science = str(module.identity())
+        return {
+            "broker_root": str(root),
+            "namespace": str(module.NAMESPACE),
+            "science": actual_science,
+            "source_paths": source_paths,
+            "allocation": list(module.allocation()),
+            "registration_path": str(reg_path),
+            "registration_sha256": reg_sha,
+            "_py_tree_sha256": py_tree_sha,
+        }
 
 
 def compute_broker_identity(broker_root: Path | None = None) -> str:
@@ -1170,103 +1195,108 @@ def verify_baseline_closure(
         raise ValueError(f"REFUSE: missing V3 broker root directory: {raw}")
     root = raw.resolve()
 
-    if is_forbidden_main_checkout(root):
-        try:
-            computed = compute_broker_identity(root)
-        except Exception as exc:  # noqa: BLE001
-            computed = f"<error:{exc}>"
-        raise ValueError(
-            f"REFUSE: main checkout {root} is forbidden for V3 baseline/broker verification "
-            f"(computed identity={computed}, expected={BASELINE_SCIENCE}); "
-            f"bind to {V3_BROKER_ROOT}"
-        )
-
-    proto_info = compute_broker_protocol(root)
-    source_paths = [str(item) for item in proto_info["source_paths"]]  # type: ignore[union-attr]
-    actual_science = str(proto_info["science"])
-    reg_sha = str(proto_info["registration_sha256"])
-    namespace = str(proto_info["namespace"])
-    py_tree_sha = str(proto_info["_py_tree_sha256"])
-
-    if hasattr(p, "ACCEPTED_PRIOR_SCIENCES"):
-        raise ValueError("REFUSE: ACCEPTED_PRIOR_SCIENCES bypass is forbidden by Astra ruling")
-    if p.NAMESPACE != BASELINE_NAMESPACE or namespace != BASELINE_NAMESPACE:
-        raise ValueError(f"REFUSE: unexpected protocol.NAMESPACE in {root}: {namespace!r}")
-
-    if prev_p_root := p.ROOT:
-        is_patched_identity = getattr(p.identity, "__wrapped__", None) is None
-        if prev_p_root.resolve() == root or is_patched_identity:
-            prev_fingerprint = _LAST_P_SOURCE_FINGERPRINT
-            target_fingerprint = (str(root), py_tree_sha)
+    with isolated_broker_execution("verify-baseline-closure", broker_root=root):
+        if is_forbidden_main_checkout(root):
             try:
-                p.ROOT = root
-                _safe_clear_protocol_caches(
-                    clear_source_paths=(prev_fingerprint != target_fingerprint)
-                )
-                _LAST_P_SOURCE_FINGERPRINT = target_fingerprint
-                bound_science = p.identity()
-            finally:
-                if prev_p_root.resolve() != root:
-                    p.ROOT = prev_p_root
-                    _safe_clear_protocol_caches(clear_source_paths=True)
-                    _LAST_P_SOURCE_FINGERPRINT = None
-                else:
-                    p.ROOT = prev_p_root
-                    _safe_clear_protocol_caches(clear_source_paths=False)
-        else:
-            bound_science = actual_science
-    else:
-        bound_science = actual_science
-
-    _assert_adapter_excluded_from_closure(root, source_paths)
-    if ADAPTER_ROOT.is_dir() and ADAPTER_ROOT.resolve() != root:
-        _assert_adapter_excluded_from_closure(ADAPTER_ROOT.resolve(), source_paths)
-
-    if reg_sha != REGISTRATION_V3_SHA256:
-        raise ValueError(
-            f"REFUSE: REGISTRATION_V3.md SHA256 rotated in {root} "
-            f"({reg_sha} != {REGISTRATION_V3_SHA256})"
-        )
-    if actual_science != BASELINE_SCIENCE or bound_science != BASELINE_SCIENCE:
-        observed = actual_science if actual_science != BASELINE_SCIENCE else bound_science
-        raise ValueError(
-            f"REFUSE: protocol.identity() rotated in {root} ({observed} != {BASELINE_SCIENCE})"
-        )
-
-    if not (root / ".git").exists():
-        raise ValueError(f"REFUSE: V3 broker/baseline root {root} is not a git checkout/worktree")
-
-    obj_type = subprocess.run(
-        ["git", "--no-optional-locks", "cat-file", "-t", baseline_commit],
-        cwd=root,
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
-    if obj_type.returncode != 0 or obj_type.stdout.strip() != "commit":
-        raise ValueError(f"REFUSE: baseline commit {baseline_commit} absent in {root}")
-
-    if require_head_at_baseline or root == V3_BROKER_ROOT.resolve():
-        head = subprocess.check_output(
-            ["git", "--no-optional-locks", "rev-parse", "HEAD"],
-            cwd=root,
-            text=True,
-            timeout=10,
-        ).strip()
-        if head != baseline_commit:
+                computed = compute_broker_identity(root)
+            except Exception as exc:  # noqa: BLE001
+                computed = f"<error:{exc}>"
             raise ValueError(
-                f"REFUSE: V3 broker root {root} HEAD is {head} != baseline commit {baseline_commit}"
+                f"REFUSE: main checkout {root} is forbidden for V3 baseline/broker verification "
+                f"(computed identity={computed}, expected={BASELINE_SCIENCE}); "
+                f"bind to {V3_BROKER_ROOT}"
             )
 
-    _verify_clean_tracked_closure(root, source_paths, baseline_commit)
+        proto_info = compute_broker_protocol(root)
+        raw_sp = proto_info["source_paths"]
+        source_paths = [str(item) for item in raw_sp]  # type: ignore[union-attr]
+        actual_science = str(proto_info["science"])
+        reg_sha = str(proto_info["registration_sha256"])
+        namespace = str(proto_info["namespace"])
+        py_tree_sha = str(proto_info["_py_tree_sha256"])
 
-    return {
-        "broker_root": str(root),
-        "baseline_commit": baseline_commit,
-        "science": actual_science,
-        "namespace": namespace,
-        "registration_sha256": reg_sha,
-    }
+        if hasattr(p, "ACCEPTED_PRIOR_SCIENCES"):
+            raise ValueError("REFUSE: ACCEPTED_PRIOR_SCIENCES bypass is forbidden by Astra ruling")
+        if p.NAMESPACE != BASELINE_NAMESPACE or namespace != BASELINE_NAMESPACE:
+            raise ValueError(f"REFUSE: unexpected protocol.NAMESPACE in {root}: {namespace!r}")
+
+        if prev_p_root := p.ROOT:
+            is_patched_identity = getattr(p.identity, "__wrapped__", None) is None
+            if prev_p_root.resolve() == root or is_patched_identity:
+                prev_fingerprint = _LAST_P_SOURCE_FINGERPRINT
+                target_fingerprint = (str(root), py_tree_sha)
+                try:
+                    p.ROOT = root
+                    _safe_clear_protocol_caches(
+                        clear_source_paths=(prev_fingerprint != target_fingerprint)
+                    )
+                    _LAST_P_SOURCE_FINGERPRINT = target_fingerprint
+                    bound_science = p.identity()
+                finally:
+                    if prev_p_root.resolve() != root:
+                        p.ROOT = prev_p_root
+                        _safe_clear_protocol_caches(clear_source_paths=True)
+                        _LAST_P_SOURCE_FINGERPRINT = None
+                    else:
+                        p.ROOT = prev_p_root
+                        _safe_clear_protocol_caches(clear_source_paths=False)
+            else:
+                bound_science = actual_science
+        else:
+            bound_science = actual_science
+
+        _assert_adapter_excluded_from_closure(root, source_paths)
+        if ADAPTER_ROOT.is_dir() and ADAPTER_ROOT.resolve() != root:
+            _assert_adapter_excluded_from_closure(ADAPTER_ROOT.resolve(), source_paths)
+
+        if reg_sha != REGISTRATION_V3_SHA256:
+            raise ValueError(
+                f"REFUSE: REGISTRATION_V3.md SHA256 rotated in {root} "
+                f"({reg_sha} != {REGISTRATION_V3_SHA256})"
+            )
+        if actual_science != BASELINE_SCIENCE or bound_science != BASELINE_SCIENCE:
+            observed = actual_science if actual_science != BASELINE_SCIENCE else bound_science
+            raise ValueError(
+                f"REFUSE: protocol.identity() rotated in {root} ({observed} != {BASELINE_SCIENCE})"
+            )
+
+        if not (root / ".git").exists():
+            raise ValueError(
+                f"REFUSE: V3 broker/baseline root {root} is not a git checkout/worktree"
+            )
+
+        obj_type = subprocess.run(
+            ["git", "--no-optional-locks", "cat-file", "-t", baseline_commit],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if obj_type.returncode != 0 or obj_type.stdout.strip() != "commit":
+            raise ValueError(f"REFUSE: baseline commit {baseline_commit} absent in {root}")
+
+        if require_head_at_baseline or root == V3_BROKER_ROOT.resolve():
+            head = subprocess.check_output(
+                ["git", "--no-optional-locks", "rev-parse", "HEAD"],
+                cwd=root,
+                text=True,
+                timeout=10,
+            ).strip()
+            if head != baseline_commit:
+                raise ValueError(
+                    f"REFUSE: V3 broker root {root} HEAD is {head} != baseline commit "
+                    f"{baseline_commit}"
+                )
+
+        _verify_clean_tracked_closure(root, source_paths, baseline_commit)
+
+        return {
+            "broker_root": str(root),
+            "baseline_commit": baseline_commit,
+            "science": actual_science,
+            "namespace": namespace,
+            "registration_sha256": reg_sha,
+        }
 
 
 @contextlib.contextmanager
@@ -1278,36 +1308,41 @@ def bind_broker_protocol(
 ) -> Iterator[dict[str, str]]:
     """Verify broker_root from actual bytes and scope V3 protocol.ROOT to that verified broker."""
     global _LAST_P_SOURCE_FINGERPRINT
-    closure_info = verify_baseline_closure(
-        broker_root,
-        baseline_commit=baseline_commit,
-        require_head_at_baseline=require_head_at_baseline,
-    )
-    resolved_broker = Path(closure_info["broker_root"])
-    host_proto = Path(p.__file__).resolve()
-    if digest(host_proto) != PROTOCOL_V3_SHA256:
-        raise ValueError(
-            f"REFUSE: host V3 protocol.py modified ({host_proto}); edits/exclusions are forbidden"
+    raw = broker_root if broker_root is not None else V3_BROKER_ROOT
+    with isolated_broker_execution("bind-broker-protocol", broker_root=raw):
+        closure_info = verify_baseline_closure(
+            raw,
+            baseline_commit=baseline_commit,
+            require_head_at_baseline=require_head_at_baseline,
         )
-    py_tree_sha = _py_closure_tree_digest(resolved_broker)
-    target_fp = (str(resolved_broker), py_tree_sha)
-    prev_root = p.ROOT
-    try:
-        p.ROOT = resolved_broker
-        _safe_clear_protocol_caches(clear_source_paths=(_LAST_P_SOURCE_FINGERPRINT != target_fp))
-        _LAST_P_SOURCE_FINGERPRINT = target_fp
-        live_science = p.identity()
-        if live_science != closure_info["science"] or live_science != BASELINE_SCIENCE:
+        resolved_broker = Path(closure_info["broker_root"])
+        host_proto = Path(p.__file__).resolve()
+        if digest(host_proto) != PROTOCOL_V3_SHA256:
             raise ValueError(
-                f"REFUSE: bound broker protocol.identity() mismatch in {resolved_broker} "
-                f"({live_science} != {BASELINE_SCIENCE})"
+                f"REFUSE: host V3 protocol.py modified ({host_proto}); "
+                "edits/exclusions are forbidden"
             )
-        yield closure_info
-    finally:
-        if prev_root.resolve() != resolved_broker:
-            p.ROOT = prev_root
-            _safe_clear_protocol_caches(clear_source_paths=True)
-            _LAST_P_SOURCE_FINGERPRINT = None
-        else:
-            p.ROOT = prev_root
-            _safe_clear_protocol_caches(clear_source_paths=False)
+        py_tree_sha = _py_closure_tree_digest(resolved_broker)
+        target_fp = (str(resolved_broker), py_tree_sha)
+        prev_root = p.ROOT
+        try:
+            p.ROOT = resolved_broker
+            _safe_clear_protocol_caches(
+                clear_source_paths=(_LAST_P_SOURCE_FINGERPRINT != target_fp)
+            )
+            _LAST_P_SOURCE_FINGERPRINT = target_fp
+            live_science = p.identity()
+            if live_science != closure_info["science"] or live_science != BASELINE_SCIENCE:
+                raise ValueError(
+                    f"REFUSE: bound broker protocol.identity() mismatch in {resolved_broker} "
+                    f"({live_science} != {BASELINE_SCIENCE})"
+                )
+            yield closure_info
+        finally:
+            if prev_root.resolve() != resolved_broker:
+                p.ROOT = prev_root
+                _safe_clear_protocol_caches(clear_source_paths=True)
+                _LAST_P_SOURCE_FINGERPRINT = None
+            else:
+                p.ROOT = prev_root
+                _safe_clear_protocol_caches(clear_source_paths=False)

@@ -13,20 +13,25 @@ import json
 import platform
 from pathlib import Path
 
-from research.colab_cli import canary
-from research.watch6_search_efficacy_v3 import admission as v3_admission
-from research.watch6_search_efficacy_v3 import protocol as p
-from research.watch6_search_efficacy_v3 import resume as v3_resume
-from research.watch6_search_efficacy_v3.run import ledger_identity
-from tools.ops.package_spec import digest, empty_ledger, publish_json, unit_id, verify_immutable
 from tools.watch6_v3_accounting import (
     BASELINE_COMMIT,
     BASELINE_SCIENCE,
     V3_BROKER_ROOT,
     bind_broker_protocol,
     compute_broker_protocol,
+    ensure_cli_dash_b,
+    isolated_broker_execution,
     verify_baseline_closure,
 )
+
+# isort: split
+
+from research.colab_cli import canary
+from research.watch6_search_efficacy_v3 import admission as v3_admission
+from research.watch6_search_efficacy_v3 import protocol as p
+from research.watch6_search_efficacy_v3 import resume as v3_resume
+from research.watch6_search_efficacy_v3.run import ledger_identity
+from tools.ops.package_spec import digest, empty_ledger, publish_json, unit_id, verify_immutable
 from tools.watch6_v3_accounting.proof import (
     has_forbidden_or_contradictory_output_artifacts,
     is_proven_never_allocated_attempt,
@@ -43,82 +48,87 @@ def verify_bound_receipt(
     _verified_broker: tuple[dict[str, str], dict[str, object]] | None = None,
 ) -> tuple[dict, dict]:
     """Verify a stopped or proven never-allocated V3 main-shard receipt and executed manifest."""
-    if _verified_broker is not None:
-        closure_info, broker_proto = _verified_broker
-    else:
-        target_broker = broker_root if broker_root is not None else V3_BROKER_ROOT
-        closure_info = verify_baseline_closure(target_broker)
-        broker_proto = compute_broker_protocol(Path(closure_info["broker_root"]))
-    broker_science = closure_info["science"]
-    broker_namespace = closure_info["namespace"]
-    broker_alloc = broker_proto["allocation"]
+    eff_broker = broker_root if broker_root is not None else V3_BROKER_ROOT
+    with isolated_broker_execution("resume-receipt", broker_root=eff_broker):
+        if _verified_broker is not None:
+            closure_info, broker_proto = _verified_broker
+        else:
+            closure_info = verify_baseline_closure(eff_broker)
+            broker_proto = compute_broker_protocol(Path(closure_info["broker_root"]))
+        broker_science = closure_info["science"]
+        broker_namespace = closure_info["namespace"]
+        broker_alloc = broker_proto["allocation"]
 
-    if receipt_path.is_symlink():
-        raise ValueError(f"symlinked receipt forbidden: {receipt_path}")
-    resolved_receipt = receipt_path.resolve(strict=True)
-    if resolved_receipt.is_symlink() or not resolved_receipt.is_file():
-        raise ValueError(f"missing regular receipt.json: {resolved_receipt}")
-    receipt = json.loads(resolved_receipt.read_text(encoding="utf-8"))
-    manifest_path = resolved_receipt.parent / "manifest.json"
-    if (
-        manifest_path.is_symlink()
-        or not manifest_path.is_file()
-        or digest(manifest_path) != receipt.get("manifest_sha256")
-    ):
-        raise ValueError(f"receipt manifest_sha256 binding mismatch: {resolved_receipt}")
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if (
-        receipt.get("job_id") != manifest.get("job_id")
-        or receipt.get("commit") != manifest.get("commit")
-        or manifest.get("commit") != BASELINE_COMMIT
-    ):
-        raise ValueError(
-            f"receipt job_id/commit mismatch against baseline manifest.json: {resolved_receipt}"
+        if receipt_path.is_symlink():
+            raise ValueError(f"symlinked receipt forbidden: {receipt_path}")
+        resolved_receipt = receipt_path.resolve(strict=True)
+        if resolved_receipt.is_symlink() or not resolved_receipt.is_file():
+            raise ValueError(f"missing regular receipt.json: {resolved_receipt}")
+        receipt = json.loads(resolved_receipt.read_text(encoding="utf-8"))
+        manifest_path = resolved_receipt.parent / "manifest.json"
+        if (
+            manifest_path.is_symlink()
+            or not manifest_path.is_file()
+            or digest(manifest_path) != receipt.get("manifest_sha256")
+        ):
+            raise ValueError(f"receipt manifest_sha256 binding mismatch: {resolved_receipt}")
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if (
+            receipt.get("job_id") != manifest.get("job_id")
+            or receipt.get("commit") != manifest.get("commit")
+            or manifest.get("commit") != BASELINE_COMMIT
+        ):
+            raise ValueError(
+                f"receipt job_id/commit mismatch against baseline manifest.json: {resolved_receipt}"
+            )
+
+        prealloc_clean_unassigned = (
+            receipt.get("endpoint") is None
+            and receipt.get("stop_verified") is False
+            and receipt.get("cleanup_error") is None
+            and not has_forbidden_or_contradictory_output_artifacts(
+                resolved_receipt.parent,
+                job_id=manifest.get("job_id") if isinstance(manifest.get("job_id"), str) else None,
+                session=(
+                    receipt.get("session") if isinstance(receipt.get("session"), str) else None
+                ),
+            )
+            and v3_admission.is_prestart_transport_failure(receipt, resolved_receipt.parent)
         )
-
-    prealloc_clean_unassigned = (
-        receipt.get("endpoint") is None
-        and receipt.get("stop_verified") is False
-        and receipt.get("cleanup_error") is None
-        and not has_forbidden_or_contradictory_output_artifacts(
+        proven_never_allocated = is_proven_never_allocated_attempt(
+            receipt,
             resolved_receipt.parent,
-            job_id=manifest.get("job_id") if isinstance(manifest.get("job_id"), str) else None,
-            session=receipt.get("session") if isinstance(receipt.get("session"), str) else None,
+            ops_dir=ops_dir,
         )
-        and v3_admission.is_prestart_transport_failure(receipt, resolved_receipt.parent)
-    )
-    proven_never_allocated = is_proven_never_allocated_attempt(
-        receipt,
-        resolved_receipt.parent,
-        ops_dir=ops_dir,
-    )
-    if not (prealloc_clean_unassigned or proven_never_allocated) and (
-        receipt.get("stop_verified") is not True or receipt.get("cleanup_error") is not None
-    ):
-        raise ValueError(f"runtime stop not verified or cleanup_error present: {resolved_receipt}")
+        if not (prealloc_clean_unassigned or proven_never_allocated) and (
+            receipt.get("stop_verified") is not True or receipt.get("cleanup_error") is not None
+        ):
+            raise ValueError(
+                f"runtime stop not verified or cleanup_error present: {resolved_receipt}"
+            )
 
-    binding = manifest.get("watch6_v3", {})
-    env = manifest.get("env", {})
-    req = manifest.get("requirements", {})
-    if (
-        canary.is_canary(manifest)
-        or env.get("WATCH6_FIXTURE") != "0"
-        or binding.get("namespace") != broker_namespace
-        or binding.get("science") != broker_science
-        or binding.get("science") != BASELINE_SCIENCE
-        or binding.get("primary_allocation") != broker_alloc
-        or any(k in binding for k in ("reserve_allocation", "reserve_slots", "reserve_lineage"))
-        or req.get("gpu") != "L4"
-        or req.get("allowed_gpus") != ["L4"]
-        or "prefer" in req
-        or int(env.get("WATCH6_SHARDS", -1)) != p.SHARDS
-        or int(env.get("WATCH6_SHARD", -1)) not in range(p.SHARDS)
-    ):
-        raise ValueError(
-            "foreign, fixture, reserve, non-L4, or canary receipt rejected "
-            f"from scientific ledger: {resolved_receipt}"
-        )
-    return manifest, receipt
+        binding = manifest.get("watch6_v3", {})
+        env = manifest.get("env", {})
+        req = manifest.get("requirements", {})
+        if (
+            canary.is_canary(manifest)
+            or env.get("WATCH6_FIXTURE") != "0"
+            or binding.get("namespace") != broker_namespace
+            or binding.get("science") != broker_science
+            or binding.get("science") != BASELINE_SCIENCE
+            or binding.get("primary_allocation") != broker_alloc
+            or any(k in binding for k in ("reserve_allocation", "reserve_slots", "reserve_lineage"))
+            or req.get("gpu") != "L4"
+            or req.get("allowed_gpus") != ["L4"]
+            or "prefer" in req
+            or int(env.get("WATCH6_SHARDS", -1)) != p.SHARDS
+            or int(env.get("WATCH6_SHARD", -1)) not in range(p.SHARDS)
+        ):
+            raise ValueError(
+                "foreign, fixture, reserve, non-L4, or canary receipt rejected "
+                f"from scientific ledger: {resolved_receipt}"
+            )
+        return manifest, receipt
 
 
 def build(
@@ -130,7 +140,10 @@ def build(
 ) -> dict:
     """Verify immutable pair exports, sidecars, .meta.json, and receipts outcome-blind."""
     target_broker = broker_root if broker_root is not None else V3_BROKER_ROOT
-    with bind_broker_protocol(target_broker, require_head_at_baseline=True) as closure_info:
+    with (
+        isolated_broker_execution("resume", broker_root=target_broker),
+        bind_broker_protocol(target_broker, require_head_at_baseline=True) as closure_info,
+    ):
         resolved_broker = Path(closure_info["broker_root"])
         broker_proto = compute_broker_protocol(resolved_broker)
         broker_science = closure_info["science"]
@@ -237,6 +250,7 @@ def build(
 
 
 def main() -> None:
+    ensure_cli_dash_b("tools.watch6_v3_accounting.resume")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--units", type=Path, nargs="*", default=[])
     parser.add_argument("--receipts", type=Path, nargs="*", default=[])

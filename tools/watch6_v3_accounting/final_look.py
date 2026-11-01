@@ -25,18 +25,23 @@ import platform
 from dataclasses import dataclass
 from pathlib import Path
 
-from research.colab_cli import canary
-from research.watch6_search_efficacy_v3 import admission as v3_admission
-from research.watch6_search_efficacy_v3 import protocol as p
-from research.watch6_search_efficacy_v3.analyze import decide_v3
-from tools.ops.package_spec import digest, publish_json, verify_immutable
 from tools.watch6_v3_accounting import (
     ADAPTER_ROOT,
     BASELINE_COMMIT,
     BASELINE_SCIENCE,
     V3_BROKER_ROOT,
     bind_broker_protocol,
+    ensure_cli_dash_b,
+    isolated_broker_execution,
 )
+
+# isort: split
+
+from research.colab_cli import canary
+from research.watch6_search_efficacy_v3 import admission as v3_admission
+from research.watch6_search_efficacy_v3 import protocol as p
+from research.watch6_search_efficacy_v3.analyze import decide_v3
+from tools.ops.package_spec import digest, publish_json, verify_immutable
 from tools.watch6_v3_accounting.admission import (
     is_external_transport_compute_failure,
     is_prestart_transport_failure,
@@ -673,64 +678,66 @@ def run_final_look(
     """Audit all V3 ops manifests/receipts/lineages pre-outcome, seal ledger, and take 1 look."""
     adapter_repo = (repo or ADAPTER_ROOT).resolve()
     target_broker = broker_root if broker_root is not None else V3_BROKER_ROOT
-    try:
-        with bind_broker_protocol(target_broker, require_head_at_baseline=True) as closure_info:
-            resolved_broker = Path(closure_info["broker_root"])
-            (
-                closure_info,
-                ruling_receipt,
-                passing_canaries,
-                canary_attempts,
-                ordered_main_attempts,
-                unit_paths,
-                ledger_path,
-            ) = _audit_pre_outcome(
-                ops_dir=ops_dir,
-                out_dir=out_dir,
-                ruling_json=ruling_json,
-                amendment_md=amendment_md,
-                adapter_repo=adapter_repo,
-                resolved_broker=resolved_broker,
-                closure_info=closure_info,
-                require_clean_git=require_clean_git,
-            )
+    with isolated_broker_execution("final_look", broker_root=target_broker):
+        try:
+            with bind_broker_protocol(target_broker, require_head_at_baseline=True) as closure_info:
+                resolved_broker = Path(closure_info["broker_root"])
+                (
+                    closure_info,
+                    ruling_receipt,
+                    passing_canaries,
+                    canary_attempts,
+                    ordered_main_attempts,
+                    unit_paths,
+                    ledger_path,
+                ) = _audit_pre_outcome(
+                    ops_dir=ops_dir,
+                    out_dir=out_dir,
+                    ruling_json=ruling_json,
+                    amendment_md=amendment_md,
+                    adapter_repo=adapter_repo,
+                    resolved_broker=resolved_broker,
+                    closure_info=closure_info,
+                    require_clean_git=require_clean_git,
+                )
 
-            # All pre-outcome prerequisites passed across all 24 shards / 96 slots.
-            # Open the 96 verified pair-XX.json payloads ONCE and invoke unchanged decide_v3 ONCE.
-            rows: list[dict] = []
-            for path in sorted(unit_paths, key=lambda item: item.name):
-                verify_immutable(path)
-                meta = json.loads(path.with_suffix(".meta.json").read_text(encoding="utf-8"))
-                if meta.get("seed_kind") != "primary":
-                    raise _fail_prelook(
-                        f"non-primary unit rejected before opening outcomes: {path}"
-                    )
-                rows.append(json.loads(path.read_text(encoding="utf-8")))
+                # All pre-outcome prerequisites passed across all 24 shards / 96 slots.
+                # Open the 96 verified pair-XX.json payloads ONCE and call unchanged decide_v3 ONCE.
+                rows: list[dict] = []
+                for path in sorted(unit_paths, key=lambda item: item.name):
+                    verify_immutable(path)
+                    meta = json.loads(path.with_suffix(".meta.json").read_text(encoding="utf-8"))
+                    if meta.get("seed_kind") != "primary":
+                        raise _fail_prelook(
+                            f"non-primary unit rejected before opening outcomes: {path}"
+                        )
+                    rows.append(json.loads(path.read_text(encoding="utf-8")))
 
-            decision = decide_v3(rows)
-    except ValueError as exc:
-        raise _fail_prelook(str(exc)) from exc
+                decision = decide_v3(rows)
+        except ValueError as exc:
+            raise _fail_prelook(str(exc)) from exc
 
-    decision["verified_receipt_count"] = len(ordered_main_attempts)
-    decision["astra_ruling"] = ruling_receipt
-    decision["accounting_amendment_sha256"] = ruling_receipt["amendment_sha256"]
-    decision["adapter_commit"] = ruling_receipt["adapter_commit"]
-    decision["adapter_inventory_sha256"] = ruling_receipt["adapter_inventory_sha256"]
-    decision["baseline_closure"] = closure_info
-    decision["retained_never_allocated_attempts"] = [
-        att.never_allocated_proof
-        for att in ordered_main_attempts
-        if att.never_allocated_proof is not None
-    ]
-    decision["canary_receipt_count"] = len(passing_canaries)
-    decision["total_canary_attempts"] = len(canary_attempts)
-    decision["total_main_attempts"] = len(ordered_main_attempts)
-    decision["final_ledger_sha256"] = digest(ledger_path)
-    publish_json(out_dir / "efficacy-decision.json", decision)
-    return decision
+        decision["verified_receipt_count"] = len(ordered_main_attempts)
+        decision["astra_ruling"] = ruling_receipt
+        decision["accounting_amendment_sha256"] = ruling_receipt["amendment_sha256"]
+        decision["adapter_commit"] = ruling_receipt["adapter_commit"]
+        decision["adapter_inventory_sha256"] = ruling_receipt["adapter_inventory_sha256"]
+        decision["baseline_closure"] = closure_info
+        decision["retained_never_allocated_attempts"] = [
+            att.never_allocated_proof
+            for att in ordered_main_attempts
+            if att.never_allocated_proof is not None
+        ]
+        decision["canary_receipt_count"] = len(passing_canaries)
+        decision["total_canary_attempts"] = len(canary_attempts)
+        decision["total_main_attempts"] = len(ordered_main_attempts)
+        decision["final_ledger_sha256"] = digest(ledger_path)
+        publish_json(out_dir / "efficacy-decision.json", decision)
+        return decision
 
 
 def main() -> None:
+    ensure_cli_dash_b("tools.watch6_v3_accounting.final_look")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ops-dir", "--ops", dest="ops_dir", type=Path, default=DEFAULT_OPS_DIR)
     parser.add_argument("--out-dir", "--out", dest="out_dir", type=Path, required=True)

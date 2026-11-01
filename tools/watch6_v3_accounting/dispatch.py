@@ -19,13 +19,18 @@ import tempfile
 import time
 from pathlib import Path
 
-from research.watch6_search_efficacy_v3 import dispatch as v3_dispatch
-from tools.ops.package_spec import digest
 from tools.watch6_v3_accounting import (
     ADAPTER_ROOT,
     V3_BROKER_ROOT,
     bind_broker_protocol,
+    ensure_cli_dash_b,
+    isolated_broker_execution,
 )
+
+# isort: split
+
+from research.watch6_search_efficacy_v3 import dispatch as v3_dispatch
+from tools.ops.package_spec import digest
 from tools.watch6_v3_accounting.admission import admit
 from tools.watch6_v3_accounting.proof import (
     FORBIDDEN_OUTPUT_ENTRIES,
@@ -310,41 +315,42 @@ def wait_own_job_staged(
 
 def reconcile_staging(ops_dir: Path) -> dict[str, object]:
     """Verify under watch6-staging.lock that zero manifests remain staging, then clear fence."""
-    resolved_ops = ops_dir.resolve()
-    resolved_ops.mkdir(parents=True, exist_ok=True)
-    lock_path = resolved_ops / "watch6-staging.lock"
-    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
-        manifests_dir = resolved_ops / "manifests"
-        busy: list[str] = []
-        checked = 0
-        if manifests_dir.is_dir():
-            for mf in sorted(manifests_dir.glob("*.json")):
-                if mf.name.endswith(".live.json"):
-                    continue
-                checked += 1
-                if job_is_actively_staging(mf, resolved_ops):
-                    busy.append(mf.name)
-        if busy:
-            raise RuntimeError(
-                "REFUSE: cannot clear staging reconciliation fence; "
-                f"manifests still staging: {busy}"
-            )
-        fence_path = resolved_ops / RECONCILE_MARKER_NAME
-        had_fence = fence_path.exists() or fence_path.is_symlink()
-        fence_path.unlink(missing_ok=True)
-        return {
-            "status": "RECONCILED",
-            "ops_dir": str(resolved_ops),
-            "checked_manifests": checked,
-            "cleared_fence": had_fence,
-        }
-    finally:
+    with isolated_broker_execution("dispatch-reconcile"):
+        resolved_ops = ops_dir.resolve()
+        resolved_ops.mkdir(parents=True, exist_ok=True)
+        lock_path = resolved_ops / "watch6-staging.lock"
+        fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
         try:
-            fcntl.flock(fd, fcntl.LOCK_UN)
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            manifests_dir = resolved_ops / "manifests"
+            busy: list[str] = []
+            checked = 0
+            if manifests_dir.is_dir():
+                for mf in sorted(manifests_dir.glob("*.json")):
+                    if mf.name.endswith(".live.json"):
+                        continue
+                    checked += 1
+                    if job_is_actively_staging(mf, resolved_ops):
+                        busy.append(mf.name)
+            if busy:
+                raise RuntimeError(
+                    "REFUSE: cannot clear staging reconciliation fence; "
+                    f"manifests still staging: {busy}"
+                )
+            fence_path = resolved_ops / RECONCILE_MARKER_NAME
+            had_fence = fence_path.exists() or fence_path.is_symlink()
+            fence_path.unlink(missing_ok=True)
+            return {
+                "status": "RECONCILED",
+                "ops_dir": str(resolved_ops),
+                "checked_manifests": checked,
+                "cleared_fence": had_fence,
+            }
         finally:
-            os.close(fd)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+            finally:
+                os.close(fd)
 
 
 def _parse_cli(
@@ -489,94 +495,109 @@ def run_dispatch(
     broker_root: Path | None = None,
 ) -> int:
     """Execute actual-byte broker check + V3 admission + fail-closed staging around dispatch.sh."""
-    if "--reconcile-staging" in argv:
-        resolved = _parse_reconcile_ops_dir(argv, ops_dir)
-        print(json.dumps(reconcile_staging(resolved), indent=2), flush=True)
-        return 0
-
-    adapter_repo = (repo or ADAPTER_ROOT).resolve()
     if broker_root is not None and broker_root.is_symlink():
         raise ValueError(f"REFUSE: symlinked broker_root forbidden: {broker_root}")
     default_broker = broker_root if broker_root is not None else V3_BROKER_ROOT
 
-    (
-        name,
-        manifest_path,
-        forward,
-        dry_run,
-        operator_root,
-        ruling_override,
-        amendment_override,
-        effective_broker,
-        explicit_broker_given,
-    ) = _parse_cli(argv, default_broker_root=default_broker)
+    with isolated_broker_execution("dispatch", broker_root=default_broker) as iso:
+        if "--reconcile-staging" in argv:
+            resolved = _parse_reconcile_ops_dir(argv, ops_dir)
+            print(json.dumps(reconcile_staging(resolved), indent=2), flush=True)
+            return 0
 
-    if (
-        broker_root is not None
-        and explicit_broker_given
-        and broker_root.resolve() != effective_broker
-    ):
-        raise ValueError(
-            "REFUSE: cross-root substitution forbidden; "
-            f"broker_root={broker_root.resolve()} != CLI broker/cwd={effective_broker}"
-        )
-
-    with bind_broker_protocol(effective_broker, require_head_at_baseline=True):
-        resolved_ops = (
-            ops_dir.resolve()
-            if ops_dir is not None
-            else Path(os.environ.get("OPS_DIR", str(DEFAULT_OPS_DIR))).resolve()
-        )
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        admit(manifest, ops_dir=resolved_ops, broker_root=effective_broker)
-
-        target_dispatch = operator_root / "tools/ops/dispatch.sh"
-        if not target_dispatch.is_file():
-            raise ValueError(f"missing operator dispatch.sh: {target_dispatch}")
-
-        if dry_run:
-            if amendment_override is not None:
-                verify_amendment_document(
-                    amendment_override,
-                    repo=adapter_repo,
-                    broker_root=effective_broker,
-                )
-            completed = subprocess.run([str(target_dispatch), *forward], check=False)
-            return completed.returncode
-
-        validate_ruling_receipt(
+        adapter_repo = (repo or ADAPTER_ROOT).resolve()
+        (
+            name,
+            manifest_path,
+            forward,
+            dry_run,
+            operator_root,
             ruling_override,
-            amendment_override=amendment_override,
-            repo=adapter_repo,
-            broker_root=effective_broker,
-        )
-        resolved_ops.mkdir(parents=True, exist_ok=True)
-        lock_path = resolved_ops / "watch6-staging.lock"
-        fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX)
-            wait_other_jobs_staged(
-                resolved_ops, name, timeout=staging_timeout, poll_seconds=max(poll_seconds, 0.02)
+            amendment_override,
+            effective_broker,
+            explicit_broker_given,
+        ) = _parse_cli(argv, default_broker_root=default_broker)
+
+        if (
+            broker_root is not None
+            and explicit_broker_given
+            and broker_root.resolve() != effective_broker
+        ):
+            raise ValueError(
+                "REFUSE: cross-root substitution forbidden; "
+                f"broker_root={broker_root.resolve()} != CLI broker/cwd={effective_broker}"
             )
-            completed = subprocess.run([str(target_dispatch), *forward], check=False)
-            if completed.returncode == 0:
-                wait_own_job_staged(
+
+        iso.verify_outside(effective_broker)
+        with bind_broker_protocol(effective_broker, require_head_at_baseline=True):
+            resolved_ops = (
+                ops_dir.resolve()
+                if ops_dir is not None
+                else Path(os.environ.get("OPS_DIR", str(DEFAULT_OPS_DIR))).resolve()
+            )
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            admit(manifest, ops_dir=resolved_ops, broker_root=effective_broker)
+
+            target_dispatch = operator_root / "tools/ops/dispatch.sh"
+            if not target_dispatch.is_file():
+                raise ValueError(f"missing operator dispatch.sh: {target_dispatch}")
+
+            child_env = iso.subprocess_env(prepend_wrapper_to_path=dry_run)
+            if dry_run:
+                if amendment_override is not None:
+                    verify_amendment_document(
+                        amendment_override,
+                        repo=adapter_repo,
+                        broker_root=effective_broker,
+                    )
+                completed = subprocess.run(
+                    [str(target_dispatch), *forward],
+                    env=child_env,
+                    check=False,
+                )
+                return completed.returncode
+
+            validate_ruling_receipt(
+                ruling_override,
+                amendment_override=amendment_override,
+                repo=adapter_repo,
+                broker_root=effective_broker,
+            )
+            resolved_ops.mkdir(parents=True, exist_ok=True)
+            lock_path = resolved_ops / "watch6-staging.lock"
+            fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX)
+                wait_other_jobs_staged(
                     resolved_ops,
                     name,
-                    manifest["output_dir"],
-                    resolved_ops / "logs" / f"{name}.log",
                     timeout=staging_timeout,
                     poll_seconds=max(poll_seconds, 0.02),
                 )
-            return completed.returncode
-        finally:
-            try:
-                fcntl.flock(fd, fcntl.LOCK_UN)
+                completed = subprocess.run(
+                    [str(target_dispatch), *forward],
+                    env=child_env,
+                    check=False,
+                )
+                if completed.returncode == 0:
+                    wait_own_job_staged(
+                        resolved_ops,
+                        name,
+                        manifest["output_dir"],
+                        resolved_ops / "logs" / f"{name}.log",
+                        timeout=staging_timeout,
+                        poll_seconds=max(poll_seconds, 0.02),
+                    )
+                return completed.returncode
             finally:
-                os.close(fd)
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+                finally:
+                    os.close(fd)
 
 
 def main() -> None:
+    ensure_cli_dash_b("tools.watch6_v3_accounting.dispatch")
     try:
         rc = run_dispatch(sys.argv[1:])
     except Exception as exc:

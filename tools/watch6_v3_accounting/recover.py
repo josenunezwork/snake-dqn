@@ -15,13 +15,18 @@ import json
 import platform
 from pathlib import Path
 
-from research.watch6_search_efficacy_v3 import protocol as p
-from tools.ops.package_spec import digest, publish_json
 from tools.watch6_v3_accounting import (
     BASELINE_COMMIT,
     V3_BROKER_ROOT,
     bind_broker_protocol,
+    ensure_cli_dash_b,
+    isolated_broker_execution,
 )
+
+# isort: split
+
+from research.watch6_search_efficacy_v3 import protocol as p
+from tools.ops.package_spec import digest, publish_json
 from tools.watch6_v3_accounting.admission import (
     completed_ledger,
     is_external_transport_compute_failure,
@@ -52,7 +57,10 @@ def recover(
 ) -> dict:
     """Inspect prior receipts outcome-blind and prepare a lawful V3 recovery packet."""
     target_broker = broker_root if broker_root is not None else V3_BROKER_ROOT
-    with bind_broker_protocol(target_broker, require_head_at_baseline=True) as closure_info:
+    with (
+        isolated_broker_execution("recover", broker_root=target_broker),
+        bind_broker_protocol(target_broker, require_head_at_baseline=True) as closure_info,
+    ):
         resolved_broker = Path(closure_info["broker_root"])
         if commit != BASELINE_COMMIT:
             raise ValueError(
@@ -256,6 +264,7 @@ def recover(
 
 
 def main() -> None:
+    ensure_cli_dash_b("tools.watch6_v3_accounting.recover")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-package", type=Path, required=True)
     parser.add_argument(

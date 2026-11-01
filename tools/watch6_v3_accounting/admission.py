@@ -7,11 +7,25 @@ pre-start failure predicate to accept a PROVEN never-allocated attempt per Rulin
 
 from __future__ import annotations
 
+import argparse
 import json
 import math
 import shutil
 import tempfile
 from pathlib import Path
+
+from tools.watch6_v3_accounting import (
+    BASELINE_COMMIT,
+    BASELINE_SCIENCE,
+    V3_BROKER_ROOT,
+    bind_broker_protocol,
+    compute_broker_protocol,
+    ensure_cli_dash_b,
+    isolated_broker_execution,
+    verify_baseline_closure,
+)
+
+# isort: split
 
 from research.colab_cli import canary
 from research.watch6_search_efficacy_v3 import admission as v3_admission
@@ -19,14 +33,6 @@ from research.watch6_search_efficacy_v3 import protocol as p
 from research.watch6_search_efficacy_v3.costs import verify_report_evidence
 from research.watch6_search_efficacy_v3.uploads import METADATA, check_uploads, stage_metadata
 from tools.ops.package_spec import digest
-from tools.watch6_v3_accounting import (
-    BASELINE_COMMIT,
-    BASELINE_SCIENCE,
-    V3_BROKER_ROOT,
-    bind_broker_protocol,
-    compute_broker_protocol,
-    verify_baseline_closure,
-)
 from tools.watch6_v3_accounting.proof import (
     has_forbidden_or_contradictory_output_artifacts,
     is_proven_never_allocated_attempt,
@@ -101,77 +107,80 @@ def verify_prior_receipts_lineage(
 ) -> None:
     """Verify declared prior receipts match retry counters and verified broker V3 science/commit."""
     target_broker = broker_root if broker_root is not None else V3_BROKER_ROOT
-    closure_info = verify_baseline_closure(target_broker)
-    broker_proto = compute_broker_protocol(Path(closure_info["broker_root"]))
-    broker_science = closure_info["science"]
-    broker_namespace = closure_info["namespace"]
-    broker_alloc = broker_proto["allocation"]
+    with isolated_broker_execution("admission-lineage", broker_root=target_broker):
+        closure_info = verify_baseline_closure(target_broker)
+        broker_proto = compute_broker_protocol(Path(closure_info["broker_root"]))
+        broker_science = closure_info["science"]
+        broker_namespace = closure_info["namespace"]
+        broker_alloc = broker_proto["allocation"]
 
-    if not isinstance(prior_receipts, list):
-        raise ValueError("prior_receipts must be a list")
-    if total_dispatches != 1 + prestart_used + compute_attempt or len(prior_receipts) != (
-        prestart_used + compute_attempt
-    ):
-        raise ValueError("retry-cap counters inconsistent with prior_receipts length")
-    seen_paths: set[Path] = set()
-    actual_prestart = 0
-    actual_compute = 0
-    for entry in prior_receipts:
-        if not isinstance(entry, dict):
-            raise ValueError("malformed prior_receipts entry")
-        r_path = Path(entry.get("receipt_path", ""))
-        if not r_path.is_absolute() or r_path.is_symlink() or not r_path.is_file():
-            raise ValueError(f"missing prior receipt in lineage: {r_path}")
-        resolved = r_path.resolve()
-        if resolved in seen_paths or digest(resolved) != entry.get("receipt_sha256"):
-            raise ValueError(f"duplicate or hash-mismatched prior receipt: {r_path}")
-        seen_paths.add(resolved)
-        receipt = json.loads(resolved.read_text(encoding="utf-8"))
-        m_path = resolved.parent / "manifest.json"
-        if (
-            m_path.is_symlink()
-            or not m_path.is_file()
-            or digest(m_path) != receipt.get("manifest_sha256")
+        if not isinstance(prior_receipts, list):
+            raise ValueError("prior_receipts must be a list")
+        if total_dispatches != 1 + prestart_used + compute_attempt or len(prior_receipts) != (
+            prestart_used + compute_attempt
         ):
-            raise ValueError(f"prior receipt manifest_sha256 mismatch: {r_path}")
-        m_data = json.loads(m_path.read_text(encoding="utf-8"))
-        m_bind = m_data.get("watch6_v3", {})
-        m_req = m_data.get("requirements", {})
-        if (
-            m_data.get("commit") != BASELINE_COMMIT
-            or receipt.get("commit") != BASELINE_COMMIT
-            or m_bind.get("namespace") != broker_namespace
-            or m_bind.get("science") != broker_science
-            or m_bind.get("science") != BASELINE_SCIENCE
-            or m_bind.get("primary_allocation") != broker_alloc
-            or any(k in m_bind for k in ("reserve_allocation", "reserve_slots", "reserve_lineage"))
-            or m_req.get("gpu") != "L4"
-            or m_req.get("allowed_gpus") != ["L4"]
-            or "prefer" in m_req
-            or m_data.get("env", {}).get("WATCH6_FIXTURE") != "0"
-            or int(m_data.get("env", {}).get("WATCH6_SHARD", -1)) != shard
-        ):
-            raise ValueError(
-                f"foreign shard/science/commit/placement in prior receipt lineage: {r_path}"
-            )
-        declared_kind = entry.get("classification")
-        if is_prestart_transport_failure(receipt, resolved.parent, ops_dir=ops_dir):
-            if declared_kind != "prestart":
-                raise ValueError(
-                    f"prior receipt classification mismatch (expected prestart): {r_path}"
+            raise ValueError("retry-cap counters inconsistent with prior_receipts length")
+        seen_paths: set[Path] = set()
+        actual_prestart = 0
+        actual_compute = 0
+        for entry in prior_receipts:
+            if not isinstance(entry, dict):
+                raise ValueError("malformed prior_receipts entry")
+            r_path = Path(entry.get("receipt_path", ""))
+            if not r_path.is_absolute() or r_path.is_symlink() or not r_path.is_file():
+                raise ValueError(f"missing prior receipt in lineage: {r_path}")
+            resolved = r_path.resolve()
+            if resolved in seen_paths or digest(resolved) != entry.get("receipt_sha256"):
+                raise ValueError(f"duplicate or hash-mismatched prior receipt: {r_path}")
+            seen_paths.add(resolved)
+            receipt = json.loads(resolved.read_text(encoding="utf-8"))
+            m_path = resolved.parent / "manifest.json"
+            if (
+                m_path.is_symlink()
+                or not m_path.is_file()
+                or digest(m_path) != receipt.get("manifest_sha256")
+            ):
+                raise ValueError(f"prior receipt manifest_sha256 mismatch: {r_path}")
+            m_data = json.loads(m_path.read_text(encoding="utf-8"))
+            m_bind = m_data.get("watch6_v3", {})
+            m_req = m_data.get("requirements", {})
+            if (
+                m_data.get("commit") != BASELINE_COMMIT
+                or receipt.get("commit") != BASELINE_COMMIT
+                or m_bind.get("namespace") != broker_namespace
+                or m_bind.get("science") != broker_science
+                or m_bind.get("science") != BASELINE_SCIENCE
+                or m_bind.get("primary_allocation") != broker_alloc
+                or any(
+                    k in m_bind for k in ("reserve_allocation", "reserve_slots", "reserve_lineage")
                 )
-            actual_prestart += 1
-        elif is_external_transport_compute_failure(receipt, resolved.parent):
-            if declared_kind != "external_transport_compute":
+                or m_req.get("gpu") != "L4"
+                or m_req.get("allowed_gpus") != ["L4"]
+                or "prefer" in m_req
+                or m_data.get("env", {}).get("WATCH6_FIXTURE") != "0"
+                or int(m_data.get("env", {}).get("WATCH6_SHARD", -1)) != shard
+            ):
                 raise ValueError(
-                    "prior receipt classification mismatch "
-                    f"(expected external_transport_compute): {r_path}"
+                    f"foreign shard/science/commit/placement in prior receipt lineage: {r_path}"
                 )
-            actual_compute += 1
-        else:
-            raise ValueError(f"forbidden failure class in prior_receipts lineage: {r_path}")
-    if actual_prestart != prestart_used or actual_compute != compute_attempt:
-        raise ValueError("prior_receipts classifications do not match retry counters")
+            declared_kind = entry.get("classification")
+            if is_prestart_transport_failure(receipt, resolved.parent, ops_dir=ops_dir):
+                if declared_kind != "prestart":
+                    raise ValueError(
+                        f"prior receipt classification mismatch (expected prestart): {r_path}"
+                    )
+                actual_prestart += 1
+            elif is_external_transport_compute_failure(receipt, resolved.parent):
+                if declared_kind != "external_transport_compute":
+                    raise ValueError(
+                        "prior receipt classification mismatch "
+                        f"(expected external_transport_compute): {r_path}"
+                    )
+                actual_compute += 1
+            else:
+                raise ValueError(f"forbidden failure class in prior_receipts lineage: {r_path}")
+        if actual_prestart != prestart_used or actual_compute != compute_attempt:
+            raise ValueError("prior_receipts classifications do not match retry counters")
 
 
 def admit(
@@ -183,7 +192,10 @@ def admit(
 ) -> dict:
     """Verify broker closure equality, controller, V3 allocation, L4 W4, uploads, and 2x caps."""
     target_broker = broker_root if broker_root is not None else V3_BROKER_ROOT
-    with bind_broker_protocol(target_broker, require_head_at_baseline=True) as closure_info:
+    with (
+        isolated_broker_execution("admission", broker_root=target_broker),
+        bind_broker_protocol(target_broker, require_head_at_baseline=True) as closure_info,
+    ):
         resolved_broker = Path(closure_info["broker_root"])
         broker_science = closure_info["science"]
 
@@ -321,3 +333,31 @@ def admit(
             report = json.loads(env["WATCH6_MEASUREMENTS"])
             verify_report_evidence(report)
         return upload_report
+
+
+def main() -> None:
+    ensure_cli_dash_b("tools.watch6_v3_accounting.admission")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--manifest", type=Path, required=True)
+    parser.add_argument("--pending-qualification", action="store_true")
+    parser.add_argument("--ops-dir", type=Path, default=None)
+    parser.add_argument(
+        "--broker-root",
+        "--broker",
+        dest="broker_root",
+        type=Path,
+        default=V3_BROKER_ROOT,
+    )
+    args = parser.parse_args()
+    manifest_data = json.loads(args.manifest.resolve().read_text(encoding="utf-8"))
+    report = admit(
+        manifest_data,
+        pending_qualification=args.pending_qualification,
+        ops_dir=args.ops_dir.resolve() if args.ops_dir else None,
+        broker_root=args.broker_root,
+    )
+    print(json.dumps(report, indent=2), flush=True)
+
+
+if __name__ == "__main__":
+    main()

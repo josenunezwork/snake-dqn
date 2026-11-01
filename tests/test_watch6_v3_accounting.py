@@ -4,16 +4,21 @@ for the Mac-only Watch6 V3 accounting adapter (Astra Ruling Points 1-7).
 
 from __future__ import annotations
 
+import builtins
 import functools
 import importlib.machinery
 import importlib.util
+import io
 import json
-import marshal
+import os
+import pickle
+import pickletools
+import platform
 import py_compile
 import shutil
-import struct
 import subprocess
 import sys
+import textwrap
 from pathlib import Path
 from unittest.mock import patch
 
@@ -63,6 +68,7 @@ from tools.watch6_v3_accounting import (
     SHARD00_RECEIPT_REL,
     SHARD00_RECEIPT_SHA256,
     V3_BROKER_ROOT,
+    active_broker_isolation,
     adapter_commit,
     adapter_files_map,
     adapter_inventory_sha256,
@@ -77,6 +83,7 @@ from tools.watch6_v3_accounting import (
     ratify,
     recover,
     resume,
+    used_numba_cache_dirs,
     verify_baseline_closure,
 )
 
@@ -87,7 +94,7 @@ def _render_amendment_markdown(repo: Path | None = None, commit_sha: str | None 
     f_map = adapter_files_map(root)
     inv_sha = adapter_inventory_sha256(root)
     lines = [
-        "# Watch6 V3 Pre-Look Accounting Amendment V4 (2026-10-31)",
+        "# Watch6 V3 Pre-Look Accounting Amendment V5 (2026-10-31)",
         "",
         f"- Namespace: `{BASELINE_NAMESPACE}`",
         f"- V3 Broker Root: `{V3_BROKER_ROOT}`",
@@ -132,7 +139,7 @@ def _write_accounting_ruling_fixture(
 ) -> tuple[Path, Path]:
     commit_sha = adapter_commit(ADAPTER_ROOT, require_clean=False)
     amend_path = _write_immutable_text(
-        tmp_path / "WATCH6_V3_ACCOUNTING_AMENDMENT_V4_20261031.md",
+        tmp_path / "WATCH6_V3_ACCOUNTING_AMENDMENT_V5_20261031.md",
         _render_amendment_markdown(ADAPTER_ROOT, commit_sha),
     )
     ruling_md = tmp_path / "ASTRA_RERATIFICATION_RULING.md"
@@ -1973,6 +1980,7 @@ def _create_clean_baseline_clone(dest: Path) -> Path:
             "/.gitignore",
             "/pyproject.toml",
             "/research/**/*.py",
+            "/research/colab_cli/",
             "/research/watch6_search_efficacy_v3/",
             "/research/bl_served_search/requirements.txt",
             "/src/",
@@ -2712,28 +2720,292 @@ def test_point3_refuses_each_foreign_closure_artifact_class_alone(
     _assert_clean()
 
 
-def test_point3_pycache_and_bytecode_verification_rules(
+def _snapshot_tree_state(root: Path) -> dict[str, tuple[str, int]]:
+    """Snapshot all non-.git directory and file entries in ``root`` for zero-write assertions."""
+    state: dict[str, tuple[str, int]] = {}
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        dp = Path(dirpath)
+        rel_dp = dp.relative_to(root)
+        if rel_dp.parts and rel_dp.parts[0] == ".git":
+            dirnames[:] = []
+            continue
+        dirnames[:] = sorted(d for d in dirnames if d != ".git")
+        if rel_dp != Path("."):
+            state[rel_dp.as_posix()] = ("dir", 0)
+        for fn in sorted(filenames):
+            fp = dp / fn
+            rel_fp = fp.relative_to(root).as_posix()
+            if fp.is_symlink():
+                state[rel_fp] = ("symlink", len(os.readlink(fp)))
+            else:
+                state[rel_fp] = ("file", fp.stat().st_size)
+    return state
+
+
+def _compile_genuine_coarse_words_cache(clone: Path, out_cache_dir: Path) -> tuple[Path, Path]:
+    """Compile tracked ``src/simd_env/ego_raster_nb.py`` ``_coarse_words_kernel`` out-of-tree."""
+    out_cache_dir.mkdir(parents=True, exist_ok=True)
+    pycache_out = out_cache_dir.parent / "compile_cpython_pycache"
+    pycache_out.mkdir(parents=True, exist_ok=True)
+    before_clone = _snapshot_tree_state(clone)
+    script = textwrap.dedent("""
+        import sys
+        import numpy as np
+        from src.simd_env import ego_raster_nb
+
+        owner_w = np.full((1, 16, 4), np.uint64(0xFFFFFFFFFFFFFFFF), dtype=np.uint64)
+        owner_w[0, 4, 1] = np.uint64(0xFFFFFFFFFFFF0000)
+        food_w = np.zeros((1, 16, 2), dtype=np.uint64)
+        food_w[0, 4, 0] = np.uint64(1)
+        env_needed = np.array([True], dtype=np.bool_)
+        counts = np.zeros((1, 2, 4, 4), dtype=np.int32)
+        total = np.zeros((1, 4, 4), dtype=np.int32)
+        fcounts = np.zeros((1, 4, 4), dtype=np.int32)
+        ego_raster_nb._coarse_words_kernel(
+            owner_w, food_w, env_needed, 2, 8, 8, 2, counts, total, fcounts
+        )
+        assert int(total.sum()) >= 1
+        """)
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(clone)
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    env["PYTHONPYCACHEPREFIX"] = str(pycache_out)
+    env["NUMBA_CACHE_DIR"] = str(out_cache_dir)
+    env["NUMBA_CACHE_LOCATOR_CLASSES"] = "UserProvidedCacheLocator"
+    subprocess.run(
+        [os.path.abspath(sys.executable), "-B", "-c", script],
+        cwd=clone,
+        env=env,
+        check=True,
+        timeout=60,
+    )
+    assert _snapshot_tree_state(clone) == before_clone
+    nbis = sorted(out_cache_dir.rglob("ego_raster_nb._coarse_words_kernel-233.py*.nbi"))
+    nbcs = sorted(out_cache_dir.rglob("ego_raster_nb._coarse_words_kernel-233.py*.1.nbc"))
+    assert len(nbis) == 1 and len(nbcs) == 1
+    return nbis[0], nbcs[0]
+
+
+class _InnerEvalGadget:
+    def __init__(self, expr: str) -> None:
+        self.expr = expr
+
+    def __reduce__(self) -> tuple[object, tuple[str]]:
+        return (builtins.eval, (self.expr,))
+
+
+def _build_numba_serialize_loads_pickle(inner_pickle: bytes) -> bytes:
+    """Craft Astra Ruling 4 Point 3 probe (b) outer pickle: numba.core.serialize.loads(inner)."""
+    import struct
+
+    return (
+        b"\x80\x04"
+        b"\x8c\x14numba.core.serialize"
+        b"\x8c\x05loads"
+        b"\x93"
+        b"B" + struct.pack("<I", len(inner_pickle)) + inner_pickle + b"\x85R."
+    )
+
+
+def test_live_v3_broker_passes_after_quarantine_with_zero_caches() -> None:
+    """Ruling 4 req (3)-(4): live V3 broker has zero caches after quarantine and passes closure."""
+    assert V3_BROKER_ROOT.is_dir()
+    found_caches: list[str] = []
+    for dirpath, dirnames, filenames in os.walk(V3_BROKER_ROOT, followlinks=False):
+        dp = Path(dirpath)
+        rel_dp = dp.relative_to(V3_BROKER_ROOT)
+        if rel_dp.parts and rel_dp.parts[0] == ".git":
+            dirnames[:] = []
+            continue
+        for dn in sorted(dirnames):
+            if dn == "__pycache__":
+                found_caches.append((dp / dn).relative_to(V3_BROKER_ROOT).as_posix())
+        for fn in sorted(filenames):
+            if fn.lower().endswith((".nbi", ".nbc", ".pyc", ".pyo")):
+                found_caches.append((dp / fn).relative_to(V3_BROKER_ROOT).as_posix())
+    assert found_caches == [], f"unexpected cache artifacts in live V3 broker: {found_caches}"
+
+    closure = verify_baseline_closure(V3_BROKER_ROOT, require_head_at_baseline=True)
+    assert closure == {
+        "broker_root": str(V3_BROKER_ROOT.resolve()),
+        "baseline_commit": BASELINE_COMMIT,
+        "science": BASELINE_SCIENCE,
+        "namespace": BASELINE_NAMESPACE,
+        "registration_sha256": REGISTRATION_V3_SHA256,
+    }
+
+
+def test_ruling4_probe_a_mutated_macho_nbc_and_genuine_numba_cache_refused(
     clean_baseline_template: Path,
     tmp_path: Path,
 ) -> None:
-    """Verify safe __pycache__/.pyc + Numba .nbi/.nbc rules: genuine caches pass, forgeries fail."""
-    # 1. Untouched live V3 broker passes as-is (with existing Numba src/simd_env/__pycache__):
-    assert verify_baseline_closure(V3_BROKER_ROOT, require_head_at_baseline=True)["science"] == (
+    """Astra Ruling 4 Point 3 probe (a): flipped Mach-O instruction in .nbc (+ genuine) refused."""
+    clone = _fresh_baseline_clone(clean_baseline_template, tmp_path / "clone-probe-a")
+    src_nbi, src_nbc = _compile_genuine_coarse_words_cache(clone, tmp_path / "ext-nb-cache")
+
+    genuine_nbi_bytes = src_nbi.read_bytes()
+    genuine_nbc_bytes = src_nbc.read_bytes()
+    tracked_ego_sha = (
+        __import__("hashlib")
+        .sha256((clone / "src/simd_env/ego_raster_nb.py").read_bytes())
+        .digest()
+    )
+    assert tracked_ego_sha in genuine_nbi_bytes
+
+    if platform.system() == "Darwin" and platform.machine() == "arm64":
+        orig_insn = bytes.fromhex("ff4306d1")
+        flipped_insn = bytes.fromhex("fe4306d1")
+        assert orig_insn in genuine_nbc_bytes
+        mutated_nbc_bytes = genuine_nbc_bytes.replace(orig_insn, flipped_insn, 1)
+    else:
+        mutated_nbc_bytes = (
+            genuine_nbc_bytes[:-16]
+            + bytes([genuine_nbc_bytes[-16] ^ 0x01])
+            + genuine_nbc_bytes[-15:]
+        )
+    assert mutated_nbc_bytes != genuine_nbc_bytes
+
+    simd_pycache = clone / "src/simd_env/__pycache__"
+    simd_pycache.mkdir(parents=True, exist_ok=True)
+    planted_nbi = simd_pycache / src_nbi.name
+    planted_nbc = simd_pycache / src_nbc.name
+
+    # Probe (a): genuine matching-stamp .nbi + Mach-O instruction-flipped .nbc:
+    planted_nbi.write_bytes(genuine_nbi_bytes)
+    planted_nbc.write_bytes(mutated_nbc_bytes)
+    porcelain = subprocess.check_output(
+        ["git", "--no-optional-locks", "status", "--porcelain", "--untracked-files=all"],
+        cwd=clone,
+        text=True,
+        timeout=10,
+    ).strip()
+    assert porcelain == ""
+    assert compute_broker_identity(clone) == BASELINE_SCIENCE
+
+    _assert_all_broker_entrypoints_refuse_clone(
+        clone,
+        tmp_path / "ep-probe-a-mutated",
+        expected_match=r"Numba native cache payload.*ego_raster_nb\._coarse_words_kernel-233",
+    )
+
+    # Unmutated genuine .nbi + .nbc pair is ALSO refused across all entrypoints (no whitelist):
+    planted_nbc.write_bytes(genuine_nbc_bytes)
+    _assert_all_broker_entrypoints_refuse_clone(
+        clone,
+        tmp_path / "ep-probe-a-genuine",
+        expected_match=r"Numba native cache payload.*ego_raster_nb\._coarse_words_kernel-233",
+    )
+
+    # Lone .nbi and lone .nbc (inside __pycache__ and outside __pycache__) each refuse alone:
+    planted_nbc.unlink()
+    with pytest.raises(ValueError, match=r"Numba native cache payload.*\.nbi"):
+        verify_baseline_closure(clone, require_head_at_baseline=True)
+    planted_nbi.unlink()
+
+    planted_nbc.write_bytes(genuine_nbc_bytes)
+    with pytest.raises(ValueError, match=r"Numba native cache payload.*\.nbc"):
+        verify_baseline_closure(clone, require_head_at_baseline=True)
+    planted_nbc.unlink()
+    simd_pycache.rmdir()
+
+    stray_nbc = clone / "src/simd_env" / src_nbc.name
+    stray_nbc.write_bytes(mutated_nbc_bytes)
+    try:
+        with pytest.raises(ValueError, match=r"Numba native cache payload.*\.nbc"):
+            verify_baseline_closure(clone, require_head_at_baseline=True)
+    finally:
+        stray_nbc.unlink()
+
+    assert verify_baseline_closure(clone, require_head_at_baseline=True)["science"] == (
         BASELINE_SCIENCE
     )
 
-    clone = _fresh_baseline_clone(clean_baseline_template, tmp_path / "clone-pycache")
+
+def test_ruling4_probe_b_nested_numba_serialize_eval_nbc_refused(
+    clean_baseline_template: Path,
+    tmp_path: Path,
+) -> None:
+    """Astra Ruling 4 Point 3 probe (b): numba.core.serialize.loads(builtins.eval('6*7')) .nbc."""
+    clone = _fresh_baseline_clone(clean_baseline_template, tmp_path / "clone-probe-b")
+    src_nbi, src_nbc = _compile_genuine_coarse_words_cache(clone, tmp_path / "ext-nb-cache-b")
+
+    inner_42 = pickle.dumps(_InnerEvalGadget("6*7"), protocol=4)
+    outer_42_nbc = _build_numba_serialize_loads_pickle(inner_42)
+    # Confirm Astra's exact nested-pickle gadget evaluates 6*7 == 42 while exposing only numba.*
+    # at the outer pickle stream level:
+    assert pickle.loads(outer_42_nbc) == 42
+    outer_globals: list[str] = []
+    stack: list[object] = []
+    for op, arg, _ in pickletools.genops(io.BytesIO(outer_42_nbc)):
+        if op.name in ("MEMOIZE", "FRAME", "PROTO"):
+            continue
+        if op.name in ("SHORT_BINUNICODE", "BINUNICODE", "UNICODE"):
+            stack.append(arg)
+        elif op.name == "GLOBAL":
+            outer_globals.append(str(arg))
+            stack.append(None)
+        elif op.name == "STACK_GLOBAL":
+            attr_n = stack.pop()
+            mod_n = stack.pop()
+            outer_globals.append(f"{mod_n}.{attr_n}")
+            stack.append(None)
+        else:
+            stack.append(None)
+    assert outer_globals == ["numba.core.serialize.loads"]
+
+    simd_pycache = clone / "src/simd_env/__pycache__"
+    simd_pycache.mkdir(parents=True, exist_ok=True)
+    planted_nbi = simd_pycache / src_nbi.name
+    planted_nbc = simd_pycache / src_nbc.name
+    planted_nbi.write_bytes(src_nbi.read_bytes())
+    planted_nbc.write_bytes(outer_42_nbc)
+
+    assert compute_broker_identity(clone) == BASELINE_SCIENCE
+    _assert_all_broker_entrypoints_refuse_clone(
+        clone,
+        tmp_path / "ep-probe-b-42",
+        expected_match=r"Numba native cache payload.*ego_raster_nb\._coarse_words_kernel-233",
+    )
+
+    # Also prove the adapter NEVER unpickles .nbc during refusal:
+    sentinel = tmp_path / "UNPICKLED_SENTINEL"
+    inner_sentinel = pickle.dumps(
+        _InnerEvalGadget(f"open({str(sentinel)!r}, 'w').write('boom')"),
+        protocol=4,
+    )
+    outer_sentinel_nbc = _build_numba_serialize_loads_pickle(inner_sentinel)
+    planted_nbc.write_bytes(outer_sentinel_nbc)
+    _assert_all_broker_entrypoints_refuse_clone(
+        clone,
+        tmp_path / "ep-probe-b-sentinel",
+        expected_match=r"Numba native cache payload.*ego_raster_nb\._coarse_words_kernel-233",
+    )
+    assert not sentinel.exists()
+
+    shutil.rmtree(simd_pycache)
+    assert verify_baseline_closure(clone, require_head_at_baseline=True)["science"] == (
+        BASELINE_SCIENCE
+    )
+
+
+def test_point3_refuses_all_pycache_pyc_and_non_cpython_caches_outright(
+    clean_baseline_template: Path,
+    tmp_path: Path,
+) -> None:
+    """Simplest fail-closed cache rule under -B: refuse all __pycache__, .pyc, and non-CPython."""
+    clone = _fresh_baseline_clone(clean_baseline_template, tmp_path / "clone-all-caches")
     tag = sys.implementation.cache_tag
     tracked_py = clone / "src/model/ego2s_network.py"
     pycache_dir = clone / "src/model/__pycache__"
     valid_pyc = pycache_dir / f"ego2s_network.{tag}.pyc"
 
-    # 2. Genuine CPython .pyc compiled from tracked ego2s_network.py (TIMESTAMP, CHECKED_HASH,
-    #    and UNCHECKED_HASH modes) PASSES:
-    for mode in (
-        py_compile.PycInvalidationMode.TIMESTAMP,
-        py_compile.PycInvalidationMode.CHECKED_HASH,
-        py_compile.PycInvalidationMode.UNCHECKED_HASH,
+    # 1. Genuine CPython .pyc in __pycache__/ (TIMESTAMP, CHECKED_HASH, UNCHECKED_HASH) is REFUSED:
+    for idx, mode in enumerate(
+        (
+            py_compile.PycInvalidationMode.TIMESTAMP,
+            py_compile.PycInvalidationMode.CHECKED_HASH,
+            py_compile.PycInvalidationMode.UNCHECKED_HASH,
+        )
     ):
         py_compile.compile(
             str(tracked_py),
@@ -2742,156 +3014,320 @@ def test_point3_pycache_and_bytecode_verification_rules(
             doraise=True,
             invalidation_mode=mode,
         )
-        assert valid_pyc.is_file()
-        assert compute_broker_identity(clone) == BASELINE_SCIENCE
-        assert verify_baseline_closure(clone, require_head_at_baseline=True)["science"] == (
-            BASELINE_SCIENCE
-        )
-        valid_pyc.unlink()
+        try:
+            assert valid_pyc.is_file()
+            assert compute_broker_identity(clone) == BASELINE_SCIENCE
+            if idx == 0:
+                _assert_all_broker_entrypoints_refuse_clone(
+                    clone,
+                    tmp_path / "ep-pyc-refused",
+                    expected_match=r"CPython bytecode cache.*src/model/__pycache__/ego2s_network",
+                )
+            else:
+                with pytest.raises(
+                    ValueError,
+                    match=r"CPython bytecode cache.*src/model/__pycache__/ego2s_network",
+                ):
+                    verify_baseline_closure(clone, require_head_at_baseline=True)
+        finally:
+            shutil.rmtree(pycache_dir, ignore_errors=True)
 
-    # 3. Stray .pyc outside __pycache__/ is unconditionally REFUSED:
+    # 2. Stray .pyc outside __pycache__/ is REFUSED:
     stray_pyc = clone / "src/model/ego2s_network.pyc"
     py_compile.compile(str(tracked_py), cfile=str(stray_pyc), doraise=True)
     try:
-        assert compute_broker_identity(clone) == BASELINE_SCIENCE
         with pytest.raises(
-            ValueError, match=r"stray Python source or bytecode.*src/model/ego2s_network\.pyc"
+            ValueError,
+            match=r"CPython bytecode cache.*src/model/ego2s_network\.pyc",
         ):
             verify_baseline_closure(clone, require_head_at_baseline=True)
     finally:
         stray_pyc.unlink()
 
-    # 4. Orphan .pyc in __pycache__/ without a tracked baseline .py is REFUSED:
-    orphan_pyc = pycache_dir / f"ghost_module.{tag}.pyc"
-    py_compile.compile(str(tracked_py), cfile=str(orphan_pyc), doraise=True)
-    try:
-        assert compute_broker_identity(clone) == BASELINE_SCIENCE
-        with pytest.raises(ValueError, match=r"orphan \.pyc.*ghost_module"):
-            verify_baseline_closure(clone, require_head_at_baseline=True)
-    finally:
-        orphan_pyc.unlink()
+    # 3. Non-CPython cache payloads inside __pycache__/ (.so, .pkl) are REFUSED:
+    for fname in ("stealth.so", "cached_blob.pkl"):
+        pycache_dir.mkdir(parents=True, exist_ok=True)
+        foreign_cache = pycache_dir / fname
+        foreign_cache.write_bytes(b"\x80\x04\x95\x02\x00\x00\x00\x00\x00\x00\x00N.")
+        try:
+            with pytest.raises(ValueError, match=r"forbidden non-CPython cache payload"):
+                verify_baseline_closure(clone, require_head_at_baseline=True)
+        finally:
+            shutil.rmtree(pycache_dir, ignore_errors=True)
 
-    # 5. Foreign interpreter tag .pyc is REFUSED:
-    foreign_tag_pyc = pycache_dir / "ego2s_network.cpython-311.pyc"
-    py_compile.compile(str(tracked_py), cfile=str(foreign_tag_pyc), doraise=True)
-    try:
-        with pytest.raises(ValueError, match="foreign interpreter cache tag"):
-            verify_baseline_closure(clone, require_head_at_baseline=True)
-    finally:
-        foreign_tag_pyc.unlink()
-
-    # 6. Stale timestamp/size .pyc header is REFUSED:
-    py_compile.compile(
-        str(tracked_py),
-        cfile=str(valid_pyc),
-        invalidation_mode=py_compile.PycInvalidationMode.TIMESTAMP,
-    )
-    raw_valid = bytearray(valid_pyc.read_bytes())
-    orig_mtime, orig_size = struct.unpack("<II", raw_valid[8:16])
-    raw_valid[8:16] = struct.pack("<II", (orig_mtime + 1) & 0xFFFFFFFF, orig_size)
-    valid_pyc.write_bytes(bytes(raw_valid))
-    try:
-        with pytest.raises(ValueError, match=r"stale or mismatched timestamp \.pyc header"):
-            verify_baseline_closure(clone, require_head_at_baseline=True)
-    finally:
-        valid_pyc.unlink()
-
-    # 7. Mismatched PEP-552 source-hash .pyc (UNCHECKED_HASH bit_field=1) is REFUSED:
-    forged_evil_code = marshal.dumps(compile("EVIL_PAYLOAD = 999\n", "ego2s_network.py", "exec"))
-    bad_hash_pyc = (
-        importlib.util.MAGIC_NUMBER + struct.pack("<I", 1) + (b"\xaa" * 8) + forged_evil_code
-    )
-    valid_pyc.write_bytes(bad_hash_pyc)
-    try:
-        with pytest.raises(ValueError, match="mismatched PEP-552 source_hash"):
-            verify_baseline_closure(clone, require_head_at_baseline=True)
-    finally:
-        valid_pyc.unlink()
-
-    # 8. FORGED-HEADER .pyc (exact MAGIC_NUMBER + exact tracked mtime/size OR exact PEP-552
-    #    SipHash of tracked ego2s_network.py, but marshalled evil CodeType!) is REFUSED:
-    st = tracked_py.stat()
-    tracked_bytes = tracked_py.read_bytes()
-    for forged_header in (
-        importlib.util.MAGIC_NUMBER
-        + struct.pack("<III", 0, int(st.st_mtime) & 0xFFFFFFFF, st.st_size & 0xFFFFFFFF),
-        importlib.util.MAGIC_NUMBER
-        + struct.pack("<I", 1)
-        + importlib.util.source_hash(tracked_bytes),
+    # 4. Empty __pycache__/ directories (in src/, research/, or top-level) are REFUSED:
+    for empty_rel in (
+        "src/simd_env/__pycache__",
+        "research/watch6_search_efficacy_v3/__pycache__",
+        "__pycache__",
     ):
-        valid_pyc.write_bytes(forged_header + forged_evil_code)
+        empty_pc = clone / empty_rel
+        empty_pc.mkdir(parents=True, exist_ok=True)
         try:
-            assert compute_broker_identity(clone) == BASELINE_SCIENCE
-            with pytest.raises(
-                ValueError, match="bytecode body .* does not match compiled tracked"
-            ):
+            with pytest.raises(ValueError, match=r"forbidden __pycache__ directory"):
                 verify_baseline_closure(clone, require_head_at_baseline=True)
         finally:
-            valid_pyc.unlink()
+            empty_pc.rmdir()
 
-    # 9. Foreign non-bytecode file inside __pycache__/ (e.g. .so) is REFUSED:
-    pycache_so = pycache_dir / "stealth.so"
-    pycache_so.write_bytes(b"\xcf\xfa\xed\xfe")
+    # 5. Empty untracked non-__pycache__ directory inside closure is REFUSED:
+    untracked_cache_dir = clone / "src/simd_env/.numba_cache"
+    untracked_cache_dir.mkdir(parents=True, exist_ok=True)
     try:
-        with pytest.raises(ValueError, match=r"foreign file inside __pycache__"):
+        with pytest.raises(
+            ValueError,
+            match=r"foreign untracked or ignored directory.*src/simd_env/\.numba_cache",
+        ):
             verify_baseline_closure(clone, require_head_at_baseline=True)
     finally:
-        pycache_so.unlink()
+        untracked_cache_dir.rmdir()
 
-    # 10. Numba cache (.nbi/.nbc) verification: genuine pair passes; tampered stamp, orphan .nbc,
-    #     and unsafe pickle global opcode each FAIL CLOSED without executing pickle.loads:
-    broker_simd_cache = V3_BROKER_ROOT / "src/simd_env/__pycache__"
-    clone_simd_cache = clone / "src/simd_env/__pycache__"
-    clone_simd_cache.mkdir(parents=True, exist_ok=True)
+    assert verify_baseline_closure(clone, require_head_at_baseline=True)["science"] == (
+        BASELINE_SCIENCE
+    )
 
-    orphan_nbc = clone_simd_cache / "v8_nb.fake_kernel-1.py312.1.nbc"
-    orphan_nbc.write_bytes(b"\x80\x04\x95\x02\x00\x00\x00\x00\x00\x00\x00N.")
-    try:
-        with pytest.raises(ValueError, match=r"orphan Numba \.nbc"):
-            verify_baseline_closure(clone, require_head_at_baseline=True)
-    finally:
-        orphan_nbc.unlink()
 
-    sample_nbis = sorted(broker_simd_cache.glob("v8_nb.*.nbi"))
-    if sample_nbis:
-        src_nbi = sample_nbis[0]
-        stem = src_nbi.name[: -len(".nbi")]
-        sibling_nbcs = sorted(broker_simd_cache.glob(f"{stem}.*.nbc"))
-        copied: list[Path] = []
-        try:
-            dst_nbi = clone_simd_cache / src_nbi.name
-            shutil.copy2(src_nbi, dst_nbi)
-            copied.append(dst_nbi)
-            for s_nbc in sibling_nbcs:
-                d_nbc = clone_simd_cache / s_nbc.name
-                shutil.copy2(s_nbc, d_nbc)
-                copied.append(d_nbc)
-            # Genuine Numba cache pair copied onto clean baseline clone PASSES:
-            assert verify_baseline_closure(clone, require_head_at_baseline=True)["science"] == (
-                BASELINE_SCIENCE
+def test_fresh_cache_entrypoints_execute_broker_numba_and_write_nothing_in_tree(
+    clean_baseline_template: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ruling 4 req (2) & (4): fresh empty NUMBA_CACHE_DIR + -B + PYTHONDONTWRITEBYTECODE=1."""
+    clone = _fresh_baseline_clone(clean_baseline_template, tmp_path / "clone-fresh-cache")
+    before_clone_state = _snapshot_tree_state(clone)
+    assert verify_baseline_closure(clone, require_head_at_baseline=True)["science"] == (
+        BASELINE_SCIENCE
+    )
+    assert _snapshot_tree_state(clone) == before_clone_state
+
+    # Poison caller env to prove entrypoints override NUMBA_CACHE_DIR, PYTHONDONTWRITEBYTECODE,
+    # and even a TMPDIR pointing inside the broker tree:
+    monkeypatch.setenv("NUMBA_CACHE_DIR", str(clone / "src/simd_env/__pycache__"))
+    monkeypatch.setenv("PYTHONDONTWRITEBYTECODE", "0")
+    monkeypatch.setenv("TMPDIR", str(clone))
+
+    # 1. Dispatch preflight executing real broker code + @njit(cache=True) (_coarse_words_kernel):
+    op_root = tmp_path / "op-fresh"
+    (op_root / "tools/ops").mkdir(parents=True, exist_ok=True)
+    telemetry_jsonl = tmp_path / "preflight-cache-telemetry.jsonl"
+    fake_dispatch = op_root / "tools/ops/dispatch.sh"
+    fake_dispatch.write_text(
+        textwrap.dedent(f"""\
+            #!/usr/bin/env bash
+            set -euo pipefail
+            exec python3 - "{clone}" "{telemetry_jsonl}" <<'PY'
+            import json, os, sys
+            from pathlib import Path
+            import numpy as np
+
+            broker = Path(sys.argv[1]).resolve()
+            out_log = Path(sys.argv[2])
+            nb_dir = Path(os.environ["NUMBA_CACHE_DIR"]).resolve()
+            is_valid_nb_dir = nb_dir.is_dir() and not nb_dir.is_symlink()
+            empty_before = is_valid_nb_dir and list(nb_dir.iterdir()) == []
+
+            sys.path.insert(0, str(broker))
+            from src.simd_env import ego_raster_nb
+
+            owner_w = np.full((1, 16, 4), np.uint64(0xFFFFFFFFFFFFFFFF), dtype=np.uint64)
+            owner_w[0, 4, 1] = np.uint64(0xFFFFFFFFFFFF0000)
+            food_w = np.zeros((1, 16, 2), dtype=np.uint64)
+            env_needed = np.array([True], dtype=np.bool_)
+            counts = np.zeros((1, 2, 4, 4), dtype=np.int32)
+            total = np.zeros((1, 4, 4), dtype=np.int32)
+            fcounts = np.zeros((1, 4, 4), dtype=np.int32)
+            ego_raster_nb._coarse_words_kernel(
+                owner_w, food_w, env_needed, 2, 8, 8, 2, counts, total, fcounts
+            )
+            nbis = [p.name for p in nb_dir.rglob("*.nbi")]
+            nbcs = [p.name for p in nb_dir.rglob("*.nbc")]
+            record = {{
+                "dont_write_bytecode_flag": int(sys.flags.dont_write_bytecode),
+                "sys_dont_write_bytecode": bool(sys.dont_write_bytecode),
+                "env_pythondontwritebytecode": os.environ.get("PYTHONDONTWRITEBYTECODE"),
+                "numba_cache_dir": str(nb_dir),
+                "numba_locator": os.environ.get("NUMBA_CACHE_LOCATOR_CLASSES"),
+                "empty_before_use": empty_before,
+                "nbi_files": nbis,
+                "nbc_files": nbcs,
+                "kernel_total": int(total.sum()),
+            }}
+            with out_log.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(record, sort_keys=True) + "\\n")
+            PY
+            """),
+        encoding="utf-8",
+    )
+    fake_dispatch.chmod(0o755)
+
+    mf = tmp_path / "fresh-cache-mf.json"
+    mf.write_text(
+        json.dumps(
+            {
+                "job_id": "watch6-v3-fresh-cache-preflight",
+                "commit": BASELINE_COMMIT,
+                "output_dir": str(tmp_path / "fresh-out"),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with patch.object(dispatch, "admit", return_value={"status": "PASS"}):
+        rc1 = dispatch.run_dispatch(
+            [
+                "watch6-v3-fresh-cache-preflight",
+                str(mf),
+                "--broker",
+                str(clone),
+                "--cwd",
+                str(clone),
+                "--operator-root",
+                str(op_root),
+                "--dry-run",
+            ],
+            ops_dir=tmp_path / "ops",
+        )
+        rc2 = dispatch.run_dispatch(
+            [
+                "watch6-v3-fresh-cache-preflight",
+                str(mf),
+                "--broker",
+                str(clone),
+                "--cwd",
+                str(clone),
+                "--operator-root",
+                str(op_root),
+                "--dry-run",
+            ],
+            ops_dir=tmp_path / "ops",
+        )
+    assert rc1 == 0 and rc2 == 0
+    records = [
+        json.loads(line)
+        for line in telemetry_jsonl.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert len(records) == 2
+    for rec in records:
+        nb_path = Path(rec["numba_cache_dir"])
+        assert rec["dont_write_bytecode_flag"] == 1
+        assert rec["sys_dont_write_bytecode"] is True
+        assert rec["env_pythondontwritebytecode"] == "1"
+        assert rec["numba_locator"] == "UserProvidedCacheLocator"
+        assert rec["empty_before_use"] is True
+        assert len(rec["nbi_files"]) >= 1 and len(rec["nbc_files"]) >= 1
+        assert rec["kernel_total"] >= 1
+        assert not nb_path.is_relative_to(clone.resolve())
+        assert not nb_path.is_relative_to(V3_BROKER_ROOT.resolve())
+        assert not nb_path.is_relative_to(ADAPTER_ROOT.resolve())
+        assert not nb_path.exists()
+    assert records[0]["numba_cache_dir"] != records[1]["numba_cache_dir"]
+    assert _snapshot_tree_state(clone) == before_clone_state
+
+    # 2. Every adapter entrypoint creates a distinct, verified-empty, non-reused NUMBA_CACHE_DIR:
+    import tools.watch6_v3_accounting as acct_pkg
+
+    observed_entrypoint_dirs: list[str] = []
+    real_vctc = acct_pkg._verify_clean_tracked_closure
+
+    def _spy_isolation(*args: object, **kwargs: object) -> None:
+        iso = active_broker_isolation()
+        assert iso is not None
+        assert iso.verified_empty_before_use is True
+        assert os.environ.get("PYTHONDONTWRITEBYTECODE") == "1"
+        assert sys.dont_write_bytecode is True
+        assert os.environ.get("NUMBA_CACHE_DIR") == str(iso.numba_cache_dir)
+        assert os.environ.get("NUMBA_CACHE_LOCATOR_CLASSES") == "UserProvidedCacheLocator"
+        assert not iso.numba_cache_dir.is_relative_to(clone.resolve())
+        observed_entrypoint_dirs.append(str(iso.numba_cache_dir))
+        return real_vctc(*args, **kwargs)  # type: ignore[arg-type]
+
+    amend_clone = _write_immutable_text(
+        tmp_path / "WATCH6_V3_ACCOUNTING_AMENDMENT_V5_20261031.md",
+        _render_amendment_markdown(ADAPTER_ROOT),
+    )
+
+    seen_before = set(used_numba_cache_dirs())
+    with patch.object(acct_pkg, "_verify_clean_tracked_closure", side_effect=_spy_isolation):
+        # ratify:
+        ratify.verify_amendment_document(
+            amend_clone,
+            broker_root=clone,
+            require_clean_git=False,
+        )
+        # resume:
+        assert resume.build([], [], broker_root=clone)["units"] == []
+        # admission (lineage + admit):
+        admission.verify_prior_receipts_lineage(0, [], 0, 0, 1, broker_root=clone)
+        with pytest.raises(ValueError, match="Watch6 V3 runtime commit"):
+            admission.admit({"commit": "bad"}, broker_root=clone)
+        # prepare:
+        with pytest.raises(ValueError, match="main preparation requires"):
+            prepare.prepare(
+                tmp_path / "prep-fresh",
+                tmp_path / "b.json",
+                BASELINE_COMMIT,
+                tmp_path / "m.json",
+                tmp_path / "c.json",
+                broker_root=clone,
+            )
+        # recover:
+        with pytest.raises(ValueError, match="recovery requires at least one"):
+            recover.recover(
+                base_package=tmp_path,
+                receipts=[],
+                target_shards=[0],
+                out=tmp_path / "rec-fresh",
+                benchmark=tmp_path / "b.json",
+                mirror_receipt=tmp_path / "m.json",
+                empirical_costs=tmp_path / "c.json",
+                commit=BASELINE_COMMIT,
+                broker_root=clone,
+            )
+        # final_look:
+        with pytest.raises(ValueError, match="INVALID_OR_INCOMPLETE"):
+            final_look.run_final_look(
+                ops_dir=tmp_path / "ops",
+                out_dir=tmp_path / "look-fresh",
+                broker_root=clone,
+                require_clean_git=False,
             )
 
-            # Mutating the 32-byte SHA-256 source stamp inside .nbi REFUSES:
-            v8_sha = (
-                __import__("hashlib")
-                .sha256((clone / "src/simd_env/v8_nb.py").read_bytes())
-                .digest()
-            )
-            orig_nbi_bytes = dst_nbi.read_bytes()
-            assert v8_sha in orig_nbi_bytes
-            corrupted_stamp = bytes([v8_sha[0] ^ 0xFF]) + v8_sha[1:]
-            dst_nbi.write_bytes(orig_nbi_bytes.replace(v8_sha, corrupted_stamp, 1))
-            with pytest.raises(ValueError, match="stale or mismatched SHA-256 source stamp"):
-                verify_baseline_closure(clone, require_head_at_baseline=True)
+    newly_allocated = set(used_numba_cache_dirs()) - seen_before
+    assert len(newly_allocated) == 7
+    assert set(observed_entrypoint_dirs) == newly_allocated
+    for alloc_dir in newly_allocated:
+        assert not Path(alloc_dir).exists()
+        assert not Path(alloc_dir).is_relative_to(clone.resolve())
 
-            # Unsafe pickle GLOBAL opcode (e.g. `cos\nsystem\n`) REFUSES safely via pickletools:
-            dst_nbi.write_bytes(b"cos\nsystem\n(S'echo NO'\ntR.")
-            with pytest.raises(ValueError, match="foreign pickle global"):
-                verify_baseline_closure(clone, require_head_at_baseline=True)
-        finally:
-            for p_item in copied:
-                p_item.unlink(missing_ok=True)
+    # 3. Real CLI invocation WITHOUT -B and WITH poisoned caller env re-execs under -B, succeeds,
+    #    and writes zero files/directories into clone:
+    cli_env = dict(os.environ)
+    cli_env["PYTHONPATH"] = str(ADAPTER_ROOT)
+    cli_env["PYTHONDONTWRITEBYTECODE"] = "0"
+    cli_env["NUMBA_CACHE_DIR"] = str(clone / "src/simd_env/__pycache__")
+    cli_env.pop("_WATCH6_V3_ACCT_DASH_B_REEXEC", None)
+    ledger_cli_out = tmp_path / "cli-empty-ledger.json"
+    cli_proc = subprocess.run(
+        [
+            os.path.abspath(sys.executable),
+            "-m",
+            "tools.watch6_v3_accounting.resume",
+            "--broker-root",
+            str(clone),
+            "--out",
+            str(ledger_cli_out),
+        ],
+        cwd=clone,
+        env=cli_env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    assert cli_proc.returncode == 0, cli_proc.stderr
+    assert json.loads(ledger_cli_out.read_text(encoding="utf-8"))["units"] == []
 
+    assert _snapshot_tree_state(clone) == before_clone_state
     assert verify_baseline_closure(clone, require_head_at_baseline=True)["science"] == (
         BASELINE_SCIENCE
     )
