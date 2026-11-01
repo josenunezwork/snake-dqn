@@ -1300,7 +1300,14 @@ def refresh_assignments(manifest: Path, evidence: Path, deadline: float) -> Path
         ):
             raise Refused(f"ambiguous broker active identity: {path}")
         records[endpoint] = record
-        sources.append({"path": str(path), "sha256": hashlib.sha256(raw).hexdigest()})
+        source_entry: dict[str, Any] = {
+            "path": str(path),
+            "sha256": hashlib.sha256(raw).hexdigest(),
+            "endpoint": endpoint,
+        }
+        if isinstance(record.get("output"), str) and record["output"]:
+            source_entry["output"] = record["output"]
+        sources.append(source_entry)
     foreign = sorted(set(sessions) - set(records))
     if foreign:
         raise Refused("live endpoints not owned by our broker: " + ", ".join(foreign))
@@ -2044,8 +2051,82 @@ def require_f5_plan_live_assignment_match(original: dict[str, Any], live: dict[s
             budget_warning("F5_LIVE_RATE_CHANGED", expected=expected, observed=observed)
 
 
-def wait_allocation(output: Path, log: Path, deadline: float, poll: float) -> str:
+def corroborated_released_other_endpoints(
+    output: Path, log: Path, accounting_evidence: Path | None
+) -> bool:
+    """Verify a pre-allocation stale-endpoint error came solely from released broker lanes."""
+    if (
+        accounting_evidence is None
+        or not accounting_evidence.is_file()
+        or not (output / "manifest.json").is_file()
+        or not (output / "receipt.json").is_file()
+    ):
+        return False
+    if __package__:
+        from . import auto_retry
+    else:
+        import auto_retry
+    receipt = read_json(output / "receipt.json")
+    stale = auto_retry.stale_accounted_endpoints(receipt.get("error"))
+    if stale is None:
+        return False
+    executed = read_json(output / "manifest.json")
+    if not auto_retry.blocked_before_allocation(executed, output, log):
+        return False
+    evidence = read_json(accounting_evidence)
+    snapshotted_other = evidence.get("other_assignments")
+    if not isinstance(snapshotted_other, dict) or not set(stale) <= set(snapshotted_other):
+        return False
+    records_by_endpoint = {
+        row["endpoint"]: row
+        for row in evidence.get("broker_records", [])
+        if isinstance(row, dict) and isinstance(row.get("endpoint"), str)
+    }
+    account = Path.home() / ".config/colab-cli/snake"
+    if account.is_dir():
+        for kind in ("active", "pending"):
+            for path in account.glob(f"{kind}-*.json"):
+                try:
+                    live_record = read_json(path)
+                except (OSError, ValueError):
+                    return False
+                if live_record.get("endpoint") in stale:
+                    return False
+    for endpoint in stale:
+        row = records_by_endpoint.get(endpoint)
+        if row is not None:
+            record_path = row.get("path")
+            if isinstance(record_path, str) and record_path and Path(record_path).exists():
+                return False
+            owner_output = row.get("output")
+            if isinstance(owner_output, str) and owner_output:
+                owner_receipt_path = Path(owner_output) / "receipt.json"
+                if owner_receipt_path.is_file():
+                    try:
+                        owner_receipt = read_json(owner_receipt_path)
+                    except (OSError, ValueError):
+                        return False
+                    if (
+                        owner_receipt.get("stop_verified") is not True
+                        or owner_receipt.get("cleanup_error") is not None
+                    ):
+                        return False
+    return True
+
+
+def wait_allocation(
+    output: Path,
+    log: Path,
+    deadline: float,
+    poll: float,
+    *,
+    accounting_evidence: Path | None = None,
+) -> str:
     """An assignment record is too early: accounting calibration must finish."""
+    if __package__:
+        from .auto_retry import stale_accounted_endpoints
+    else:
+        from auto_retry import stale_accounted_endpoints
     while time.monotonic() < deadline:
         calibration = output / "rate-calibration.json"
         if calibration.is_file() and read_json(calibration).get("status") == "PASS":
@@ -2054,18 +2135,28 @@ def wait_allocation(output: Path, log: Path, deadline: float, poll: float) -> st
         receipt = output / "receipt.json"
         if receipt.is_file():
             value = read_json(receipt)
-            retry = (
+            exact_retry = (
                 value.get("status") == "INCOMPLETE"
                 and value.get("failure_class") == "ACCOUNTING"
                 and value.get("error") == EXACT_ERROR
                 and value.get("cleanup_error") is None
                 and value.get("stop_verified") is True
             )
+            stale_candidate = (
+                accounting_evidence is not None
+                and value.get("status") == "INCOMPLETE"
+                and value.get("failure_class") == "ACCOUNTING"
+                and stale_accounted_endpoints(value.get("error")) is not None
+            )
             # Receipt publication precedes shell exit; wait before a retry.
             exited = bool(re.search(r"^EXIT=\d+$", log.read_text(), re.MULTILINE))
-            if retry and not exited:
+            if (exact_retry or stale_candidate) and not exited:
                 time.sleep(min(poll, max(0, deadline - time.monotonic())))
                 continue
+            retry = exact_retry or (
+                stale_candidate
+                and corroborated_released_other_endpoints(output, log, accounting_evidence)
+            )
             note(log, "OPS_ALLOCATION_FAILURE_RETRYABLE" if retry else "OPS_ALLOCATION_FAILURE")
             return "retry" if retry else "failed"
         if re.search(r"^EXIT=\d+$", log.read_text(), re.MULTILINE):
@@ -2841,7 +2932,9 @@ def dispatch(args: argparse.Namespace) -> str:
                 **({"small_bench_config": small_config} if small_config is not None else {}),
                 **sandbox_launch,
             )
-            outcome = wait_allocation(Path(output), log, deadline, poll)
+            outcome = wait_allocation(
+                Path(output), log, deadline, poll, accounting_evidence=evidence
+            )
             if outcome == "retry" and no_automatic_retry:
                 note(log, "OPS_ALLOCATION_RETRY_REFUSED timing_calibration.no_automatic_retry=true")
                 raise Refused(

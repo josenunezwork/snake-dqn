@@ -1151,3 +1151,209 @@ def test_reserved_l4_and_prefer_actual_accelerator_accounting(tmp_path, monkeypa
     assert by_id["l4-candidate-1"]["status"] == "DISPATCHING"
     assert by_id["l4-candidate-2"]["status"] == "READY"
     assert by_id["pref-candidate"]["status"] == "DISPATCHING"
+
+
+def stale_other_assignments_receipt(
+    manifest,
+    log,
+    endpoints: tuple[str, ...] = ("gpu-a100-s-ass1c0-qpemd5cxbn3z",),
+):
+    receipt = pending_fence_receipt(manifest, log)
+    receipt.update(
+        failure_class="ACCOUNTING",
+        error=(
+            "AccountingError('accounted assignment endpoints are no longer active: "
+            + ", ".join(endpoints)
+            + "')"
+        ),
+        stop_verified=False,
+        endpoint=None,
+        cleanup_error=None,
+        accounting=None,
+        usage_before={"assignments": 4.0, "balance": 2463.59, "rate": 12.55},
+        usage_after=None,
+        cli_calls=[
+            {"command": command, "operation": "control", "status": "completed", "attempt": 1}
+            for command in ("version", "sessions", "usage")
+        ],
+    )
+    write(Path(ar.read(manifest)["output_dir"]) / "receipt.json", receipt)
+    return receipt
+
+
+@pytest.mark.parametrize(
+    "endpoints",
+    [
+        ("gpu-a100-s-ass1c0-qpemd5cxbn3z",),
+        ("gpu-a100-s-111", "gpu-l4-s-222"),
+    ],
+)
+def test_stale_other_assignments_receipt_queues_fresh_completion_and_releases_slot(
+    tmp_path, endpoints
+):
+    ops = tmp_path / "ops"
+    base = {
+        "job_id": "job0",
+        "commit": "a" * 40,
+        "output_dir": str(tmp_path / "output0"),
+        "canary": {
+            "schema": "colab-family-canary/v1",
+            "receipt": {"path": "/tmp/canary-receipt.json", "sha256": "c" * 64},
+        },
+        "resume": {
+            "unit_kind": "watch-session",
+            "ledger_path": "inputs/main-ledger.json",
+            "skip_verified": True,
+            "max_outcome_blind_retries": 2,
+        },
+    }
+    path = write(tmp_path / "job0.json", base)
+    rq.enqueue(ops, "q0", command(tmp_path, path, "job0"))
+    manifest = write(ops / "manifests/job0.json", base)
+    log = ops / "logs/job0.log"
+    receipt = stale_other_assignments_receipt(manifest, log, endpoints=endpoints)
+    output = Path(base["output_dir"])
+
+    assert ar.blocked_before_allocation(base, output, log) is True
+    assert ar.eligible(base, output, log) == receipt
+    observed = rq.observations(ops)
+    assert observed["job0"]["preallocation_blocked"] is True
+    assert observed["job0"]["active"] is False
+
+    assert rq.tick(ops, inventory=set())["dispatched"] == []
+    parent, retry = ar.read(ops / "ready-queue.json")["jobs"]
+    assert parent["status"] == "FAILED" and parent["retry_id"] == retry["id"]
+    assert retry["status"] == "READY" and retry["not_before"] > time.time()
+    successor = ar.read(Path(retry["manifest"]))
+    assert successor["job_id"] != base["job_id"]
+    assert successor["output_dir"] != base["output_dir"]
+    assert successor["completion_attempt"] == 1
+    assert successor["canary"] == base["canary"]
+    for key in base.keys() - {"job_id", "output_dir", "completion_attempt"}:
+        assert successor[key] == base[key]
+    assert rq.occupancy(ar.read(ops / "ready-queue.json"), rq.observations(ops), set()) == (0, 0)
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "endpoint",
+        "stop_verified_true",
+        "stop_verified_none",
+        "cleanup",
+        "exports",
+        "export_tree",
+        "pending",
+        "pending_by_output",
+        "active",
+        "accounting",
+        "new_call",
+        "failed_read",
+        "missing_read",
+        "attempt_two",
+        "attempt_bool",
+        "usage_before_none",
+        "usage_after",
+        "accounting_baseline_disk",
+        "rate_calibration_disk",
+        "usage_allocated_disk",
+        "hardware_disk",
+        "terminal_disk",
+        "unsorted_endpoints",
+        "duplicate_endpoints",
+        "empty_endpoints",
+        "extra_text",
+        "wrong_exception",
+        "wrong_failure_class",
+        "no_exit",
+        "zero_exit",
+    ],
+)
+def test_stale_other_assignments_refuses_allocation_residue_or_malformed_evidence(
+    packet, tmp_path, fault
+):
+    log = tmp_path / "job.log"
+    receipt = stale_other_assignments_receipt(packet, log)
+    value = ar.read(packet)
+    output = Path(value["output_dir"])
+    account = Path.home() / ".config/colab-cli/snake"
+
+    if fault == "endpoint":
+        receipt["endpoint"] = "gpu-a100-own"
+    elif fault == "stop_verified_true":
+        receipt["stop_verified"] = True
+    elif fault == "stop_verified_none":
+        receipt["stop_verified"] = None
+    elif fault == "cleanup":
+        receipt["cleanup_error"] = "stop failed"
+    elif fault == "exports":
+        receipt["exports"] = [{"path": "sessions/000000.watch.gz"}]
+    elif fault == "export_tree":
+        write(output / "exports/000000.watch.gz", {"unit": 0})
+    elif fault == "pending":
+        write(account / f"pending-{receipt['session']}.json", {})
+    elif fault == "pending_by_output":
+        write(account / "pending-other.json", {"output": str(output)})
+    elif fault == "active":
+        write(account / f"active-{receipt['session']}.json", {})
+    elif fault == "accounting":
+        receipt["accounting"] = {"allocated_endpoint": None, "assignments": []}
+    elif fault == "new_call":
+        receipt["cli_calls"].append(
+            {"command": "new", "operation": "control", "status": "failed", "attempt": 1}
+        )
+    elif fault == "failed_read":
+        receipt["cli_calls"][1]["status"] = "failed"
+    elif fault == "missing_read":
+        receipt["cli_calls"].pop()
+    elif fault == "attempt_two":
+        receipt["cli_calls"][1]["attempt"] = 2
+    elif fault == "attempt_bool":
+        receipt["cli_calls"][0]["attempt"] = True
+    elif fault == "usage_before_none":
+        receipt["usage_before"] = None
+    elif fault == "usage_after":
+        receipt["usage_after"] = receipt["usage_before"]
+    elif fault == "accounting_baseline_disk":
+        write(output / "accounting-baseline.json", {})
+    elif fault == "rate_calibration_disk":
+        write(output / "rate-calibration.json", {"status": "INCOMPLETE"})
+    elif fault == "usage_allocated_disk":
+        write(output / "usage-allocated.json", {})
+    elif fault == "hardware_disk":
+        write(output / "hardware.json", {})
+    elif fault == "terminal_disk":
+        write(output / "terminal.json", {})
+    elif fault == "unsorted_endpoints":
+        receipt["error"] = (
+            "AccountingError('accounted assignment endpoints are no longer active: z-ep, a-ep')"
+        )
+    elif fault == "duplicate_endpoints":
+        receipt["error"] = (
+            "AccountingError('accounted assignment endpoints are no longer active: a-ep, a-ep')"
+        )
+    elif fault == "empty_endpoints":
+        receipt["error"] = (
+            "AccountingError('accounted assignment endpoints are no longer active: ')"
+        )
+    elif fault == "extra_text":
+        receipt["error"] = (
+            "AccountingError('accounted assignment endpoints are no longer active: ep extra')"
+        )
+    elif fault == "wrong_exception":
+        receipt["error"] = (
+            "Refused('accounted assignment endpoints are no longer active: gpu-a100-s-1')"
+        )
+    elif fault == "wrong_failure_class":
+        receipt["failure_class"] = "SUPERVISOR"
+    elif fault == "no_exit":
+        log.write_text("still running\n")
+    elif fault == "zero_exit":
+        log.write_text("EXIT=0\n")
+
+    write(output / "receipt.json", receipt)
+    assert ar.blocked_before_allocation(value, output, log) is False
+    with pytest.raises(ValueError):
+        ar.eligible(value, output, log)
+    with pytest.raises(ValueError):
+        ar.prepare(packet, log, tmp_path / "retry", tmp_path)

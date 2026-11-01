@@ -30,6 +30,8 @@ from research.colab_cli.cli_guard import (  # noqa: E402
     GuardError,
 )
 
+STALE_ACCOUNTED_ENDPOINTS_PREFIX = "accounted assignment endpoints are no longer active: "
+
 
 def read(path: Path) -> dict[str, Any]:
     """Read a JSON object, refusing partial or malformed evidence."""
@@ -44,18 +46,93 @@ def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def blocked_before_allocation(manifest: dict[str, Any], output: Path, log: Path) -> bool:
-    """Recognize exact pending-fence or account-cap refusals before allocation.
+def stale_accounted_endpoints(error: Any) -> tuple[str, ...] | None:
+    """Parse exact pre-allocation stale other_assignments AccountingError endpoints."""
+    if not isinstance(error, str):
+        return None
+    try:
+        call = ast.parse(error, mode="eval").body
+        if (
+            not isinstance(call, ast.Call)
+            or not isinstance(call.func, ast.Name)
+            or call.func.id != "AccountingError"
+            or len(call.args) != 1
+            or call.keywords
+        ):
+            return None
+        detail = ast.literal_eval(call.args[0])
+    except (ValueError, SyntaxError):
+        return None
+    if not isinstance(detail, str) or not detail.startswith(STALE_ACCOUNTED_ENDPOINTS_PREFIX):
+        return None
+    raw = detail[len(STALE_ACCOUNTED_ENDPOINTS_PREFIX) :]
+    if not raw:
+        return None
+    parts = tuple(raw.split(", "))
+    if (
+        any(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]*", ep) is None for ep in parts)
+        or list(parts) != sorted(set(parts))
+        or repr(AccountingError(f"{STALE_ACCOUNTED_ENDPOINTS_PREFIX}{', '.join(parts)}")) != error
+    ):
+        return None
+    return parts
 
-    The cap check permits only completed read-only version/sessions/usage calls.
-    Neither refusal acquired an assignment, so there is none to stop. Any identity
-    residue or runtime operation keeps the attempt ineligible.
+
+def _readonly_preadmission_calls(calls: Any) -> bool:
+    """Prove only completed read-only version/sessions/usage calls ran (never colab new)."""
+    return (
+        isinstance(calls, list)
+        and len(calls) == 3
+        and all(
+            isinstance(call, dict)
+            and call.get("command") == command
+            and call.get("operation") == "control"
+            and call.get("status") == "completed"
+            and type(call.get("attempt")) is int
+            and call.get("attempt") == 1
+            for call, command in zip(calls, ("version", "sessions", "usage"))
+        )
+    )
+
+
+def _has_broker_record(account: Path, kind: str, session: str, output: Path) -> bool:
+    """Check whether any pending/active broker record references this session or output."""
+    if (account / f"{kind}-{session}.json").exists():
+        return True
+    if not account.is_dir():
+        return False
+    resolved_output = output.resolve()
+    for record_path in account.glob(f"{kind}-*.json"):
+        try:
+            record = read(record_path)
+        except (OSError, ValueError):
+            if record_path.name == f"{kind}-{session}.json":
+                return True
+            continue
+        if record.get("session") == session:
+            return True
+        record_output = record.get("output")
+        if isinstance(record_output, str) and record_output:
+            if Path(record_output).resolve() == resolved_output:
+                return True
+    return False
+
+
+def blocked_before_allocation(manifest: dict[str, Any], output: Path, log: Path) -> bool:
+    """Recognize exact pre-allocation refusals/accounting races that never ran colab new.
+
+    The cap and stale-other-assignment checks permit only completed read-only
+    version/sessions/usage calls with accounting=null, endpoint=null, and
+    stop_verified=false. None of these paths acquired an assignment, so there is
+    none to stop. Any identity residue or runtime operation keeps the attempt ineligible.
     """
     path = output / "receipt.json"
-    if not path.is_file() or not (output / "manifest.json").is_file():
+    if not path.is_file() or not (output / "manifest.json").is_file() or not log.is_file():
         return False
     receipt = read(path)
     session = receipt.get("session", "")
+    if not isinstance(session, str):
+        return False
     account = Path.home() / ".config/colab-cli/snake"
     calls = receipt.get("cli_calls")
     pending_fence = (
@@ -73,22 +150,20 @@ def blocked_before_allocation(manifest: dict[str, Any], output: Path, log: Path)
         }
         and receipt.get("failure_class") == "ACCOUNTING"
         and isinstance(receipt.get("usage_before"), dict)
-        and isinstance(calls, list)
-        and len(calls) == 3
-        and all(
-            isinstance(call, dict)
-            and call.get("command") == command
-            and call.get("operation") == "control"
-            and call.get("status") == "completed"
-            and call.get("attempt") == 1
-            for call, command in zip(calls, ("version", "sessions", "usage"))
-        )
+        and _readonly_preadmission_calls(calls)
+    )
+    stale_other_assignments = (
+        stale_accounted_endpoints(receipt.get("error")) is not None
+        and receipt.get("failure_class") == "ACCOUNTING"
+        and isinstance(receipt.get("usage_before"), dict)
+        and _readonly_preadmission_calls(calls)
     )
     return (
         re.search(r"^EXIT=[1-9]\d*$", log.read_text(), re.MULTILINE) is not None
-        and (pending_fence or account_cap)
+        and (pending_fence or account_cap or stale_other_assignments)
         and receipt.get("status") == "INCOMPLETE"
         and receipt.get("endpoint") is None
+        and receipt.get("stop_verified") is False
         and receipt.get("accounting") is None
         and receipt.get("usage_after") is None
         and receipt.get("cleanup_error") is None
@@ -104,10 +179,19 @@ def blocked_before_allocation(manifest: dict[str, Any], output: Path, log: Path)
         )
         and receipt.get("manifest_sha256") == digest(output / "manifest.json")
         and all(receipt.get(k) == manifest.get(k) for k in ("job_id", "commit"))
-        and re.fullmatch(r"snake-[a-z0-9_-]+-[a-f0-9]{12}", session) is not None
-        and not (account / f"pending-{session}.json").exists()
-        and not (account / f"active-{session}.json").exists()
-        and not any((output / name).exists() for name in ("hardware.json", "terminal.json"))
+        and re.fullmatch(r"snake-[A-Za-z0-9._-]+-[a-f0-9]{12}", session) is not None
+        and not _has_broker_record(account, "pending", session, output)
+        and not _has_broker_record(account, "active", session, output)
+        and not any(
+            (output / name).exists()
+            for name in (
+                "hardware.json",
+                "terminal.json",
+                "accounting-baseline.json",
+                "rate-calibration.json",
+                "usage-allocated.json",
+            )
+        )
         and not (output / "exports").is_symlink()
         and not (output / "exports").is_file()
         and not ((output / "exports").exists() and any((output / "exports").rglob("*")))

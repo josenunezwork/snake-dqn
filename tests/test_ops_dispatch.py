@@ -148,11 +148,50 @@ if mode.startswith('gpu_'):
     time.sleep(float(os.environ.get('EXIT_DELAY', '.03')))
     raise SystemExit(0 if receipt['status']=='PASS' else 1)
 retry=job.endswith('-retry-1')
-if mode == 'success' or (retry and mode == 'retry_success'):
+if mode == 'success' or (retry and mode in {'retry_success', 'stale_other_race'}):
     publish_json(output/'rate-calibration.json',{'status':'PASS'})
     publish_json(output/'receipt.json',{'status':'PASS', 'stop_verified':True})
     time.sleep(.05)
     raise SystemExit(0)
+if mode == 'stale_other_race':
+    import hashlib
+    session='snake-'+job+'-'+'a'*12
+    (output/'manifest.json').write_text(json.dumps(manifest))
+    account=Path.home()/'.config/colab-cli/snake'
+    if not os.environ.get('KEEP_DEPARTED_ACTIVE'):
+        for p in account.glob('active-snake-departed*.json'):
+            p.unlink(missing_ok=True)
+    stale_ep=manifest.get('stale_endpoint', 'departed')
+    receipt={
+        'job_id':job,
+        'commit':manifest['commit'],
+        'session':session,
+        'manifest_sha256':hashlib.sha256((output/'manifest.json').read_bytes()).hexdigest(),
+        'status':'INCOMPLETE',
+        'failure_class':'ACCOUNTING',
+        'error':(
+            "AccountingError('accounted assignment endpoints are no longer active: "
+            f"{stale_ep}')"
+        ),
+        'endpoint':None,
+        'stop_verified':False,
+        'cleanup_error':None,
+        'accounting':None,
+        'terminal':None,
+        'usage_before':{'assignments':0.0, 'balance':500.0, 'rate':0.0},
+        'usage_after':None,
+        'cli_calls':[
+            {'command':c, 'operation':'control', 'status':'completed', 'attempt':1}
+            for c in ('version', 'sessions', 'usage')
+        ],
+        'control_operations':[],
+        'exports':[],
+        'transfers':[],
+        'contents_transfers':[],
+    }
+    publish_json(output/'receipt.json',receipt)
+    time.sleep(float(os.environ.get('EXIT_DELAY', '.03')))
+    raise SystemExit(1)
 if mode == 'early_exit':
     raise SystemExit(5)
 receipt={'status':'INCOMPLETE', 'failure_class':'ACCOUNTING',
@@ -878,3 +917,50 @@ def test_pending_review_allows_only_read_only_dry_run(fixture):
     assert not runs(f)
     assert not (f["ops"] / "dispatch").exists()
     assert json.loads(path.read_text())["independent_review_status"] == "PENDING"
+
+
+def test_corroborated_released_other_endpoint_retries_once_under_lock(fixture):
+    f = fixture
+    owner_out = f["tmp"] / "departed-owner-output"
+    owner_out.mkdir()
+    (owner_out / "receipt.json").write_text(
+        json.dumps({"status": "PASS", "stop_verified": True, "cleanup_error": None})
+    )
+    f["change"](test_mode="stale_other_race")
+    f["inventory"]({"departed": "A100"}, [active("departed", 5.33, output=str(owner_out))])
+    f["env"]["NEXT_INVENTORY"] = json.dumps({})
+    result = f["invoke"]()
+    assert result.returncode == 0, result.stderr
+    assert "allocation=success" in result.stdout
+    assert [row["job"] for row in runs(f)] == ["job", "job-retry-1"]
+    assert [row["other"] for row in runs(f)] == [{"departed": 5.33}, {}]
+    assert "OPS_ALLOCATION_FAILURE_RETRYABLE" in (f["ops"] / "logs/lane.log").read_text()
+    assert "OPS_ALLOCATION_SUCCESS" in (f["ops"] / "logs/lane-retry-1.log").read_text()
+
+
+@pytest.mark.parametrize("reason", ["still_active", "unstopped_owner_receipt", "unaccounted_stale"])
+def test_uncorroborated_stale_other_endpoint_does_not_retry_in_dispatch(fixture, reason):
+    f = fixture
+    owner_out = f["tmp"] / "departed-owner-output"
+    owner_out.mkdir()
+    (owner_out / "receipt.json").write_text(
+        json.dumps(
+            {
+                "status": "INCOMPLETE" if reason == "unstopped_owner_receipt" else "PASS",
+                "stop_verified": reason != "unstopped_owner_receipt",
+                "cleanup_error": "stop failed" if reason == "unstopped_owner_receipt" else None,
+            }
+        )
+    )
+    f["change"](
+        test_mode="stale_other_race",
+        **({"stale_endpoint": "never-snapshotted"} if reason == "unaccounted_stale" else {}),
+    )
+    f["inventory"]({"departed": "A100"}, [active("departed", 5.33, output=str(owner_out))])
+    f["env"]["NEXT_INVENTORY"] = json.dumps({})
+    if reason == "still_active":
+        f["env"]["KEEP_DEPARTED_ACTIVE"] = "1"
+    result = f["invoke"]()
+    assert result.returncode == 0, result.stderr
+    assert "allocation=failed" in result.stdout
+    assert len(runs(f)) == 1
