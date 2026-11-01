@@ -19,8 +19,8 @@ product Watch6 v2, `5× frp3-s12 + v8` opponents, 6,000-frame sessions; pipeline
 - **Active bank:** `snake-dqn-artifacts/watch-replay-bank-live-168` (**168 verified sessions** = `132`
   `exact-stop-l2-prime` sessions from banks `01–08` and `10–12` + `36` all-length `exact-stop-l1`
   sessions from banks `14l1–16l1`, verified `36/36` on distinct seeds and switched 2026-11-01 in
-  `395eacbb`; previous 132-session and 48-session banks kept at `watch-replay-bank-live-132` and
-  `watch-replay-bank-live`). Bank-02 descriptive stats: mean 412 mass/session, 0 deaths in the 5
+  `395eacbb`; the previous 132-session bank is kept at `watch-replay-bank-live-132` for rollback;
+  older 48/84/108-session copies were deleted 2026-11-01). Bank-02 descriptive stats: mean 412 mass/session, 0 deaths in the 5
   sessions reaching `L > 1,000`.
 - **Launch & fallback:** `.claude/launch.json` (`snake-web`) sets `SNAKE_WATCH_SOURCE=replay` and
   `SNAKE_WATCH_REPLAY_DIR`. **Live bare `b8-s3` remains the automatic fallback** (empty, invalid, or
