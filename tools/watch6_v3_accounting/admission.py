@@ -36,6 +36,7 @@ from tools.ops.package_spec import digest
 from tools.watch6_v3_accounting.proof import (
     has_forbidden_or_contradictory_output_artifacts,
     is_proven_never_allocated_attempt,
+    is_proven_renewal_ws_transport_failure,
 )
 
 EXTERNAL_TRANSPORT_CLASSES = v3_admission.EXTERNAL_TRANSPORT_CLASSES
@@ -83,16 +84,31 @@ def is_prestart_transport_failure(
 def is_external_transport_compute_failure(
     receipt: dict,
     output_dir: Path | None = None,
+    *,
+    ops_dir: Path | None = None,
+    ops_name: str | None = None,
+    evidence_dir: Path | None = None,
+    broker_root: Path | None = None,
 ) -> bool:
-    """Allocated compute failures continue to require verified stop and clean telemetry."""
+    """True iff baseline V3 compute-transport proof or V6 renewal-WS sidecar proof passes."""
     if isinstance(output_dir, Path):
-        if (output_dir / "scientific-fault.json").exists() or (
-            output_dir / "scientific-fault.json"
-        ).is_symlink():
-            return False
+        for fault_file in ("scientific-fault.json", "terminal.json"):
+            if (output_dir / fault_file).exists() or (output_dir / fault_file).is_symlink():
+                return False
         if output_dir.is_dir() and any(output_dir.glob("scientific-fault*")):
             return False
-    return v3_admission.is_external_transport_compute_failure(receipt, output_dir)
+    if v3_admission.is_external_transport_compute_failure(receipt, output_dir):
+        return True
+    if is_prestart_transport_failure(receipt, output_dir, ops_dir=ops_dir, ops_name=ops_name):
+        return False
+    return is_proven_renewal_ws_transport_failure(
+        receipt,
+        output_dir,
+        ops_dir=ops_dir,
+        ops_name=ops_name,
+        evidence_dir=evidence_dir,
+        broker_root=broker_root,
+    )
 
 
 def verify_prior_receipts_lineage(
@@ -103,13 +119,15 @@ def verify_prior_receipts_lineage(
     total_dispatches: int,
     *,
     ops_dir: Path | None = None,
+    evidence_dir: Path | None = None,
     broker_root: Path | None = None,
 ) -> None:
     """Verify declared prior receipts match retry counters and verified broker V3 science/commit."""
     target_broker = broker_root if broker_root is not None else V3_BROKER_ROOT
     with isolated_broker_execution("admission-lineage", broker_root=target_broker):
         closure_info = verify_baseline_closure(target_broker)
-        broker_proto = compute_broker_protocol(Path(closure_info["broker_root"]))
+        resolved_broker = Path(closure_info["broker_root"])
+        broker_proto = compute_broker_protocol(resolved_broker)
         broker_science = closure_info["science"]
         broker_namespace = closure_info["namespace"]
         broker_alloc = broker_proto["allocation"]
@@ -170,7 +188,13 @@ def verify_prior_receipts_lineage(
                         f"prior receipt classification mismatch (expected prestart): {r_path}"
                     )
                 actual_prestart += 1
-            elif is_external_transport_compute_failure(receipt, resolved.parent):
+            elif is_external_transport_compute_failure(
+                receipt,
+                resolved.parent,
+                ops_dir=ops_dir,
+                evidence_dir=evidence_dir,
+                broker_root=resolved_broker,
+            ):
                 if declared_kind != "external_transport_compute":
                     raise ValueError(
                         "prior receipt classification mismatch "
@@ -188,6 +212,7 @@ def admit(
     *,
     pending_qualification: bool = False,
     ops_dir: Path | None = None,
+    evidence_dir: Path | None = None,
     broker_root: Path | None = None,
 ) -> dict:
     """Verify broker closure equality, controller, V3 allocation, L4 W4, uploads, and 2x caps."""
@@ -310,6 +335,7 @@ def admit(
                 compute_attempt,
                 total_dispatches,
                 ops_dir=ops_dir,
+                evidence_dir=evidence_dir,
                 broker_root=resolved_broker,
             )
 
@@ -341,6 +367,7 @@ def main() -> None:
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--pending-qualification", action="store_true")
     parser.add_argument("--ops-dir", type=Path, default=None)
+    parser.add_argument("--evidence-dir", type=Path, default=None)
     parser.add_argument(
         "--broker-root",
         "--broker",
@@ -354,6 +381,7 @@ def main() -> None:
         manifest_data,
         pending_qualification=args.pending_qualification,
         ops_dir=args.ops_dir.resolve() if args.ops_dir else None,
+        evidence_dir=args.evidence_dir.resolve() if args.evidence_dir else None,
         broker_root=args.broker_root,
     )
     print(json.dumps(report, indent=2), flush=True)

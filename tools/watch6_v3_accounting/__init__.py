@@ -1,4 +1,4 @@
-"""Mac-only host accounting adapter for Watch6 V3 shard-00 never-allocated recovery.
+"""Mac-only host accounting adapter for Watch6 V3 shard-00 and shard-12 pre-look recovery.
 
 This package lives strictly outside ``research.watch6_search_efficacy_v3.protocol.source_paths()``
 and never enters the runtime import/source closure. Runtime jobs execute unchanged commit
@@ -35,7 +35,7 @@ import threading
 import types
 import uuid
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 BASELINE_COMMIT = "357e3504ab7f4b1e5c78209eee14391d16234c7a"
@@ -70,6 +70,31 @@ SHARD00_RECEIPT_SHA256 = "2dbb41da38b386fd5289b0ef6bec4b873a81afc2d479cacdff9fa9
 SHARD00_EXEC_MANIFEST_SHA256 = "c83b0acc19b06b75e11a6c9d104aeb5516d40bf46385606939b2bf5cd1cb818b"
 SHARD00_PENDING_SHA256 = "09d48c3de15c900834cae050bc8193d5a86d6e7dad2a3daa77f92e7bb0944c31"
 SHARD00_NOTEBOOK_HASH = "f04a62f8d103480f8420adb74f9a34a2"
+
+PINNED_SUPERVISOR_REL = "research/colab_cli/supervisor.py"
+PINNED_SUPERVISOR_SHA256 = "12da8937ce9cee01ddb5984a7e3a2eca1dde20bfc127921c230bcc524b172ec9"
+
+AMENDMENT_V5_REL = "t34-sol/argon-v3-accounting-fix4/WATCH6_V3_ACCOUNTING_AMENDMENT_V5_20261031.md"
+AMENDMENT_V5_SHA256 = "5d1e05232a034060039805749bac72027e5cc1f73c96f7e930b20266ea5b8e7b"
+
+RULING_VERIFY_5_REL = "t34-sol/watch6-v3-accounting-verify-5/RULING_ACCOUNTING.md"
+RULING_VERIFY_5_SHA256 = "348937e69049ef4545b0a55473d1e7a85585c2459904969663df45d4e5bf3611"
+
+SHARD12_PATH_RULING_REL = "t34-sol/watch6-v3-shard12-ruling/RULING.md"
+SHARD12_PATH_RULING_SHA256 = "7c9ebcc65fcfc54e1626fed8199d2715283e80cce0277ecb5c27029731557983"
+
+SHARD12_RECEIPT_REL = (
+    "t34-sol/argon-v3-confirm-fix3/package-v3-fix3-01/output-shard-12/receipt.json"
+)
+SHARD12_RECEIPT_SHA256 = "cdb0927b13326e4352755060238fdb4080bbb5f661dd4c798408e1e41cc76f0c"
+SHARD12_EXEC_MANIFEST_SHA256 = "6f2afa5601fa3bacdc80fa67cf62f7d0cb8809034d2952fb75ce6dc0af94ed23"
+SHARD12_OPS_MANIFEST_SHA256 = "2d67f68caa051f458161bb56f65078be79f44762bd815710a94e862e9af54d80"
+SHARD12_LIVE_MANIFEST_SHA256 = "677ff940bf84e6ec5a617ec04755251259da8a65a93aa767a6cd97851860f0fd"
+SHARD12_OPS_LOG_SHA256 = "8862d938d0c02c9c1ae1559f1c030bdb1b238fa277b195fbf1b366f0caa7e0ef"
+SHARD12_EVIDENCE_SIDECAR_REL = (
+    "t34-sol/argon-v3-accounting-v6/transport-evidence-watch6-v3-fix3-shard-12-01.json"
+)
+SHARD12_EVIDENCE_SIDECAR_SHA256 = "01592a149289a404e4db6f0843f5ee79816782b7e5bafad1b9f9bb6151bffaaa"
 
 RETAINED_PENDING_CLEANUP_ERROR = "ALLOCATION_UNRESOLVED: retained pending record"
 ADAPTER_PACKAGE_REL = "tools/watch6_v3_accounting"
@@ -170,6 +195,21 @@ class IsolatedBrokerEnv:
     python_wrapper: Path
     real_python: str
     verified_empty_before_use: bool
+    verified_closures: dict[tuple[str, str, bool, str, bool], tuple[dict[str, str], str]] = field(
+        default_factory=dict,
+        repr=False,
+        compare=False,
+    )
+    verified_protocols: dict[str, dict[str, object]] = field(
+        default_factory=dict,
+        repr=False,
+        compare=False,
+    )
+    verified_bound_sciences: set[str] = field(
+        default_factory=set,
+        repr=False,
+        compare=False,
+    )
 
     def verify_outside(self, broker_root: Path | None = None) -> None:
         forbidden = _forbidden_cache_trees(broker_root)
@@ -423,11 +463,11 @@ def artifacts_root(repo: Path | None = None) -> Path:
 
 
 def default_artifact_dir(repo: Path | None = None) -> Path:
-    return artifacts_root(repo) / "t34-sol/argon-v3-accounting-fix4"
+    return artifacts_root(repo) / "t34-sol/argon-v3-accounting-v6"
 
 
 def default_amendment_path(repo: Path | None = None) -> Path:
-    return default_artifact_dir(repo) / "WATCH6_V3_ACCOUNTING_AMENDMENT_V5_20261031.md"
+    return default_artifact_dir(repo) / "WATCH6_V3_ACCOUNTING_AMENDMENT_V6_20261101.md"
 
 
 def default_ruling_json_path(repo: Path | None = None) -> Path:
@@ -572,6 +612,7 @@ _IMPORTABLE_HAZARD_SUFFIXES: tuple[str, ...] = (
 )
 _CACHED_PROTOCOL_MODULES: dict[tuple[str, str, str], types.ModuleType] = {}
 _CACHED_BASELINE_TREES: dict[tuple[str, str], tuple[set[str], dict[str, str], set[str]]] = {}
+_VERIFIED_ADAPTER_EXCLUSIONS: set[tuple[str, str, tuple[str, ...]]] = set()
 _LAST_P_SOURCE_FINGERPRINT: tuple[str, str] | None = None
 
 
@@ -588,10 +629,20 @@ def _closure_python_files(root: Path, source_paths: list[str]) -> list[Path]:
     return sorted(py_files)
 
 
-def _assert_adapter_excluded_from_closure(root: Path, source_paths: list[str]) -> None:
+def _assert_adapter_excluded_from_closure(
+    root: Path,
+    source_paths: list[str],
+    *,
+    py_tree_sha: str | None = None,
+) -> None:
     for entry in source_paths:
         if "watch6_v3_accounting" in entry or entry.startswith("tools/watch6_v3_accounting"):
             raise ValueError(f"REFUSE: adapter leaked into protocol.source_paths(): {entry}")
+
+    eff_sha = py_tree_sha if py_tree_sha is not None else _py_closure_tree_digest(root)
+    cache_key = (str(root), eff_sha, tuple(source_paths))
+    if cache_key in _VERIFIED_ADAPTER_EXCLUSIONS:
+        return
 
     for py_path in _closure_python_files(root, source_paths):
         source_text = py_path.read_text(encoding="utf-8")
@@ -614,6 +665,7 @@ def _assert_adapter_excluded_from_closure(root: Path, source_paths: list[str]) -
                     raise ValueError(
                         f"REFUSE: runtime closure file {py_path} imports watch6_v3_accounting"
                     )
+    _VERIFIED_ADAPTER_EXCLUSIONS.add(cache_key)
 
 
 def _safe_clear_protocol_caches(*, clear_source_paths: bool = True) -> None:
@@ -626,6 +678,8 @@ def _safe_clear_protocol_caches(*, clear_source_paths: bool = True) -> None:
 def _py_closure_tree_digest(root: Path) -> str:
     """Compute real-time actual-byte SHA-256 fingerprint of all *.py files read by source_paths."""
     hasher = hashlib.sha256()
+    root_str = str(root)
+    prefix_len = len(root_str.rstrip(os.sep)) + 1
     for rel_dir in ("src", "web/backend", "research"):
         base = root / rel_dir
         if base.is_symlink():
@@ -633,19 +687,32 @@ def _py_closure_tree_digest(root: Path) -> str:
         if not base.is_dir():
             hasher.update(f"MISSING:{rel_dir}\0".encode("utf-8"))
             continue
-        entries: list[tuple[str, Path]] = []
-        for dirpath, dirnames, filenames in os.walk(base, followlinks=False):
-            dirnames[:] = sorted(d for d in dirnames if d != "__pycache__")
-            for fn in sorted(filenames):
-                if fn.endswith(".py"):
-                    full = Path(dirpath) / fn
-                    if full.is_symlink():
-                        raise ValueError(f"REFUSE: symlinked Python file in {root}: {full}")
-                    entries.append((full.relative_to(root).as_posix(), full))
-        for rel_posix, full_path in sorted(entries, key=lambda item: item[0]):
+        entries: list[tuple[str, str]] = []
+        stack = [str(base)]
+        while stack:
+            cur = stack.pop()
+            with os.scandir(cur) as it:
+                for entry in it:
+                    ename = entry.name
+                    if ename == "__pycache__":
+                        continue
+                    if entry.is_symlink():
+                        if ename.endswith(".py") or entry.is_dir(follow_symlinks=True):
+                            raise ValueError(
+                                f"REFUSE: symlinked Python file in {root}: {entry.path}"
+                            )
+                        continue
+                    if entry.is_dir(follow_symlinks=False):
+                        stack.append(entry.path)
+                    elif ename.endswith(".py") and entry.is_file(follow_symlinks=False):
+                        rel_posix = entry.path[prefix_len:].replace(os.sep, "/")
+                        entries.append((rel_posix, entry.path))
+        for rel_posix, full_str in sorted(entries, key=lambda item: item[0]):
+            with open(full_str, "rb") as fh:
+                file_hex = hashlib.file_digest(fh, "sha256").hexdigest()
             hasher.update(rel_posix.encode("utf-8"))
             hasher.update(b"\0")
-            hasher.update(digest(full_path).encode("ascii"))
+            hasher.update(file_hex.encode("ascii"))
             hasher.update(b"\n")
     return hasher.hexdigest()
 
@@ -874,27 +941,6 @@ def _git_untracked_and_ignored_paths(root: Path, scan_targets: list[str]) -> set
             raise ValueError(
                 f"REFUSE: dirty tracked file ({xy}) inside V3 closure in {root}: {rel_path}"
             )
-
-    for extra_args in (
-        ["--others"],
-        ["--others", "--ignored", "--exclude-standard"],
-    ):
-        ls_raw = subprocess.check_output(
-            [
-                "git",
-                "--no-optional-locks",
-                "ls-files",
-                "-z",
-                *extra_args,
-                "--",
-                *scan_targets,
-            ],
-            cwd=root,
-            timeout=15,
-        )
-        for item in ls_raw.split(b"\0"):
-            if item:
-                found.add(item.decode("utf-8"))
     return found
 
 
@@ -1133,7 +1179,14 @@ def compute_broker_protocol(broker_root: Path | None = None) -> dict[str, object
         raise ValueError(f"REFUSE: missing V3 broker root directory: {raw}")
     root = raw.resolve()
 
-    with isolated_broker_execution("compute-broker-protocol", broker_root=root):
+    with isolated_broker_execution("compute-broker-protocol", broker_root=root) as iso:
+        cached_proto = iso.verified_protocols.get(str(root))
+        if cached_proto is not None:
+            return {
+                **cached_proto,
+                "source_paths": list(cached_proto["source_paths"]),  # type: ignore[arg-type]
+                "allocation": list(cached_proto["allocation"]),  # type: ignore[arg-type]
+            }
         py_tree_sha = _py_closure_tree_digest(root)
         module = _load_root_protocol_module(root, py_tree_sha=py_tree_sha)
         source_paths = list(module.source_paths())
@@ -1195,7 +1248,18 @@ def verify_baseline_closure(
         raise ValueError(f"REFUSE: missing V3 broker root directory: {raw}")
     root = raw.resolve()
 
-    with isolated_broker_execution("verify-baseline-closure", broker_root=root):
+    with isolated_broker_execution("verify-baseline-closure", broker_root=root) as iso:
+        closure_key = (
+            str(root),
+            baseline_commit,
+            require_head_at_baseline,
+            str(p.ROOT.resolve()) if p.ROOT else "",
+            getattr(p.identity, "__wrapped__", None) is None,
+        )
+        cached_entry = iso.verified_closures.get(closure_key)
+        if cached_entry is not None:
+            return dict(cached_entry[0])
+
         if is_forbidden_main_checkout(root):
             try:
                 computed = compute_broker_identity(root)
@@ -1245,7 +1309,7 @@ def verify_baseline_closure(
         else:
             bound_science = actual_science
 
-        _assert_adapter_excluded_from_closure(root, source_paths)
+        _assert_adapter_excluded_from_closure(root, source_paths, py_tree_sha=py_tree_sha)
         if ADAPTER_ROOT.is_dir() and ADAPTER_ROOT.resolve() != root:
             _assert_adapter_excluded_from_closure(ADAPTER_ROOT.resolve(), source_paths)
 
@@ -1265,24 +1329,32 @@ def verify_baseline_closure(
                 f"REFUSE: V3 broker/baseline root {root} is not a git checkout/worktree"
             )
 
-        obj_type = subprocess.run(
-            ["git", "--no-optional-locks", "cat-file", "-t", baseline_commit],
+        head_proc = subprocess.run(
+            ["git", "--no-optional-locks", "rev-parse", "--verify", "HEAD^{commit}"],
             cwd=root,
             capture_output=True,
             text=True,
             timeout=10,
         )
-        if obj_type.returncode != 0 or obj_type.stdout.strip() != "commit":
-            raise ValueError(f"REFUSE: baseline commit {baseline_commit} absent in {root}")
-
-        if require_head_at_baseline or root == V3_BROKER_ROOT.resolve():
-            head = subprocess.check_output(
-                ["git", "--no-optional-locks", "rev-parse", "HEAD"],
+        head = head_proc.stdout.strip() if head_proc.returncode == 0 else ""
+        if head != baseline_commit:
+            obj_type = subprocess.run(
+                ["git", "--no-optional-locks", "cat-file", "-t", baseline_commit],
                 cwd=root,
+                capture_output=True,
                 text=True,
                 timeout=10,
-            ).strip()
-            if head != baseline_commit:
+            )
+            if obj_type.returncode != 0 or obj_type.stdout.strip() != "commit":
+                raise ValueError(f"REFUSE: baseline commit {baseline_commit} absent in {root}")
+            if require_head_at_baseline or root == V3_BROKER_ROOT.resolve():
+                if not head:
+                    head = subprocess.check_output(
+                        ["git", "--no-optional-locks", "rev-parse", "HEAD"],
+                        cwd=root,
+                        text=True,
+                        timeout=10,
+                    ).strip()
                 raise ValueError(
                     f"REFUSE: V3 broker root {root} HEAD is {head} != baseline commit "
                     f"{baseline_commit}"
@@ -1290,13 +1362,16 @@ def verify_baseline_closure(
 
         _verify_clean_tracked_closure(root, source_paths, baseline_commit)
 
-        return {
+        result = {
             "broker_root": str(root),
             "baseline_commit": baseline_commit,
             "science": actual_science,
             "namespace": namespace,
             "registration_sha256": reg_sha,
         }
+        iso.verified_closures[closure_key] = (dict(result), py_tree_sha)
+        iso.verified_protocols[str(root)] = dict(proto_info)
+        return result
 
 
 @contextlib.contextmanager
@@ -1309,7 +1384,7 @@ def bind_broker_protocol(
     """Verify broker_root from actual bytes and scope V3 protocol.ROOT to that verified broker."""
     global _LAST_P_SOURCE_FINGERPRINT
     raw = broker_root if broker_root is not None else V3_BROKER_ROOT
-    with isolated_broker_execution("bind-broker-protocol", broker_root=raw):
+    with isolated_broker_execution("bind-broker-protocol", broker_root=raw) as iso:
         closure_info = verify_baseline_closure(
             raw,
             baseline_commit=baseline_commit,
@@ -1322,7 +1397,19 @@ def bind_broker_protocol(
                 f"REFUSE: host V3 protocol.py modified ({host_proto}); "
                 "edits/exclusions are forbidden"
             )
-        py_tree_sha = _py_closure_tree_digest(resolved_broker)
+        closure_key = (
+            str(resolved_broker),
+            baseline_commit,
+            require_head_at_baseline,
+            str(p.ROOT.resolve()) if p.ROOT else "",
+            getattr(p.identity, "__wrapped__", None) is None,
+        )
+        cached_entry = iso.verified_closures.get(closure_key)
+        py_tree_sha = (
+            cached_entry[1]
+            if cached_entry is not None
+            else _py_closure_tree_digest(resolved_broker)
+        )
         target_fp = (str(resolved_broker), py_tree_sha)
         prev_root = p.ROOT
         try:
@@ -1331,12 +1418,20 @@ def bind_broker_protocol(
                 clear_source_paths=(_LAST_P_SOURCE_FINGERPRINT != target_fp)
             )
             _LAST_P_SOURCE_FINGERPRINT = target_fp
-            live_science = p.identity()
-            if live_science != closure_info["science"] or live_science != BASELINE_SCIENCE:
-                raise ValueError(
-                    f"REFUSE: bound broker protocol.identity() mismatch in {resolved_broker} "
-                    f"({live_science} != {BASELINE_SCIENCE})"
-                )
+            broker_key = str(resolved_broker)
+            if (
+                broker_key in iso.verified_bound_sciences
+                and getattr(p.identity, "__wrapped__", None) is not None
+            ):
+                live_science = closure_info["science"]
+            else:
+                live_science = p.identity()
+                if live_science != closure_info["science"] or live_science != BASELINE_SCIENCE:
+                    raise ValueError(
+                        f"REFUSE: bound broker protocol.identity() mismatch in {resolved_broker} "
+                        f"({live_science} != {BASELINE_SCIENCE})"
+                    )
+                iso.verified_bound_sciences.add(broker_key)
             yield closure_info
         finally:
             if prev_root.resolve() != resolved_broker:

@@ -55,8 +55,10 @@ from tools.watch6_v3_accounting.dispatch import (
 from tools.watch6_v3_accounting.proof import (
     has_forbidden_or_contradictory_output_artifacts,
     is_proven_never_allocated_attempt,
+    is_proven_renewal_ws_transport_failure,
     verify_never_allocated_attempt,
     verify_no_receipt_unallocated_proof,
+    verify_renewal_ws_transport_evidence,
 )
 from tools.watch6_v3_accounting.ratify import validate_ruling_receipt
 from tools.watch6_v3_accounting.resume import PAIR_NAME_RE
@@ -74,6 +76,7 @@ class _ShardAttempt:
     receipt: dict
     classification: str  # "pass" | "prestart" | "external_transport_compute"
     never_allocated_proof: dict | None = None
+    transport_evidence_proof: dict | None = None
 
 
 def _fail_prelook(message: str) -> ValueError:
@@ -145,6 +148,8 @@ def _classify_attempt(
     *,
     ops_dir: Path,
     ops_name: str,
+    evidence_dir: Path | None = None,
+    broker_root: Path | None = None,
 ) -> str:
     """Classify a V3 attempt outcome-blind; raise INVALID_OR_INCOMPLETE on any forbidden fault."""
     if receipt.get("status") == "PASS":
@@ -165,7 +170,14 @@ def _classify_attempt(
         return "pass"
     if is_prestart_transport_failure(receipt, attempt_dir, ops_dir=ops_dir, ops_name=ops_name):
         return "prestart"
-    if is_external_transport_compute_failure(receipt, attempt_dir):
+    if is_external_transport_compute_failure(
+        receipt,
+        attempt_dir,
+        ops_dir=ops_dir,
+        ops_name=ops_name,
+        evidence_dir=evidence_dir,
+        broker_root=broker_root,
+    ):
         return "external_transport_compute"
     raise _fail_prelook(
         f"forbidden failure class in {attempt_dir}: "
@@ -427,6 +439,7 @@ def _audit_pre_outcome(
     out_dir: Path,
     ruling_json: Path | None,
     amendment_md: Path | None,
+    evidence_dir: Path | None,
     adapter_repo: Path,
     resolved_broker: Path,
     closure_info: dict[str, str],
@@ -554,7 +567,29 @@ def _audit_pre_outcome(
                 receipt,
                 ops_dir=ops_dir,
                 ops_name=name,
+                evidence_dir=evidence_dir,
+                broker_root=resolved_broker,
             )
+            transport_ev_proof: dict | None = None
+            if (
+                classification == "external_transport_compute"
+                and is_proven_renewal_ws_transport_failure(
+                    receipt,
+                    attempt_dir,
+                    ops_dir=ops_dir,
+                    ops_name=name,
+                    evidence_dir=evidence_dir,
+                    broker_root=resolved_broker,
+                )
+            ):
+                transport_ev_proof = verify_renewal_ws_transport_evidence(
+                    attempt_dir,
+                    receipt=receipt,
+                    ops_dir=ops_dir,
+                    ops_name=name,
+                    evidence_dir=evidence_dir,
+                    broker_root=resolved_broker,
+                )
             if (
                 canary.is_canary(exec_manifest)
                 or exec_manifest.get("env", {}).get("WATCH6_FIXTURE") == "1"
@@ -578,6 +613,7 @@ def _audit_pre_outcome(
                         receipt=receipt,
                         classification=classification,
                         never_allocated_proof=never_alloc_proof,
+                        transport_evidence_proof=transport_ev_proof,
                     )
                 )
 
@@ -671,6 +707,7 @@ def run_final_look(
     out_dir: Path,
     ruling_json: Path | None = None,
     amendment_md: Path | None = None,
+    evidence_dir: Path | None = None,
     repo: Path | None = None,
     broker_root: Path | None = None,
     require_clean_git: bool = True,
@@ -678,6 +715,7 @@ def run_final_look(
     """Audit all V3 ops manifests/receipts/lineages pre-outcome, seal ledger, and take 1 look."""
     adapter_repo = (repo or ADAPTER_ROOT).resolve()
     target_broker = broker_root if broker_root is not None else V3_BROKER_ROOT
+    resolved_evidence = evidence_dir.resolve() if evidence_dir is not None else None
     with isolated_broker_execution("final_look", broker_root=target_broker):
         try:
             with bind_broker_protocol(target_broker, require_head_at_baseline=True) as closure_info:
@@ -695,6 +733,7 @@ def run_final_look(
                     out_dir=out_dir,
                     ruling_json=ruling_json,
                     amendment_md=amendment_md,
+                    evidence_dir=resolved_evidence,
                     adapter_repo=adapter_repo,
                     resolved_broker=resolved_broker,
                     closure_info=closure_info,
@@ -728,6 +767,11 @@ def run_final_look(
             for att in ordered_main_attempts
             if att.never_allocated_proof is not None
         ]
+        decision["retained_transport_evidence_attempts"] = [
+            att.transport_evidence_proof
+            for att in ordered_main_attempts
+            if att.transport_evidence_proof is not None
+        ]
         decision["canary_receipt_count"] = len(passing_canaries)
         decision["total_canary_attempts"] = len(canary_attempts)
         decision["total_main_attempts"] = len(ordered_main_attempts)
@@ -745,6 +789,7 @@ def main() -> None:
         "--ruling-json", "--ruling-receipt", dest="ruling_json", type=Path, default=None
     )
     parser.add_argument("--amendment", dest="amendment_md", type=Path, default=None)
+    parser.add_argument("--evidence-dir", dest="evidence_dir", type=Path, default=None)
     parser.add_argument(
         "--broker-root",
         "--broker",
@@ -758,6 +803,7 @@ def main() -> None:
         out_dir=args.out_dir.resolve(),
         ruling_json=args.ruling_json,
         amendment_md=args.amendment_md,
+        evidence_dir=args.evidence_dir,
         broker_root=args.broker_root,
     )
     print(

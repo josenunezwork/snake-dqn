@@ -35,7 +35,9 @@ from tools.watch6_v3_accounting.admission import (
 from tools.watch6_v3_accounting.prepare import prepare
 from tools.watch6_v3_accounting.proof import (
     is_proven_never_allocated_attempt,
+    is_proven_renewal_ws_transport_failure,
     verify_never_allocated_attempt,
+    verify_renewal_ws_transport_evidence,
 )
 from tools.watch6_v3_accounting.resume import PAIR_NAME_RE
 from tools.watch6_v3_accounting.resume import build as build_ledger
@@ -53,6 +55,7 @@ def recover(
     empirical_costs: Path,
     commit: str,
     ops_dir: Path | None = None,
+    evidence_dir: Path | None = None,
     broker_root: Path | None = None,
 ) -> dict:
     """Inspect prior receipts outcome-blind and prepare a lawful V3 recovery packet."""
@@ -69,6 +72,7 @@ def recover(
 
         base_package = base_package.resolve(strict=True)
         resolved_ops = ops_dir.resolve() if ops_dir is not None else None
+        resolved_evidence = evidence_dir.resolve() if evidence_dir is not None else None
         if not target_shards or sorted(set(target_shards)) != sorted(target_shards):
             raise ValueError("specify one or more distinct target shards")
         if any(s not in range(p.SHARDS) for s in target_shards):
@@ -117,6 +121,7 @@ def recover(
 
         shard_meta: dict[int, dict] = {}
         never_allocated_proofs: list[dict] = []
+        transport_evidence_proofs: list[dict] = []
 
         for shard in sorted(target_shards):
             shard_slots = p.shard_indices(shard)
@@ -160,8 +165,30 @@ def recover(
                             "classification": "prestart",
                         }
                     )
-                elif is_external_transport_compute_failure(receipt, r_path.parent):
+                elif is_external_transport_compute_failure(
+                    receipt,
+                    r_path.parent,
+                    ops_dir=resolved_ops,
+                    evidence_dir=resolved_evidence,
+                    broker_root=resolved_broker,
+                ):
                     compute_failures += 1
+                    if is_proven_renewal_ws_transport_failure(
+                        receipt,
+                        r_path.parent,
+                        ops_dir=resolved_ops,
+                        evidence_dir=resolved_evidence,
+                        broker_root=resolved_broker,
+                    ):
+                        transport_evidence_proofs.append(
+                            verify_renewal_ws_transport_evidence(
+                                r_path.parent,
+                                receipt=receipt,
+                                ops_dir=resolved_ops,
+                                evidence_dir=resolved_evidence,
+                                broker_root=resolved_broker,
+                            )
+                        )
                     prior_records.append(
                         {
                             "receipt_path": str(r_path),
@@ -244,6 +271,7 @@ def recover(
             shard_meta=shard_meta,
             reuse_staged_inputs=reuse_inputs,
             ops_dir=resolved_ops,
+            evidence_dir=resolved_evidence,
             broker_root=resolved_broker,
         )
         summary = {
@@ -255,6 +283,7 @@ def recover(
             "requires_short_recovery_canary": not can_reuse_base_canary,
             "shard_meta": {str(k): v for k, v in sorted(shard_meta.items())},
             "never_allocated_proofs": never_allocated_proofs,
+            "transport_evidence_proofs": transport_evidence_proofs,
             "ledger_path": str(ledger_out.resolve()),
             "package_dir": str(out.resolve()),
             "forecast": forecast,
@@ -277,6 +306,7 @@ def main() -> None:
     parser.add_argument("--empirical-costs", type=Path, required=True)
     parser.add_argument("--commit", required=True)
     parser.add_argument("--ops-dir", type=Path, default=None)
+    parser.add_argument("--evidence-dir", type=Path, default=None)
     parser.add_argument(
         "--broker-root",
         "--broker",
@@ -297,6 +327,7 @@ def main() -> None:
         empirical_costs=args.empirical_costs,
         commit=args.commit,
         ops_dir=args.ops_dir,
+        evidence_dir=args.evidence_dir,
         broker_root=args.broker_root,
     )
     print(json.dumps(plan, indent=2), flush=True)

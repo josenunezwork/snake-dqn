@@ -1,34 +1,63 @@
-"""Fail-closed verifier for PROVEN never-allocated attempts (Astra Ruling Point 4).
+"""Fail-closed verifiers for PROVEN never-allocated attempts (Shard-00 Ruling Point 4) and
+hash-bound renewal-WebSocket zero-export transport-evidence sidecars (Shard-12 Ruling Points 2-6).
 
-Only a proven never-allocated attempt satisfying every item in Ruling Point 4 may retain
-``cleanup_error == "ALLOCATION_UNRESOLVED: retained pending record"`` with
-``stop_verified is False``. Receipts are never rewritten and ``stop_verified=True`` is never
-manufactured. Allocated or ambiguous attempts continue to require verified stop.
+- Never-allocated attempts: only a proven never-allocated attempt satisfying every item in
+  Shard-00 Ruling Point 4 may retain ``cleanup_error == "ALLOCATION_UNRESOLVED: retained pending
+  record"`` with ``stop_verified is False``. Receipts are never rewritten and
+  ``stop_verified=True`` is never manufactured.
+- Truncated renewal-WebSocket zero-export attempts: only an allocated, cleanly stopped,
+  zero-export attempt satisfying the complete hash-bound sidecar conjunction in Shard-12 Ruling
+  Points 2, 3, and 6 (prospective across shards 0..23, excluding partial-export and general
+  WebSocket failures) is recognized as an external transport compute failure. Provenance
+  substitutes ONLY for missing traceback header/frame paths due to the pinned supervisor's
+  2,000-character CLI output truncation; every child, scientific, integrity, and timeout veto
+  overrides transport.
 """
 
 from __future__ import annotations
 
+import argparse
 import ast
 import hashlib
 import json
+import math
+import os
 import re
 import uuid
 from pathlib import Path
 
+from tools.watch6_v3_accounting import (
+    BASELINE_COMMIT,
+    BASELINE_NAMESPACE,
+    BASELINE_SCIENCE,
+    PINNED_SUPERVISOR_REL,
+    PINNED_SUPERVISOR_SHA256,
+    RETAINED_PENDING_CLEANUP_ERROR,
+    SHARD00_EXEC_MANIFEST_SHA256,
+    SHARD00_NOTEBOOK_HASH,
+    SHARD00_PENDING_SHA256,
+    SHARD00_RECEIPT_SHA256,
+    SHARD12_EXEC_MANIFEST_SHA256,
+    SHARD12_RECEIPT_SHA256,
+    V3_BROKER_ROOT,
+    compute_broker_protocol,
+    default_artifact_dir,
+    ensure_cli_dash_b,
+    isolated_broker_execution,
+    verify_baseline_closure,
+)
+
+# isort: split
+
+from research.watch6_search_efficacy_v3 import admission as v3_admission
+from research.watch6_search_efficacy_v3 import protocol as p
 from research.watch6_search_efficacy_v3.admission import has_non_transport_fault
 from research.watch6_search_efficacy_v3.dispatch import (
     ALLOCATION_UNAVAILABLE,
     DEFAULT_OPS_DIR,
     _log_has_exit,
 )
-from tools.ops.package_spec import digest
-from tools.watch6_v3_accounting import (
-    RETAINED_PENDING_CLEANUP_ERROR,
-    SHARD00_EXEC_MANIFEST_SHA256,
-    SHARD00_NOTEBOOK_HASH,
-    SHARD00_PENDING_SHA256,
-    SHARD00_RECEIPT_SHA256,
-)
+from tools.ops.package_spec import digest, publish_json, verify_immutable
 
 PROOF_SCHEMA = "colab-allocation-unavailable/v1"
 HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -1302,3 +1331,1481 @@ def is_proven_never_allocated_attempt(
     except ValueError:
         return False
     return True
+
+
+# ---------------------------------------------------------------------------
+# Hash-bound renewal-WebSocket zero-export transport evidence (Shard-12 Ruling Points 2, 3, 6)
+# ---------------------------------------------------------------------------
+
+TRANSPORT_EVIDENCE_SCHEMA = "watch6-v3-renewal-ws-transport-evidence/v1"
+TRANSPORT_EVIDENCE_CLASSIFICATION = "RENEWAL_WEBSOCKET_CLOSED_ZERO_EXPORT"
+OPS_MANIFEST_RELATIONSHIP = "exec_equals_ops_source_plus_accounted_other_assignments"
+RENEWAL_WS_WRAPPER_PREFIX = "colab exec failed (1): "
+RENEWAL_WS_TRUNCATED_BODY_LEN = 2000
+EXACT_TERMINAL_WS_LINE = "WebSocketConnectionClosedException: Connection is already closed."
+EXACT_WS_SEND_CODE = "if not self.sock or self.sock.send(text_data, ABNF.OPCODE_TEXT) == 0:"
+EXACT_WS_RAISE_CODE = 'raise WebSocketConnectionClosedException("Connection is already closed.")'
+EXPECTED_SUPERVISOR_PROVENANCE: dict[str, object] = {
+    "cli_nonzero_truncation_chars": RENEWAL_WS_TRUNCATED_BODY_LEN,
+    "columns_env": 240,
+    "renewal_method": "renew_runtime_lease->poll_rpc(read_state|renew_lease)",
+    "rpc_kernel_error_prefix": "kernel error despite CLI exit zero:",
+    "substitutes_only": "missing_traceback_header_and_frame_paths",
+}
+
+ENDPOINT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{2,127}$")
+RICH_BOTTOM_BORDER_RE = re.compile(r"^╰─{20,}╯$")
+RICH_CODE_INNER_RE = re.compile(r"^(\s*)(❱\s*)?(\d+)\s+(.*)$")
+EXIT_CODE_LINE_RE = re.compile(r"^EXIT=(-?\d+)\s*$")
+ALLOCATED_INDEXED_JSON_RE = re.compile(
+    r"^(?:poll-\d{6}|rate-calibration-\d{3}|spend-\d{6}|usage-\d{6})\.json$"
+)
+
+ALLOWED_RENEWAL_WS_FIXED_FILES: frozenset[str] = frozenset(
+    {
+        "manifest.json",
+        "receipt.json",
+        "hardware.json",
+        "warmup-measurement.json",
+        "rate-calibration.json",
+        "upload-measurement.json",
+        "source-delivery.json",
+        "input-hashes.json",
+        "accounting-baseline.json",
+        "usage-allocated.json",
+        "ready.json",
+        "session-release.json",
+        "state.json",
+        "events.jsonl",
+    }
+)
+
+FORBIDDEN_RENEWAL_WS_OUTPUT_ENTRIES: tuple[str, ...] = (
+    "terminal.json",
+    "runtime-measurement.json",
+    "scientific-fault.json",
+    "backup.json",
+    "public-input-fetch-failed.json",
+    "supervisor.log",
+    "job.log",
+    "performance.json",
+    "operational.json",
+    "events.json",
+)
+
+FORBIDDEN_RENEWAL_WS_OUTPUT_GLOBS: tuple[str, ...] = (
+    "telemetry-*.json",
+    "recovery-*.json",
+    "runtime-measurement*",
+    "scientific-fault*",
+)
+
+REQUIRED_TRANSPORT_EVIDENCE_KEYS: frozenset[str] = frozenset(
+    {
+        "schema",
+        "classification",
+        "identity",
+        "receipt",
+        "executed_manifest",
+        "ops_manifests",
+        "hardware",
+        "polls",
+        "operational_log",
+        "supervisor",
+        "timing",
+        "error_signature",
+    }
+)
+REQUIRED_FILE_DESC_KEYS: frozenset[str] = frozenset({"path", "sha256", "size"})
+REQUIRED_IDENTITY_KEYS: frozenset[str] = frozenset(
+    {
+        "namespace",
+        "science",
+        "commit",
+        "shard",
+        "job_id",
+        "session",
+        "endpoint",
+        "generation",
+    }
+)
+REQUIRED_OPS_MANIFESTS_KEYS: frozenset[str] = frozenset(
+    {
+        "ops_name",
+        "source_manifest",
+        "live_manifest",
+        "accounting_record",
+        "relationship",
+    }
+)
+REQUIRED_HARDWARE_DESC_KEYS: frozenset[str] = frozenset({"path", "sha256", "size", "ready", "kind"})
+REQUIRED_POLL_DESC_KEYS: frozenset[str] = frozenset(
+    {
+        "index",
+        "path",
+        "sha256",
+        "size",
+        "status",
+        "updated_at",
+        "exports_count",
+        "terminal",
+    }
+)
+REQUIRED_OPLOG_DESC_KEYS: frozenset[str] = frozenset(
+    {
+        "path",
+        "sha256",
+        "size",
+        "exit_code",
+        "poll_lines_count",
+        "max_reported_exports",
+    }
+)
+REQUIRED_SUPERVISOR_DESC_KEYS: frozenset[str] = frozenset(
+    {"supervisor_sha256", "supervisor_relpath", "provenance"}
+)
+REQUIRED_TIMING_KEYS: frozenset[str] = frozenset(
+    {
+        "failed_control_index",
+        "failed_control_started_monotonic",
+        "failed_control_ended_monotonic",
+        "failed_cli_index",
+        "failed_cli_started_monotonic",
+        "failed_cli_ended_monotonic",
+        "failed_cli_elapsed_seconds",
+        "failed_cli_timeout_seconds",
+        "stop_cli_index",
+        "stop_cli_started_monotonic",
+        "stop_cli_ended_monotonic",
+        "sessions_cli_index",
+        "sessions_cli_started_monotonic",
+        "sessions_cli_ended_monotonic",
+    }
+)
+REQUIRED_ERROR_SIG_KEYS: frozenset[str] = frozenset(
+    {
+        "error_sha256",
+        "wrapper_prefix",
+        "decoded_body_length",
+        "terminal_exception_line",
+        "websocket_send_line",
+        "websocket_raise_line",
+    }
+)
+
+
+def _is_finite_number(value: object) -> bool:
+    return type(value) in (int, float) and math.isfinite(float(value))  # type: ignore[arg-type]
+
+
+def _file_descriptor(path: Path, label: str) -> dict[str, object]:
+    if path.is_symlink() or not path.is_file():
+        raise ValueError(f"missing or symlinked {label}: {path}")
+    resolved = path.resolve()
+    size = resolved.stat().st_size
+    if size <= 0:
+        raise ValueError(f"empty {label} forbidden: {resolved}")
+    return {
+        "path": str(resolved),
+        "sha256": digest(resolved),
+        "size": int(size),
+    }
+
+
+def _iter_json_string_values(value: object, json_path: str) -> list[tuple[str, str]]:
+    found: list[tuple[str, str]] = []
+    if isinstance(value, dict):
+        for k, v in value.items():
+            found.extend(_iter_json_string_values(v, f"{json_path}.{k}"))
+    elif isinstance(value, list):
+        for idx, item in enumerate(value):
+            found.extend(_iter_json_string_values(item, f"{json_path}[{idx}]"))
+    elif isinstance(value, str):
+        found.append((json_path, value))
+    return found
+
+
+def _assert_clean_text_value(text: str, label: str) -> None:
+    if (
+        has_non_transport_fault(text)
+        or "Traceback (most recent call last)" in text
+        or v3_admission._GENERIC_LOG_EXCEPTION_RE.search(text) is not None
+    ):
+        raise ValueError(f"child/scientific/integrity/timeout fault text in {label}")
+
+
+def _extract_rich_box_code_line(line: str) -> tuple[bool, str] | None:
+    stripped = line.rstrip()
+    if len(stripped) < 4 or not stripped.startswith("│") or not stripped.endswith("│"):
+        return None
+    inner = stripped[1:-1]
+    match = RICH_CODE_INNER_RE.match(inner)
+    if match is None:
+        return None
+    is_pointer = bool(match.group(2))
+    code_raw = match.group(4)
+    clean_code = re.sub(r"^(?:\s*│)*\s*", "", code_raw).strip()
+    return is_pointer, clean_code
+
+
+def _parse_renewal_ws_error_signature(error_raw: object) -> dict[str, object]:
+    """Verify exact Refused('colab exec failed (1): <2000-char Rich WS send box + closed line>')."""
+    if (
+        not isinstance(error_raw, str)
+        or not error_raw.startswith("Refused(")
+        or not error_raw.endswith(")")
+    ):
+        raise ValueError("receipt.error lacks Refused(...) wrapper")
+    if has_non_transport_fault(error_raw):
+        raise ValueError("non-transport fault text detected in raw receipt.error")
+    if "kernel error despite cli exit zero" in error_raw.lower():
+        raise ValueError("RPC kernel error refusal forbidden in renewal transport signature")
+
+    try:
+        parsed = ast.parse(error_raw, mode="eval")
+    except SyntaxError as exc:
+        raise ValueError("malformed Refused(...) literal in receipt.error") from exc
+    if (
+        not isinstance(parsed.body, ast.Call)
+        or not isinstance(parsed.body.func, ast.Name)
+        or parsed.body.func.id != "Refused"
+        or len(parsed.body.args) != 1
+        or bool(parsed.body.keywords)
+        or not isinstance(parsed.body.args[0], ast.Constant)
+        or not isinstance(parsed.body.args[0].value, str)
+    ):
+        raise ValueError("receipt.error is not a single-string Refused('...') call")
+
+    inner = parsed.body.args[0].value
+    if has_non_transport_fault(inner):
+        raise ValueError("non-transport fault text detected in decoded Refused payload")
+    if "kernel error despite cli exit zero" in inner.lower():
+        raise ValueError("RPC kernel error refusal forbidden in decoded Refused payload")
+    if not inner.startswith(RENEWAL_WS_WRAPPER_PREFIX):
+        raise ValueError("decoded Refused payload lacks exact 'colab exec failed (1): ' prefix")
+
+    body = inner[len(RENEWAL_WS_WRAPPER_PREFIX) :]
+    if len(body) != RENEWAL_WS_TRUNCATED_BODY_LEN:
+        raise ValueError(
+            f"decoded CLI failure output length {len(body)} != {RENEWAL_WS_TRUNCATED_BODY_LEN} "
+            "(truncation provenance applies ONLY to 2,000-char truncated CLI output)"
+        )
+
+    visible_frames = v3_admission._FRAME_PATH_RE.findall(
+        body
+    ) + v3_admission._RICH_FRAME_PATH_RE.findall(body)
+    for fp in visible_frames:
+        if v3_admission._FORBIDDEN_FRAME_RE.search(fp) is not None:
+            raise ValueError(f"forbidden runtime/scientific frame path in CLI output: {fp}")
+        if (
+            v3_admission._ALLOWED_TRANSPORT_FRAME_RE.search(fp) is None
+            and "websocket" not in fp.lower()
+        ):
+            raise ValueError(f"unrecognized frame path in CLI output: {fp}")
+
+    nonempty_lines = [ln.rstrip("\r") for ln in body.splitlines() if ln.strip()]
+    if len(nonempty_lines) < 4:
+        raise ValueError("truncated CLI output lacks Rich traceback box context")
+
+    terminal_line = nonempty_lines[-1].strip()
+    if terminal_line != EXACT_TERMINAL_WS_LINE:
+        raise ValueError(
+            f"terminal exception {terminal_line!r} != {EXACT_TERMINAL_WS_LINE!r} "
+            "(general WebSocket or non-matching exceptions are excluded)"
+        )
+
+    border_line = nonempty_lines[-2].strip()
+    if RICH_BOTTOM_BORDER_RE.fullmatch(border_line) is None:
+        raise ValueError("terminal exception is not immediately preceded by Rich traceback border")
+
+    first_nonempty = nonempty_lines[0].rstrip()
+    if not first_nonempty.endswith(("│", "╯", "╮", "┤")):
+        raise ValueError("leading truncated CLI line is outside Rich traceback box")
+    for mid_line in nonempty_lines[1:-2]:
+        s_mid = mid_line.strip()
+        if not s_mid.startswith(("│", "╭", "├", "╰")) or not s_mid.endswith(("│", "╮", "┤", "╯")):
+            raise ValueError("unboxed non-Rich line present inside truncated CLI output")
+
+    extracted_code: list[tuple[bool, str]] = []
+    for box_line in nonempty_lines[:-2]:
+        parsed_code = _extract_rich_box_code_line(box_line)
+        if parsed_code is not None:
+            extracted_code.append(parsed_code)
+
+    matched_ws_send_pair = any(
+        extracted_code[idx] == (False, EXACT_WS_SEND_CODE)
+        and extracted_code[idx + 1] == (True, EXACT_WS_RAISE_CODE)
+        for idx in range(len(extracted_code) - 1)
+    )
+    if not matched_ws_send_pair:
+        raise ValueError(
+            "Rich traceback box lacks exact websocket-send guard and active raise context"
+        )
+
+    return {
+        "error_sha256": hashlib.sha256(error_raw.encode("utf-8")).hexdigest(),
+        "wrapper_prefix": RENEWAL_WS_WRAPPER_PREFIX,
+        "decoded_body_length": RENEWAL_WS_TRUNCATED_BODY_LEN,
+        "terminal_exception_line": EXACT_TERMINAL_WS_LINE,
+        "websocket_send_line": EXACT_WS_SEND_CODE,
+        "websocket_raise_line": EXACT_WS_RAISE_CODE,
+    }
+
+
+def _verify_allocated_zero_export_state_and_events(
+    directory: Path,
+    *,
+    job_id: str,
+    session: str,
+    endpoint: str,
+) -> None:
+    events_json_path = directory / "events.json"
+    if events_json_path.exists() or events_json_path.is_symlink():
+        raise ValueError(f"forbidden events.json present: {events_json_path}")
+
+    state_path = directory / "state.json"
+    if state_path.exists() or state_path.is_symlink():
+        state = _read_regular_json_dict(state_path, "state.json")
+        if not state:
+            raise ValueError(f"empty state.json forbidden: {state_path}")
+        if "job_id" in state and state["job_id"] != job_id:
+            raise ValueError("state.json job_id mismatch")
+        if "session" in state and state["session"] != session:
+            raise ValueError("state.json session mismatch")
+        if "endpoint" in state and state["endpoint"] not in (None, endpoint):
+            raise ValueError("state.json endpoint mismatch")
+        if "status" in state and state["status"] not in {
+            "INCOMPLETE",
+            "running",
+            "starting",
+            "stopping",
+            "stopped",
+        }:
+            raise ValueError(f"contradictory status in state.json: {state['status']!r}")
+        if "failure_class" in state and state["failure_class"] not in {None, "SUPERVISOR"}:
+            raise ValueError(f"contradictory failure_class in state.json: {state_path}")
+        if state.get("terminal") is not None or state.get("returncode") is not None:
+            raise ValueError("non-null terminal/returncode in state.json")
+        if "exports" in state and state["exports"] not in ([], 0, None):
+            raise ValueError("nonzero exports recorded in state.json")
+        for jpath, sval in _iter_json_string_values(state, "state.json"):
+            _assert_clean_text_value(sval, jpath)
+
+    events_path = directory / "events.jsonl"
+    if events_path.exists() or events_path.is_symlink():
+        if events_path.is_symlink() or not events_path.is_file():
+            raise ValueError(f"missing or symlinked events.jsonl: {events_path}")
+        try:
+            raw_events = events_path.read_text(encoding="utf-8")
+        except (OSError, ValueError) as exc:
+            raise ValueError(f"unreadable events.jsonl: {events_path}") from exc
+        lines = [ln.strip() for ln in raw_events.splitlines() if ln.strip()]
+        if not lines:
+            raise ValueError(f"empty events.jsonl forbidden: {events_path}")
+        for idx, line in enumerate(lines):
+            try:
+                ev = json.loads(line)
+            except ValueError as exc:
+                raise ValueError(f"corrupt JSONL in {events_path} line {idx + 1}") from exc
+            if not isinstance(ev, dict) or not ev:
+                raise ValueError(f"non-object event in {events_path} line {idx + 1}")
+            if "job_id" in ev and ev["job_id"] != job_id:
+                raise ValueError("events.jsonl job_id mismatch")
+            if "session" in ev and ev["session"] != session:
+                raise ValueError("events.jsonl session mismatch")
+            if "endpoint" in ev and ev["endpoint"] not in (None, endpoint):
+                raise ValueError("events.jsonl endpoint mismatch")
+            if ev.get("terminal") is not None:
+                raise ValueError("non-null terminal in events.jsonl")
+            if "exports" in ev and ev["exports"] not in ([], 0, None):
+                raise ValueError("nonzero exports in events.jsonl")
+            if ev.get("command") == "download" or ev.get("direction") == "download":
+                raise ValueError("download event forbidden in zero-export attempt events.jsonl")
+            for jpath, sval in _iter_json_string_values(ev, f"events.jsonl[{idx}]"):
+                _assert_clean_text_value(sval, jpath)
+
+
+def _discover_single_ops_manifest_for_renewal_ws(
+    ops_dir: Path,
+    resolved_out: Path,
+    ops_name: str | None = None,
+) -> tuple[str, Path, dict, bool]:
+    """Return unique (run_name, source_manifest_path, source_manifest_dict, is_retry_one)."""
+    exact = _discover_ops_names_and_manifests(ops_dir, resolved_out, ops_name)
+    if len(exact) > 1:
+        raise ValueError(f"ambiguous ops manifests for {resolved_out}: {[m[1] for m in exact]}")
+    if len(exact) == 1:
+        matched_name, mf_path, mf_data = exact[0]
+        return matched_name, mf_path, mf_data, False
+
+    if resolved_out.name.endswith("-retry-1"):
+        base_out = Path(str(resolved_out)[: -len("-retry-1")]).resolve()
+        base_ops_name = (
+            ops_name[: -len("-retry-1")]
+            if isinstance(ops_name, str) and ops_name.endswith("-retry-1")
+            else ops_name
+        )
+        retry_matches = _discover_ops_names_and_manifests(ops_dir, base_out, base_ops_name)
+        if len(retry_matches) > 1:
+            raise ValueError(
+                f"ambiguous base ops manifests for retry-1 {resolved_out}: "
+                f"{[m[1] for m in retry_matches]}"
+            )
+        if len(retry_matches) == 1:
+            base_name, mf_path, mf_data = retry_matches[0]
+            return f"{base_name}-retry-1", mf_path, mf_data, True
+
+    raise ValueError(f"missing ops manifest in {ops_dir / 'manifests'} for {resolved_out}")
+
+
+def _verify_ops_manifest_relationship(
+    *,
+    ops_dir: Path,
+    run_name: str,
+    source_mf_path: Path,
+    source_mf: dict,
+    exec_manifest: dict,
+    is_retry_one: bool,
+) -> dict[str, object]:
+    source_desc = _file_descriptor(source_mf_path, "ops source manifest")
+    expected_source = dict(source_mf)
+    if is_retry_one:
+        if isinstance(expected_source.get("output_dir"), str):
+            expected_source["output_dir"] = f"{expected_source['output_dir']}-retry-1"
+        if (
+            isinstance(expected_source.get("job_id"), str)
+            and exec_manifest.get("job_id") == f"{expected_source['job_id']}-retry-1"
+        ):
+            expected_source["job_id"] = f"{expected_source['job_id']}-retry-1"
+
+    src_core = {k: v for k, v in expected_source.items() if k != "budget"}
+    exec_core = {k: v for k, v in exec_manifest.items() if k != "budget"}
+    src_budget = expected_source.get("budget")
+    exec_budget = exec_manifest.get("budget")
+    expected_budget_keys = {
+        "other_assignments",
+        "rate_units_per_hour",
+        "reserve_units",
+        "unit_cap",
+    }
+    if (
+        src_core != exec_core
+        or not isinstance(src_budget, dict)
+        or not isinstance(exec_budget, dict)
+        or set(src_budget.keys()) != expected_budget_keys
+        or set(exec_budget.keys()) != expected_budget_keys
+        or any(
+            src_budget.get(k) != exec_budget.get(k)
+            for k in ("rate_units_per_hour", "reserve_units", "unit_cap")
+        )
+        or not isinstance(exec_budget.get("other_assignments"), dict)
+    ):
+        raise ValueError(
+            f"ops source manifest {source_mf_path} diverges from executed manifest beyond "
+            "budget.other_assignments"
+        )
+
+    live_mf_path = ops_dir / "manifests" / f"{run_name}.live.json"
+    live_desc: dict[str, object] | None = None
+    if live_mf_path.is_symlink():
+        raise ValueError(f"symlinked live ops manifest forbidden: {live_mf_path}")
+    if live_mf_path.exists():
+        live_desc = _file_descriptor(live_mf_path, "ops live manifest")
+        live_data = _read_regular_json_dict(live_mf_path, "ops live manifest")
+        if live_data != exec_manifest:
+            raise ValueError(
+                f"ops live manifest {live_mf_path} does not match executed manifest.json"
+            )
+
+    acct_rec_path = ops_dir / "dispatch" / run_name / f"{run_name}.accounting.json"
+    acct_desc: dict[str, object] | None = None
+    if acct_rec_path.is_symlink():
+        raise ValueError(f"symlinked ops accounting record forbidden: {acct_rec_path}")
+    if acct_rec_path.exists():
+        acct_desc = _file_descriptor(acct_rec_path, "ops accounting record")
+        acct_data = _read_regular_json_dict(acct_rec_path, "ops accounting record")
+        raw_src = acct_data.get("source_manifest")
+        if (
+            not isinstance(raw_src, str)
+            or not raw_src
+            or Path(raw_src).resolve() != source_mf_path.resolve()
+            or acct_data.get("source_manifest_sha256") != source_desc["sha256"]
+            or acct_data.get("other_assignments") != exec_budget["other_assignments"]
+        ):
+            raise ValueError(f"ops accounting record binding mismatch: {acct_rec_path}")
+        if live_desc is not None:
+            raw_live = acct_data.get("manifest")
+            if (
+                not isinstance(raw_live, str)
+                or not raw_live
+                or Path(raw_live).resolve() != live_mf_path.resolve()
+                or acct_data.get("manifest_sha256") != live_desc["sha256"]
+            ):
+                raise ValueError(
+                    f"ops accounting record live manifest hash mismatch: {acct_rec_path}"
+                )
+
+    return {
+        "ops_name": run_name,
+        "source_manifest": source_desc,
+        "live_manifest": live_desc,
+        "accounting_record": acct_desc,
+        "relationship": OPS_MANIFEST_RELATIONSHIP,
+    }
+
+
+def _verify_operational_and_queue_logs(
+    *,
+    ops_dir: Path,
+    run_name: str,
+    output_dir: Path,
+    receipt_path: Path,
+    receipt_error: str,
+    job_id: str,
+    session: str,
+    generation: str,
+) -> dict[str, object]:
+    log_path = ops_dir / "logs" / f"{run_name}.log"
+    log_desc = _file_descriptor(log_path, "operational log")
+    try:
+        log_text = log_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ValueError(f"unreadable or non-UTF8 operational log: {log_path}") from exc
+
+    exit_codes: list[int] = []
+    incomplete_lines: list[str] = []
+    poll_lines_count = 0
+    max_reported_exports = 0
+    expected_calib = (output_dir / "rate-calibration.json").resolve()
+    expected_incomplete_prefix = f"INCOMPLETE: {receipt_error}; receipt: "
+
+    for line_no, raw_line in enumerate(log_text.splitlines(), start=1):
+        stripped = raw_line.strip()
+        if not stripped:
+            continue
+        exit_match = EXIT_CODE_LINE_RE.match(stripped)
+        if exit_match is not None:
+            exit_codes.append(int(exit_match.group(1)))
+            continue
+        if raw_line.startswith("OPS_ALLOCATION_SUCCESS calibration="):
+            calib_raw = raw_line.split("=", 1)[1].strip()
+            if not calib_raw or Path(calib_raw).resolve() != expected_calib:
+                raise ValueError(
+                    f"operational log calibration path mismatch at {log_path}:{line_no}"
+                )
+            continue
+        if stripped.startswith("{"):
+            try:
+                jline = json.loads(stripped)
+            except ValueError as exc:
+                raise ValueError(f"corrupt JSON telemetry line at {log_path}:{line_no}") from exc
+            if (
+                not isinstance(jline, dict)
+                or jline.get("job") != job_id
+                or jline.get("status") not in {"starting", "running"}
+                or jline.get("terminal") is not False
+            ):
+                raise ValueError(
+                    f"contradictory telemetry status/terminal/job at {log_path}:{line_no}"
+                )
+            exp_val = jline.get("exports")
+            if type(exp_val) is not int or exp_val != 0:
+                raise ValueError(
+                    f"nonzero or invalid exports={exp_val!r} in operational log "
+                    f"at {log_path}:{line_no} (partial-export attempts excluded)"
+                )
+            max_reported_exports = max(max_reported_exports, exp_val)
+            tail = jline.get("job_log_tail")
+            if tail is not None:
+                if not isinstance(tail, str):
+                    raise ValueError(f"non-string job_log_tail at {log_path}:{line_no}")
+                _assert_clean_text_value(tail, f"{log_path.name}:{line_no}.job_log_tail")
+            poll_lines_count += 1
+            continue
+        if raw_line.startswith("INCOMPLETE: "):
+            if not raw_line.startswith(expected_incomplete_prefix):
+                raise ValueError(
+                    f"operational log INCOMPLETE line differs from receipt.error at "
+                    f"{log_path}:{line_no}"
+                )
+            rec_suffix = raw_line[len(expected_incomplete_prefix) :].strip()
+            if not rec_suffix or Path(rec_suffix).resolve() != receipt_path.resolve():
+                raise ValueError(
+                    f"operational log INCOMPLETE receipt path mismatch at {log_path}:{line_no}"
+                )
+            incomplete_lines.append(raw_line)
+            continue
+
+        raise ValueError(
+            f"unexpected or fault line in operational log {log_path}:{line_no}: {stripped[:160]}"
+        )
+
+    if len(exit_codes) != 1 or exit_codes[0] == 0:
+        raise ValueError(
+            f"operational log requires single nonzero EXIT code, found {exit_codes!r}: {log_path}"
+        )
+    if len(incomplete_lines) != 1:
+        raise ValueError(
+            f"operational log requires exactly one matching INCOMPLETE line: {log_path}"
+        )
+    if poll_lines_count < 1:
+        raise ValueError(f"operational log lacks running poll telemetry lines: {log_path}")
+
+    logs_dir = ops_dir / "logs"
+    if logs_dir.is_dir() and not logs_dir.is_symlink():
+        needles = (job_id, run_name, session, generation)
+        for qlog in sorted(logs_dir.glob("queue-*.log")):
+            if qlog.is_symlink() or not qlog.is_file():
+                continue
+            qtext = qlog.read_text(encoding="utf-8", errors="replace")
+            for qline in qtext.splitlines():
+                if not any(tok in qline for tok in needles):
+                    continue
+                sanitized = qline.replace(receipt_error, "")
+                if has_non_transport_fault(sanitized):
+                    raise ValueError(f"non-transport fault recorded for {run_name} in {qlog}")
+
+    return {
+        **log_desc,
+        "exit_code": exit_codes[0],
+        "poll_lines_count": poll_lines_count,
+        "max_reported_exports": max_reported_exports,
+    }
+
+
+def _collect_verified_renewal_ws_evidence(
+    output_dir: Path,
+    *,
+    receipt: dict | None = None,
+    ops_dir: Path | None = None,
+    ops_name: str | None = None,
+    broker_root: Path | None = None,
+) -> tuple[dict[str, object], Path, str, str]:
+    """Validate all on-disk attempt artifacts and construct the canonical sidecar payload."""
+    if not isinstance(output_dir, Path) or output_dir.is_symlink() or not output_dir.is_dir():
+        raise ValueError(f"invalid output_dir for renewal-WS transport evidence: {output_dir}")
+
+    eff_broker = (broker_root if broker_root is not None else V3_BROKER_ROOT).resolve()
+    verify_baseline_closure(eff_broker, require_head_at_baseline=True)
+    sup_path = eff_broker / PINNED_SUPERVISOR_REL
+    if sup_path.is_symlink() or not sup_path.is_file():
+        raise ValueError(f"missing or symlinked broker supervisor.py: {sup_path}")
+    if digest(sup_path) != PINNED_SUPERVISOR_SHA256:
+        raise ValueError(
+            f"broker supervisor.py SHA256 mismatch ({digest(sup_path)} != "
+            f"{PINNED_SUPERVISOR_SHA256})"
+        )
+    broker_alloc = compute_broker_protocol(eff_broker)["allocation"]
+
+    for forbidden_name in FORBIDDEN_RENEWAL_WS_OUTPUT_ENTRIES:
+        f_target = output_dir / forbidden_name
+        if f_target.exists() or f_target.is_symlink():
+            raise ValueError(f"forbidden fault/terminal artifact present in output_dir: {f_target}")
+    for pattern in FORBIDDEN_RENEWAL_WS_OUTPUT_GLOBS:
+        if any(output_dir.glob(pattern)):
+            raise ValueError(f"forbidden artifact matching {pattern} in {output_dir}")
+
+    exports_dir = output_dir / "exports"
+    if exports_dir.is_symlink():
+        raise ValueError(f"symlinked exports directory forbidden: {exports_dir}")
+    if exports_dir.exists():
+        if not exports_dir.is_dir() or any(exports_dir.iterdir()):
+            raise ValueError(
+                f"partial or non-empty exports directory excluded from renewal-WS rule: "
+                f"{exports_dir}"
+            )
+
+    for entry in sorted(output_dir.iterdir()):
+        if entry.is_symlink():
+            raise ValueError(f"symlinked entry forbidden in output_dir: {entry}")
+        if entry.name == "staging":
+            if not entry.is_dir():
+                raise ValueError(f"staging must be a directory: {entry}")
+            for child in sorted(entry.iterdir()):
+                if (
+                    child.is_symlink()
+                    or not child.is_file()
+                    or child.name not in ALLOWED_PREALLOC_STAGING_ENTRIES
+                ):
+                    raise ValueError(f"unexpected file inside staging: {child}")
+        elif entry.name == "exports":
+            continue
+        elif entry.is_file() and (
+            entry.name in ALLOWED_RENEWAL_WS_FIXED_FILES
+            or ALLOCATED_INDEXED_JSON_RE.fullmatch(entry.name) is not None
+        ):
+            continue
+        else:
+            raise ValueError(f"unexpected or contradictory artifact in output_dir: {entry}")
+
+    resolved_out = output_dir.resolve()
+    receipt_path = output_dir / "receipt.json"
+    exec_manifest_path = output_dir / "manifest.json"
+    receipt_desc = _file_descriptor(receipt_path, "receipt.json")
+    exec_mf_desc = _file_descriptor(exec_manifest_path, "executed manifest.json")
+    disk_receipt = _read_regular_json_dict(receipt_path, "receipt.json")
+    if receipt is not None and receipt != disk_receipt:
+        raise ValueError("in-memory receipt differs from immutable on-disk receipt.json")
+    exec_manifest = _read_regular_json_dict(exec_manifest_path, "executed manifest.json")
+
+    if v3_admission.is_prestart_transport_failure(disk_receipt, output_dir):
+        raise ValueError("prestart failure cannot be classified as renewal-WS compute failure")
+
+    job_id = exec_manifest.get("job_id")
+    commit = exec_manifest.get("commit")
+    generation = disk_receipt.get("generation")
+    session = disk_receipt.get("session")
+    endpoint = disk_receipt.get("endpoint")
+    raw_exec_out = exec_manifest.get("output_dir")
+    accounting = disk_receipt.get("accounting")
+    if (
+        not isinstance(job_id, str)
+        or JOB_ID_RE.fullmatch(job_id) is None
+        or disk_receipt.get("job_id") != job_id
+        or commit != BASELINE_COMMIT
+        or disk_receipt.get("commit") != BASELINE_COMMIT
+        or disk_receipt.get("manifest_sha256") != exec_mf_desc["sha256"]
+        or not isinstance(raw_exec_out, str)
+        or not raw_exec_out.strip()
+        or Path(raw_exec_out).resolve() != resolved_out
+        or not isinstance(generation, str)
+        or HEX32_RE.fullmatch(generation) is None
+        or not isinstance(session, str)
+        or session != f"snake-{job_id}-{generation[:12]}"
+        or not isinstance(endpoint, str)
+        or ENDPOINT_RE.fullmatch(endpoint) is None
+        or not isinstance(accounting, dict)
+        or accounting.get("allocated_endpoint") != endpoint
+        or accounting.get("unaccounted_endpoints") != []
+        or disk_receipt.get("supervisor_sha256") != PINNED_SUPERVISOR_SHA256
+    ):
+        raise ValueError(
+            "manifest/receipt/job/session/endpoint/generation/commit/supervisor binding mismatch"
+        )
+
+    binding = exec_manifest.get("watch6_v3")
+    env = exec_manifest.get("env")
+    req = exec_manifest.get("requirements")
+    if (
+        not isinstance(binding, dict)
+        or not isinstance(env, dict)
+        or not isinstance(req, dict)
+        or exec_manifest.get("script") != p.SCRIPT
+        or exec_manifest.get("device") != "cpu"
+        or binding.get("namespace") != BASELINE_NAMESPACE
+        or binding.get("science") != BASELINE_SCIENCE
+        or env.get("WATCH6_SCIENCE") != BASELINE_SCIENCE
+        or env.get("SNAKE_WATCH_SOURCE") != "live"
+        or binding.get("primary_allocation") != broker_alloc
+        or any(k in binding for k in ("reserve_allocation", "reserve_slots", "reserve_lineage"))
+        or req.get("gpu") != "L4"
+        or req.get("allowed_gpus") != ["L4"]
+        or "prefer" in req
+        or type(req.get("min_vcpu")) is not int
+        or req["min_vcpu"] < 12
+        or env.get("WATCH6_FIXTURE") != "0"
+    ):
+        raise ValueError("foreign science/namespace/allocation or non-L4 W4 manifest binding")
+
+    try:
+        total_shards = int(env.get("WATCH6_SHARDS", -1))
+        shard = int(env.get("WATCH6_SHARD", -1))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("malformed WATCH6_SHARD/WATCH6_SHARDS in executed manifest") from exc
+    if total_shards != p.SHARDS or shard not in range(p.SHARDS) or binding.get("shard") != shard:
+        raise ValueError(f"invalid V3 shard index {shard} in executed manifest")
+
+    if receipt_desc["sha256"] == SHARD12_RECEIPT_SHA256:
+        if exec_mf_desc["sha256"] != SHARD12_EXEC_MANIFEST_SHA256 or shard != 12:
+            raise ValueError("shard-12 receipt SHA256 paired with mismatched manifest or shard")
+
+    if (
+        disk_receipt.get("status") != "INCOMPLETE"
+        or disk_receipt.get("failure_class") != "SUPERVISOR"
+        or disk_receipt.get("stop_verified") is not True
+        or disk_receipt.get("cleanup_error") is not None
+        or disk_receipt.get("terminal") is not None
+        or disk_receipt.get("exports") != []
+        or disk_receipt.get("traceback") is not None
+        or disk_receipt.get("last_traceback_line") is not None
+    ):
+        raise ValueError(
+            "receipt status/failure_class/stop_verified/cleanup_error/terminal/exports vetoed"
+        )
+
+    for tx_key in ("transfers", "contents_transfers"):
+        tx_list = disk_receipt.get(tx_key)
+        if not isinstance(tx_list, list):
+            raise ValueError(f"receipt.{tx_key} must be a list")
+        for tx in tx_list:
+            if not isinstance(tx, dict):
+                raise ValueError(f"malformed entry in receipt.{tx_key}")
+            direction = tx.get("direction") or tx.get("command")
+            if direction == "download":
+                raise ValueError(f"download transfer forbidden in zero-export {tx_key}")
+            if tx_key == "contents_transfers" and tx.get("direction") != "upload":
+                raise ValueError("non-upload contents_transfer in zero-export attempt")
+            for path_field in ("remote", "local", "dest", "path"):
+                pval = tx.get(path_field)
+                if isinstance(pval, str) and "exports" in Path(pval).parts:
+                    raise ValueError(f"export transfer path forbidden in {tx_key}: {pval}")
+
+    hw_path = output_dir / "hardware.json"
+    hw_desc = _file_descriptor(hw_path, "hardware.json")
+    hw_data = _read_regular_json_dict(hw_path, "hardware.json")
+    hw_info = hw_data.get("hardware")
+    if (
+        hw_data.get("ready") is not True
+        or not isinstance(hw_info, dict)
+        or hw_info.get("kind") != "L4"
+    ):
+        raise ValueError("hardware.json missing ready=True on L4")
+
+    warmup_data = _read_regular_json_dict(
+        output_dir / "warmup-measurement.json", "warmup-measurement.json"
+    )
+    if warmup_data.get("status") != "PASS":
+        raise ValueError("warmup-measurement.json status != PASS")
+
+    calib_data = _read_regular_json_dict(
+        output_dir / "rate-calibration.json", "rate-calibration.json"
+    )
+    if calib_data.get("status") not in {"PASS", "WARNING_RATE_UNSTABLE"}:
+        raise ValueError("rate-calibration.json status invalid")
+
+    upload_data = _read_regular_json_dict(
+        output_dir / "upload-measurement.json", "upload-measurement.json"
+    )
+    if upload_data.get("staging_completed") is False or not _is_finite_number(
+        upload_data.get("elapsed_seconds")
+    ):
+        raise ValueError("upload-measurement.json incomplete or invalid")
+
+    src_deliv = _read_regular_json_dict(output_dir / "source-delivery.json", "source-delivery.json")
+    if src_deliv.get("commit") != BASELINE_COMMIT:
+        raise ValueError("source-delivery.json commit mismatch")
+
+    in_hashes = _read_regular_json_dict(output_dir / "input-hashes.json", "input-hashes.json")
+    if not in_hashes or any(
+        not isinstance(k, str) or not k or not isinstance(v, str) or HEX64_RE.fullmatch(v) is None
+        for k, v in in_hashes.items()
+    ):
+        raise ValueError("input-hashes.json empty or malformed")
+
+    for spend_path in sorted(output_dir.glob("spend-*.json")):
+        spend_data = _read_regular_json_dict(spend_path, spend_path.name)
+        if spend_data.get("unit_cap_status") != "OK":
+            raise ValueError(f"spend unit_cap_status != OK in {spend_path}")
+
+    _verify_allocated_zero_export_state_and_events(
+        output_dir,
+        job_id=job_id,
+        session=session,
+        endpoint=endpoint,
+    )
+
+    poll_paths = sorted(output_dir.glob("poll-*.json"))
+    if not poll_paths:
+        raise ValueError("renewal-WS transport evidence requires nonempty clean poll-*.json files")
+    polls_clean, audited_count = v3_admission._audit_poll_files(output_dir)
+    if not polls_clean or audited_count != len(poll_paths):
+        raise ValueError("poll-*.json audit failed or detected child/supervisor fault")
+
+    polls_meta: list[dict[str, object]] = []
+    prev_updated_at = -math.inf
+    for idx, poll_path in enumerate(poll_paths):
+        expected_name = f"poll-{idx:06d}.json"
+        if poll_path.name != expected_name:
+            raise ValueError(
+                f"non-contiguous poll sequence: expected {expected_name}, found {poll_path.name}"
+            )
+        p_desc = _file_descriptor(poll_path, poll_path.name)
+        poll_obj = _read_regular_json_dict(poll_path, poll_path.name)
+        if poll_obj.get("exports") != [] or poll_obj.get("terminal") is not None:
+            raise ValueError(f"poll {poll_path.name} reports nonzero exports or non-null terminal")
+        p_state = poll_obj.get("state")
+        if (
+            not isinstance(p_state, dict)
+            or p_state.get("status") not in {"starting", "running"}
+            or p_state.get("job_id") != job_id
+            or p_state.get("generation") != generation
+            or p_state.get("returncode") is not None
+            or p_state.get("reason") is not None
+            or p_state.get("error") is not None
+            or p_state.get("unassign_error") is not None
+            or not _is_finite_number(p_state.get("started_at"))
+            or not _is_finite_number(p_state.get("updated_at"))
+        ):
+            raise ValueError(f"poll {poll_path.name} state binding/health mismatch")
+        started_at = float(p_state["started_at"])
+        updated_at = float(p_state["updated_at"])
+        if started_at <= 0 or updated_at < started_at or updated_at < prev_updated_at:
+            raise ValueError(f"non-monotonic timestamps in {poll_path.name}")
+        prev_updated_at = updated_at
+        polls_meta.append(
+            {
+                "index": idx,
+                **p_desc,
+                "status": str(p_state["status"]),
+                "updated_at": p_state["updated_at"],
+                "exports_count": 0,
+                "terminal": None,
+            }
+        )
+
+    control_ops = disk_receipt.get("control_operations")
+    if (
+        not isinstance(control_ops, list)
+        or not control_ops
+        or not all(isinstance(op, dict) for op in control_ops)
+    ):
+        raise ValueError("receipt.control_operations missing or malformed")
+    for earlier_op in control_ops[:-1]:
+        if earlier_op.get("thread") == "MainThread" and earlier_op.get("status") != "completed":
+            raise ValueError("earlier MainThread control operation failed before terminal renewal")
+        if isinstance(earlier_op.get("error"), str):
+            _assert_clean_text_value(earlier_op["error"], "control_operations.error")
+
+    failed_control_index = len(control_ops) - 1
+    failed_ctrl = control_ops[failed_control_index]
+    ctrl_start = failed_ctrl.get("started_monotonic")
+    ctrl_end = failed_ctrl.get("ended_monotonic")
+    if (
+        failed_ctrl.get("operation") != "renewal"
+        or failed_ctrl.get("thread") != "MainThread"
+        or failed_ctrl.get("status") != "failed"
+        or not _is_finite_number(ctrl_start)
+        or not _is_finite_number(ctrl_end)
+        or not (0.0 < float(ctrl_start) <= float(ctrl_end))  # type: ignore[arg-type]
+    ):
+        raise ValueError(
+            "terminal control_operations entry is not a failed MainThread renewal interval"
+        )
+
+    cli_calls = disk_receipt.get("cli_calls")
+    if (
+        not isinstance(cli_calls, list)
+        or len(cli_calls) < 4
+        or not all(isinstance(c, dict) for c in cli_calls)
+    ):
+        raise ValueError("receipt.cli_calls missing or malformed")
+
+    failed_main_cli_indices = [
+        idx
+        for idx, call in enumerate(cli_calls)
+        if call.get("thread") == "MainThread" and call.get("status") != "completed"
+    ]
+    if len(failed_main_cli_indices) != 1:
+        raise ValueError(
+            f"expected exactly 1 non-completed MainThread CLI call, found {failed_main_cli_indices}"
+        )
+    failed_cli_index = failed_main_cli_indices[0]
+    for prev_call in cli_calls[:failed_cli_index]:
+        if prev_call.get("thread") == "MainThread" and prev_call.get("returncode") not in (None, 0):
+            raise ValueError("earlier MainThread CLI call had nonzero returncode")
+
+    failed_cli = cli_calls[failed_cli_index]
+    cli_start = failed_cli.get("started_monotonic")
+    cli_end = failed_cli.get("ended_monotonic")
+    cli_elapsed = failed_cli.get("elapsed_seconds")
+    cli_timeout = failed_cli.get("timeout_seconds")
+    if (
+        failed_cli.get("command") != "exec"
+        or failed_cli.get("operation") != "renewal"
+        or failed_cli.get("thread") != "MainThread"
+        or failed_cli.get("status") != "failed"
+        or failed_cli.get("attempt") != 1
+        or not _is_finite_number(cli_start)
+        or not _is_finite_number(cli_end)
+        or not _is_finite_number(cli_elapsed)
+        or not _is_finite_number(cli_timeout)
+        or not (
+            float(ctrl_start)  # type: ignore[arg-type]
+            <= float(cli_start)  # type: ignore[arg-type]
+            <= float(cli_end)  # type: ignore[arg-type]
+            <= float(ctrl_end)  # type: ignore[arg-type]
+        )
+        or not (0.0 < float(cli_elapsed) < float(cli_timeout))  # type: ignore[arg-type]
+    ):
+        raise ValueError(
+            "failed MainThread exec/renewal CLI interval is missing, timed out, or not nested "
+            "inside failed renewal control interval"
+        )
+
+    post_calls = cli_calls[failed_cli_index + 1 :]
+    if len(post_calls) not in (2, 3):
+        raise ValueError(
+            "failed renewal CLI call must be followed by stop, sessions, and optional usage only"
+        )
+    for post_call in post_calls:
+        if (
+            post_call.get("thread") != "MainThread"
+            or post_call.get("operation") != "control"
+            or post_call.get("status") != "completed"
+            or post_call.get("returncode") not in (None, 0)
+            or not _is_finite_number(post_call.get("started_monotonic"))
+            or not _is_finite_number(post_call.get("ended_monotonic"))
+        ):
+            raise ValueError("post-failure cleanup CLI call incomplete or malformed")
+
+    stop_cli_index = failed_cli_index + 1
+    sessions_cli_index = failed_cli_index + 2
+    stop_cli = cli_calls[stop_cli_index]
+    sessions_cli = cli_calls[sessions_cli_index]
+    stop_start = float(stop_cli["started_monotonic"])
+    stop_end = float(stop_cli["ended_monotonic"])
+    sess_start = float(sessions_cli["started_monotonic"])
+    sess_end = float(sessions_cli["ended_monotonic"])
+    if (
+        stop_cli.get("command") != "stop"
+        or sessions_cli.get("command") != "sessions"
+        or not (
+            float(ctrl_end)  # type: ignore[arg-type]
+            <= stop_start
+            <= stop_end
+            <= sess_start
+            <= sess_end
+        )
+    ):
+        raise ValueError(
+            "post-failure stop -> sessions verification ordering or command sequence invalid"
+        )
+    if len(post_calls) == 3:
+        usage_cli = post_calls[2]
+        u_start = float(usage_cli["started_monotonic"])
+        u_end = float(usage_cli["ended_monotonic"])
+        if usage_cli.get("command") != "usage" or not (sess_end <= u_start <= u_end):
+            raise ValueError("optional post-sessions cleanup call must be monotonic 'usage'")
+
+    error_sig = _parse_renewal_ws_error_signature(disk_receipt.get("error"))
+    verified_error_str = str(disk_receipt["error"])
+
+    for json_file in sorted(output_dir.glob("*.json")):
+        if json_file.name == "manifest.json":
+            continue
+        jdata = _read_regular_json_dict(json_file, json_file.name)
+        for jpath, sval in _iter_json_string_values(jdata, json_file.name):
+            if jpath == "receipt.json.error":
+                continue
+            _assert_clean_text_value(sval, jpath)
+
+    resolved_ops = (ops_dir or DEFAULT_OPS_DIR).resolve()
+    if resolved_ops.is_symlink() or not resolved_ops.is_dir():
+        raise ValueError(f"missing or symlinked ops_dir: {resolved_ops}")
+
+    run_name, source_mf_path, source_mf, is_retry_one = (
+        _discover_single_ops_manifest_for_renewal_ws(
+            resolved_ops,
+            resolved_out,
+            ops_name,
+        )
+    )
+    ops_manifests_obj = _verify_ops_manifest_relationship(
+        ops_dir=resolved_ops,
+        run_name=run_name,
+        source_mf_path=source_mf_path,
+        source_mf=source_mf,
+        exec_manifest=exec_manifest,
+        is_retry_one=is_retry_one,
+    )
+    oplog_obj = _verify_operational_and_queue_logs(
+        ops_dir=resolved_ops,
+        run_name=run_name,
+        output_dir=resolved_out,
+        receipt_path=receipt_path,
+        receipt_error=verified_error_str,
+        job_id=job_id,
+        session=session,
+        generation=generation,
+    )
+
+    lane_state_dir = resolved_ops / "state" / run_name / job_id
+    if lane_state_dir.is_symlink():
+        raise ValueError(f"symlinked ops lane state directory forbidden: {lane_state_dir}")
+    if lane_state_dir.is_dir():
+        _verify_allocated_zero_export_state_and_events(
+            lane_state_dir,
+            job_id=job_id,
+            session=session,
+            endpoint=endpoint,
+        )
+
+    expected_payload: dict[str, object] = {
+        "schema": TRANSPORT_EVIDENCE_SCHEMA,
+        "classification": TRANSPORT_EVIDENCE_CLASSIFICATION,
+        "identity": {
+            "namespace": BASELINE_NAMESPACE,
+            "science": BASELINE_SCIENCE,
+            "commit": BASELINE_COMMIT,
+            "shard": shard,
+            "job_id": job_id,
+            "session": session,
+            "endpoint": endpoint,
+            "generation": generation,
+        },
+        "receipt": receipt_desc,
+        "executed_manifest": exec_mf_desc,
+        "ops_manifests": ops_manifests_obj,
+        "hardware": {
+            **hw_desc,
+            "ready": True,
+            "kind": "L4",
+        },
+        "polls": polls_meta,
+        "operational_log": oplog_obj,
+        "supervisor": {
+            "supervisor_sha256": PINNED_SUPERVISOR_SHA256,
+            "supervisor_relpath": PINNED_SUPERVISOR_REL,
+            "provenance": dict(EXPECTED_SUPERVISOR_PROVENANCE),
+        },
+        "timing": {
+            "failed_control_index": failed_control_index,
+            "failed_control_started_monotonic": ctrl_start,
+            "failed_control_ended_monotonic": ctrl_end,
+            "failed_cli_index": failed_cli_index,
+            "failed_cli_started_monotonic": cli_start,
+            "failed_cli_ended_monotonic": cli_end,
+            "failed_cli_elapsed_seconds": cli_elapsed,
+            "failed_cli_timeout_seconds": cli_timeout,
+            "stop_cli_index": stop_cli_index,
+            "stop_cli_started_monotonic": stop_cli["started_monotonic"],
+            "stop_cli_ended_monotonic": stop_cli["ended_monotonic"],
+            "sessions_cli_index": sessions_cli_index,
+            "sessions_cli_started_monotonic": sessions_cli["started_monotonic"],
+            "sessions_cli_ended_monotonic": sessions_cli["ended_monotonic"],
+        },
+        "error_signature": error_sig,
+    }
+    return expected_payload, resolved_ops, run_name, job_id
+
+
+def _resolve_transport_evidence_dirs(
+    ops_dir: Path,
+    evidence_dir: Path | None = None,
+) -> list[Path]:
+    if evidence_dir is not None:
+        if evidence_dir.is_symlink() or not evidence_dir.is_dir():
+            raise ValueError(f"missing or symlinked transport evidence_dir: {evidence_dir}")
+        return [evidence_dir.resolve()]
+    env_raw = os.environ.get("WATCH6_V3_TRANSPORT_EVIDENCE_DIR")
+    if env_raw:
+        env_dir = Path(env_raw)
+        if env_dir.is_symlink() or not env_dir.is_dir():
+            raise ValueError(f"missing or symlinked WATCH6_V3_TRANSPORT_EVIDENCE_DIR: {env_dir}")
+        return [env_dir.resolve()]
+    if ops_dir.resolve() == DEFAULT_OPS_DIR.resolve():
+        def_dir = default_artifact_dir()
+        if def_dir.is_symlink():
+            raise ValueError(f"symlinked default_artifact_dir forbidden: {def_dir}")
+        if def_dir.is_dir():
+            return [def_dir.resolve()]
+    return []
+
+
+def _discover_transport_evidence_paths(
+    ops_dir: Path,
+    receipt_path: Path,
+    run_name: str,
+    job_id: str,
+    *,
+    evidence_dir: Path | None = None,
+) -> list[Path]:
+    resolved_receipt = receipt_path.resolve()
+    extra_dirs = _resolve_transport_evidence_dirs(ops_dir, evidence_dir)
+    candidates: list[Path] = []
+    seen: set[Path] = set()
+
+    def _add(cand: Path) -> None:
+        if cand.is_symlink():
+            raise ValueError(f"symlinked transport evidence sidecar forbidden: {cand}")
+        if cand.exists():
+            if not cand.is_file():
+                raise ValueError(f"non-regular transport evidence sidecar path: {cand}")
+            key = cand.resolve()
+            if key not in seen:
+                seen.add(key)
+                candidates.append(cand)
+
+    disp_dir = ops_dir / "dispatch" / run_name
+    if disp_dir.is_symlink():
+        raise ValueError(f"symlinked ops dispatch directory forbidden: {disp_dir}")
+    if disp_dir.is_dir():
+        for item in sorted(disp_dir.glob("transport-evidence*.json")):
+            _add(item)
+
+    shared_dirs = [ops_dir, *extra_dirs]
+    exact_name_re = re.compile(rf"^transport-evidence-{re.escape(run_name)}(?:-\d+)?\.json$")
+    for sdir in shared_dirs:
+        for item in sorted(sdir.glob("transport-evidence*.json")):
+            if item.is_symlink():
+                raise ValueError(f"symlinked transport evidence sidecar forbidden: {item}")
+            if not item.is_file():
+                continue
+            if exact_name_re.fullmatch(item.name) is not None:
+                _add(item)
+                continue
+            verify_immutable(item)
+            payload = _read_regular_json_dict(item, "transport evidence sidecar")
+            rec_obj = payload.get("receipt")
+            rec_path_raw = rec_obj.get("path") if isinstance(rec_obj, dict) else None
+            ops_obj = payload.get("ops_manifests")
+            cand_ops = ops_obj.get("ops_name") if isinstance(ops_obj, dict) else None
+            id_obj = payload.get("identity")
+            cand_job = id_obj.get("job_id") if isinstance(id_obj, dict) else None
+            path_matches = False
+            if isinstance(rec_path_raw, str) and rec_path_raw:
+                path_matches = Path(rec_path_raw).resolve() == resolved_receipt
+            if path_matches or cand_ops == run_name or cand_job == job_id:
+                _add(item)
+
+    if not candidates and (ops_dir / "dispatch").is_dir():
+        for item in sorted((ops_dir / "dispatch").glob("*/transport-evidence*.json")):
+            if item.is_symlink():
+                raise ValueError(f"symlinked transport evidence sidecar forbidden: {item}")
+            if not item.is_file():
+                continue
+            verify_immutable(item)
+            payload = _read_regular_json_dict(item, "transport evidence sidecar")
+            rec_obj = payload.get("receipt")
+            rec_path_raw = rec_obj.get("path") if isinstance(rec_obj, dict) else None
+            if (
+                isinstance(rec_path_raw, str)
+                and rec_path_raw
+                and Path(rec_path_raw).resolve() == resolved_receipt
+            ):
+                _add(item)
+
+    return candidates
+
+
+def _validate_transport_evidence_schema_keys(payload: dict) -> None:
+    if set(payload.keys()) != REQUIRED_TRANSPORT_EVIDENCE_KEYS:
+        raise ValueError("transport evidence sidecar top-level keyset mismatch")
+    for field, expected_keys in (
+        ("identity", REQUIRED_IDENTITY_KEYS),
+        ("receipt", REQUIRED_FILE_DESC_KEYS),
+        ("executed_manifest", REQUIRED_FILE_DESC_KEYS),
+        ("ops_manifests", REQUIRED_OPS_MANIFESTS_KEYS),
+        ("hardware", REQUIRED_HARDWARE_DESC_KEYS),
+        ("operational_log", REQUIRED_OPLOG_DESC_KEYS),
+        ("supervisor", REQUIRED_SUPERVISOR_DESC_KEYS),
+        ("timing", REQUIRED_TIMING_KEYS),
+        ("error_signature", REQUIRED_ERROR_SIG_KEYS),
+    ):
+        sub = payload.get(field)
+        if not isinstance(sub, dict) or set(sub.keys()) != expected_keys:
+            raise ValueError(f"transport evidence sidecar {field} keyset mismatch")
+    ops_sub = payload["ops_manifests"]
+    if (
+        not isinstance(ops_sub.get("source_manifest"), dict)
+        or set(ops_sub["source_manifest"].keys()) != REQUIRED_FILE_DESC_KEYS
+    ):
+        raise ValueError("transport evidence sidecar source_manifest keyset mismatch")
+    for opt_field in ("live_manifest", "accounting_record"):
+        opt_val = ops_sub.get(opt_field)
+        if opt_val is not None and (
+            not isinstance(opt_val, dict) or set(opt_val.keys()) != REQUIRED_FILE_DESC_KEYS
+        ):
+            raise ValueError(f"transport evidence sidecar {opt_field} keyset mismatch")
+    polls = payload.get("polls")
+    if not isinstance(polls, list) or not polls:
+        raise ValueError("transport evidence sidecar polls must be a nonempty list")
+    for poll_entry in polls:
+        if not isinstance(poll_entry, dict) or set(poll_entry.keys()) != REQUIRED_POLL_DESC_KEYS:
+            raise ValueError("transport evidence sidecar poll entry keyset mismatch")
+
+
+def build_renewal_ws_transport_evidence(
+    output_dir: Path,
+    *,
+    ops_dir: Path | None = None,
+    ops_name: str | None = None,
+    broker_root: Path | None = None,
+) -> dict[str, object]:
+    """Build canonical hash-bound transport-evidence payload after full fail-closed verification."""
+    payload, _, _, _ = _collect_verified_renewal_ws_evidence(
+        output_dir,
+        ops_dir=ops_dir,
+        ops_name=ops_name,
+        broker_root=broker_root,
+    )
+    _validate_transport_evidence_schema_keys(payload)
+    return payload
+
+
+def publish_renewal_ws_transport_evidence(
+    output_dir: Path,
+    out_path: Path,
+    *,
+    ops_dir: Path | None = None,
+    ops_name: str | None = None,
+    broker_root: Path | None = None,
+) -> dict[str, object]:
+    """Verify attempt evidence, publish immutable sidecar (.sha256 + .complete), and self-verify."""
+    if out_path.is_symlink():
+        raise ValueError(f"symlinked sidecar output path forbidden: {out_path}")
+    with isolated_broker_execution("proof-publish-renewal-ws", broker_root=broker_root):
+        payload = build_renewal_ws_transport_evidence(
+            output_dir,
+            ops_dir=ops_dir,
+            ops_name=ops_name,
+            broker_root=broker_root,
+        )
+        publish_json(out_path, payload)
+        return verify_renewal_ws_transport_evidence(
+            output_dir,
+            ops_dir=ops_dir,
+            ops_name=ops_name,
+            evidence_dir=out_path.resolve().parent,
+            broker_root=broker_root,
+        )
+
+
+def verify_renewal_ws_transport_evidence(
+    output_dir: Path,
+    *,
+    receipt: dict | None = None,
+    ops_dir: Path | None = None,
+    ops_name: str | None = None,
+    evidence_dir: Path | None = None,
+    broker_root: Path | None = None,
+) -> dict[str, object]:
+    """Verify immutable hash-bound renewal-WS transport-evidence sidecar and full conjunction."""
+    expected_payload, resolved_ops, run_name, job_id = _collect_verified_renewal_ws_evidence(
+        output_dir,
+        receipt=receipt,
+        ops_dir=ops_dir,
+        ops_name=ops_name,
+        broker_root=broker_root,
+    )
+    receipt_path = (output_dir / "receipt.json").resolve()
+    sidecar_paths = _discover_transport_evidence_paths(
+        resolved_ops,
+        receipt_path,
+        run_name,
+        job_id,
+        evidence_dir=evidence_dir,
+    )
+    if not sidecar_paths:
+        raise ValueError(
+            f"missing immutable {TRANSPORT_EVIDENCE_SCHEMA} sidecar for {receipt_path}"
+        )
+
+    sidecar_shas: set[str] = set()
+    for sp in sidecar_paths:
+        desc = verify_immutable(sp)
+        sidecar_shas.add(str(desc["sha256"]))
+        parsed_sidecar = _read_regular_json_dict(sp, "transport evidence sidecar")
+        _validate_transport_evidence_schema_keys(parsed_sidecar)
+        if parsed_sidecar != expected_payload:
+            raise ValueError(
+                f"transport evidence sidecar {sp} disagrees with verified on-disk artifacts"
+            )
+
+    if len(sidecar_shas) != 1:
+        raise ValueError(
+            f"ambiguous/conflicting transport evidence sidecar copies for {receipt_path}: "
+            f"{sidecar_paths}"
+        )
+
+    id_info = expected_payload["identity"]
+    assert isinstance(id_info, dict)
+    rec_info = expected_payload["receipt"]
+    assert isinstance(rec_info, dict)
+    mf_info = expected_payload["executed_manifest"]
+    assert isinstance(mf_info, dict)
+    polls_info = expected_payload["polls"]
+    assert isinstance(polls_info, list)
+
+    return {
+        "schema": TRANSPORT_EVIDENCE_SCHEMA,
+        "classification": TRANSPORT_EVIDENCE_CLASSIFICATION,
+        "shard": id_info["shard"],
+        "ops_name": run_name,
+        "job_id": job_id,
+        "session": id_info["session"],
+        "endpoint": id_info["endpoint"],
+        "generation": id_info["generation"],
+        "receipt_path": rec_info["path"],
+        "receipt_sha256": rec_info["sha256"],
+        "executed_manifest_path": mf_info["path"],
+        "executed_manifest_sha256": mf_info["sha256"],
+        "supervisor_sha256": PINNED_SUPERVISOR_SHA256,
+        "polls_count": len(polls_info),
+        "sidecar_paths": [str(sp.resolve()) for sp in sidecar_paths],
+        "sidecar_sha256": next(iter(sidecar_shas)),
+    }
+
+
+def is_proven_renewal_ws_transport_failure(
+    receipt: dict | None,
+    output_dir: Path | None,
+    *,
+    ops_dir: Path | None = None,
+    ops_name: str | None = None,
+    evidence_dir: Path | None = None,
+    broker_root: Path | None = None,
+) -> bool:
+    """Boolean predicate wrapper around ``verify_renewal_ws_transport_evidence``."""
+    if not isinstance(output_dir, Path):
+        return False
+    try:
+        verify_renewal_ws_transport_evidence(
+            output_dir,
+            receipt=receipt,
+            ops_dir=ops_dir,
+            ops_name=ops_name,
+            evidence_dir=evidence_dir,
+            broker_root=broker_root,
+        )
+    except ValueError:
+        return False
+    return True
+
+
+def main() -> None:
+    ensure_cli_dash_b("tools.watch6_v3_accounting.proof")
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    p_pub = sub.add_parser("publish-renewal-ws", help="Publish immutable renewal-WS sidecar")
+    p_pub.add_argument("--output-dir", type=Path, required=True)
+    p_pub.add_argument("--out", type=Path, required=True)
+    p_pub.add_argument("--ops-dir", type=Path, default=None)
+    p_pub.add_argument("--ops-name", type=str, default=None)
+    p_pub.add_argument(
+        "--broker-root", "--broker", dest="broker_root", type=Path, default=V3_BROKER_ROOT
+    )
+
+    p_ver = sub.add_parser("verify-renewal-ws", help="Verify immutable renewal-WS sidecar")
+    p_ver.add_argument("--output-dir", type=Path, required=True)
+    p_ver.add_argument("--ops-dir", type=Path, default=None)
+    p_ver.add_argument("--ops-name", type=str, default=None)
+    p_ver.add_argument("--evidence-dir", type=Path, default=None)
+    p_ver.add_argument(
+        "--broker-root", "--broker", dest="broker_root", type=Path, default=V3_BROKER_ROOT
+    )
+
+    args = parser.parse_args()
+    with isolated_broker_execution("proof-cli", broker_root=args.broker_root):
+        if args.cmd == "publish-renewal-ws":
+            summary = publish_renewal_ws_transport_evidence(
+                args.output_dir.resolve(),
+                args.out.resolve(),
+                ops_dir=args.ops_dir.resolve() if args.ops_dir else None,
+                ops_name=args.ops_name,
+                broker_root=args.broker_root,
+            )
+        else:
+            summary = verify_renewal_ws_transport_evidence(
+                args.output_dir.resolve(),
+                ops_dir=args.ops_dir.resolve() if args.ops_dir else None,
+                ops_name=args.ops_name,
+                evidence_dir=args.evidence_dir.resolve() if args.evidence_dir else None,
+                broker_root=args.broker_root,
+            )
+    print(json.dumps(summary, indent=2), flush=True)
+
+
+if __name__ == "__main__":
+    main()

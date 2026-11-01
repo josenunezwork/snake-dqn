@@ -19,14 +19,20 @@ from pathlib import Path
 
 from tools.watch6_v3_accounting import (
     ADAPTER_ROOT,
+    AMENDMENT_V5_REL,
+    AMENDMENT_V5_SHA256,
     BASELINE_COMMIT,
     BASELINE_NAMESPACE,
     BASELINE_SCIENCE,
+    PINNED_SUPERVISOR_REL,
+    PINNED_SUPERVISOR_SHA256,
     REGISTRATION_V3_SHA256,
     RULING_2_REL,
     RULING_2_SHA256,
     RULING_3_REL,
     RULING_3_SHA256,
+    RULING_VERIFY_5_REL,
+    RULING_VERIFY_5_SHA256,
     SHARD00_EXEC_MANIFEST_SHA256,
     SHARD00_PATH_RULING_REL,
     SHARD00_PATH_RULING_SHA256,
@@ -35,6 +41,16 @@ from tools.watch6_v3_accounting import (
     SHARD00_PROOF_SHA256,
     SHARD00_RECEIPT_REL,
     SHARD00_RECEIPT_SHA256,
+    SHARD12_EVIDENCE_SIDECAR_REL,
+    SHARD12_EVIDENCE_SIDECAR_SHA256,
+    SHARD12_EXEC_MANIFEST_SHA256,
+    SHARD12_LIVE_MANIFEST_SHA256,
+    SHARD12_OPS_LOG_SHA256,
+    SHARD12_OPS_MANIFEST_SHA256,
+    SHARD12_PATH_RULING_REL,
+    SHARD12_PATH_RULING_SHA256,
+    SHARD12_RECEIPT_REL,
+    SHARD12_RECEIPT_SHA256,
     V3_BROKER_ROOT,
     adapter_commit,
     adapter_files_map,
@@ -107,14 +123,19 @@ def _assert_outside_source_closure(
 
 def _verify_frozen_artifacts_if_present(art_root: Path) -> None:
     expected_artifacts = (
-        (RULING_2_REL, RULING_2_SHA256),
-        (RULING_3_REL, RULING_3_SHA256),
-        (SHARD00_PATH_RULING_REL, SHARD00_PATH_RULING_SHA256),
-        (SHARD00_PROOF_REL, SHARD00_PROOF_SHA256),
-        (SHARD00_PROOF_DISPATCH_REL, SHARD00_PROOF_SHA256),
-        (SHARD00_RECEIPT_REL, SHARD00_RECEIPT_SHA256),
+        (RULING_2_REL, RULING_2_SHA256, False),
+        (RULING_3_REL, RULING_3_SHA256, False),
+        (SHARD00_PATH_RULING_REL, SHARD00_PATH_RULING_SHA256, False),
+        (SHARD00_PROOF_REL, SHARD00_PROOF_SHA256, False),
+        (SHARD00_PROOF_DISPATCH_REL, SHARD00_PROOF_SHA256, False),
+        (SHARD00_RECEIPT_REL, SHARD00_RECEIPT_SHA256, False),
+        (AMENDMENT_V5_REL, AMENDMENT_V5_SHA256, True),
+        (RULING_VERIFY_5_REL, RULING_VERIFY_5_SHA256, False),
+        (SHARD12_PATH_RULING_REL, SHARD12_PATH_RULING_SHA256, False),
+        (SHARD12_RECEIPT_REL, SHARD12_RECEIPT_SHA256, False),
+        (SHARD12_EVIDENCE_SIDECAR_REL, SHARD12_EVIDENCE_SIDECAR_SHA256, True),
     )
-    for rel, expected_sha in expected_artifacts:
+    for rel, expected_sha, require_sidecar in expected_artifacts:
         candidate = art_root / rel
         if candidate.is_symlink():
             raise ValueError(f"REFUSE: symlinked frozen reference artifact: {candidate}")
@@ -123,6 +144,8 @@ def _verify_frozen_artifacts_if_present(art_root: Path) -> None:
                 raise ValueError(
                     f"REFUSE: frozen reference artifact modified or mismatched: {candidate}"
                 )
+            if require_sidecar:
+                verify_immutable(candidate)
 
 
 def verify_amendment_document(
@@ -183,6 +206,15 @@ def verify_amendment_document(
         files_map = adapter_files_map(adapter_repo)
         inv_sha = adapter_inventory_sha256(adapter_repo)
 
+        sup_path = resolved_broker / PINNED_SUPERVISOR_REL
+        if sup_path.is_symlink() or not sup_path.is_file():
+            raise ValueError(f"REFUSE: missing pinned supervisor in broker: {sup_path}")
+        if digest(sup_path) != PINNED_SUPERVISOR_SHA256:
+            raise ValueError(
+                f"REFUSE: broker supervisor.py hash {digest(sup_path)} != "
+                f"{PINNED_SUPERVISOR_SHA256}"
+            )
+
         required_tokens = (
             ("v3_broker_root", str(V3_BROKER_ROOT)),
             ("baseline_commit", BASELINE_COMMIT),
@@ -200,6 +232,22 @@ def verify_amendment_document(
             ("shard00_receipt_rel", SHARD00_RECEIPT_REL),
             ("shard00_receipt_sha256", SHARD00_RECEIPT_SHA256),
             ("shard00_exec_manifest_sha256", SHARD00_EXEC_MANIFEST_SHA256),
+            ("amendment_v5_rel", AMENDMENT_V5_REL),
+            ("amendment_v5_sha256", AMENDMENT_V5_SHA256),
+            ("ruling_verify_5_rel", RULING_VERIFY_5_REL),
+            ("ruling_verify_5_sha256", RULING_VERIFY_5_SHA256),
+            ("shard12_path_ruling_rel", SHARD12_PATH_RULING_REL),
+            ("shard12_path_ruling_sha256", SHARD12_PATH_RULING_SHA256),
+            ("shard12_evidence_sidecar_rel", SHARD12_EVIDENCE_SIDECAR_REL),
+            ("shard12_evidence_sidecar_sha256", SHARD12_EVIDENCE_SIDECAR_SHA256),
+            ("shard12_receipt_rel", SHARD12_RECEIPT_REL),
+            ("shard12_receipt_sha256", SHARD12_RECEIPT_SHA256),
+            ("shard12_exec_manifest_sha256", SHARD12_EXEC_MANIFEST_SHA256),
+            ("shard12_ops_manifest_sha256", SHARD12_OPS_MANIFEST_SHA256),
+            ("shard12_live_manifest_sha256", SHARD12_LIVE_MANIFEST_SHA256),
+            ("shard12_ops_log_sha256", SHARD12_OPS_LOG_SHA256),
+            ("pinned_supervisor_rel", PINNED_SUPERVISOR_REL),
+            ("pinned_supervisor_sha256", PINNED_SUPERVISOR_SHA256),
             ("adapter_commit", verified_commit),
             ("adapter_inventory_sha256", inv_sha),
         )
@@ -296,6 +344,12 @@ def record_ruling(
             "path_ruling_sha256": SHARD00_PATH_RULING_SHA256,
             "shard00_proof_sha256": SHARD00_PROOF_SHA256,
             "shard00_receipt_sha256": SHARD00_RECEIPT_SHA256,
+            "amendment_v5_sha256": AMENDMENT_V5_SHA256,
+            "verify_5_ruling_sha256": RULING_VERIFY_5_SHA256,
+            "shard12_path_ruling_sha256": SHARD12_PATH_RULING_SHA256,
+            "shard12_evidence_sidecar_sha256": SHARD12_EVIDENCE_SIDECAR_SHA256,
+            "shard12_receipt_sha256": SHARD12_RECEIPT_SHA256,
+            "pinned_supervisor_sha256": PINNED_SUPERVISOR_SHA256,
             "amendment_path": amend["amendment_path"],
             "amendment_sha256": amend["amendment_sha256"],
             "adapter_commit": amend["adapter_commit"],
@@ -365,6 +419,12 @@ def validate_ruling_receipt(
             or receipt.get("path_ruling_sha256") != SHARD00_PATH_RULING_SHA256
             or receipt.get("shard00_proof_sha256") != SHARD00_PROOF_SHA256
             or receipt.get("shard00_receipt_sha256") != SHARD00_RECEIPT_SHA256
+            or receipt.get("amendment_v5_sha256") != AMENDMENT_V5_SHA256
+            or receipt.get("verify_5_ruling_sha256") != RULING_VERIFY_5_SHA256
+            or receipt.get("shard12_path_ruling_sha256") != SHARD12_PATH_RULING_SHA256
+            or receipt.get("shard12_evidence_sidecar_sha256") != SHARD12_EVIDENCE_SIDECAR_SHA256
+            or receipt.get("shard12_receipt_sha256") != SHARD12_RECEIPT_SHA256
+            or receipt.get("pinned_supervisor_sha256") != PINNED_SUPERVISOR_SHA256
             or not ruling_md.is_absolute()
             or ruling_md.is_symlink()
             or not ruling_md.is_file()
@@ -430,7 +490,7 @@ def main() -> None:
         "--amendment",
         type=Path,
         default=None,
-        help="Path to immutable WATCH6_V3_ACCOUNTING_AMENDMENT_V5_20261031.md",
+        help="Path to immutable WATCH6_V3_ACCOUNTING_AMENDMENT_V6_20261101.md",
     )
     parser.add_argument(
         "--out",

@@ -357,11 +357,12 @@ def _parse_cli(
     argv: list[str],
     *,
     default_broker_root: Path = V3_BROKER_ROOT,
-) -> tuple[str, Path, list[str], bool, Path, Path | None, Path | None, Path, bool]:
+) -> tuple[str, Path, list[str], bool, Path, Path | None, Path | None, Path | None, Path, bool]:
     """Parse adapter options and bind --broker/--cwd strictly to one verified V3 broker root."""
     operator_override: Path | None = None
     ruling_override: Path | None = None
     amendment_override: Path | None = None
+    evidence_override: Path | None = None
     broker_candidates: list[tuple[str, Path]] = []
     filtered: list[str] = []
     idx = 0
@@ -383,6 +384,15 @@ def _parse_cli(
             if idx + 1 >= len(argv):
                 raise ValueError("--amendment requires a path")
             amendment_override = Path(argv[idx + 1]).resolve()
+            idx += 2
+            continue
+        if arg == "--evidence-dir":
+            if idx + 1 >= len(argv):
+                raise ValueError("--evidence-dir requires a path")
+            raw_ev = Path(argv[idx + 1])
+            if raw_ev.is_symlink():
+                raise ValueError(f"REFUSE: symlinked --evidence-dir forbidden: {raw_ev}")
+            evidence_override = raw_ev.resolve()
             idx += 2
             continue
         if arg == "--broker-root":
@@ -480,6 +490,7 @@ def _parse_cli(
         operator_root,
         ruling_override,
         amendment_override,
+        evidence_override,
         effective_broker,
         explicit_broker_given,
     )
@@ -514,6 +525,7 @@ def run_dispatch(
             operator_root,
             ruling_override,
             amendment_override,
+            evidence_override,
             effective_broker,
             explicit_broker_given,
         ) = _parse_cli(argv, default_broker_root=default_broker)
@@ -536,7 +548,15 @@ def run_dispatch(
                 else Path(os.environ.get("OPS_DIR", str(DEFAULT_OPS_DIR))).resolve()
             )
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            admit(manifest, ops_dir=resolved_ops, broker_root=effective_broker)
+            if evidence_override is not None:
+                admit(
+                    manifest,
+                    ops_dir=resolved_ops,
+                    evidence_dir=evidence_override,
+                    broker_root=effective_broker,
+                )
+            else:
+                admit(manifest, ops_dir=resolved_ops, broker_root=effective_broker)
 
             target_dispatch = operator_root / "tools/ops/dispatch.sh"
             if not target_dispatch.is_file():

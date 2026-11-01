@@ -50,16 +50,22 @@ from tools.ops.package_spec import (
 from tools.watch6_v3_accounting import (
     ADAPTER_FILES,
     ADAPTER_ROOT,
+    AMENDMENT_V5_REL,
+    AMENDMENT_V5_SHA256,
     BASELINE_COMMIT,
     BASELINE_NAMESPACE,
     BASELINE_SCIENCE,
     MAIN_CHECKOUT_ROOT,
+    PINNED_SUPERVISOR_REL,
+    PINNED_SUPERVISOR_SHA256,
     REGISTRATION_V3_SHA256,
     RETAINED_PENDING_CLEANUP_ERROR,
     RULING_2_REL,
     RULING_2_SHA256,
     RULING_3_REL,
     RULING_3_SHA256,
+    RULING_VERIFY_5_REL,
+    RULING_VERIFY_5_SHA256,
     SHARD00_EXEC_MANIFEST_SHA256,
     SHARD00_PATH_RULING_REL,
     SHARD00_PATH_RULING_SHA256,
@@ -67,6 +73,16 @@ from tools.watch6_v3_accounting import (
     SHARD00_PROOF_SHA256,
     SHARD00_RECEIPT_REL,
     SHARD00_RECEIPT_SHA256,
+    SHARD12_EVIDENCE_SIDECAR_REL,
+    SHARD12_EVIDENCE_SIDECAR_SHA256,
+    SHARD12_EXEC_MANIFEST_SHA256,
+    SHARD12_LIVE_MANIFEST_SHA256,
+    SHARD12_OPS_LOG_SHA256,
+    SHARD12_OPS_MANIFEST_SHA256,
+    SHARD12_PATH_RULING_REL,
+    SHARD12_PATH_RULING_SHA256,
+    SHARD12_RECEIPT_REL,
+    SHARD12_RECEIPT_SHA256,
     V3_BROKER_ROOT,
     active_broker_isolation,
     adapter_commit,
@@ -78,6 +94,7 @@ from tools.watch6_v3_accounting import (
     compute_broker_identity,
     dispatch,
     final_look,
+    isolated_broker_execution,
     prepare,
     proof,
     ratify,
@@ -94,7 +111,7 @@ def _render_amendment_markdown(repo: Path | None = None, commit_sha: str | None 
     f_map = adapter_files_map(root)
     inv_sha = adapter_inventory_sha256(root)
     lines = [
-        "# Watch6 V3 Pre-Look Accounting Amendment V5 (2026-10-31)",
+        "# Watch6 V3 Pre-Look Accounting Amendment V6 (2026-11-01)",
         "",
         f"- Namespace: `{BASELINE_NAMESPACE}`",
         f"- V3 Broker Root: `{V3_BROKER_ROOT}`",
@@ -110,6 +127,22 @@ def _render_amendment_markdown(repo: Path | None = None, commit_sha: str | None 
         f"- Shard-00 Unallocated Proof (`{SHARD00_PROOF_REL}`) SHA256: `{SHARD00_PROOF_SHA256}`",
         f"- Shard-00 Refused Receipt (`{SHARD00_RECEIPT_REL}`) SHA256: `{SHARD00_RECEIPT_SHA256}`",
         f"- Shard-00 Executed Manifest SHA256: `{SHARD00_EXEC_MANIFEST_SHA256}`",
+        f"- Prior Amendment V5 (`{AMENDMENT_V5_REL}`) SHA256: `{AMENDMENT_V5_SHA256}`",
+        f"- Prior Verify-5 Ruling (`{RULING_VERIFY_5_REL}`) SHA256: `{RULING_VERIFY_5_SHA256}`",
+        (
+            f"- Shard-12 Path Ruling (`{SHARD12_PATH_RULING_REL}`) SHA256: "
+            f"`{SHARD12_PATH_RULING_SHA256}`"
+        ),
+        (
+            f"- Shard-12 Transport Evidence Sidecar (`{SHARD12_EVIDENCE_SIDECAR_REL}`) SHA256: "
+            f"`{SHARD12_EVIDENCE_SIDECAR_SHA256}`"
+        ),
+        f"- Shard-12 Receipt (`{SHARD12_RECEIPT_REL}`) SHA256: `{SHARD12_RECEIPT_SHA256}`",
+        f"- Shard-12 Executed Manifest SHA256: `{SHARD12_EXEC_MANIFEST_SHA256}`",
+        f"- Shard-12 Ops Source Manifest SHA256: `{SHARD12_OPS_MANIFEST_SHA256}`",
+        f"- Shard-12 Ops Live Manifest SHA256: `{SHARD12_LIVE_MANIFEST_SHA256}`",
+        f"- Shard-12 Operational Log SHA256: `{SHARD12_OPS_LOG_SHA256}`",
+        f"- Pinned Supervisor (`{PINNED_SUPERVISOR_REL}`) SHA256: `{PINNED_SUPERVISOR_SHA256}`",
         f"- Adapter Commit: `{c_sha}`",
         f"- Adapter Inventory SHA256: `{inv_sha}`",
         "",
@@ -125,6 +158,18 @@ def _render_amendment_markdown(repo: Path | None = None, commit_sha: str | None 
 def _cached_synthetic_v3_rows_by_slot() -> dict[int, dict]:
     with bind_broker_protocol(V3_BROKER_ROOT):
         return {r["allocation"]["index"]: r for r in _synthetic_v3_rows()}
+
+
+@functools.lru_cache(maxsize=1)
+def _cached_broker_source_paths() -> list[str]:
+    with bind_broker_protocol(V3_BROKER_ROOT):
+        return list(p.source_paths())
+
+
+@functools.lru_cache(maxsize=1)
+def _cached_broker_allocation() -> list[dict]:
+    with bind_broker_protocol(V3_BROKER_ROOT):
+        return list(p.allocation())
 
 
 def _write_immutable_text(path: Path, content: str) -> Path:
@@ -201,7 +246,7 @@ def _write_v3_attempt(
         "output_dir": str(out_dir),
         "commit": commit,
         "script": p.SCRIPT,
-        "source_paths": p.source_paths(),
+        "source_paths": list(_cached_broker_source_paths()),
         "device": "cpu",
         "timeout_minutes": 234,
         "requirements": req,
@@ -222,7 +267,7 @@ def _write_v3_attempt(
         "watch6_v3": {
             "namespace": p.NAMESPACE,
             "science": broker_science,
-            "primary_allocation": p.allocation(),
+            "primary_allocation": list(_cached_broker_allocation()),
             "shard": shard,
             "phase": "primary",
             "prestart_retries_used": prestart_retries_used,
@@ -335,8 +380,9 @@ def _write_v3_attempt(
         raise ValueError(f"unknown mode: {mode}")
 
     exports = []
+    alloc_table = _cached_broker_allocation()
     for slot in export_slots or []:
-        alloc = p.allocation()[slot]
+        alloc = alloc_table[slot]
         payload = (
             pair_rows_by_slot[slot]
             if pair_rows_by_slot and slot in pair_rows_by_slot
@@ -442,7 +488,7 @@ def _write_never_allocated_shard_fixture(
         "output_dir": str(out_dir),
         "commit": BASELINE_COMMIT,
         "script": p.SCRIPT,
-        "source_paths": p.source_paths(),
+        "source_paths": list(_cached_broker_source_paths()),
         "device": "cpu",
         "timeout_minutes": 234,
         "requirements": {
@@ -468,7 +514,7 @@ def _write_never_allocated_shard_fixture(
         "watch6_v3": {
             "namespace": p.NAMESPACE,
             "science": broker_science,
-            "primary_allocation": p.allocation(),
+            "primary_allocation": list(_cached_broker_allocation()),
             "shard": shard,
             "phase": "primary",
             "prestart_retries_used": 0,
@@ -789,21 +835,22 @@ def test_never_allocated_proof_positive_variants(
 
 def _assert_all_callers_refuse_never_allocated(ops_dir: Path, r_path: Path) -> None:
     rec = json.loads(r_path.read_text(encoding="utf-8"))
-    with pytest.raises(ValueError):
-        proof.verify_never_allocated_attempt(r_path.parent, receipt=rec, ops_dir=ops_dir)
-    assert proof.is_proven_never_allocated_attempt(rec, r_path.parent, ops_dir=ops_dir) is False
-    assert admission.is_prestart_transport_failure(rec, r_path.parent, ops_dir=ops_dir) is False
-    with pytest.raises(ValueError):
-        resume.verify_bound_receipt(r_path, ops_dir=ops_dir)
-    with pytest.raises(RuntimeError, match="REFUSE"):
-        dispatch.reconcile_staging(ops_dir)
-    (ops_dir / dispatch.RECONCILE_MARKER_NAME).unlink(missing_ok=True)
-    with pytest.raises(ValueError, match="INVALID_OR_INCOMPLETE"):
-        final_look._verify_attempt_stop_and_hashes(
-            r_path.parent,
-            ops_dir=ops_dir,
-            ops_name="watch6-v3-fix3-shard-00",
-        )
+    with isolated_broker_execution("assert-never-allocated-refused"):
+        with pytest.raises(ValueError):
+            proof.verify_never_allocated_attempt(r_path.parent, receipt=rec, ops_dir=ops_dir)
+        assert proof.is_proven_never_allocated_attempt(rec, r_path.parent, ops_dir=ops_dir) is False
+        assert admission.is_prestart_transport_failure(rec, r_path.parent, ops_dir=ops_dir) is False
+        with pytest.raises(ValueError):
+            resume.verify_bound_receipt(r_path, ops_dir=ops_dir)
+        with pytest.raises(RuntimeError, match="REFUSE"):
+            dispatch.reconcile_staging(ops_dir)
+        (ops_dir / dispatch.RECONCILE_MARKER_NAME).unlink(missing_ok=True)
+        with pytest.raises(ValueError, match="INVALID_OR_INCOMPLETE"):
+            final_look._verify_attempt_stop_and_hashes(
+                r_path.parent,
+                ops_dir=ops_dir,
+                ops_name="watch6-v3-fix3-shard-00",
+            )
 
 
 def _assert_live_shard00_virtual_proof_mutation_refused(mutate_fn) -> None:
@@ -883,6 +930,7 @@ def _assert_live_shard00_virtual_file_refused(filename: str, content: str) -> No
     assert digest(live_proof) == before_proof_sha
 
 
+@isolated_broker_execution("test-probe-1")
 def test_astra_probe_1_refuses_false_auth_and_sessions_flags(tmp_path: Path) -> None:
     """Astra Probe 1: LIVE proof with auth_ok/sessions_ok not exactly boolean True fails closed."""
     _assert_live_shard00_virtual_proof_mutation_refused(
@@ -1020,6 +1068,7 @@ def test_astra_probe_3_refuses_foreign_or_unbound_notebook_hash(tmp_path: Path) 
     _assert_all_callers_refuse_never_allocated(ops_lane, r_ln)
 
 
+@isolated_broker_execution("test-probe-4")
 def test_astra_probe_4_refuses_runtime_measurement_and_supervisor_postalloc_artifacts(
     tmp_path: Path,
 ) -> None:
@@ -1073,6 +1122,7 @@ def test_astra_probe_5_refuses_scientific_fault_artifact(tmp_path: Path) -> None
     assert admission.is_external_transport_compute_failure(comp_rec, comp_rec_path.parent) is False
 
 
+@isolated_broker_execution("test-probe-6")
 def test_astra_probe_6_refuses_allocated_or_contradictory_state_json(tmp_path: Path) -> None:
     """Astra Probe 6: contradictory state.json (allocated endpoint, polls>0, assigned status)."""
     _assert_live_shard00_virtual_file_refused(
@@ -1099,6 +1149,7 @@ def test_astra_probe_6_refuses_allocated_or_contradictory_state_json(tmp_path: P
         _assert_all_callers_refuse_never_allocated(ops_dir, r_path)
 
 
+@isolated_broker_execution("test-probe-7")
 def test_astra_probe_7_refuses_exec_or_command_event_in_events_jsonl(tmp_path: Path) -> None:
     """Astra Probe 7: contradictory events.jsonl (exec/command/post-new/allocated event)."""
     _assert_live_shard00_virtual_file_refused(
@@ -1127,6 +1178,7 @@ def test_astra_probe_7_refuses_exec_or_command_event_in_events_jsonl(tmp_path: P
         _assert_all_callers_refuse_never_allocated(ops_dir, r_path)
 
 
+@isolated_broker_execution("test-never-allocated-neg")
 def test_never_allocated_proof_negative_and_tamper_vectors(tmp_path: Path) -> None:
     def make_case(name: str) -> tuple[Path, Path, Path, Path, Path, Path]:
         case_dir = tmp_path / name
@@ -2835,13 +2887,23 @@ def test_live_v3_broker_passes_after_quarantine_with_zero_caches() -> None:
     }
 
 
+@pytest.fixture(scope="module")
+def compiled_coarse_words_cache(
+    clean_baseline_template: Path,
+    tmp_path_factory: pytest.TempPathFactory,
+) -> tuple[Path, Path]:
+    base = tmp_path_factory.mktemp("compiled_coarse_words")
+    return _compile_genuine_coarse_words_cache(clean_baseline_template, base / "ext-nb-cache")
+
+
 def test_ruling4_probe_a_mutated_macho_nbc_and_genuine_numba_cache_refused(
     clean_baseline_template: Path,
+    compiled_coarse_words_cache: tuple[Path, Path],
     tmp_path: Path,
 ) -> None:
     """Astra Ruling 4 Point 3 probe (a): flipped Mach-O instruction in .nbc (+ genuine) refused."""
     clone = _fresh_baseline_clone(clean_baseline_template, tmp_path / "clone-probe-a")
-    src_nbi, src_nbc = _compile_genuine_coarse_words_cache(clone, tmp_path / "ext-nb-cache")
+    src_nbi, src_nbc = compiled_coarse_words_cache
 
     genuine_nbi_bytes = src_nbi.read_bytes()
     genuine_nbc_bytes = src_nbc.read_bytes()
@@ -2923,11 +2985,12 @@ def test_ruling4_probe_a_mutated_macho_nbc_and_genuine_numba_cache_refused(
 
 def test_ruling4_probe_b_nested_numba_serialize_eval_nbc_refused(
     clean_baseline_template: Path,
+    compiled_coarse_words_cache: tuple[Path, Path],
     tmp_path: Path,
 ) -> None:
     """Astra Ruling 4 Point 3 probe (b): numba.core.serialize.loads(builtins.eval('6*7')) .nbc."""
     clone = _fresh_baseline_clone(clean_baseline_template, tmp_path / "clone-probe-b")
-    src_nbi, src_nbc = _compile_genuine_coarse_words_cache(clone, tmp_path / "ext-nb-cache-b")
+    src_nbi, src_nbc = compiled_coarse_words_cache
 
     inner_42 = pickle.dumps(_InnerEvalGadget("6*7"), protocol=4)
     outer_42_nbc = _build_numba_serialize_loads_pickle(inner_42)
@@ -3331,3 +3394,1291 @@ def test_fresh_cache_entrypoints_execute_broker_numba_and_write_nothing_in_tree(
     assert verify_baseline_closure(clone, require_head_at_baseline=True)["science"] == (
         BASELINE_SCIENCE
     )
+
+
+# ---------------------------------------------------------------------------
+# V6 Shard-12 Renewal-WebSocket Zero-Export Transport Evidence Test Suite
+# ---------------------------------------------------------------------------
+
+
+def _build_truncated_renewal_ws_refusal(
+    *,
+    terminal_line: str = proof.EXACT_TERMINAL_WS_LINE,
+    send_code: str = proof.EXACT_WS_SEND_CODE,
+    raise_code: str = proof.EXACT_WS_RAISE_CODE,
+    wrapper_prefix: str = proof.RENEWAL_WS_WRAPPER_PREFIX,
+    truncation_len: int = proof.RENEWAL_WS_TRUNCATED_BODY_LEN,
+    extra_box_lines: int = 0,
+    pointer_on_raise: bool = True,
+) -> str:
+    """Simulate Rich COLUMNS=240 websocket send traceback sliced by supervisor [-2000:]."""
+    width = 240
+
+    def box_line(inner: str) -> str:
+        padded = inner[: width - 2].ljust(width - 2)
+        return f"│{padded}│"
+
+    top_border = "╭" + ("─" * (width - 2)) + "╮"
+    bottom_border = "╰" + ("─" * (width - 2)) + "╯"
+    ptr_send = "   " if pointer_on_raise else " ❱ "
+    ptr_raise = " ❱ " if pointer_on_raise else "   "
+
+    box_rows = [
+        top_border,
+        *[
+            box_line(f"   {100 + i} │   # transport context pad {i}")
+            for i in range(12 + extra_box_lines)
+        ],
+        box_line("   290 │   def send_text(self, text_data: str) -> int:"),
+        box_line(f"{ptr_send}292 │   │   {send_code}"),
+        box_line(f"{ptr_raise}293 │   │   │   {raise_code}"),
+        box_line("   294 │   │   return len(text_data)"),
+        box_line(" "),
+        bottom_border,
+        terminal_line,
+    ]
+    full_cli_text = "\n".join(box_rows)
+    assert len(full_cli_text) > truncation_len + 40
+    sliced = full_cli_text[-truncation_len:]
+    inner = f"{wrapper_prefix}{sliced}"
+    return f"Refused({inner!r})"
+
+
+def _write_renewal_ws_shard_fixture(
+    base_dir: Path,
+    *,
+    ops_dir: Path,
+    evidence_dir: Path,
+    shard: int = 12,
+    ops_name: str | None = None,
+    poll_count: int = 4,
+    prestart_retries_used: int = 0,
+    compute_completion_attempt: int = 0,
+    prior_receipts: list[dict] | None = None,
+    completion_attempt: int | None = None,
+    extra_box_lines: int = 0,
+    publish_sidecar: bool = True,
+    with_live_and_accounting: bool = True,
+) -> tuple[Path, Path]:
+    """Create a complete realistic zero-export renewal-WS attempt + immutable sidecar."""
+    eff_ops_name = ops_name or f"watch6-v3-fix3-shard-{shard:02d}"
+    (ops_dir / "manifests").mkdir(parents=True, exist_ok=True)
+    (ops_dir / "logs").mkdir(parents=True, exist_ok=True)
+    (ops_dir / "dispatch" / eff_ops_name).mkdir(parents=True, exist_ok=True)
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+
+    out_dir = base_dir / f"output-shard-{shard:02d}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    priors = list(prior_receipts or [])
+    tot_dispatches = 1 + prestart_retries_used + compute_completion_attempt
+    job_id = f"watch6-v3-shard-{shard:02d}-{base_dir.name}"[:60]
+    generation = f"{shard:02x}" + "9f0b1c2d3e4f5a6b7c8d9e0f1a2b3c"
+    session = f"snake-{job_id}-{generation[:12]}"
+    endpoint = f"m-s-l4shard{shard:02d}ep"
+
+    source_manifest: dict[str, object] = {
+        "job_id": job_id,
+        "output_dir": str(out_dir),
+        "commit": BASELINE_COMMIT,
+        "script": p.SCRIPT,
+        "source_paths": list(_cached_broker_source_paths()),
+        "device": "cpu",
+        "timeout_minutes": 234,
+        "requirements": {
+            "gpu": "L4",
+            "allowed_gpus": ["L4"],
+            "min_vcpu": 12,
+            "est_minutes": 117,
+        },
+        "budget": {
+            "unit_cap": 9.75,
+            "rate_units_per_hour": 2.5,
+            "reserve_units": 1.95,
+            "other_assignments": {},
+        },
+        "env": {
+            "WATCH6_FIXTURE": "0",
+            "WATCH6_SHARD": str(shard),
+            "WATCH6_SHARDS": str(p.SHARDS),
+            "WATCH6_WORKERS": str(p.WORKERS),
+            "WATCH6_SCIENCE": BASELINE_SCIENCE,
+            "SNAKE_WATCH_SOURCE": "live",
+        },
+        "watch6_v3": {
+            "namespace": p.NAMESPACE,
+            "science": BASELINE_SCIENCE,
+            "primary_allocation": list(_cached_broker_allocation()),
+            "shard": shard,
+            "phase": "primary",
+            "prestart_retries_used": prestart_retries_used,
+            "compute_completion_attempt": compute_completion_attempt,
+            "total_dispatches_for_shard": tot_dispatches,
+            "prior_receipts": priors,
+            "base_minutes": 117,
+            "base_unit_cap": 4.875,
+            "base_reserve_units": 0.975,
+        },
+    }
+    if completion_attempt is not None:
+        source_manifest["completion_attempt"] = completion_attempt
+
+    other_assignments = {"m-s-peer01": {"rate_units_per_hour": 1.94, "session": "peer-01"}}
+    exec_manifest = json.loads(json.dumps(source_manifest))
+    exec_manifest["budget"]["other_assignments"] = other_assignments
+
+    src_mf_path = ops_dir / "manifests" / f"{eff_ops_name}.json"
+    src_mf_path.write_text(json.dumps(source_manifest, sort_keys=True) + "\n", encoding="utf-8")
+    exec_mf_path = out_dir / "manifest.json"
+    exec_mf_path.write_text(json.dumps(exec_manifest, sort_keys=True) + "\n", encoding="utf-8")
+
+    if with_live_and_accounting:
+        live_mf_path = ops_dir / "manifests" / f"{eff_ops_name}.live.json"
+        live_mf_path.write_text(json.dumps(exec_manifest, sort_keys=True) + "\n", encoding="utf-8")
+        acct_rec_path = ops_dir / "dispatch" / eff_ops_name / f"{eff_ops_name}.accounting.json"
+        acct_rec_path.write_text(
+            json.dumps(
+                {
+                    "source_manifest": str(src_mf_path),
+                    "source_manifest_sha256": digest(src_mf_path),
+                    "manifest": str(live_mf_path),
+                    "manifest_sha256": digest(live_mf_path),
+                    "other_assignments": other_assignments,
+                },
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+    (out_dir / "hardware.json").write_text(
+        json.dumps({"ready": True, "hardware": {"kind": "L4", "vcpu": 12}}, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    (out_dir / "warmup-measurement.json").write_text(
+        '{"status": "PASS", "warmup_seconds": 14.2}\n', encoding="utf-8"
+    )
+    (out_dir / "rate-calibration.json").write_text(
+        '{"status": "PASS", "observed_rate_units_per_hour": 1.94}\n', encoding="utf-8"
+    )
+    (out_dir / "upload-measurement.json").write_text(
+        '{"elapsed_seconds": 48.5, "staging_completed": true}\n', encoding="utf-8"
+    )
+    (out_dir / "source-delivery.json").write_text(
+        json.dumps({"transport": "github", "commit": BASELINE_COMMIT}, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    (out_dir / "input-hashes.json").write_text(
+        json.dumps({"inputs/verified-ledger.json": "a" * 64}, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    (out_dir / "spend-000000.json").write_text(
+        '{"unit_cap_status": "OK", "provider_transition_mismatch_polls": 0}\n',
+        encoding="utf-8",
+    )
+    (out_dir / "usage-000000.json").write_text(
+        '{"active_assignments": 2, "balance": 880.5}\n',
+        encoding="utf-8",
+    )
+    (out_dir / "exports").mkdir(exist_ok=True)
+
+    poll_log_lines: list[str] = []
+    t0 = 1793480000.0
+    for idx in range(poll_count):
+        p_status = "starting" if idx == 0 else "running"
+        tail_msg = f"WATCH6_V3_START shard={shard} poll={idx}\n"
+        (out_dir / f"poll-{idx:06d}.json").write_text(
+            json.dumps(
+                {
+                    "exports": [],
+                    "terminal": None,
+                    "job_log_tail": tail_msg,
+                    "supervisor_log_tail": "",
+                    "state": {
+                        "status": p_status,
+                        "job_id": job_id,
+                        "generation": generation,
+                        "returncode": None,
+                        "reason": None,
+                        "error": None,
+                        "unassign_error": None,
+                        "started_at": t0,
+                        "updated_at": t0 + 120.0 * idx,
+                    },
+                },
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        poll_log_lines.append(
+            json.dumps(
+                {
+                    "job": job_id,
+                    "status": p_status,
+                    "exports": 0,
+                    "terminal": False,
+                    "job_log_tail": tail_msg,
+                },
+                sort_keys=True,
+            )
+        )
+
+    refusal_error = _build_truncated_renewal_ws_refusal(extra_box_lines=extra_box_lines)
+    receipt = {
+        "job_id": job_id,
+        "commit": BASELINE_COMMIT,
+        "manifest_sha256": digest(exec_mf_path),
+        "supervisor_sha256": PINNED_SUPERVISOR_SHA256,
+        "generation": generation,
+        "session": session,
+        "endpoint": endpoint,
+        "status": "INCOMPLETE",
+        "failure_class": "SUPERVISOR",
+        "error": refusal_error,
+        "traceback": None,
+        "last_traceback_line": None,
+        "stop_verified": True,
+        "cleanup_error": None,
+        "terminal": None,
+        "exports": [],
+        "transfers": [],
+        "contents_transfers": [
+            {"direction": "upload", "dest": "inputs/verified-ledger.json", "bytes": 128}
+        ],
+        "accounting": {
+            "allocated_endpoint": endpoint,
+            "unaccounted_endpoints": [],
+            "other_assignments": other_assignments,
+            "rate_units_per_hour": 2.5,
+            "reserve_units": 1.95,
+            "unit_cap": 9.75,
+        },
+        "control_operations": [
+            {
+                "operation": "poll",
+                "thread": "MainThread",
+                "status": "completed",
+                "started_monotonic": 500.0,
+                "ended_monotonic": 503.0,
+            },
+            {
+                "operation": "renewal",
+                "thread": "MainThread",
+                "status": "failed",
+                "started_monotonic": 612.0,
+                "ended_monotonic": 620.5,
+            },
+        ],
+        "cli_calls": [
+            {
+                "command": "new",
+                "operation": "new",
+                "thread": "MainThread",
+                "attempt": 1,
+                "status": "completed",
+                "returncode": 0,
+                "started_monotonic": 10.0,
+                "ended_monotonic": 25.0,
+                "elapsed_seconds": 15.0,
+                "timeout_seconds": 180.0,
+            },
+            {
+                "command": "exec",
+                "operation": "poll",
+                "thread": "MainThread",
+                "attempt": 1,
+                "status": "completed",
+                "returncode": 0,
+                "started_monotonic": 500.2,
+                "ended_monotonic": 502.8,
+                "elapsed_seconds": 2.6,
+                "timeout_seconds": 90.0,
+            },
+            {
+                "command": "exec",
+                "operation": "renewal",
+                "thread": "MainThread",
+                "attempt": 1,
+                "status": "failed",
+                "returncode": 1,
+                "started_monotonic": 612.4,
+                "ended_monotonic": 620.1,
+                "elapsed_seconds": 7.7,
+                "timeout_seconds": 90.0,
+            },
+            {
+                "command": "stop",
+                "operation": "control",
+                "thread": "MainThread",
+                "attempt": 1,
+                "status": "completed",
+                "returncode": 0,
+                "started_monotonic": 620.8,
+                "ended_monotonic": 625.0,
+                "elapsed_seconds": 4.2,
+                "timeout_seconds": 120.0,
+            },
+            {
+                "command": "sessions",
+                "operation": "control",
+                "thread": "MainThread",
+                "attempt": 1,
+                "status": "completed",
+                "returncode": 0,
+                "started_monotonic": 625.1,
+                "ended_monotonic": 627.4,
+                "elapsed_seconds": 2.3,
+                "timeout_seconds": 60.0,
+            },
+        ],
+    }
+    receipt_path = out_dir / "receipt.json"
+    receipt_path.write_text(json.dumps(receipt, sort_keys=True) + "\n", encoding="utf-8")
+
+    calib_path = (out_dir / "rate-calibration.json").resolve()
+    oplog_lines = [
+        f"OPS_ALLOCATION_SUCCESS calibration={calib_path}",
+        *poll_log_lines[: max(1, poll_count)],
+        f"INCOMPLETE: {refusal_error}; receipt: {receipt_path.resolve()}",
+        "EXIT=1",
+    ]
+    (ops_dir / "logs" / f"{eff_ops_name}.log").write_text(
+        "\n".join(oplog_lines) + "\n",
+        encoding="utf-8",
+    )
+
+    sidecar_path = evidence_dir / f"transport-evidence-{eff_ops_name}-01.json"
+    if publish_sidecar:
+        proof.publish_renewal_ws_transport_evidence(
+            out_dir,
+            sidecar_path,
+            ops_dir=ops_dir,
+            ops_name=eff_ops_name,
+        )
+    return receipt_path, sidecar_path
+
+
+def test_live_shard12_evidence_verified_readonly(tmp_path: Path) -> None:
+    """Ruling Points 2, 3, 4: real shard-12 evidence passes with immutable sidecar & zero writes."""
+    art = artifacts_root(ADAPTER_ROOT)
+    live_receipt = art / SHARD12_RECEIPT_REL
+    ops_dir = art / "ops"
+    live_ops_mf = ops_dir / "manifests/watch6-v3-fix3-shard-12.json"
+    live_live_mf = ops_dir / "manifests/watch6-v3-fix3-shard-12.live.json"
+    live_oplog = ops_dir / "logs/watch6-v3-fix3-shard-12.log"
+    if not (live_receipt.is_file() and live_ops_mf.is_file() and live_oplog.is_file()):
+        pytest.skip("live shard-12 artifacts not mounted on this host")
+
+    out12 = live_receipt.parent
+    watched_files = [
+        live_receipt,
+        out12 / "manifest.json",
+        out12 / "hardware.json",
+        *sorted(out12.glob("poll-*.json")),
+        live_ops_mf,
+        live_live_mf,
+        live_oplog,
+    ]
+    snapshots_before = {
+        p_item: (digest(p_item), p_item.stat().st_mtime_ns, p_item.stat().st_size)
+        for p_item in watched_files
+    }
+    assert snapshots_before[live_receipt][0] == SHARD12_RECEIPT_SHA256
+    assert snapshots_before[out12 / "manifest.json"][0] == SHARD12_EXEC_MANIFEST_SHA256
+    assert snapshots_before[live_ops_mf][0] == SHARD12_OPS_MANIFEST_SHA256
+    assert snapshots_before[live_live_mf][0] == SHARD12_LIVE_MANIFEST_SHA256
+    assert snapshots_before[live_oplog][0] == SHARD12_OPS_LOG_SHA256
+
+    rec12 = json.loads(live_receipt.read_text(encoding="utf-8"))
+    # Baseline V3 refuses both prestart and compute; adapter also refuses prestart and refuses
+    # compute WITHOUT an immutable verified sidecar:
+    assert v3_admission.is_prestart_transport_failure(rec12, out12) is False
+    assert admission.is_prestart_transport_failure(rec12, out12, ops_dir=ops_dir) is False
+    assert v3_admission.is_external_transport_compute_failure(rec12, out12) is False
+    empty_ev = tmp_path / "empty-ev"
+    empty_ev.mkdir()
+    assert (
+        admission.is_external_transport_compute_failure(
+            rec12,
+            out12,
+            ops_dir=ops_dir,
+            evidence_dir=empty_ev,
+        )
+        is False
+    )
+
+    # Publish immutable sidecar to tmp_path and verify full conjunction:
+    ev_dir = tmp_path / "ev"
+    ev_dir.mkdir()
+    sidecar_tmp = ev_dir / "transport-evidence-watch6-v3-fix3-shard-12-01.json"
+    summary = proof.publish_renewal_ws_transport_evidence(out12, sidecar_tmp, ops_dir=ops_dir)
+    assert summary["sidecar_sha256"] == SHARD12_EVIDENCE_SIDECAR_SHA256
+    assert summary["receipt_sha256"] == SHARD12_RECEIPT_SHA256
+    assert summary["executed_manifest_sha256"] == SHARD12_EXEC_MANIFEST_SHA256
+    assert summary["supervisor_sha256"] == PINNED_SUPERVISOR_SHA256
+    assert summary["polls_count"] == 4
+    assert summary["shard"] == 12
+    assert (
+        admission.is_external_transport_compute_failure(
+            rec12,
+            out12,
+            ops_dir=ops_dir,
+            evidence_dir=ev_dir,
+        )
+        is True
+    )
+    _, bound_rec12 = resume.verify_bound_receipt(live_receipt, ops_dir=ops_dir)
+    assert bound_rec12["stop_verified"] is True
+    assert bound_rec12["cleanup_error"] is None
+
+    # If the canonical V6 sidecar is already published in argon-v3-accounting-v6, verify automatic
+    # default discovery without passing evidence_dir:
+    published_sidecar = art / SHARD12_EVIDENCE_SIDECAR_REL
+    if published_sidecar.is_file():
+        auto_res = proof.verify_renewal_ws_transport_evidence(out12, ops_dir=ops_dir)
+        assert auto_res["sidecar_sha256"] == SHARD12_EVIDENCE_SIDECAR_SHA256
+        assert (
+            admission.is_external_transport_compute_failure(rec12, out12, ops_dir=ops_dir) is True
+        )
+
+    # Virtual in-memory fault injections on real shard 12 MUST fail closed without touching disk:
+    orig_exists = Path.exists
+    orig_is_file = Path.is_file
+    orig_read_text = Path.read_text
+    for virtual_fault in ("scientific-fault.json", "runtime-measurement.json", "terminal.json"):
+        v_target = out12 / virtual_fault
+        with (
+            patch.object(
+                Path, "exists", lambda self, t=v_target: True if self == t else orig_exists(self)
+            ),
+            patch.object(
+                Path, "is_file", lambda self, t=v_target: True if self == t else orig_is_file(self)
+            ),
+            patch.object(
+                Path,
+                "read_text",
+                lambda self, *a, t=v_target, **kw: (
+                    '{"error":"fault"}\n' if self == t else orig_read_text(self, *a, **kw)
+                ),
+            ),
+        ):
+            assert (
+                admission.is_external_transport_compute_failure(
+                    rec12,
+                    out12,
+                    ops_dir=ops_dir,
+                    evidence_dir=ev_dir,
+                )
+                is False
+            )
+
+    for p_item, before_tuple in snapshots_before.items():
+        st = p_item.stat()
+        assert (digest(p_item), st.st_mtime_ns, st.st_size) == before_tuple
+
+
+@pytest.mark.parametrize(("shard", "extra_lines"), [(5, 0), (12, 3), (19, 8)])
+def test_renewal_ws_synthetic_positive_and_prospective_shards(
+    tmp_path: Path,
+    shard: int,
+    extra_lines: int,
+) -> None:
+    """Prospective application across shards 0..23 + lineage + recover (Point 5 & Point 6)."""
+    ops_dir = tmp_path / "ops"
+    ev_dir = tmp_path / "evidence"
+    r_path, sidecar_path = _write_renewal_ws_shard_fixture(
+        tmp_path / "pkg",
+        ops_dir=ops_dir,
+        evidence_dir=ev_dir,
+        shard=shard,
+        extra_box_lines=extra_lines,
+    )
+    rec = json.loads(r_path.read_text(encoding="utf-8"))
+    assert sidecar_path.is_file()
+    assert admission.is_prestart_transport_failure(rec, r_path.parent, ops_dir=ops_dir) is False
+    assert (
+        admission.is_external_transport_compute_failure(
+            rec,
+            r_path.parent,
+            ops_dir=ops_dir,
+            evidence_dir=ev_dir,
+        )
+        is True
+    )
+    admission.verify_prior_receipts_lineage(
+        shard,
+        [
+            {
+                "receipt_path": str(r_path),
+                "receipt_sha256": digest(r_path),
+                "classification": "external_transport_compute",
+            }
+        ],
+        0,
+        1,
+        2,
+        ops_dir=ops_dir,
+        evidence_dir=ev_dir,
+    )
+
+    # Verify recover.recover produces exact Ruling Point 5 counters (prestart=0, compute=1, tot=2):
+    base_pkg = tmp_path / "base-pkg"
+    base_pkg.mkdir()
+    with bind_broker_protocol(V3_BROKER_ROOT):
+        publish_json(
+            base_pkg / "verified-ledger.json",
+            empty_ledger(p.NAMESPACE, "watch6", run.ledger_identity()),
+        )
+        exec_id = mirror.execution_identity()
+    dummy_in = base_pkg / "input-metadata.tar.gz"
+    dummy_in.write_bytes(b"meta")
+    (base_pkg / "canary.json").write_text(
+        json.dumps(
+            {
+                "inputs": [
+                    {
+                        "path": str(dummy_in),
+                        "dest": "input-metadata.tar.gz",
+                        "sha256": digest(dummy_in),
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (base_pkg / "output-canary").mkdir()
+    (base_pkg / "output-canary/receipt.json").write_text(
+        json.dumps(
+            {
+                "status": "PASS",
+                "stop_verified": True,
+                "cleanup_error": None,
+                "commit": BASELINE_COMMIT,
+            }
+        ),
+        encoding="utf-8",
+    )
+    bench = tmp_path / "benchmark.json"
+    bench.write_text(json.dumps({"science": BASELINE_SCIENCE}), encoding="utf-8")
+    mir = tmp_path / "mac-mirror.json"
+    mir.write_text(
+        json.dumps(
+            {
+                "schema": "watch6-full-mirror/v3",
+                "status": "PASS",
+                "platform": "Darwin",
+                "execution_identity": exec_id,
+                "seed": p.FIXTURE_SEEDS[0],
+                "horizon": p.HORIZON,
+                "mirror_identity_frames": p.HORIZON,
+                "mirror_mismatches": 0,
+                "respawns_per_slot": [3, 3, 3, 3, 3, 3],
+            }
+        ),
+        encoding="utf-8",
+    )
+    costs = tmp_path / "costs.json"
+    costs.write_text(json.dumps(_synthetic_cost_report()), encoding="utf-8")
+
+    def fake_prepare(out: Path, *args: object, **kwargs: object) -> dict:
+        out.mkdir(parents=True, exist_ok=True)
+        return {"shards": 24, "workers": 4, "base_minutes_per_shard": 117}
+
+    with patch.object(recover, "prepare", side_effect=fake_prepare):
+        plan = recover.recover(
+            base_package=base_pkg,
+            receipts=[r_path],
+            target_shards=[shard],
+            out=tmp_path / f"recovery-shard-{shard:02d}-01",
+            benchmark=bench,
+            mirror_receipt=mir,
+            empirical_costs=costs,
+            commit=BASELINE_COMMIT,
+            ops_dir=ops_dir,
+            evidence_dir=ev_dir,
+        )
+    s_key = str(shard)
+    assert plan["verified_units_in_ledger"] == 0
+    assert plan["reused_initial_canary"] is True
+    assert plan["shard_meta"][s_key]["prestart_retries_used"] == 0
+    assert plan["shard_meta"][s_key]["compute_completion_attempt"] == 1
+    assert plan["shard_meta"][s_key]["total_dispatches_for_shard"] == 2
+    assert len(plan["transport_evidence_proofs"]) == 1
+    assert plan["transport_evidence_proofs"][0]["shard"] == shard
+
+
+def _assert_renewal_ws_case_refused(
+    out_dir: Path,
+    ops_dir: Path,
+    ev_dir: Path,
+    *,
+    ops_name: str = "watch6-v3-fix3-shard-12",
+    republish: bool = True,
+) -> None:
+    sidecar = ev_dir / f"transport-evidence-{ops_name}-01.json"
+    with isolated_broker_execution("assert-renewal-ws-refused"):
+        if republish:
+            for sfx in ("", ".sha256", ".complete"):
+                Path(f"{sidecar}{sfx}").unlink(missing_ok=True)
+            with pytest.raises(ValueError):
+                proof.publish_renewal_ws_transport_evidence(
+                    out_dir,
+                    sidecar,
+                    ops_dir=ops_dir,
+                    ops_name=ops_name,
+                )
+        with pytest.raises(ValueError):
+            proof.verify_renewal_ws_transport_evidence(
+                out_dir,
+                ops_dir=ops_dir,
+                ops_name=ops_name,
+                evidence_dir=ev_dir,
+            )
+        rec = json.loads((out_dir / "receipt.json").read_text(encoding="utf-8"))
+        assert (
+            admission.is_external_transport_compute_failure(
+                rec,
+                out_dir,
+                ops_dir=ops_dir,
+                ops_name=ops_name,
+                evidence_dir=ev_dir,
+            )
+            is False
+        )
+        with pytest.raises(ValueError, match="INVALID_OR_INCOMPLETE"):
+            final_look._classify_attempt(
+                out_dir,
+                rec,
+                ops_dir=ops_dir,
+                ops_name=ops_name,
+                evidence_dir=ev_dir,
+            )
+
+
+@isolated_broker_execution("test-renewal-ws-faults")
+def test_renewal_ws_fault_injection_and_exclusion_vectors(tmp_path: Path) -> None:
+    """Ruling Points 2, 4, 6: child/scientific/timeout vetoes, partial-export, general-WS."""
+
+    def fresh_case(label: str) -> tuple[Path, Path, Path, Path]:
+        c_dir = tmp_path / label
+        ops = c_dir / "ops"
+        ev = c_dir / "ev"
+        r_p, s_p = _write_renewal_ws_shard_fixture(
+            c_dir / "pkg",
+            ops_dir=ops,
+            evidence_dir=ev,
+            shard=12,
+            publish_sidecar=False,
+        )
+        return r_p.parent, ops, ev, s_p
+
+    def update_receipt_and_oplog(out_dir: Path, ops_dir: Path, mutator) -> None:
+        rp = out_dir / "receipt.json"
+        rec = json.loads(rp.read_text(encoding="utf-8"))
+        mutator(rec)
+        rp.write_text(json.dumps(rec, sort_keys=True) + "\n", encoding="utf-8")
+        oplog = ops_dir / "logs/watch6-v3-fix3-shard-12.log"
+        lines = oplog.read_text(encoding="utf-8").splitlines()
+        new_lines = [
+            (
+                f"INCOMPLETE: {rec.get('error')}; receipt: {rp.resolve()}"
+                if ln.startswith("INCOMPLETE: ")
+                else ln
+            )
+            for ln in lines
+        ]
+        oplog.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+
+    # 1. Forbidden files (terminal.json, scientific-fault.json, runtime-measurement.json, logs):
+    for idx, bad_file in enumerate(
+        (
+            "terminal.json",
+            "scientific-fault.json",
+            "runtime-measurement.json",
+            "job.log",
+            "supervisor.log",
+            "recovery-179348-1.json",
+            "telemetry-000000.json",
+        )
+    ):
+        out_d, ops_d, ev_d, _ = fresh_case(f"forbid-file-{idx}")
+        (out_d / bad_file).write_text('{"status": "bad"}\n', encoding="utf-8")
+        _assert_renewal_ws_case_refused(out_d, ops_d, ev_d)
+
+    # 2. Child / scientific / integrity / wall-timeout / kernel-error vetoes across files:
+    for label, fault_text in (
+        ("nan", "NaN detected in policy evaluation"),
+        ("mirror", "ValueError: mirror mismatch at frame 128"),
+        ("wall-timeout", "WALL_TIMEOUT: whole-session wall cap reached"),
+        ("faulthandler", "faulthandler dump_traceback_later fired"),
+        ("kernel-err", "kernel error despite CLI exit zero: child crashed"),
+    ):
+        # 2a. In poll job_log_tail:
+        out_d, ops_d, ev_d, _ = fresh_case(f"poll-fault-{label}")
+        p0 = out_d / "poll-000001.json"
+        p0_obj = json.loads(p0.read_text(encoding="utf-8"))
+        p0_obj["job_log_tail"] = fault_text
+        p0.write_text(json.dumps(p0_obj, sort_keys=True) + "\n", encoding="utf-8")
+        _assert_renewal_ws_case_refused(out_d, ops_d, ev_d)
+
+        # 2b. In spend-000000.json diagnostic string:
+        out_s, ops_s, ev_s, _ = fresh_case(f"spend-fault-{label}")
+        sp0 = out_s / "spend-000000.json"
+        sp_obj = json.loads(sp0.read_text(encoding="utf-8"))
+        sp_obj["note"] = fault_text
+        sp0.write_text(json.dumps(sp_obj, sort_keys=True) + "\n", encoding="utf-8")
+        _assert_renewal_ws_case_refused(out_s, ops_s, ev_s)
+
+    # 2c. spend unit_cap_status != OK:
+    out_cap, ops_cap, ev_cap, _ = fresh_case("spend-cap-exceeded")
+    (out_cap / "spend-000000.json").write_text(
+        '{"unit_cap_status": "EXCEEDED"}\n', encoding="utf-8"
+    )
+    _assert_renewal_ws_case_refused(out_cap, ops_cap, ev_cap)
+
+    # 2d. queue-*.log mentioning non-transport fault for this job:
+    out_q, ops_q, ev_q, _ = fresh_case("queue-log-fault")
+    q_job = json.loads((out_q / "receipt.json").read_text(encoding="utf-8"))["job_id"]
+    (ops_q / "logs/queue-20261031.log").write_text(
+        f"{q_job}: ValueError: mirror mismatch\n",
+        encoding="utf-8",
+    )
+    _assert_renewal_ws_case_refused(out_q, ops_q, ev_q)
+
+    # 2e. Contradictory state.json / events.jsonl:
+    out_st, ops_st, ev_st, _ = fresh_case("bad-state-json")
+    (out_st / "state.json").write_text('{"terminal": {"returncode": 1}}\n', encoding="utf-8")
+    _assert_renewal_ws_case_refused(out_st, ops_st, ev_st)
+
+    out_evj, ops_evj, ev_evj, _ = fresh_case("bad-events-jsonl")
+    (out_evj / "events.jsonl").write_text(
+        '{"event": "poll", "note": "WALL_TIMEOUT"}\n', encoding="utf-8"
+    )
+    _assert_renewal_ws_case_refused(out_evj, ops_evj, ev_evj)
+
+    # 3. Partial-export exclusion (Ruling Point 6):
+    # 3a. Non-empty exports/ directory on disk:
+    out_pe1, ops_pe1, ev_pe1, _ = fresh_case("partial-export-dir")
+    (out_pe1 / "exports/efficacy").mkdir(parents=True, exist_ok=True)
+    (out_pe1 / "exports/efficacy/pair-12.json").write_text('{"partial": true}\n', encoding="utf-8")
+    _assert_renewal_ws_case_refused(out_pe1, ops_pe1, ev_pe1)
+
+    # 3b. Non-empty receipt.exports:
+    out_pe2, ops_pe2, ev_pe2, _ = fresh_case("partial-export-receipt")
+    update_receipt_and_oplog(
+        out_pe2,
+        ops_pe2,
+        lambda r: r.update(
+            exports=[{"path": "efficacy/pair-12.json", "sha256": "a" * 64, "size": 2}]
+        ),
+    )
+    _assert_renewal_ws_case_refused(out_pe2, ops_pe2, ev_pe2)
+
+    # 3c. Non-empty poll.exports:
+    out_pe3, ops_pe3, ev_pe3, _ = fresh_case("partial-export-poll")
+    p_pe = out_pe3 / "poll-000002.json"
+    p_pe_obj = json.loads(p_pe.read_text(encoding="utf-8"))
+    p_pe_obj["exports"] = ["efficacy/pair-12.json"]
+    p_pe.write_text(json.dumps(p_pe_obj, sort_keys=True) + "\n", encoding="utf-8")
+    _assert_renewal_ws_case_refused(out_pe3, ops_pe3, ev_pe3)
+
+    # 3d. Nonzero exports count in operational log telemetry line:
+    out_pe4, ops_pe4, ev_pe4, _ = fresh_case("partial-export-oplog")
+    oplog_pe = ops_pe4 / "logs/watch6-v3-fix3-shard-12.log"
+    oplog_pe.write_text(
+        oplog_pe.read_text(encoding="utf-8").replace('"exports": 0', '"exports": 1', 1),
+        encoding="utf-8",
+    )
+    _assert_renewal_ws_case_refused(out_pe4, ops_pe4, ev_pe4)
+
+    # 3e. Download transfer recorded in receipt.transfers:
+    out_pe5, ops_pe5, ev_pe5, _ = fresh_case("partial-export-download-tx")
+    update_receipt_and_oplog(
+        out_pe5,
+        ops_pe5,
+        lambda r: r.update(transfers=[{"direction": "download", "remote": "out.json"}]),
+    )
+    _assert_renewal_ws_case_refused(out_pe5, ops_pe5, ev_pe5)
+
+    # 4. General-WebSocket & signature/conjunction exclusions (Ruling Points 2 & 6):
+    for ws_idx, bad_error in enumerate(
+        (
+            # Other WebSocket exception classes:
+            _build_truncated_renewal_ws_refusal(
+                terminal_line="WebSocketTimeoutException: Connection timed out."
+            ),
+            _build_truncated_renewal_ws_refusal(
+                terminal_line="WebSocketBadStatusException: Handshake status 502 Bad Gateway"
+            ),
+            _build_truncated_renewal_ws_refusal(
+                terminal_line="WebSocketProtocolException: Invalid close frame."
+            ),
+            # Different WebSocketConnectionClosedException message:
+            _build_truncated_renewal_ws_refusal(
+                terminal_line="WebSocketConnectionClosedException: socket is already closed."
+            ),
+            # Exception-substring-only without Rich box / 2,000-char truncation:
+            (
+                "Refused('colab exec failed (1): "
+                "WebSocketConnectionClosedException: Connection is already closed.')"
+            ),
+            # Untruncated (< 2000 chars) Rich box:
+            _build_truncated_renewal_ws_refusal(truncation_len=1999),
+            # Overlong (> 2000 chars) Rich box:
+            _build_truncated_renewal_ws_refusal(truncation_len=2001),
+            # Wrong wrapper prefix:
+            _build_truncated_renewal_ws_refusal(wrapper_prefix="colab upload failed (1): "),
+            _build_truncated_renewal_ws_refusal(wrapper_prefix="colab exec failed (2): "),
+            # Missing websocket send guard line:
+            _build_truncated_renewal_ws_refusal(send_code="if self.sock is None:"),
+            # Active pointer on wrong line:
+            _build_truncated_renewal_ws_refusal(pointer_on_raise=False),
+            # Kernel error prefix smuggling WebSocket text:
+            (
+                "Refused('kernel error despite CLI exit zero: "
+                "WebSocketConnectionClosedException: Connection is already closed.')"
+            ),
+        )
+    ):
+        out_ws, ops_ws, ev_ws, _ = fresh_case(f"ws-sig-excl-{ws_idx}")
+        update_receipt_and_oplog(out_ws, ops_ws, lambda r, e=bad_error: r.update(error=e))
+        _assert_renewal_ws_case_refused(out_ws, ops_ws, ev_ws)
+
+    # 5. Monotonic renewal interval, timeout, and stop/sessions conjunction exclusions:
+    for conj_label, rec_mut in (
+        ("terminal-nonnull", lambda r: r.update(terminal={"returncode": 1})),
+        ("child-fcls", lambda r: r.update(failure_class="CHILD_NONZERO_EXIT")),
+        ("unstopped", lambda r: r.update(stop_verified=False)),
+        ("cleanup-err", lambda r: r.update(cleanup_error="stop failed")),
+        ("ctrl-not-renewal", lambda r: r["control_operations"][-1].update(operation="poll")),
+        ("cli-not-renewal", lambda r: r["cli_calls"][2].update(operation="poll")),
+        ("cli-not-exec", lambda r: r["cli_calls"][2].update(command="upload")),
+        (
+            "cli-outside-ctrl-interval",
+            lambda r: r["cli_calls"][2].update(started_monotonic=610.0),
+        ),
+        (
+            "cli-timed-out",
+            lambda r: r["cli_calls"][2].update(elapsed_seconds=90.0, timeout_seconds=90.0),
+        ),
+        ("missing-post-sessions", lambda r: r["cli_calls"].pop()),
+        (
+            "stop-before-ctrl-end",
+            lambda r: r["cli_calls"][3].update(started_monotonic=619.0),
+        ),
+    ):
+        out_cj, ops_cj, ev_cj, _ = fresh_case(f"conj-{conj_label}")
+        update_receipt_and_oplog(out_cj, ops_cj, rec_mut)
+        _assert_renewal_ws_case_refused(out_cj, ops_cj, ev_cj)
+
+
+@isolated_broker_execution("test-renewal-ws-tamper")
+def test_renewal_ws_missing_evidence_tamper_and_ratify_guards(
+    clean_baseline_template: Path,
+    tmp_path: Path,
+) -> None:
+    """Ruling Points 1, 3, 4: missing evidence, 1-byte tamper, foreign/ambiguous sidecar, ratify."""
+    # 1. Missing sidecar / missing .sha256 / missing .complete:
+    c_miss = tmp_path / "missing-sidecar"
+    r_miss, s_miss = _write_renewal_ws_shard_fixture(
+        c_miss / "pkg",
+        ops_dir=c_miss / "ops",
+        evidence_dir=c_miss / "ev",
+        shard=12,
+        publish_sidecar=True,
+    )
+    Path(f"{s_miss}.complete").unlink()
+    _assert_renewal_ws_case_refused(r_miss.parent, c_miss / "ops", c_miss / "ev", republish=False)
+    s_miss.unlink()
+    Path(f"{s_miss}.sha256").unlink()
+    _assert_renewal_ws_case_refused(r_miss.parent, c_miss / "ops", c_miss / "ev", republish=False)
+
+    # 2. Missing polls / poll sequence gap / missing hardware / missing ops manifest / missing log:
+    for miss_label, remover in (
+        ("zero-polls", lambda out_d, _ops_d: [p.unlink() for p in out_d.glob("poll-*.json")]),
+        ("poll-gap", lambda out_d, _ops_d: (out_d / "poll-000001.json").unlink()),
+        ("no-hardware", lambda out_d, _ops_d: (out_d / "hardware.json").unlink()),
+        ("no-warmup", lambda out_d, _ops_d: (out_d / "warmup-measurement.json").unlink()),
+        (
+            "no-ops-mf",
+            lambda _out_d, ops_d: (ops_d / "manifests/watch6-v3-fix3-shard-12.json").unlink(),
+        ),
+        (
+            "no-oplog",
+            lambda _out_d, ops_d: (ops_d / "logs/watch6-v3-fix3-shard-12.log").unlink(),
+        ),
+    ):
+        c_m = tmp_path / f"miss-{miss_label}"
+        r_m, _ = _write_renewal_ws_shard_fixture(
+            c_m / "pkg",
+            ops_dir=c_m / "ops",
+            evidence_dir=c_m / "ev",
+            shard=12,
+            publish_sidecar=True,
+        )
+        remover(r_m.parent, c_m / "ops")
+        _assert_renewal_ws_case_refused(r_m.parent, c_m / "ops", c_m / "ev", republish=False)
+
+    # 3. Post-publication 1-byte / field tamper in every bound artifact & extra unlisted poll:
+    for tamp_label, tamper_fn in (
+        (
+            "receipt",
+            lambda out_d, _ops_d: (out_d / "receipt.json").write_text(
+                (out_d / "receipt.json").read_text(encoding="utf-8") + "\n", encoding="utf-8"
+            ),
+        ),
+        (
+            "exec-mf",
+            lambda out_d, _ops_d: (out_d / "manifest.json").write_text(
+                (out_d / "manifest.json").read_text(encoding="utf-8") + "\n", encoding="utf-8"
+            ),
+        ),
+        (
+            "ops-src-mf",
+            lambda _out_d, ops_d: (ops_d / "manifests/watch6-v3-fix3-shard-12.json").write_text(
+                (ops_d / "manifests/watch6-v3-fix3-shard-12.json").read_text(encoding="utf-8")
+                + "\n",
+                encoding="utf-8",
+            ),
+        ),
+        (
+            "ops-live-mf",
+            lambda _out_d, ops_d: (
+                ops_d / "manifests/watch6-v3-fix3-shard-12.live.json"
+            ).write_text(
+                (ops_d / "manifests/watch6-v3-fix3-shard-12.live.json").read_text(encoding="utf-8")
+                + "\n",
+                encoding="utf-8",
+            ),
+        ),
+        (
+            "ops-acct-rec",
+            lambda _out_d, ops_d: (
+                ops_d / "dispatch/watch6-v3-fix3-shard-12/watch6-v3-fix3-shard-12.accounting.json"
+            ).write_text(
+                (
+                    ops_d
+                    / "dispatch/watch6-v3-fix3-shard-12/watch6-v3-fix3-shard-12.accounting.json"
+                ).read_text(encoding="utf-8")
+                + "\n",
+                encoding="utf-8",
+            ),
+        ),
+        (
+            "hardware",
+            lambda out_d, _ops_d: (out_d / "hardware.json").write_text(
+                '{"hardware": {"kind": "L4", "vcpu": 16}, "ready": true}\n', encoding="utf-8"
+            ),
+        ),
+        (
+            "poll-tamper",
+            lambda out_d, _ops_d: (out_d / "poll-000002.json").write_text(
+                (out_d / "poll-000002.json").read_text(encoding="utf-8") + "\n", encoding="utf-8"
+            ),
+        ),
+        (
+            "extra-unlisted-poll",
+            lambda out_d, _ops_d: (out_d / "poll-000004.json").write_text(
+                (out_d / "poll-000003.json").read_text(encoding="utf-8"), encoding="utf-8"
+            ),
+        ),
+        (
+            "oplog-tamper",
+            lambda _out_d, ops_d: (ops_d / "logs/watch6-v3-fix3-shard-12.log").write_text(
+                "\n" + (ops_d / "logs/watch6-v3-fix3-shard-12.log").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            ),
+        ),
+    ):
+        c_t = tmp_path / f"tamper-{tamp_label}"
+        r_t, _ = _write_renewal_ws_shard_fixture(
+            c_t / "pkg",
+            ops_dir=c_t / "ops",
+            evidence_dir=c_t / "ev",
+            shard=12,
+            publish_sidecar=True,
+        )
+        tamper_fn(r_t.parent, c_t / "ops")
+        _assert_renewal_ws_case_refused(r_t.parent, c_t / "ops", c_t / "ev", republish=False)
+
+    # 4. Tampered sidecar (even re-published with valid .sha256 + .complete) & duplicate:
+    c_sc = tmp_path / "tamper-sidecar-republished"
+    r_sc, s_sc = _write_renewal_ws_shard_fixture(
+        c_sc / "pkg",
+        ops_dir=c_sc / "ops",
+        evidence_dir=c_sc / "ev",
+        shard=12,
+        publish_sidecar=True,
+    )
+    sc_payload = json.loads(s_sc.read_text(encoding="utf-8"))
+    sc_payload["supervisor"]["supervisor_sha256"] = "f" * 64
+    for sfx in ("", ".sha256", ".complete"):
+        Path(f"{s_sc}{sfx}").unlink()
+    publish_json(s_sc, sc_payload)
+    _assert_renewal_ws_case_refused(r_sc.parent, c_sc / "ops", c_sc / "ev", republish=False)
+
+    # Conflicting second sidecar in ops/dispatch/<run_name>/:
+    c_dup = tmp_path / "ambiguous-sidecars"
+    r_dup, s_dup = _write_renewal_ws_shard_fixture(
+        c_dup / "pkg",
+        ops_dir=c_dup / "ops",
+        evidence_dir=c_dup / "ev",
+        shard=12,
+        publish_sidecar=True,
+    )
+    bad_copy = c_dup / "ops/dispatch/watch6-v3-fix3-shard-12/transport-evidence-conflict.json"
+    dup_obj = json.loads(s_dup.read_text(encoding="utf-8"))
+    dup_obj["identity"]["shard"] = 13
+    publish_json(bad_copy, dup_obj)
+    _assert_renewal_ws_case_refused(r_dup.parent, c_dup / "ops", c_dup / "ev", republish=False)
+
+    # Modified supervisor.py in broker clone MUST fail closed in both proof and ratify:
+    clone = _fresh_baseline_clone(clean_baseline_template, tmp_path / "clone-bad-sup")
+    sup_file = clone / PINNED_SUPERVISOR_REL
+    sup_file.write_text(sup_file.read_text(encoding="utf-8") + "\n# drift\n", encoding="utf-8")
+    c_sup = tmp_path / "bad-broker-sup"
+    r_sup, _ = _write_renewal_ws_shard_fixture(
+        c_sup / "pkg",
+        ops_dir=c_sup / "ops",
+        evidence_dir=c_sup / "ev",
+        shard=12,
+        publish_sidecar=True,
+    )
+    with pytest.raises(ValueError):
+        proof.verify_renewal_ws_transport_evidence(
+            r_sup.parent,
+            ops_dir=c_sup / "ops",
+            evidence_dir=c_sup / "ev",
+            broker_root=clone,
+        )
+
+    # 5. Ratification refuses live watch6-v3-shard12-ruling/RULING.md (APPROVE-PATH) and V5 ruling:
+    amend_v6 = _write_immutable_text(
+        tmp_path / "WATCH6_V3_ACCOUNTING_AMENDMENT_V6_20261101.md",
+        _render_amendment_markdown(ADAPTER_ROOT),
+    )
+    art = artifacts_root(ADAPTER_ROOT)
+    live_shard12_ruling = art / SHARD12_PATH_RULING_REL
+    if live_shard12_ruling.is_file():
+        with pytest.raises(ValueError, match="REFUSE"):
+            ratify.record_ruling(
+                live_shard12_ruling,
+                amendment_md=amend_v6,
+                out=tmp_path / "refused-shard12-path.json",
+                require_clean_git=False,
+            )
+    old_v5_ruling_json = art / "t34-sol/argon-v3-accounting-fix4/astra-accounting-ruling.json"
+    if old_v5_ruling_json.is_file():
+        with pytest.raises(ValueError, match="REFUSE"):
+            ratify.validate_ruling_receipt(old_v5_ruling_json, require_clean_git=False)
+
+
+def test_v6_full_24_shard_lineage_retry_cap_and_zero_peek(tmp_path: Path) -> None:
+    """Full 24-shard V6 registry: shard 00 prestart + shard 12 & shard 19 renewal-WS."""
+    ops_dir, ruling_json, amend_path, rows = _setup_24_shard_accounting_ops(tmp_path / "v6-ok")
+    ev_dir = tmp_path / "v6-ok/evidence"
+    ev_dir.mkdir(parents=True, exist_ok=True)
+
+    # Replace shard 12 single-pass with A_1 renewal-WS failure + A_2 recovered PASS:
+    shutil.rmtree(tmp_path / "v6-ok/out-shard-12")
+    (ops_dir / "manifests/watch6-v3-fix3-shard-12.json").unlink()
+    s12_a1, s12_sidecar = _write_renewal_ws_shard_fixture(
+        tmp_path / "v6-ok/s12-a1",
+        ops_dir=ops_dir,
+        evidence_dir=ev_dir,
+        shard=12,
+        ops_name="watch6-v3-fix3-shard-12",
+    )
+    s12_priors = [
+        {
+            "receipt_path": str(s12_a1),
+            "receipt_sha256": digest(s12_a1),
+            "classification": "external_transport_compute",
+        }
+    ]
+    s12_pass = _write_v3_attempt(
+        tmp_path / "v6-ok/out-shard-12-recovered",
+        shard=12,
+        mode="pass",
+        export_slots=p.shard_indices(12),
+        pair_rows_by_slot=rows,
+        prestart_retries_used=0,
+        compute_completion_attempt=1,
+        prior_receipts=s12_priors,
+    )
+    (ops_dir / "manifests/watch6-v3-fix3-shard-12-recovered.json").write_text(
+        (s12_pass.parent / "manifest.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+
+    # Replace prospective shard 19 with TWO renewal-WS compute failures + A_3 recovered PASS:
+    shutil.rmtree(tmp_path / "v6-ok/out-shard-19")
+    (ops_dir / "manifests/watch6-v3-fix3-shard-19.json").unlink()
+    s19_a1, _ = _write_renewal_ws_shard_fixture(
+        tmp_path / "v6-ok/s19-a1",
+        ops_dir=ops_dir,
+        evidence_dir=ev_dir,
+        shard=19,
+        ops_name="watch6-v3-fix3-shard-19",
+    )
+    s19_p1 = [
+        {
+            "receipt_path": str(s19_a1),
+            "receipt_sha256": digest(s19_a1),
+            "classification": "external_transport_compute",
+        }
+    ]
+    s19_a2, _ = _write_renewal_ws_shard_fixture(
+        tmp_path / "v6-ok/s19-a2",
+        ops_dir=ops_dir,
+        evidence_dir=ev_dir,
+        shard=19,
+        ops_name="watch6-v3-fix3-shard-19-rec1",
+        compute_completion_attempt=1,
+        prior_receipts=s19_p1,
+    )
+    s19_p2 = [
+        *s19_p1,
+        {
+            "receipt_path": str(s19_a2),
+            "receipt_sha256": digest(s19_a2),
+            "classification": "external_transport_compute",
+        },
+    ]
+    s19_pass = _write_v3_attempt(
+        tmp_path / "v6-ok/out-shard-19-rec2",
+        shard=19,
+        mode="pass",
+        export_slots=p.shard_indices(19),
+        pair_rows_by_slot=rows,
+        prestart_retries_used=0,
+        compute_completion_attempt=2,
+        prior_receipts=s19_p2,
+    )
+    (ops_dir / "manifests/watch6-v3-fix3-shard-19-rec2.json").write_text(
+        (s19_pass.parent / "manifest.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+
+    decision = final_look.run_final_look(
+        ops_dir=ops_dir,
+        out_dir=tmp_path / "v6-ok/look-out",
+        ruling_json=ruling_json,
+        amendment_md=amend_path,
+        evidence_dir=ev_dir,
+        require_clean_git=False,
+    )
+    assert decision["verdict"] == "GO_EFFICACY_ONLY"
+    assert decision["n"] == 96
+    assert len(decision["retained_never_allocated_attempts"]) == 1
+    assert len(decision["retained_transport_evidence_attempts"]) == 3
+    assert decision["total_main_attempts"] == 28  # 21*1 + 2 (s00) + 2 (s12) + 3 (s19)
+
+    # 1. Tampering shard 12's sidecar MUST fail pre-look with ZERO pair-*.json payload reads:
+    Path(f"{s12_sidecar}.complete").unlink()
+    orig_read_text = Path.read_text
+
+    def forbid_pair_payload_read(self: Path, *args: object, **kwargs: object) -> str:
+        if resume.PAIR_NAME_RE.fullmatch(self.name) is not None:
+            raise AssertionError(f"OUTCOME PEEKED BEFORE PRE-LOOK AUDIT: {self}")
+        return orig_read_text(self, *args, **kwargs)
+
+    with (
+        patch.object(Path, "read_text", forbid_pair_payload_read),
+        patch.object(final_look, "decide_v3", side_effect=AssertionError("OUTCOME PEEKED!")),
+    ):
+        with pytest.raises(ValueError, match="INVALID_OR_INCOMPLETE"):
+            final_look.run_final_look(
+                ops_dir=ops_dir,
+                out_dir=tmp_path / "v6-ok/look-tampered",
+                ruling_json=ruling_json,
+                amendment_md=amend_path,
+                evidence_dir=ev_dir,
+                require_clean_git=False,
+            )
+
+    # Restore sidecar completion marker, then inject a 3rd failed renewal-WS attempt on shard 19
+    # (exceeding MAX_COMPUTE_COMPLETIONS_PER_SHARD == 2) and verify pre-look refusal + zero peek:
+    Path(f"{s12_sidecar}.complete").write_bytes(b"complete\n")
+    shutil.rmtree(tmp_path / "v6-ok/out-shard-19-rec2")
+    (ops_dir / "manifests/watch6-v3-fix3-shard-19-rec2.json").unlink()
+
+    auto1_dir = tmp_path / "v6-ok/s19-auto1"
+    s19_a3, _ = _write_renewal_ws_shard_fixture(
+        auto1_dir,
+        ops_dir=ops_dir,
+        evidence_dir=ev_dir,
+        shard=19,
+        ops_name="watch6-v3-fix3-shard-19-auto1",
+        compute_completion_attempt=1,
+        prior_receipts=s19_p1,
+        completion_attempt=1,
+    )
+    publish_json(
+        auto1_dir / "manifest.json",
+        json.loads((s19_a3.parent / "manifest.json").read_text(encoding="utf-8")),
+    )
+    prev_s19_mf = ops_dir / "manifests/watch6-v3-fix3-shard-19-rec1.json"
+    publish_json(
+        auto1_dir / "RETRY.json",
+        {
+            "schema": "ops-zero-export-retry/v1",
+            "completion_attempt": 1,
+            "max_completion_attempts": 2,
+            "prior_manifest": {"path": str(prev_s19_mf), "sha256": digest(prev_s19_mf)},
+            "prior_receipt": {"path": str(s19_a2.resolve()), "sha256": digest(s19_a2)},
+            "manifest_sha256": digest(auto1_dir / "manifest.json"),
+            "unallocated_proof": None,
+        },
+    )
+
+    auto2_dir = tmp_path / "v6-ok/s19-auto2"
+    s19_p4 = _write_v3_attempt(
+        auto2_dir / "output",
+        shard=19,
+        mode="pass",
+        export_slots=p.shard_indices(19),
+        pair_rows_by_slot=rows,
+        prestart_retries_used=0,
+        compute_completion_attempt=1,
+        prior_receipts=s19_p1,
+        completion_attempt=2,
+    )
+    publish_json(
+        auto2_dir / "manifest.json",
+        json.loads((s19_p4.parent / "manifest.json").read_text(encoding="utf-8")),
+    )
+    publish_json(
+        auto2_dir / "RETRY.json",
+        {
+            "schema": "ops-zero-export-retry/v1",
+            "completion_attempt": 2,
+            "max_completion_attempts": 2,
+            "prior_manifest": {
+                "path": str(auto1_dir / "manifest.json"),
+                "sha256": digest(auto1_dir / "manifest.json"),
+            },
+            "prior_receipt": {"path": str(s19_a3.resolve()), "sha256": digest(s19_a3)},
+            "manifest_sha256": digest(auto2_dir / "manifest.json"),
+            "unallocated_proof": None,
+        },
+    )
+    (ops_dir / "manifests/watch6-v3-fix3-shard-19-auto2.json").write_text(
+        (auto2_dir / "manifest.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+
+    with (
+        patch.object(Path, "read_text", forbid_pair_payload_read),
+        patch.object(final_look, "decide_v3", side_effect=AssertionError("OUTCOME PEEKED!")),
+    ):
+        with pytest.raises(ValueError, match="INVALID_OR_INCOMPLETE.*exceeded compute completion"):
+            final_look.run_final_look(
+                ops_dir=ops_dir,
+                out_dir=tmp_path / "v6-ok/look-cap-exceeded",
+                ruling_json=ruling_json,
+                amendment_md=amend_path,
+                evidence_dir=ev_dir,
+                require_clean_git=False,
+            )

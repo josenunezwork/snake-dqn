@@ -90,6 +90,7 @@ def prepare(
     shard_meta: dict[int, dict] | None = None,
     reuse_staged_inputs: list[dict] | None = None,
     ops_dir: Path | None = None,
+    evidence_dir: Path | None = None,
     broker_root: Path | None = None,
 ) -> dict:
     """Prepare V3 L4 W4 shard manifests pinned to baseline commit 357e3504 offline."""
@@ -350,6 +351,7 @@ def prepare(
                 value,
                 pending_qualification=pending_canary and not probe,
                 ops_dir=ops_dir,
+                evidence_dir=evidence_dir,
                 broker_root=resolved_broker,
             )
             publish_json(out / f"{label}-upload-preflight.json", upload_report)
@@ -374,6 +376,7 @@ def main() -> None:
     parser.add_argument("--pending-canary", action="store_true")
     parser.add_argument("--ledger", type=Path, default=None)
     parser.add_argument("--ops-dir", type=Path, default=None)
+    parser.add_argument("--evidence-dir", type=Path, default=None)
     parser.add_argument(
         "--broker-root",
         "--broker",
@@ -393,6 +396,7 @@ def main() -> None:
         pending_canary=args.pending_canary,
         ledger=args.ledger.resolve() if args.ledger else None,
         ops_dir=args.ops_dir.resolve() if args.ops_dir else None,
+        evidence_dir=args.evidence_dir.resolve() if args.evidence_dir else None,
         broker_root=args.broker_root,
     )
     print(json.dumps(result, indent=2), flush=True)
