@@ -14,27 +14,34 @@ Start with **[docs/INDEX.md](docs/INDEX.md)** for the full project map and
 **[docs/STATUS.md](docs/STATUS.md)** for binding release pins, monitoring
 thresholds, and standing operating rules.
 
-- **Watch:** plays a **132-session Colab-precomputed `exact-stop-l2-prime` replay
-  bank** (`snake-dqn-artifacts/watch-replay-bank-live-132`, banks `01–08` and `10–12`,
-  6,000-frame Watch6-v2 sessions, `b8-s3` hero vs `5× frp3-s12 + v8`), visibly
-  labelled **"Recorded assisted hero"** (`SNAKE_WATCH_SOURCE=replay` and
-  `SNAKE_WATCH_REPLAY_DIR` in `.claude/launch.json`). Live bare `b8-s3` is the
-  automatic fallback if the bank is unset, empty, or invalid.
+- **Watch:** plays the **168-session Colab-precomputed exact-stop replay bank**
+  (`snake-dqn-artifacts/watch-replay-bank-live-168`: `132` `exact-stop-l2-prime`
+  sessions from banks `01–08` and `10–12` + `36` all-length `exact-stop-l1` sessions
+  from banks `14l1–16l1`, 6,000-frame Watch6-v2 sessions, `b8-s3` hero vs
+  `5× frp3-s12 + v8`, switched in `395eacbb`; pure `exact-stop-l2-prime` bank
+  retained at `watch-replay-bank-live-132`), visibly labelled **"Recorded assisted
+  hero"** (`SNAKE_WATCH_SOURCE=replay` and `SNAKE_WATCH_REPLAY_DIR` in
+  `.claude/launch.json`). Live bare `b8-s3` is the automatic fallback if the bank
+  is unset, empty, or invalid.
 - **Play (and live Watch fallback):** runs **live bare B8 seed 3 (`b8-s3`), served
-  without a veto** (checkpoint SHA prefix `3e649783`) against the **mixed**
-  `frp3-s12 + v8` roster. Its release claim (2026-10-17) is **more mass at equal
-  survival against the previously served agent, with no veto** (not a safety claim;
-  T7 Phase R `STRICT_PASS` + Tier 2 PASS, then T12/T15 serving checks). See the
+  without a veto** (checkpoint SHA prefix `3e649783`). In **Play**, `1` human steers
+  against `N` (default `5`, adjustable `1–11`) live bare `b8-s3` AI opponents; in
+  **live Watch fallback** (`SNAKE_WATCH_SOURCE=live`), the bare `b8-s3` hero faces
+  the Watch-only **mixed** `5× frp3-s12 + v8` opponent roster. Its release claim
+  (2026-10-17) is **more mass at equal survival against the previously served agent,
+  with no veto** (not a safety claim; T7 Phase R `STRICT_PASS` + Tier 2 PASS, then
+  T12/T15 serving checks). See the
   [release record](docs/research/b8_s3_release_2026-10-17.md) and the
   [mixed-Watch erratum](docs/research/b8_s3_release_erratum_mixed_watch_2026-10-17.md).
 
-Rollback means restarting the server with an explicit selection:
+Rollback means restarting the server with an explicit live selection (include
+`SNAKE_WATCH_SOURCE=live` so `ReplayBank` does not stay attached in Watch mode):
 
 ```bash
-SNAKE_WATCH_SOURCE=live ./venv/bin/python web/serve.py           # live bare b8-s3 Watch
-SNAKE_SERVE_WATCH_ROSTER=all_b8 ./venv/bin/python web/serve.py   # all-B8 live roster
-SNAKE_SERVE_CHECKPOINT=frp3-s12 ./venv/bin/python web/serve.py   # frp3-s12 + v8
-SNAKE_SERVE_CHECKPOINT=champion ./venv/bin/python web/serve.py   # champion + v8
+SNAKE_WATCH_SOURCE=live ./venv/bin/python web/serve.py                                     # live bare b8-s3 Watch (mixed roster)
+SNAKE_WATCH_SOURCE=live SNAKE_SERVE_WATCH_ROSTER=all_b8 ./venv/bin/python web/serve.py     # all-B8 live Watch roster
+SNAKE_WATCH_SOURCE=live SNAKE_SERVE_CHECKPOINT=frp3-s12 ./venv/bin/python web/serve.py     # frp3-s12 + v8
+SNAKE_WATCH_SOURCE=live SNAKE_SERVE_CHECKPOINT=champion ./venv/bin/python web/serve.py     # champion + v8
 ```
 
 ## Current campaign
@@ -108,7 +115,7 @@ corrected claims, for example that CNNs were never trained in the older trials.
 |---|---|
 | Project & experiment map (start here) | [docs/INDEX.md](docs/INDEX.md) |
 | Current status & standing rules | [docs/STATUS.md](docs/STATUS.md) |
-| Research roadmap (Round-04 advice, not decisions) | [docs/research/ROADMAP.md](docs/research/ROADMAP.md) |
+| Research roadmap (Round-05 advice, not decisions) | [docs/research/ROADMAP.md](docs/research/ROADMAP.md) |
 | Documentation status guide | [docs/README.md](docs/README.md) |
 | `docs/` directory layout | [docs/MAP.md](docs/MAP.md) |
 | Cited project notes & glossary | [docs/notes/README.md](docs/notes/README.md) ([docs/notes/GLOSSARY.md](docs/notes/GLOSSARY.md); evaluation glossary: [docs/research/GLOSSARY.md](docs/research/GLOSSARY.md)) |

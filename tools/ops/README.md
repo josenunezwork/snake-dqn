@@ -326,10 +326,12 @@ from the owner's reported final-only PASS `acceptance-1792685115` on
 that result; `research/colab_cli/REQUALIFICATION.md` retains its earlier pending text.
 No new acceptance was run to initialize the pointer. On 2026-11-01, the Cap-6
 (`ACCOUNT_ASSIGNMENT_CAP = 6`) transport tree `36285bc6cbb637b392b234f67b55cbaa03b37614`
-was packaged for additive registration via `qualification.py add`
-(`t34-sol/argon-qual-cap6/tree-entry-36285bc6.json`), keeping `40985ca4...` active in
-the v1 view for in-flight jobs. Do not edit any file inside `research/colab_cli/`
-(including `.md` files) without requalification, because doing so alters that Git tree SHA.
+was registered additively via `qualification.py add`
+(`t34-sol/argon-qual-cap6/tree-entry-36285bc6.json`, keeping `40985ca4...` active in
+the v1 view for in-flight jobs) and verified live at `6/6` concurrent runtimes
+(`3 A100 @ 6.73 u/h + 3 L4 @ 1.94 u/h = 26.01 u/h` during `bank14l1–16l1`). Do not
+edit any file inside `research/colab_cli/` (including `.md` files) without
+requalification, because doing so alters that Git tree SHA.
 
 ```bash
 python3 "$REPO/tools/ops/qualification.py" check \

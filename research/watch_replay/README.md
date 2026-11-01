@@ -54,8 +54,13 @@ bytes, compressed size, peak line bytes, elapsed time and search counters.
 
 Set `SNAKE_WATCH_SOURCE=replay` and `SNAKE_WATCH_REPLAY_DIR=/absolute/bank` only
 when ready to opt in. The server first builds the normal released live fallback.
-Path B live search is disabled in replay-source Watch. The bank shuffles without
-reusing a unit in a cycle or immediately repeating it. Empty/exhausted single-session banks use live B8. No bad file is repeatedly
+Path B live search is disabled in replay-source Watch. `ReplayBank._prefetch`
+traverses `sorted(root.glob("*.watch.gz"))[:1024]` deterministically on cycle 1
+(so lexicographically earlier banks play first after a restart) and runs
+`SystemRandom().shuffle` without reusing a unit within a cycle or immediately
+repeating the boundary unit from cycle 2 onward (pre-cycle-1 shuffle and
+`verify_payload` `stop.is_set()` cold-load speedup are tracked in
+[`docs/research/ROADMAP.md`](../../docs/research/ROADMAP.md) §2.1). Empty/exhausted single-session banks use live B8. No bad file is repeatedly
 hashed on live ticks.
 
 The header visibly says replay and “Recorded assisted hero” for exact-stop.
@@ -65,8 +70,8 @@ remains visible. Hero selection reports that limit. Food/epsilon or a valid
 checkpoint load return to live operation. Play always clears replay and uses
 the live game/input/scoring path. Explicit `GameSession(checkpoint=...)` constructors bypass replay
 (note: env-var `SNAKE_SERVE_CHECKPOINT` or `SNAKE_SERVE_WATCH_ROSTER` rollbacks still construct
-`GameSession(checkpoint=None)`, so unset `SNAKE_WATCH_SOURCE` or set `SNAKE_WATCH_SOURCE=live` when
-rolling back live checkpoints/rosters).
+`GameSession(checkpoint=None)`, and `reset_game` / `set_mode` also re-select `_replay_bank`, so unset
+`SNAKE_WATCH_SOURCE` or set `SNAKE_WATCH_SOURCE=live` when rolling back live checkpoints/rosters).
 Playback statistics are recorded session statistics, not live B8 release-monitor
 samples. Fresh viewer count, pause/speed and errors overlay the stored DTO.
 
@@ -91,8 +96,9 @@ Sparse source includes the static research closure plus product source/config.
 No runtime `/Users` dependency or Drive.
 
 Use L4 (default, four independent one-thread CPU session workers) or A100 (`--gpu A100 --workers 6`
-added in `73974411` for `exact-stop-l1` banks `14l1–16l1` on 12-vCPU A100 runtimes) with >=12 vCPUs;
-GPU is unused. This is CPU singleton policy/v8/simulator/search work. L4 supplies the
+added in `73974411` for `exact-stop-l1` banks `14l1–16l1` on 12-vCPU A100 runtimes; measured
+`3.03–3.07 h` and `~20.36–20.67 u` per `12`-session bank = `~61.5 A100 u` total at `6.73 u/h`) with
+>=12 vCPUs; GPU is unused. This is CPU singleton policy/v8/simulator/search work. L4 supplies the
 known host/core configuration; A100/H100 adds idle accelerator capacity when the `L4 <= 3` sub-cap is
 saturated. CPU runtime remains an alternative only after its actual vCPU count and useful rate
 are qualified. Planning L4 rate=1.54 u/h is refreshed by dispatch, never assumed

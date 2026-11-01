@@ -25,22 +25,26 @@ product Watch6 v2, `5× frp3-s12 + v8` opponents, 6,000-frame sessions; pipeline
 - **Launch & fallback:** `.claude/launch.json` (`snake-web`) sets `SNAKE_WATCH_SOURCE=replay` and
   `SNAKE_WATCH_REPLAY_DIR`. **Live bare `b8-s3` remains the automatic fallback** (empty, invalid, or
   exhausted bank), and **Play always stays live** (`b8-s3` without a veto).
-- **Watch replay rollback & attachment scope:** unset `SNAKE_WATCH_SOURCE` (or set
-  `SNAKE_WATCH_SOURCE=live`) and restart. Note: [`GameSession.__init__`](../web/backend/session.py)
-  currently attaches `ReplayBank` whenever `SNAKE_WATCH_SOURCE=replay` and `checkpoint is None`
-  (without checking `served_checkpoint == "b8-s3"`, `watch_roster == "mixed"`, or `Watch6`), so any
-  env-var checkpoint/roster rollback (`SNAKE_SERVE_CHECKPOINT=frp3-s12|champion` or
+- **Watch replay rollback & serving caveats:** unset `SNAKE_WATCH_SOURCE` (or set
+  `SNAKE_WATCH_SOURCE=live`) and restart. Note: [`GameSession`](../web/backend/session.py)
+  (`__init__`, `reset_game`, and `set_mode`) currently selects `ReplayBank` whenever
+  `SNAKE_WATCH_SOURCE=replay` and `checkpoint is None` (without checking
+  `served_checkpoint == "b8-s3"`, `watch_roster == "mixed"`, or `Watch6`), so any env-var
+  checkpoint/roster rollback (`SNAKE_SERVE_CHECKPOINT=frp3-s12|champion` or
   `SNAKE_SERVE_WATCH_ROSTER=all_b8`) must also unset `SNAKE_WATCH_SOURCE` (or set `=live`) until the
-  mixed-Watch6 `b8-s3` guard tracked in [research/ROADMAP.md](research/ROADMAP.md) lands.
-- **`exact-stop-l1` validator & mixed-controller bank note (`73974411` & `395eacbb`, 2026-11-01):**
+  multi-entrypoint mixed-Watch6 `b8-s3` guard tracked in [research/ROADMAP.md](research/ROADMAP.md) §2.1 lands.
+- **`exact-stop-l1` validator, mixed-controller bank & first-cycle ordering (`73974411` & `395eacbb`, 2026-11-01):**
   `web/backend/watch_replay.py` and `research/watch_replay/` accept `"exact-stop-l1"` (`L >= 1`,
   `interval = 5`, `H = 300`) in `ASSISTED_CONTROLLERS` alongside `"exact-stop-l2-prime"`, and
   `web/serve.py` was restarted at `b5b63cd1` to serve `watch-replay-bank-live-168` (`132`
-  `exact-stop-l2-prime` + `36` `exact-stop-l1` `.watch.gz` recordings). Because `ReplayBank._prefetch`
-  accepts any valid controller in `CONTROLLERS` without per-controller env pinning, restricting
-  playback to a single confirmed controller (e.g. `watch-replay-bank-live-132` for `exact-stop-l2-prime`
-  only, or an `exact-stop-l1`-only bank after confirmation) requires pointing `SNAKE_WATCH_REPLAY_DIR`
-  at a single-controller directory or landing `SNAKE_WATCH_REPLAY_CONTROLLER` ([research/ROADMAP.md](research/ROADMAP.md)).
+  `exact-stop-l2-prime` + `36` `exact-stop-l1` `.watch.gz` recordings). Two current `ReplayBank`
+  details tracked in [research/ROADMAP.md](research/ROADMAP.md) §2.1: (1) `ReplayBank._prefetch`
+  walks `sorted(root.glob("*.watch.gz"))[:1024]` on cycle 1 before `SystemRandom().shuffle` runs on
+  cycle 2 (`132 × 250 s = 9.17 h` of `bank01–12` `l2-prime` play before `bank14l1–16l1` after a
+  restart), while `verify_payload` sleeps `stop.wait(0.001)` per frame (`~8–10 s` cold load); and
+  (2) restricting playback to a single confirmed controller (`exact-stop-l2-prime`-only via
+  `watch-replay-bank-live-132`, or `exact-stop-l1`-only after confirmation) requires a
+  single-controller `SNAKE_WATCH_REPLAY_DIR` or landing `SNAKE_WATCH_REPLAY_CONTROLLER`.
 - **Product efficacy measurement status:** synchronous `exact-stop-l2-prime` efficacy vs bare B8 in the
   product H14400 setting is **not yet confirmed and is currently running in Watch6 V3**
   ([`research/watch6_search_efficacy_v3/`](../research/watch6_search_efficacy_v3/)), and `exact-stop-l1`
@@ -59,8 +63,9 @@ product Watch6 v2, `5× frp3-s12 + v8` opponents, 6,000-frame sessions; pipeline
   by all eight T12 serving checks (check 4 cleared by T12B) and T15 mixed-roster qualification.
   Release claim: **more mass at equal survival against the previously served agent, with no veto**
   (not a safety claim). See [release, startup verification and rollback record](research/b8_s3_release_2026-10-17.md).
-- **Default live roster:** **mixed** — bare B8 hero at slot 0 faces **`frp3-s12 + v8` opponents**
-  (SHA prefix `eec144bf`) at slots `1..N−1`. T13b's fixed six-snake rule selected mixed (death gap
+- **Default live Watch roster:** **mixed** (Watch-only; in Play mode, `1` human faces `N` — default `5`,
+  adjustable `1–11` — live bare `b8-s3` AI opponents) — in live Watch, bare B8 hero at slot 0 faces
+  **`frp3-s12 + v8` opponents** (SHA prefix `eec144bf`) at slots `1..N−1`. T13b's fixed six-snake rule selected mixed (death gap
   `0.096/1k <= 0.10`, p95-length gap `127 > 100` cells); T15 passed mixed serving qualification
   (`SERVING_PASS`), and the owner approved the default switch in T15B. See
   [T13b result](research/t13b_six_snake_roster_2026-10-17_results.md),
@@ -94,16 +99,18 @@ For synthesized current-round and later-round research plans (**advice, not deci
   ([`research/watch6_search_efficacy_v3/`](../research/watch6_search_efficacy_v3/)): `24 × 4` L4 `W = 4`
   shards (`96` fresh paired `H = 14,400` Watch6-v2 sessions: `b8-s3` bare vs synchronous
   `exact-stop-l2-prime` at `L >= 600`, `H = 300`, `5× frp3-s12 + v8`, frame-exact live/`GridBatchSim`
-  mirror). Accounting adapter **V6.1** ratified (`75471246`: shard-00 never-allocated, shard-12
-  WebSocket renewal drop); sole final look runs through `tools.watch6_v3_accounting.final_look` with
-  the V6.1 files.
+  mirror; governs `exact-stop-l2-prime` only, not the `36` `exact-stop-l1` recordings in
+  `watch-replay-bank-live-168`). Accounting adapter **V6.1** ratified (`75471246`: shard-00
+  never-allocated, shard-12 WebSocket renewal drop); sole final look **must be invoked under
+  `python -B`** (`./venv/bin/python -B -m tools.watch6_v3_accounting.final_look ...`) because
+  `_forbid_pycache_directory` fails closed on any `__pycache__`/`.pyc` inside the V3 closure.
 - **Completed exploration — Watch6 all-length screen (`ADOPT` for new replay banks)**
   ([`research/watch6_alllen_screen/`](../research/watch6_alllen_screen/), readout
   `t34-sol/argon-alllen-a100/analysis.json`, `N = 48` paired 6,000-frame Watch6-v2 sessions):
   - `bare` (`b8-s3`): mass **`351.1`** (`CI95 [320.2, 381.9]`), deaths **`0.288/1k`** (`83` deaths: `53` at `L < 600`, `30` at `L >= 600`, `21` at `L >= 800`).
   - `l2_prime_600` (served `L >= 600`): mass **`461.2`** (`+110.1` vs `bare`, `CI95 [+72.1, +148.1]`), deaths **`0.160/1k`** (`-44.6%` vs `bare`; `46` deaths: `34` at `L < 600`, `12` at `L >= 600`, `11` at `L >= 800`), `449.6` mean branches/session.
   - **`exact_stop_alllen` (`L >= 1`, `interval = 5`, `H = 300`):** mass **`559.4`** (**`+208.4` vs `bare`**, `CI95 [+170.1, +246.7]`; **`+98.3` vs `L >= 600`**, `CI95 [+50.6, +146.0]`), deaths **`0.052/1k`** (**`-81.9%` vs `bare`**; **`-67.4%` / `-0.108/1k` vs `L >= 600`**, `CI95 [-0.161, -0.054]`; `15` total deaths: **`1` at `L < 600`**, **`14` at `L >= 600`**, **`13` at `L >= 800`**), **`2.82×` search branches** (`1,268.5` mean branches/session, `0.142%` `L < 600` overrides, `mean_max_length = 1,096.0`).
-  - Pre-stated adoption rule (`>= +15.0` incremental mass and `<= 0.0` `deaths/1k` vs `L >= 600`) met: commit `73974411` added `"exact-stop-l1"` to `research/watch_replay/` and `web/backend/watch_replay.py`, and A100 `W = 6` banks `14l1–16l1` (`3 × 12` = `36/36` verified sessions on disjoint seeds; `t34-sol/argon-banks-l1/SUMMARY.md`) were verified and merged into `watch-replay-bank-live-168` (`395eacbb`, `web/serve.py` restarted on `b5b63cd1`). Exploration screen only — confirming `exact-stop-l1` as a Claim-B release still requires prospective H14400 confirmation (`Watch6-L1-V1`).
+  - Pre-stated adoption rule (`>= +15.0` incremental mass and `<= 0.0` `deaths/1k` vs `L >= 600`) met: commit `73974411` added `"exact-stop-l1"` to `research/watch_replay/` and `web/backend/watch_replay.py`, and A100 `W = 6` banks `14l1–16l1` (`3 × 12` = `36/36` verified sessions on disjoint seeds in **`3.03–3.07 h/bank`, `~61.5 A100 u` observed total** at `6.73 u/h`; `t34-sol/argon-banks-l1/SUMMARY.md`) were verified and merged into `watch-replay-bank-live-168` (`395eacbb`, `web/serve.py` restarted on `b5b63cd1`). Exploration screen only — confirming `exact-stop-l1` as a Claim-B release still requires prospective H14400 confirmation (`Watch6-L1-V1`).
 - **Completed parity — GPU `DeviceSim` v2 parity `PASS` on A100**
   ([`research/devicesim_v2_parity/`](../research/devicesim_v2_parity/),
   `t34-sol/argon-devicesim-v2/packet-a100-v2-parity-01/main-run-01/receipt.json`): **`0` mismatches**
@@ -111,9 +118,9 @@ For synthesized current-round and later-round research plans (**advice, not deci
   `<= 1e-4` CUDA FP32 near-tie Q re-decision checks), following `553 passed` local tests and Mac
   `E = 4 × 8` preflight `PASS`.
 - **Completed Oct 30 Claim-A exploration receipts awaiting Mac readout (and `spatial-student-pilot` fit canceled):**
-  - `b8-head-closedloop` (`origin/astra-doom-auc-smoke`, `N = 192` v1 H5000 worlds, `m in {0, 10, 25, 50}`): A100 receipt **`PASS`** (`t34-sol/b8-head-closedloop/main-01/output/receipt.json`), awaiting `< 2.5 min` Mac `closedloop_readout.py`.
+  - `b8-head-closedloop` (`origin/astra-doom-auc-smoke`, `N = 192` v1 H5000 worlds, `m in {0, 10, 25, 50}`, run without `boost_decisions` logging): A100 receipt **`PASS`** (`t34-sol/b8-head-closedloop/main-01/output/receipt.json`), awaiting `< 3 min` Mac `closedloop_readout.py` (plus a `0 u`, `10 min` v2 boost `[0.5%, 10%]` check if any arm survives).
   - `spatial-qbytes-01` (`origin/astra-spatial-student-pilot`): A100 Q-byte ruler receipt **`PASS`** (`t34-sol/spatial-qbytes-fix/t34-spatial-qbytes-01/ruler-output-a100-fallback/receipt.json`), awaiting Mac parity/timing audit; the `40–48 A100 u` `spatial-student-pilot` GPU fit is canceled (`0 u`, retaining compiled `.so` caches) per `t34-sol/student-direction/{astra,fable}.md` and T4 Gate-1 `KILL_T4`.
-- **Colab concurrency caps:** **`6` concurrent runtimes total** (`ACCOUNT_ASSIGNMENT_CAP = 6`, additive v2 registry package prepared for tree `36285bc6` in `t34-sol/argon-qual-cap6/SUMMARY.md`), at most **`3` concurrent L4** (`ACCOUNT_L4_CAP = 3` in `tools/ops/ready_queue.py`).
+- **Colab concurrency caps:** **`6` concurrent runtimes total** (`ACCOUNT_ASSIGNMENT_CAP = 6`, tree `36285bc6` active in `ops/colab-cli-qualified.json` and verified live at `6/6` concurrent runtimes — `3 A100 @ 6.73 u/h + 3 L4 @ 1.94 u/h = 26.01 u/h`, balance `~2,154.66 u`, all `3` A100 slots now free after `14l1–16l1` finished), at most **`3` concurrent L4** (`ACCOUNT_L4_CAP = 3` in `tools/ops/ready_queue.py`).
 - **Closed Oct 29–31 learned-policy, critic, and macro-fallback verdicts (`KILL` / `FAIL`):**
   - **TRAIN-01 GPU-resident PPO** ([`research/sandbox_a_resident/`](../research/sandbox_a_resident/),
     `t34-sol/train01-closeout/SUMMARY.md`) — **Closed** after `384` updates (`100.7M` rows): H5000 equal-mix

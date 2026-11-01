@@ -6,15 +6,18 @@ vector or raster policy) is the
 single source of truth; the React frontend is a pure view that renders frames streamed
 over a WebSocket. No game logic or model inference runs in the browser.
 
-**Served setup:** Play runs live bare **B8 seed 3** (`b8-s3`, no veto) in the `mixed`
-`frp3-s12 + v8` roster (released 2026-10-17). In `.claude/launch.json`, Watch plays the
+**Served setup:** Play runs `1` human against live bare **B8 seed 3** (`b8-s3`, no veto)
+AI opponents (default `5`, adjustable `1–11`; released 2026-10-17), while live Watch fallback
+(`SNAKE_WATCH_SOURCE=live`) runs a bare `b8-s3` hero against the Watch-only `mixed`
+`5× frp3-s12 + v8` roster. In `.claude/launch.json`, Watch plays the
 168-session Colab-precomputed exact-stop replay bank (`SNAKE_WATCH_SOURCE=replay`,
 `SNAKE_WATCH_REPLAY_DIR=.../watch-replay-bank-live-168`: `132` `exact-stop-l2-prime` + `36`
 all-length `exact-stop-l1` `.watch.gz` gzipped canonical JSONL recordings visibly labelled
 `"Recorded assisted hero"`, switched in `395eacbb`), with live bare `b8-s3` as automatic
 fallback (`SNAKE_WATCH_SOURCE=live`). Live checkpoint/roster rollback by restart:
-unset `SNAKE_WATCH_SOURCE` (or set `SNAKE_WATCH_SOURCE=live`, because `GameSession.__init__` attaches
-`ReplayBank` whenever `SNAKE_WATCH_SOURCE=replay` and `checkpoint is None`) and set
+unset `SNAKE_WATCH_SOURCE` (or set `SNAKE_WATCH_SOURCE=live`, because `GameSession` `__init__`,
+`reset_game`, and `set_mode` select `ReplayBank` whenever `SNAKE_WATCH_SOURCE=replay` and
+`checkpoint is None`) and set
 `SNAKE_SERVE_CHECKPOINT=frp3-s12` (or `=champion`, or `SNAKE_SERVE_WATCH_ROSTER=all_b8`). Full map of modules, the WebSocket
 protocol, and every `SNAKE_SERVE_*` / `SNAKE_WATCH_*` env var:
 [docs/architecture/WEB_MAP.md](../docs/architecture/WEB_MAP.md).
