@@ -30,13 +30,17 @@ product Watch6 v2, `5× frp3-s12 + v8` opponents, 6,000-frame sessions; pipeline
   already exits replay and closes `_replay_bank`, `__init__`, `reset_game`, and `set_mode` still
   select `ReplayBank` whenever `SNAKE_WATCH_SOURCE=replay` and `checkpoint is None` (without checking
   `served_checkpoint == "b8-s3"`, `watch_roster == "mixed"`, `Watch6`, or prior `set_epsilon`/`set_food`
-  live opt-outs across `reset_game`). Any env-var checkpoint/roster rollback
+  live opt-outs across `reset_game`), and `GameSession.set_mode` (`session.py:1445-1453`) calls
+  `_leave_watch_replay()` *before* refusing `MODE_TRAIN` on forward-only `ego2s-*` / `raster31v2`
+  (dropping active Watch replay to live `b8-s3` on rejected train toggles). Any env-var checkpoint/roster rollback
   (`SNAKE_SERVE_CHECKPOINT=frp3-s12|champion` or `SNAKE_SERVE_WATCH_ROSTER=all_b8`) must therefore also
-  unset `SNAKE_WATCH_SOURCE` (or set `=live`) until `set_epsilon`/`set_food`-scoped `_replay_opted_out`
-  (cleared on `_build` / split `"new_game"`, leaving `Play -> Watch` intact) and the multi-entrypoint
+  unset `SNAKE_WATCH_SOURCE` (or set `=live`) until the `set_mode("train")` guard reorder,
+  `set_epsilon`/`set_food`-scoped `_replay_opted_out`
+  (cleared on `_build` / split `"new_game"`, leaving `Play -> Watch` intact), and the multi-entrypoint
   mixed-Watch6 `b8-s3` guard tracked in [research/ROADMAP.md](research/ROADMAP.md) §2.1 land on `main`
   (leaving V3 worktrees untouched, patching `"SNAKE_WATCH_SOURCE": "live"` in `open_watch`, and
-  explicitly excluding `watch_replay.py` — imported by `session.py:568` — and `app.py` from
+  explicitly excluding `tools/ops/package_spec.py` — hashed in `watch6_search_efficacy_v3/protocol.py:94` —
+  `watch_replay.py` — imported by `session.py:568` — and `app.py` from
   confirmation source closures).
 - **`exact-stop-l1` validator, mixed-controller bank & first-cycle ordering (`73974411` & `395eacbb`, 2026-11-01):**
   `web/backend/watch_replay.py` and `research/watch_replay/` accept `"exact-stop-l1"` (`L >= 1`,
@@ -110,9 +114,16 @@ For synthesized current-round and later-round research plans (**advice, not deci
   mirror; governs `exact-stop-l2-prime` only, not the `36` `exact-stop-l1` recordings in
   `watch-replay-bank-live-168`). Accounting adapter **V6.1** ratified (`75471246`; at `05:01 PT` on
   2026-11-01: `14/24` `PASS` shards `01..08, 10, 11, 13..16`, `6/24` active `17, 18, 20..23`, and
-  `4/24` V6.1-accepted mechanical failures `00, 09, 12, 19`). **Linear-retry, `web/backend/` hash-coupling & bytecode guards:**
+  `4/24` V6.1-accepted mechanical failures `00, 09, 12, 19`). **Staging-fence quarantine ruling (`09:16 PT`), linear-retry, closure-hash & bytecode guards:**
+  at `09:16 PT` on 2026-11-01, the Fable stand-in judge ratified (`APPROVE_WITH_CONDITIONS`,
+  `t34-sol/v61-fence-ruling-20261101.md`, `t34-sol/v61-fence-evidence-20261101.json`) plain-`mv`
+  quarantine of **only** `23` historical non-V3 H100-503 `_attempt_state == "FENCE"` manifests +
+  `.live.json` siblings in `ops/manifests/` to `ops/manifests-archive-20261101/` under `flock` on
+  `ops/watch6-staging.lock` (**`0` symlinks**, because `final_look.py:473-483` fails closed on
+  `is_symlink()` before namespace filtering), unblocking `wait_other_jobs_staged` for shards `00, 12`.
   `final_look.py:_verify_shard_lineage` rejects forked attempt trees sharing a parent receipt, and
-  `watch6_search_efficacy_v3/protocol.py` hashes `web/backend/` into V3's `identity()` — keep all V3
+  `watch6_search_efficacy_v3/protocol.py` hashes both `tools/ops/package_spec.py` (`line 94`) and
+  `web/backend/` (`line 96`) into V3's `identity()` — keep all V3
   worktrees untouched, use **only** the already-staged `ops/auto-retry` packets on shards `09, 19`
   (**never** run `recover.py` on `09, 19`), dispatch `recovery-shard-{00,12}-01` on `00, 12` via
   `python -B -m tools.watch6_v3_accounting.dispatch`, and invoke the sole final look **under
@@ -165,7 +176,7 @@ For synthesized current-round and later-round research plans (**advice, not deci
     uncertified coils and `options.py` hardcoded `min_boost_length = 10` vs live `5`, restricted `omega1` to
     static `tau <= 1`, and vacuously set `t_cert = 1` on `ext_gain == 0` internal tail cells —
     failing `+3.85 pp < +10.0 pp` total `L >= 600` lift and `2 > 0` newly caused ordinary lethal flips from
-    single-suffix `sel0` and aggressive `O3`/`O5`; `0` assessment roots opened; informs `CausalCert-v10` advice
+    single-suffix `sel0` and aggressive `O3`/`O5`; `0` assessment roots opened; informs `TailExitCert` + `TailFollow` advice
     in [research/ROADMAP.md](research/ROADMAP.md) §3).
 
 ---

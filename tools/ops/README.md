@@ -142,7 +142,8 @@ within a variant refreshes that variant's deadline.
 The operator tool's `--timeout-seconds` may shorten its 600-second total bound;
 zero, nonfinite values and values above 600 are refused.
 The qualified supervisor refuses **all new allocations** while any pending record
-exists, even when fewer than three sessions are active. Historical sealed brokers
+exists, even when fewer than six sessions are active (`ACCOUNT_ASSIGNMENT_CAP = 6`
+since 2026-10-31; three on historical tree `40985ca4`). Historical sealed brokers
 remain fenced until this shared account record is reconciled; no packet change
 is necessary to remove that account-wide blocker.
 
@@ -205,7 +206,7 @@ same-pin canary is still required.
 ## Resume-by-default
 
 [Resume policy ruling (2)](../../docs/research/advice/2026-10-21_big_lever/JUDGMENT_RESUME_POLICY.md#2-standing-requirement--idempotent-completed-units--verified-ledger-resume-skip)
-applies to every future Sol Colab package, including development jobs. Each manifest
+applies to every future Colab package (any implementer), including development jobs. Each manifest
 must declare this top-level block:
 
 ```json
@@ -341,7 +342,7 @@ python3 "$REPO/tools/ops/qualification.py" check \
 ```
 
 The persistent `watchd` tmux daemon writes `ops/events.log`: `JOB_ENDED`, `SOL_DONE`,
-`COLAB_UNDERUSED` (fewer than three assignments for ten minutes), `MAC_IDLE` (no
+`COLAB_UNDERUSED` (fewer than `ACCOUNT_ASSIGNMENT_CAP = 6` assignments for ten minutes), `MAC_IDLE` (no
 Python worker above 50% CPU for fifteen minutes), and `COLAB_CLI_UNQUALIFIED` when
 freshly fetched `origin/main` differs from the registry. Missing/invalid registry or
 failed Git refresh also emits that qualification event. Unchanged qualification
@@ -434,8 +435,8 @@ the other lanes. `status` prints all entries; `run --dry-run` reports eligible I
 and capacity without queue writes, preparation, retry or allocation.
 
 > [!NOTE]
-> **Round-10 Two-Stage Transport & `confirm_audit.py` advice:**
-> Tracked in [`docs/research/ROADMAP.md`](../../docs/research/ROADMAP.md) §2.2: **Stage 1 (`0 u` Colab, `tools/ops/` on active `36285bc6`, zero `colab_cli` edits)** binds [`PUBLIC_INPUTS.json`](../../research/t34_exit_b8/PUBLIC_INPUTS.json) immutable `"url"`s + `< 36 KiB` `input-metadata.tar.gz` / `verified-ledger.tar` (`15 m` recovery canary when `verified-ledger.tar` changes until Stage 2), enforces locked `total < 6` / `L4 < 3` in `dispatch.py --no-internal-retry` (retiring `-retry-1` and `recover.py`), separates `<= 8` `0`-compute pre-start retries from `<= 2` `.meta.json` compute-stall retries + `exports/slot-fault.json`, and audits via regex-free `python -B -m tools.ops.confirm_audit` (`elapsed_seconds < timeout_minutes * 60 - 180`, `0` `pair-*.json` reads); **Stage 2 (`~1.5 u` additive `colab_cli` via `qualification.py add`, `12/12` gates = `11` `final-only` + `d1024` in `requalify.sh`)** unlinks `pending-<session>.json` in `< 20 s` pre-warmup + cleans up `NEVER_ASSIGNED` `412`/`503` + emits `POLLING_ASSIGNMENT_CAP_ERROR`, adds `90 s` `Broker.run` salvage + `0`-WS post-`ready.json` polling (`state.json` tails, stat-fenced `.next.json`, `allow_rpc=False` `<= 8 MiB` exports), exempts `verified-ledger.tar` in `canary.check`, and uses thread-safe socket-deadline `public-cache/`.
+> **Round-11 Two-Stage Transport, `confirm_package.py` & `confirm_audit.py` advice:**
+> Tracked in [`docs/research/ROADMAP.md`](../../docs/research/ROADMAP.md) §2.2: **Stage 1 (`0 u` Colab, `tools/ops/` on active `36285bc6`, zero `colab_cli` edits)** packs one shard-invariant `< 24 KiB` `study-contract.tar.gz` (`env["CONFIRM_SHARD"]` ignored by `canary.family` $\Rightarrow$ `1` canary/24 shards) + `< 4 KiB` `verified-ledger.tar`, binds standalone `6.91 MB` `frp3_m3_s12` + `6.56 MB` `B8_s3` HTTPS URLs from [`PUBLIC_INPUTS.json`](../../research/t34_exit_b8/PUBLIC_INPUTS.json), emits timing- and gameplay-free survival-blind `unit-{w:03d}.meta.json` + outer-trap `exports/slot-fault.json`, enforces locked `total < 6` / `L4 < 3` + `--no-internal-retry` + single-GPU `reconcile_unavailable` in `dispatch.py`, splits `auto_retry.py:plan_retry` at `hardware.json` into `prestart_attempt <= 8` (`0` extra canaries) vs `completion_attempt <= 2` (`elapsed_seconds < timeout_minutes * 60 - 180`, refusing `public-input-fetch-failed.json` / `slot-fault.json`, `0` payload reads) + regex-free `python -B -m tools.ops.confirm_audit`, and verifies via a 9-trace [`tests/fixtures/fake_colab.py`](../../tests/fixtures/fake_colab.py) battery; **Stage 2 (`~1.5 u` additive `colab_cli` via `qualification.py add`, `12/12` gates = `11` `final-only` + `d1024` in `requalify.sh`)** runs real `14 s` `calibrate_rate` *under* `account.lock` before `wait_runtime_ready` (`~16–22 s` lock hold, preserving `rate-calibration`) + fast-fails `KERNEL_CREATION_GUARD_ERROR`, routes `<= 8 MiB` exports via Contents `export_file` + Contents `state.json` GET + `90 s` pre-stop Contents salvage when `observer is None` (`0` post-`ready.json` WS RPCs), exempts `verified-ledger.tar` (`<= 64 KiB`) in `canary.check`, and `flock`-caches public URL digests in `inputs.py`.
 
 The retry scanner runs in the daemon. `enqueue --track` can adopt an already
 dispatched command (with an existing log) without submitting it again. For a

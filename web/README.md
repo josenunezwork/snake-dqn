@@ -70,7 +70,9 @@ The arena is always on screen; the other six are tabs beside it.
 - **Dashboard** — eval leaderboard parsed from `logs/eval_*.json` + the checkpoint inventory.
 - **Controls** — play/pause, reset, speed, epsilon, hero selector, checkpoint loader, and a
   watch/train toggle (train rebuilds legacy `vector61` policies in training mode and is refused on
-  forward-only `ego2s-*` / `b8-s3` and `raster31v2` checkpoints).
+  forward-only `ego2s-*` / `b8-s3` and `raster31v2` checkpoints; note `session.py:1445` currently calls
+  `_leave_watch_replay()` before that refusal, dropping active Watch replay to live `b8-s3` until the
+  [docs/research/ROADMAP.md](../docs/research/ROADMAP.md) §2.1 guard reorder lands).
 
 ### Play / leaderboard REST
 

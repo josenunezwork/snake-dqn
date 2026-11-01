@@ -69,10 +69,11 @@ The header visibly says replay and “Recorded assisted hero” for exact-stop.
 Search overrides are marked “Move from search” in the inspector alongside the
 bare action; displayed Q-values remain the bare network. Pause/speed operate on playback. Inspector follows recorded hero #0; roster
 remains visible. Hero selection reports that limit. A valid `load_checkpoint` exits replay and closes
-`_replay_bank` immediately, while food/epsilon changes also switch to live operation (note: `reset_game`
-currently re-enters `_select_watch_replay()` after `set_food`/`set_epsilon` until `set_epsilon`/`set_food`-scoped
-`_replay_opted_out` — cleared on `_build` / split `"new_game"` so `Play -> Watch` stays intact — in
-[`docs/research/ROADMAP.md`](../../docs/research/ROADMAP.md) §2.1 lands). Play always clears replay and uses
+`_replay_bank` immediately, while food/epsilon changes (and currently rejected `set_mode("train")` toggles on
+`ego2s-*`, which call `_leave_watch_replay()` first at `session.py:1445`) also switch to live operation (note:
+`reset_game` currently re-enters `_select_watch_replay()` after `set_food`/`set_epsilon` until the `set_mode("train")`
+guard reorder and `set_epsilon`/`set_food`-scoped `_replay_opted_out` — cleared on `_build` / split `"new_game"` so
+`Play -> Watch` stays intact — in [`docs/research/ROADMAP.md`](../../docs/research/ROADMAP.md) §2.1 land). Play always clears replay and uses
 the live game/input/scoring path. Explicit `GameSession(checkpoint=...)` constructors bypass replay
 (note: env-var `SNAKE_SERVE_CHECKPOINT` or `SNAKE_SERVE_WATCH_ROSTER` rollbacks still construct
 `GameSession(checkpoint=None)`, and `reset_game` / `set_mode` also re-select `_replay_bank`, so unset
