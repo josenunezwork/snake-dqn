@@ -21,7 +21,7 @@ verdict recorded in repository files.
 
 ## Current & recent decision-relevant packages (Watch6, Oct 31 – Nov 1 exploration, active infra/sandbox)
 
-Run and serving states as of [`docs/STATUS.md`](../docs/STATUS.md) 2026-11-01 PT (see also [`docs/research/ROADMAP.md`](../docs/research/ROADMAP.md) for Round-09 advice).
+Run and serving states as of [`docs/STATUS.md`](../docs/STATUS.md) 2026-11-01 PT (see also [`docs/research/ROADMAP.md`](../docs/research/ROADMAP.md) for Round-10 advice).
 
 | Package | Purpose | Campaign / tag | Status | Verdict / status basis | Key entry files | Last package commit |
 |---|---|---|---|---|---|---|
