@@ -54,6 +54,7 @@ from web.backend.served_checkpoint import (
     FRP3_S12_SHA256,
     LOG_PREFIX,
     NAME_B8_S3,
+    NAME_FRP3_S12,
     WATCH_ROSTER_ALL_B8,
     WATCH_ROSTER_MIXED,
     WATCH_ROSTER_RELEASED_DEFAULT,
@@ -547,6 +548,10 @@ class GameSession:
         self.watch_opponent_policy: Optional[object] = None
         self._release_monitoring = False
         self._release_latency_warmup_remaining = 0
+        self._replay_opted_out = False
+        self._replay_pending = False
+        self._watch_replay = None
+        self._replay_bank = None
         ckpt = checkpoint
         if not ckpt:
             choice = resolve_served_checkpoint(champion_path=DEFAULT_CHECKPOINT)
@@ -559,10 +564,14 @@ class GameSession:
             ckpt = choice.path
         self._build(ckpt, mode=MODE_WATCH)
         # Always construct the released live fallback first. Replay is opt-in,
-        # Watch-only, and never installs a search controller in the live game.
-        self._watch_replay = None
-        self._replay_bank = None
-        if os.environ.get("SNAKE_WATCH_SOURCE", "live") == "replay" and checkpoint is None:
+        # Watch-only, gated on the clean released mixed-Watch6 b8-s3 world, and
+        # never installs a search controller in the live game.
+        if (
+            os.environ.get("SNAKE_WATCH_SOURCE", "live") == "replay"
+            and checkpoint is None
+            and not self._replay_opted_out
+            and self._is_clean_mixed_watch6_b8()
+        ):
             from pathlib import Path
 
             from web.backend.watch_replay import ReplayBank
@@ -710,6 +719,39 @@ class GameSession:
         self._log_watch_roster(requested, None)
         return state
 
+    def _is_clean_mixed_watch6_b8(self) -> bool:
+        """True only for the clean released 6-snake mixed-Watch6 b8-s3 serving world."""
+        choice = getattr(self, "served_checkpoint", None)
+        opponent = getattr(self, "watch_opponent_checkpoint", None)
+        snakes = list(getattr(getattr(self, "game", None), "snakes", ()))
+        safety_veto = getattr(self, "safety_veto", None)
+        return bool(
+            self.mode == MODE_WATCH
+            and GameConfig.MECHANICS_VERSION == 2
+            and len(snakes) == 6
+            and getattr(self, "watch_roster", None) == WATCH_ROSTER_MIXED
+            and getattr(self, "watch_roster_reason", None) is None
+            and isinstance(choice, Mapping)
+            and choice.get("name") == NAME_B8_S3
+            and choice.get("path") == getattr(self, "checkpoint_path", None)
+            and choice.get("sha256") == B8_S3_SHA256
+            and not choice.get("reason")
+            and not choice.get("pin_problems")
+            and isinstance(opponent, Mapping)
+            and opponent.get("name") == NAME_FRP3_S12
+            and opponent.get("sha256") == FRP3_S12_SHA256
+            and not opponent.get("reason")
+            and not opponent.get("pin_problems")
+            and getattr(self, "watch_opponent_policy", None) is not None
+            and getattr(self, "obs_spec", None) in EGO2S_OBS_SPECS
+            and int(snakes[0].id) == int(self.hero_id)
+            and getattr(snakes[0], "policy", None) is getattr(self, "policy", None)
+            and getattr(snakes[0], "safety_veto", None) is None
+            and safety_veto is not None
+            and bool(safety_veto.active)
+            and safety_veto.scope == "watch_opponents"
+        )
+
     # -- construction -------------------------------------------------------
     def _build(
         self, checkpoint: Optional[str], mode: str, override_reward_contract: bool = False
@@ -718,9 +760,14 @@ class GameSession:
         previous_config = get_config()
         try:
             self._build_impl(checkpoint, mode, override_reward_contract)
+            self._replay_opted_out = False
             from web.backend.pathb import configure
 
-            if mode == MODE_WATCH and os.environ.get("SNAKE_WATCH_SOURCE") == "replay":
+            if (
+                mode == MODE_WATCH
+                and os.environ.get("SNAKE_WATCH_SOURCE") == "replay"
+                and self._is_clean_mixed_watch6_b8()
+            ):
                 if getattr(self, "pathb", None) is not None:
                     self.pathb.close()
                 self.pathb = None
@@ -1153,10 +1200,12 @@ class GameSession:
 
     def set_epsilon(self, eps: float) -> None:
         with self._lock:
+            value = max(0.0, min(1.0, float(eps)))
+            self._replay_opted_out = True
             self._leave_watch_replay()
             if getattr(self, "pathb", None) is not None:
                 self.pathb.invalidate()
-            self.policy.epsilon = max(0.0, min(1.0, float(eps)))
+            self.policy.epsilon = value
 
     def set_hero(self, snake_id: int) -> None:
         with self._lock:
@@ -1177,9 +1226,6 @@ class GameSession:
         trims the excess here. Persisted on the GameState so resets keep it.
         """
         with self._lock:
-            self._leave_watch_replay()
-            if getattr(self, "pathb", None) is not None:
-                self.pathb.invalidate()
             target = max(0, min(1000, int(target)))
             if self.obs_spec == RASTER31V3:
                 expected = int(getattr(self.game.food_manager, "max_food", target))
@@ -1188,6 +1234,10 @@ class GameSession:
                         "promotion-v2-watch-rect food target is pinned to checkpoint world"
                     )
                 return
+            self._replay_opted_out = True
+            self._leave_watch_replay()
+            if getattr(self, "pathb", None) is not None:
+                self.pathb.invalidate()
             fm = self.game.food_manager
             fm.max_food = target
             # reset() / new spawns read these effective counts on the GameState.
@@ -1200,7 +1250,12 @@ class GameSession:
 
     def reset_game(self) -> None:
         with self._lock:
-            if self.mode == MODE_WATCH and getattr(self, "_replay_bank", None) is not None:
+            if (
+                self.mode == MODE_WATCH
+                and getattr(self, "_replay_bank", None) is not None
+                and not getattr(self, "_replay_opted_out", False)
+                and self._is_clean_mixed_watch6_b8()
+            ):
                 self._select_watch_replay()
                 if self._watch_replay is not None:
                     return
@@ -1216,6 +1271,12 @@ class GameSession:
                 invalidate()
             if self.mode == MODE_PLAY:
                 self._start_run()
+
+    def new_game(self) -> None:
+        """Start a fresh game, re-enabling Watch replay after an explicit opt-out."""
+        with self._lock:
+            self._replay_opted_out = False
+            self.reset_game()
 
     def save_weights(self) -> str:
         """Persist the live policy's weights to a fresh checkpoint in SAVED_DIR.
@@ -1442,12 +1503,19 @@ class GameSession:
         with self._lock:
             if mode == self.mode:
                 return
-            self._leave_watch_replay()
             if mode == MODE_TRAIN and self.obs_spec in EGO2S_OBS_SPECS:
                 # Ego students have no training path. Match the construction-time
-                # refusal from every mode, while preserving an existing Watch arena.
+                # refusal from every mode, while preserving an existing Watch arena
+                # (including an active Watch replay).
                 if self.mode != MODE_WATCH:
+                    self._leave_watch_replay()
                     self._build(self.checkpoint_path, mode=MODE_WATCH)
+                    if (
+                        getattr(self, "_replay_bank", None) is not None
+                        and not getattr(self, "_replay_opted_out", False)
+                        and self._is_clean_mixed_watch6_b8()
+                    ):
+                        self._select_watch_replay()
                 self.last_error = "ego2s students are served forward-only; dropped to watch mode."
                 self.last_error_overridable = False
                 return
@@ -1475,6 +1543,7 @@ class GameSession:
                 )
                 self.last_error_overridable = True
                 return
+            self._leave_watch_replay()
             try:
                 self.last_error = None
                 self.last_error_overridable = False
@@ -1483,7 +1552,12 @@ class GameSession:
                     mode=mode,
                     override_reward_contract=override_reward_contract,
                 )
-                if mode == MODE_WATCH and getattr(self, "_replay_bank", None) is not None:
+                if (
+                    mode == MODE_WATCH
+                    and getattr(self, "_replay_bank", None) is not None
+                    and not getattr(self, "_replay_opted_out", False)
+                    and self._is_clean_mixed_watch6_b8()
+                ):
                     self._select_watch_replay()
             except Exception as exc:  # contract mismatch etc. -> fall back to watch
                 self.last_error = f"Cannot enter {mode} mode: {exc}"

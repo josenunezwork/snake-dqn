@@ -308,7 +308,7 @@ _CONTROL_HANDLERS = {
     "play": lambda s, v, c: s.set_playing(True),
     "pause": lambda s, v, c: s.set_playing(False),
     "reset": lambda s, v, c: s.reset_game(),
-    "new_game": lambda s, v, c: s.reset_game(),
+    "new_game": lambda s, v, c: s.new_game(),
     "set_speed": lambda s, v, c: s.set_speed(v),
     # set_mode / load_checkpoint accept either a plain string value or
     # {"mode"/"name": ..., "override_reward_contract": true} — the dict form is

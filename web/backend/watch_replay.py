@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
-import copy
 import gzip
 import hashlib
 import io
 import json
 import logging
 import math
+import os
 import queue
 import random
 import threading
+import time
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -20,9 +21,48 @@ B8_SHA = "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
 FRP3_SHA = "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
 ASSISTED_CONTROLLERS = frozenset({"exact-stop-l2-prime", "exact-stop-l1"})
 CONTROLLERS = ASSISTED_CONTROLLERS | {"bare-b8"}
+ENV_REPLAY_CONTROLLER = "SNAKE_WATCH_REPLAY_CONTROLLER"
+REPLAY_CONTROLLER_ALL = "all"
+VALID_REPLAY_CONTROLLERS = frozenset({REPLAY_CONTROLLER_ALL, *ASSISTED_CONTROLLERS})
 MAX_COMPRESSED = 128 * 1024**2
 MAX_DECODED = 512 * 1024**2
 MAX_LINE = 2 * 1024**2
+COOPERATIVE_YIELD_FRAMES = 64
+COOPERATIVE_YIELD_SLICE_SECONDS = 0.00025
+COOPERATIVE_YIELD_MIN_WAIT_SECONDS = 0.001
+COOPERATIVE_YIELD_DUTY_FACTOR = 4.0
+
+_REQUIRED_FRAME_KEYS = frozenset(
+    {
+        "arena",
+        "food",
+        "stats",
+        "session",
+        "inspector",
+        "netviz",
+        "obs_spec",
+        "architecture",
+        "checkpoint_name",
+        "serving_contract",
+        "play",
+        "hero_raster",
+    }
+)
+_SNAKE_IDS = frozenset(range(6))
+_SNAKE_KEYS = ("segments", "head", "length", "alive", "boosting", "color", "is_hero", "name")
+_OPTIONAL_DICT_KEYS = ("inspector", "netviz", "hero_raster", "serving_contract")
+_ARENA_NUMERIC_KEYS = ("width", "height", "segment", "wall")
+_INSPECTOR_NUMERIC_LIST_KEYS = ("q_values", "state", "free_space")
+_INSPECTOR_ACTION_KEYS = ("chosen", "executed_action", "replay_bare_action")
+_NUM_TYPES = (int, float)
+_ISFINITE = math.isfinite
+
+
+def _reject_nonfinite(_token: str) -> Any:
+    raise ValueError("non-finite JSON constant")
+
+
+_FINITE_JSON_DECODER = json.JSONDecoder(parse_constant=_reject_nonfinite)
 
 
 def canonical(value: Any) -> bytes:
@@ -32,6 +72,13 @@ def canonical(value: Any) -> bytes:
     ).encode()
 
 
+def _decode_json_object(line: bytes) -> dict:
+    value = _FINITE_JSON_DECODER.decode(line.decode("utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError("replay record must be an object")
+    return value
+
+
 def _records(payload: bytes) -> Iterator[dict]:
     total = 0
     with gzip.GzipFile(fileobj=io.BytesIO(payload)) as stream:
@@ -39,10 +86,7 @@ def _records(payload: bytes) -> Iterator[dict]:
             total += len(line)
             if len(line) > MAX_LINE or total > MAX_DECODED:
                 raise ValueError("replay decompression limit")
-            value = json.loads(line, parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
-            if not isinstance(value, dict):
-                raise ValueError("replay record must be an object")
-            yield value
+            yield _decode_json_object(line)
 
 
 def validate_header(header: dict, *, product: bool = True) -> None:
@@ -64,86 +108,124 @@ def validate_header(header: dict, *, product: bool = True) -> None:
         raise ValueError("foreign replay metadata")
 
 
+def resolve_replay_controller(controller: str | None = None) -> tuple[str | None, str | None]:
+    """Resolve SNAKE_WATCH_REPLAY_CONTROLLER, failing closed on unknown values."""
+    raw = os.environ.get(ENV_REPLAY_CONTROLLER) if controller is None else controller
+    if raw is None or not str(raw).strip():
+        return REPLAY_CONTROLLER_ALL, None
+    normalized = str(raw).strip().lower()
+    if normalized not in VALID_REPLAY_CONTROLLERS:
+        return None, (
+            f"Invalid {ENV_REPLAY_CONTROLLER}={raw!r}; expected all, "
+            "exact-stop-l2-prime, or exact-stop-l1. Using live B8."
+        )
+    return normalized, None
+
+
+def _check_replay_files(path: Path) -> tuple[Path, Path]:
+    sha_path = Path(str(path) + ".sha256")
+    complete_path = Path(str(path) + ".complete")
+    paths = (path, sha_path, complete_path)
+    if any(p.is_symlink() or not p.is_file() for p in paths):
+        raise ValueError("incomplete replay")
+    if path.stat().st_size > MAX_COMPRESSED or sha_path.stat().st_size > 1024:
+        raise ValueError("oversized replay")
+    if complete_path.stat().st_size > 4096 or complete_path.read_bytes() != b"complete\n":
+        raise ValueError("replay completion marker")
+    return sha_path, complete_path
+
+
+def peek_header(path: Path, *, product: bool = True) -> dict:
+    """Read and validate only line 1 of a completed .watch.gz recording."""
+    _check_replay_files(path)
+    with path.open("rb") as raw_stream, gzip.GzipFile(fileobj=raw_stream) as stream:
+        line = stream.readline(MAX_LINE + 1)
+    if not line:
+        raise ValueError("truncated replay")
+    if len(line) > MAX_LINE:
+        raise ValueError("replay decompression limit")
+    header = _decode_json_object(line)
+    validate_header(header, product=product)
+    return header
+
+
 def _number(value: Any) -> bool:
-    return type(value) in (int, float) and math.isfinite(value)
+    return type(value) in _NUM_TYPES and _ISFINITE(value)
 
 
 def _point(value: Any) -> bool:
-    return isinstance(value, list) and len(value) == 2 and all(_number(v) for v in value)
+    if not isinstance(value, list) or len(value) != 2:
+        return False
+    x, y = value[0], value[1]
+    return type(x) in _NUM_TYPES and _ISFINITE(x) and type(y) in _NUM_TYPES and _ISFINITE(y)
 
 
 def validate_frame(frame: dict, index: int) -> None:
     """Require the existing protocol plus the six recorded roster members."""
-    required = {
-        "arena",
-        "food",
-        "stats",
-        "session",
-        "inspector",
-        "netviz",
-        "obs_spec",
-        "architecture",
-        "checkpoint_name",
-        "serving_contract",
-        "play",
-        "hero_raster",
-    }
+    snakes = frame.get("snakes")
     if (
         frame.get("type") != "frame"
         or frame.get("protocol_version") != 2
         or type(frame.get("frame")) is not int
-        or frame.get("frame") != index
+        or frame["frame"] != index
         or frame.get("mechanics_version") != 2
-        or not required <= frame.keys()
-        or not isinstance(frame.get("snakes"), list)
-        or len(frame["snakes"]) != 6
-        or any(not isinstance(s, dict) or type(s.get("id")) is not int for s in frame["snakes"])
-        or {s.get("id") for s in frame["snakes"]} != set(range(6))
-        or any(not isinstance(frame[k], dict) for k in ("session", "arena", "stats"))
+        or not _REQUIRED_FRAME_KEYS <= frame.keys()
+        or not isinstance(snakes, list)
+        or len(snakes) != 6
+        or any(not isinstance(s, dict) or type(s.get("id")) is not int for s in snakes)
+        or {s["id"] for s in snakes} != _SNAKE_IDS
+        or not isinstance(frame["session"], dict)
+        or not isinstance(frame["arena"], dict)
+        or not isinstance(frame["stats"], dict)
         or not isinstance(frame["food"], list)
         or not all(_point(p) for p in frame["food"])
-        or any(
-            frame[k] is not None and not isinstance(frame[k], dict)
-            for k in ("inspector", "netviz", "hero_raster", "serving_contract")
-        )
-        or any(not isinstance(frame[k], str) for k in ("obs_spec", "architecture"))
+        or any(frame[k] is not None and not isinstance(frame[k], dict) for k in _OPTIONAL_DICT_KEYS)
+        or not isinstance(frame["obs_spec"], str)
+        or not isinstance(frame["architecture"], str)
         or not isinstance(frame["checkpoint_name"], (str, type(None)))
         or frame["session"].get("mode") != "watch"
         or frame["session"].get("watch_roster") != "mixed"
         or frame.get("play") is not None
     ):
         raise ValueError(f"invalid Watch replay frame {index}")
-    for snake in frame["snakes"]:
-        for key in ("segments", "head", "length", "alive", "boosting", "color", "is_hero", "name"):
+    for snake in snakes:
+        for key in _SNAKE_KEYS:
             if key not in snake:
                 raise ValueError("incomplete recorded snake")
+        segments = snake["segments"]
+        head = snake["head"]
+        length = snake["length"]
+        color = snake["color"]
         if (
-            not isinstance(snake["segments"], list)
-            or not all(_point(p) for p in snake["segments"])
-            or (snake["head"] is not None and not _point(snake["head"]))
-            or type(snake["length"]) is not int
-            or snake["length"] < 0
-            or any(type(snake[k]) is not bool for k in ("alive", "boosting", "is_hero"))
+            not isinstance(segments, list)
+            or not all(_point(p) for p in segments)
+            or (head is not None and not _point(head))
+            or type(length) is not int
+            or length < 0
+            or type(snake["alive"]) is not bool
+            or type(snake["boosting"]) is not bool
+            or type(snake["is_hero"]) is not bool
             or not isinstance(snake["name"], str)
-            or not isinstance(snake["color"], list)
-            or len(snake["color"]) != 3
-            or any(type(c) is not int or not 0 <= c <= 255 for c in snake["color"])
+            or not isinstance(color, list)
+            or len(color) != 3
+            or any(type(c) is not int or not 0 <= c <= 255 for c in color)
         ):
             raise ValueError("invalid recorded snake field types")
-    if any(not _number(frame["arena"].get(k)) for k in ("width", "height", "segment", "wall")):
+    arena = frame["arena"]
+    if any(not _number(arena.get(k)) for k in _ARENA_NUMERIC_KEYS):
         raise ValueError("invalid recorded arena")
 
     if any(v is not None and not _number(v) for v in frame["stats"].values()):
         raise ValueError("invalid recorded stats")
     inspector = frame["inspector"]
     if inspector is not None:
-        for key in ("q_values", "state", "free_space"):
+        for key in _INSPECTOR_NUMERIC_LIST_KEYS:
             value = inspector.get(key)
             if value is not None and (
                 not isinstance(value, list) or not all(_number(v) for v in value)
             ):
                 raise ValueError("invalid inspector numeric fields")
-        for key in ("chosen", "executed_action", "replay_bare_action"):
+        for key in _INSPECTOR_ACTION_KEYS:
             value = inspector.get(key)
             if value is not None and (type(value) is not int or not -1 <= value < 6):
                 raise ValueError("invalid inspector action")
@@ -169,12 +251,25 @@ def verify_payload(
     header = next(records)
     validate_header(header, product=product)
     count = 0
+    slice_start = time.perf_counter() if stop is not None else 0.0
     for count, frame in enumerate(records, 1):
         validate_frame(frame, count)
-        # Serving verification cooperatively releases the GIL between bounded
-        # records. Producer verification keeps its original synchronous path.
-        if stop is not None and stop.wait(0.001):
-            raise InterruptedError("replay bank closed")
+        # Serving verification cooperatively releases the GIL at least every
+        # 64 records and whenever a single verification slice reaches 0.25 ms
+        # so heavy late-game frames cannot starve live Watch fallback ticks.
+        # Producer verification keeps its original synchronous path.
+        if stop is not None:
+            if stop.is_set():
+                raise InterruptedError("replay bank closed")
+            elapsed = time.perf_counter() - slice_start
+            if count % COOPERATIVE_YIELD_FRAMES == 0 or elapsed >= COOPERATIVE_YIELD_SLICE_SECONDS:
+                wait_s = max(
+                    COOPERATIVE_YIELD_MIN_WAIT_SECONDS,
+                    elapsed * COOPERATIVE_YIELD_DUTY_FACTOR,
+                )
+                if stop.wait(wait_s):
+                    raise InterruptedError("replay bank closed")
+                slice_start = time.perf_counter()
     if count != header["horizon"]:
         raise ValueError("truncated replay")
     return header
@@ -191,17 +286,11 @@ class Recording:
         cache: dict | None = None,
         stop: threading.Event | None = None,
     ) -> None:
-        paths = [path, Path(str(path) + ".sha256"), Path(str(path) + ".complete")]
-        if any(p.is_symlink() or not p.is_file() for p in paths):
-            raise ValueError("incomplete replay")
-        if path.stat().st_size > MAX_COMPRESSED or paths[1].stat().st_size > 1024:
-            raise ValueError("oversized replay")
-        if paths[2].stat().st_size > 4096 or paths[2].read_bytes() != b"complete\n":
-            raise ValueError("replay completion marker")
+        sha_path, _ = _check_replay_files(path)
         with path.open("rb") as stream:
             payload = stream.read(MAX_COMPRESSED + 1)
         self.sha256 = hashlib.sha256(payload).hexdigest()
-        if paths[1].read_text().split() != [self.sha256, path.name]:
+        if sha_path.read_text().split() != [self.sha256, path.name]:
             raise ValueError("replay SHA mismatch")
         key = (self.sha256, product)
         if cache is not None and key in cache:
@@ -225,17 +314,20 @@ class Recording:
 
     def snapshot(self, session: Any) -> dict:
         """Keep recorded inspector/roster, overlay only present playback controls."""
-        frame = copy.deepcopy(self.frame)
-        frame.update(paused=not session.playing, viewer_count=session.viewer_count)
-        frame["session"].update(
-            playing=session.playing,
-            speed=session.speed,
-            speed_ceiling=session.speed_ceiling,
-            error=session.last_error,
-            watch_source="replay",
-            replay=self.info(),
-        )
-        return frame
+        return {
+            **self.frame,
+            "paused": not session.playing,
+            "viewer_count": session.viewer_count,
+            "session": {
+                **self.frame["session"],
+                "playing": session.playing,
+                "speed": session.speed,
+                "speed_ceiling": session.speed_ceiling,
+                "error": session.last_error,
+                "watch_source": "replay",
+                "replay": self.info(),
+            },
+        }
 
     def info(self) -> dict:
         return {
@@ -264,9 +356,16 @@ class ReplayBank:
     immediately repeating that session. Two distinct units permit rotation.
     """
 
-    def __init__(self, root: Path) -> None:
+    def __init__(
+        self,
+        root: Path,
+        *,
+        controller: str | None = None,
+        shuffle_discovery: bool = True,
+    ) -> None:
         self.root = root
-        self.error: str | None = None
+        self.controller, self.error = resolve_replay_controller(controller)
+        self._shuffle_discovery = bool(shuffle_discovery)
         self._ready: queue.Queue = queue.Queue(maxsize=2)
         self._closed = threading.Event()
         self._done = threading.Event()
@@ -311,7 +410,11 @@ class ReplayBank:
         cache: dict = {}
         logger = logging.getLogger(__name__)
         try:
+            if self.controller is None:
+                return
             paths = sorted(self.root.glob("*.watch.gz"))[:1024]
+            if self._shuffle_discovery:
+                random.SystemRandom().shuffle(paths)
             verified = []
             last = None
             seen: set[str] = set()
@@ -319,7 +422,16 @@ class ReplayBank:
                 if self._closed.is_set():
                     return
                 try:
+                    if self.controller != REPLAY_CONTROLLER_ALL:
+                        header = peek_header(path)
+                        if header["controller"] != self.controller:
+                            continue
                     record = Recording(path, cache=cache, stop=self._closed)
+                    if (
+                        self.controller != REPLAY_CONTROLLER_ALL
+                        and record.header["controller"] != self.controller
+                    ):
+                        raise ValueError("replaced replay controller")
                     uid = record.header["unit_id"]
                     verified.append((path, uid))
                     if uid != last and uid not in seen:
@@ -344,9 +456,14 @@ class ReplayBank:
                 for path, uid in candidates:
                     try:
                         chosen = Recording(path, cache=cache, stop=self._closed)
-                        # A replaced file must retain its bank identity.
+                        # A replaced file must retain its bank identity and controller filter.
                         if chosen.header["unit_id"] != uid:
                             raise ValueError("replaced replay identity")
+                        if (
+                            self.controller != REPLAY_CONTROLLER_ALL
+                            and chosen.header["controller"] != self.controller
+                        ):
+                            raise ValueError("replaced replay controller")
                         break
                     except InterruptedError:
                         return

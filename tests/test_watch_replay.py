@@ -411,7 +411,7 @@ def test_discovery_queues_first_record_before_verifying_second(tmp_path, monkeyp
         return SimpleNamespace(header={"unit_id": path.name})
 
     monkeypatch.setattr(replay, "Recording", load)
-    bank = ReplayBank(tmp_path)
+    bank = ReplayBank(tmp_path, shuffle_discovery=False)
     try:
         assert entered.wait(2)
         assert bank.pick().header["unit_id"] == "a.watch.gz"
@@ -1059,3 +1059,427 @@ def test_exact_stop_l1_reuses_alllen_arm_spec_and_is_byte_identical_to_screen_ar
     assert rec.header["stats"]["search_roots"] == screen_out["search_roots"] == 3
     assert rec.header["stats"]["hero_mass_integral"] == pytest.approx(screen_out["mass_integral"])
     assert rec.header["stats"]["hero_deaths"] == screen_out["deaths"]
+
+
+def test_shuffle_discovery_default_randomizes_cycle_one_and_false_is_lexicographic(
+    tmp_path, monkeypatch
+):
+    import web.backend.watch_replay as replay
+
+    for name in ("a", "b", "c", "d"):
+        (tmp_path / f"{name}.watch.gz").touch()
+    monkeypatch.setattr(
+        replay, "Recording", lambda path, **kwargs: SimpleNamespace(header={"unit_id": path.stem})
+    )
+
+    ordered = ReplayBank(tmp_path, shuffle_discovery=False)
+    got_ordered = [pick_ready(ordered).header["unit_id"] for _ in range(4)]
+    assert got_ordered == ["a.watch", "b.watch", "c.watch", "d.watch"]
+    ordered.close()
+
+    shuffle_calls = []
+
+    class ReversingRng:
+        def shuffle(self, items):
+            shuffle_calls.append(len(items))
+            items.reverse()
+
+    monkeypatch.setattr(replay.random, "SystemRandom", ReversingRng)
+    shuffled = ReplayBank(tmp_path)
+    got_shuffled = [pick_ready(shuffled).header["unit_id"] for _ in range(4)]
+    assert shuffle_calls and shuffle_calls[0] == 4
+    assert got_shuffled == ["d.watch", "c.watch", "b.watch", "a.watch"]
+    shuffled.close()
+
+
+def test_controller_filter_line_one_skips_unmatched_without_verifying_payload(
+    tmp_path, monkeypatch
+):
+    import web.backend.watch_replay as replay
+
+    recording(tmp_path, "00_l2a", controller="exact-stop-l2-prime")
+    recording(tmp_path, "01_l1a", controller="exact-stop-l1")
+    recording(tmp_path, "02_l2b", controller="exact-stop-l2-prime")
+    recording(tmp_path, "03_bare", controller="bare-b8")
+
+    verified_controllers = []
+    original_verify = replay.verify_payload
+
+    def spy_verify(payload, **kwargs):
+        header = original_verify(payload, **kwargs)
+        verified_controllers.append(header["controller"])
+        return header
+
+    monkeypatch.setattr(replay, "verify_payload", spy_verify)
+
+    monkeypatch.setenv("SNAKE_WATCH_REPLAY_CONTROLLER", "exact-stop-l2-prime")
+    l2_bank = ReplayBank(tmp_path, shuffle_discovery=False)
+    l2_ids = [pick_ready(l2_bank).header["unit_id"] for _ in range(3)]
+    l2_bank.close()
+    assert set(l2_ids) == {"00_l2a", "02_l2b"}
+    assert all(a != b for a, b in zip(l2_ids, l2_ids[1:]))
+    assert verified_controllers == ["exact-stop-l2-prime", "exact-stop-l2-prime"]
+
+    verified_controllers.clear()
+    monkeypatch.setenv("SNAKE_WATCH_REPLAY_CONTROLLER", "exact-stop-l1")
+    l1_bank = ReplayBank(tmp_path, shuffle_discovery=False)
+    first_l1 = pick_ready(l1_bank)
+    assert first_l1 is not None and first_l1.header["unit_id"] == "01_l1a"
+    assert pick_ready(l1_bank) is None
+    l1_bank.close()
+    assert verified_controllers == ["exact-stop-l1"]
+
+    verified_controllers.clear()
+    monkeypatch.setenv("SNAKE_WATCH_REPLAY_CONTROLLER", "all")
+    all_bank = ReplayBank(tmp_path, shuffle_discovery=False)
+    all_controllers = {pick_ready(all_bank).header["controller"] for _ in range(4)}
+    all_bank.close()
+    assert all_controllers == {"exact-stop-l2-prime", "exact-stop-l1", "bare-b8"}
+    assert len(verified_controllers) == 4
+
+    verified_controllers.clear()
+    monkeypatch.setenv("SNAKE_WATCH_REPLAY_CONTROLLER", "bogus-controller")
+    bad_bank = ReplayBank(tmp_path, shuffle_discovery=False)
+    assert pick_ready(bad_bank) is None
+    assert bad_bank.error is not None and "Invalid SNAKE_WATCH_REPLAY_CONTROLLER" in bad_bank.error
+    assert verified_controllers == []
+    bad_bank.close()
+
+
+def test_controller_filter_rejects_pinned_payload_controller_swap(tmp_path, monkeypatch):
+    import web.backend.watch_replay as replay
+
+    recording(tmp_path, "swap", controller="exact-stop-l1")
+    monkeypatch.setattr(
+        replay,
+        "peek_header",
+        lambda path, product=True: {"controller": "exact-stop-l2-prime"},
+    )
+    bank = ReplayBank(tmp_path, controller="exact-stop-l2-prime", shuffle_discovery=False)
+    assert pick_ready(bank) is None
+    assert bank.error is not None
+    bank.close()
+
+
+def test_shallow_recording_snapshot_does_not_mutate_pinned_frame(tmp_path):
+    record = Recording(recording(tmp_path, horizon=2), product=False)
+    pinned_before = copy.deepcopy(record.frame)
+    session = shell_session()
+    session.playing = False
+    session.speed = 12
+    session.viewer_count = 7
+    session.last_error = "transient notice"
+
+    snap_a = record.snapshot(session)
+    snap_a["paused"] = False
+    snap_a["session"]["watch_source"] = "mutated"
+    snap_a["session"]["speed"] = 999
+
+    assert record.frame == pinned_before
+    session.playing = True
+    session.speed = 24
+    session.last_error = None
+    snap_b = record.snapshot(session)
+    assert snap_b["paused"] is False
+    assert snap_b["session"]["watch_source"] == "replay"
+    assert snap_b["session"]["speed"] == 24
+    assert snap_b["session"]["error"] is None
+    assert record.frame == pinned_before
+
+
+def test_rejected_train_mode_preserves_active_watch_replay(tmp_path, monkeypatch):
+    import web.backend.session as session_module
+
+    active = Recording(recording(tmp_path, horizon=3), product=False)
+
+    for obs_spec, expected_msg in (
+        ("ego2s-bv8", "ego2s students are served forward-only"),
+        ("raster31v2", "Raster checkpoints are served forward-only"),
+    ):
+        session = shell_session()
+        session.obs_spec = obs_spec
+        session.checkpoint_path = "forward_only.pth"
+        session.last_error_overridable = False
+        session._watch_replay = active
+        session._replay_pending = False
+        session._build = Mock(side_effect=AssertionError("unexpected rebuild"))
+        session.set_mode("train")
+        assert session.mode == "watch"
+        assert session._watch_replay is active
+        assert expected_msg in (session.last_error or "")
+        assert session.last_error_overridable is False
+
+    monkeypatch.setattr(session_module, "_reward_contract_mismatch", lambda _path: True)
+    mismatch_session = shell_session()
+    mismatch_session.obs_spec = "vector61"
+    mismatch_session.checkpoint_path = "v1_ckpt.pth"
+    mismatch_session.last_error_overridable = False
+    mismatch_session._watch_replay = active
+    mismatch_session._replay_pending = False
+    mismatch_session._build = Mock(side_effect=AssertionError("unexpected rebuild"))
+    mismatch_session.set_mode("train")
+    assert mismatch_session.mode == "watch"
+    assert mismatch_session._watch_replay is active
+    assert mismatch_session.last_error_overridable is True
+
+
+def _install_local_release_fixtures(monkeypatch, tmp_path: Path) -> dict[str, Path]:
+    """Wire synthetic release-shaped B8 + FRP3 checkpoints without workstation I/O."""
+    from dataclasses import replace
+
+    import torch
+
+    from src.model.ego2s_network import Ego2sNet, save_ego2s_checkpoint
+    from src.training.apex_policy import ApexPolicy
+    from web.backend import served_checkpoint as registry
+    from web.backend import session as session_module
+
+    ckpt_dir = tmp_path / "ckpts"
+    ckpt_dir.mkdir()
+    b8 = ckpt_dir / registry.B8_S3_FILENAME
+    frp3 = ckpt_dir / registry.FRP3_S12_FILENAME
+    champion = ckpt_dir / registry.CHAMPION_FILENAME
+    save_ego2s_checkpoint(b8, Ego2sNet(local_channels=7, n_scalars=60), {"fixture": "b8"})
+    opponent = ApexPolicy(input_size=61, hidden_size=512, output_size=6, training=False)
+    torch.save(opponent.get_state_dict(), frp3)
+    torch.save(opponent.get_state_dict(), champion)
+
+    local_registry = {
+        name: replace(entry, artifact_path=None) for name, entry in registry.REGISTRY.items()
+    }
+    monkeypatch.setattr(registry, "strict_evidence_problems", lambda *args, **kwargs: [])
+
+    def receipt(files):
+        return {
+            "verdict": "STRICT_PASS",
+            "root": str(ckpt_dir),
+            **{key: {"path": f"{key}.json", "sha256": "0" * 64} for key in files},
+        }
+
+    pins = {
+        "schema": registry.PINS_SCHEMA,
+        "checkpoints": {
+            registry.NAME_FRP3_S12: {
+                "checkpoint_sha256": registry.FRP3_S12_SHA256,
+                "veto_variant": registry.V8_VARIANT,
+                "veto_method": registry.V8_METHOD,
+                "strict_receipt": receipt(registry.STRICT_FILES),
+            },
+            registry.NAME_B8_S3: {
+                "checkpoint_sha256": registry.B8_S3_SHA256,
+                "veto_variant": "none",
+                "veto_method": "none",
+                "strict_receipt": receipt(registry.T7_PIN_FILES),
+            },
+        },
+    }
+    pins_path = ckpt_dir / "pins.json"
+    pins_path.write_text(json.dumps(pins))
+    expected_hashes = {
+        b8: registry.B8_S3_SHA256,
+        frp3: registry.FRP3_S12_SHA256,
+        champion: registry.CHAMPION_SHA256,
+    }
+
+    def fixture_digest(path):
+        resolved = Path(path)
+        assert resolved in expected_hashes, f"unexpected checkpoint access: {path}"
+        return expected_hashes[resolved]
+
+    original_load = session_module._load_checkpoint_once
+
+    def load_fixture_checkpoint(path):
+        resolved = Path(path)
+        assert resolved in expected_hashes, f"unexpected checkpoint access: {path}"
+        payload, blob, _ = original_load(path)
+        return payload, blob, expected_hashes[resolved]
+
+    monkeypatch.setattr(registry, "REGISTRY", local_registry)
+    monkeypatch.setattr(registry, "SAVED_DIR", str(ckpt_dir))
+    monkeypatch.setattr(registry, "PINS_PATH", str(pins_path))
+    monkeypatch.setattr(session_module, "DEFAULT_CHECKPOINT", str(champion))
+    monkeypatch.setattr(registry, "_sha256_file", fixture_digest)
+    monkeypatch.setattr(session_module, "_load_checkpoint_once", load_fixture_checkpoint)
+    monkeypatch.setattr(session_module, "served_resolution", lambda *a, **kw: None)
+    monkeypatch.setattr(session_module, "watch_tick", lambda *a, **kw: None)
+    return {"b8": b8, "frp3": frp3, "champion": champion}
+
+
+def test_replay_opt_out_scoped_to_epsilon_and_food_while_play_and_new_game_resume(
+    tmp_path, monkeypatch
+):
+    from web.backend import app as app_mod
+
+    for key in (
+        "SNAKE_SERVE_WATCH_ROSTER",
+        "SNAKE_SERVE_CHECKPOINT",
+        "SNAKE_SERVE_VETO_WATCH_HERO",
+        "SNAKE_SERVE_VETO_PLAY_AI",
+        "SNAKE_SERVE_VETO_VARIANT",
+        "SNAKE_WATCH_REPLAY_CONTROLLER",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    _install_local_release_fixtures(monkeypatch, tmp_path)
+
+    bank_dir = tmp_path / "bank"
+    bank_dir.mkdir()
+    recording(bank_dir, "00_l2a", controller="exact-stop-l2-prime")
+    recording(bank_dir, "01_l2b", controller="exact-stop-l2-prime")
+
+    monkeypatch.setenv("SNAKE_WATCH_SOURCE", "replay")
+    monkeypatch.setenv("SNAKE_WATCH_REPLAY_DIR", str(bank_dir))
+    monkeypatch.setenv("SNAKE_WATCH_REPLAY_CONTROLLER", "exact-stop-l2-prime")
+
+    session = GameSession()
+    try:
+        assert session._replay_bank is not None
+        assert session._is_clean_mixed_watch6_b8()
+        deadline = time.monotonic() + 10
+        while session._watch_replay is None and time.monotonic() < deadline:
+            session.step()
+            time.sleep(0.01)
+        assert session._watch_replay is not None
+        assert session.snapshot()["session"]["watch_source"] == "replay"
+
+        # Rejected Train click in Watch mode must keep active Watch replay intact.
+        active_before = session._watch_replay
+        session.set_mode("train")
+        assert session.mode == "watch"
+        assert session._watch_replay is active_before
+
+        # Malformed set_epsilon / set_food must not spuriously opt out of Watch replay.
+        app_mod._apply_control(session, {"type": "control", "action": "set_epsilon", "value": "x"})
+        assert session._watch_replay is active_before
+        assert session._replay_opted_out is False
+        app_mod._apply_control(session, {"type": "control", "action": "set_food", "value": "bad"})
+        assert session._watch_replay is active_before
+        assert session._replay_opted_out is False
+
+        # Play -> Watch must NOT opt out of Watch replay.
+        session.set_mode("play")
+        assert session.mode == "play" and session._watch_replay is None
+        assert session._replay_opted_out is False
+        deadline = time.monotonic() + 10
+        while session._replay_bank._ready.empty() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        session.set_mode("watch")
+        assert session.mode == "watch"
+        assert session._watch_replay is not None
+
+        # set_epsilon opts out and stays live across reset_game; new_game re-enables replay.
+        session.set_epsilon(0.25)
+        assert session._replay_opted_out is True
+        assert session._watch_replay is None
+        assert session.snapshot()["session"]["watch_source"] == "live"
+        session.reset_game()
+        assert session._watch_replay is None
+        assert session._replay_opted_out is True
+        assert session.snapshot()["session"]["watch_source"] == "live"
+
+        deadline = time.monotonic() + 10
+        while session._replay_bank._ready.empty() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        app_mod._apply_control(session, {"type": "control", "action": "new_game"})
+        assert session._replay_opted_out is False
+        assert session._watch_replay is not None
+
+        # set_food also opts out until _build or new_game clears _replay_opted_out.
+        session.set_food(42)
+        assert session._replay_opted_out is True
+        assert session._watch_replay is None
+        session.reset_game()
+        assert session._watch_replay is None
+        assert session.game.food_manager.max_food == 42
+
+        deadline = time.monotonic() + 10
+        while session._replay_bank._ready.empty() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        session.set_mode("play")
+        session.set_mode("watch")
+        assert session._replay_opted_out is False
+        assert session._watch_replay is not None
+    finally:
+        session.close()
+
+
+def test_watch_replay_gates_on_clean_mixed_watch6_b8(tmp_path, monkeypatch):
+    from dataclasses import replace
+
+    import web.backend.session as session_module
+
+    for key in (
+        "SNAKE_SERVE_WATCH_ROSTER",
+        "SNAKE_SERVE_CHECKPOINT",
+        "SNAKE_SERVE_VETO_WATCH_HERO",
+        "SNAKE_SERVE_VETO_PLAY_AI",
+        "SNAKE_SERVE_VETO_VARIANT",
+        "SNAKE_WATCH_REPLAY_CONTROLLER",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    _install_local_release_fixtures(monkeypatch, tmp_path)
+
+    bank_dir = tmp_path / "bank"
+    bank_dir.mkdir()
+    recording(bank_dir, "00_l2a", controller="exact-stop-l2-prime")
+    monkeypatch.setenv("SNAKE_WATCH_SOURCE", "replay")
+    monkeypatch.setenv("SNAKE_WATCH_REPLAY_DIR", str(bank_dir))
+
+    # 1. Rollback checkpoint (frp3-s12) must bypass ReplayBank.
+    monkeypatch.setenv("SNAKE_SERVE_CHECKPOINT", "frp3-s12")
+    frp_session = GameSession()
+    try:
+        assert not frp_session._is_clean_mixed_watch6_b8()
+        assert frp_session._replay_bank is None
+        assert frp_session._watch_replay is None
+    finally:
+        frp_session.close()
+    monkeypatch.delenv("SNAKE_SERVE_CHECKPOINT")
+
+    # 2. All-B8 roster rollback must bypass ReplayBank.
+    monkeypatch.setenv("SNAKE_SERVE_WATCH_ROSTER", "all_b8")
+    all_b8_session = GameSession()
+    try:
+        assert not all_b8_session._is_clean_mixed_watch6_b8()
+        assert all_b8_session._replay_bank is None
+        assert all_b8_session._watch_replay is None
+    finally:
+        all_b8_session.close()
+    monkeypatch.delenv("SNAKE_SERVE_WATCH_ROSTER")
+
+    # 3. Non-Watch6 roster count (Watch8) must bypass ReplayBank.
+    original_loader = session_module.load_config
+    monkeypatch.setattr(
+        session_module,
+        "load_config",
+        lambda path: replace(
+            original_loader(path),
+            game=replace(original_loader(path).game, num_snakes=8),
+        ),
+    )
+    watch8_session = GameSession()
+    try:
+        assert len(watch8_session.game.snakes) == 8
+        assert not watch8_session._is_clean_mixed_watch6_b8()
+        assert watch8_session._replay_bank is None
+        assert watch8_session._watch_replay is None
+    finally:
+        watch8_session.close()
+
+
+def test_qualify_bank_header_scan_and_reverse_filter_proof(tmp_path):
+    from research.watch_replay.qualify import (
+        prove_line1_filter_skips_l1_payloads,
+        scan_bank_headers,
+    )
+
+    recording(tmp_path, "000000", unit_id="u0", controller="exact-stop-l2-prime", seed=101)
+    recording(tmp_path, "000001", unit_id="u1", controller="exact-stop-l2-prime", seed=102)
+    recording(tmp_path, "000002", unit_id="u2", controller="exact-stop-l1", seed=201)
+
+    scan = scan_bank_headers(tmp_path)
+    assert scan["total_files"] == 3
+    assert scan["by_controller"] == {"exact-stop-l1": 1, "exact-stop-l2-prime": 2}
+    proof = prove_line1_filter_skips_l1_payloads(tmp_path)
+    assert proof["l1_headers_peeked_and_skipped_before_first_pick"] == 1
+    assert proof["non_target_verify_payload_calls"] == 0
+    assert proof["first_picked_controller"] == "exact-stop-l2-prime"
