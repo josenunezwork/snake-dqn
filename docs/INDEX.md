@@ -33,11 +33,11 @@ approval ([STATUS.md](STATUS.md)).
 | **Watch** | **132-session exact-search replay bank** (`exact-stop-l2-prime`, 6,000 frames/session), visibly labelled **"Recorded assisted hero"** | `b8-s3` hero + `exact_stop` (`L >= 600`, interval 5, `H = 300`) vs `5× frp3-s12 + v8` | `.claude/launch.json` (`snake-web`): `SNAKE_WATCH_SOURCE=replay` and `SNAKE_WATCH_REPLAY_DIR=.../snake-dqn-artifacts/watch-replay-bank-live-132` (banks `01–08` and `10–12`). Live bare `b8-s3` is the automatic fallback if the bank is unset, empty, or invalid. |
 | **Play** | **Live bare `b8-s3`** (no veto, no replay) | Live `b8-s3` (SHA prefix `3e649783`) + `frp3-s12 + v8` mixed roster | Always runs live server simulation and inference ([`web/backend/served_checkpoint.py`](../web/backend/served_checkpoint.py)). |
 
-**Rollbacks** (restart [`web/serve.py`](../web/serve.py) with explicit env vars):
+**Rollbacks** (restart [`web/serve.py`](../web/serve.py) with explicit env vars; always unset `SNAKE_WATCH_SOURCE` or set `SNAKE_WATCH_SOURCE=live` when rolling back live rosters or checkpoints, because `GameSession.__init__` attaches `ReplayBank` whenever `SNAKE_WATCH_SOURCE=replay` and `checkpoint is None`):
 
 - **Watch back to live bare `b8-s3`:** unset `SNAKE_WATCH_SOURCE` (or `SNAKE_WATCH_SOURCE=live`).
-- **All-B8 Watch roster (live):** `SNAKE_SERVE_WATCH_ROSTER=all_b8`.
-- **Previous released checkpoints:** `SNAKE_SERVE_CHECKPOINT=frp3-s12` (`frp3-s12 + v8`, SHA prefix `eec144bf`) or `SNAKE_SERVE_CHECKPOINT=champion` (`champion_a5 + v8`, SHA prefix `43d4e2c5`).
+- **All-B8 Watch roster (live):** `SNAKE_WATCH_SOURCE=live SNAKE_SERVE_WATCH_ROSTER=all_b8`.
+- **Previous released checkpoints (live):** `SNAKE_WATCH_SOURCE=live SNAKE_SERVE_CHECKPOINT=frp3-s12` (`frp3-s12 + v8`, SHA prefix `eec144bf`) or `SNAKE_WATCH_SOURCE=live SNAKE_SERVE_CHECKPOINT=champion` (`champion_a5 + v8`, SHA prefix `43d4e2c5`).
 
 ---
 
@@ -56,8 +56,8 @@ research plans (**advice, not decisions**) are synthesized in **[research/ROADMA
 ### Running / active
 
 - **Watch6 V3 confirmation (running, confirmation lane):** [`research/watch6_search_efficacy_v3/`](../research/watch6_search_efficacy_v3/) — `24 × 4` L4 `W = 4` shards (`96` fresh paired `H = 14,400` Watch6-v2 sessions) testing synchronous `exact-stop-l2-prime` (`L >= 600`, `H = 300`) against bare `b8-s3` with frame-by-frame live/`GridBatchSim` mirror verification. Accounting adapter **V6.1** is ratified (`75471246`; sole final look via `tools.watch6_v3_accounting.final_look`). Follows Watch6 V2 ([`research/watch6_search_efficacy/`](../research/watch6_search_efficacy/)), which closed `INVALID_OR_INCOMPLETE` on 2026-10-31 after pre-start transport failures exhausted attempts on one shard (no outcome read).
-- **Watch replay pipeline & `exact-stop-l1` bank generation:** [`research/watch_replay/`](../research/watch_replay/) — deterministic `snake-watch-replay/v1` (`.watch.gz`, gzipped canonical JSONL) session generator, verifier, and bank installer feeding the live 132-session `exact-stop-l2-prime` Watch replay bank. Commit `73974411` added `"exact-stop-l1"` (`L >= 1`, `interval = 5`, `H = 300`), and A100 `W = 6` banks `14l1–16l1` (`3 × 12` disjoint seeds) are prepared/generating (`t34-sol/argon-banks-l1/SUMMARY.md`; serving `exact-stop-l1` recordings requires owner approval plus `git pull` and a [`web/serve.py`](../web/serve.py) restart).
-- **Completed Oct 30 Claim-A exploration receipts awaiting Mac readout:** `b8-head-closedloop` (`origin/astra-doom-auc-smoke`, 192-world v1 H5000 margin screen; A100 receipt `PASS`) and `spatial-qbytes-01` (`origin/astra-spatial-student-pilot`; A100 Q-byte ruler receipt `PASS`) await `< 2 min` Mac readouts; new `spatial-student-pilot` GPU fit spend is halted (`t34-sol/student-direction/{astra,fable}.md`, T4 Gate-1 `KILL_T4`).
+- **Watch replay pipeline & `exact-stop-l1` bank generation:** [`research/watch_replay/`](../research/watch_replay/) — deterministic `snake-watch-replay/v1` (`.watch.gz`, gzipped canonical JSONL) session generator, verifier, and bank installer feeding the live 132-session `exact-stop-l2-prime` Watch replay bank. Commit `73974411` added `"exact-stop-l1"` (`L >= 1`, `interval = 5`, `H = 300`), and A100 `W = 6` banks `14l1–16l1` (`3 × 12` disjoint seeds) are actively generating (`t34-sol/argon-banks-l1/SUMMARY.md`; serving `exact-stop-l1` recordings requires prospective confirmation, owner approval, `git pull`, and a [`web/serve.py`](../web/serve.py) restart).
+- **Completed Oct 30 Claim-A exploration receipts awaiting Mac readout:** `b8-head-closedloop` (`origin/astra-doom-auc-smoke`, 192-world v1 H5000 margin screen; A100 receipt `PASS`) and `spatial-qbytes-01` (`origin/astra-spatial-student-pilot`; A100 Q-byte ruler receipt `PASS`) await `< 2.5 min` Mac readouts; the `40–48 A100 u` `spatial-student-pilot` GPU fit is canceled (`0 u`, retaining `.so` caches; `t34-sol/student-direction/{astra,fable}.md`, T4 Gate-1 `KILL_T4`).
 
 ### Oct 29 – Nov 1 exploration, parity & development verdicts
 
@@ -81,7 +81,7 @@ research plans (**advice, not decisions**) are synthesized in **[research/ROADMA
 | Document | Purpose |
 | --- | --- |
 | [STATUS.md](STATUS.md) | **Single source of truth** for current served state, standing owner rules, release pins, monitoring thresholds, and historical milestones. |
-| [research/ROADMAP.md](research/ROADMAP.md) | **Synthesized research roadmap (Round-03 advice, not decisions):** current-round Watch6 V3 & `Watch6-L1-V1` confirmation routing, ops/qualification hardening, and later-round `TopoStop-v3` plan. |
+| [research/ROADMAP.md](research/ROADMAP.md) | **Synthesized research roadmap (Round-04 advice, not decisions):** current-round Claim-A Mac readout, Watch replay serving guards, zero-WS transport & Watch6 V3 / `Watch6-L1-V1` confirmation routing, plus later-round `CycleLatch-v4` & `LiveMac-C15-Latch` plan. |
 | [README.md](README.md) | Per-document status guide (`Current`, `Historical`, `Superseded`) and reconciled historical discrepancies. |
 | [MAP.md](MAP.md) | Directory-by-directory layout of `docs/`. |
 | [TIMELINE.md](TIMELINE.md) | Chronological project milestones from 2026-06-16 through the T34 launch. |
