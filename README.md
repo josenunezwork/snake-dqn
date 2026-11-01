@@ -80,6 +80,7 @@ make format             # isort + black at line length 100
 Do not run the suite while a governed study is using the Mac's CPU slots. The
 compute rules are in [AGENTS.md](AGENTS.md) and [docs/STATUS.md](docs/STATUS.md).
 
+<a id="redesign-in-progress"></a>
 ## Training and evaluation
 
 - **Legacy Apex DQN (vector61):**
