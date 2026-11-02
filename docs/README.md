@@ -13,9 +13,9 @@ permission to resume an old plan.
 
 | Document or collection | Status | Use it for |
 | --- | --- | --- |
-| [INDEX.md](INDEX.md) | **Current entry map** | Project overview, served Watch (168-session replay bank) & Play (live `b8-s3`), active T34 state, package locations, and commands. |
+| [INDEX.md](INDEX.md) | **Current entry map** | Project overview, served Watch (132-session confirmed `exact-stop-l2-prime` replay bank) & Play (live `b8-s3`), active T34 state, package locations, and commands. |
 | [STATUS.md](STATUS.md) | **Current authority** | Served Watch/Play setup, released `b8-s3` without a veto, standing owner rules, active campaign verdicts, and historical snapshots. |
-| [research/ROADMAP.md](research/ROADMAP.md) | **Advice only (not ratified decisions)** | Round-15 synthesized current-round and later-round research roadmap: Watch6 V3 `python -B final_look` & `M0b`-sized paired-world `Watch6-L1-V1` routing, `M0a` `b8-head-closedloop` Claim-A readout (`>= +40` v1 `H = 5,000` bar), Watch replay/engine guards (`H = 6,000` `.watch.gz` banks vs `H = 14,400` `record=None` confirmation), code-verified two-stage transport (Stage 1 `0 u` tar-packed `public-inputs.json` + `64 KiB` union ledger + `lease_seconds: 600`, `20 s`-spaced `.complete` Contents exports, `CHILD_NONZERO_EXIT`/relative-onset Tier-0/1 retries + `confirm_audit.py` `--blind-check`/`--unseal`; Stage 2 `~1.5 u` `exec_uncertain` `GuardError` adoption, single-window `account.lock`, observer-aware `0`-WS Contents OAuth rotation/polling), later-round `PCCS-L1` (`2.33`-pop/tick boost `TimeClearCert_v3` + hysteretic `COIL_HOLD` `π_shield`) + `P1+3W` `ShadowSpine` (`watch6_pccs_v1`), and settled panel disagreements. |
+| [research/ROADMAP.md](research/ROADMAP.md) | **Advice only (not ratified decisions)** | Round-17 synthesized current-round and later-round research roadmap: `0 u` Mac `M0a` Claim-A readout & `snapshot()`-free confirmation engine, Stage-1 (`0 u` `study_package.py` `4`-PUT + `65,536 B` `verified-ledger.tar.gz` + `confirm_audit.py`) / Stage-2 (`~1.5 u` `colab_cli`) transport, `M0b`-sized 3-arm fixed-sequence `Watch6-L1-V1` (`N = 96, H = 14,400`), later-round `CBFS-L1` (`DeadPocketPrune` + `CertMask` + `1`-policy fused `v8_decide`) + spawned `P1+3W` `ShadowSpine`, and settled panel disagreements. |
 | [../research/INDEX.md](../research/INDEX.md) | **Current package map** | One-row-per-directory index of all 162 study and tooling packages under `research/`. |
 | [research/INDEX.md](research/INDEX.md) | **Current record map** | Chronological locator for loose research and decision documents in `docs/research/`. |
 | [notes/README.md](notes/README.md) | **Cited reference (as of 2026-10-25)** | Fact-only, line-cited topic notes and [notes glossary](notes/GLOSSARY.md) covering models, redesign, T34, Big-Lever, F0/F4, and compute. |
@@ -38,16 +38,18 @@ permission to resume an old plan.
 | [research/governance_amendment_long_horizon_screen_2026-10-04_erratum_2026-10-08.md](research/governance_amendment_long_horizon_screen_2026-10-04_erratum_2026-10-08.md) | **Erratum** | The branch-only LH-1 amendment (`lh1-screen`) opens with `DRAFT`; it was ratified 2026-10-05 (`ecddfab`). The file is hash-bound and left unedited. |
 | [research/governance_tiers_2026-09-26.md](research/governance_tiers_2026-09-26.md) and [governance_amendment_sequential_gates_2026-10-02.md](research/governance_amendment_sequential_gates_2026-10-02.md) | **Historical policy base, amended** | Original tier and sequential-gate rules. Read later amendments before using either as an operating rule. |
 
-Today, **Watch** plays the 168-session Colab-precomputed exact-stop
-replay bank (`watch-replay-bank-live-168`: `132` `exact-stop-l2-prime` sessions from banks `01–08, 10–12` + `36` `exact-stop-l1` sessions from banks `14l1–16l1`, visibly
-labelled `"Recorded assisted hero"`, with live bare `b8-s3` against the mixed
-`5× frp3-s12 + v8` roster as fallback; rollback: `SNAKE_WATCH_SOURCE=live`),
+Today, **Watch** plays the 132-session confirmed `exact-stop-l2-prime`
+replay bank (`watch-replay-bank-live-132`, `SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l2-prime`,
+banks `01–08, 10–12`, visibly labelled `"Recorded assisted hero"`, confirmed `GO_EFFICACY_ONLY`
+in Watch6 V3 `52135312`, qualified on Mac `24 fps` in `fec81656`, and released in `f5912f44`;
+live bare `b8-s3` against the mixed `5× frp3-s12 + v8` roster is the automatic fallback, and
+`SNAKE_WATCH_SOURCE=live` forces live Watch),
 while **Play** runs `1` human against live bare **b8-s3 without a veto**
 (`3e649783`, default `5` AI opponents, adjustable `1–11`). `b8-s3`'s release claim is **more
 mass at equal survival against the previously served agent, with no veto**; it is
 not a safety claim. To roll back
-the live checkpoint, restart the server with `SNAKE_WATCH_SOURCE=live` (or unset
-`SNAKE_WATCH_SOURCE`) and `SNAKE_SERVE_CHECKPOINT=frp3-s12`
+the live checkpoint, restart the server with `SNAKE_WATCH_SOURCE=live` (Watch replay is also
+automatically bypassed whenever `_is_clean_mixed_watch6_b8()` is false) and `SNAKE_SERVE_CHECKPOINT=frp3-s12`
 for `frp3-s12 + v8` or `SNAKE_SERVE_CHECKPOINT=champion` for `champion + v8`,
 with the remaining serving environment at defaults. See [STATUS.md](STATUS.md)
 and the [B8 release record](research/b8_s3_release_2026-10-17.md) for copyable

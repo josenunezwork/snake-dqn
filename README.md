@@ -14,15 +14,17 @@ Start with **[docs/INDEX.md](docs/INDEX.md)** for the full project map and
 **[docs/STATUS.md](docs/STATUS.md)** for binding release pins, monitoring
 thresholds, and standing operating rules.
 
-- **Watch:** plays the **168-session Colab-precomputed exact-stop replay bank**
-  (`snake-dqn-artifacts/watch-replay-bank-live-168`: `132` `exact-stop-l2-prime`
-  sessions from banks `01–08` and `10–12` + `36` all-length `exact-stop-l1` sessions
-  from banks `14l1–16l1`, 6,000-frame Watch6-v2 sessions, `b8-s3` hero vs
-  `5× frp3-s12 + v8`, switched in `395eacbb`; pure `exact-stop-l2-prime` bank
-  retained at `watch-replay-bank-live-132`), visibly labelled **"Recorded assisted
-  hero"** (`SNAKE_WATCH_SOURCE=replay` and `SNAKE_WATCH_REPLAY_DIR` in
-  `.claude/launch.json`). Live bare `b8-s3` is the automatic fallback if the bank
-  is unset, empty, or invalid.
+- **Watch:** plays the **132-session confirmed `exact-stop-l2-prime` replay bank**
+  (`snake-dqn-artifacts/watch-replay-bank-live-132`: `132` `exact-stop-l2-prime`
+  6,000-frame Watch6-v2 sessions from banks `01–08` and `10–12`, `b8-s3` hero at
+  `L >= 600` vs `5× frp3-s12 + v8`, confirmed `GO_EFFICACY_ONLY` in Watch6 V3
+  `52135312`, qualified on Mac `24 fps` in `fec81656`, and released in `f5912f44`),
+  visibly labelled **"Recorded assisted hero"** (`SNAKE_WATCH_SOURCE=replay`,
+  `SNAKE_WATCH_REPLAY_DIR`, and `SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l2-prime`
+  in `.claude/launch.json`). The `168`-session mixed bank (`watch-replay-bank-live-168`,
+  adding `36` `exact-stop-l1` sessions from `14l1–16l1`) remains on disk pending
+  `H = 14,400` confirmation. Live bare `b8-s3` is the automatic fallback during cold
+  prefetch or if the bank is unset, empty, or invalid.
 - **Play (and live Watch fallback):** runs **live bare B8 seed 3 (`b8-s3`), served
   without a veto** (checkpoint SHA prefix `3e649783`). In **Play**, `1` human steers
   against `N` (default `5`, adjustable `1–11`) live bare `b8-s3` AI opponents; in
@@ -34,8 +36,10 @@ thresholds, and standing operating rules.
   [release record](docs/research/b8_s3_release_2026-10-17.md) and the
   [mixed-Watch erratum](docs/research/b8_s3_release_erratum_mixed_watch_2026-10-17.md).
 
-Rollback means restarting the server with an explicit live selection (include
-`SNAKE_WATCH_SOURCE=live` so `ReplayBank` does not stay attached in Watch mode):
+Rollback means restarting the server with an explicit live selection (Watch replay is
+automatically bypassed whenever `SNAKE_SERVE_CHECKPOINT` or `SNAKE_SERVE_WATCH_ROSTER`
+departs from mixed-Watch6 `b8-s3`, and `SNAKE_WATCH_SOURCE=live` forces live bare `b8-s3`
+Watch directly):
 
 ```bash
 SNAKE_WATCH_SOURCE=live ./venv/bin/python web/serve.py                                     # live bare b8-s3 Watch (mixed roster)
@@ -46,9 +50,9 @@ SNAKE_WATCH_SOURCE=live SNAKE_SERVE_CHECKPOINT=champion ./venv/bin/python web/se
 
 ## Current campaign
 
-The active campaign is **T34 ExIt-B8** (Watch6 V3 exact-stop confirmation running;
-recent exploration outcomes in [docs/INDEX.md](docs/INDEX.md) and
-[docs/STATUS.md](docs/STATUS.md)). Start here:
+The active campaign is **T34 ExIt-B8** (Watch6 V3 `GO_EFFICACY_ONLY` confirmed and
+`132`-session Watch replay bank released; next plans & recent exploration verdicts in
+[docs/INDEX.md](docs/INDEX.md) and [docs/STATUS.md](docs/STATUS.md)). Start here:
 
 1. [docs/INDEX.md](docs/INDEX.md): project overview, served Watch/Play setup, active studies, and commands
 2. [docs/STATUS.md](docs/STATUS.md): standing owner rules, release pins, and binding contract documents
@@ -115,7 +119,7 @@ corrected claims, for example that CNNs were never trained in the older trials.
 |---|---|
 | Project & experiment map (start here) | [docs/INDEX.md](docs/INDEX.md) |
 | Current status & standing rules | [docs/STATUS.md](docs/STATUS.md) |
-| Research roadmap (Round-15 advice, not decisions) | [docs/research/ROADMAP.md](docs/research/ROADMAP.md) |
+| Research roadmap (Round-17 advice, not decisions) | [docs/research/ROADMAP.md](docs/research/ROADMAP.md) |
 | Documentation status guide | [docs/README.md](docs/README.md) |
 | `docs/` directory layout | [docs/MAP.md](docs/MAP.md) |
 | Cited project notes & glossary | [docs/notes/README.md](docs/notes/README.md) ([docs/notes/GLOSSARY.md](docs/notes/GLOSSARY.md); evaluation glossary: [docs/research/GLOSSARY.md](docs/research/GLOSSARY.md)) |
