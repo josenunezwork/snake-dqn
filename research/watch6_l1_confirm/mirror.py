@@ -102,10 +102,17 @@ def measure_long_length_scaling(seed: int) -> dict:
     }
 
 
-def qualify(*, horizon: int = p.HORIZON, include_length_scaling: bool = True) -> dict:
+def qualify(
+    *,
+    horizon: int = p.HORIZON,
+    seed: int = p.FIXTURE_SEEDS[0],
+    include_length_scaling: bool = True,
+) -> dict:
     """Verify full-horizon live GameSession / GridBatchSim parity across {bare, l2_prime, l1}."""
     if platform.system() != "Darwin":
         raise ValueError("Mac mirror qualification must run on Darwin")
+    if seed not in p.FIXTURE_SEEDS:
+        raise ValueError(f"Mac mirror seed {seed} must be one of FIXTURE_SEEDS {p.FIXTURE_SEEDS}")
     if "SNAKE_CKPT_DIR" not in os.environ and DEFAULT_LOCAL_SAVED_DIR.is_dir():
         os.environ["SNAKE_CKPT_DIR"] = str(DEFAULT_LOCAL_SAVED_DIR)
     os.environ.setdefault("SNAKE_WATCH_SOURCE", "live")
@@ -114,7 +121,6 @@ def qualify(*, horizon: int = p.HORIZON, include_length_scaling: bool = True) ->
     configure_cpu()
 
     started = time.monotonic()
-    seed = p.FIXTURE_SEEDS[0]
     arms_out: dict[str, dict] = {}
     for arm in p.ARMS:
         arm_t0 = time.monotonic()
@@ -222,9 +228,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--horizon", type=int, default=p.HORIZON)
+    parser.add_argument("--seed", type=int, default=p.FIXTURE_SEEDS[0])
     parser.add_argument("--skip-length-probe", action="store_true")
     args = parser.parse_args()
-    report = qualify(horizon=args.horizon, include_length_scaling=not args.skip_length_probe)
+    report = qualify(
+        horizon=args.horizon,
+        seed=args.seed,
+        include_length_scaling=not args.skip_length_probe,
+    )
     publish_json(args.out.resolve(), report)
     print(json.dumps(report, indent=2), flush=True)
 

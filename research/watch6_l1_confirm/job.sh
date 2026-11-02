@@ -19,15 +19,15 @@ export SNAKE_WATCH_SOURCE="live"
 
 if [[ "${WATCH6_FIXTURE}" == "1" ]]; then
   exec python -B -m research.watch6_l1_confirm.run \
-    --out "${COLAB_EXPORT_DIR}/efficacy" \
+    --out "${COLAB_OUTPUT_DIR}/efficacy" \
     --ledger "${COLAB_INPUT_DIR}/verified-ledger.json" \
     --workers "${WATCH6_WORKERS}" \
     --shards "${WATCH6_SHARDS}" \
     --shard "${WATCH6_SHARD}" \
     --fixture \
     --fixture-count 2 \
-    --fixture-horizon 60 \
-    --canary-performance-out "${COLAB_EXPORT_DIR}/performance.json"
+    --fixture-horizon 6 \
+    --canary-performance-out "${COLAB_OUTPUT_DIR}/performance.json"
 else
   python -B - <<'PY'
 import json
@@ -37,12 +37,12 @@ from tools.ops.package_spec import publish_json
 
 cost_path = Path(os.environ["COLAB_INPUT_DIR"]) / "cost-evidence.json"
 publish_json(
-    Path(os.environ["COLAB_EXPORT_DIR"]) / "performance.json",
+    Path(os.environ["COLAB_OUTPUT_DIR"]) / "performance.json",
     json.loads(cost_path.read_text(encoding="utf-8")),
 )
 PY
   exec python -B -m research.watch6_l1_confirm.run \
-    --out "${COLAB_EXPORT_DIR}/efficacy" \
+    --out "${COLAB_OUTPUT_DIR}/efficacy" \
     --ledger "${COLAB_INPUT_DIR}/verified-ledger.json" \
     --workers "${WATCH6_WORKERS}" \
     --shards "${WATCH6_SHARDS}" \

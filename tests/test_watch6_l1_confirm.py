@@ -25,7 +25,14 @@ from research.watch6_l1_confirm import (
     uploads,
 )
 from research.watch6_l1_confirm.run import DEFAULT_LOCAL_SAVED_DIR
-from tools.ops.package_spec import Input, digest, empty_ledger, publish_json, stage_inputs
+from tools.ops.package_spec import (
+    Input,
+    digest,
+    empty_ledger,
+    publish_json,
+    stage_inputs,
+    verify_immutable,
+)
 
 
 def _synthetic_arm_row(
@@ -1177,3 +1184,137 @@ def test_freshness_audit_clear_and_collision_detection(tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError, match="collision"):
         freshness.audit(artifacts_dir=clean_artifacts)
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(
+    not DEFAULT_LOCAL_SAVED_DIR.is_dir(),
+    reason="local saved_snakes directory not present",
+)
+def test_job_sh_fixture_end_to_end_with_runtime_and_canary_manifest_env(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Execute job.sh's fixture path end-to-end with ONLY runtime + canary manifest env."""
+    import subprocess
+    import sys
+
+    from research.watch6_l1_confirm import prepare
+
+    monkeypatch.setattr(prepare, "_require_published_pin", lambda _commit: None)
+    monkeypatch.setattr(prepare, "admit", lambda _manifest, **_kw: {"status": "PASS"})
+
+    sci = p.identity()
+    benchmark_path = tmp_path / "benchmark.json"
+    publish_json(
+        benchmark_path,
+        {
+            "schema": "watch6-l1-mac-preflight/v1",
+            "status": "PASS",
+            "science": sci,
+            "fixture": True,
+        },
+    )
+    mirror_path = tmp_path / "mac-mirror.json"
+    publish_json(
+        mirror_path,
+        {
+            "schema": mirror.SCHEMA,
+            "status": "PASS",
+            "platform": "macOS-test",
+            "namespace": p.NAMESPACE,
+            "science": sci,
+            "fixture": True,
+            "seed": p.FIXTURE_SEEDS[0],
+            "horizon": p.HORIZON,
+            "total_mirrored_frames": p.HORIZON * len(p.ARMS),
+            "mirror_mismatches": 0,
+            "elapsed_seconds": 12.0,
+            "arms": {
+                arm: {
+                    "frames": p.HORIZON,
+                    "mirror_identity_frames": p.HORIZON,
+                    "mirror_mismatches": 0,
+                    "respawns_per_slot": [1, 1, 1, 1, 1, 1],
+                    "batches": 0 if arm == "bare" else 1200,
+                    "native_v8_kernel_rows": 0 if arm == "bare" else 90000,
+                    "wall_seconds": 4.0,
+                    "timing": {
+                        "main_seconds": 2.0,
+                        "search_seconds": 0.0 if arm == "bare" else 2.0,
+                    },
+                }
+                for arm in p.ARMS
+            },
+        },
+    )
+    costs_path = tmp_path / "costs.json"
+    publish_json(costs_path, costs.build_cost_report())
+
+    prep_dir = tmp_path / "prepared"
+    prepare.prepare(
+        prep_dir,
+        benchmark_path,
+        "cf07791be3f8bc36f8f7f8c671712d984f162655",
+        mirror_path,
+        costs_path,
+        main_shards=False,
+    )
+
+    canary_manifest = json.loads((prep_dir / "canary-a100.json").read_text(encoding="utf-8"))
+    runtime_root = tmp_path / "runtime"
+    inputs_dir = runtime_root / "inputs"
+    output_dir = runtime_root / "output"
+    inputs_dir.mkdir(parents=True)
+    output_dir.mkdir(parents=True)
+
+    for item in canary_manifest["inputs"]:
+        dest = inputs_dir / item["dest"]
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(Path(item["path"]).read_bytes())
+
+    runtime_env = {
+        "PATH": f"{Path(sys.executable).parent}:/usr/bin:/bin",
+        "COLAB_INPUT_DIR": str(inputs_dir),
+        "COLAB_OUTPUT_DIR": str(output_dir),
+        **{str(k): str(v) for k, v in canary_manifest["env"].items()},
+    }
+    proc = subprocess.run(
+        ["bash", str(p.ROOT / p.SCRIPT)],
+        cwd=p.ROOT,
+        env=runtime_env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, f"job.sh failed ({proc.returncode}):\n{proc.stderr}\n{proc.stdout}"
+
+    for rel in canary_manifest["required_exports"]:
+        export_path = output_dir / rel
+        assert export_path.is_file(), f"missing required export {rel}"
+        assert export_path.with_suffix(export_path.suffix + ".sha256").is_file()
+        assert export_path.with_suffix(export_path.suffix + ".complete").is_file()
+        verify_immutable(export_path)
+
+    verify_immutable(output_dir / "workload-started.json")
+    for idx in range(2):
+        verify_immutable(output_dir / f"efficacy/fixture-world-{idx:02d}.json")
+        verify_immutable(output_dir / f"efficacy/fixture-world-{idx:02d}.meta.json")
+
+    op = json.loads((output_dir / "efficacy/operational.json").read_text(encoding="utf-8"))
+    assert op["schema"] == "watch6-l1-operational/v1"
+    assert op["namespace"] == p.NAMESPACE
+    assert op["science"] == sci
+    assert op["fixture"] is True
+    assert op["skipped_verified_total"] == 0
+    assert op["completed_indices"] == [0, 1]
+
+    perf = json.loads((output_dir / "performance.json").read_text(encoding="utf-8"))
+    assert perf["schema"] == "watch6-l1-canary-performance/v1"
+    assert perf["science"] == sci
+    assert perf["fixture"] is True
+    assert 300 in perf["frames_executed"]
+    assert perf["native_v8"]["kernel_rows"] > 0
+    assert perf["native_v8"]["stock_rows"] == 0
+    assert perf["native_v8"]["fallback_rows"] == 0
+    assert perf["native_v8"]["noncandidate_rows"] == 0
