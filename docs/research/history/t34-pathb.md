@@ -29,7 +29,7 @@ Under the owner-ratified T34 Campaign Contract ([`SUCCESS_CONTRACT.md`](../final
 
 ## Final Verdict and Key Numbers
 
-- **Lineage Verdict:** **`STOP_OPERATOR02_DO_NOT_RUN_PACED_STUDY` — Asynchronous CPU background search over `D=500` (`Path B v2`) cannot deliver rescues in real time at 24 fps (`0 / 34` rescues delivered at both `N=1` and `N=6`), closing the live paced CPU lookahead line before `operator-02` was ever launched** ([`research/t34_pathb_smoke/RESULT.md`](../../research/t34_pathb_smoke/RESULT.md); primary artifact `snake-dqn-artifacts/t34-pathb-smoke-20261021/receipt.json`, sha256 `d493fe5824f44db138e92fac282cd1d6141cb0432613d5a1b8982fef5994e336`).
+- **Lineage Verdict:** **`STOP_OPERATOR02_DO_NOT_RUN_PACED_STUDY` — Asynchronous CPU background search over `D=500` (`Path B v2`) cannot deliver rescues in real time at 24 fps (`0 / 34` rescues delivered at both `N=1` and `N=6`), closing the live paced CPU lookahead line before `operator-02` was ever launched** ([`research/t34_pathb_smoke/RESULT.md`](../../../research/t34_pathb_smoke/RESULT.md); primary artifact `snake-dqn-artifacts/t34-pathb-smoke-20261021/receipt.json`, sha256 `d493fe5824f44db138e92fac282cd1d6141cb0432613d5a1b8982fef5994e336`).
 - **Path B v2 Deliverability Smoke Key Numbers (`research/t34_pathb_smoke/RESULT.md`):**
   - **Input cohort:** `75` historical T3 counterfactual action changes (`34` D300-surviving rescues + `41` survival-delay changes across `22` `b8_s0`/`b8_s3` trajectories) plus `5` historical M3 continuous Watch6 doom intervals (`80` total doom intervals, `160` paired `N=1`/`N=6` runs; `audit.json` PASS on `160/160` rows, `255` source hashes, `50` input hashes; `start.json` sha256 `91d4236888da77024bf1a06c825ad3aeeb762f3634281333af6f3283541a2fe6`).
   - **`N = 1` (single background worker thread, 24 fps absolute deadlines):**
@@ -68,12 +68,12 @@ Under the owner-ratified T34 Campaign Contract ([`SUCCESS_CONTRACT.md`](../final
 - [`docs/research/specs/2026-10-20_t34_retention_amendment_bare_unpaced.md`](../specs/2026-10-20_t34_retention_amendment_bare_unpaced.md) — Pre-data Amendment (`operator-02` @ `81c54731`): unpaced Mac bare arm (`~8.7–10 h` saved) + relative boost floor (`0.5 * s_bare <= s_candidate <= 0.10`).
 - [`docs/research/specs/2026-10-20_t34_retention_resize.md`](../specs/2026-10-20_t34_retention_resize.md) — Pre-data resize ruling (`32 -> 48` terminal worlds/mix, `16 -> 32` Watch6 sessions, `40 h / 60 CPU-h` caps).
 - [`docs/research/specs/2026-10-20_t34_unpaced_arm_colab.md`](../specs/2026-10-20_t34_unpaced_arm_colab.md) — Pre-data ruling offloading the descriptive unpaced arm to Colab (`42.533128` unit cap).
-- [`research/t34_pathb/PREREGISTRATION_RETENTION_V2.md`](../../research/t34_pathb/PREREGISTRATION_RETENTION_V2.md) — SHA-bound pre-registration for the Path B v2 paced retention study (including Amendments 3–7).
-- [`research/t34_pathb/PROTOCOL.md`](../../research/t34_pathb/PROTOCOL.md) — Frozen Path B v1 (`H=40`) action and fallback protocol.
-- [`research/t34_pathb/PROTOCOL_ANALYSIS_ERRATUM.md`](../../research/t34_pathb/PROTOCOL_ANALYSIS_ERRATUM.md) — Prospective v1 analysis clarification (alive-frame survival guards, completion receipts, smoke keys).
-- [`research/t34_pathb/PROTOCOL_TIMING_ERRATUM.md`](../../research/t34_pathb/PROTOCOL_TIMING_ERRATUM.md) — Prospective v1 timing deadline clarification.
-- [`research/t34_pathb/PROTOCOL_V2.md`](../../research/t34_pathb/PROTOCOL_V2.md) — Frozen Path B v2 (`D=500` shadow + earliest-first search) protocol under Amendment 2.
-- [`research/t34_pathb/PROTOCOL_V2_BUILD_RULES.md`](../../research/t34_pathb/PROTOCOL_V2_BUILD_RULES.md) — Prospective build rules for the Path B v2 engine, controller, and adapter.
-- [`research/t34_pathb/README_V2.md`](../../research/t34_pathb/README_V2.md) — Operator runbook and registration schema reference for Path B v2.
-- [`research/t34_pathb_smoke/RESULT.md`](../../research/t34_pathb_smoke/RESULT.md) — Final report of the 2026-10-21 Path B v2 deliverability smoke (`7/75` delays at `N=1`, `0/34` rescues, `STOP_OPERATOR02_DO_NOT_RUN_PACED_STUDY`).
-- [`research/t34_pathb_smoke/STOPPING_RULE.md`](../../research/t34_pathb_smoke/STOPPING_RULE.md) — Pre-committed 50% deliverability stopping rule (`7622d62e`).
+- [`research/t34_pathb/PREREGISTRATION_RETENTION_V2.md`](../../../research/t34_pathb/PREREGISTRATION_RETENTION_V2.md) — SHA-bound pre-registration for the Path B v2 paced retention study (including Amendments 3–7).
+- [`research/t34_pathb/PROTOCOL.md`](../../../research/t34_pathb/PROTOCOL.md) — Frozen Path B v1 (`H=40`) action and fallback protocol.
+- [`research/t34_pathb/PROTOCOL_ANALYSIS_ERRATUM.md`](../../../research/t34_pathb/PROTOCOL_ANALYSIS_ERRATUM.md) — Prospective v1 analysis clarification (alive-frame survival guards, completion receipts, smoke keys).
+- [`research/t34_pathb/PROTOCOL_TIMING_ERRATUM.md`](../../../research/t34_pathb/PROTOCOL_TIMING_ERRATUM.md) — Prospective v1 timing deadline clarification.
+- [`research/t34_pathb/PROTOCOL_V2.md`](../../../research/t34_pathb/PROTOCOL_V2.md) — Frozen Path B v2 (`D=500` shadow + earliest-first search) protocol under Amendment 2.
+- [`research/t34_pathb/PROTOCOL_V2_BUILD_RULES.md`](../../../research/t34_pathb/PROTOCOL_V2_BUILD_RULES.md) — Prospective build rules for the Path B v2 engine, controller, and adapter.
+- [`research/t34_pathb/README_V2.md`](../../../research/t34_pathb/README_V2.md) — Operator runbook and registration schema reference for Path B v2.
+- [`research/t34_pathb_smoke/RESULT.md`](../../../research/t34_pathb_smoke/RESULT.md) — Final report of the 2026-10-21 Path B v2 deliverability smoke (`7/75` delays at `N=1`, `0/34` rescues, `STOP_OPERATOR02_DO_NOT_RUN_PACED_STUDY`).
+- [`research/t34_pathb_smoke/STOPPING_RULE.md`](../../../research/t34_pathb_smoke/STOPPING_RULE.md) — Pre-committed 50% deliverability stopping rule (`7622d62e`).

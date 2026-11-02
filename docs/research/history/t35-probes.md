@@ -80,7 +80,7 @@ Following the October 20, 2026 A100 strategy consultation ([`t34-a100-advice.md`
 
 ## Kept Files in This Lineage
 
-- [`research/t35_outcome_head/PREREGISTRATION.md`](../../research/t35_outcome_head/PREREGISTRATION.md) — Pre-registration for the T35 auxiliary outcome-head linear probe (`H in {16, 32, 64}`, 4 probe tiers, pass/fail bars).
-- [`research/t35_outcome_head/RESULT.md`](../../research/t35_outcome_head/RESULT.md) — Final 600-episode / 16,892-frame 5-fold grouped CV result report (`NO-GO: representation_blind`).
-- [`research/t35_two_deviation/PREREGISTRATION.md`](../../research/t35_two_deviation/PREREGISTRATION.md) — Pre-registration for the T35 two-deviation counterfactual rescue probe (`N=7` primary + `N=19` extension rule).
-- [`research/t35_two_deviation/RESULT_EXTEND.md`](../../research/t35_two_deviation/RESULT_EXTEND.md) — Final pooled `N=26` (`5 / 26 = 19.2%`) result report (`FAIL: sustained_control_dominant`).
+- [`research/t35_outcome_head/PREREGISTRATION.md`](../../../research/t35_outcome_head/PREREGISTRATION.md) — Pre-registration for the T35 auxiliary outcome-head linear probe (`H in {16, 32, 64}`, 4 probe tiers, pass/fail bars).
+- [`research/t35_outcome_head/RESULT.md`](../../../research/t35_outcome_head/RESULT.md) — Final 600-episode / 16,892-frame 5-fold grouped CV result report (`NO-GO: representation_blind`).
+- [`research/t35_two_deviation/PREREGISTRATION.md`](../../../research/t35_two_deviation/PREREGISTRATION.md) — Pre-registration for the T35 two-deviation counterfactual rescue probe (`N=7` primary + `N=19` extension rule).
+- [`research/t35_two_deviation/RESULT_EXTEND.md`](../../../research/t35_two_deviation/RESULT_EXTEND.md) — Final pooled `N=26` (`5 / 26 = 19.2%`) result report (`FAIL: sustained_control_dominant`).
