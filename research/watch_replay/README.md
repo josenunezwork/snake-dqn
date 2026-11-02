@@ -67,8 +67,9 @@ duty cycle) in `verify_payload` — passing Mac `24 fps` qualification (`qualify
 cold session `< 0.45 s`, concurrent live fallback `update p95 = 8.78 ms <= 11.688 ms`,
 `0/120` paced-`24 fps` overruns). Recorded `.watch.gz` v2 banks remain at `H = 6,000`
 under `MAX_DECODED = 512 MiB` (guarding `if record is not None: snapshot()` at
-`engine.py:216` for `record=None` confirmation and adding `configure_cpu()` in
-`run.py:77-88` are tracked in
+`engine.py:216` for `record=None` confirmation, adding `configure_cpu()` in
+`run.py:77-88`, raising on non-empty `exclusions` in `run.py:237-252` / `install.py:60-74`,
+and checking `dispatch.sibling_id(name)` in `seal_main.py:21-24` are tracked in
 [`docs/research/ROADMAP.md`](../../docs/research/ROADMAP.md) §1.3 & §2.1). Empty/exhausted
 single-session banks use live B8. No bad file is repeatedly hashed on live ticks.
 
