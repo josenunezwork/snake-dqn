@@ -3,8 +3,8 @@
 Status: **DRAFT — SOURCE REVIEW ONLY, NOT FROZEN OR ADMITTED**.
 
 This draft records the root's prospective choices following independent Astra
-strategy review. It supplements the serving-path inventory in
-`task_aligned_challenger_serving_plan_2026-09-24.md`. It does not open a numerical
+strategy review. It supplements the serving-path inventory consolidated in
+[`docs/research/history/task-aligned-challenger.md`](history/task-aligned-challenger.md). It does not open a numerical
 window or authorize qualification, checkpoint reads, gameplay, or deployment.
 
 ## Candidate and purpose

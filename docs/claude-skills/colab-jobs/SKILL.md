@@ -154,7 +154,7 @@ learner_wait; actor-bound = queues ~0, large learner_wait.
 - A100 self-play a4 15.9k tr/s / 62 upd/s (GPU-bound). Isolated learner fp32 bs2 82.7 upd/s, bf16 118.
 - A100 N=3 is actor-bound by the frozen pool's CPU work: a4 5.9k, a6 7.7k tr/s (fix in progress, t22).
 - bs4 gives no throughput gain (cost linear); bf16 is a numerics change (measure-only unless screened).
-Records: `docs/research/t16_colab_smoke02_results_2026-10-17.md`.
+Records: `docs/research/history/colab-ops.md`.
 
 ## After results
 
