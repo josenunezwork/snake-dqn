@@ -201,7 +201,7 @@ repository handoff rather than self-referenced here.
 
 ## T12B check-4-only repair and amendment (2026-10-17)
 
-The [T12B specification](specs/t12b_check4_fix_spec_2026-10-17.md) authorizes
+The [T12B specification (consolidated in `docs/research/history/b8-release-serving.md`)](history/b8-release-serving.md) authorizes
 repairing and repeating **check 4 only**. The original failed attempts and the original
 audit above remain unchanged. Checks 1–3 and 5–8 are carried forward from that audit;
 they are not repeated. The sibling

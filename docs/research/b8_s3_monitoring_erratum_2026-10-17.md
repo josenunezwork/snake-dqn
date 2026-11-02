@@ -50,6 +50,6 @@ Any planned mixed Watch default requires its separate roster qualification,
 including identity, opponent-only veto scope, fallbacks and latency; this job
 does not perform or waive that qualification.
 
-The [final review](../../research/t13b_six_snake_20261017/FINAL_REVIEW.md) records
+The [consolidated B8 release & serving history](history/b8-release-serving.md) records
 raw evidence/interval verification and focused monitoring tests. The original
 release record's bytes are preserved.

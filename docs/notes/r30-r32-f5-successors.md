@@ -1,7 +1,7 @@
 # Round 30, Round 32 and F5 successor work
 
 **Summary:** Round 30’s calibration route closed operationally with its main on HOLD, Round 32 completed synthetic rehearsal, and F5 adoption remained on HOLD. (src: docs/research/final_run_20261019/CAMPAIGN_LOG.md:257; docs/research/final_run_20261019/CAMPAIGN_LOG.md:1428-1429)
-**As of:** 2026-10-25 17:40 PT · **Sources:** fact sheet `_facts/r30-r32-f5-successors.md`; primary records cited inline.
+**As of:** 2026-10-25 17:40 PT · **Sources:** consolidated history [`docs/research/history/bl-round30.md`](../research/history/bl-round30.md); primary records cited inline.
 **Related:** [Index](README.md), [GLOSSARY](GLOSSARY.md), [F4 study](f4-study.md), [Big-lever program](big-lever-program.md), [GPU engine and speed](gpu-engine-and-speed.md), [Colab and compute infrastructure](colab-and-compute-infra.md)
 
 ## Round verdicts 30–37
@@ -31,25 +31,25 @@ R30-3, the continuation diagnostic, was deferred and unfunded. (src: big-lever/r
 
 These were planning allowances at an L4 rate of 1.54–2 u/h; the later amendment superseded their unit ceilings. (src: big-lever/round-30/JUDGMENT.md:22-24; docs/research/round30_postf4_20261025/RULING.md:103-105)
 
-- The split used salt `t34-r30-parent-split-20261023-v1`, with SHA256(salt + NUL + ultimate parent) mod 10 < 2 assigning validation and no redraw. (src: research/bl_round30/README.md:21-26)
+- The split used salt `t34-r30-parent-split-20261023-v1`, with SHA256(salt + NUL + ultimate parent) mod 10 < 2 assigning validation and no redraw. (src: docs/research/history/bl-round30.md)
 - Required validation support was ≥ 32 parents, including ≥ 16 rescue-bearing parents. (src: big-lever/round-30/JUDGMENT.md:32)
-- R30-1 preserved seed 3403, the original 2,000 Adam batches of 128 rescue plus 128 ordinary samples, and separate seed-3404 training-audit batches. (src: research/bl_round30/README.md:27-31)
+- R30-1 preserved seed 3403, the original 2,000 Adam batches of 128 rescue plus 128 ordinary samples, and separate seed-3404 training-audit batches. (src: docs/research/history/bl-round30.md)
 - The residual had 1,542 trainable parameters, with strong-convexity lower bound μ = 2×10⁻⁴/1,536. (src: big-lever/round-30/JUDGMENT.md:7; big-lever/round-30/JUDGMENT.md:42)
-- The certificate target was objective suboptimality ≤ 10⁻⁵×max(1,F(0)); implementation used the conservative target 10⁻⁵. (src: big-lever/round-30/JUDGMENT.md:44; research/bl_round30/README.md:32-36)
-- The original bounds were 500 L-BFGS closure evaluations / 3,600 s and 600 s for the directed Decimal50 gradient enclosure. (src: research/bl_round30/README.md:31-34)
+- The certificate target was objective suboptimality ≤ 10⁻⁵×max(1,F(0)); implementation used the conservative target 10⁻⁵. (src: big-lever/round-30/JUDGMENT.md:44; docs/research/history/bl-round30.md)
+- The original bounds were 500 L-BFGS closure evaluations / 3,600 s and 600 s for the directed Decimal50 gradient enclosure. (src: docs/research/history/bl-round30.md)
 - Certified objective gain < 1%, retention gain < 1 pp, and action disagreement < 0.5% together closed additional optimizer investment. (src: big-lever/round-30/JUDGMENT.md:46)
 - The ranking trigger required aggregate choice loss / available advantage ≥ 0.10 across ≥ 32 ultimate training parents with at least two surviving alternatives. (src: big-lever/round-30/JUDGMENT.md:54)
 - The single successor look required ≥ 10% survivor-reference regret reduction, rescue retention ≥ 0.70 and ≥ control, and successor H=0 on the fixed natural ordinary archive. (src: big-lever/round-30/JUDGMENT.md:62)
-- Precedence was **INVALID → INCOMPLETE → INSUFFICIENT → HOLD → KILL_SUCCESSOR / GO_OFFLINE**, with GO_OFFLINE funding only preparation of a separately priced Mac gameplay plan. (src: research/bl_round30/README.md:55-59)
+- Precedence was **INVALID → INCOMPLETE → INSUFFICIENT → HOLD → KILL_SUCCESSOR / GO_OFFLINE**, with GO_OFFLINE funding only preparation of a separately priced Mac gameplay plan. (src: docs/research/history/bl-round30.md)
 - The original F4 closure fence kept R30-2 fit/look on HOLD after R9 labels 4–8 until a new explicit ruling. (src: big-lever/round-30/JUDGMENT.md:66)
 
 The ruling identified `heldout_metrics` in `research/bl_residual/fit.py` as computing best mass over all exact legal selectable actions, including dying actions, rather than the required survivor-reference regret. (src: big-lever/round-30/JUDGMENT.md:56)
 
 ## Round 30 on 2026-10-24
 
-Qualification recorded **MAC_PREFLIGHT_PASS / CONSUMER_CANARY_PREPARED**, while scientific R30-1 remained HOLD pending corpus and native-canary admission. (src: docs/research/round30_qualification_20261024.md:3-6)
-The final qualification at `72b6fcf0` recorded 66 tests passed in 2.74 s. (src: docs/research/round30_qualification_20261024.md:65-70)
-Earlier 63-test canaries were marked **SUPERSEDED_DO_NOT_DISPATCH** after review found the missing CUDA action-selection call. (src: docs/research/round30_qualification_20261024.md:59-62)
+Qualification recorded **MAC_PREFLIGHT_PASS / CONSUMER_CANARY_PREPARED**, while scientific R30-1 remained HOLD pending corpus and native-canary admission. (src: docs/research/history/bl-round30.md)
+The final qualification at `72b6fcf0` recorded 66 tests passed in 2.74 s. (src: docs/research/history/bl-round30.md)
+Earlier 63-test canaries were marked **SUPERSEDED_DO_NOT_DISPATCH** after review found the missing CUDA action-selection call. (src: docs/research/history/bl-round30.md)
 
 | codex_v_light receipt | Scope and recorded disposition |
 |---|---|
@@ -57,12 +57,12 @@ Earlier 63-test canaries were marked **SUPERSEDED_DO_NOT_DISPATCH** after review
 | `round30_round32_mechanical_codex_v_light_20261024.json` | **ACCEPT**, no actionable findings; R30 pin `c1bf44c8`, R32 pin `c1ab2750`, and zero allocations, dispatches or stops by the review. (src: docs/research/round30_round32_mechanical_codex_v_light_20261024.json:1) |
 | `round30_upload_codex_v_light_20261024.json` | **CODEX_V_LIGHT_PASS_PREPARED_NOT_DISPATCHED** at `98cc98a7`; 260 source files verified and scientific main HOLD. (src: docs/research/round30_upload_codex_v_light_20261024.json:1) |
 
-The lifecycle repair admitted absent or pre-created empty output directories while refusing symlinks, files and nonempty directories. (src: docs/research/round30_round32_mechanical_relaunch_20261024.md:9-15)
-Its frozen runtime `c1bf44c8` recorded 78 tests passed in 3.18 s. (src: docs/research/round30_round32_mechanical_relaunch_20261024.md:17-24)
+The lifecycle repair admitted absent or pre-created empty output directories while refusing symlinks, files and nonempty directories. (src: docs/research/history/bl-round30.md)
+Its frozen runtime `c1bf44c8` recorded 78 tests passed in 3.18 s. (src: docs/research/history/bl-round30.md)
 The 04:24 PT relaunch failed by the 04:27 PT entry on **UPLOAD_CAP** for `b8.pth`. (src: docs/research/final_run_20261019/CAMPAIGN_LOG.md:253-254)
-The upload repair used the existing public B8 checkpoint URL and bundled six metadata files into one 10,240-byte archive, reducing local input rows from seven to one. (src: docs/research/round30_upload_relaunch_20261024.md:12-27)
-Its packaging proof passed in 9.557 s; **PASS_NOT_DISPATCHED** upload qualification covered 27,995 upload bytes with modelled forecasts of 65.629 s and 90.871 s. (src: docs/research/round30_upload_relaunch_20261024.md:48-50; docs/research/round30_upload_relaunch_20261024.md:80-84)
-Two earlier R30 attempts remained **INCOMPLETE**, with verified stops and zero exports. (src: docs/research/round30_upload_relaunch_20261024.md:92-96)
+The upload repair used the existing public B8 checkpoint URL and bundled six metadata files into one 10,240-byte archive, reducing local input rows from seven to one. (src: docs/research/history/bl-round30.md)
+Its packaging proof passed in 9.557 s; **PASS_NOT_DISPATCHED** upload qualification covered 27,995 upload bytes with modelled forecasts of 65.629 s and 90.871 s. (src: docs/research/history/bl-round30.md)
+Two earlier R30 attempts remained **INCOMPLETE**, with verified stops and zero exports. (src: docs/research/history/bl-round30.md)
 
 The dated corpus census recorded **HOLD: no eligible corpus** because the live F4 D256/D1024 stream was excluded, F0 canaries supplied about seven validation parents against 32 required, and the other corpora were not in F0 format. (src: docs/research/final_run_20261019/CAMPAIGN_LOG.md:256)
 
@@ -76,8 +76,8 @@ It excluded fold 0, the 64-life reserve, the R-A natural archive, unused tails a
 
 | Split | Lives / parents | Rows |
 |---|---|---|
-| Training | 730 / 291 | 65,825: 5,613 ordinary and 60,212 rescue. (src: docs/research/round30_postf4_20261025/HANDOFF.md:50-55) |
-| Validation | 230 / 81, all 81 rescue-bearing | 20,698: 1,754 ordinary and 18,944 rescue. (src: docs/research/round30_postf4_20261025/HANDOFF.md:50-55) |
+| Training | 730 / 291 | 65,825: 5,613 ordinary and 60,212 rescue. (src: docs/research/history/bl-round30.md) |
+| Validation | 230 / 81, all 81 rescue-bearing | 20,698: 1,754 ordinary and 18,944 rescue. (src: docs/research/history/bl-round30.md) |
 
 The prospective control correction resolved the optimizer before computing the conversion trigger, using Adam for **OPTIMIZER_ADEQUATE** and certified L-BFGS for **OPTIMIZER_MATERIAL**. (src: docs/research/round30_postf4_20261025/RULING.md:75-81)
 **OBJECTIVE_MISMATCH** held the successor; no decisive audit lives yielded **INSUFFICIENT**. (src: docs/research/round30_postf4_20261025/RULING.md:78-79)
@@ -89,10 +89,10 @@ Astra’s build judgment at `94635bd6`, runtime `a7893b97`, recorded **ACCEPT G1
 The judgment linked separate G1, G2 and PRE_CANARY acceptance receipts and verified all 281 preflight source hashes against evidence recording 106 passing tests. (src: big-lever/exp/astra-20261024/JUDGMENT_R30_POST_F4_BUILD_94635bd6_20261025T211841Z.md:9-15)
 
 At 14:50 PT, the campaign record reported native canary **PASS**, CUDA consumption and verified stop. (src: docs/research/final_run_20261019/CAMPAIGN_LOG.md:1406)
-The canary took 1,100.253 s supervisor time, with 102.131 s transfer and 173.497 s staging. (src: docs/research/r30_postf4_g5_preparation_hold_20261025.md:10-11)
-Charging 18 min history and 20 min canary liability against 144 min left a 106-min main ceiling and a required estimate ≤ 53 min. (src: docs/research/r30_postf4_g5_preparation_hold_20261025.md:12-13)
-G5 remained **HOLD** because aggregate worker time did not identify a measured full-main forecast; the 7,962-min scaling figure was an unseparated-cost screening surrogate. (src: docs/research/r30_postf4_g5_preparation_hold_20261025.md:15-25)
-No main was packaged or dry-run by that G5 preparation. (src: docs/research/r30_postf4_g5_preparation_hold_20261025.md:27-28)
+The canary took 1,100.253 s supervisor time, with 102.131 s transfer and 173.497 s staging. (src: docs/research/history/bl-round30.md)
+Charging 18 min history and 20 min canary liability against 144 min left a 106-min main ceiling and a required estimate ≤ 53 min. (src: docs/research/history/bl-round30.md)
+G5 remained **HOLD** because aggregate worker time did not identify a measured full-main forecast; the 7,962-min scaling figure was an unseparated-cost screening surrogate. (src: docs/research/history/bl-round30.md)
+No main was packaged or dry-run by that G5 preparation. (src: docs/research/history/bl-round30.md)
 
 ### Timing probes 01–04 and closure
 
@@ -102,11 +102,11 @@ The first timing authorization added a separately accounted base/effective 20/40
 |---|---|
 | 01 | **FIX-FIRST** at `185d8395` was followed by **ACCEPT** at `8260c8fe` for one timing attempt. (src: big-lever/exp/astra-20261024/JUDGMENT_R30_TIMING_185D8395_FIX_FIRST_20261025.md:1-3; big-lever/exp/astra-20261024/JUDGMENT_R30_TIMING_8260C8FE_ACCEPT_20261025.md:5) |
 | 01 refusal | **UPLOAD_CAP** occurred before allocation because the 512-KiB export limit also capped uploads; Astra classified it **NON-ATTEMPT**, preserving the allocated-attempt allowance. (src: docs/research/final_run_20261019/CAMPAIGN_LOG.md:1408-1409; big-lever/exp/astra-20261024/JUDGMENT_R30_TIMING_UPLOAD_CAP_NONATTEMPT_20261025.md:5-9) |
-| 02 | Runtime `773ef710` separated the 64-MiB transport bound from the 524,288-byte timing-output cap and received **ACCEPT** for one probe dispatch. (src: docs/research/r30_timing_upload_cap_probe02_20261025.md:8-17; big-lever/exp/astra-20261024/JUDGMENT_R30_TIMING_PROBE02_0F90A3C2_ACCEPT_20261025.md:5) |
+| 02 | Runtime `773ef710` separated the 64-MiB transport bound from the 524,288-byte timing-output cap and received **ACCEPT** for one probe dispatch. (src: docs/research/history/bl-round30.md; big-lever/exp/astra-20261024/JUDGMENT_R30_TIMING_PROBE02_0F90A3C2_ACCEPT_20261025.md:5) |
 | 02 result | **INCOMPLETE / CHILD_NONZERO_EXIT** after 988.648 s, verified stop and no exports; a blanket handler erased phase/cause information, leaving the workload cause **UNKNOWN**. (src: big-lever/exp/astra-20261024/JUDGMENT_R30_PROBE02_INCOMPLETE_OBSERVABILITY_20261025.md:5-19) |
 | 03 | One observability-corrected probe received **ACCEPT**, with durable redacted phase telemetry replacing RAM-only diagnostics and a separate 30-min effective reservation taking the total to 502 min. (src: big-lever/exp/astra-20261024/JUDGMENT_R30_PROBE03_3A830E71_ACCEPT_20261025.md:5-9; big-lever/exp/astra-20261024/JUDGMENT_R30_PROBE02_INCOMPLETE_OBSERVABILITY_20261025.md:25-31) |
 | 03 result | **INCOMPLETE / CHILD_NONZERO_EXIT** after 1,121.888 s; 36 telemetry records identified **CERTIFICATE_DEADLINE** at 600.016 s in the certificate phase. (src: big-lever/exp/astra-20261024/JUDGMENT_R30_PROBE03_CERTIFICATE_AMENDMENT_20261025.md:15-25) |
-| 04 | The bounded amendment prepared a 1,200-s certificate cap, 2,100-s worker cutoff and 2,400-s session at runtime `0644e3a9`, taking combined liability to 542 min. (src: docs/research/r30_timing_certificate_probe04_20261025.md:8-24) |
+| 04 | The bounded amendment prepared a 1,200-s certificate cap, 2,100-s worker cutoff and 2,400-s session at runtime `0644e3a9`, taking combined liability to 542 min. (src: docs/research/history/bl-round30.md) |
 | 04 refusal | The dry-run was **REFUSED** with zero allocations because qualified probe sessions were capped at 30 min, while the packet required 40 min. (src: big-lever/exp/astra-20261024/JUDGMENT_R30_PROBE04_ADMISSION_ROUTE_CLOSED_20261025.md:7-9) |
 
 At 17:05 PT, the recorded ruling closed the calibration route as operationally unresolved / not admitted, rather than a scientific **KILL**, and retained R30-1 main and R30-2 **HOLD**. (src: docs/research/final_run_20261019/CAMPAIGN_LOG.md:1428)
@@ -172,11 +172,11 @@ That acceptance allowed execution only after F5 was adopted and published; detai
 
 - The 2026-10-25 PT amendment admitted the named 960-life closed training corpus, superseding the 2026-10-24 PT no-eligible-corpus HOLD for that corpus only. (src: docs/research/round30_postf4_20261025/RULING.md:5; docs/research/final_run_20261019/CAMPAIGN_LOG.md:256)
 - The amendment’s narrow label-5 exception superseded the original R9-label-4–8 fence only for the distinct rescue-only ranking mechanism; fit/look remained HOLD. (src: docs/research/round30_postf4_20261025/RULING.md:13-19; big-lever/round-30/JUDGMENT.md:66)
-- Qualified CLI tree `c1484312` at registry commit `de5bde2d` superseded the earlier `d0d92bdb` transport binding. (src: docs/research/round30_postf4_20261025/RULING.md:95; docs/research/round30_qualification_20261024.md:22-23)
+- Qualified CLI tree `c1484312` at registry commit `de5bde2d` superseded the earlier `d0d92bdb` transport binding. (src: docs/research/round30_postf4_20261025/RULING.md:95; docs/research/history/bl-round30.md)
 - The no-unit-ceilings amendment superseded 4.8/9.6/14.4-u ceilings while retaining effective wall allowances of 144/288/432 min. (src: docs/research/round30_postf4_20261025/RULING.md:103-105; big-lever/round-30/JUDGMENT.md:24)
-- The verified 18-min historical charge superseded the earlier 60-min summed reservation through `HISTORY_CLARIFICATION.json`. (src: docs/research/round30_postf4_20261025/HANDOFF.md:100-105)
-- Calibration reservations increased combined effective liability from 432 to 472 to 502 to 542 min without enlarging the 106-min main ceiling. (src: docs/research/round30_postf4_20261025/RULING.md:105; docs/research/final_run_20261019/CAMPAIGN_LOG.md:1406; big-lever/exp/astra-20261024/JUDGMENT_R30_PROBE02_INCOMPLETE_OBSERVABILITY_20261025.md:31; docs/research/r30_timing_certificate_probe04_20261025.md:18-24)
-- Probe-04’s prospective 1,200-s certificate cap replaced 600 s in that packet, but the packet was never admitted and the calibration route then closed. (src: docs/research/r30_timing_certificate_probe04_20261025.md:18-29; big-lever/exp/astra-20261024/JUDGMENT_R30_PROBE04_ADMISSION_ROUTE_CLOSED_20261025.md:5-7)
+- The verified 18-min historical charge superseded the earlier 60-min summed reservation through `HISTORY_CLARIFICATION.json`. (src: docs/research/history/bl-round30.md)
+- Calibration reservations increased combined effective liability from 432 to 472 to 502 to 542 min without enlarging the 106-min main ceiling. (src: docs/research/round30_postf4_20261025/RULING.md:105; docs/research/final_run_20261019/CAMPAIGN_LOG.md:1406; big-lever/exp/astra-20261024/JUDGMENT_R30_PROBE02_INCOMPLETE_OBSERVABILITY_20261025.md:31; docs/research/history/bl-round30.md)
+- Probe-04’s prospective 1,200-s certificate cap replaced 600 s in that packet, but the packet was never admitted and the calibration route then closed. (src: docs/research/history/bl-round30.md; big-lever/exp/astra-20261024/JUDGMENT_R30_PROBE04_ADMISSION_ROUTE_CLOSED_20261025.md:5-7)
 - F5 draft v2 superseded v1 after REVISE without establishing adoption. (src: big-lever/exp/astra-20261024/F5_DRAFT_PREDATA_REGISTRATION_20261025_v2.md:3-11)
 - The expanded 1,160,637-seed collision union superseded the original 3,024-seed inventory as documented coverage, while both annexes retained HOLD. (src: big-lever/exp/astra-20261024/F5_R10A_GAP_CLOSURE_ANNEX_20261026_v2.md:3-19; big-lever/exp/astra-20261024/F5_R10A_METADATA_ANNEX_20261025.md:3-24)
 - Probe-03’s identified certificate deadline did not resolve probe-02’s erased failure cause, which remained UNKNOWN in its ruling. (src: big-lever/exp/astra-20261024/JUDGMENT_R30_PROBE03_CERTIFICATE_AMENDMENT_20261025.md:15-25; big-lever/exp/astra-20261024/JUDGMENT_R30_PROBE02_INCOMPLETE_OBSERVABILITY_20261025.md:5-19)

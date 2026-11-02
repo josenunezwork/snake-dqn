@@ -1,7 +1,7 @@
 # Big-lever experiments and results
 
 **Summary:** These experiments established an offline search ceiling, but L2′'s FUND_SYSTEMS result did not establish delivered serving value. (src: big-lever/LIVE_FACTS.md:38-39)
-**As of:** 2026-10-25 PT · **Sources:** fact sheet `_facts/big-lever-program.md`, experiment families; primary records cited inline.
+**As of:** 2026-10-25 PT · **Sources:** consolidated record [`docs/research/history/t34-big-lever.md`](../research/history/t34-big-lever.md), experiment families; primary records cited inline.
 **Related:** [Index](README.md), [GLOSSARY](GLOSSARY.md), [Big-lever program](big-lever-program.md), [Colab and compute infrastructure](colab-and-compute-infra.md), [Lessons and incidents](lessons-and-incidents.md)
 
 For the round process, plans and A100 program, see [Big-lever program](big-lever-program.md).
