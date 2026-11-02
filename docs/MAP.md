@@ -25,7 +25,7 @@ overview and command reference start at [INDEX.md](INDEX.md); for per-document s
 | --- | --- |
 | [INDEX.md](INDEX.md) | Top-level project map: what the repo is, served Watch/Play today, active T34 studies, experiment locations, and run commands. |
 | [STATUS.md](STATUS.md) | Current state (snapshot 2026-11-01; Watch bank 2026-11-01; live `b8-s3` release 2026-10-17) and standing owner rules. |
-| [research/ROADMAP.md](research/ROADMAP.md) | Round-25 synthesized current-round and later-round research roadmap (advice only, not ratified decisions). |
+| [research/ROADMAP.md](research/ROADMAP.md) | Round-26 synthesized current-round and later-round research roadmap (advice only, not ratified decisions). |
 | [research/final_run_20261019/](research/final_run_20261019/) | T34 "ExIt-B8" campaign: handoff, campaign log, final/merged plans, design v2, success contract, P7 statistics, speed advice. |
 | `research/governance_*.md` & [research/governance_a100_sandbox_20261026/](research/governance_a100_sandbox_20261026/) | Governance tiers (2026-09-26), dated amendments, and A100 sandbox governance; [README.md](README.md) lists which are current. |
 | [research/ops/](research/ops/) | 2026-10-20 operational snapshots: artifacts inventory, worktree inventory, Colab units ledger. |
