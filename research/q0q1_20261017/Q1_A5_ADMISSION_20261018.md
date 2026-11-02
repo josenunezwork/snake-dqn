@@ -10,7 +10,7 @@ A5 and the accounting correction were committed before this generator invocation
 The generated record is capacity evidence, not Q1 scientific data or a release.
 
 The complete per-runtime table, evidence limitations and unchanged unit/CPU caps
-are in [the A4 sibling correction](Q1_A4_ALLOCATION_CORRECTION_20261018.md).
+are in [the consolidated Q0/Q1 history record](../../docs/research/history/q0-q1.md).
 Missing assignment starts use the disclosed Oct17 18:00 PDT bound; the unresolved
 earlier L4 may be counted twice. These are conservative policy bounds, not observed
 charges. The requested prospective L4 assumption is dispatch Oct18 20:00 PDT,
@@ -95,7 +95,7 @@ all repaired integration tests and passes. The other seven failures are:
 | T4 restart actor parity | Frozen baseline payload-key mismatch |
 
 These match the failure classes documented before A5 in
-[the A4 limitations record](Q1_A4_TEST_LIMITATIONS_20261018.md). Corresponding
+[the consolidated Q0/Q1 history record](../../docs/research/history/q0-q1.md). Corresponding
 actor/reward/T4/T15/T21/frontend source was not changed by A5. This run does not
 independently prove all seven fail identically on every baseline, and a whole-repo
 green gate is not claimed. No unrelated repair or environment change was made.
