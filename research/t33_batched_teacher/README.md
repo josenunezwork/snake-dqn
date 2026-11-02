@@ -5,7 +5,7 @@ Development-only distillation labels. Implementation follows
 hot-path review. Phase 0 and all original receipts remain unchanged.
 See [OPTIMIZATION_LOG.md](OPTIMIZATION_LOG.md) for measured gains, regressions,
 Mac lockstep stage timings, L4 projections and remaining qualification limits.
-[ROUND2_PROTOCOL.md](ROUND2_PROTOCOL.md) prospectively defines descriptive fits.
+[t34-search-teacher.md](../../docs/research/history/t34-search-teacher.md) documents the round-two protocol and descriptive fits.
 The final test and source-hash evidence is in
 [ROUND2_VERIFICATION.json](ROUND2_VERIFICATION.json).
 
