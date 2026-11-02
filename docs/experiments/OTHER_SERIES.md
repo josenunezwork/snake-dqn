@@ -34,22 +34,22 @@ so, Apex remained the incumbent.
 | 2026-09-13 | Do solo recipes improve with 200k vs 50k transitions? | Audited descriptive screen; no advancement | [README.md](solo_budget_curve_2026-09-13/README.md) |
 | 2026-09-13 | Does eps_end 0.02 -> 0.10 help solo learning? | Stage A failed (16/24 learning, 6/12 nonregression) | [README.md](solo_exploration_floor_2026-09-13/README.md) |
 | 2026-09-13 | Did the failed seed stop seeing food during training? | No; contacts continued; cause of drop unidentified | [README.md](solo_training_exposure_2026-09-13/README.md) |
-| 2026-09-13 | Does native Q(lambda) preserve ambient-food credit? | Yes on all 3 trajectories; failed seed had very few contacts (descriptive) | [README.md](solo_native_pressure_2026-09-13/README.md) |
-| 2026-09-13 | Do joint-supervised policies transfer food collection to native solo? | `transfer_not_reliable` | [README.md](solo_short_transfer_2026-09-13/README.md) |
-| 2026-09-13 | Does broader native-food BC give reliable 64-frame food collection? | Joint 0/3; held-out fit failed every seed | [README.md](solo_native_food_bc_2026-09-13/README.md) |
-| 2026-09-13 | Does spreading teacher examples over 16 worlds help? | `INCOMPLETE`; held-out fit failed all 3 | [README.md](solo_native_food_diversity_2026-09-13/README.md) |
-| 2026-09-13 | Do food-geometry-only inputs fix native food behavior? | Gameplay 3/3 pass, held-out fit fail -> joint FAIL | [README.md](solo_native_food_input_ablation_2026-09-13/README.md) |
-| 2026-09-13 | Does 64-frame food behavior repeat on fresh worlds? | `FRESH_NATIVE64_BEHAVIOR_CONFIRMED` (behavior only) | [README.md](solo_native_food_fresh_confirmation_2026-09-13/README.md) |
-| 2026-09-14 | Does food behavior hold for 128 frames? | `NATIVE128_BEHAVIOR_CONFIRMED` | [README.md](solo_native_food_128_2026-09-14/README.md) |
-| 2026-09-14 | Does food behavior hold for 256 frames? | `NATIVE256_BEHAVIOR_NOT_RELIABLE`; survival bottleneck | [README.md](solo_native_food_256_2026-09-14/README.md) |
-| 2026-09-14 | Were 256-frame deaths caused by advisory-safe actions? | No; all 100 deaths had an empty safe set | [README.md](solo_native_death_replay_2026-09-14/README.md) |
-| 2026-09-14 | Is the free-space veto a better scripted teacher? | Yes as teacher: 96/96 survived vs 67; eligibility passed | [README.md](solo_native_food_space_teacher_2026-09-14/README.md) |
-| 2026-09-14 | (AG) Can learners imitate the spacious teacher? | `INCOMPLETE / INCONCLUSIVE`; food learned, survival/fit gates missed | [README.md](solo_native_space_bc_2026-09-14/README.md) |
-| 2026-09-14 | (AH) Do AG policies miss spacious-teacher turns? | `ADVANCE_TARGETED_AUGMENTATION` | [README.md](solo_native_space_policy_replay_2026-09-14/README.md) |
-| 2026-09-14 | (AI) Does one learner-state aggregation round help? | Failed reliability gate (CI includes zero) | [README.md](solo_native_space_aggregation_2026-09-14/README.md) |
-| 2026-09-14 | (AJ) Does a fixed learner-state refresh help? | Failed reliability gate | [README.md](solo_native_space_refresh_2026-09-14/README.md) |
-| 2026-09-14 | (AK) Are AJ errors on recoverable food decisions? | `ERRORS_ON_RECOVERABLE_FOOD_DECISIONS` | [README.md](solo_space_food_attribution_2026-09-14/README.md) |
-| 2026-09-14 | (AL) Does a training-only food view help native solo256? | Failed frozen joint gate | [README.md](solo_native_food_view_2026-09-14/README.md) |
+| 2026-09-13 | Does native Q(lambda) preserve ambient-food credit? | Yes on all 3 trajectories; failed seed had very few contacts (descriptive) | [solo-native-imitation.md](../research/history/solo-native-imitation.md) |
+| 2026-09-13 | Do joint-supervised policies transfer food collection to native solo? | `transfer_not_reliable` | [solo-native-imitation.md](../research/history/solo-native-imitation.md) |
+| 2026-09-13 | Does broader native-food BC give reliable 64-frame food collection? | Joint 0/3; held-out fit failed every seed | [solo-native-imitation.md](../research/history/solo-native-imitation.md) |
+| 2026-09-13 | Does spreading teacher examples over 16 worlds help? | `INCOMPLETE`; held-out fit failed all 3 | [solo-native-imitation.md](../research/history/solo-native-imitation.md) |
+| 2026-09-13 | Do food-geometry-only inputs fix native food behavior? | Gameplay 3/3 pass, held-out fit fail -> joint FAIL | [solo-native-imitation.md](../research/history/solo-native-imitation.md) |
+| 2026-09-13 | Does 64-frame food behavior repeat on fresh worlds? | `FRESH_NATIVE64_BEHAVIOR_CONFIRMED` (behavior only) | [solo-native-imitation.md](../research/history/solo-native-imitation.md) |
+| 2026-09-14 | Does food behavior hold for 128 frames? | `NATIVE128_BEHAVIOR_CONFIRMED` | [solo-native-imitation.md](../research/history/solo-native-imitation.md) |
+| 2026-09-14 | Does food behavior hold for 256 frames? | `NATIVE256_BEHAVIOR_NOT_RELIABLE`; survival bottleneck | [solo-native-imitation.md](../research/history/solo-native-imitation.md) |
+| 2026-09-14 | Were 256-frame deaths caused by advisory-safe actions? | No; all 100 deaths had an empty safe set | [solo-native-imitation.md](../research/history/solo-native-imitation.md) |
+| 2026-09-14 | Is the free-space veto a better scripted teacher? | Yes as teacher: 96/96 survived vs 67; eligibility passed | [solo-native-imitation.md](../research/history/solo-native-imitation.md) |
+| 2026-09-14 | (AG) Can learners imitate the spacious teacher? | `INCOMPLETE / INCONCLUSIVE`; food learned, survival/fit gates missed | [solo-native-imitation.md](../research/history/solo-native-imitation.md) |
+| 2026-09-14 | (AH) Do AG policies miss spacious-teacher turns? | `ADVANCE_TARGETED_AUGMENTATION` | [solo-native-imitation.md](../research/history/solo-native-imitation.md) |
+| 2026-09-14 | (AI) Does one learner-state aggregation round help? | Failed reliability gate (CI includes zero) | [solo-native-imitation.md](../research/history/solo-native-imitation.md) |
+| 2026-09-14 | (AJ) Does a fixed learner-state refresh help? | Failed reliability gate | [solo-native-imitation.md](../research/history/solo-native-imitation.md) |
+| 2026-09-14 | (AK) Are AJ errors on recoverable food decisions? | `ERRORS_ON_RECOVERABLE_FOOD_DECISIONS` | [solo-native-imitation.md](../research/history/solo-native-imitation.md) |
+| 2026-09-14 | (AL) Does a training-only food view help native solo256? | Failed frozen joint gate | [solo-native-imitation.md](../research/history/solo-native-imitation.md) |
 
 ## Controlled-encounter series (2026-09-21 .. 2026-09-22)
 

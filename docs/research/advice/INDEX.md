@@ -89,30 +89,30 @@ fixes in [../specs/2026-10-19_rules_audit_code_fixes.md](../specs/2026-10-19_rul
 
 | Date | Title | Type | Status | Link |
 |---|---|---|---|---|
-| 2026-10-19 | Rules audit (owner request): question | question | ADOPTED as the question (3fecac0c) | [2026-10-19_rules_audit_question.md](2026-10-19_rules_audit_question.md) |
-| 2026-10-19 | Update authority and integration, retain evidence protections (engineering) | advice | ADOPTED via the Fable judgment | [2026-10-19_rules_audit_astra_eng.md](2026-10-19_rules_audit_astra_eng.md) |
-| 2026-10-19 | Rules audit: compute / operations lens (no H1 title) | advice | ADOPTED via the Fable judgment | [2026-10-19_rules_audit_astra_ops.md](2026-10-19_rules_audit_astra_ops.md) |
-| 2026-10-19 | Rules audit: research lens (no H1 title) | advice | ADOPTED via the Fable judgment | [2026-10-19_rules_audit_astra_research.md](2026-10-19_rules_audit_astra_research.md) |
+| 2026-10-19 | Rules audit (owner request): question | question | ADOPTED as the question (3fecac0c) | [2026-10-19_rules_audit_question.md](../history/governance.md) |
+| 2026-10-19 | Update authority and integration, retain evidence protections (engineering) | advice | ADOPTED via the Fable judgment | [2026-10-19_rules_audit_astra_eng.md](../history/governance.md) |
+| 2026-10-19 | Rules audit: compute / operations lens (no H1 title) | advice | ADOPTED via the Fable judgment | [2026-10-19_rules_audit_astra_ops.md](../history/governance.md) |
+| 2026-10-19 | Rules audit: research lens (no H1 title) | advice | ADOPTED via the Fable judgment | [2026-10-19_rules_audit_astra_research.md](../history/governance.md) |
 | 2026-10-19 | Fable judgment: rules audit | judgment | ADOPTED b9b3e188 (owner "yes all") | [2026-10-19_rules_audit_fable_judgment.md](2026-10-19_rules_audit_fable_judgment.md) |
 
 ## Colab / GPU lanes, after-T23, Q1 (2026-10-17 → 10-18)
 
 | Date | Title | Type | Status | Link |
 |---|---|---|---|---|
-| 2026-10-17 | Is Colab H100 time useful to this project, and for what | advice | ADOPTED: T16 Colab smoke | [2026-10-17_colab_h100.md](2026-10-17_colab_h100.md) |
-| 2026-10-17 | Review of the T16 Colab throughput notebook | review | ADOPTED in the T16 notebook (972a2373) | [2026-10-17_colab_review.md](2026-10-17_colab_review.md) |
-| 2026-10-17 | Pre-rerun review of the T16 smoke after smoke-01 | review | ADOPTED for smoke-02 (6b7e280f) | [2026-10-17_colab_rerun_review.md](2026-10-17_colab_rerun_review.md) |
+| 2026-10-17 | Is Colab H100 time useful to this project, and for what | advice | ADOPTED: T16 Colab smoke | [2026-10-17_colab_h100.md](../history/t16-t24-perf-league.md) |
+| 2026-10-17 | Review of the T16 Colab throughput notebook | review | ADOPTED in the T16 notebook (972a2373) | [2026-10-17_colab_review.md](../history/t16-t24-perf-league.md) |
+| 2026-10-17 | Pre-rerun review of the T16 smoke after smoke-01 | review | ADOPTED for smoke-02 (6b7e280f) | [2026-10-17_colab_rerun_review.md](../history/t16-t24-perf-league.md) |
 | 2026-10-17 | Why the A100 smoke is slower than the Mac, and how to fix it | advice | ADOPTED: T17 spec (3eed8560) | [2026-10-17_colab_slower.md](2026-10-17_colab_slower.md) |
-| 2026-10-17 | Review of the T17 plan (parallel gather, ingest, exit, smoke-03) | review | ADOPTED: T17b spec (c4ac7411) | [2026-10-17_t17_plan_review.md](2026-10-17_t17_plan_review.md) |
+| 2026-10-17 | Review of the T17 plan (parallel gather, ingest, exit, smoke-03) | review | ADOPTED: T17b spec (c4ac7411) | [2026-10-17_t17_plan_review.md](../history/t16-t24-perf-league.md) |
 | 2026-10-17 | Is there a genuinely different lane that abundant GPU opens? | advice | HISTORICAL (whether it led to Lane A is unclear) | [2026-10-17_new_lane.md](2026-10-17_new_lane.md) |
-| 2026-10-17 | Would an A100 make a worse agent than an H100-tailored run? | advice | HISTORICAL | [2026-10-17_a100_vs_h100.md](2026-10-17_a100_vs_h100.md) |
-| 2026-10-17 | H100 pre-runs: learner ceiling, contention, precision, Colab CPU limits | advice | ADOPTED in the H100 pre-runs plan (1331b346) | [2026-10-17_h100_preruns_gpu.md](2026-10-17_h100_preruns_gpu.md) |
-| 2026-10-17 | H100 pre-runs: the minimum useful league | advice | ADOPTED in the H100 pre-runs plan (1331b346) | [2026-10-17_h100_preruns_league.md](2026-10-17_h100_preruns_league.md) |
-| 2026-10-17 | H100 pre-runs: learning recipe and experimental design | advice | ADOPTED in the H100 pre-runs plan (1331b346) | [2026-10-17_h100_preruns_rl.md](2026-10-17_h100_preruns_rl.md) |
+| 2026-10-17 | Would an A100 make a worse agent than an H100-tailored run? | advice | HISTORICAL | [2026-10-17_a100_vs_h100.md](../history/t16-t24-perf-league.md) |
+| 2026-10-17 | H100 pre-runs: learner ceiling, contention, precision, Colab CPU limits | advice | ADOPTED in the H100 pre-runs plan (1331b346) | [2026-10-17_h100_preruns_gpu.md](../history/t16-t24-perf-league.md) |
+| 2026-10-17 | H100 pre-runs: the minimum useful league | advice | ADOPTED in the H100 pre-runs plan (1331b346) | [2026-10-17_h100_preruns_league.md](../history/t16-t24-perf-league.md) |
+| 2026-10-17 | H100 pre-runs: learning recipe and experimental design | advice | ADOPTED in the H100 pre-runs plan (1331b346) | [2026-10-17_h100_preruns_rl.md](../history/t16-t24-perf-league.md) |
 | 2026-10-17 | After T23: buy policy improvement, then throughput | advice | ADOPTED in the after-T23 plan (4a00c5ac) | [2026-10-17_after_t23_compute.md](2026-10-17_after_t23_compute.md) |
 | 2026-10-17 | After T23: preserve B8's competence, then earn an adaptive league | advice | ADOPTED in the after-T23 plan (4a00c5ac) | [2026-10-17_after_t23_league.md](2026-10-17_after_t23_league.md) |
 | 2026-10-17 | After T23: recover policy improvement before scaling the league | advice | ADOPTED in the after-T23 plan (4a00c5ac) | [2026-10-17_after_t23_rl.md](2026-10-17_after_t23_rl.md) |
-| 2026-10-18 | Overnight A100 advice | advice | ADOPTED: overnight host contracts on A100 (08b97267) | [2026-10-18_overnight_a100.md](2026-10-18_overnight_a100.md) |
+| 2026-10-18 | Overnight A100 advice | advice | ADOPTED: overnight host contracts on A100 (08b97267) | [2026-10-18_overnight_a100.md](../history/t16-t24-perf-league.md) |
 | 2026-10-18 | Q1 tonight: finish the diagnostic, correct the budget first (RL) | advice | HISTORICAL (Q1 refused at A5, e602b489) | [2026-10-18_q1_next_rl.md](2026-10-18_q1_next_rl.md) |
 | 2026-10-18 | Q1 next: finish one interpretable experiment, stop moving the budget boundary (skeptic) | advice | HISTORICAL (Q1 refused at A5, e602b489) | [2026-10-18_q1_next_skeptic.md](2026-10-18_q1_next_skeptic.md) |
 | 2026-10-18 | Q1 next strategy: buy one complete answer, with honest accounting | advice | HISTORICAL (Q1 refused at A5, e602b489) | [2026-10-18_q1_next_strategy.md](2026-10-18_q1_next_strategy.md) |
