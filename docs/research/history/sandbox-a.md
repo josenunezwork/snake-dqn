@@ -44,10 +44,10 @@ How can A100 development experiments run at full velocity without per-job judge 
 
 - [`docs/research/governance_a100_sandbox_20261026/ADOPTED.md`](../governance_a100_sandbox_20261026/ADOPTED.md) — Owner-ratified 6-clause Standing A100 Development Sandbox rule.
 - [`docs/research/governance_a100_sandbox_20261026/FABLE_ON_ARGON_VS_ASTRA_20261026.md`](../governance_a100_sandbox_20261026/FABLE_ON_ARGON_VS_ASTRA_20261026.md) — Fable adjudication on Argon vs Astra establishing the sandbox governance and Job A / Job B priorities.
-- [`research/sandbox_a_resident/README.md`](../../research/sandbox_a_resident/README.md) — Canonical package README and closeout summary for `A-1`, `A-2`, `A-3`, and `TRAIN-01`.
-- [`research/sandbox_a_resident/A2_RESEAL03.md`](../../research/sandbox_a_resident/A2_RESEAL03.md) — `A-2` `reseal-03` staggered initial world-age schedule (`stagger_initial_age=true`) and per-cycle truncation validity contract.
-- [`research/sandbox_a_resident/A3.md`](../../research/sandbox_a_resident/A3.md) — `A-3` 24-cell phase-breakdown and `E128..E4096` scale assay protocol.
-- [`research/sandbox_a_resident/A3_EAGER01.md`](../../research/sandbox_a_resident/A3_EAGER01.md) — `A-3` eager-only (`compile_mode=none`) 24-cell packet specification.
-- [`research/sandbox_a_resident/A3_RESEAL03.md`](../../research/sandbox_a_resident/A3_RESEAL03.md) — `A-3` `reseal-03` single-TF32-mode compile validation and 4-bucket `R2` prewarming specification.
-- [`research/sandbox_a_resident/A3_ADMISSION03.md`](../../research/sandbox_a_resident/A3_ADMISSION03.md) — `A-3-03` host-admission test consolidation and vectorized `22,457,142`-seed registry check note.
-- [`research/sandbox_a_resident/A3_DISPATCH_SUCCESSORS.md`](../../research/sandbox_a_resident/A3_DISPATCH_SUCCESSORS.md) — Mechanical dispatch successor record for `packet-a3-eager-02` and `packet-a3-04`.
+- [`research/sandbox_a_resident/README.md`](../../../research/sandbox_a_resident/README.md) — Canonical package README and closeout summary for `A-1`, `A-2`, `A-3`, and `TRAIN-01`.
+- [`research/sandbox_a_resident/A2_RESEAL03.md`](../../../research/sandbox_a_resident/A2_RESEAL03.md) — `A-2` `reseal-03` staggered initial world-age schedule (`stagger_initial_age=true`) and per-cycle truncation validity contract.
+- [`research/sandbox_a_resident/A3.md`](../../../research/sandbox_a_resident/A3.md) — `A-3` 24-cell phase-breakdown and `E128..E4096` scale assay protocol.
+- [`research/sandbox_a_resident/A3_EAGER01.md`](../../../research/sandbox_a_resident/A3_EAGER01.md) — `A-3` eager-only (`compile_mode=none`) 24-cell packet specification.
+- [`research/sandbox_a_resident/A3_RESEAL03.md`](../../../research/sandbox_a_resident/A3_RESEAL03.md) — `A-3` `reseal-03` single-TF32-mode compile validation and 4-bucket `R2` prewarming specification.
+- [`research/sandbox_a_resident/A3_ADMISSION03.md`](../../../research/sandbox_a_resident/A3_ADMISSION03.md) — `A-3-03` host-admission test consolidation and vectorized `22,457,142`-seed registry check note.
+- [`research/sandbox_a_resident/A3_DISPATCH_SUCCESSORS.md`](../../../research/sandbox_a_resident/A3_DISPATCH_SUCCESSORS.md) — Mechanical dispatch successor record for `packet-a3-eager-02` and `packet-a3-04`.

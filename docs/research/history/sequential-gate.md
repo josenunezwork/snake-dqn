@@ -48,6 +48,6 @@ What evaluation horizon (`H3000`, `H5000`, `H10000`), opponent mixes (`frozen`, 
 
 ## Kept Files of the Lineage
 
-- [`research/gate_calibration_20260926/README.md`](../../research/gate_calibration_20260926/README.md) — Tier-0 `H5000` promotion-gate variance, pairing, A/A, and futility calibration record.
-- [`research/paired_band_validation_20261003/README.md`](../../research/paired_band_validation_20261003/README.md) — Resampling validation record for paired survival noninferiority bands (`paired_survival_20261003.json`).
-- [`research/sequential_strict_template/README.md`](../../research/sequential_strict_template/README.md) — Production runner and independent audit documentation for `sequential-strict-template/v1`, `/v2`, `/v2-pooled`, and `/v3`.
+- [`research/gate_calibration_20260926/README.md`](../../../research/gate_calibration_20260926/README.md) — Tier-0 `H5000` promotion-gate variance, pairing, A/A, and futility calibration record.
+- [`research/paired_band_validation_20261003/README.md`](../../../research/paired_band_validation_20261003/README.md) — Resampling validation record for paired survival noninferiority bands (`paired_survival_20261003.json`).
+- [`research/sequential_strict_template/README.md`](../../../research/sequential_strict_template/README.md) — Production runner and independent audit documentation for `sequential-strict-template/v1`, `/v2`, `/v2-pooled`, and `/v3`.
