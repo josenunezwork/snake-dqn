@@ -4,8 +4,8 @@ Status: **policy draft**. It governs new work that starts on or after 2026-09-26
 not reopen, relabel or re-audit any closed study, and it changes no default code path.
 
 Grounding: [portfolio review](experiment_portfolio_review_2026-09-26.md) §1, §3, §5 and §7,
-the [strict pilot README](../experiments/task_aligned_strict_pilot_2026-09-26/README.md), and
-the [bridge audit-only README](../experiments/task_aligned_bridge_audit_only_2026-09-26/README.md).
+the [strict pilot README](history/task-aligned-challenger.md), and
+the [bridge audit-only README](history/task-aligned-challenger.md).
 
 ## Why tiers
 

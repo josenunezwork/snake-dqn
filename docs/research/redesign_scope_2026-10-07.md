@@ -6,7 +6,7 @@ runs, no RunPod or GPU spend. Milestone-1 prototype code ships with this doc.
 **Inputs:**
 - [ml_redesign_blueprint_2026-07.md](../ml_redesign_blueprint_2026-07.md) (the July blueprint)
 - [experiment_portfolio_review_2026-09-26.md](experiment_portfolio_review_2026-09-26.md) (the PQN/raster post-mortem)
-- [perf_plan_2026-10-07.md](perf_plan_2026-10-07.md)
+- [perf_plan_2026-10-07.md](history/perf-20261013.md)
 - [simd_vector61_plan_2026-09-26.md](simd_vector61_plan_2026-09-26.md)
 - [governance_tiers_2026-09-26.md](governance_tiers_2026-09-26.md) and its amendments
 - the frp3 death census (branch `census-frp3`)

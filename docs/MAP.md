@@ -34,10 +34,10 @@ overview and command reference start at [INDEX.md](INDEX.md); for per-document s
 
 | Path | What it is |
 | --- | --- |
-| [research/](research/) | Dated records (T1..T16 studies, M3..M6 results, releases, death censuses, Round 30/32 & Watch6 notes, JSON evidence). |
-| [research/INDEX.md](research/INDEX.md) | Chronological locator for loose research and decision documents in `docs/research/`. |
-| [research/catalog/](research/catalog/) | Detailed narrative catalogs of historical `research/*` packages. |
-| [research/results/](research/results/) | Sidecars and decision summaries (e.g. `P1_Y3_offline_critic_DECISION_20261022.md`, `L2prime_mac_analysis_20261022.json`). |
+| [research/](research/) | Dated records (T1..T15 studies, M3..M6 results, releases, death censuses, Round 30 & Watch6 records, JSON evidence). |
+| [research/INDEX.md](research/INDEX.md) | Chronological locator for kept research and decision documents in `docs/research/`. |
+| [research/history/INDEX.md](research/history/INDEX.md) | **54 consolidated lineage records** summarizing all completed/closed research series (replacing 761 historical `.md` files). |
+| [research/results/](research/results/) | Sidecars and decision summaries (e.g. `P1_Y3_offline_critic_DECISION_20261022.json`, `L2prime_mac_analysis_20261022.json`). |
 | [research/round30_postf4_20261025/](research/round30_postf4_20261025/) | Post-F4 Round 30 intent, handoff, and ruling records. |
 | [notes/](notes/) | Fact-checked, line-cited topic notes and [notes/GLOSSARY.md](notes/GLOSSARY.md) (snapshot 2026-10-25). |
 | [research/GLOSSARY.md](research/GLOSSARY.md) | Evaluation vocabulary used in release, gate and redesign records. |
@@ -55,16 +55,16 @@ overview and command reference start at [INDEX.md](INDEX.md); for per-document s
 
 | Path | What it is |
 | --- | --- |
-| [research/specs/](research/specs/) | ~96 dated implementation specs (T34 teacher, ExIt engine, Colab fixes, etc.). |
-| [research/advice/](research/advice/) | Dated advisor memos (Astra/Fable panels, 2026-10-15 onward). |
-| [research/panel_2026-10-15/](research/panel_2026-10-15/) | Two-round mechanics/RL panel and its decision memo. |
+| [research/specs/INDEX.md](research/specs/INDEX.md) | Preserved implementation specs and amendments (with lineage mappings for consolidated specs). |
+| [research/advice/INDEX.md](research/advice/INDEX.md) | Preserved advisor syntheses and judge rulings (with lineage mappings for consolidated memos). |
+| [research/panel_2026-10-15/](research/panel_2026-10-15/) | Two-round mechanics/RL panel decision memo (`PANEL_DECISION_MEMO.md`). |
 | [simd_env_spec.md](simd_env_spec.md) | Batched simulator (`BatchSim`) dynamics and parity contract. |
 
 ## Experiments (historical)
 
 | Path | What it is |
 | --- | --- |
-| [experiments/](experiments/) | ~204 study folders dated 2026-09-06..2026-10-03 (`solo_*`, `controlled_*`, `apex_*`, `task_aligned_*`, `pqn_*`, ...). Catalog: [experiments/README.md](experiments/README.md). |
+| [experiments/](experiments/) | Kept Sept 2026 study receipts and series indexes (`SOLO_FOOD_SERIES.md`, `OTHER_SERIES.md`, `TASK_ALIGNED_AND_APEX_SERIES.md`). Catalog: [experiments/README.md](experiments/README.md). |
 
 ## Architecture & ops
 
@@ -73,9 +73,8 @@ overview and command reference start at [INDEX.md](INDEX.md); for per-document s
 | [architecture/](architecture/) | Architecture maps: [WEB_MAP.md](architecture/WEB_MAP.md) (`web/`) and [TESTS_MAP.md](architecture/TESTS_MAP.md) (`tests/`). |
 | [architecture.svg](architecture.svg) | System architecture diagram. |
 | [ml_algorithm.md](ml_algorithm.md) | Apex DQN algorithm design (historical vector policy; limited current scope). |
-| [colab-cli.md](colab-cli.md) | Operator guide for the Mac-side Colab CLI supervisor. |
+| [colab-cli.md](colab-cli.md) | Operator guide for the Mac-side Colab CLI supervisor (`research/colab_cli/`), consolidated with [`research/history/colab-ops.md`](research/history/colab-ops.md). |
 | [colab-cli-pricing-notes-2026-10-18.md](colab-cli-pricing-notes-2026-10-18.md) | First live Colab CPU rate-calibration evidence. |
-| [research/colab_cli_ref/](research/colab_cli_ref/) | Vendored reference copy of the Colab CLI's own docs and skills. |
 | [research/colab_cli_receipts/](research/colab_cli_receipts/) | Colab CLI acceptance receipt (`dab00823`). |
 | [runpod_selfdelete_key.md](runpod_selfdelete_key.md) | RunPod runtime self-delete credential notes (updated 2026-10-17). |
 | [testing_openmp_macos.md](testing_openmp_macos.md) | macOS pytest OpenMP routing. |

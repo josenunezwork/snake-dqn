@@ -72,14 +72,14 @@ that it will succeed.
 
 ## Source records
 
-- [Frozen diagnostic intent](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-residual-policy-diagnostic/intent.json)
+- `Frozen diagnostic intent` (`/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-residual-policy-diagnostic/intent.json`)
   — SHA-256 `29526705404e955963d62e70c8a9cc69af81d442f812f4435aaaf39af11bcfb8`
-- [Completed native-replay probe](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-residual-policy-diagnostic/probe/report.json)
+- `Completed native-replay probe` (`/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-residual-policy-diagnostic/probe/report.json`)
   — SHA-256 `bb00abca082206d47a0e3e7d7f8eb866ea2eafa8f8c62a2a958647a092526847`
-- [Completed saved analysis](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-residual-policy-diagnostic/analysis/report.json)
+- `Completed saved analysis` (`/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-residual-policy-diagnostic/analysis/report.json`)
   — SHA-256 `259a3fc0914b31d6e18c1e4c0f4619530bed0f34168e4423cda1617c82b9e110`
-- [Independent saved-data audit](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-residual-policy-diagnostic/independent-audit.json)
+- `Independent saved-data audit` (`/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-residual-policy-diagnostic/independent-audit.json`)
   — SHA-256 `34c00b33b376ccfa7bc3f6914013bfb917bbe334dd635bc4ceb1845f3200b39e`
-- [Audited closeout](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-residual-policy-diagnostic/closeout.json)
+- `Audited closeout` (`/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-residual-policy-diagnostic/closeout.json`)
   — SHA-256 `da807f35b1b678b8ca49d587db94dc851d860f23489827dcae0d8822f13ee4d9`
-- [Saved residual-decision figure](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-residual-policy-diagnostic/analysis/residual-decisions.png)
+- `Saved residual-decision figure` (`/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-residual-policy-diagnostic/analysis/residual-decisions.png`)

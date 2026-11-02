@@ -7,4 +7,4 @@
 ## Key Files & Results
 
 - **Package entrypoints / artifacts:** [`census.py`](census.py)
-- **Related docs / results:** [`docs/research/panel_review_summary_2026-10-14.md`](../../docs/research/panel_review_summary_2026-10-14.md), [`docs/research/catalog/legacy_packages.md`](../../docs/research/catalog/legacy_packages.md)
+- **Related docs / results:** [`docs/research/panel_review_summary_2026-10-14.md`](../../docs/research/panel_review_summary_2026-10-14.md), [`docs/research/catalog/legacy_packages.md`](../../docs/research/history/frp.md)

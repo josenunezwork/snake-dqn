@@ -42,7 +42,7 @@ unavailable; it does not roll back or label later weights as update16.
 - Broker checkout: `/Users/josenunez/Projects/ml/snake-dqn-train01-08-broker.noindex`.
 - [Packet seal](packet-train01-08/SEAL.json) binds all 186 runtime source paths,
   the prior packet's exact bytes, current control/ledger/manifest and ruling hash.
-- [Verification receipt](/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-08-diagnostics-20261027/verification.json)
+- Verification receipt (`/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-08-diagnostics-20261027/verification.json`)
   records the frozen broker HEAD, test counts, exact commands, log hashes,
   preflight, admission, dry-run, protected-file checks and limits.
 - [Operator dispatch](packet-train01-08/DISPATCH.txt) is prepared only. No live

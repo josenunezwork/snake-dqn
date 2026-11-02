@@ -1,6 +1,6 @@
 # Current state — snapshot updated 2026-11-01; Watch bank updated 2026-11-01; live checkpoint released 2026-10-17
 
-Start: [project index](INDEX.md) · [research roadmap (advice)](research/ROADMAP.md) · [documentation map](README.md) · [study packages](../research/INDEX.md) · [research record](research/INDEX.md) · [glossary](research/GLOSSARY.md).
+Start: [project index](INDEX.md) · [research roadmap (advice)](research/ROADMAP.md) · [documentation map](README.md) · [study packages](../research/INDEX.md) · [research record](research/INDEX.md) · [lineage history](research/history/INDEX.md) · [glossary](research/GLOSSARY.md).
 
 This is a dated documentary snapshot, not a live job or deployment check. The owner-ratified campaign
 documents and standing rules below take precedence over older launch notes and external memory; this

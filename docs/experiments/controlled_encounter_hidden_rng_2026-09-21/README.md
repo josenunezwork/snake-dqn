@@ -68,8 +68,8 @@ checkpoints. It has not been answered by this diagnostic.
 
 ## Source records
 
-- [Frozen hidden-RNG intent](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-hidden-rng/intent.json) — SHA-256 `677dbc1b10641618d73125d826013d5a97ba21ce2f9c0e6dfffc3aaf9df1d78a`
-- [Native replay and oracle-probe report](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-hidden-rng/probe/report.json) — SHA-256 `d9f23fed29431cfaa22ca5905d6bf97290d70cf6af8fdb2de08ffe4995981da3`
-- [Audited conditional census](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-hidden-rng/analysis/report.json) — SHA-256 `7ff587886d4cdd099baa76f1e954dbcc74662b269b60b0e1a727b5fda31bd32a`
-- [Copied diagnostic figure source](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-hidden-rng/analysis/diagnostic.png) and [census source](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-hidden-rng/analysis/fatal-game-census.csv)
-- [Audited closeout](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-hidden-rng/closeout.json)
+- `Frozen hidden-RNG intent` (`/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-hidden-rng/intent.json`) — SHA-256 `677dbc1b10641618d73125d826013d5a97ba21ce2f9c0e6dfffc3aaf9df1d78a`
+- `Native replay and oracle-probe report` (`/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-hidden-rng/probe/report.json`) — SHA-256 `d9f23fed29431cfaa22ca5905d6bf97290d70cf6af8fdb2de08ffe4995981da3`
+- `Audited conditional census` (`/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-hidden-rng/analysis/report.json`) — SHA-256 `7ff587886d4cdd099baa76f1e954dbcc74662b269b60b0e1a727b5fda31bd32a`
+- `Copied diagnostic figure source` (`/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-hidden-rng/analysis/diagnostic.png`) and `census source` (`/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-hidden-rng/analysis/fatal-game-census.csv`)
+- `Audited closeout` (`/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-hidden-rng/closeout.json`)

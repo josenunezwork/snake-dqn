@@ -29,7 +29,7 @@ README and its sealed closeout, not this page.
 
 | Date | Experiment | Question | Outcome | Link |
 |---|---|---|---|---|
-| 2026-09-13 | Four-hour RL window | Does extending the tested PQN recipe (50k to 150k) improve on Apex? | Keep Apex; 150k arms below 50k and initial in mass; tiny-loop behavior | [README](four_hour_2026-09-13/README.md) |
+| 2026-09-13 | Four-hour RL window | Does extending the tested PQN recipe (50k to 150k) improve on Apex? | Keep Apex; 150k arms below 50k and initial in mass; tiny-loop behavior | [README](../research/history/four-hour-2026-09-13.md) |
 | 2026-09-22 | Research transfer | Can fresh Apex networks learn supervised food seeking? | `COMPLETE_AUDITED_ALL_THREE_SUCCESS` (96/96 held food, all seeds) | [History](../research/history/apex-small-task.md) |
 | 2026-09-22 | Canonical retention | Do canonical Apex TD updates retain imitation-trained parents' food behavior? | Retention hypothesis rejected; from-scratch controls learned the task | [History](../research/history/apex-small-task.md) |
 | 2026-09-22 | Fresh H16 | Does learned food seeking transfer to a new H16 grid without training? | `COMPLETE_AUDITED_ALL_THREE_FRESH_H16_SUCCESS` | [History](../research/history/apex-small-task.md) |
@@ -56,20 +56,20 @@ README and its sealed closeout, not this page.
 | 2026-09-23 | Space ranking | Does an auxiliary free-space ranking loss help H256? | Admission stopped in held-bank qualification; nothing trained | [History](../research/history/apex-small-task.md) |
 | 2026-09-24 | Scaling H256 | Do wider/broader 20k endpoints sustain H256 food seeking? | `COMPLETE_AUDITED_NO_STRONG_FACTOR_SIGNAL_ON_THIS_H256_BANK` | [History](../research/history/apex-small-task.md) |
 | 2026-09-24 | Task-aligned CZ integration | Do CZ `enemy_visible` continuations beat parents in living mass? | `INCONCLUSIVE_SCREEN` (audit PASS) | [README](task_aligned_cz_integration_2026-09-24/README.md) |
-| 2026-09-24 | First-lineage preview | Does lineage 2026096101 final beat its parent? | `COMPLETE_AUDITED_EXPLORATORY_MIXED_RESULT` | [README](task_aligned_first_lineage_preview_2026-09-24/README.md) |
+| 2026-09-24 | First-lineage preview | Does lineage 2026096101 final beat its parent? | `COMPLETE_AUDITED_EXPLORATORY_MIXED_RESULT` | [README](../research/history/task-aligned-challenger.md) |
 | 2026-09-24 | Continuation of 6102 | Does more fresh-game training improve lineage 6102? | `NEGATIVE_CONTINUATION_SCREEN` (lost solo living mass) | [README](task_aligned_continuation_2026-09-24/README.md) |
-| 2026-09-24 | Bridge qualification (6102) | Can 6102 be qualified on the serving bridge? | `CLOSED_INVALID_STOP_CONTROLLER_PREFLIGHT_IDENTITY_MISMATCH` | [README](task_aligned_bridge_qualification_2026-09-24/README.md) |
-| 2026-09-24 | Bridge replacement | Single authorized replacement run | `CLOSED_INVALID_STOP_CAPTURE_JSON_ROUNDTRIP_MISMATCH` | [README](task_aligned_bridge_replacement_2026-09-24/README.md) |
-| 2026-09-25 | Bridge saved-prefix recovery | Recover from the JSON boundary failure | `CLOSED_INVALID_STOP_SHAKEDOWN_HEARTBEAT_SCHEMA` | [README](task_aligned_bridge_saved_prefix_recovery_2026-09-25/README.md) |
-| 2026-09-25 | Bridge remaining qualification | Finish live qualification (admission v4) | `CLOSED_INVALID_STOP_AUDIT_FAILED_LIVE_RESULTS_PROVISIONAL` | [README](task_aligned_bridge_remaining_qualification_2026-09-25/README.md) |
-| 2026-09-26 | Bridge audit-only | Was the v4 audit failure an accounting artifact? | `AUDIT_ONLY_PASS` (v4 status unchanged) | [README](task_aligned_bridge_audit_only_2026-09-26/README.md) |
-| 2026-09-26 | Strict pilot 6102 vs Apex | Is a strict challenge feasible at the fixed MDE? | `INVALID_STOP_AUDIT_FAILED`; 6102 line retired | [README](task_aligned_strict_pilot_2026-09-26/README.md) |
-| 2026-09-27 | Safety veto screen | Does a serving-time free-space veto help Apex at H5000? | Pre-registered decision INCOMPLETE (determinism control 1/24) | [README](apex_safety_veto_screen_2026-09-27/README.md) |
-| 2026-09-27 | Veto strict gate | Tier-2 gate: champion + veto | `INVALID_STOP` (host sleep, heartbeat stale) | [README](apex_veto_strict_gate_2026-09-27/README.md) |
-| 2026-10-01 | Veto serving + v3/v4 | Serve the veto; do tail-aware v3 / look-ahead v4 help? | `SERVING_PASS`, released; v3 and v4 `NOT_ADVANCED` | [README](apex_veto_serving_and_v3_2026-10-01/README.md) |
-| 2026-10-01 | Veto v5 (boost-aware) | Does gating boosts on pocket size help? | `STRICT_PASS`, `SERVING_PASS`, released 10-02 | [README](apex_veto_v5_2026-10-01/README.md) |
+| 2026-09-24 | Bridge qualification (6102) | Can 6102 be qualified on the serving bridge? | `CLOSED_INVALID_STOP_CONTROLLER_PREFLIGHT_IDENTITY_MISMATCH` | [README](../research/history/task-aligned-challenger.md) |
+| 2026-09-24 | Bridge replacement | Single authorized replacement run | `CLOSED_INVALID_STOP_CAPTURE_JSON_ROUNDTRIP_MISMATCH` | [README](../research/history/task-aligned-challenger.md) |
+| 2026-09-25 | Bridge saved-prefix recovery | Recover from the JSON boundary failure | `CLOSED_INVALID_STOP_SHAKEDOWN_HEARTBEAT_SCHEMA` | [README](../research/history/task-aligned-challenger.md) |
+| 2026-09-25 | Bridge remaining qualification | Finish live qualification (admission v4) | `CLOSED_INVALID_STOP_AUDIT_FAILED_LIVE_RESULTS_PROVISIONAL` | [README](../research/history/task-aligned-challenger.md) |
+| 2026-09-26 | Bridge audit-only | Was the v4 audit failure an accounting artifact? | `AUDIT_ONLY_PASS` (v4 status unchanged) | [README](../research/history/task-aligned-challenger.md) |
+| 2026-09-26 | Strict pilot 6102 vs Apex | Is a strict challenge feasible at the fixed MDE? | `INVALID_STOP_AUDIT_FAILED`; 6102 line retired | [README](../research/history/task-aligned-challenger.md) |
+| 2026-09-27 | Safety veto screen | Does a serving-time free-space veto help Apex at H5000? | Pre-registered decision INCOMPLETE (determinism control 1/24) | [README](../research/history/apex-veto.md) |
+| 2026-09-27 | Veto strict gate | Tier-2 gate: champion + veto | `INVALID_STOP` (host sleep, heartbeat stale) | [README](../research/history/apex-veto.md) |
+| 2026-10-01 | Veto serving + v3/v4 | Serve the veto; do tail-aware v3 / look-ahead v4 help? | `SERVING_PASS`, released; v3 and v4 `NOT_ADVANCED` | [README](../research/history/apex-veto.md) |
+| 2026-10-01 | Veto v5 (boost-aware) | Does gating boosts on pocket size help? | `STRICT_PASS`, `SERVING_PASS`, released 10-02 | [README](../research/history/apex-veto.md) |
 | 2026-10-02 | Veto v6 | Does opponent-head avoidance + no-spacious fallback help over v5? | `NOT_ADVANCED` | [README](apex_veto_v6_2026-10-02/README.md) |
-| 2026-10-02 | Veto v7 (space preference) | Does a free-space re-rank (lambda 4) beat v5? | `STRICT_PASS`, `SERVING_PASS`, released 10-03 | [README](apex_veto_v7_2026-10-02/README.md) |
+| 2026-10-02 | Veto v7 (space preference) | Does a free-space re-rank (lambda 4) beat v5? | `STRICT_PASS`, `SERVING_PASS`, released 10-03 | [README](../research/history/apex-veto.md) |
 | 2026-10-03 | Veto v8 | Does v7 at lambda 8 plus head avoidance beat v7? | `ADVANCE`, `STRICT_PASS`, `SERVING_PASS`, released 10-03 | [README](apex_veto_v8_2026-10-03/README.md) |
 
 The four-hour folder also holds `EXPERIMENT_LEDGER.md`, `HANDOFF.md`, `NEXT_WAVES.md` and

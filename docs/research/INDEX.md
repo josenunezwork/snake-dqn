@@ -1,378 +1,88 @@
-# Research record index
+# Research Documentation Index (`docs/research/`)
 
-Start with **[../INDEX.md](../INDEX.md)** for the full project map and **[../STATUS.md](../STATUS.md)**
-for the current program state. This page has two parts:
+Start with [`../STATUS.md`](../STATUS.md) for current served Watch/Play state and standing rules, [`../INDEX.md`](../INDEX.md) for the project overview, and [`ROADMAP.md`](ROADMAP.md) for forward research plans (**advice, not decisions**).
 
-1. **Navigation and loose-file catalog** (updated 2026-11-01). It lists every file directly in
-   `docs/research/` on `main`, grouped by campaign and date, with one row per file.
-2. **Chronological record** (kept from the earlier index). It includes branch-only reports and
-   results recorded outside this directory.
-
-## Where to look
-
-| What | Where |
-|---|---|
-| **Project & experiment map** | [../INDEX.md](../INDEX.md) |
-| **Current served state & standing rules** | [../STATUS.md](../STATUS.md) |
-| **Research roadmap (Round-27 advice, not decisions)** | [ROADMAP.md](ROADMAP.md) |
-| **Current campaign (T34, search teacher & Watch6)** | [final_run_20261019/](final_run_20261019/) (`HANDOFF_2026-10-20.md`, `CAMPAIGN_LOG.md`, `SUCCESS_CONTRACT.md`, `FINAL_PLAN.md`, `P7_STATISTICS.md`) |
-| Specs and pre-registrations | [specs/INDEX.md](specs/INDEX.md) |
-| Advisor and panel advice | [advice/INDEX.md](advice/INDEX.md) |
-| Research code packages (`research/`) | [../../research/INDEX.md](../../research/INDEX.md) |
-| Package narrative catalogs | [catalog/](catalog/) |
-| Cited project notes (through 2026-10-25) | [../notes/README.md](../notes/README.md) |
-| Ops inventories (artifacts, worktrees, Colab units) | [ops/](ops/) |
-| Terms and definitions | [GLOSSARY.md](GLOSSARY.md) (through 2026-10-08; see also [../notes/GLOSSARY.md](../notes/GLOSSARY.md)) |
-| Results & governance subfolders | [results/](results/), [round30_postf4_20261025/](round30_postf4_20261025/), [governance_a100_sandbox_20261026/](governance_a100_sandbox_20261026/) |
-| Evidence subfolders | [panel_2026-10-15/](panel_2026-10-15/), [m3c_m3d_evidence/](m3c_m3d_evidence/), [t3_diagnostics_2026-10-16_evidence/](t3_diagnostics_2026-10-16_evidence/), [t4a_posthoc_2026-10-16_evidence/](t4a_posthoc_2026-10-16_evidence/), [t5_separability_2026-10-16_evidence/](t5_separability_2026-10-16_evidence/), [t5b_risk_and_fuse_2026-10-16_evidence/](t5b_risk_and_fuse_2026-10-16_evidence/), [t8_probes_2026-10-17_evidence/](t8_probes_2026-10-17_evidence/), [t10_certificate_horizon_2026-10-17_evidence/](t10_certificate_horizon_2026-10-17_evidence/), [colab_cli_receipts/](colab_cli_receipts/), [colab_cli_ref/](colab_cli_ref/) |
-
-## Loose-file catalog
-
-**Type** is one of these: result, prereg (pre-registration or design frozen before data), decision,
-plan, diagnostic, tooling, policy, receipt (machine JSON) or reference. **Status** quotes or
-condenses the file's own label. "Unclear" means the file does not state one. A development
-screen or diagnostic is never promotion evidence.
-
-### Task-aligned 6102 bridge and challenger (2026-09-24 to 09-26)
-
-| Date | File | Type | One line | Status |
-|---|---|---|---|---|
-| 2026-09-24 | [task_aligned_bridge_preflight_replacement_decision_2026-09-24.md](task_aligned_bridge_preflight_replacement_decision_2026-09-24.md) | decision | Request for one replacement attempt after a preflight-only failure | Proposal only |
-| 2026-09-24 | [task_aligned_bridge_saved_prefix_decision_2026-09-24.md](task_aligned_bridge_saved_prefix_decision_2026-09-24.md) | decision | Keep the failed capture prefix and qualify only the work not yet run | Proposal only |
-| 2026-09-24 | [task_aligned_challenger_design_draft_2026-09-24.md](task_aligned_challenger_design_draft_2026-09-24.md) | plan | Draft of a bounded challenge of the original 6102 against Apex | DRAFT, not frozen or admitted |
-| 2026-09-24 | [task_aligned_challenger_serving_plan_2026-09-24.md](task_aligned_challenger_serving_plan_2026-09-24.md) | plan | Possible serving bridge and strict challenge for candidate 6102 | PLAN ONLY, not admitted |
-| 2026-09-24 | [task_aligned_challenger_qualification_preparation_2026-09-24.json](task_aligned_challenger_qualification_preparation_2026-09-24.json) | receipt | Source preparation for challenger qualification | Source implemented and reviewed, not admitted |
-| 2026-09-24 | [task_aligned_serving_bridge_preparation_2026-09-24.json](task_aligned_serving_bridge_preparation_2026-09-24.json) | receipt | Source preparation for the serving bridge | Source implemented, not numerically qualified |
-| 2026-09-25 | [task_aligned_bridge_heartbeat_recovery_decision_2026-09-25.md](task_aligned_bridge_heartbeat_recovery_decision_2026-09-25.md) | decision | One last bridge qualification attempt after the heartbeat defect | Reviewed plan, awaiting decision, not admitted |
-| 2026-09-26 | [task_aligned_strict_challenge_preregistration_2026-09-26.md](task_aligned_strict_challenge_preregistration_2026-09-26.md) | prereg | Strict challenge of 6102 against Apex, with a feasibility check | DRAFT, not admitted, authorized or run |
-
-### Governance and policy (2026-09-26 to 10-08)
-
-| Date | File | Type | One line | Status |
-|---|---|---|---|---|
-| 2026-09-26 | [governance_tiers_2026-09-26.md](governance_tiers_2026-09-26.md) | policy | Tiers: development, Tier-1 screen, Tier-2 strict gate, serving qualification | Policy draft (governing framework) |
-| 2026-10-02 | [compute_policy_2026-10-02.md](compute_policy_2026-10-02.md) | policy | CPU slots, AC/lid and thermal guard for research runs | Opt-in tooling landed; 3 slots not default |
-| 2026-10-02 | [governance_amendment_sequential_gates_2026-10-02.md](governance_amendment_sequential_gates_2026-10-02.md) | policy | Group-sequential Tier-2 strict gates | Header says proposed; earlier index records it as ratified |
-| 2026-10-03 | [governance_amendment_paired_bands_2026-10-03.md](governance_amendment_paired_bands_2026-10-03.md) | policy | Paired survival bands for strict gates | Header says proposed; earlier index records it as ratified |
-| 2026-10-05 | [governance_amendment_strict_on_runpod_2026-10-05.md](governance_amendment_strict_on_runpod_2026-10-05.md) | policy | Strict gates on RunPod serverless | NOT RATIFIED; superseded (see the status note) |
-| 2026-10-06 | [governance_amendment_survival_band_v2_2026-10-06.md](governance_amendment_survival_band_v2_2026-10-06.md) | policy | Survival band v2: pooled paired NI plus a per-mix catastrophic floor | Ratified 2026-10-06 (option 1) |
-| 2026-10-07 | [governance_amendment_sequential_phase_r_2026-10-07.md](governance_amendment_sequential_phase_r_2026-10-07.md) | policy | Sequential Phase R for Tier-1 screens | RATIFIED 2026-10-08 |
-| 2026-10-08 | [governance_amendment_long_horizon_screen_2026-10-04_erratum_2026-10-08.md](governance_amendment_long_horizon_screen_2026-10-04_erratum_2026-10-08.md) | decision | Erratum to the LH-1 header (the amendment itself is branch-only) | Erratum |
-| 2026-10-08 | [governance_amendment_strict_on_runpod_2026-10-05_status_2026-10-08.md](governance_amendment_strict_on_runpod_2026-10-05_status_2026-10-08.md) | decision | Status note for the RunPod strict-gate amendment | Not ratified |
-
-### Portfolio review and vector61 (2026-09-26)
-
-| Date | File | Type | One line | Status |
-|---|---|---|---|---|
-| 2026-09-26 | [experiment_portfolio_review_2026-09-26.md](experiment_portfolio_review_2026-09-26.md) | result | Review of 192 experiments from Sep 6 to 26 | Review; Apex/vector61 stayed incumbent |
-| 2026-09-26 | [simd_vector61_plan_2026-09-26.md](simd_vector61_plan_2026-09-26.md) | plan | Batched vector61 featurizer status and plan | 48/48 records identical; SIMD path opt-in |
-
-### Apex veto era: trap horizon, death censuses, feasibility (2026-10-01 to 10-03)
-
-| Date | File | Type | One line | Status |
-|---|---|---|---|---|
-| 2026-10-01 | [trap_horizon_2026-10-01.md](trap_horizon_2026-10-01.md) | result | Point of no return before Apex self-collision deaths | Diagnostic result |
-| 2026-10-02 | [death_census_v5_2026-10-02.md](death_census_v5_2026-10-02.md) | result | What kills the champion under the released v5 veto | Census with a ranked recommendation |
-| 2026-10-03 | [death_census_v8_2026-10-03.md](death_census_v8_2026-10-03.md) | result | What still kills or limits the champion under v8 | Census; opponent-closed enclosures remain |
-| 2026-10-03 | [runpod_x86_consistency_2026-10-03.md](runpod_x86_consistency_2026-10-03.md) | result | Mac versus RunPod x86 consistency | 28/28 episodes bit-identical (per the earlier index) |
-| 2026-10-03 | [serving_time_search_feasibility_2026-10-03.md](serving_time_search_feasibility_2026-10-03.md) | plan | Serving-time lookahead search on the v8 hero | Feasibility study |
-
-### FRP-v3 strict gate and release (2026-10-06)
-
-| Date | File | Type | One line | Status |
-|---|---|---|---|---|
-| 2026-10-06 | [frp3_strict_result_2026-10-06.md](frp3_strict_result_2026-10-06.md) | result | FRP-v3 s12 M3@60000 + v8 strict gate | `STRICT_PASS` at look 2 |
-| 2026-10-06 | [frp3_serving_result_and_release_2026-10-06.md](frp3_serving_result_and_release_2026-10-06.md) | decision | Checkpoint swap, serving qualification and release | `SERVING_PASS`; released |
-
-### Perf-sim and redesign, M3 to M4 (2026-10-07 to 10-13)
-
-| Date | File | Type | One line | Status |
-|---|---|---|---|---|
-| 2026-10-07 | [perf_plan_2026-10-07.md](perf_plan_2026-10-07.md) | plan | CPU throughput plan for perf-sim | Plan with a measured speed-up |
-| 2026-10-07 | [redesign_scope_2026-10-07.md](redesign_scope_2026-10-07.md) | plan | Vectorized simulator and ego-raster policy scope | Approved by the owner, code-only scoping |
-| 2026-10-07 | [sequential_phase_r_design_2026-10-07.md](sequential_phase_r_design_2026-10-07.md) | prereg | Design for sequential Phase R in Tier-1 screens | Design (the amendment was ratified 2026-10-08) |
-| 2026-10-08 | [m3c_design_2026-10-08.md](m3c_design_2026-10-08.md) | prereg | M3-C metric-aligned RL fine-tune of the ego2s-b student | Design |
-| 2026-10-12 | [m3c_m3d_learnings_2026-10-12.md](m3c_m3d_learnings_2026-10-12.md) | result | M3-C result and M3-D diagnostic lessons | M3-C failed; M3-D negative or inconclusive |
-| 2026-10-12 | [m4a_design_2026-10-12.md](m4a_design_2026-10-12.md) | prereg | M4-A: fix the M3-C setup so the student needs no veto | Design |
-| 2026-10-13 | [m4_phase_r_result_2026-10-13.md](m4_phase_r_result_2026-10-13.md) | result | B8 without a veto against frp3-s12 + v8 | `PARTIAL` |
-
-### B8 scripted-survival gap: M6 and panel (2026-10-14)
-
-| Date | File | Type | One line | Status |
-|---|---|---|---|---|
-| 2026-10-14 | [m6_result_2026-10-14.md](m6_result_2026-10-14.md) | result | Reward levers (tightness cost, length-scaled death) | NULL, not adopted |
-| 2026-10-14 | [panel_mac_answers_2026-10-14.md](panel_mac_answers_2026-10-14.md) | result | Mac read-only check of the panel memo's claims | Verification |
-| 2026-10-14 | [panel_review_summary_2026-10-14.md](panel_review_summary_2026-10-14.md) | decision | One-page summary of the two-expert panel; full text in [panel_2026-10-15/](panel_2026-10-15/) | Summary |
-
-### T-series results (2026-10-15 to 10-17)
-
-| Date | File | Type | One line | Status |
-|---|---|---|---|---|
-| 2026-10-15 | [t1_commitment_study_2026-10-15.md](t1_commitment_study_2026-10-15.md) | result | T1-A exact-replay commitment and contrast study | Diagnostic |
-| 2026-10-15 | [t1_fuse_probe_2026-10-15.md](t1_fuse_probe_2026-10-15.md) | result | T1-C B8 fuse representation probe | Diagnostic; "value learning is the limit" |
-| 2026-10-15 | [t2_screen_status_2026-10-15.md](t2_screen_status_2026-10-15.md) | result | T2 Huber delta × anchor screen | INCOMPLETE (HUBER_s12 action collapse) |
-| 2026-10-15 | [t2b_delta_sweep_2026-10-15.md](t2b_delta_sweep_2026-10-15.md) | result | T2b Huber-delta sweep (10 and 30) | Development screen; not adopted (per the earlier index) |
-| 2026-10-15 | [t3_label_bank_2026-10-15.md](t3_label_bank_2026-10-15.md) | tooling | T3 rollout label bank | Development data |
-| 2026-10-15 | [t3_ceiling_test_2026-10-15.md](t3_ceiling_test_2026-10-15.md) | result | T3 rollout-label ceiling test | NO_GO |
-| 2026-10-15 | [t3_screen_result_2026-10-15.md](t3_screen_result_2026-10-15.md) | result | T3 development screen (LABELS / KEEPV8 / KEEPV8_LO) | No GO (per the earlier index) |
-| 2026-10-15 | [t4_pod_plan_2026-10-15.md](t4_pod_plan_2026-10-15.md) | plan | T4 pod plan, dry run | Dry-run PASS; 4× speed-up not shown; no launch |
-| 2026-10-15 | [t4_pod_plan_dry_run_2026-10-15.json](t4_pod_plan_dry_run_2026-10-15.json) | receipt | Dry-run inputs for the T4 pod plan | Unclear (no status field) |
-| 2026-10-15 | [t4_prep_tooling_2026-10-15.md](t4_prep_tooling_2026-10-15.md) | tooling | T4 preparation tools and measurements | Tooling only |
-| 2026-10-15 | [t4_prep_results_2026-10-15.json](t4_prep_results_2026-10-15.json) | receipt | T4 prep artifacts and smoke results | Unclear (no status field) |
-| 2026-10-15 | [t4_update_every_and_curve_2026-10-15.md](t4_update_every_and_curve_2026-10-15.md) | result | T4 update cadence and checkpoint curve | Diagnostic; does not change T3 |
-| 2026-10-16 | [t3_diagnostics_2026-10-16.md](t3_diagnostics_2026-10-16.md) | result | T3 label-arm diagnostics | Diagnostic |
-| 2026-10-16 | [t4a_implementation_2026-10-16.md](t4a_implementation_2026-10-16.md) | tooling | T4a two-sided bank implementation | Implementation |
-| 2026-10-16 | [t4a_counter_matching_2026-10-16.json](t4a_counter_matching_2026-10-16.json) | receipt | T4a counter balance and seed namespace | Unclear (no status field) |
-| 2026-10-16 | [t4a_cpu_smoke_2026-10-16.json](t4a_cpu_smoke_2026-10-16.json) | receipt | T4a real-bank CPU smoke | Unclear (no status field) |
-| 2026-10-16 | [t4a_default_trace_2026-10-16.json](t4a_default_trace_2026-10-16.json) | receipt | T4a default-path trace | Has a `result` object; no top-level status |
-| 2026-10-16 | [t4a_probe_launch_2026-10-16.json](t4a_probe_launch_2026-10-16.json) | receipt | T4a probe launch inputs | Unclear (no status field) |
-| 2026-10-16 | [t4a_screen_result_2026-10-16.md](t4a_screen_result_2026-10-16.md) | result | T4a TWO_SIDED development screen | KILL (per the earlier index) |
-| 2026-10-16 | [t4a_posthoc_diagnostics_2026-10-16.md](t4a_posthoc_diagnostics_2026-10-16.md) | result | T4a spillover and growth after the fact | Diagnostic |
-| 2026-10-16 | [t4c_data_2026-10-16.md](t4c_data_2026-10-16.md) | tooling | T4c immutable label data | Data preparation |
-| 2026-10-16 | [t4c_data_audit_2026-10-16.json](t4c_data_audit_2026-10-16.json) | receipt | T4c independent data audit | pass = true |
-| 2026-10-16 | [t4c_implementation_2026-10-16.md](t4c_implementation_2026-10-16.md) | tooling | T4c TWO_SIDED_T implementation and validation | Prepared; no training |
-| 2026-10-16 | [t4c_cpu_smoke_2026-10-16.json](t4c_cpu_smoke_2026-10-16.json) | receipt | T4c real-bank CPU smoke | Unclear (no status field) |
-| 2026-10-16 | [t4c_default_trace_2026-10-16.json](t4c_default_trace_2026-10-16.json) | receipt | T4c default-path trace | pass = true |
-| 2026-10-16 | [t4c_default_trace_final_2026-10-16.json](t4c_default_trace_final_2026-10-16.json) | receipt | T4c default-path trace, final | pass = true |
-| 2026-10-16 | [t4c_default_trace_strict_shards_2026-10-16.json](t4c_default_trace_strict_shards_2026-10-16.json) | receipt | T4c default-path trace, strict shards | pass = true |
-| 2026-10-16 | [t4c_drift_diagnostic_2026-10-16.md](t4c_drift_diagnostic_2026-10-16.md) | result | T4c same-init drift | Diagnostic |
-| 2026-10-16 | [t4c_screen_result_2026-10-16.md](t4c_screen_result_2026-10-16.md) | result | T4c tightened two-sided screen | KILL |
-| 2026-10-16 | [t4_return_regression_tooling_2026-10-16.md](t4_return_regression_tooling_2026-10-16.md) | tooling | T4d return-regression build and CPU check | Tooling only |
-| 2026-10-16 | [t4d_build_validation_2026-10-16.json](t4d_build_validation_2026-10-16.json) | receipt | T4d build validation | Unclear (no status field) |
-| 2026-10-16 | [t4_snapshot_restart_tooling_2026-10-16.md](t4_snapshot_restart_tooling_2026-10-16.md) | tooling | T4b snapshot-restart curriculum build | Build only |
-| 2026-10-16 | [t4_snapshot_restart_validation_2026-10-16.json](t4_snapshot_restart_validation_2026-10-16.json) | receipt | T4b build validation | PASS |
-| 2026-10-16 | [t4e_default_trace_2026-10-16.json](t4e_default_trace_2026-10-16.json) | receipt | T4e default-path trace | pass = true |
-| 2026-10-16 | [t4e_precollection_validation_2026-10-16.json](t4e_precollection_validation_2026-10-16.json) | receipt | T4e validation before collection | Unclear (no status field) |
-| 2026-10-16 | [t4e_collection_preflight_repair_2026-10-16.json](t4e_collection_preflight_repair_2026-10-16.json) | receipt | T4e collection preflight repair | 12 tests passed |
-| 2026-10-16 | [t4e_collection_result_2026-10-16.md](t4e_collection_result_2026-10-16.md) | result | T4e return bank and prepared launch | Bank complete and validated |
-| 2026-10-16 | [t4e_prepared_validation_2026-10-16.json](t4e_prepared_validation_2026-10-16.json) | receipt | T4e return-arm prepared validation | PASS_PREPARED_NOT_STARTED |
-| 2026-10-16 | [t4e_calibration_default_trace_2026-10-16.json](t4e_calibration_default_trace_2026-10-16.json) | receipt | T4e calibration default-path trace | pass = true |
-| 2026-10-16 | [t4e_calibration_result_2026-10-16.json](t4e_calibration_result_2026-10-16.json) | receipt | T4e calibration (chosen weight) | Unclear (no status field) |
-| 2026-10-16 | [t4e_calibration_seed_audit_2026-10-16.json](t4e_calibration_seed_audit_2026-10-16.json) | receipt | T4e calibration seed audit | PASS |
-| 2026-10-16 | [t4e_calibration_validation_2026-10-16.json](t4e_calibration_validation_2026-10-16.json) | receipt | T4e calibration launch checks | Unclear (no status field) |
-| 2026-10-16 | [t4e_bugcheck_2026-10-16.md](t4e_bugcheck_2026-10-16.md) | result | RETURN boost-drift bug check | Preference exists in decisive states only |
-| 2026-10-16 | [t4e_bugcheck_result_2026-10-16.json](t4e_bugcheck_result_2026-10-16.json) | receipt | Machine verdicts for the bug check | Has a `verdicts` object |
-| 2026-10-16 | [t4f_preparation_result_2026-10-16.md](t4f_preparation_result_2026-10-16.md) | result | T4f RETURN_C preparation | A, B, C complete; 8M runs not started |
-| 2026-10-16 | [t4f_calibration_2026-10-16.json](t4f_calibration_2026-10-16.json) | receipt | T4f contrast calibration summary | Unclear (no status field) |
-| 2026-10-16 | [t4f_calibration_clarification_2026-10-16.json](t4f_calibration_clarification_2026-10-16.json) | receipt | T4f calibration clarification | Documentary clarification, no reselection |
-| 2026-10-16 | [t4f_seed_audit_2026-10-16.json](t4f_seed_audit_2026-10-16.json) | receipt | T4f seed-bank audit (filtered) | PASS |
-| 2026-10-16 | [t4f_seed_audit_unfiltered_2026-10-16.json](t4f_seed_audit_unfiltered_2026-10-16.json) | receipt | T4f seed-bank audit (unfiltered) | FAIL (the filtered version is PASS) |
-| 2026-10-16 | [t4f_addendum2_result_2026-10-16.md](t4f_addendum2_result_2026-10-16.md) | result | RETURN_C addendum 2: corrected boost macro and recalibration | Complete; no 8M training started |
-| 2026-10-16 | [t4f_addendum2_result_2026-10-16.json](t4f_addendum2_result_2026-10-16.json) | receipt | Machine record for addendum 2 | Unclear (no status field) |
-| 2026-10-16 | [t4f_calibration_addendum2_2026-10-16.json](t4f_calibration_addendum2_2026-10-16.json) | receipt | Addendum 2 calibration summary | Unclear (no status field) |
-| 2026-10-16 | [t4f_seed_audit_addendum2_2026-10-16.json](t4f_seed_audit_addendum2_2026-10-16.json) | receipt | Addendum 2 seed audit (filtered) | PASS |
-| 2026-10-16 | [t4f_seed_audit_addendum2_unfiltered_2026-10-16.json](t4f_seed_audit_addendum2_unfiltered_2026-10-16.json) | receipt | Addendum 2 seed audit (unfiltered) | FAIL (the filtered version is PASS) |
-| 2026-10-16 | [t5_separability_2026-10-16.md](t5_separability_2026-10-16.md) | result | T5 input-feature separability | FAIL |
-| 2026-10-16 | [t5b_risk_and_fuse_2026-10-16.md](t5b_risk_and_fuse_2026-10-16.md) | result | T5b B8 survival risk and fuse-layer separability | Modeled guard-failure risk 38.81% |
-| 2026-10-16 | [t6_preparation_2026-10-16.md](t6_preparation_2026-10-16.md) | tooling | T6 RESTART preparation | Prepared; smoke passed |
-| 2026-10-16 | [t6_seed_audit_2026-10-16.json](t6_seed_audit_2026-10-16.json) | receipt | T6 restart seed-bank audit | PASS |
-| 2026-10-16 | [t6_smoke_validation_2026-10-16.json](t6_smoke_validation_2026-10-16.json) | receipt | T6 restart smoke | pass = true |
-| 2026-10-16 | [t7_phase_r_result_2026-10-16.md](t7_phase_r_result_2026-10-16.md) | result | T7 B8 fresh-bank Phase R | STRICT_PASS |
-| 2026-10-17 | [t6_screen_result_2026-10-17.md](t6_screen_result_2026-10-17.md) | result | T6 RESTART screen | KILL |
-| 2026-10-17 | [t8_probes_2026-10-17.md](t8_probes_2026-10-17.md) | result | T8 raw-raster and arrival-race probes | Diagnostic |
-| 2026-10-17 | [t9_divergence_2026-10-17.md](t9_divergence_2026-10-17.md) | result | T9 fatal versus surviving divergence after the LAD | Diagnostic; no clean early separator |
-| 2026-10-17 | [t10_certificate_horizon_2026-10-17.md](t10_certificate_horizon_2026-10-17.md) | result | T10 certificate audit and horizon-stratified AUC | Diagnostic |
-| 2026-10-17 | [t11_implementation_2026-10-17.md](t11_implementation_2026-10-17.md) | tooling | T11 LOCAL30 implementation and MPS smoke | Prepared; 8M not started |
-| 2026-10-17 | [t11_screen_result_2026-10-17.md](t11_screen_result_2026-10-17.md) | result | T11 LOCAL30 screen | KILL before gameplay evaluation |
-
-### B8 seed 3 release, Watch roster and closure (2026-10-17)
-
-| Date | File | Type | One line | Status |
-|---|---|---|---|---|
-| 2026-10-17 | [t12_b8_serving_qualification_2026-10-17.md](t12_b8_serving_qualification_2026-10-17.md) | result | B8 s3 extended Mac serving qualification | `SERVING_FAIL` / HOLD, not a release record |
-| 2026-10-17 | [b8_s3_release_2026-10-17.md](b8_s3_release_2026-10-17.md) | decision | Web serving release of B8 seed 3 without a veto | RELEASE |
-| 2026-10-17 | [b8_s3_monitoring_erratum_2026-10-17.md](b8_s3_monitoring_erratum_2026-10-17.md) | decision | Erratum to the release monitoring threshold | Erratum; serving defaults unchanged |
-| 2026-10-17 | [t13_product_roster_2026-10-17.md](t13_product_roster_2026-10-17.md) | result | All-B8 versus FRP3 Watch roster, measured | Descriptive, not a gate |
-| 2026-10-17 | [t13b_six_snake_roster_2026-10-17.md](t13b_six_snake_roster_2026-10-17.md) | prereg | Six-snake roster decision rule | Rule fixed before data |
-| 2026-10-17 | [t13b_six_snake_roster_2026-10-17_results.md](t13b_six_snake_roster_2026-10-17_results.md) | result | Six-snake roster results | `PLAN_MIXED_PENDING_ROSTER_QUALIFICATION` |
-| 2026-10-17 | [t14_ci_validation_2026-10-17.md](t14_ci_validation_2026-10-17.md) | result | CI closure validation | CI maintenance only |
-| 2026-10-17 | [t15_mixed_roster_qualification_2026-10-17.md](t15_mixed_roster_qualification_2026-10-17.md) | result | Mixed Watch roster qualification | SERVING_PASS, all six checks |
-| 2026-10-17 | [b8_s3_release_erratum_mixed_watch_2026-10-17.md](b8_s3_release_erratum_mixed_watch_2026-10-17.md) | decision | Mixed Watch roster as the default | RELEASE, approved by the owner |
-| 2026-10-17 | [redesign_campaign_retrospective_2026-10-17.md](redesign_campaign_retrospective_2026-10-17.md) | result | Retrospective of the redesign campaign | Goal met (B8 s3 released) |
-
-### Colab compute and Q0 (2026-10-17 to 10-18)
-
-| Date | File | Type | One line | Status |
-|---|---|---|---|---|
-| 2026-10-17 | [t16_colab_smoke_2026-10-17.md](t16_colab_smoke_2026-10-17.md) | plan | T16 Colab CUDA throughput smoke runbook for the owner | Bounded smoke only |
-| 2026-10-17 | [t16_mac_baseline_2026-10-17.md](t16_mac_baseline_2026-10-17.md) | result | Mac baseline for the Colab throughput comparison | Throughput only |
-| 2026-10-17 | [t16_colab_smoke02_results_2026-10-17.md](t16_colab_smoke02_results_2026-10-17.md) | result | Colab smoke-02 results and diagnosis | Throughput only |
-| 2026-10-18 | [colab_agent_access_2026-10-18.md](colab_agent_access_2026-10-18.md) | reference | How coding agents can use Colab compute units | Research note |
-| 2026-10-18 | [overnight_2026-10-18.md](overnight_2026-10-18.md) | result | What ran overnight and what waits for the owner | Log; lists the owner decisions needed |
-| 2026-10-18 | [q0_mass_mac_timing_20261018.json](q0_mass_mac_timing_20261018.json) | receipt | Q0 local timing on the Mac | bank_audit_pass = true |
-| 2026-10-18 | [q0_mass_worker_parity_20261018.json](q0_mass_worker_parity_20261018.json) | receipt | Q0 worker parity | PASS |
-
-### Big-Lever Round 30/32, Colab upload cap & Watch6 forecast (2026-10-24 to 10-30)
-
-| Date | File | Type | One line | Status |
-|---|---|---|---|---|
-| 2026-10-24 | [colab_upload_cap_diagnosis_2026-10-24.md](colab_upload_cap_diagnosis_2026-10-24.md) | diagnostic | Colab CLI upload-cap diagnosis and packing guidance | Diagnostic |
-| 2026-10-24 | [round30_qualification_20261024.md](round30_qualification_20261024.md) | tooling | Round 30 calibration qualification note (with `round30_codex_v_light_20261024.json`) | Qualification note |
-| 2026-10-24 | [round30_upload_relaunch_20261024.md](round30_upload_relaunch_20261024.md) | tooling | Round 30 upload-repacked relaunch note (with `round30_upload_codex_v_light_20261024.json`) | Operational note |
-| 2026-10-24 | [round30_round32_mechanical_relaunch_20261024.md](round30_round32_mechanical_relaunch_20261024.md) | tooling | Round 30 & Round 32 mechanical relaunch note (with `codex_v_light` JSON receipts) | Operational note |
-| 2026-10-25 | [round30_timing_probe_20261025.md](round30_timing_probe_20261025.md) | diagnostic | Round 30 timing probe 01 | Diagnostic |
-| 2026-10-25 | [r30_timing_upload_cap_probe02_20261025.md](r30_timing_upload_cap_probe02_20261025.md) | diagnostic | Round 30 timing & upload-cap probe 02 | Diagnostic |
-| 2026-10-25 | [r30_timing_observability_probe03_20261025.md](r30_timing_observability_probe03_20261025.md) | diagnostic | Round 30 observability probe 03 | Diagnostic |
-| 2026-10-25 | [r30_timing_certificate_probe04_20261025.md](r30_timing_certificate_probe04_20261025.md) | diagnostic | Round 30 certificate-deadline probe 04 | Diagnostic |
-| 2026-10-25 | [r30_postf4_g5_preparation_hold_20261025.md](r30_postf4_g5_preparation_hold_20261025.md) | decision | Post-F4 G5 preparation hold note (see [round30_postf4_20261025/](round30_postf4_20261025/)) | HOLD |
-| 2026-10-30 | [watch6_forecast_fix_status_2026-10-30.md](watch6_forecast_fix_status_2026-10-30.md) | tooling | Watch6 empirical W4 forecast preparation from replay banks (superseded in execution by V2/V3) | Preparation evidence |
-
-### Reference
-
-| Date | File | Type | One line | Status |
-|---|---|---|---|---|
-| through 2026-10-08 | [GLOSSARY.md](GLOSSARY.md) | reference | Research glossary (supplemented by [../notes/GLOSSARY.md](../notes/GLOSSARY.md)) | Not updated after 2026-10-08 |
-| 2026-11-01 | [ROADMAP.md](ROADMAP.md) | plan | Round-27 synthesized current-round and later-round research roadmap | Advice only, not ratified decisions |
-| 2026-11-01 | [INDEX.md](INDEX.md) | reference | This index | Current |
+In the November 2, 2026 documentation consolidation, 761 superseded/interim `.md` memos across the repository were consolidated into **54 lineage records** under [`history/INDEX.md`](history/INDEX.md), while preserving all binding campaign contracts, judge rulings, SHA-pinned pre-registrations, and primary verdict documents below.
 
 ---
 
-# Chronological record (kept from the earlier index)
+## 1. Primary Entry Points & Sub-Indexes
 
-This is the chronological map of the Snake DQN study and decision record. For
-the current program state, start with [../STATUS.md](../STATUS.md); this index
-preserves the result or decision recorded at the time, including proposals that
-were never admitted or executed.
+| Document / Index | Scope |
+| :--- | :--- |
+| [`ROADMAP.md`](ROADMAP.md) | **Forward research plan & decision tree** — active `Watch6-L1-V1` confirmation (`l1v1-main-01`), Mac `M0a`/`M0b` readouts, and `CTS-ZWRHS-L1-v6` (`RH-DAG-1`) live-serving plan (advice only). |
+| [`history/INDEX.md`](history/INDEX.md) | **Consolidated lineage history (`54` records)** — one-line-per-record index and full synthesis of all completed and closed research lines. |
+| [`final_run_20261019/`](final_run_20261019/) | **T34 ExIt-B8 campaign authority** — [`SUCCESS_CONTRACT.md`](final_run_20261019/SUCCESS_CONTRACT.md), [`DESIGN_V2_SHADOW.md`](final_run_20261019/DESIGN_V2_SHADOW.md), [`P7_STATISTICS.md`](final_run_20261019/P7_STATISTICS.md), [`FINAL_PLAN.md`](final_run_20261019/FINAL_PLAN.md), [`CAMPAIGN_LOG.md`](final_run_20261019/CAMPAIGN_LOG.md), [`HANDOFF_2026-10-20.md`](final_run_20261019/HANDOFF_2026-10-20.md), and [`WATCH6_SHARD_FEASIBILITY_20261030.md`](final_run_20261019/WATCH6_SHARD_FEASIBILITY_20261030.md). |
+| [`advice/INDEX.md`](advice/INDEX.md) | **Advisor syntheses & judge rulings (`55` kept docs)** — Fable/Astra rulings, Big-Lever (`2026-10-21_big_lever/`), A100 consultations (`2026-10-20_a100/`, `2026-10-22_a100_program/`), and Colab lane judgments. |
+| [`specs/INDEX.md`](specs/INDEX.md) | **Technical specifications & pre-registrations (`44` kept docs)** — T34 Round 0, Path B retention, Claim A, GPU sim spike, and T1–T12 specifications/amendments. |
+| [`GLOSSARY.md`](GLOSSARY.md) | **Evaluation & governance glossary** — definitions of `B8`, `ego2s-bv8`, `v8`, `Phase R`, `survival_band_v2`, `L2'`, `Claim A/B`, etc. |
+| [`../../research/INDEX.md`](../../research/INDEX.md) | **Executable study packages (`research/*`)** — index of all 163 Python study and infrastructure packages. |
 
-## Coverage and reading rules
+---
 
-The inventory was taken from every local branch tip on 2026-10-08: 101 local
-heads (including `docs-organize`), 37 distinct `docs/research/*.md` paths, and
-42 distinct path/blob revisions. `main` is named where the file exists there;
-branch-only files are deliberately retained as `branch:path` references. An
-entry marked **historical revision** is a different blob of the same document,
-not a second experiment. Identical copies across branches are listed once,
-preferring `main` when available. The local `main` baseline was `22ba10b`;
-branch locators may advance. Inventory used `git for-each-ref refs/heads` and
-`git ls-tree -r <branch> -- docs/research`, with `git show <branch>:<path>`
-for reading and content hashes to deduplicate revisions.
+## 2. Active Campaign, Watch6, Big-Lever & Sandbox Records (Oct 19 – Nov 1, 2026)
 
-Outcomes below reproduce the source labels or their stated conclusion. A
-development probe, screen, plan, or governance proposal is not promotion
-evidence. The 2026-10-08 standing decisions supersede older operational plans
-when they conflict.
+| Date | Record | Lineage / Verdict |
+| :--- | :--- | :--- |
+| 2026-10-30 | [`watch6_forecast_fix_status_2026-10-30.md`](watch6_forecast_fix_status_2026-10-30.md) | Watch6 V2 forecast-calibration status and shard accounting note ([`history/watch6-confirmation.md`](history/watch6-confirmation.md)). |
+| 2026-10-30 | [`final_run_20261019/WATCH6_SHARD_FEASIBILITY_20261030.md`](final_run_20261019/WATCH6_SHARD_FEASIBILITY_20261030.md) | Shard feasibility and timeout sizing for Watch6 `H = 14,400` confirmation ([`history/watch6-confirmation.md`](history/watch6-confirmation.md)). |
+| 2026-10-26 | [`governance_a100_sandbox_20261026/ADOPTED.md`](governance_a100_sandbox_20261026/ADOPTED.md) & [`FABLE_ON_ARGON_VS_ASTRA_20261026.md`](governance_a100_sandbox_20261026/FABLE_ON_ARGON_VS_ASTRA_20261026.md) | Standing A100 development sandbox governance rule and Fable synthesis ([`history/sandbox-a.md`](history/sandbox-a.md)). |
+| 2026-10-25 | [`round30_postf4_20261025/RULING.md`](round30_postf4_20261025/RULING.md) & [`INTENT.md`](round30_postf4_20261025/INTENT.md) | Post-F4 Round 30 judge ruling (`R30-1` certificate audit, `R30-2` rescue-mass ranking, `G5` hold; [`history/bl-round30.md`](history/bl-round30.md)). |
+| 2026-10-21..25 | [`advice/2026-10-21_big_lever/`](advice/2026-10-21_big_lever/) | Big-Lever Charter, Plans `v1–v3`, Resume-by-Default ruling (`JUDGMENT_RESUME_POLICY.md`), `L2'` Mac & opponent rulings, and Rounds `01–15` judgments ([`history/t34-big-lever.md`](history/t34-big-lever.md)). |
+| 2026-10-20 | [`ops/COLAB_UNITS_LEDGER.md`](ops/COLAB_UNITS_LEDGER.md) | Colab Pro+ compute-unit ledger and rate-calibration baseline ([`history/colab-ops.md`](history/colab-ops.md)). |
 
-| Date | Study or decision | Recorded outcome / status | Branch and path | One-line record |
-|---|---|---|---|---|
-| 2026-09-24 | Bridge preflight replacement | Proposal only; required explicit user exception | `main:docs/research/task_aligned_bridge_preflight_replacement_decision_2026-09-24.md` | A 63-character digest stopped the controller before any numerical work; preserve the closed attempt and allow at most one separately admitted replacement. |
-| 2026-09-24 | Bridge saved-prefix recovery | Proposal only; no new execution authorized | `main:docs/research/task_aligned_bridge_saved_prefix_decision_2026-09-24.md` | Preserve the failed capture prefix, authenticate its metadata once, and qualify only remaining work under a new reviewed handoff. |
-| 2026-09-25 | Bridge heartbeat recovery | Reviewed plan ready; awaiting direct decision; not admitted | `main:docs/research/task_aligned_bridge_heartbeat_recovery_decision_2026-09-25.md` | One bounded remaining qualification attempt was proposed after the heartbeat contract defect; no performance claim followed. |
-| 2026-09-26 | SIMD/vector61 plan — original | **Historical revision** | `apex-safety-and-eval-tooling:docs/research/simd_vector61_plan_2026-09-26.md` | Initial batched vector61 feasibility and wiring plan; superseded by the later parity/status revision. |
-| 2026-09-26 | SIMD/vector61 plan — updated | SIMD path wired opt-in; live parity documented | `main:docs/research/simd_vector61_plan_2026-09-26.md` | Records bit-exact row-wise parity and the non-default batched-forward limitation; source retains the 2026-09-26 plan for history. |
-| 2026-09-26 | Tiered governance | Governing framework | `main:docs/research/governance_tiers_2026-09-26.md` | Defines development, Tier-1 screen, Tier-2 strict-gate, and serving-qualification roles. |
-| 2026-09-26 | 6102 strict challenge | Draft; not admitted, authorized, or executed | `main:docs/research/task_aligned_strict_challenge_preregistration_2026-09-26.md` | Pre-registration estimated the original 6102 challenger would probably exceed its final-bank feasibility cap. |
-| 2026-09-26 | Portfolio review | No candidate reached the deployed agent | `main:docs/research/experiment_portfolio_review_2026-09-26.md` | Review of 192 experiments found measurement and transfer limits; Apex/vector61 remained incumbent. |
-| 2026-10-01 | Trap horizon | Diagnostic result | `main:docs/research/trap_horizon_2026-10-01.md` | The median point of no return was four frames before self-collision; 24 of 42 analyzed deaths involved boosting into tiny pockets. |
-| 2026-10-02 | Compute policy | Historical operating policy | `main:docs/research/compute_policy_2026-10-02.md` | Sets local CPU-slot, AC/lid, thermal-guard, and strict-gate constraints; later standing decisions control current use. |
-| 2026-10-02 | v5 death census | Ranked next-intervention recommendation | `main:docs/research/death_census_v5_2026-10-02.md` | Census of the released v5 veto identified remaining failure patterns and informed later veto work. |
-| 2026-10-02 | Sequential Tier-2 gates — original | **Historical revision** | `gate-sequential:docs/research/governance_amendment_sequential_gates_2026-10-02.md` | Original proposed group-sequential strict-gate rule before review and runner clarifications. |
-| 2026-10-02 | Sequential Tier-2 gates — ratified revision | Group-sequential gates adopted prospectively | `main:docs/research/governance_amendment_sequential_gates_2026-10-02.md` | Pre-registered O'Brien-Fleming looks, interleaved mixes, futility, and audit requirements for new strict studies. |
-| 2026-10-03 | RunPod x86 consistency | 28/28 H5000 episodes bit-identical; Q values differ about 5e-5 | `main:docs/research/runpod_x86_consistency_2026-10-03.md` | Establishes the recorded Mac/x86 result boundary; it does not eliminate rare near-tie divergence risk. |
-| 2026-10-03 | v8 death census | 61.7% survive; enclosures closed by opponent movement remain | `main:docs/research/death_census_v8_2026-10-03.md` | Tier-0 census named opponent-aware enclosure forecasting as the next lever. |
-| 2026-10-03 | Kill-opportunity census | Do not build a v8 hunting variant | `rp-kill-robust:docs/research/kill_opportunity_census_2026-10-03.md` | Forced cut-offs were rare and v8 already took 54/75 (72%); the remaining upper bound was too small to justify a hunting lever. |
-| 2026-10-03 | Paired survival bands — proposal | **Historical revision** | `band-amendment:docs/research/governance_amendment_paired_bands_2026-10-03.md` | Initial prospective paired-band amendment. |
-| 2026-10-03 | Paired survival bands — runner revision | **Historical revision** | `runner-paired-bands:docs/research/governance_amendment_paired_bands_2026-10-03.md` | Review/implementation revision before the retained ratified version. |
-| 2026-10-03 | Paired survival bands — ratified | `paired_ni_at_stop`, M=0.05, alpha=0.05, floor=0.30 | `main:docs/research/governance_amendment_paired_bands_2026-10-03.md` | Prospective strict-gate amendment; later survival band v2 changes the rule used by FRP-v3. |
-| 2026-10-03 | Growth ceiling | Growth is not the bottleneck; survival is | `growth-ceiling:docs/research/growth_ceiling_2026-10-03.md` | Food-first/greedy arms raised intake about 19–22% but deaths rose from 0.350 to 0.600–0.633 and none beat the hero on pooled mass. |
-| 2026-10-03 | v9 development sweep | `SELECTED`: K8S soft opponent forecasting | `veto-v9:docs/research/apex_veto_v9_dev_sweep_2026-10-03.md` | K8S was selected for a separate screen; hard hazards were harmful and the selection was non-authoritative. |
-| 2026-10-03 | Serving-time search feasibility | Feasible only as bounded research/design work | `main:docs/research/serving_time_search_feasibility_2026-10-03.md` | Documents lookahead-search measurements and limits for the v8 Watch hero. |
-| 2026-10-04 | v9 soft-k sweep | `EXPLORATORY_NO_SELECTION` | `veto-v9:docs/research/apex_veto_v9_softk_sweep_2026-10-04.md` | Soft k=4/12/16 comparisons could not change the separately pre-registered K8S screen arm. |
-| 2026-10-04 | LH-1 long-horizon screen amendment | Ratified 2026-10-05; C2 descriptive, C3 binding at mass >=300 | `lh1-screen:docs/research/governance_amendment_long_horizon_screen_2026-10-04.md` | The opening `DRAFT` label is stale: the ratification section records the adopted calibration-dependent rule. The file is hash-bound by the FRP-v3 LH-1 screen intent and is left unedited; see the [erratum](governance_amendment_long_horizon_screen_2026-10-04_erratum_2026-10-08.md) (ratified 2026-10-05, `ecddfab`). |
-| 2026-10-04 | Opponent robustness | v8 retains about 83% of its edge under v8-wrapped opponents | `rp-kill-robust:docs/research/opponent_robustness_2026-10-04.md` | Tier-1 non-authoritative probe: v8 held up at least as well as v7, while smarter opponents reduced both vetoed heroes' mass. |
-| 2026-10-04 | V8 long horizon | Mortality, not food, is the population ceiling | `rp-bank-long:docs/research/v8_long_horizon_2026-10-04.md` | Survival falls 65% at H5000 to 20% at H10000 and 1/60 at H20000 although surviving individuals keep growing. |
-| 2026-10-04 | V8 reference bank | Planning data; paired SD 124/141/97, 56–63% exact ties | `rp-bank-long:docs/research/v8_reference_bank_2026-10-04.md` | Tier-1 data sized future sequential gates; at N_max 243 the recorded MDE is about 19–27 mass. |
-| 2026-10-05 | Strict gates on RunPod — initial | **Historical revision** | `strict-runpod:docs/research/governance_amendment_strict_on_runpod_2026-10-05.md` | Original proposed remote-strict-gate amendment using the then-5x speed-up requirement. |
-| 2026-10-05 | Strict gates on RunPod — current text | **NOT RATIFIED; superseded 2026-10-08** | `main:docs/research/governance_amendment_strict_on_runpod_2026-10-05.md` | Never used (FRP-v3 strict ran on the Mac). The byte-identity condition fails at random on exact float32 ties. Its "Pending" footer is historical; the file is hash-bound by template v3 `prepare`, so it is left unedited. See the [status note](governance_amendment_strict_on_runpod_2026-10-05_status_2026-10-08.md). |
-| 2026-10-06 | Survival band v2 | Ratified option 1 (`pooled_ni_continue`) | `main:docs/research/governance_amendment_survival_band_v2_2026-10-06.md` | Replaces the prior per-mix paired-band approach for opted-in strict work with pooled paired NI plus a catastrophic floor. |
-| 2026-10-06 | FRP-v3 strict gate | `STRICT_PASS` at look 2, n=207/mix | `main:docs/research/frp3_strict_result_2026-10-06.md` | FRP-v3 seed 12 + v8 beat champion + v8 on H5000 mass under band v2; the prior band would have failed scripted survival. |
-| 2026-10-06 | FRP-v3 serving and release | `SERVING_PASS`; frp3-s12 + v8 released | `main:docs/research/frp3_serving_result_and_release_2026-10-06.md` | Documents the checkpoint swap, serving qualification, and rollback environment variables. |
-| 2026-10-06 | FRP3 death census | Growth improved; H5000 survival unchanged; big-body self-enclosure remains | `census-frp3:docs/research/death_census_frp3_2026-10-06.md` | Tier-1 paired H10000 census reports 92% of deaths as big-body self-enclosure and boost burn down 77%. |
-| 2026-10-06 | Next-lever memo | FRP-v4 R4 selected as sole decision arm | `next-lever:docs/research/next_lever_memo_2026-10-06.md` | Reviewed memo ranks post-release levers and records caps, KILL conditions, and governance requirements. |
-| 2026-10-07 | FRP-v4 pod sizing | Operational package change; no study result | `frp-v4:docs/research/frp_v4_pod_sizing_2026-10-07.md` | Allows 8/16/32-vCPU one-wave pod sizing, per-seed training, aligned Phase-R blocks, and ledger claims without changing semantics. |
-| 2026-10-07 | E0 sight premise | `GO-S` | `frp-v5h:docs/research/e0_sight_premise_result_2026-10-07.md` | Sight premise probe recorded an AUC-gain lower bound of +0.045 overall and +0.02019 at length 300–900. |
-| 2026-10-07 | Train-smarter / FRP-v5-H plan | Ranked memo and draft pre-registration | `frp-v5h:docs/research/train_smarter_memo_2026-10-07.md` | Proposes the horizon and sight hypotheses; its plan is historical after the later v5-H KILL and v5-S2 recipe result. |
-| 2026-10-07 | Perf-sim throughput plan | Byte-identical optimization plan and measured 2.10x eval speed-up | `main:docs/research/perf_plan_2026-10-07.md` | Profiles the live geometry cost and documents identity evidence and remaining bottlenecks. |
-| 2026-10-07 | Redesign scope | GridBatchSim + ego-raster/distill-then-RL main-line plan | `redesign-scope:docs/research/redesign_scope_2026-10-07.md` | Defines the vectorized simulator and spatial-policy redesign; later standing decisions make redesign the sole main line. |
-| 2026-10-07 | Sequential Phase R design | Design for future Tier-1 screens | `main:docs/research/sequential_phase_r_design_2026-10-07.md` | Specifies OBF efficacy, repeated KILL bounds, optional early NO_GO, receipts, and audit requirements. |
-| 2026-10-07 | Sequential Phase R amendment | Ratified 2026-10-08 | `main:docs/research/governance_amendment_sequential_phase_r_2026-10-07.md` | D1 adopted; NO_GO is a per-study opt-in with default G=50, margins accepted, and pod wiring deferred. |
-| 2026-10-07 | Mac/pod divergence diagnosis | Identity check failed 1/54; likely exact float32 Q tie | `diag-divergence:docs/research/mac_pod_divergence_diag_2026-10-07.md` | A frozen opponent's frame-3997 normal/boost tie plausibly flips by BLAS order; this is a diagnostic, not a study verdict. |
+---
 
-## Later results recorded outside `docs/research`
+<a id="release-update--2026-10-17"></a>
+<a id="later-results-recorded-outside-docsresearch"></a>
+## 3. B8 Release, Serving Qualification & T1–T15 Records (Oct 14–17, 2026)
 
-The following results are part of the chronological program record but did not
-have a separate `docs/research` Markdown report at the surveyed branch tips.
-Their current-state source is the read-only Claude project memory
-`~/.claude/projects/-Users-josenunez-Projects-ml-snake-dqn/memory/MEMORY.md`.
-The `branch:path` values are source-package locators, not frozen-source
-snapshots; inspect them with `git show <branch>:<path>` if the package details
-are needed. Exact result sources are `frp-v2-phase2-go-l.md`, `frp-v3-go-r.md`,
-`frp-v4-partial.md`, `frp-v5h-kill.md`, `frp-v5s2-recipe.md`, and `redesign-scope.md`
-in that memory directory; v5-S comes from campaign key `training_bet_frp_v5s`.
-M1/M2 use the memory record's **2026-10-08** date rather than dates embedded in package names.
+Full lineage syntheses: [`history/b8-release-serving.md`](history/b8-release-serving.md) and [`history/b8-late-death-t1-t11.md`](history/b8-late-death-t1-t11.md).
 
-| Date | Study or decision | Recorded outcome | Package locator |
-|---|---|---|---|
-| 2026-10-05 | FRP-v2 Phase 2 | `GO_L`: +41.3 H5000, LB90 +26.3 vs champion+v8, 5/5 seeds | `frp-v2:research/frp_v2_20261004/protocol.md` |
-| 2026-10-05–06 | FRP-v3 Phase R | `GO_R`: +65.1 H5000, HK LB90 +43.0 vs champion+v8, 5/5 seeds; seed 12 subsequently passed strict and serving qualification | `frp-v3:research/frp_v3_20261005/README.md` |
-| 2026-10-07 | FRP-v4 | `PARTIAL`: +6.8 H5000, UB90 +29.1 vs frp3-s12+v8, 3/5 seeds; recipe near saturation and no replication | `frp-v4:research/frp_v4_20261007/README.md` |
-| 2026-10-07 | FRP-v5-S | `FIDELITY_NOT_PASSED`: hazard 0.1533/1k > 0.15, so training did not start | `frp-v5s2-phaser-rp:research/frp_v5s_20261009/README.md` |
-| 2026-10-08 | FRP-v5-H | `KILL_H`: horizon bundle −41.5 versus control, 1/8 seeds; control round +14.3 vs incumbent | `frp-v5h:research/frp_v5h_20261008/README.md` |
-| 2026-10-08 | FRP-v5-S2 | `GO_S_RECIPE`: 67-D sight +21.5 H5000, LB +8.4 versus incumbent and +8.3 versus control; recipe adopted, no gate | `frp-v5s2-phaser-rp:research/frp_v5s2_20261009/README.md` |
-| 2026-10-08 | Redesign M1 | Done; G1 met: 72/72 H5000 grid/batch identity and 45k-frame live/sim raster identity (unused scripted-snake hunger field excluded) | `redesign-scope:research/redesign_scope_20261007/results/grid_identity_h5000/summary.json` |
-| 2026-10-08 | Redesign M2 | `FAIL`: no-veto student vs no-veto frp3-s12 −29.5, LB90 −43.7 versus NI margin −15 | `redesign-scope:research/redesign_m2_20261008/results/ni_check/verdict.json` |
-| 2026-10-08 | Redesign M2b | `PASS`: no-veto student vs no-veto frp3-s12 +52.4, LB +34.8 on fresh worlds | `redesign-scope:research/redesign_m2_20261008/results_m2b/ni_check/verdict.json` |
-| 2026-10-08 | Redesign M3-A / M3-B | M3-A smoke completed without HALT/FLAG; M3-B learning-slope gate `PASS` (LB90 +0.46 > 0) | `m3c:research/redesign_m3_20261008/results/m3b/slope_gate.json` |
-| 2026-10-08 | Redesign M3 Phase R | `NO_GO_EARLY` at look 1: candidate+v8 vs frp3-s12+v8 +11.4, SE 13.7, NO_GO upper bound +40.5 < 50; verify and audit passed | `redesign-scope:research/redesign_m3_20261008/results/phase_r/look-1.json` |
-| 2026-10-08 | Standing decisions | vector61 frozen; redesign is the sole main line; goal is to beat frp3-s12+v8 without a veto; M3-C next; no spend without OK | Claude memory `standing-decisions-2026-10-08.md` record |
-| 2026-10-12 | Redesign M3-C result + M3-D diagnostics | M3-C no selection entered Phase R (best no-veto arm L 184.6 vs incumbent+v8 434.9; with v8 all arms ~435-448); M3-D ~70 diagnostics all negative/inconclusive; no promotion | `main:docs/research/m3c_m3d_learnings_2026-10-12.md` | Distilled learnings; branch archived as tag `archive/m3d-autonomous-20261010`. |
-| 2026-10-13 | M4 Phase R (B8, no veto) | `PARTIAL`: +128.7 mass vs frp3-s12 + v8 (LB +101.5, 5/5 seeds), survival vs incumbent OK on all mixes; failed only guard scripted survival vs champion_a5 + v8 (−0.156 vs −0.05); audit PASS | `main:docs/research/m4_phase_r_result_2026-10-13.md` | First no-veto learned policy to beat the served hero on mass at Tier 1; arm C (no v8 inputs) failed scripted survival at selection. |
-| 2026-10-14 | M6 reward levers (tightness cost, length-scaled death) | `NULL`: paired vs CTRL (n=5) TIGHT scripted surv −0.044 (SE 0.055), DEATHW +0.031 (SE 0.060); best pooled scripted 0.56 vs ≥0.64 needed | `main:docs/research/m6_result_2026-10-14.md` | Reward shaping does not fix large-length self-trapping; eval noise ≈ ±0.1 per 32-world run. |
-| 2026-10-14 | Panel memo verification (Mac answers) | Panel S8 wrong: M6 anchor ran lambda 0.1 (not 1.0, ~0.5% of loss); hazard rises with frame not length (no governor, R6 off); guard gap vs champion in clause units -0.04 pooled on the census bank, look-2 -0.156 was one bank with 19/32 B8_s0 deaths; Huber beta 1 at death delta Phi(L)+3 confirmed; replay period 1.3M confirmed | `main:docs/research/panel_mac_answers_2026-10-14.md` | Verified trainer source + per-world Phase R and census artifacts for the two-expert panel; next = T1 commitment study and fuse probe, then T2 Huber x anchor screen. |
-| 2026-10-15 | Two-expert panel review (mechanics + RL) of the B8 gap | Value-learning failure on a rare delayed catastrophe (Huber median regime, segment-clock replay cycle), not a missing veto; plan T1 measure -> T2 Huber x anchor -> T3 rollout labels; guard clause option B recommended | `main:docs/research/panel_review_summary_2026-10-14.md` (full texts `panel_2026-10-15/`) | Read-only panel run from the Oct-8 repo; Mac verification corrected two claims (M6 anchor lambda 0.1; hazard rises with frame not length). |
-| 2026-10-15 | T1 measurement (commitment study + fuse probe) | Value ranking, not perception: escapes exist for most late deaths (46/49 with a last avoidable decision; 17 boost-only), Q prefers the fatal action by a median 0.45; fuse probe AUC 0.84 at H100 and −max Q 0.85 (not a length proxy); R2 fires, R3 NO_GO (tail topology), R4 fires (boost labels) | `main:docs/research/t1_commitment_study_2026-10-15.md`, `main:docs/research/t1_fuse_probe_2026-10-15.md` | Development diagnostics; implemented by Codex from committed specs, reviewed by Claude. T2 Huber x anchor screen running. |
-| 2026-10-15 | T2 learner-regime screen (Huber delta x anchor) | HUBER delta 100 (4 seeds; s12 halted on action-collapse): scripted episode survival +0.125 vs CTRL (SE ~0.03), alive-frame +0.081, but mass -80..-141 vs CTRL (fails -30) -> caution tax; ANCHOR0 null after extension; HUBER_ANCHOR0 KILL (mass collapse). Next: T2b delta 10/30 sweep (declared before data) | `main:docs/research/t2_screen_status_2026-10-15.md` | Fresh dev bank round_index 60 (96/32/32 worlds). First lever since M4 to move scripted survival by more than noise. |
-| 2026-10-15 | T2b Huber-delta sweep (10 / 30, anchor 0.1) | Both EXTEND-exhausted, not adopted: delta 10 scripted episode +0.072 (SE ~0.02), mass -14 / -28 / -46 vs CTRL (mixed fails -30); delta 30 +0.093, mass -63..-100. Dose-response: survival rises with delta, mass falls faster | `main:docs/research/t2b_delta_sweep_2026-10-15.md` | Declared before data; Huber alone cannot buy the survival without a mass tax. |
-| 2026-10-16 | T3 rollout-label screen (LABELS / KEEPV8 / KEEPV8_LO vs M6 CTRL, round 62+63) | No GO: primary scripted episode survival +0.008 / +0.017 / -0.010 (SE ~0.02-0.03, 192 worlds/seed); mass -88 / -88 / -81 scripted vs CTRL (still +48..+112 vs incumbent). Diagnostics: labels learned (bank agree 40% -> 95-99.7%) but as a global rule (51-67% of all decisions changed), growth loss not deaths. Dense lookahead ceiling 54/64 stands. Next: T4 two-sided loss | `main:docs/research/t3_screen_result_2026-10-15.md`, `main:docs/research/t3_diagnostics_2026-10-16.md` | One-sided surviving-set margin teaches 'not B8's move' everywhere; labels stay 89-91% valid under the students. |
-| 2026-10-16 | T4 step 1: TWO_SIDED bank loss (counter single-action margin 0.30, 1:1, bank v2) | KILL: scripted episode survival -0.027 vs CTRL (SE 0.045); mass -24 / -41 / -15 vs CTRL (+154 / +99 / +75 vs incumbent). Readout: bank_agree decisive 0.93 / counter 0.999 -> inputs separate the cases; spillover outside bank 53% (T3 ~90%), growth loss -135 (T3 ~-450) | `main:docs/research/t4a_screen_result_2026-10-16.md`, `main:docs/research/t4a_posthoc_diagnostics_2026-10-16.md` | Labels learnable and mostly mass-neutral but survival unchanged; leading hypothesis whack-a-mole -> expert iteration from the student. |
-| 2026-10-16 | T4c tightened two-sided labels (TWO_SIDED_T) | KILL after extension: scripted episode survival -0.014 (SE 0.010; 537 vs 550 of 960); mass -10 / -13 / +9 (passes). Spillover fixed (consequential change 3.8% vs drift 1.0%; length delta -7) but decisive rows weakly learned (74% weight-1). Fork -> return regression | `main:docs/research/t4c_screen_result_2026-10-16.md`, `main:docs/research/t4c_drift_diagnostic_2026-10-16.md` | Labels can now be added without a mass tax; margin labels alone do not buy survival. First launch ran on CPU by mistake (deviation 1, relaunched on MPS). |
-| 2026-10-16 | T4 step 2: return regression (RETURN level, RETURN_C contrast + boost macro) | RETURN halted at 0.8M (boost 34%; no bug: decisive boost branches survive 87% vs 50%, +32 Q); RETURN_C KILL at 0.2M by the pre-registered 2% boost tripwire (4.7%). Teaching the boost escape generalises to broad boosting: the escape is real but not discriminable from bv8 inputs | `main:docs/research/t4e_bugcheck_2026-10-16.md`, `main:docs/research/specs/t4f_prereg_addendum2_2026-10-16.md` | Fork -> inputs (narrowest gap to outside, k-frame boost-escape feasibility). |
-| 2026-10-16 | T5 input-feature separability (24 per-action features: uncapped area, 3-frame boost area, core area, tail reachable) | FAIL: per-action death-within-300 AUC 0.726 (current 60 scalars) -> 0.735 (+24), 24 alone 0.748 (bar +0.05 and 0.80); T1 LAD share 37% (bar 70%). No training run | `main:docs/research/t5_separability_2026-10-16.md` | Death-within-300 is ~0.73 predictable from the current board with any static feature tried; the lookahead ceiling (54/64) relies on future dynamics a bare feedforward net does not see. Recommend: B8 to a fresh-bank Phase R under the Tier 1 guard; Tier 2 needs architecture-level research. |
-| 2026-10-17 | T6 RESTART: train from late-game death-window snapshots (owner suggestion; 20% of worlds) | KILL: scripted episode survival delta exactly 0.000 (SE 0.023); mass -2 / -40 / +9 vs CTRL (+205 / +50 / +184 vs incumbent); held-out decisive Q-gap unchanged (-0.010); no boost spillover. Training deaths/1k at L >= 800: restarted 0.32 vs fresh 0.20 | `main:docs/research/t6_screen_result_2026-10-17.md` | More exposure to the hard states does not change the decision: consistent with the T5/T5b perception limit (fuse probe 0.77). |
-| 2026-10-17 | B8 Phase R under the Tier 1 guard (192 scripted / 96 frozen / 96 mixed per seed, one look) | **STRICT_PASS**: efficacy +138.7 (LB90 +129.5) vs frp3-s12 + v8, 5/5 seeds; scripted alive-frame -0.007 (>= -0.03), frozen +0.046, mixed +0.043; per-seed floors all >= -0.024; absolute episode survival 0.539 / 0.744 / 0.785; H10000 +93.7. Candidate B8 seed 3. **Tier 2 PASS**: episode survival vs champion -0.016 (SE 0.023) | `main:docs/research/t7_phase_r_result_2026-10-16.md` | First bare-network (no veto) candidate to pass; serving qualification + release pending owner approval. Also T10: certificate not held more by lookahead; horizon ceiling D30 0.91-0.93 -> D300 0.73-0.77. |
-| 2026-10-17 | T8 / T9 / T10 / T11 diagnostics and LOCAL30 | Raw-raster CNN 0.742 and arrival-race features +0.014 (no 0.85); divergence: no early separator, fatal path builds its pocket over ~50-100 decisions; certificate: lookahead holds tail reachability as often as B8 (99.97% vs 99.92%); horizon AUC ~0.92 at 30 -> ~0.75 at 300 for every input. LOCAL30 (two-sided labels on deaths <= 30 decisions) KILL: seed 13 boost tripwire (1.07% at L < 700) | `main:docs/research/t8_probes_2026-10-17.md`, `t9_divergence_2026-10-17.md`, `t10_certificate_horizon_2026-10-17.md`, `t11_screen_result_2026-10-17.md` | Late-game survival at L ~1,000 is decided by search; B8 is near the bare-network ceiling. Label line closed. |
+| Date | Record | Verdict / Scope |
+| :--- | :--- | :--- |
+| 2026-10-17 | [`b8_s3_release_2026-10-17.md`](b8_s3_release_2026-10-17.md) | **RELEASED (`b8-s3` without a veto, sha `3e649783`)** — release receipt, startup verification, rollback commands, and monitoring rules (hash-pinned). |
+| 2026-10-17 | [`b8_s3_release_erratum_mixed_watch_2026-10-17.md`](b8_s3_release_erratum_mixed_watch_2026-10-17.md) | **T15B RELEASE ERRATUM** — switched live Watch default from `all_b8` to `mixed` (`1× B8 + 5× frp3-s12+v8`). |
+| 2026-10-17 | [`b8_s3_monitoring_erratum_2026-10-17.md`](b8_s3_monitoring_erratum_2026-10-17.md) | Roster-specific live Watch death and latency monitoring thresholds. |
+| 2026-10-17 | [`t15_mixed_roster_qualification_2026-10-17.md`](t15_mixed_roster_qualification_2026-10-17.md) | **`SERVING_PASS`** — mixed Watch6/8/12 serving qualification on the Mac. |
+| 2026-10-17 | [`t13b_six_snake_roster_2026-10-17.md`](t13b_six_snake_roster_2026-10-17.md) & [`t13b_six_snake_roster_2026-10-17_results.md`](t13b_six_snake_roster_2026-10-17_results.md) | **`PLAN_MIXED_PENDING_ROSTER_QUALIFICATION`** — 6-snake Watch product roster comparison (`0.250` vs `0.453` deaths/1k). |
+| 2026-10-17 | [`t12_b8_serving_qualification_2026-10-17.md`](t12_b8_serving_qualification_2026-10-17.md) | **`SERVING_PASS` (`T12B` check 4)** — 8-check Mac web serving qualification (`Watch6` `p95 = 16.43 ms <= 40 ms`). |
+| 2026-10-17 | [`redesign_campaign_retrospective_2026-10-17.md`](redesign_campaign_retrospective_2026-10-17.md) | Retrospective on the October spatial redesign (`M1`–`M7`, `T1`–`T11`) and closure of single-state late-death fine-tunes. |
+| 2026-10-17 | [`t11_screen_result_2026-10-17.md`](t11_screen_result_2026-10-17.md) | **`KILL`** — `LOCAL30` 90-scalar screen halted at `0.3M` steps on the `1.0%` $L<700$ boost tripwire (hash-pinned). |
+| 2026-10-17 | [`t10_certificate_horizon_2026-10-17.md`](t10_certificate_horizon_2026-10-17.md) & [`t10_certificate_horizon_2026-10-17_evidence/README.md`](t10_certificate_horizon_2026-10-17_evidence/README.md) | **`NON_SEPARATING`** — tail certificate held on `99.92%` of B8 decisions; GBM AUC decayed from `0.92` (`D30`) to `0.75` (`D300`). |
+| 2026-10-17 | [`t8_probes_2026-10-17.md`](t8_probes_2026-10-17.md) | **`FAIL`** — arrival-race scalars (`0.785` AUC) and raw-raster `D300` CNN (`0.742` AUC) missed the `0.85` bar. |
+| 2026-10-17 | [`t6_screen_result_2026-10-17.md`](t6_screen_result_2026-10-17.md) | **`KILL`** — late-snapshot restart screen (`0.000` scripted survival delta, `-11.45` mass). |
+| 2026-10-16 | [`t7_phase_r_result_2026-10-16.md`](t7_phase_r_result_2026-10-16.md) | **`STRICT_PASS`** — one-look Mac Phase R (`N = 192/96/96`): B8 beat `frp3-s12 + v8` by **`+138.67` H5000 mass** and cleared `survival_band_v2`. |
+| 2026-10-16 | [`t5_separability_2026-10-16.md`](t5_separability_2026-10-16.md), [`t5b_risk_and_fuse_2026-10-16.md`](t5b_risk_and_fuse_2026-10-16.md), & [`t5b_risk_and_fuse_2026-10-16_evidence/README.md`](t5b_risk_and_fuse_2026-10-16_evidence/README.md) | **`FAIL` (`T5`/`T5b` probes)** — static geometry added `+0.0088` AUC (`< +0.05`); `T5b` sized `T7` at `N = 192` scripted worlds/seed. |
+| 2026-10-16 | [`t4a_screen_result_2026-10-16.md`](t4a_screen_result_2026-10-16.md), [`t4c_screen_result_2026-10-16.md`](t4c_screen_result_2026-10-16.md), [`t4e_collection_result_2026-10-16.md`](t4e_collection_result_2026-10-16.md), & [`t4e_bugcheck_2026-10-16.md`](t4e_bugcheck_2026-10-16.md) | **`KILL` / `HALT_BOOST_DRIFT`** — two-sided margin (`T4a`/`T4c`) and 1-step-deviation return regression (`T4e`) results (`t4a` and `t4e_bugcheck` hash-pinned). |
+| 2026-10-16 | [`t3_diagnostics_2026-10-16_evidence/README.md`](t3_diagnostics_2026-10-16_evidence/README.md) | Evidence bundle for `T3` label-arm disagreement and boost-flip diagnostics ([`history/m3-m7-redesign.md`](history/m3-m7-redesign.md)). |
+| 2026-10-15 | [`t3_ceiling_test_2026-10-15.md`](t3_ceiling_test_2026-10-15.md) & [`t3_screen_result_2026-10-15.md`](t3_screen_result_2026-10-15.md) | **Teacher `GO` (`+0.250` surv, `+92.2` mass) / Student `KILL`** — `T3-dense` rollout teacher ceiling vs 5-seed student screen (`t3_ceiling_test` hash-pinned). |
+| 2026-10-15 | [`t2b_delta_sweep_2026-10-15.md`](t2b_delta_sweep_2026-10-15.md) | **`KILL`** — Huber $\beta$ and LR sweep on B8 (`EXTEND` exhausted). |
+| 2026-10-15 | [`t1_commitment_study_2026-10-15.md`](t1_commitment_study_2026-10-15.md) & [`t1_fuse_probe_2026-10-15.md`](t1_fuse_probe_2026-10-15.md) | **`HEADROOM_CONFIRMED`** — `46/49` late B8 deaths had an escape within 300 steps (`median H_LAD = 100`); 256-D fuse probe `AUC ~0.77`. |
+| 2026-10-14..15 | [`panel_2026-10-15/PANEL_DECISION_MEMO.md`](panel_2026-10-15/PANEL_DECISION_MEMO.md), [`panel_review_summary_2026-10-14.md`](panel_review_summary_2026-10-14.md), & [`panel_mac_answers_2026-10-14.md`](panel_mac_answers_2026-10-14.md) | Two-expert panel diagnosing B8's late-length exposure confound (`42%` vs `5.6%` at $L \ge 800$) and ratifying `survival_band_v2`. |
 
-**Namespace labels are not dates.** The `20261009` suffix in `frp_v5s_20261009`,
-`frp_v5s2_20261009`, `frp-v5s-20261009` and `frp-v5s2-20261009` is a namespace label fixed
-at registration. FRP-v5-S closed on 2026-10-07. FRP-v5-S2's result was recorded and merged
-on **2026-10-08**. The dates in the tables above are the recorded outcome dates.
+---
 
-## Notes on documents outside this directory
+## 4. Spatial Redesign (`M1`–`M4`), FRP, Apex Veto & Governance Records (Sep 24 – Oct 12, 2026)
 
-The detailed 2026-09 experimental write-ups are preserved as an archive. The
-portfolio review is the narrative index for its 192 studies; these family
-links provide a chronological entry point without restating every package:
+Full lineage syntheses: [`history/m3-m7-redesign.md`](history/m3-m7-redesign.md), [`history/frp.md`](history/frp.md), [`history/apex-veto.md`](history/apex-veto.md), [`history/sequential-gate.md`](history/sequential-gate.md), and [`history/governance.md`](history/governance.md).
 
-| Period | Archive family | Starting record |
-|---|---|---|
-| 2026-09-06–08 | State-system/PQN foundation and repair | [state-system audit](../experiments/state_system_audit_2026-09-06/README.md), [PQN sampler review](../pqn_sampler_results_2026-09-06.md), [repair execution](../experiments/rl_repair_execution_2026-09-08.md) |
-| 2026-09-12–14 | Observation, portfolio, and solo learning | [observation-value report](../experiments/observation_value_2026-09-12/REPORT.md), [research portfolio](../experiments/rl_research_portfolio_2026-09-12/README.md), [solo infrastructure](../experiments/solo_infrastructure_2026-09-13/README.md) |
-| 2026-09-19–21 | Solo-food safety and PQN continuation | [solo learning status](../experiments/solo_learning_status_2026-09-20.md), [one-opponent check](../experiments/solo_food_pqn_one_opponent_2026-09-21/README.md) |
-| 2026-09-21–22 | Controlled encounters | [calibration](../experiments/controlled_encounter_calibration_2026-09-21/README.md), [native TD learning](../experiments/controlled_encounter_native_td_learning_2026-09-21/README.md) |
-| 2026-09-22–24 | Canonical Apex and task-aligned bridge | [canonical retention](../experiments/apex_canonical_retention_2026-09-22/README.md), [bridge qualification](../experiments/task_aligned_bridge_qualification_2026-09-24/README.md) |
-| 2026-09-27–10-03 | Safety-veto screens and serving studies | [strict-gate screen](../experiments/apex_veto_strict_gate_2026-09-27/README.md), [v5](../experiments/apex_veto_v5_2026-10-01/README.md), [v8](../experiments/apex_veto_v8_2026-10-03/README.md) |
-
-Use [`docs/experiments/`](../experiments/) for the complete package archive and
-[`experiment_portfolio_review_2026-09-26.md`](experiment_portfolio_review_2026-09-26.md)
-for its cross-family interpretation.
-The durable release, compute, and decision map is maintained in
-[../README.md](../README.md) and [../STATUS.md](../STATUS.md). Artifact-backed
-results and campaign state are indexed separately from data files; do not infer
-that a plan or a branch-only note changed a released default.
-
-## Release update — 2026-10-17
-
-| Date | Study or decision | Recorded outcome / status | Branch and path | One-line record |
-|---|---|---|---|---|
-| 2026-10-17 | T12C B8 seed 3 serving release | RELEASE: b8-s3 without a veto | `main:docs/research/b8_s3_release_2026-10-17.md` | T7 STRICT_PASS + Tier 2 and T12/T12B qualification; default and both rollbacks verified live; first-week/100k-decision monitoring and day-7 owner check-in. |
-| 2026-10-17 | T15 mixed Watch roster qualification | SERVING_PASS, all six checks; opt-in at qualification | `main:docs/research/t15_mixed_roster_qualification_2026-10-17.md` | Bare B8 hero and FRP3 + v8 opponents; corrected evidence assembly preserves original invalid envelope. |
-| 2026-10-17 | T15B owner-approved mixed Watch default | RELEASE: mixed Watch, bare b8-s3 hero | `main:docs/research/b8_s3_release_erratum_mixed_watch_2026-10-17.md` | Separate mixed Watch6 baseline 0.272 deaths/1k, rollback >0.544; explicit all_b8 plus restart rolls back roster. |
+| Date | Record | Verdict / Scope |
+| :--- | :--- | :--- |
+| 2026-10-12 | [`m4a_design_2026-10-12.md`](m4a_design_2026-10-12.md) | `M4` (`ego2s-bv8` student + RL) design that produced `B8` ([`history/m3-m7-redesign.md`](history/m3-m7-redesign.md)). |
+| 2026-10-08 | [`m3c_design_2026-10-08.md`](m3c_design_2026-10-08.md) | `M3-C` multi-actor GPU learner + Numba `GridBatchSim` training architecture ([`history/m3-m7-redesign.md`](history/m3-m7-redesign.md)). |
+| 2026-10-07 | [`redesign_scope_2026-10-07.md`](redesign_scope_2026-10-07.md) | October spatial redesign scope (`GridBatchSim` + `ego2s` raster + distilled DQN). |
+| 2026-10-07 | [`governance_amendment_sequential_phase_r_2026-10-07.md`](governance_amendment_sequential_phase_r_2026-10-07.md) & [`sequential_phase_r_design_2026-10-07.md`](sequential_phase_r_design_2026-10-07.md) | Ratified sequential Phase R screening protocol ([`history/sequential-gate.md`](history/sequential-gate.md)). |
+| 2026-10-06 | [`frp3_strict_result_2026-10-06.md`](frp3_strict_result_2026-10-06.md) & [`frp3_serving_result_and_release_2026-10-06.md`](frp3_serving_result_and_release_2026-10-06.md) | **`STRICT_PASS` & RELEASED (`frp3-s12 + v8`)** — served default from 2026-10-06 until `b8-s3` on 2026-10-17 ([`history/frp.md`](history/frp.md)). |
+| 2026-10-06 | [`governance_amendment_survival_band_v2_2026-10-06.md`](governance_amendment_survival_band_v2_2026-10-06.md) | Ratified `survival_band_v2` guard rule ([`history/sequential-gate.md`](history/sequential-gate.md)). |
+| 2026-10-05..08 | [`governance_amendment_strict_on_runpod_2026-10-05.md`](governance_amendment_strict_on_runpod_2026-10-05.md) & [`governance_amendment_strict_on_runpod_2026-10-05_status_2026-10-08.md`](governance_amendment_strict_on_runpod_2026-10-05_status_2026-10-08.md) | **NOT RATIFIED / SUPERSEDED** — proposal to run strict gates on RunPod (hash-bound; superseded after x86 float32 tie divergence was proved). |
+| 2026-10-03 | [`governance_amendment_paired_bands_2026-10-03.md`](governance_amendment_paired_bands_2026-10-03.md) | Paired survival-band governance amendment ([`history/sequential-gate.md`](history/sequential-gate.md)). |
+| 2026-10-03 | [`serving_time_search_feasibility_2026-10-03.md`](serving_time_search_feasibility_2026-10-03.md) | Early serving-time search microbenchmark feasibility report ([`history/apex-veto.md`](history/apex-veto.md)). |
+| 2026-10-02 | [`compute_policy_2026-10-02.md`](compute_policy_2026-10-02.md) | Mac thermal/CPU-slot compute policy ([`history/colab-ops.md`](history/colab-ops.md)). |
+| 2026-10-02 | [`death_census_v5_2026-10-02.md`](death_census_v5_2026-10-02.md) | Death census of `champion_a5 + v5` veto motivating `v7`/`v8` ([`history/apex-veto.md`](history/apex-veto.md)). |
+| 2026-10-02 | [`governance_amendment_sequential_gates_2026-10-02.md`](governance_amendment_sequential_gates_2026-10-02.md) | Group-sequential O'Brien–Fleming strict-gate amendment ([`history/sequential-gate.md`](history/sequential-gate.md)). |
+| 2026-10-01 | [`trap_horizon_2026-10-01.md`](trap_horizon_2026-10-01.md) | Point-of-no-return trap-horizon study on `vector61` Apex ([`history/apex-veto.md`](history/apex-veto.md)). |
+| 2026-09-26 | [`governance_tiers_2026-09-26.md`](governance_tiers_2026-09-26.md) | Two-tier evaluation framework (Tier 1 screen / Tier 2 strict gate; [`history/sequential-gate.md`](history/sequential-gate.md)). |
+| 2026-09-26 | [`experiment_portfolio_review_2026-09-26.md`](experiment_portfolio_review_2026-09-26.md) | Portfolio review retiring `task_aligned_challenger` and launching `apex-veto` ([`history/task-aligned-challenger.md`](history/task-aligned-challenger.md)). |
+| 2026-09-26 | [`simd_vector61_plan_2026-09-26.md`](simd_vector61_plan_2026-09-26.md) | Batched SIMD `vector61` featurizer & policy plan ([`history/perf-20261013.md`](history/perf-20261013.md)). |
+| 2026-09-24 | [`task_aligned_challenger_design_draft_2026-09-24.md`](task_aligned_challenger_design_draft_2026-09-24.md) | Design draft for the September task-aligned CZ challenger ([`history/task-aligned-challenger.md`](history/task-aligned-challenger.md)). |

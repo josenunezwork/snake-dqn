@@ -90,17 +90,17 @@ Receding-teacher qualification remains the next experiment.
 
 ## Source records
 
-- [Frozen common-path intent](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-common-path/intent.json)
+- `Frozen common-path intent` (`/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-common-path/intent.json`)
   — SHA-256 `947770cfa5894f8b659853cf3c206ef599f061ba7f6bbf7999fcef200ca1fd16`
-- [Completed common-path probe](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-common-path/probe/report.json)
+- `Completed common-path probe` (`/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-common-path/probe/report.json`)
   — SHA-256 `8da98973da84d31cbe4cc808fd71ec418928b67be59661e77072ffb07c3262b3`
-- [Completed saved analysis](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-common-path/analysis/report.json)
+- `Completed saved analysis` (`/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-common-path/analysis/report.json`)
   — SHA-256 `d316609bf1b1c8817f49b1ac7ae634b6e5bfb50c81a9760147a9191c20818e20`
-- [Native-probe receipt](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-common-path/supervisor-runs/probe/receipt.json)
-  and [saved-analysis receipt](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-common-path/supervisor-runs/analysis/receipt.json)
-- [Copied comparison figure source](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-common-path/analysis/common-path-comparison.png)
-  and [per-group source](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-common-path/analysis/per-group.csv)
+- `Native-probe receipt` (`/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-common-path/supervisor-runs/probe/receipt.json`)
+  and `saved-analysis receipt` (`/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-common-path/supervisor-runs/analysis/receipt.json`)
+- `Copied comparison figure source` (`/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-common-path/analysis/common-path-comparison.png`)
+  and `per-group source` (`/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-common-path/analysis/per-group.csv`)
 
-- [Independent audit](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-common-path/independent-audit.json)
-- [Consolidated closeout](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-common-path/closeout.json)
+- `Independent audit` (`/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-common-path/independent-audit.json`)
+- `Consolidated closeout` (`/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-common-path/closeout.json`)
   — SHA-256 `43813e7c8aa443eb68d729dc1fe44f29496ddbd2d1ab87a174b760bdd42ec604`

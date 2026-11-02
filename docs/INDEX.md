@@ -87,20 +87,18 @@ research plans (**advice, not decisions**) are synthesized in **[research/ROADMA
 | [MAP.md](MAP.md) | Directory-by-directory layout of `docs/`. |
 | [TIMELINE.md](TIMELINE.md) | Chronological project milestones from 2026-06-16 through 2026-11-01. |
 | [notes/README.md](notes/README.md) | Fact-checked, line-cited topic notes and [notes glossary](notes/GLOSSARY.md) (snapshot through 2026-10-25). |
-| [research/INDEX.md](research/INDEX.md) | Catalog of loose research/decision records in `docs/research/`. |
+| [research/INDEX.md](research/INDEX.md) | Catalog of kept research/decision records in `docs/research/`. |
+| [research/history/INDEX.md](research/history/INDEX.md) | **Consolidated lineage history:** 54 lineage records summarizing all completed & closed research lines (replacing 761 historical `.md` memos). |
 | [research/GLOSSARY.md](research/GLOSSARY.md) | Evaluation and governance terminology (through 2026-10-08; supplemented by [notes/GLOSSARY.md](notes/GLOSSARY.md)). |
-| [research/specs/INDEX.md](research/specs/INDEX.md) & [research/advice/INDEX.md](research/advice/INDEX.md) | Implementation specs/pre-registrations and independent advisor/panel memos. |
-| [research/catalog/](research/catalog/) | Detailed narrative catalogs of historical `research/*` packages. |
+| [research/specs/INDEX.md](research/specs/INDEX.md) & [research/advice/INDEX.md](research/advice/INDEX.md) | Preserved implementation specs/amendments and advisor/judge synthesis memos. |
 | [colab-cli.md](colab-cli.md) | Operator guide for the Mac-side Colab CLI supervisor (`research/colab_cli/`). |
 | [architecture/WEB_MAP.md](architecture/WEB_MAP.md) & [architecture/TESTS_MAP.md](architecture/TESTS_MAP.md) | Architecture maps for the web stack (`web/`) and test suite (`tests/`). |
 
 ### Experiment packages (`research/`)
 
-Full table of all 163 packages: **[`research/INDEX.md`](../research/INDEX.md)**. Every package
-(except hash/source-pinned [`watch6_l1_confirm`](../research/watch6_l1_confirm/),
-[`watch6_search_efficacy_v3`](../research/watch6_search_efficacy_v3/), and
-[`colab_cli`](../research/colab_cli/)) includes a local `README.md` summarizing purpose, outcome,
-and key files.
+Full table of all packages: **[`research/INDEX.md`](../research/INDEX.md)**. Active and primary
+verdict packages keep local `README.md` / `PREREGISTRATION*.md` / `RESULT*.md` files, while
+superseded/interim package handoffs are consolidated into **[`docs/research/history/INDEX.md`](research/history/INDEX.md)**.
 
 | Family | Directories under `research/` | Scope |
 | --- | --- | --- |

@@ -126,9 +126,9 @@ corrected claims, for example that CNNs were never trained in the older trials.
 | Timeline | [docs/TIMELINE.md](docs/TIMELINE.md) |
 | Research study packages (`research/`) | [research/INDEX.md](research/INDEX.md) |
 | Research narrative records (`docs/research/`) | [docs/research/INDEX.md](docs/research/INDEX.md) |
+| Consolidated lineage history (54 lineages) | [docs/research/history/INDEX.md](docs/research/history/INDEX.md) |
 | Specs | [docs/research/specs/INDEX.md](docs/research/specs/INDEX.md) |
 | Advisor advice | [docs/research/advice/INDEX.md](docs/research/advice/INDEX.md) |
-| Research package catalog | [docs/research/catalog/](docs/research/catalog/) |
 | Tests map (`tests/`) | [docs/architecture/TESTS_MAP.md](docs/architecture/TESTS_MAP.md) |
 | Web app map (`web/`) | [docs/architecture/WEB_MAP.md](docs/architecture/WEB_MAP.md) |
 | Agent working rules | [AGENTS.md](AGENTS.md) |
