@@ -7,4 +7,4 @@
 ## Key Files & Results
 
 - **Package entrypoints / artifacts:** [`protocol.md`](protocol.md), [`serving_run.py`](serving_run.py), [`serving_audit.py`](serving_audit.py), [`schema.py`](schema.py), [`fixtures/`](fixtures/)
-- **Related docs / results:** [`docs/experiments/apex_veto_serving_and_v3_2026-10-01/README.md`](../../docs/experiments/apex_veto_serving_and_v3_2026-10-01/README.md), [`docs/research/catalog/legacy_packages.md`](../../docs/research/catalog/legacy_packages.md)
+- **Related docs / results:** [`docs/research/history/apex-veto.md`](../../docs/research/history/apex-veto.md), [`docs/research/history/frp.md`](../../docs/research/history/frp.md)
