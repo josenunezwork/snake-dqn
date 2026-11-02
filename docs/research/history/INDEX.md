@@ -2,7 +2,9 @@
 
 Consolidated lineage records summarizing the project's experimental series, architectural migrations, compute operations, and governance history across **54** lineages (replacing superseded individual memos and run handoffs while preserving primary receipts, pre-registrations, and verdict documents).
 
-Each one-line verdict below is taken from that record's own "Final Verdict" and closing-status sections; every number quoted appears verbatim in the linked record. For current project truth, served checkpoints, and standing rules, see [`docs/STATUS.md`](../../STATUS.md), [`docs/INDEX.md`](../../INDEX.md), and [`docs/research/ROADMAP.md`](../ROADMAP.md).
+Each one-line verdict below is taken from that record's own "Final Verdict" and closing-status sections; every number quoted appears verbatim in the linked record.
+
+**Provenance.** These records were consolidated on 2026-11-02 from per-step notes that were then removed; every claim was fact-checked against the originals. To read any removed original, use `git show c4c4ab41:<path>` (the last commit before consolidation); the removed-file list per lineage is in each record and in `snake-dqn-artifacts/t34-sol/argon-docs-prune/planner/PLAN.json`. For current project truth, served checkpoints, and standing rules, see [`docs/STATUS.md`](../../STATUS.md), [`docs/INDEX.md`](../../INDEX.md), and [`docs/research/ROADMAP.md`](../ROADMAP.md).
 
 ---
 
