@@ -32,6 +32,6 @@ Packet 02 retains the admitted D1024 input, frozen B8, input registry, namespace
 `a100-dev/sandbox-b/split-v1`, 12 configurations, 432 points, 6,000 full-sweep
 neural updates, and 60/120-minute base/effective runaway guard. Its regenerated
 empty ledger binds the fixed source recipe; packet-01 ledger units cannot be
-reused under it. See `b3-packet-02/OPERATOR.md` and `VERIFICATION.json` for exact
+reused under it. See [`docs/research/history/sandbox-b.md`](../../docs/research/history/sandbox-b.md) and `VERIFICATION.json` for exact
 commands and current verification evidence. Actual dispatch remains the
 operator's step.
