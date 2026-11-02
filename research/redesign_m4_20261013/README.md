@@ -7,4 +7,4 @@
 ## Key Files & Results
 
 - **Package entrypoints / artifacts:** [`PREREGISTRATION_M4.md`](PREREGISTRATION_M4.md), [`m4_select.py`](m4_select.py), [`rule_spec_m4.py`](rule_spec_m4.py), [`phase_r_m4.py`](phase_r_m4.py), [`oc_m4.py`](oc_m4.py), [`results/oc_m4.json`](results/oc_m4.json)
-- **Related docs / results:** [`docs/research/m4_phase_r_result_2026-10-13.md`](../../docs/research/m4_phase_r_result_2026-10-13.md), [`docs/research/catalog/redesign_other.md`](../../docs/research/catalog/redesign_other.md)
+- **Related docs / results:** [`docs/research/history/m3-m7-redesign.md`](../../docs/research/history/m3-m7-redesign.md)

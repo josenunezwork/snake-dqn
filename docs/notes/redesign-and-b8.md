@@ -1,7 +1,7 @@
 # Redesign and the B8 release (October 2026)
 
 **Summary:** The October redesign produced B8 seed 3, released without a veto after T7 and serving qualification, while the tested late-death training arms closed without adoption. (src: docs/research/redesign_campaign_retrospective_2026-10-17.md:5-37)
-**As of:** 2026-10-25 PT · **Sources:** fact sheet `_facts/models-and-training-history.md`, October redesign onward; primary records cited inline.
+**As of:** 2026-10-25 PT · **Sources:** [consolidated redesign record](../research/history/m3-m7-redesign.md), October redesign onward; primary records cited inline.
 **Related:** [Index](README.md), [Glossary](GLOSSARY.md), [Earlier model and training lineage](models-and-training-history.md), [Overview and serving](overview-and-serving.md), [T34 campaign](t34-campaign.md)
 
 ## Scope and milestones
@@ -35,13 +35,13 @@ Its H10000 mass difference was −18 versus the same comparator. (src: docs/STAT
 The M3-C design review attributed the reported Q drift from 97 to 119 to the v2 reward's value structure, rather than over-estimation. (src: docs/research/m3c_design_2026-10-08.md:17)
 The same review recorded bare M3-B gains of +6.0 mass at 10 million transitions and +42 at 20 million, while the student still died in 44–47 of 48 H5000 worlds. (src: docs/research/m3c_design_2026-10-08.md:19)
 
-M3-C (stronger ego2s-b DQN training) ran arms A/B/L across seeds 0–4 for 20 million transitions each on an RTX 4090 pod, costing approximately $7.9 including the stalled attempt. (src: docs/research/m3c_m3d_learnings_2026-10-12.md:16-18)
-Bare-policy mass averaged 177.4 / 172.9 / 184.6 for A/B/L, versus 434.9 for `frp3-s12`+v8. (src: docs/research/m3c_m3d_learnings_2026-10-12.md:20-25)
-Bare-policy survival was 1–11%, versus 63–75% for that comparator, and no M3-C selection entered Phase R. (src: docs/research/m3c_m3d_learnings_2026-10-12.md:20-28)
+M3-C (stronger ego2s-b DQN training) ran arms A/B/L across seeds 0–4 for 20 million transitions each on an RTX 4090 pod, costing approximately $7.9 including the stalled attempt. (src: docs/research/history/m3-m7-redesign.md:16-18)
+Bare-policy mass averaged 177.4 / 172.9 / 184.6 for A/B/L, versus 434.9 for `frp3-s12`+v8. (src: docs/research/history/m3-m7-redesign.md:20-25)
+Bare-policy survival was 1–11%, versus 63–75% for that comparator, and no M3-C selection entered Phase R. (src: docs/research/history/m3-m7-redesign.md:20-28)
 
-M3-D (autonomous diagnostics) comprised approximately 70 Mac-CPU studies, all negative or inconclusive, with the branch archived as `archive/m3d-autonomous-20261010`. (src: docs/research/m3c_m3d_learnings_2026-10-12.md:3-6; docs/research/m3c_m3d_learnings_2026-10-12.md:41-45)
-The review recorded that many M3-D studies ended on admission or audit-inventory refusals without a scientific endpoint. (src: docs/research/m3c_m3d_learnings_2026-10-12.md:72-78)
-Its post-hoc M3-C hypotheses included reward/metric mismatch, a short discount horizon, inconsistent teacher targets, a training roster without mixed worlds, and missing v8 per-action post-move, landing and head-risk inputs. (src: docs/research/m3c_m3d_learnings_2026-10-12.md:80-99)
+M3-D (autonomous diagnostics) comprised approximately 70 Mac-CPU studies, all negative or inconclusive, with the branch archived as `archive/m3d-autonomous-20261010`. (src: docs/research/history/m3-m7-redesign.md:3-6; docs/research/history/m3-m7-redesign.md:41-45)
+The review recorded that many M3-D studies ended on admission or audit-inventory refusals without a scientific endpoint. (src: docs/research/history/m3-m7-redesign.md:72-78)
+Its post-hoc M3-C hypotheses included reward/metric mismatch, a short discount horizon, inconsistent teacher targets, a training roster without mixed worlds, and missing v8 per-action post-move, landing and head-risk inputs. (src: docs/research/history/m3-m7-redesign.md:80-99)
 
 ## M4 setup and B8 definition
 
@@ -49,21 +49,21 @@ The M4-A setup started from the M2b student and used mass reward κ=1, zero kill
 It replaced the unvetoed-Q anchor with a margin to the v8 action label, held through 8 million transitions and reduced to a 0.1 floor at 15 million. (src: docs/research/m4a_design_2026-10-12.md:20-21)
 The design distinguished arm C (setup fixes), D (additional on-policy v8 labels), and S (additional training-time v8 shield annealed between 8 million and 16 million transitions). (src: docs/research/m4a_design_2026-10-12.md:23-31)
 
-B8 is the ego2s-bv8 student: ego2s-b raster plus 30 v8-derived per-action safety features, with no decision-time veto. (src: docs/research/m4_phase_r_result_2026-10-13.md:8-10)
+B8 is the ego2s-bv8 student: ego2s-b raster plus 30 v8-derived per-action safety features, with no decision-time veto. (src: docs/research/history/m3-m7-redesign.md:8-10)
 The 30 added features are `area_g`, `head_risky`, `landing_ok`, `v5_eligible` and `spacious` for each of six actions, with area capped at twice the snake length. (src: docs/research/panel_review_summary_2026-10-14.md:26)
 They follow the 30 ego2s-b scalars, giving 60 scalar inputs alongside the raster features. (src: research/redesign_m4b_20261012/widen_bv8.py:4-8)
 The M4-B widening initialized the 30 added fuse-layer input columns to zero. (src: research/redesign_m4b_20261012/widen_bv8.py:5-8)
-B8 used the M4-A setup fixes and on-policy v8 labels, with five seeds trained for 20 million transitions each on the Mac. (src: docs/research/m4_phase_r_result_2026-10-13.md:8-11)
+B8 used the M4-A setup fixes and on-policy v8 labels, with five seeds trained for 20 million transitions each on the Mac. (src: docs/research/history/m3-m7-redesign.md:8-11)
 
-The development selection compared B8's 545.0 mass with the incumbent's 434.9; arm C scored 517.5 but failed the scripted-survival guard. (src: docs/research/m4_phase_r_result_2026-10-13.md:11-12)
-M4 Phase R returned `PARTIAL` on 2026-10-13 PT despite +128.7 H5000 mass versus `frp3-s12`+v8, lower bound +101.5 and five positive seeds. (src: docs/research/m4_phase_r_result_2026-10-13.md:3; docs/research/m4_phase_r_result_2026-10-13.md:16-20)
-It gained +74.3 H10000 mass and recorded scripted survival −0.003 versus `frp3-s12`+v8. (src: docs/research/m4_phase_r_result_2026-10-13.md:18-21)
-Its sole failed clause was the scripted-survival guard against `champion` (`43d4e2c5`)+v8: −0.156 against the ≥ −0.05 requirement. (src: docs/research/m4_phase_r_result_2026-10-13.md:22-29; docs/research/frp3_strict_result_2026-10-06.md:14)
+The development selection compared B8's 545.0 mass with the incumbent's 434.9; arm C scored 517.5 but failed the scripted-survival guard. (src: docs/research/history/m3-m7-redesign.md:11-12)
+M4 Phase R returned `PARTIAL` on 2026-10-13 PT despite +128.7 H5000 mass versus `frp3-s12`+v8, lower bound +101.5 and five positive seeds. (src: docs/research/history/m3-m7-redesign.md:3; docs/research/history/m3-m7-redesign.md:16-20)
+It gained +74.3 H10000 mass and recorded scripted survival −0.003 versus `frp3-s12`+v8. (src: docs/research/history/m3-m7-redesign.md:18-21)
+Its sole failed clause was the scripted-survival guard against `champion` (`43d4e2c5`)+v8: −0.156 against the ≥ −0.05 requirement. (src: docs/research/history/m3-m7-redesign.md:22-29; docs/research/frp3_strict_result_2026-10-06.md:14)
 
 ## M6 and the death census
 
-M6 (reward-lever fine-tunes) returned `NULL` and was not adopted on 2026-10-14 PT after paired 8-million-transition fine-tunes from five B8 finals. (src: docs/research/m6_result_2026-10-14.md:3-15)
-Relative to CTRL (the recipe-only control), TIGHT changed scripted survival by −0.044 (SE 0.055), and DEATHW by +0.031 (SE 0.060). (src: docs/research/m6_result_2026-10-14.md:7-15)
+M6 (reward-lever fine-tunes) returned `NULL` and was not adopted on 2026-10-14 PT after paired 8-million-transition fine-tunes from five B8 finals. (src: docs/research/history/m3-m7-redesign.md:3-15)
+Relative to CTRL (the recipe-only control), TIGHT changed scripted survival by −0.044 (SE 0.055), and DEATHW by +0.031 (SE 0.060). (src: docs/research/history/m3-m7-redesign.md:7-15)
 
 The B8 census used by T1 contained 75 deaths, including 49 late deaths at length ≥ 800. (src: docs/research/t1_commitment_study_2026-10-15.md:19)
 The panel described the late deaths as neck-sealing enclosures in crowded scripted worlds. (src: docs/research/panel_review_summary_2026-10-14.md:19)
@@ -75,7 +75,7 @@ Its rule results identified value learning as the limit, returned `NO_GO` for th
 
 ## T2–T11 gap-campaign outcomes
 
-T2 (Huber-loss/anchor screen, 2026-10-15 PT) remained `INCOMPLETE` after HUBER seed 12 hit action collapse at 7,764,992 transitions. (src: docs/research/t2_screen_status_2026-10-15.md:5; docs/research/t2_screen_status_2026-10-15.md:27-33)
+T2 (Huber-loss/anchor screen, 2026-10-15 PT) remained `INCOMPLETE` after HUBER seed 12 hit action collapse at 7,764,992 transitions. (src: docs/research/history/m3-m7-redesign.md:5; docs/research/history/m3-m7-redesign.md:27-33)
 The available HUBER result gained +0.125 scripted episode survival versus CTRL while losing 80–141 mass across mixes; ANCHOR0 exhausted its extension and HUBER_ANCHOR0 returned `KILL`. (src: docs/research/INDEX.md:310)
 T2b (Huber delta 10/30 sweep) exhausted both extensions without adoption: survival gains of +0.072 / +0.093 versus CTRL accompanied failing mass comparisons. (src: docs/research/INDEX.md:311)
 
@@ -89,7 +89,7 @@ T6 (RESTART from late-game states) returned `KILL` on 2026-10-17 PT, with script
 
 T8 (input probes) achieved death-within-300 AUC 0.742 with raw raster plus 60 scalars, below the frozen-fuse result near 0.77 and the 0.85 criterion. (src: docs/research/t8_probes_2026-10-17.md:56-72)
 Arrival-race inputs added 0.014 AUC. (src: docs/research/t8_probes_2026-10-17.md:121)
-T9 (branch-divergence diagnostic) found no clean early separator after the LAD; the fatal branch built a self-bounded pocket over approximately 50–100 decisions. (src: docs/research/t9_divergence_2026-10-17.md:5-13; docs/research/redesign_campaign_retrospective_2026-10-17.md:41-44)
+T9 (branch-divergence diagnostic) found no clean early separator after the LAD; the fatal branch built a self-bounded pocket over approximately 50–100 decisions. (src: docs/research/history/m3-m7-redesign.md:5-13; docs/research/redesign_campaign_retrospective_2026-10-17.md:41-44)
 T10 (certificate-horizon diagnostic) recorded the tail-by-length flag on 99.970% of dense-lookahead decisions versus 99.915% for B8, despite H5000 survival of 54/64 versus 38/64. (src: docs/research/t10_certificate_horizon_2026-10-17.md:8-17)
 Its 60-scalar death-prediction AUC fell from 0.9121 at 30 decisions to 0.7261 at 300, with input-dependent decay. (src: docs/research/t10_certificate_horizon_2026-10-17.md:29-32)
 T11 (LOCAL30 short-horizon labels) returned `KILL` before gameplay evaluation when seed 13 reached 300,160 transitions with 1.073% greedy boost below length 700, exceeding the 1% limit. (src: docs/research/t11_screen_result_2026-10-17.md:3-9)
@@ -126,7 +126,7 @@ Reopening requires evidence of a different mechanism or a new observation/archit
 
 - The B8 release and late-death closure superseded the 2026-10-08 PT “M3-C next” standing plan. (src: docs/STATUS.md:69; docs/research/INDEX.md:303)
 - T7 used the prospective survival-guard amendment: per-seed alive-frame floor −0.15 against the served agent and pooled episode floor 0.50 per mix; it retained M4's historical `PARTIAL` rather than re-scoring it. (src: docs/research/t7_phase_r_result_2026-10-16.md:38-44; docs/research/t7_phase_r_result_2026-10-16.md:82; docs/research/panel_review_summary_2026-10-14.md:48-53)
-- The M4-A setup specified 50% scripted / 25% frozen / 25% mixed, and the M4 result confirmed 25% mixed training worlds; the later 2026-10-21 23:40 PT `LIVE_FACTS` entry instead asserted 75% scripted / 25% frozen. (src: docs/research/m4a_design_2026-10-12.md:19; docs/research/m4_phase_r_result_2026-10-13.md:8-10; big-lever/LIVE_FACTS.md:29)
+- The M4-A setup specified 50% scripted / 25% frozen / 25% mixed, and the M4 result confirmed 25% mixed training worlds; the later 2026-10-21 23:40 PT `LIVE_FACTS` entry instead asserted 75% scripted / 25% frozen. (src: docs/research/m4a_design_2026-10-12.md:19; docs/research/history/m3-m7-redesign.md:8-10; big-lever/LIVE_FACTS.md:29)
 - That later entry's cited T7 lines described evaluation banks and freshness, not a training roster; 75/25 was documented for M3. (src: docs/research/t7_phase_r_result_2026-10-16.md:63; docs/research/t7_phase_r_result_2026-10-16.md:86; docs/research/redesign_scope_2026-10-07.md:1131)
 - The T7 result and timeline dated `STRICT_PASS` 2026-10-16 PT; the index dated the same result 2026-10-17 PT. (src: docs/research/t7_phase_r_result_2026-10-16.md:1; docs/TIMELINE.md:49; docs/research/INDEX.md:318)
 - The panel verification corrected its M6 anchor claim from λ=1.0 to λ=0.1 throughout all 8 million transitions, approximately 0.5% of the loss. (src: docs/research/panel_review_summary_2026-10-14.md:22)
@@ -135,5 +135,5 @@ Reopening requires evidence of a different mechanism or a new observation/archit
 
 - **B8 parameter count:** approximately 1.64 million was asserted in `LIVE_FACTS`, but the supplied sheet identified no B8 parameter-count receipt; the verified 1,625,687 count belonged to the earlier draft network. (src: big-lever/LIVE_FACTS.md:29; docs/research/redesign_scope_2026-10-07.md:425)
 - **M5:** the sheet's claim that longer training and harsher death penalties failed to fix scripted survival, with 2.4× RAM and 3× evaluation improvements, had no supporting M5 record among its cited sources.
-- **M4-A early arm-C score:** the claimed 429–470 bare mass versus 416 incumbent+v8 mass at 5 million transitions lacked a cited supporting record; the located final development result instead reported 517.5. (src: docs/research/m4_phase_r_result_2026-10-13.md:11-12)
+- **M4-A early arm-C score:** the claimed 429–470 bare mass versus 416 incumbent+v8 mass at 5 million transitions lacked a cited supporting record; the located final development result instead reported 517.5. (src: docs/research/history/m3-m7-redesign.md:11-12)
 - **M3-B run hardware:** the specific per-seed hardware for the five 20-million-transition runs was not established by the cited status row, which gave only throughput, relative speed and cost. (src: docs/STATUS.md:114)

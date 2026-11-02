@@ -7,4 +7,4 @@
 ## Key Files & Results
 
 - **Package entrypoints / artifacts:** [`engine.py`](engine.py), [`bank_engine.py`](bank_engine.py), [`ceiling.py`](ceiling.py), [`collect.py`](collect.py), [`bank.py`](bank.py), [`audit_bank.py`](audit_bank.py)
-- **Related docs / results:** [`docs/research/t3_ceiling_test_2026-10-15.md`](../../docs/research/t3_ceiling_test_2026-10-15.md), [`docs/research/t3_label_bank_2026-10-15.md`](../../docs/research/t3_label_bank_2026-10-15.md), [`docs/research/catalog/t3_t4_packages.md`](../../docs/research/catalog/t3_t4_packages.md)
+- **Related docs / results:** [`docs/research/t3_ceiling_test_2026-10-15.md`](../../docs/research/t3_ceiling_test_2026-10-15.md), [`docs/research/history/m3-m7-redesign.md`](../../docs/research/history/m3-m7-redesign.md)

@@ -7,4 +7,4 @@
 ## Key Files & Results
 
 - **Package entrypoints / artifacts:** [`plans/t4_pod_plan.json`](plans/t4_pod_plan.json)
-- **Related docs / results:** [`docs/research/t4_pod_plan_2026-10-15.md`](../../docs/research/t4_pod_plan_2026-10-15.md), [`docs/research/catalog/redesign_other.md`](../../docs/research/catalog/redesign_other.md)
+- **Related docs / results:** [`docs/research/history/m3-m7-redesign.md`](../../docs/research/history/m3-m7-redesign.md)
