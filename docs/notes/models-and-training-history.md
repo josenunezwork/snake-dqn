@@ -84,11 +84,11 @@ The free-space veto v2 was released after `SERVING_PASS` on 2026-10-01 PT, while
 
 The trap-horizon diagnostic found a median point of no return four frames before self-collision, with boosts into tiny pockets in 24 of 42 analyzed v2 self-deaths. (src: docs/research/INDEX.md:242)
 
-Veto v5 kept v2's normal-speed behavior but required a boost's two-cell landing to have reachable space at least equal to `need`, replacing a failing boost with the same direction at normal speed. (src: docs/experiments/apex_veto_v5_2026-10-01/README.md:14-20)
+Veto v5 kept v2's normal-speed behavior but required a boost's two-cell landing to have reachable space at least equal to `need`, replacing a failing boost with the same direction at normal speed. (src: docs/research/history/apex-veto.md)
 
-Veto v7 re-ranked v5-eligible actions using `Q_norm + λ · min(area, cap) / cap`, where `cap = min(max(32, 2 · length), 4096, open cells)` and λ = 0 reproduced v5. (src: docs/experiments/apex_veto_v7_2026-10-02/README.md:3-12)
+Veto v7 re-ranked v5-eligible actions using `Q_norm + λ · min(area, cap) / cap`, where `cap = min(max(32, 2 · length), 4096, open cells)` and λ = 0 reproduced v5. (src: docs/research/history/apex-veto.md)
 
-The v7 development sweep selected λ = 4, with pooled +117.1 mass versus v5, compared with +104.2 at λ = 2 and an inactive λ = 1. (src: docs/experiments/apex_veto_v7_2026-10-02/README.md:17-34)
+The v7 development sweep selected λ = 4, with pooled +117.1 mass versus v5, compared with +104.2 at λ = 2 and an inactive λ = 1. (src: docs/research/history/apex-veto.md)
 
 Veto v8 applied opponent-head avoidance after v7's space preference, replacing a head-risky choice by a v7 re-rank among masked-legal, v5-eligible, non-risky alternatives. (src: docs/experiments/apex_veto_v8_2026-10-03/README.md:3-9)
 
@@ -98,21 +98,21 @@ The v8 development sweep selected λ = 8, and its subsequent Tier-1 screen retur
 
 | Candidate and comparator | Recorded strict result | H5000 mass delta: frozen / scripted / mixed | Source |
 |---|---|---|---|
-| A5 + v5 vs A5 + v2 | 2026-10-02 PT: `STRICT_PASS`, 269 worlds per mix | +71.6 / +63.3 / +62.9 | (src: docs/experiments/apex_veto_v5_2026-10-01/README.md:37-57) |
-| A5 + v7, λ = 4, vs A5 + v5 | 2026-10-02 PT: `STRICT_PASS`, 243 worlds per mix | +130.3 / +119.1 / +123.0 | (src: docs/experiments/apex_veto_v7_2026-10-02/README.md:65-89) |
+| A5 + v5 vs A5 + v2 | 2026-10-02 PT: `STRICT_PASS`, 269 worlds per mix | +71.6 / +63.3 / +62.9 | (src: docs/research/history/apex-veto.md) |
+| A5 + v7, λ = 4, vs A5 + v5 | 2026-10-02 PT: `STRICT_PASS`, 243 worlds per mix | +130.3 / +119.1 / +123.0 | (src: docs/research/history/apex-veto.md) |
 | A5 + v8, λ = 8, vs A5 + v7, λ = 4 | 2026-10-03 PT: `STRICT_PASS`, look 2, 187 worlds per mix | +30.1 / +43.0 / +36.5 | (src: docs/experiments/apex_veto_v8_2026-10-03/README.md:79-106) |
 
-The strict survival fractions for v5 versus v2 rose from 0.451 to 0.600 in frozen, 0.383 to 0.519 in scripted and 0.513 to 0.640 in mixed. (src: docs/experiments/apex_veto_v5_2026-10-01/README.md:54-57)
+The strict survival fractions for v5 versus v2 rose from 0.451 to 0.600 in frozen, 0.383 to 0.519 in scripted and 0.513 to 0.640 in mixed. (src: docs/research/history/apex-veto.md)
 
-For v7 versus v5, the corresponding fractions rose from 0.626 to 0.840, 0.562 to 0.741 and 0.664 to 0.859. (src: docs/experiments/apex_veto_v7_2026-10-02/README.md:80-84)
+For v7 versus v5, the corresponding fractions rose from 0.626 to 0.840, 0.562 to 0.741 and 0.664 to 0.859. (src: docs/research/history/apex-veto.md)
 
 For v8 versus v7, they rose from 0.815 to 0.874, 0.764 to 0.833 and 0.854 to 0.918. (src: docs/experiments/apex_veto_v8_2026-10-03/README.md:96-100)
 
-Veto v5 reached `SERVING_PASS` and release on 2026-10-02 PT. (src: docs/experiments/apex_veto_v5_2026-10-01/README.md:69-117)
+Veto v5 reached `SERVING_PASS` and release on 2026-10-02 PT. (src: docs/research/history/apex-veto.md)
 
-Vetoes v7 and v8 each reached `SERVING_PASS`. (src: docs/experiments/apex_veto_v7_2026-10-02/README.md:96-113; docs/experiments/apex_veto_v8_2026-10-03/README.md:108-130)
+Vetoes v7 and v8 each reached `SERVING_PASS`. (src: docs/research/history/apex-veto.md; docs/experiments/apex_veto_v8_2026-10-03/README.md:108-130)
 
-Their release records each dated the Watch-hero default change to 2026-10-03 PT. (src: docs/experiments/apex_veto_v7_2026-10-02/README.md:135-138; docs/experiments/apex_veto_v8_2026-10-03/README.md:165-168)
+Their release records each dated the Watch-hero default change to 2026-10-03 PT. (src: docs/research/history/apex-veto.md; docs/experiments/apex_veto_v8_2026-10-03/README.md:165-168)
 
 The v8 strict result established the λ = 8 plus head-avoidance package's gain over v7 at λ = 4; those two changes were confounded. (src: docs/experiments/apex_veto_v8_2026-10-03/README.md:159-160)
 
@@ -122,11 +122,11 @@ The 2026-10-02 PT v5 live-engine census contained 48 episodes: 36 self-deaths, f
 
 In v5's 807 strict-final episodes, pooled shares were 77.6% self-deaths, 7.8% head-ons, 3.7% enemy-body deaths, 0.7% wall deaths and 10.2% survivors. (src: docs/research/death_census_v5_2026-10-02.md:80-88)
 
-The 2026-10-03 PT v8 SIMD census contained 180 episodes: 53 self-deaths, one head-on, 13 enemy-body deaths, two wall deaths and 111 survivors, with pooled mean mass 337.4. (src: docs/research/death_census_v8_2026-10-03.md:55-64)
+The 2026-10-03 PT v8 SIMD census contained 180 episodes: 53 self-deaths, one head-on, 13 enemy-body deaths, two wall deaths and 111 survivors, with pooled mean mass 337.4. (src: docs/research/history/apex-veto.md)
 
-The v8 census characterized remaining self-deaths as late enclosures, reporting fatal lengths of 235–881, median length 517 and median death frame 3,088. (src: docs/research/death_census_v8_2026-10-03.md:71-73)
+The v8 census characterized remaining self-deaths as late enclosures, reporting fatal lengths of 235–881, median length 517 and median death frame 3,088. (src: docs/research/history/apex-veto.md)
 
-The census estimated a safety-only ceiling of +60 mass if rescued snakes held their mass, or +91 if they grew, on its pooled mean of 337.4. (src: docs/research/death_census_v8_2026-10-03.md:210-214)
+The census estimated a safety-only ceiling of +60 mass if rescued snakes held their mass, or +91 if they grew, on its pooled mean of 337.4. (src: docs/research/history/apex-veto.md)
 
 The 2026-10-04 PT long-horizon probe recorded v8 survival of 65% at H5000, 20% at H10000 and one of 60 episodes at H20000. (src: docs/research/INDEX.md:259)
 
@@ -185,4 +185,4 @@ The dated 2026-10-08 PT vector freeze superseded the H100 recipe's earlier role 
 
 ## Unverified
 
-The exact v2 free-space veto rule was not established by the fact sheet's cited sources: the v5 record described v2's first-cell boost scoring and v5's added landing check, but did not specify the complete v2 rule. (src: docs/experiments/apex_veto_v5_2026-10-01/README.md:14-20)
+The exact v2 free-space veto rule was not established by the fact sheet's cited sources: the v5 record described v2's first-cell boost scoring and v5's added landing check, but did not specify the complete v2 rule. (src: docs/research/history/apex-veto.md)

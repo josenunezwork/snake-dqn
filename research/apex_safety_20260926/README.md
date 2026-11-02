@@ -7,4 +7,4 @@
 ## Key Files & Results
 
 - **Package entrypoints / artifacts:** [`protocol.md`](protocol.md), [`dev_screen.py`](dev_screen.py), [`deployment.yaml`](deployment.yaml)
-- **Related docs / results:** [`docs/experiments/apex_safety_veto_screen_2026-09-27/README.md`](../../docs/experiments/apex_safety_veto_screen_2026-09-27/README.md), [`docs/research/catalog/legacy_packages.md`](../../docs/research/catalog/legacy_packages.md)
+- **Related docs / results:** [`docs/research/history/apex-veto.md`](../../docs/research/history/apex-veto.md), [`docs/research/history/frp.md`](../../docs/research/history/frp.md)
