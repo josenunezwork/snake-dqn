@@ -342,4 +342,4 @@ Validation: 22 T4a tests passed after telemetry/report changes; earlier shared T
 
 Evidence: [analysis JSON](../../research/t4a_screen_20261016/results/analysis.json), [raw probes](../../research/t4a_screen_20261016/results/probes.jsonl), [full telemetry](../../research/t4a_screen_20261016/results/telemetry.json), [training receipts](../../research/t4a_screen_20261016/results/training_receipts.json), [rerolls](../../research/t4a_screen_20261016/results/rerolls.json), [completion and hashes](../../research/t4a_screen_20261016/results/completion.json), and [launch receipt](t4a_probe_launch_2026-10-16.json).
 
-[Separate post-hoc spillover and growth diagnostics](t4a_posthoc_diagnostics_2026-10-16.md) do not enter this screen decision. No promotion or subsequent training was launched by this task.
+[Separate post-hoc spillover and growth diagnostics (consolidated)](history/m3-m7-redesign.md) do not enter this screen decision. No promotion or subsequent training was launched by this task.

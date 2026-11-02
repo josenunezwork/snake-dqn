@@ -9,9 +9,9 @@ not proof of its complete causal mechanism. No reward, loss, training recipe,
 bank, checkpoint, launch binding, or preregistration was changed. No training
 was relaunched and no gameplay screen or promotion evaluation was run.
 
-This implements [the bug-check spec](specs/t4e_bugcheck_spec_2026-10-16.md), using
+This implements [the bug-check spec (consolidated)](history/m3-m7-redesign.md), using
 Deviation 1 of [amendment 1](specs/t4e_prereg_amendment1_2026-10-16.md) and the
-[return tooling contract](t4_return_regression_tooling_2026-10-16.md). Initial
+[return tooling contract (consolidated)](history/m3-m7-redesign.md). Initial
 checkout: clean `t4d-20261016`, `be09d62061952095d620e50d9b6b1b9bfbcd3816`.
 
 ## Evidence scope and missing artifacts

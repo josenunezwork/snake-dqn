@@ -8,7 +8,7 @@ seed-13 final checkpoint. The retained `aborted.pth` is failure evidence and was
 not evaluated or substituted. No retry, best-checkpoint selection, extension,
 retrain, or promotion was performed.
 
-Authority: [probe spec](specs/t11_probe_spec_2026-10-17.md) and
+Authority: [probe spec (consolidated)](history/m3-m7-redesign.md) and
 [binding preregistration](specs/t11_prereg_2026-10-17.md). “Finished” in the probe
 handoff includes one failed run; it does not establish five completed 8M runs.
 The four completed finals predate the seed-13 failure in their summary timestamps.

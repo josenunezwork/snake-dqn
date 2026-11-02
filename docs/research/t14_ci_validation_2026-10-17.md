@@ -1,7 +1,7 @@
 # T14 CI closure validation — 2026-10-17
 
 This sibling note records CI maintenance under the
-[T14 closure spec](specs/t14_close_campaign_spec_2026-10-17.md). No research run,
+[T14 closure spec (consolidated)](history/m3-m7-redesign.md). No research run,
 serving timing qualification, or promotion was performed.
 
 ## Source provenance
