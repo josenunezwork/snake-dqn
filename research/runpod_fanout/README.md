@@ -7,4 +7,4 @@
 ## Key Files & Results
 
 - **Package entrypoints / artifacts:** [`runner.py`](runner.py), [`episode.py`](episode.py), [`jobspec.py`](jobspec.py), [`ledger.py`](ledger.py), [`fanout_policy.json`](fanout_policy.json)
-- **Related docs / results:** [`docs/research/catalog/compute_era_packages.md`](../../docs/research/catalog/compute_era_packages.md)
+- **Related docs / results:** [`docs/research/history/colab-ops.md`](../../docs/research/history/colab-ops.md)
