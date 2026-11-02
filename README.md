@@ -22,8 +22,8 @@ thresholds, and standing operating rules.
   visibly labelled **"Recorded assisted hero"** (`SNAKE_WATCH_SOURCE=replay`,
   `SNAKE_WATCH_REPLAY_DIR`, and `SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l2-prime`
   in `.claude/launch.json`). The `168`-session mixed bank (`watch-replay-bank-live-168`,
-  adding `36` `exact-stop-l1` sessions from `14l1–16l1`) remains on disk pending
-  ratified `Watch6-L1-V1` `H = 14,400` confirmation ([`research/watch6_l1_confirm/REGISTRATION_L1_V1.md`](research/watch6_l1_confirm/REGISTRATION_L1_V1.md)). Live bare `b8-s3` is the automatic fallback during cold
+  adding `36` `exact-stop-l1` sessions from `14l1–16l1`) remains on disk while
+  ratified `Watch6-L1-V1` `H = 14,400` confirmation runs (`l1v1-main-01`, `18` shards across `6/6` Colab slots; [`research/watch6_l1_confirm/REGISTRATION_L1_V1.md`](research/watch6_l1_confirm/REGISTRATION_L1_V1.md)). Live bare `b8-s3` is the automatic fallback during cold
   prefetch or if the bank is unset, empty, or invalid.
 - **Play (and live Watch fallback):** runs **live bare B8 seed 3 (`b8-s3`), served
   without a veto** (checkpoint SHA prefix `3e649783`). In **Play**, `1` human steers
@@ -119,7 +119,7 @@ corrected claims, for example that CNNs were never trained in the older trials.
 |---|---|
 | Project & experiment map (start here) | [docs/INDEX.md](docs/INDEX.md) |
 | Current status & standing rules | [docs/STATUS.md](docs/STATUS.md) |
-| Research roadmap (Round-22 advice, not decisions) | [docs/research/ROADMAP.md](docs/research/ROADMAP.md) |
+| Research roadmap (Round-23 advice, not decisions) | [docs/research/ROADMAP.md](docs/research/ROADMAP.md) |
 | Documentation status guide | [docs/README.md](docs/README.md) |
 | `docs/` directory layout | [docs/MAP.md](docs/MAP.md) |
 | Cited project notes & glossary | [docs/notes/README.md](docs/notes/README.md) ([docs/notes/GLOSSARY.md](docs/notes/GLOSSARY.md); evaluation glossary: [docs/research/GLOSSARY.md](docs/research/GLOSSARY.md)) |
