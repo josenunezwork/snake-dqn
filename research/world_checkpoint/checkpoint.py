@@ -1,30 +1,278 @@
-"""Snapshot, restore, atomic persistence, and deterministic hashing for paired-world state."""
+"""Snapshot, restore, atomic persistence, identity binding, and hashing for paired-world state."""
 
 from __future__ import annotations
 
 import copy
 import hashlib
+import io
 import json
+import logging
 import os
 import pickle
+import platform
 import random
+import re
+import shutil
+import subprocess
+import sys
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-import numpy as np
-import torch
+THREAD_ENV_VARS: tuple[str, ...] = (
+    "OMP_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "OPENBLAS_NUM_THREADS",
+    "VECLIB_MAXIMUM_THREADS",
+    "NUMEXPR_NUM_THREADS",
+    "NUMBA_NUM_THREADS",
+)
 
-from research.t3_rollout_labels_20261015.trigger import DenseTrigger
-from src.game.snake_geometry import clear_geometry_cache
-from src.simd_env.grid_sim import FOOD_NONE, FOOD_OUTSIDE, GridBatchSim
-from src.simd_env.vector61_policy import (
+for _env_var in THREAD_ENV_VARS:
+    os.environ[_env_var] = "1"
+
+import numba  # noqa: E402
+import numpy as np  # noqa: E402
+import torch  # noqa: E402
+
+from research.t3_rollout_labels_20261015.trigger import DenseTrigger  # noqa: E402
+from src.game.snake_geometry import clear_geometry_cache  # noqa: E402
+from src.simd_env.grid_sim import FOOD_NONE, FOOD_OUTSIDE, GridBatchSim  # noqa: E402
+from src.simd_env.vector61_policy import (  # noqa: E402
     Vector61Runtime,
     Vector61SimdPolicy,
     live_veto_hook,
 )
-from tools.ops.package_spec import publish_immutable, verify_immutable
+from tools.ops.package_spec import digest, publish_immutable, verify_immutable  # noqa: E402
 
-WORLD_CHECKPOINT_SCHEMA = "watch6-world-checkpoint/v1"
+logger = logging.getLogger(__name__)
+
+WORLD_CHECKPOINT_SCHEMA = "watch6-world-checkpoint/v2"
+NDARRAY_ENCODING_SCHEMA = "ndarray-bytes/v1"
+TENSOR_ENCODING_SCHEMA = "tensor-bytes/v1"
+MASK_ENCODING_SCHEMA = "mask-value/v1"
+_CKPT_SEQ_RE = re.compile(r"ckpt-seq-(\d+)")
+
+
+def configure_cpu() -> None:
+    """Pin BLAS environment variables, PyTorch, and Numba to a single CPU thread."""
+    for var in THREAD_ENV_VARS:
+        os.environ[var] = "1"
+    torch.set_num_threads(1)
+    try:
+        torch.set_num_interop_threads(1)
+    except RuntimeError:
+        pass
+    try:
+        numba.set_num_threads(1)
+    except Exception:
+        pass
+
+
+# Enforce single-thread CPU determinism as soon as the library is imported.
+configure_cpu()
+
+
+class _PrimitiveUnpickler(pickle.Unpickler):
+    """Unpickler that refuses all external class/function globals for portable safety."""
+
+    _ALLOWED_BUILTINS = frozenset({"set", "frozenset"})
+
+    def find_class(self, module: str, name: str) -> Any:
+        if module == "builtins" and name in self._ALLOWED_BUILTINS:
+            return getattr(sys.modules["builtins"], name)
+        raise pickle.UnpicklingError(
+            f"forbidden class reference in checkpoint payload: {module}.{name}"
+        )
+
+
+def _encode_ndarray(arr: np.ndarray) -> dict[str, Any]:
+    contig = np.ascontiguousarray(arr)
+    return {
+        "__ndarray__": NDARRAY_ENCODING_SCHEMA,
+        "dtype": str(contig.dtype),
+        "shape": [int(d) for d in contig.shape],
+        "data": contig.tobytes(),
+    }
+
+
+def _decode_ndarray(data: Mapping[str, Any]) -> np.ndarray:
+    schema = data.get("__ndarray__")
+    if schema != NDARRAY_ENCODING_SCHEMA:
+        raise ValueError(f"unsupported ndarray encoding schema: {schema!r}")
+    dtype = np.dtype(str(data["dtype"]))
+    shape = tuple(int(d) for d in data["shape"])
+    return np.frombuffer(data["data"], dtype=dtype).reshape(shape).copy()
+
+
+def _encode_tree_for_storage(value: Any) -> Any:
+    """Recursively convert all numpy arrays and non-primitive objects to versioned primitives."""
+    if isinstance(value, np.ndarray):
+        return _encode_ndarray(value)
+    if isinstance(value, torch.Tensor):
+        return _snapshot_tensor(value)
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, dict):
+        return {_encode_tree_for_storage(k): _encode_tree_for_storage(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_encode_tree_for_storage(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(_encode_tree_for_storage(v) for v in value)
+    if isinstance(value, (set, frozenset)):
+        return {
+            "__set__": "frozenset" if isinstance(value, frozenset) else "set",
+            "items": [_encode_tree_for_storage(v) for v in sorted(value, key=repr)],
+        }
+    if hasattr(value, "__dict__"):
+        return _snapshot_counters_obj(value)
+    return value
+
+
+def _decode_tree_from_storage(value: Any) -> Any:
+    """Recursively reconstruct numpy arrays and sets from versioned primitive encodings."""
+    if isinstance(value, dict):
+        if "__ndarray__" in value:
+            return _decode_ndarray(value)
+        if "__set__" in value:
+            items = [_decode_tree_from_storage(v) for v in value["items"]]
+            return frozenset(items) if value["__set__"] == "frozenset" else set(items)
+        return {
+            _decode_tree_from_storage(k): _decode_tree_from_storage(v) for k, v in value.items()
+        }
+    if isinstance(value, list):
+        return [_decode_tree_from_storage(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(_decode_tree_from_storage(v) for v in value)
+    return value
+
+
+@lru_cache(maxsize=1)
+def _cpu_model_string() -> str:
+    if sys.platform == "darwin":
+        try:
+            out = subprocess.check_output(
+                ["sysctl", "-n", "machdep.cpu.brand_string"],
+                text=True,
+                timeout=5,
+            ).strip()
+            if out:
+                return out
+        except Exception:
+            pass
+    elif sys.platform.startswith("linux"):
+        try:
+            cpuinfo = Path("/proc/cpuinfo")
+            if cpuinfo.is_file():
+                for line in cpuinfo.read_text(encoding="utf-8", errors="replace").splitlines():
+                    if line.lower().startswith("model name"):
+                        _, _, val = line.partition(":")
+                        if val.strip():
+                            return val.strip()
+        except Exception:
+            pass
+    return platform.processor() or platform.machine()
+
+
+_FILE_DIGEST_CACHE: dict[tuple[str, int, int], str] = {}
+
+
+def _cached_file_digest(path: Path) -> str:
+    resolved = path.resolve()
+    st = resolved.stat()
+    key = (str(resolved), int(st.st_mtime_ns), int(st.st_size))
+    cached = _FILE_DIGEST_CACHE.get(key)
+    if cached is not None:
+        return cached
+    val = digest(resolved)
+    _FILE_DIGEST_CACHE[key] = val
+    return val
+
+
+def _resolve_model_sha256s() -> dict[str, str]:
+    from research.watch6_l1_confirm import protocol as p
+    from research.watch6_l1_confirm.run import DEFAULT_LOCAL_SAVED_DIR
+    from research.watch_replay.uploads import CHECKPOINTS
+
+    ckpt_dir_env = os.environ.get("SNAKE_CKPT_DIR")
+    if ckpt_dir_env:
+        saved_dir = Path(ckpt_dir_env)
+    elif DEFAULT_LOCAL_SAVED_DIR.is_dir():
+        saved_dir = DEFAULT_LOCAL_SAVED_DIR
+    else:
+        saved_dir = p.ROOT / "saved_snakes"
+
+    pins_path = p.ROOT / "web/backend/served_checkpoint_pins.json"
+    pins = json.loads(pins_path.read_text(encoding="utf-8"))
+    out: dict[str, str] = {}
+    for filename, (pin_name, _expected_size) in sorted(CHECKPOINTS.items()):
+        candidate = saved_dir / filename
+        if candidate.is_file() and not candidate.is_symlink():
+            out[pin_name] = _cached_file_digest(candidate)
+        else:
+            out[pin_name] = str(pins["checkpoints"][pin_name]["checkpoint_sha256"])
+    return out
+
+
+def _world_checkpoint_code_sha256() -> str:
+    pkg_dir = Path(__file__).resolve().parent
+    file_hashes: dict[str, str] = {}
+    for py_file in sorted(pkg_dir.glob("*.py")):
+        if py_file.is_file() and not py_file.is_symlink():
+            file_hashes[py_file.name] = _cached_file_digest(py_file)
+    encoded = json.dumps(file_hashes, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def capture_runtime_identity() -> dict[str, Any]:
+    """Capture model SHA-256s, science/package code digests, and host platform fingerprint."""
+    from research.watch6_l1_confirm import protocol as p
+
+    return {
+        "model_sha256s": _resolve_model_sha256s(),
+        "code_identity": {
+            "science_identity": p.compute_identity(),
+            "world_checkpoint_code_sha256": _world_checkpoint_code_sha256(),
+        },
+        "platform_fingerprint": {
+            "sys_platform": str(sys.platform),
+            "machine": str(platform.machine()),
+            "cpu_model": _cpu_model_string(),
+            "python_version": str(platform.python_version()),
+            "numpy_version": str(np.__version__),
+            "torch_version": str(torch.__version__),
+            "numba_version": str(numba.__version__),
+            "torch_num_threads": int(torch.get_num_threads()),
+            "numba_num_threads": int(numba.get_num_threads()),
+            "env_threads": {k: str(os.environ.get(k, "")) for k in THREAD_ENV_VARS},
+        },
+    }
+
+
+def verify_checkpoint_identity(
+    ckpt_data: Mapping[str, Any],
+    expected_identity: Mapping[str, Any] | None = None,
+) -> None:
+    """Refuse to resume if model SHA-256s, science/code identity, or host platform differ."""
+    saved_id = ckpt_data.get("identity")
+    if not isinstance(saved_id, Mapping):
+        raise ValueError("checkpoint is missing required 'identity' binding")
+    current_id = (
+        dict(expected_identity) if expected_identity is not None else capture_runtime_identity()
+    )
+
+    for section in ("model_sha256s", "code_identity", "platform_fingerprint"):
+        saved_sec = saved_id.get(section)
+        cur_sec = current_id.get(section)
+        if not isinstance(saved_sec, Mapping) or not isinstance(cur_sec, Mapping):
+            raise ValueError(f"checkpoint identity missing section {section!r}")
+        for key, expected_val in cur_sec.items():
+            actual_val = saved_sec.get(key)
+            if actual_val != expected_val:
+                raise ValueError(
+                    f"checkpoint identity mismatch in {section}.{key}: "
+                    f"saved={actual_val!r} != current={expected_val!r}"
+                )
 
 
 def _fsync_dir(directory: Path) -> None:
@@ -47,6 +295,7 @@ def _write_atomic_replace(path: Path, data: bytes) -> None:
     finally:
         os.close(fd)
     os.replace(tmp, path)
+    _fsync_dir(path.parent)
 
 
 def save_checkpoint(
@@ -56,10 +305,14 @@ def save_checkpoint(
     overwrite: bool = False,
 ) -> dict[str, Any]:
     """Atomically write checkpoint payload, ``.sha256`` sidecar, and ``.complete`` marker."""
+    configure_cpu()
     target = Path(path)
     payload = dict(state)
     payload.setdefault("checkpoint_schema", WORLD_CHECKPOINT_SCHEMA)
-    raw = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
+    if "identity" not in payload:
+        payload["identity"] = capture_runtime_identity()
+    encoded_payload = _encode_tree_for_storage(payload)
+    raw = pickle.dumps(encoded_payload, protocol=pickle.HIGHEST_PROTOCOL)
 
     if not overwrite:
         meta = publish_immutable(target, raw)
@@ -80,7 +333,6 @@ def save_checkpoint(
     _write_atomic_replace(target, raw)
     _write_atomic_replace(sha_path, f"{sha}  {target.name}\n".encode("utf-8"))
     _write_atomic_replace(complete_path, b"complete\n")
-    _fsync_dir(target.parent)
     return {
         "path": str(target),
         "sha256": sha,
@@ -108,36 +360,131 @@ def verify_checkpoint(path: str | Path) -> str:
     return str(meta["sha256"])
 
 
-def load_checkpoint(path: str | Path) -> dict[str, Any]:
-    """Verify ``.complete`` and ``.sha256`` sidecar, then load and validate checkpoint state."""
+def load_checkpoint(
+    path: str | Path,
+    *,
+    verify_identity: bool = True,
+    expected_identity: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Verify ``.complete``/``.sha256``, unpickle primitives only, and check identity."""
+    configure_cpu()
     target = Path(path)
     verify_checkpoint(target)
     raw = target.read_bytes()
-    data = pickle.loads(raw)
+    unpickled = _PrimitiveUnpickler(io.BytesIO(raw)).load()
+    data = _decode_tree_from_storage(unpickled)
     if not isinstance(data, dict):
         raise ValueError(f"checkpoint payload must be a dict: {target}")
     if data.get("checkpoint_schema") != WORLD_CHECKPOINT_SCHEMA:
         raise ValueError(
             f"unexpected checkpoint schema {data.get('checkpoint_schema')!r} in {target}"
         )
+    if verify_identity:
+        verify_checkpoint_identity(data, expected_identity=expected_identity)
     return data
 
 
-def find_latest_checkpoint(checkpoint_dir: str | Path) -> Path | None:
-    """Return the newest verified checkpoint in ``checkpoint_dir``, ignoring incomplete files."""
+def highest_checkpoint_seq_on_disk(*checkpoint_dirs: str | Path | None) -> int:
+    """Return the highest ``ckpt-seq-XXXXXX`` number on disk (complete, partial, or quarantined)."""
+    highest = 0
+    for d in checkpoint_dirs:
+        if d is None:
+            continue
+        root = Path(d)
+        if not root.is_dir():
+            continue
+        for entry in root.rglob("*"):
+            match = _CKPT_SEQ_RE.search(entry.name)
+            if match is not None:
+                highest = max(highest, int(match.group(1)))
+    return highest
+
+
+def quarantine_incomplete_checkpoints(checkpoint_dir: str | Path) -> list[Path]:
+    """Move leftover temp files and incomplete ``.ckpt``/``.sha256`` (no ``.complete``) aside."""
     root = Path(checkpoint_dir)
     if not root.is_dir():
-        return None
+        return []
+    quarantined: list[Path] = []
+    q_dir = root / ".quarantine"
+
+    def _move_to_quarantine(src: Path, reason: str) -> None:
+        q_dir.mkdir(parents=True, exist_ok=True)
+        dest = q_dir / f"{src.name}.quarantined-{os.getpid()}"
+        counter = 1
+        while dest.exists():
+            dest = q_dir / f"{src.name}.quarantined-{os.getpid()}-{counter}"
+            counter += 1
+        shutil.move(str(src), str(dest))
+        quarantined.append(dest)
+        logger.warning("Quarantined %s (%s) -> %s", src, reason, dest)
+
+    # 1. Leftover temp files from interrupted _publish or _write_atomic_replace
+    for entry in sorted(root.iterdir()):
+        if entry.is_file() and (entry.name.startswith(".r33-") or entry.name.startswith(".tmp-")):
+            _move_to_quarantine(entry, "leftover temp file")
+
+    # 2. Any .ckpt or .ckpt.sha256 without a corresponding .ckpt.complete
+    for ckpt_file in sorted(root.glob("*.ckpt")):
+        complete_file = Path(f"{ckpt_file}.complete")
+        sha_file = Path(f"{ckpt_file}.sha256")
+        if not complete_file.is_file():
+            _move_to_quarantine(ckpt_file, "missing .complete marker")
+            if sha_file.is_file():
+                _move_to_quarantine(sha_file, "orphan .sha256 without .complete")
+
+    for sha_file in sorted(root.glob("*.ckpt.sha256")):
+        base_ckpt = Path(str(sha_file)[: -len(".sha256")])
+        complete_file = Path(f"{base_ckpt}.complete")
+        if not complete_file.is_file():
+            _move_to_quarantine(sha_file, "orphan .sha256 without .complete")
+
+    if quarantined:
+        _fsync_dir(root)
+        _fsync_dir(q_dir)
+    return quarantined
+
+
+def find_latest_checkpoint(
+    checkpoint_dir: str | Path | None,
+    *,
+    extra_dirs: Sequence[str | Path] = (),
+    verify_identity: bool = True,
+) -> Path | None:
+    """Return the newest verified checkpoint across ``checkpoint_dir`` and ``extra_dirs``."""
+    search_dirs: list[Path] = []
+    if checkpoint_dir is not None:
+        search_dirs.append(Path(checkpoint_dir))
+    for d in extra_dirs:
+        p_dir = Path(d)
+        if p_dir not in search_dirs:
+            search_dirs.append(p_dir)
+
     candidates: list[tuple[int, str, Path]] = []
-    for complete_file in root.glob("*.ckpt.complete"):
-        ckpt_path = Path(str(complete_file)[: -len(".complete")])
-        try:
-            verify_checkpoint(ckpt_path)
-            data = load_checkpoint(ckpt_path)
-            seq = int(data.get("checkpoint_seq", 0))
-            candidates.append((seq, ckpt_path.name, ckpt_path))
-        except Exception:
+    for root in search_dirs:
+        if not root.is_dir():
             continue
+        for ckpt_file in sorted(root.glob("*.ckpt")):
+            complete_marker = Path(f"{ckpt_file}.complete")
+            if not complete_marker.is_file():
+                logger.warning(
+                    "Skipping incomplete checkpoint missing .complete marker: %s", ckpt_file
+                )
+        for complete_file in sorted(root.glob("*.ckpt.complete")):
+            ckpt_path = Path(str(complete_file)[: -len(".complete")])
+            try:
+                verify_checkpoint(ckpt_path)
+                data = load_checkpoint(ckpt_path, verify_identity=verify_identity)
+                seq = int(data.get("checkpoint_seq", 0))
+                candidates.append((seq, ckpt_path.name, ckpt_path))
+            except Exception as exc:
+                logger.warning(
+                    "Skipping invalid or corrupt checkpoint %s (%s); "
+                    "falling back to older verified checkpoint",
+                    ckpt_path,
+                    exc,
+                )
+                continue
     if not candidates:
         return None
     candidates.sort(key=lambda item: (item[0], item[1]))
@@ -148,7 +495,8 @@ def _snapshot_tensor(tensor: torch.Tensor | None) -> dict[str, Any] | None:
     if tensor is None:
         return None
     return {
-        "array": tensor.detach().cpu().numpy().copy(),
+        "__tensor__": TENSOR_ENCODING_SCHEMA,
+        "array": _encode_ndarray(tensor.detach().cpu().numpy()),
         "device": str(tensor.device),
     }
 
@@ -156,17 +504,85 @@ def _snapshot_tensor(tensor: torch.Tensor | None) -> dict[str, Any] | None:
 def _restore_tensor(data: Mapping[str, Any] | None) -> torch.Tensor | None:
     if data is None:
         return None
-    arr = np.asarray(data["array"]).copy()
+    arr_raw = data["array"]
+    arr = _decode_ndarray(arr_raw) if isinstance(arr_raw, Mapping) else np.asarray(arr_raw).copy()
     return torch.from_numpy(arr).to(str(data.get("device", "cpu")))
 
 
+def _snapshot_mask_value(val: Any) -> dict[str, Any] | None:
+    """Capture action mask preserving exact container type (Tensor, ndarray, tuple, or list)."""
+    if val is None:
+        return None
+    if isinstance(val, torch.Tensor):
+        return {
+            "__mask_schema__": MASK_ENCODING_SCHEMA,
+            "kind": "tensor",
+            "tensor": _snapshot_tensor(val),
+        }
+    if isinstance(val, np.ndarray):
+        return {
+            "__mask_schema__": MASK_ENCODING_SCHEMA,
+            "kind": "ndarray",
+            "array": _encode_ndarray(val),
+        }
+    if isinstance(val, tuple):
+        return {
+            "__mask_schema__": MASK_ENCODING_SCHEMA,
+            "kind": "tuple",
+            "items": [bool(x) for x in val],
+        }
+    return {
+        "__mask_schema__": MASK_ENCODING_SCHEMA,
+        "kind": "list",
+        "items": [bool(x) for x in val],
+    }
+
+
+def _restore_mask_value(data: Any) -> Any:
+    """Restore action mask to its exact original type (Tensor, ndarray, tuple, or list)."""
+    if data is None:
+        return None
+    if isinstance(data, Mapping) and data.get("__mask_schema__") == MASK_ENCODING_SCHEMA:
+        kind = data["kind"]
+        if kind == "tensor":
+            return _restore_tensor(data["tensor"])
+        if kind == "ndarray":
+            arr = data["array"]
+            return _decode_ndarray(arr) if isinstance(arr, Mapping) else np.asarray(arr).copy()
+        if kind == "tuple":
+            return tuple(bool(x) for x in data["items"])
+        return [bool(x) for x in data["items"]]
+    if isinstance(data, list):
+        return [bool(x) for x in data]
+    return data
+
+
 def _snapshot_counters_obj(obj: Any) -> dict[str, Any]:
-    return {k: copy.deepcopy(v) for k, v in obj.__dict__.items()}
+    """Recursively convert counter dataclasses into plain primitive dicts (zero live class refs)."""
+    out: dict[str, Any] = {}
+    for k, v in obj.__dict__.items():
+        if hasattr(v, "__dict__"):
+            out[str(k)] = _snapshot_counters_obj(v)
+        elif isinstance(v, np.ndarray):
+            out[str(k)] = _encode_ndarray(v)
+        elif isinstance(v, np.generic):
+            out[str(k)] = v.item()
+        elif isinstance(v, (int, float, str, bool)) or v is None:
+            out[str(k)] = v
+        else:
+            out[str(k)] = _encode_tree_for_storage(copy.deepcopy(v))
+    return out
 
 
 def _restore_counters_obj(obj: Any, data: Mapping[str, Any]) -> None:
     for k, v in data.items():
-        setattr(obj, k, copy.deepcopy(v))
+        existing = getattr(obj, k, None)
+        if isinstance(v, Mapping) and hasattr(existing, "__dict__"):
+            _restore_counters_obj(existing, v)
+        elif isinstance(v, Mapping) and "__ndarray__" in v:
+            setattr(obj, k, _decode_ndarray(v))
+        else:
+            setattr(obj, k, copy.deepcopy(v))
 
 
 def _snapshot_veto(veto: Any) -> dict[str, Any] | None:
@@ -178,6 +594,10 @@ def _snapshot_veto(veto: Any) -> dict[str, Any] | None:
     }
     if hasattr(veto, "v8"):
         snap["v8"] = _snapshot_counters_obj(veto.v8)
+    if hasattr(veto, "reference_lambda"):
+        snap["reference_lambda"] = (
+            None if veto.reference_lambda is None else float(veto.reference_lambda)
+        )
     if hasattr(veto, "v7"):
         v7 = veto.v7
         snap["v7"] = {
@@ -203,6 +623,10 @@ def _restore_veto(veto: Any, data: Mapping[str, Any] | None) -> None:
     _restore_counters_obj(veto.counters, data["counters"])
     if "v8" in data and hasattr(veto, "v8"):
         _restore_counters_obj(veto.v8, data["v8"])
+    if "reference_lambda" in data and hasattr(veto, "reference_lambda"):
+        veto.reference_lambda = (
+            None if data["reference_lambda"] is None else float(data["reference_lambda"])
+        )
     if "v7" in data and hasattr(veto, "v7"):
         _restore_counters_obj(veto.v7.counters, data["v7"]["counters"])
         _restore_counters_obj(veto.v7.v7, data["v7"]["v7"])
@@ -215,9 +639,18 @@ def _restore_veto(veto: Any, data: Mapping[str, Any] | None) -> None:
 
 def snapshot_rng_state(sim: GridBatchSim) -> dict[str, Any]:
     """Capture Python, NumPy, PyTorch, and per-env simulator RNG states."""
+    np_state = copy.deepcopy(np.random.get_state(legacy=False))
     return {
         "py_random": random.getstate(),
-        "np_random": copy.deepcopy(np.random.get_state(legacy=False)),
+        "np_random": {
+            "bit_generator": str(np_state["bit_generator"]),
+            "state": {
+                "key": np.asarray(np_state["state"]["key"], dtype=np.uint32).copy(),
+                "pos": int(np_state["state"]["pos"]),
+            },
+            "has_gauss": int(np_state["has_gauss"]),
+            "gauss": float(np_state["gauss"]),
+        },
         "torch_random": torch.get_rng_state().detach().cpu().numpy().copy(),
         "sim_rngs": [
             {
@@ -235,9 +668,33 @@ def snapshot_rng_state(sim: GridBatchSim) -> dict[str, Any]:
 def restore_rng_state(sim: GridBatchSim, data: Mapping[str, Any]) -> None:
     """Restore Python, NumPy, PyTorch, and per-env simulator RNG states."""
     random.setstate(data["py_random"])
-    np.random.set_state(copy.deepcopy(data["np_random"]))
-    torch_state = torch.from_numpy(np.asarray(data["torch_random"], dtype=np.uint8).copy())
-    torch.set_rng_state(torch_state)
+    np_data = copy.deepcopy(data["np_random"])
+    if isinstance(np_data, Mapping) and "state" in np_data:
+        key_val = np_data["state"]["key"]
+        if isinstance(key_val, Mapping) and "__ndarray__" in key_val:
+            key_arr = _decode_ndarray(key_val)
+        else:
+            key_arr = np.asarray(key_val, dtype=np.uint32).copy()
+        np_restored = {
+            "bit_generator": str(np_data["bit_generator"]),
+            "state": {
+                "key": key_arr,
+                "pos": int(np_data["state"]["pos"]),
+            },
+            "has_gauss": int(np_data["has_gauss"]),
+            "gauss": float(np_data["gauss"]),
+        }
+        np.random.set_state(np_restored)
+    else:
+        np.random.set_state(np_data)
+
+    torch_raw = data["torch_random"]
+    if isinstance(torch_raw, Mapping) and "__ndarray__" in torch_raw:
+        torch_arr = _decode_ndarray(torch_raw)
+    else:
+        torch_arr = np.asarray(torch_raw, dtype=np.uint8).copy()
+    torch.set_rng_state(torch.from_numpy(torch_arr))
+
     sim_rngs = data["sim_rngs"]
     if len(sim_rngs) != len(sim._rngs):
         raise ValueError(f"sim RNG count mismatch: {len(sim_rngs)} != {len(sim._rngs)}")
@@ -303,7 +760,14 @@ def snapshot_sim_state(sim: GridBatchSim) -> dict[str, Any]:
         "_last_death_cause": sim._last_death_cause.copy(),
         "_last_kills": sim._last_kills.copy(),
         "_last_kill_victim_len": [
-            [list(sim._last_kill_victim_len[e, s]) for s in range(S)] for e in range(E)
+            [
+                {
+                    "is_tuple": isinstance(sim._last_kill_victim_len[e, s], tuple),
+                    "items": [int(x) for x in sim._last_kill_victim_len[e, s]],
+                }
+                for s in range(S)
+            ]
+            for e in range(E)
         ],
     }
 
@@ -327,7 +791,10 @@ def restore_sim_state(sim: GridBatchSim, data: Mapping[str, Any]) -> None:
             n = int(sim.seg_count[e, s])
             hp = int(sim.head_ptr[e, s])
             rings = (hp - np.arange(n, dtype=np.int64)) % sim.cap
-            segs = np.asarray(active_segments[e][s], dtype=np.int64).reshape(n, 2)
+            raw_seg = active_segments[e][s]
+            if isinstance(raw_seg, Mapping) and "__ndarray__" in raw_seg:
+                raw_seg = _decode_ndarray(raw_seg)
+            segs = np.asarray(raw_seg, dtype=np.int64).reshape(n, 2)
             sim.bodies[e, s, rings] = segs
 
     sim.length[...] = data["length"]
@@ -361,7 +828,14 @@ def restore_sim_state(sim: GridBatchSim, data: Mapping[str, Any]) -> None:
     sim._last_kills[...] = data["_last_kills"]
     for e in range(E):
         for s in range(S):
-            sim._last_kill_victim_len[e, s] = list(data["_last_kill_victim_len"][e][s])
+            cell_entry = data["_last_kill_victim_len"][e][s]
+            if isinstance(cell_entry, Mapping):
+                items = [int(x) for x in cell_entry["items"]]
+                sim._last_kill_victim_len[e, s] = (
+                    tuple(items) if bool(cell_entry.get("is_tuple", False)) else items
+                )
+            else:
+                sim._last_kill_victim_len[e, s] = list(cell_entry)
 
     for attr in ("_policy_phase_prepared", "_policy_step_in_progress", "_active_env_mask"):
         if hasattr(sim, attr):
@@ -435,7 +909,12 @@ def _restore_last_veto(data: Mapping[str, Any] | None) -> dict[str, Any] | None:
         return None
     out: dict[str, Any] = {}
     for k, v in data.items():
-        out[str(k)] = v.copy() if isinstance(v, np.ndarray) else copy.deepcopy(v)
+        if isinstance(v, Mapping) and "__ndarray__" in v:
+            out[str(k)] = _decode_ndarray(v)
+        elif isinstance(v, np.ndarray):
+            out[str(k)] = v.copy()
+        else:
+            out[str(k)] = copy.deepcopy(v)
     return out
 
 
@@ -527,6 +1006,7 @@ def _snapshot_snake(snake: Any) -> dict[str, Any]:
         "boost_frames": int(snake.boost_frames),
         "last_move_positions": [(int(x), int(y)) for x, y in snake.last_move_positions],
         "pending_trail_pellets": [(int(x), int(y)) for x, y in snake.pending_trail_pellets],
+        "has_auto_respawn": hasattr(snake, "auto_respawn"),
         "auto_respawn": bool(getattr(snake, "auto_respawn", True)),
         "has_reward_prev_length": hasattr(snake, "_reward_prev_length"),
         "_reward_prev_length": int(getattr(snake, "_reward_prev_length", snake.length)),
@@ -549,29 +1029,14 @@ def _snapshot_snake(snake: Any) -> dict[str, Any]:
         "last_action": None if snake.last_action is None else int(snake.last_action),
         "last_reward": None if snake.last_reward is None else float(snake.last_reward),
         "last_next_state": _snapshot_tensor(snake.last_next_state),
-        "last_next_action_mask": (
-            None
-            if snake.last_next_action_mask is None
-            else [bool(x) for x in snake.last_next_action_mask]
-        ),
+        "last_next_action_mask": _snapshot_mask_value(snake.last_next_action_mask),
         "last_next_action_mask_semantics": snake.last_next_action_mask_semantics,
+        "has_next_action_mask_semantics": hasattr(snake, "next_action_mask_semantics"),
         "next_action_mask_semantics": getattr(snake, "next_action_mask_semantics", None),
-        "current_action_mask": (
-            None
-            if snake.current_action_mask is None
-            else [bool(x) for x in snake.current_action_mask]
-        ),
+        "current_action_mask": _snapshot_mask_value(snake.current_action_mask),
         "current_action_mask_semantics": snake.current_action_mask_semantics,
-        "current_legal_action_mask": (
-            None
-            if snake.current_legal_action_mask is None
-            else [bool(x) for x in snake.current_legal_action_mask]
-        ),
-        "current_advisory_action_mask": (
-            None
-            if snake.current_advisory_action_mask is None
-            else [bool(x) for x in snake.current_advisory_action_mask]
-        ),
+        "current_legal_action_mask": _snapshot_mask_value(snake.current_legal_action_mask),
+        "current_advisory_action_mask": _snapshot_mask_value(snake.current_advisory_action_mask),
         "last_done": bool(snake.last_done),
         "last_transition_frame": (
             None if snake.last_transition_frame is None else int(snake.last_transition_frame)
@@ -587,7 +1052,21 @@ def _snapshot_snake(snake: Any) -> dict[str, Any]:
         "danger_exploration_rate": (
             None if snake.danger_exploration_rate is None else float(snake.danger_exploration_rate)
         ),
-        "action_history": copy.deepcopy(snake.action_history),
+        "action_history": (
+            [
+                (
+                    (int(act), float(rew))
+                    if isinstance(item, (list, tuple)) and len(item) == 2
+                    else item
+                )
+                for item in snake.action_history
+                for act, rew in (
+                    [item] if isinstance(item, (list, tuple)) and len(item) == 2 else [(0, 0.0)]
+                )
+            ]
+            if all(isinstance(x, (list, tuple)) and len(x) == 2 for x in snake.action_history)
+            else copy.deepcopy(snake.action_history)
+        ),
         "max_action_history": int(snake.max_action_history),
         "last_q_values": (
             None if snake.last_q_values is None else [float(x) for x in snake.last_q_values]
@@ -602,7 +1081,9 @@ def _snapshot_snake(snake: Any) -> dict[str, Any]:
 
 def _restore_snake(snake: Any, data: Mapping[str, Any]) -> None:
     snake.id = int(data["id"])
-    snake.color = data["color"]
+    snake.color = (
+        tuple(data["color"]) if isinstance(data["color"], (list, tuple)) else data["color"]
+    )
     if data.get("color_name") is not None:
         snake.color_name = data["color_name"]
     snake.segments = [(int(x), int(y)) for x, y in data["segments"]]
@@ -621,7 +1102,11 @@ def _restore_snake(snake: Any, data: Mapping[str, Any]) -> None:
     snake.boost_frames = int(data["boost_frames"])
     snake.last_move_positions = [(int(x), int(y)) for x, y in data["last_move_positions"]]
     snake.pending_trail_pellets = [(int(x), int(y)) for x, y in data["pending_trail_pellets"]]
-    snake.auto_respawn = bool(data["auto_respawn"])
+
+    if data.get("has_auto_respawn", False):
+        snake.auto_respawn = bool(data["auto_respawn"])
+    elif hasattr(snake, "auto_respawn"):
+        delattr(snake, "auto_respawn")
 
     if data.get("has_reward_prev_length", True):
         snake._reward_prev_length = int(data["_reward_prev_length"])
@@ -660,30 +1145,16 @@ def _restore_snake(snake: Any, data: Mapping[str, Any]) -> None:
     snake.last_action = data["last_action"]
     snake.last_reward = None if data["last_reward"] is None else float(data["last_reward"])
     snake.last_next_state = _restore_tensor(data["last_next_state"])
-    snake.last_next_action_mask = (
-        None
-        if data["last_next_action_mask"] is None
-        else [bool(x) for x in data["last_next_action_mask"]]
-    )
+    snake.last_next_action_mask = _restore_mask_value(data["last_next_action_mask"])
     snake.last_next_action_mask_semantics = data["last_next_action_mask_semantics"]
-    if "next_action_mask_semantics" in data and data["next_action_mask_semantics"] is not None:
+    if data.get("has_next_action_mask_semantics", False):
         snake.next_action_mask_semantics = data["next_action_mask_semantics"]
-    snake.current_action_mask = (
-        None
-        if data["current_action_mask"] is None
-        else [bool(x) for x in data["current_action_mask"]]
-    )
+    elif hasattr(snake, "next_action_mask_semantics"):
+        delattr(snake, "next_action_mask_semantics")
+    snake.current_action_mask = _restore_mask_value(data["current_action_mask"])
     snake.current_action_mask_semantics = data["current_action_mask_semantics"]
-    snake.current_legal_action_mask = (
-        None
-        if data["current_legal_action_mask"] is None
-        else [bool(x) for x in data["current_legal_action_mask"]]
-    )
-    snake.current_advisory_action_mask = (
-        None
-        if data["current_advisory_action_mask"] is None
-        else [bool(x) for x in data["current_advisory_action_mask"]]
-    )
+    snake.current_legal_action_mask = _restore_mask_value(data["current_legal_action_mask"])
+    snake.current_advisory_action_mask = _restore_mask_value(data["current_advisory_action_mask"])
     snake.last_done = bool(data["last_done"])
     snake.last_transition_frame = (
         None if data["last_transition_frame"] is None else int(data["last_transition_frame"])
@@ -699,7 +1170,14 @@ def _restore_snake(snake: Any, data: Mapping[str, Any]) -> None:
     snake.danger_exploration_rate = (
         None if data["danger_exploration_rate"] is None else float(data["danger_exploration_rate"])
     )
-    snake.action_history = copy.deepcopy(data["action_history"])
+    snake.action_history = [
+        (
+            (int(item[0]), float(item[1]))
+            if isinstance(item, (list, tuple)) and len(item) == 2
+            else item
+        )
+        for item in data["action_history"]
+    ]
     snake.max_action_history = int(data["max_action_history"])
     snake.last_q_values = (
         None if data["last_q_values"] is None else [float(x) for x in data["last_q_values"]]
@@ -773,12 +1251,10 @@ def snapshot_live_session_state(live: Any) -> dict[str, Any]:
             "_game_height": int(game._game_height),
             "_effective_initial_food": int(game._effective_initial_food),
             "_effective_max_food": int(game._effective_max_food),
-            "frame_collisions": [
-                (int(a), None if b is None else int(b), str(c)) for a, b, c in game.frame_collisions
-            ],
+            "frame_collisions": {int(k): str(v) for k, v in game.frame_collisions.items()},
             "frame_kills": {int(k): [int(v) for v in vs] for k, vs in game.frame_kills.items()},
             "frame_death_causes": {int(k): str(v) for k, v in game.frame_death_causes.items()},
-            "frame_ate_food": sorted(int(x) for x in game.frame_ate_food),
+            "frame_ate_food": {int(k): bool(v) for k, v in game.frame_ate_food.items()},
             "episode_food_eaten": int(game.episode_food_eaten),
             "episode_deaths": int(game.episode_deaths),
             "episode_kills": int(game.episode_kills),
@@ -817,12 +1293,26 @@ def restore_live_session_state(live: Any, data: Mapping[str, Any]) -> None:
     policy = live.policy
     policy.total_reward = float(pol_data["total_reward"])
     policy._frame = pol_data["_frame"]
-    policy._q = None if pol_data["_q"] is None else np.asarray(pol_data["_q"]).copy()
-    policy._obs = (
-        None
-        if pol_data["_obs"] is None
-        else {str(k): np.asarray(v).copy() for k, v in pol_data["_obs"].items()}
-    )
+    raw_q = pol_data["_q"]
+    if raw_q is None:
+        policy._q = None
+    elif isinstance(raw_q, Mapping) and "__ndarray__" in raw_q:
+        policy._q = _decode_ndarray(raw_q)
+    else:
+        policy._q = np.asarray(raw_q).copy()
+
+    raw_obs = pol_data["_obs"]
+    if raw_obs is None:
+        policy._obs = None
+    else:
+        policy._obs = {
+            str(k): (
+                _decode_ndarray(v)
+                if isinstance(v, Mapping) and "__ndarray__" in v
+                else np.asarray(v).copy()
+            )
+            for k, v in raw_obs.items()
+        }
     policy._id_to_row = {int(k): int(v) for k, v in pol_data["_id_to_row"].items()}
     raw_disp = pol_data["_dispatch"]
     policy._dispatch = (
@@ -846,12 +1336,18 @@ def restore_live_session_state(live: Any, data: Mapping[str, Any]) -> None:
     game._game_height = int(gdata["_game_height"])
     game._effective_initial_food = int(gdata["_effective_initial_food"])
     game._effective_max_food = int(gdata["_effective_max_food"])
-    game.frame_collisions = [
-        (int(a), None if b is None else int(b), str(c)) for a, b, c in gdata["frame_collisions"]
-    ]
+    raw_collisions = gdata["frame_collisions"]
+    if not isinstance(raw_collisions, Mapping):
+        raise TypeError(
+            f"frame_collisions in checkpoint must be a dict, got {type(raw_collisions)!r}"
+        )
+    game.frame_collisions = {int(k): str(v) for k, v in raw_collisions.items()}
     game.frame_kills = {int(k): [int(v) for v in vs] for k, vs in gdata["frame_kills"].items()}
     game.frame_death_causes = {int(k): str(v) for k, v in gdata["frame_death_causes"].items()}
-    game.frame_ate_food = {int(x) for x in gdata["frame_ate_food"]}
+    raw_ate = gdata["frame_ate_food"]
+    if not isinstance(raw_ate, Mapping):
+        raise TypeError(f"frame_ate_food in checkpoint must be a dict, got {type(raw_ate)!r}")
+    game.frame_ate_food = {int(k): bool(v) for k, v in raw_ate.items()}
     game.episode_food_eaten = int(gdata["episode_food_eaten"])
     game.episode_deaths = int(gdata["episode_deaths"])
     game.episode_kills = int(gdata["episode_kills"])
@@ -884,6 +1380,73 @@ def restore_live_session_state(live: Any, data: Mapping[str, Any]) -> None:
             live.safety_veto.vetoes[int(snake.id)] = snake.safety_veto
 
     clear_geometry_cache()
+
+
+def verify_restored_types(session: Any, data: Mapping[str, Any] | None = None) -> None:
+    """Assert that restored live GameState, AISnake, and GridBatchSim fields keep exact types."""
+    game = session.live.game
+    sim = session.world.sim
+
+    if not isinstance(game.frame_collisions, dict) or any(
+        type(k) is not int or type(v) is not str for k, v in game.frame_collisions.items()
+    ):
+        raise TypeError(f"invalid game.frame_collisions type: {game.frame_collisions!r}")
+
+    if not isinstance(game.frame_ate_food, dict) or any(
+        type(k) is not int or type(v) is not bool for k, v in game.frame_ate_food.items()
+    ):
+        raise TypeError(f"invalid game.frame_ate_food type: {game.frame_ate_food!r}")
+
+    if not isinstance(game.frame_kills, dict) or not isinstance(game.frame_death_causes, dict):
+        raise TypeError("game.frame_kills and game.frame_death_causes must be dicts")
+
+    snakes_snap = (
+        data["live"]["game"]["snakes"] if isinstance(data, Mapping) and "live" in data else None
+    )
+    for idx, snake in enumerate(game.snakes):
+        if snake.last_next_action_mask is not None and not isinstance(
+            snake.last_next_action_mask, torch.Tensor
+        ):
+            raise TypeError(
+                f"snake[{idx}].last_next_action_mask must be Tensor or None, "
+                f"got {type(snake.last_next_action_mask)!r}"
+            )
+        if snake.last_state is not None and not isinstance(snake.last_state, torch.Tensor):
+            raise TypeError(
+                f"snake[{idx}].last_state must be Tensor or None, got {type(snake.last_state)!r}"
+            )
+        if snake.last_next_state is not None and not isinstance(
+            snake.last_next_state, torch.Tensor
+        ):
+            raise TypeError(
+                f"snake[{idx}].last_next_state must be Tensor or None, "
+                f"got {type(snake.last_next_state)!r}"
+            )
+        if snakes_snap is not None:
+            expected_has_auto = bool(snakes_snap[idx].get("has_auto_respawn", False))
+            if hasattr(snake, "auto_respawn") != expected_has_auto:
+                raise TypeError(
+                    f"snake[{idx}] auto_respawn attribute presence mismatch: "
+                    f"{hasattr(snake, 'auto_respawn')} != {expected_has_auto}"
+                )
+
+    sim_snap = data["sim"] if isinstance(data, Mapping) and "sim" in data else None
+    for e in range(int(sim.E)):
+        for s in range(int(sim.S)):
+            cell = sim._last_kill_victim_len[e, s]
+            if not isinstance(cell, (tuple, list)):
+                raise TypeError(
+                    f"sim._last_kill_victim_len[{e}, {s}] must be tuple or list, got {type(cell)!r}"
+                )
+            if sim_snap is not None:
+                entry = sim_snap["_last_kill_victim_len"][e][s]
+                if isinstance(entry, Mapping):
+                    expected_tuple = bool(entry.get("is_tuple", False))
+                    if isinstance(cell, tuple) != expected_tuple:
+                        raise TypeError(
+                            f"sim._last_kill_victim_len[{e}, {s}] tuple/list mismatch: "
+                            f"{type(cell)!r}"
+                        )
 
 
 def snapshot_run_session_state(session: Any) -> dict[str, Any]:
@@ -957,7 +1520,8 @@ def verify_session_parity(session: Any) -> None:
 
 
 def restore_run_session_state(session: Any, data: Mapping[str, Any]) -> None:
-    """Restore the complete RunSession and verify live/GridBatchSim parity."""
+    """Restore the complete RunSession and verify field types and live/GridBatchSim parity."""
+    configure_cpu()
     world = session.world
     restore_sim_state(world.sim, data["sim"])
     restore_runtime_state(world.runtime, data["runtime"])
@@ -993,6 +1557,7 @@ def restore_run_session_state(session: Any, data: Mapping[str, Any]) -> None:
     session.identity_status = copy.deepcopy(rs.get("identity_status", {}))
 
     restore_rng_state(world.sim, data["rng"])
+    verify_restored_types(session, data)
     verify_session_parity(session)
 
 
@@ -1030,6 +1595,12 @@ def _canonicalize_for_digest(value: Any) -> Any:
             "dtype": str(value.dtype),
             "shape": list(value.shape),
             "sha256": hashlib.sha256(np.ascontiguousarray(value).tobytes()).hexdigest(),
+        }
+    if isinstance(value, bytes):
+        return {
+            "__bytes__": True,
+            "len": len(value),
+            "sha256": hashlib.sha256(value).hexdigest(),
         }
     if isinstance(value, dict):
         return {

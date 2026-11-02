@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import faulthandler
 import json
 import os
 import signal
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
@@ -20,24 +22,31 @@ from research.watch6_l1_confirm.engine import (
     COLLAPSE_SHARE,
     ScientificFault,
 )
-from research.watch6_l1_confirm.run import DEFAULT_LOCAL_SAVED_DIR
+from research.watch6_l1_confirm.run import DEFAULT_LOCAL_SAVED_DIR, WATCHDOG_SECONDS
 from research.watch6_search_efficacy.engine import DenseTrigger, dense_batch, step_guard
 from research.watch6_search_efficacy.product import open_watch
 from research.world_checkpoint.checkpoint import (
     WORLD_CHECKPOINT_SCHEMA,
+    capture_runtime_identity,
+    configure_cpu,
     find_latest_checkpoint,
+    highest_checkpoint_seq_on_disk,
     load_checkpoint,
+    quarantine_incomplete_checkpoints,
     restore_run_session_state,
     restore_trigger_state,
     save_checkpoint,
     snapshot_run_session_state,
     snapshot_trigger_state,
     state_digest,
+    verify_checkpoint_identity,
     verify_session_parity,
 )
 from src.simd_env.batch_sim import CARDINAL
 from src.simd_env.grid_scenarios import inject_serpentines
 from tools.ops.package_spec import digest
+
+configure_cpu()
 
 DEFAULT_CHECKPOINT_INTERVAL = 1800
 GRACE_SECONDS = 15.0
@@ -67,6 +76,24 @@ class CheckpointInterrupted(RuntimeError):
 
 class _SignalAbortSearch(Exception):
     """Internal exception raised inside step_guard when a signal interrupts dense_batch."""
+
+
+def _compute_session_roster(session: Any) -> dict[str, Any]:
+    """Compute the authoritative model/mechanics roster from a live Watch6 session."""
+    from research.t15_mixed_roster_20261017.episodes import roster_identity
+    from src.core.game_config import GameConfig
+
+    live_roster = roster_identity(session.live)
+    return {
+        "hero_checkpoint_sha256": digest(Path(session.live.served_checkpoint["path"])),
+        "opponent_checkpoint_sha256": digest(Path(session.live.watch_opponent_checkpoint["path"])),
+        "opponent_count": 5,
+        "veto_variant": "v8",
+        "veto_lambda": 8.0,
+        "mechanics_version": int(GameConfig.MECHANICS_VERSION),
+        "num_snakes": int(GameConfig.NUM_SNAKES),
+        "live_roster": live_roster,
+    }
 
 
 def _pack_arm_counters(
@@ -161,10 +188,20 @@ def _will_trigger_fire_this_frame(
     alive: bool,
     length: int,
     decisions: int,
+    *,
+    min_length: int | None = None,
+    was_alive: bool = True,
 ) -> bool:
-    """Predict without side effects whether DenseTrigger could fire on the upcoming frame."""
-    if trigger is None or not alive:
+    """Predict without side effects whether DenseTrigger could fire on the upcoming frame.
+
+    Includes respawn-eligible frames (``not was_alive`` or ``not alive`` or ``trigger is None``)
+    because ``step_with_policy`` respawns dead snakes before calling ``choose``, which creates
+    a fresh ``DenseTrigger`` whose ``first_decision`` is ``None``.
+    """
+    if min_length is not None and not isinstance(min_length, int):
         return False
+    if not was_alive or not alive or trigger is None:
+        return isinstance(min_length, int) or trigger is not None
     if int(length) < int(trigger.min_length):
         return False
     if trigger.first_decision is None:
@@ -191,6 +228,7 @@ def _build_world_checkpoint_payload(
         "checkpoint_schema": WORLD_CHECKPOINT_SCHEMA,
         "checkpoint_seq": int(checkpoint_seq),
         "world_schema": WORLD_UNIT_SCHEMA,
+        "identity": capture_runtime_identity(),
         "index": int(index),
         "seed": int(seed),
         "horizon": int(horizon),
@@ -214,6 +252,7 @@ def _validate_checkpoint_matches_world(
     arm_order: Sequence[str],
     fixture: bool,
 ) -> None:
+    verify_checkpoint_identity(ckpt)
     expected = {
         "world_schema": WORLD_UNIT_SCHEMA,
         "index": int(index),
@@ -237,48 +276,39 @@ def run_paired_world_resumable(
     horizon: int = p.HORIZON,
     fixture: bool = False,
     checkpoint_dir: str | Path | None = None,
+    resume_checkpoint_dirs: Sequence[str | Path] | None = None,
     checkpoint_interval: int = DEFAULT_CHECKPOINT_INTERVAL,
     install_signal_handlers: bool = True,
+    watchdog_seconds: int | None = WATCHDOG_SECONDS,
     on_progress: Callable[[str, int], None] | None = None,
     on_frame_digest: Callable[[str, int, str], None] | None = None,
     stop_at: Callable[[str, int], bool] | tuple[str, int] | None = None,
     signal_on_search: tuple[str, int, int] | None = None,
+    initial_session_hook: Callable[[Any, str], None] | None = None,
 ) -> dict[str, Any]:
-    """Run a Watch6-L1-V1 paired world with periodic/signal checkpoints and verified resume.
-
-    Args:
-        index: World index (1..N for production, negative for fixtures).
-        seed: Paired world integer seed.
-        arm_order: Permutation of ``('bare', 'l2_prime', 'l1')``.
-        check: External timeout/cap check callable.
-        horizon: Frames per arm (1..14,400).
-        fixture: Whether this world is a fixture world.
-        checkpoint_dir: Directory for atomic checkpoint files
-            (``.ckpt``, ``.sha256``, ``.complete``).
-        checkpoint_interval: Save a checkpoint every N frames within each arm (default 1,800).
-        install_signal_handlers: Trap ``SIGUSR1`` and ``SIGTERM`` to checkpoint and exit within 15s.
-        on_progress: Optional callback ``(arm, frame_index)``.
-        on_frame_digest: Optional callback ``(arm, frame_index, state_sha256)`` after each frame.
-        stop_at: Optional ``(arm, frame_index)`` tuple or predicate to checkpoint and stop cleanly.
-        signal_on_search: Optional ``(arm, decision_or_frame, signum)`` test hook to send a signal
-            right inside ``dense_batch`` via ``step_guard``.
-    """
+    """Run a Watch6-L1-V1 paired world with periodic/signal checkpoints and verified resume."""
+    configure_cpu()
+    os.environ.setdefault("SNAKE_WATCH_SOURCE", "live")
     if check is None:
         check = lambda: None  # noqa: E731
-    if not fixture and (type(index) is not int or not 1 <= index <= p.N_MAX):
-        raise ValueError(f"production world index must be in 1..{p.N_MAX}, got {index!r}")
+    if not fixture and (type(index) is not int or not 1 <= index <= p.COUNT):
+        raise ValueError(f"production world index must be in 1..{p.COUNT}, got {index!r}")
     if type(horizon) is not int or not 1 <= horizon <= p.HORIZON:
         raise ValueError(f"horizon must be an int in 1..{p.HORIZON}, got {horizon!r}")
     if type(checkpoint_interval) is not int or checkpoint_interval < 1:
         raise ValueError(f"checkpoint_interval must be a positive int, got {checkpoint_interval!r}")
 
     order = tuple(str(arm) for arm in arm_order)
-    if sorted(order) != sorted(p.ARMS) or len(order) != 3:
+    if not order or any(arm not in p.ARM_SPECS for arm in order) or len(set(order)) != len(order):
+        raise ValueError(f"arm_order must be distinct arms from {p.ARMS}, got {arm_order!r}")
+    if not fixture and (sorted(order) != sorted(p.ARMS) or len(order) != 3):
         raise ValueError(f"arm_order must be a permutation of {p.ARMS}, got {arm_order!r}")
 
     ckpt_root = None if checkpoint_dir is None else Path(checkpoint_dir)
+    extra_resume_dirs = [Path(d) for d in (resume_checkpoint_dirs or ())]
     if ckpt_root is not None:
         ckpt_root.mkdir(parents=True, exist_ok=True)
+        quarantine_incomplete_checkpoints(ckpt_root)
 
     stop_predicate: Callable[[str, int], bool] | None = None
     if isinstance(stop_at, tuple):
@@ -287,17 +317,21 @@ def run_paired_world_resumable(
     elif callable(stop_at):
         stop_predicate = stop_at
 
-    # Attempt to resume from the newest verified checkpoint if present.
+    # Attempt to resume from the newest verified checkpoint across ckpt_root and extra_resume_dirs.
     completed_arms: dict[str, dict[str, Any]] = {}
     rosters: list[dict[str, Any]] = []
     elapsed_seconds_accum = 0.0
-    checkpoint_seq = 0
+    checkpoint_seq = highest_checkpoint_seq_on_disk(ckpt_root, *extra_resume_dirs)
     resumed_in_progress: dict[str, Any] | None = None
 
-    if ckpt_root is not None:
-        latest_path = find_latest_checkpoint(ckpt_root)
+    if ckpt_root is not None or extra_resume_dirs:
+        latest_path = find_latest_checkpoint(
+            ckpt_root,
+            extra_dirs=extra_resume_dirs,
+            verify_identity=False,
+        )
         if latest_path is not None:
-            ckpt_data = load_checkpoint(latest_path)
+            ckpt_data = load_checkpoint(latest_path, verify_identity=True)
             _validate_checkpoint_matches_world(
                 ckpt_data,
                 index=index,
@@ -309,7 +343,7 @@ def run_paired_world_resumable(
             completed_arms = {str(k): dict(v) for k, v in ckpt_data["completed_arms"].items()}
             rosters = [dict(r) for r in ckpt_data["rosters"]]
             elapsed_seconds_accum = float(ckpt_data.get("elapsed_seconds_accum", 0.0))
-            checkpoint_seq = int(ckpt_data.get("checkpoint_seq", 0))
+            checkpoint_seq = max(checkpoint_seq, int(ckpt_data.get("checkpoint_seq", 0)))
             if ckpt_data.get("in_progress_arm") is not None:
                 resumed_in_progress = dict(ckpt_data["in_progress_arm"])
 
@@ -318,13 +352,16 @@ def run_paired_world_resumable(
         "received_at": None,
     }
     previous_handlers: dict[int, Any] = {}
+    can_install_signals = (
+        bool(install_signal_handlers) and threading.current_thread() is threading.main_thread()
+    )
 
     def _on_signal(signum: int, _frame: Any) -> None:
         if signal_state["signum"] is None:
             signal_state["signum"] = int(signum)
             signal_state["received_at"] = time.monotonic()
 
-    if install_signal_handlers:
+    if can_install_signals:
         for sig in (signal.SIGUSR1, signal.SIGTERM):
             previous_handlers[sig] = signal.getsignal(sig)
             signal.signal(sig, _on_signal)
@@ -339,7 +376,7 @@ def run_paired_world_resumable(
         nonlocal checkpoint_seq
         if ckpt_root is None:
             return None
-        checkpoint_seq += 1
+        checkpoint_seq = max(checkpoint_seq, highest_checkpoint_seq_on_disk(ckpt_root)) + 1
         arm_tag = current_arm if current_arm is not None else "boundary"
         ckpt_name = f"ckpt-seq-{checkpoint_seq:06d}-arm-{arm_tag}-frame-{current_frame:05d}.ckpt"
         ckpt_path = ckpt_root / ckpt_name
@@ -362,16 +399,25 @@ def run_paired_world_resumable(
 
     from research.bl_served_search.ceiling import _legal
     from research.t3_rollout_labels_20261015.bank_engine import prepared_q
-    from research.t15_mixed_roster_20261017.episodes import _assert_mixed, roster_identity
-    from src.core.game_config import GameConfig
+    from research.t15_mixed_roster_20261017.episodes import _assert_mixed
     from src.simd_env.ego_raster import EgoRasterConfig, build_ego_raster
     from src.simd_env.eval_engine import _dispatch_actions
 
+    use_watchdog = watchdog_seconds is not None and int(watchdog_seconds) > 0
+    if use_watchdog:
+        faulthandler.dump_traceback_later(int(watchdog_seconds), exit=True)
+    last_watchdog = time.monotonic()
+
     run_started_mono = time.monotonic()
+    verified_fresh_roster_once = False
     try:
         for arm in order:
             if arm in completed_arms:
                 continue
+
+            if use_watchdog:
+                faulthandler.dump_traceback_later(int(watchdog_seconds), exit=True)
+                last_watchdog = time.monotonic()
 
             spec = p.ARM_SPECS[arm]
             min_length = spec["min_length"]
@@ -391,15 +437,28 @@ def run_paired_world_resumable(
                     raise ScientificFault("Watch6-L1-V1 refuses Path B assistance")
                 _assert_mixed(session.live, 6)
 
+                # Always recompute roster from loaded models and verify against checkpoint.
+                fresh_roster = _compute_session_roster(session)
+                if any(r != fresh_roster for r in rosters):
+                    raise ValueError(
+                        "checkpoint completed-arm roster does not match newly loaded model roster"
+                    )
+                verified_fresh_roster_once = True
+
                 if resumed_in_progress is not None and resumed_in_progress.get("arm") == arm:
                     arm_counters = dict(resumed_in_progress["counters"])
+                    saved_roster = dict(arm_counters["roster"])
+                    if saved_roster != fresh_roster:
+                        raise ValueError(
+                            "checkpoint in-progress roster does not match newly loaded model roster"
+                        )
                     restore_run_session_state(session, resumed_in_progress["session"])
                     start_frame = int(arm_counters["frame_index"]) + 1
                     trigger = restore_trigger_state(arm_counters["trigger"])
                     was_alive = bool(arm_counters["was_alive"])
                     previous_alive = [bool(x) for x in arm_counters["previous_alive"]]
                     respawns = [int(x) for x in arm_counters["respawns"]]
-                    roster = dict(arm_counters["roster"])
+                    roster = fresh_roster
                     decisions = int(arm_counters["decisions"])
                     boost = int(arm_counters["boost"])
                     deaths = int(arm_counters["deaths"])
@@ -431,22 +490,10 @@ def run_paired_world_resumable(
                     death_lengths = [int(x) for x in arm_counters["death_lengths"]]
                     resumed_in_progress = None
                 else:
+                    if initial_session_hook is not None:
+                        initial_session_hook(session, arm)
                     start_frame = 1
-                    live_roster = roster_identity(session.live)
-                    roster = {
-                        "hero_checkpoint_sha256": digest(
-                            Path(session.live.served_checkpoint["path"])
-                        ),
-                        "opponent_checkpoint_sha256": digest(
-                            Path(session.live.watch_opponent_checkpoint["path"])
-                        ),
-                        "opponent_count": 5,
-                        "veto_variant": "v8",
-                        "veto_lambda": 8.0,
-                        "mechanics_version": int(GameConfig.MECHANICS_VERSION),
-                        "num_snakes": int(GameConfig.NUM_SNAKES),
-                        "live_roster": live_roster,
-                    }
+                    roster = fresh_roster
                     trigger = (
                         DenseTrigger(min_length=int(min_length), interval=interval)
                         if isinstance(min_length, int)
@@ -539,7 +586,12 @@ def run_paired_world_resumable(
                 search_signal_sent = False
 
                 def _guarded_check() -> None:
-                    nonlocal search_signal_sent
+                    nonlocal search_signal_sent, last_watchdog
+                    if use_watchdog:
+                        now_mono = time.monotonic()
+                        if now_mono - last_watchdog >= 60.0:
+                            faulthandler.dump_traceback_later(int(watchdog_seconds), exit=True)
+                            last_watchdog = now_mono
                     check()
                     if (
                         in_search_branch
@@ -558,7 +610,7 @@ def run_paired_world_resumable(
                         current_frame_index = frame_index
                         frame_started = time.monotonic()
                         step_search = 0.0
-                        check()
+                        _guarded_check()
 
                         if signal_state["signum"] is not None:
                             sig_num = int(signal_state["signum"])
@@ -580,7 +632,8 @@ def run_paired_world_resumable(
                         if on_progress is not None:
                             on_progress(arm, frame_index)
 
-                        # Snapshot before search-eligible frames so if SIGUSR1/SIGTERM
+                        # Snapshot before search-eligible frames (including respawn frames
+                        # where choose() creates a fresh DenseTrigger) so if SIGUSR1/SIGTERM
                         # interrupts dense_batch mid-search, we can roll back to frame_index - 1
                         # and write a verified checkpoint in milliseconds.
                         pre_search_snapshot: dict[str, Any] | None = None
@@ -589,6 +642,8 @@ def run_paired_world_resumable(
                             bool(world.sim.alive[0, 0]),
                             int(world.sim.length[0, 0]),
                             decisions,
+                            min_length=min_length,
+                            was_alive=was_alive,
                         ):
                             pre_search_snapshot = _current_in_progress_dict(frame_index - 1)
 
@@ -980,6 +1035,17 @@ def run_paired_world_resumable(
                     reason="stop_at_boundary",
                 )
 
+        if not verified_fresh_roster_once and rosters:
+            session = open_watch({"seed": int(seed)}, 24, "bare")
+            try:
+                fresh_roster = _compute_session_roster(session)
+            finally:
+                session.close()
+            if any(r != fresh_roster for r in rosters):
+                raise ValueError(
+                    "checkpoint completed-arm roster does not match newly loaded model roster"
+                )
+
         if any(r != rosters[0] for r in rosters[1:]):
             raise ScientificFault("arm roster identity mismatch within paired world")
 
@@ -996,11 +1062,13 @@ def run_paired_world_resumable(
             "record_mode": None,
             "arm_order": list(order),
             "roster": rosters[0],
-            "arms": {arm: completed_arms[arm] for arm in p.ARMS},
+            "arms": {arm: completed_arms[arm] for arm in p.ARMS if arm in completed_arms},
             "elapsed_seconds": total_elapsed,
         }
     finally:
-        if install_signal_handlers:
+        if use_watchdog:
+            faulthandler.cancel_dump_traceback_later()
+        if can_install_signals:
             for sig, handler in previous_handlers.items():
                 signal.signal(sig, handler)
 
@@ -1058,6 +1126,7 @@ def measure_checkpoint_scaling(
     repeats: int = 5,
 ) -> list[dict[str, Any]]:
     """Measure checkpoint size and save/load timings across snake body lengths on the Mac."""
+    configure_cpu()
     results: list[dict[str, Any]] = []
     with tempfile.TemporaryDirectory(prefix="world-ckpt-bench-") as tmp_dir:
         tmp_root = Path(tmp_dir)
@@ -1085,7 +1154,7 @@ def measure_checkpoint_scaling(
                     was_alive=True,
                     previous_alive=[True] * 6,
                     respawns=[0] * 6,
-                    roster={"hero": "b8-s3", "opponent": "frp3-s12"},
+                    roster=_compute_session_roster(session),
                     decisions=int(steps_after_inject),
                     boost=0,
                     deaths=0,
@@ -1180,18 +1249,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--fixture", action="store_true")
     parser.add_argument("--arm-order", default="bare,l2_prime,l1")
     parser.add_argument("--checkpoint-dir", required=True)
+    parser.add_argument("--input-checkpoint-dir", default=None)
     parser.add_argument("--checkpoint-interval", type=int, default=DEFAULT_CHECKPOINT_INTERVAL)
     parser.add_argument("--output", required=True)
     parser.add_argument("--saved-dir", default=str(DEFAULT_LOCAL_SAVED_DIR))
     args = parser.parse_args(argv)
-
-    from research.t1_commitment_20261015.replay import configure_cpu
 
     configure_cpu()
     if "SNAKE_CKPT_DIR" not in os.environ and Path(args.saved_dir).is_dir():
         os.environ["SNAKE_CKPT_DIR"] = str(args.saved_dir)
     os.environ.setdefault("SNAKE_WATCH_SOURCE", "live")
     arm_order = [a.strip() for a in str(args.arm_order).split(",") if a.strip()]
+    resume_dirs = [Path(args.input_checkpoint_dir)] if args.input_checkpoint_dir else []
 
     try:
         result = run_paired_world_resumable(
@@ -1201,6 +1270,7 @@ def main(argv: list[str] | None = None) -> int:
             horizon=int(args.horizon),
             fixture=bool(args.fixture),
             checkpoint_dir=Path(args.checkpoint_dir),
+            resume_checkpoint_dirs=resume_dirs,
             checkpoint_interval=int(args.checkpoint_interval),
         )
     except CheckpointInterrupted as exc:
