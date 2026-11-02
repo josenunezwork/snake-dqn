@@ -222,7 +222,7 @@ screen or diagnostic is never promotion evidence.
 | Date | File | Type | One line | Status |
 |---|---|---|---|---|
 | through 2026-10-08 | [GLOSSARY.md](GLOSSARY.md) | reference | Research glossary (supplemented by [../notes/GLOSSARY.md](../notes/GLOSSARY.md)) | Not updated after 2026-10-08 |
-| 2026-11-01 | [ROADMAP.md](ROADMAP.md) | plan | Round-20 synthesized current-round and later-round research roadmap | Advice only, not ratified decisions |
+| 2026-11-01 | [ROADMAP.md](ROADMAP.md) | plan | Round-22 synthesized current-round and later-round research roadmap | Advice only, not ratified decisions |
 | 2026-11-01 | [INDEX.md](INDEX.md) | reference | This index | Current |
 
 ---
