@@ -8,11 +8,11 @@ There are distinct failure classes, with different remedies:
 
 | Evidence | Classification | Consequence |
 |---|---|---|
-| [Width/breadth screen (consolidated)](../research/history/apex-small-task.md): fresh food learning, failed factor contrasts and historical retention | Valid negative scientific result within the fixed design | Do not scale this recipe on the assumption that width or breadth already helped. |
-| [H256 endpoint screen (consolidated)](../research/history/apex-small-task.md): no endpoint passed the full package | Valid descriptive result on an adaptive bank | Useful limit on existing models; not fresh-world replication. |
-| [Horizon continuation (consolidated)](../research/history/apex-small-task.md): all six endpoints missed existing-bank survival; proposed held bank had 48 old geometries | Behavioral failure plus separate admission failure | Preserve existing-bank conclusions; fresh comparison remains untested. |
-| [Space ranking (consolidated)](../research/history/apex-small-task.md): missing initial `food`, lost in-memory descriptor prefix | Schema and recoverability failure before numerical work | Auxiliary-loss effects remain unknown. |
-| [Native counterfactual (consolidated)](../research/history/apex-small-task.md): duplicate `path` argument in audit heartbeat call | Checker implementation failure | Native outputs remain provisional; administrative reconciliation cannot validate them. |
+| [Width/breadth screen](../experiments/apex_scaling_width_breadth_2026-09-23/README.md): fresh food learning, failed factor contrasts and historical retention | Valid negative scientific result within the fixed design | Do not scale this recipe on the assumption that width or breadth already helped. |
+| [H256 endpoint screen](../experiments/apex_scaling_h256_2026-09-24/README.md): no endpoint passed the full package | Valid descriptive result on an adaptive bank | Useful limit on existing models; not fresh-world replication. |
+| [Horizon continuation](../experiments/apex_horizon_continuation_2026-09-23/README.md): all six endpoints missed existing-bank survival; proposed held bank had 48 old geometries | Behavioral failure plus separate admission failure | Preserve existing-bank conclusions; fresh comparison remains untested. |
+| [Space ranking](../experiments/apex_space_ranking_2026-09-23/README.md): missing initial `food`, lost in-memory descriptor prefix | Schema and recoverability failure before numerical work | Auxiliary-loss effects remain unknown. |
+| [Native counterfactual](../experiments/apex_native_pretrap_counterfactual_2026-09-23/README.md): duplicate `path` argument in audit heartbeat call | Checker implementation failure | Native outputs remain provisional; administrative reconciliation cannot validate them. |
 
 These do not collectively establish that “RL does not work.” Process failures do not erase valid behavioral failures. Engineering problems recur, but their share of total effort is unknown. Guarded times exclude planning, review, orchestration, and writing; they cannot establish that administration consumed most resources.
 
