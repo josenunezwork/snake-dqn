@@ -8,10 +8,10 @@ frozen qualification of a *receding* teacher only. It does not admit new data,
 replace labels, train a learner, show a learned-policy gain, or reopen the
 rejected 256-world expansion.
 
-This study follows the [world-expansion rejection](../controlled_encounter_world_expansion_2026-09-21/README.md) and the
-[expansion-alias probe](../controlled_encounter_expansion_alias_2026-09-21/README.md),
+This study follows the [world-expansion rejection](../../research/history/controlled-encounter.md) and the
+[expansion-alias probe](../../research/history/controlled-encounter.md),
 which supplied the prior same-input/future-RNG evidence. The completed
-[world-breadth learning comparison](../controlled_encounter_world_breadth_learning_2026-09-21/README.md)
+[world-breadth learning comparison](../../research/history/controlled-encounter.md)
 remains the source of the previous learning curves and native policy paths.
 
 ## What the target requires

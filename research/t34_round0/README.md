@@ -1,10 +1,10 @@
 # T34 Round 0 preparation and operator runbook
 
-Latest implementation evidence: [VERIFICATION_FIXES2.md](VERIFICATION_FIXES2.md).
+Latest implementation evidence: [docs/research/history/t34-round0.md](../../docs/research/history/t34-round0.md).
 Latest rules: [FIX-FIRST #1 erratum](ERRATUM_FIXES1.md) and
 [preregistration supplement](PREREGISTRATION_ROUND0_FIXES1.md), corrected by
 [FIX-FIRST #2](../../docs/research/specs/2026-10-20_t34_round0_fixes2.md).
-Historical implementation evidence: [VERIFICATION_INTEGRITY_SIZING.md](VERIFICATION_INTEGRITY_SIZING.md).
+Historical implementation evidence: [docs/research/history/t34-round0.md](../../docs/research/history/t34-round0.md).
 
 Status: **DRAFT_PENDING_OPERATOR_RATIFICATION**. This is a 240-pair development
 premise test against bare B8 s3, not a release. The original
