@@ -6,5 +6,5 @@
 
 ## Key Files & Results
 
-- **Package entrypoints / artifacts:** [`PROTOCOL.md`](PROTOCOL.md), [`HANDOFF.md`](HANDOFF.md), [`PREPARED.json`](PREPARED.json), [`benchmark.py`](benchmark.py), [`runtime.py`](runtime.py), [`analyze.py`](analyze.py)
+- **Package entrypoints / artifacts:** [`PROTOCOL.md`](PROTOCOL.md), [`docs/research/history/bl-ppo-p1.md`](../../docs/research/history/bl-ppo-p1.md), [`PREPARED.json`](PREPARED.json), [`benchmark.py`](benchmark.py), [`runtime.py`](runtime.py), [`analyze.py`](analyze.py)
 - **Related docs / results:** [`docs/research/final_run_20261019/CAMPAIGN_LOG.md`](../../docs/research/final_run_20261019/CAMPAIGN_LOG.md), [`docs/notes/gpu-engine-and-speed.md`](../../docs/notes/gpu-engine-and-speed.md)
