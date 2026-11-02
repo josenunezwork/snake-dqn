@@ -6,5 +6,5 @@
 
 ## Key Files & Results
 
-- **Package entrypoints / artifacts:** [`PREREGISTRATION_M3C.md`](PREREGISTRATION_M3C.md), [`CHECKPOINTS.md`](CHECKPOINTS.md), [`STATUS_A1_TAKEOVER_2026-10-08.md`](STATUS_A1_TAKEOVER_2026-10-08.md), [`learner_m3c.py`](learner_m3c.py), [`phase_r_m3c.py`](phase_r_m3c.py), [`results/`](results/)
-- **Related docs / results:** [`docs/research/m3c_design_2026-10-08.md`](../../docs/research/m3c_design_2026-10-08.md), [`docs/research/m3c_m3d_learnings_2026-10-12.md`](../../docs/research/m3c_m3d_learnings_2026-10-12.md), [`docs/research/catalog/redesign_m3_m3c.md`](../../docs/research/catalog/redesign_m3_m3c.md)
+- **Package entrypoints / artifacts:** [`PREREGISTRATION_M3C.md`](PREREGISTRATION_M3C.md), [`CHECKPOINTS.md`](CHECKPOINTS.md), [`learner_m3c.py`](learner_m3c.py), [`phase_r_m3c.py`](phase_r_m3c.py), [`results/`](results/)
+- **Related docs / results:** [`docs/research/m3c_design_2026-10-08.md`](../../docs/research/m3c_design_2026-10-08.md), [`docs/research/history/m3-m7-redesign.md`](../../docs/research/history/m3-m7-redesign.md)

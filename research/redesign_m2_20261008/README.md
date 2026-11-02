@@ -7,4 +7,4 @@
 ## Key Files & Results
 
 - **Package entrypoints / artifacts:** [`PREREGISTRATION.md`](PREREGISTRATION.md), [`PREREGISTRATION_M2B.md`](PREREGISTRATION_M2B.md), [`gen_data.py`](gen_data.py), [`ni_check.py`](ni_check.py), [`dev_probe.py`](dev_probe.py), [`results/ni_check/verdict.json`](results/ni_check/verdict.json), [`results_m2b/ni_check/verdict.json`](results_m2b/ni_check/verdict.json)
-- **Related docs / results:** [`docs/STATUS.md`](../../docs/STATUS.md), [`docs/research/catalog/redesign_m2_20261008.md`](../../docs/research/catalog/redesign_m2_20261008.md)
+- **Related docs / results:** [`docs/STATUS.md`](../../docs/STATUS.md), [`docs/research/history/m3-m7-redesign.md`](../../docs/research/history/m3-m7-redesign.md)

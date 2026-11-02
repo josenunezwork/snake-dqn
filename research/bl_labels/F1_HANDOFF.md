@@ -22,7 +22,7 @@ Runtime 6465.875398051s, nproc=2, workers=2 = 3.5921529989172223 Colab worker-ho
 aggregate withholds its numerator while incomplete (`summary=null`), and no
 measured Mac conversion exists. The ≥8 decision is pending, not a KILL or PASS.
 No partial rescue/decisive/H1440 outcome look was taken. See
-[CANARY_RESULT_20261023.md](CANARY_RESULT_20261023.md) and
+[../../docs/research/history/bl-labels.md](../../docs/research/history/bl-labels.md) and
 [CODEX_V_CANARY.json](CODEX_V_CANARY.json). Preserve all verified units for a
 prospective, budget-valid mechanical completion; no from-zero rerun is justified
 by this evidence. The separate 64-root Mac replay audit remains pending.

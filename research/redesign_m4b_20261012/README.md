@@ -7,4 +7,4 @@
 ## Key Files & Results
 
 - **Package entrypoints / artifacts:** [`widen_bv8.py`](widen_bv8.py)
-- **Related docs / results:** [`docs/research/m4a_design_2026-10-12.md`](../../docs/research/m4a_design_2026-10-12.md), [`docs/research/catalog/redesign_other.md`](../../docs/research/catalog/redesign_other.md)
+- **Related docs / results:** [`docs/research/m4a_design_2026-10-12.md`](../../docs/research/m4a_design_2026-10-12.md), [`docs/research/history/m3-m7-redesign.md`](../../docs/research/history/m3-m7-redesign.md)
