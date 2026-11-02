@@ -10,15 +10,14 @@ over a WebSocket. No game logic or model inference runs in the browser.
 AI opponents (default `5`, adjustable `1–11`; released 2026-10-17), while live Watch fallback
 (`SNAKE_WATCH_SOURCE=live`) runs a bare `b8-s3` hero against the Watch-only `mixed`
 `5× frp3-s12 + v8` roster. In `.claude/launch.json`, Watch plays the
-168-session Colab-precomputed exact-stop replay bank (`SNAKE_WATCH_SOURCE=replay`,
-`SNAKE_WATCH_REPLAY_DIR=.../watch-replay-bank-live-168`: `132` `exact-stop-l2-prime` + `36`
-all-length `exact-stop-l1` `.watch.gz` gzipped canonical JSONL recordings visibly labelled
-`"Recorded assisted hero"`, switched in `395eacbb`), with live bare `b8-s3` as automatic
-fallback (`SNAKE_WATCH_SOURCE=live`). Live checkpoint/roster rollback by restart:
-unset `SNAKE_WATCH_SOURCE` (or set `SNAKE_WATCH_SOURCE=live`, because `GameSession` `__init__`,
-`reset_game`, and `set_mode` select `ReplayBank` whenever `SNAKE_WATCH_SOURCE=replay` and
-`checkpoint is None`) and set
-`SNAKE_SERVE_CHECKPOINT=frp3-s12` (or `=champion`, or `SNAKE_SERVE_WATCH_ROSTER=all_b8`). Full map of modules, the WebSocket
+**132-session confirmed `exact-stop-l2-prime` replay bank** (`SNAKE_WATCH_SOURCE=replay`,
+`SNAKE_WATCH_REPLAY_DIR=.../watch-replay-bank-live-132`,
+`SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l2-prime`: `.watch.gz` gzipped canonical JSONL
+recordings visibly labelled `"Recorded assisted hero"`, released 2026-11-01 at `f5912f44`),
+with live bare `b8-s3` as automatic fallback (`SNAKE_WATCH_SOURCE=live`). Replay is gated on
+clean mixed-Watch6 `b8-s3` (`_is_clean_mixed_watch6_b8()`), so env-var checkpoint or roster
+rollbacks (`SNAKE_SERVE_CHECKPOINT=frp3-s12|champion` or `SNAKE_SERVE_WATCH_ROSTER=all_b8`)
+automatically run live. Full map of modules, the WebSocket
 protocol, and every `SNAKE_SERVE_*` / `SNAKE_WATCH_*` env var:
 [docs/architecture/WEB_MAP.md](../docs/architecture/WEB_MAP.md).
 
@@ -70,9 +69,8 @@ The arena is always on screen; the other six are tabs beside it.
 - **Dashboard** — eval leaderboard parsed from `logs/eval_*.json` + the checkpoint inventory.
 - **Controls** — play/pause, reset, speed, epsilon, hero selector, checkpoint loader, and a
   watch/train toggle (train rebuilds legacy `vector61` policies in training mode and is refused on
-  forward-only `ego2s-*` / `b8-s3` and `raster31v2` checkpoints; note `session.py:1445` currently calls
-  `_leave_watch_replay()` before that refusal, dropping active Watch replay to live `b8-s3` until the
-  [docs/research/ROADMAP.md](../docs/research/ROADMAP.md) §2.1 guard reorder lands).
+  forward-only `ego2s-*` / `b8-s3`, `raster31v2`, and `raster31v3` checkpoints before touching
+  active Watch replay).
 
 ### Play / leaderboard REST
 

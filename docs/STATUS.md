@@ -10,67 +10,59 @@ file is updated when they change.
 
 ## Current served setup (Watch & Play)
 
-### Watch: 168-session exact-search replay bank (owner "Switch now", 2026-10-30 ~16:10 PT; expanded 2026-10-31 & 2026-11-01)
+### Watch: 132-session confirmed `exact-stop-l2-prime` replay bank (released 2026-11-01 ~16:00 PT)
 
-Watch plays **Colab-precomputed replays** (`exact-stop-l2-prime` and `exact-stop-l1` search heroes over
+Watch plays **confirmed Colab-precomputed replays** (`exact-stop-l2-prime` search hero at `L >= 600` over
 product Watch6 v2, `5× frp3-s12 + v8` opponents, 6,000-frame sessions; pipeline in
 [`research/watch_replay/`](../research/watch_replay/)) visibly labelled **"Recorded assisted hero"**:
 
-- **Active bank:** `snake-dqn-artifacts/watch-replay-bank-live-168` (**168 verified sessions** = `132`
-  `exact-stop-l2-prime` sessions from banks `01–08` and `10–12` + `36` all-length `exact-stop-l1`
-  sessions from banks `14l1–16l1`, verified `36/36` on distinct seeds and switched 2026-11-01 in
-  `395eacbb`; the previous 132-session bank is kept at `watch-replay-bank-live-132` for rollback;
-  older 48/84/108-session copies were deleted 2026-11-01). Bank-02 descriptive stats: mean 412 mass/session, 0 deaths in the 5
-  sessions reaching `L > 1,000`.
-- **Launch & fallback:** `.claude/launch.json` (`snake-web`) sets `SNAKE_WATCH_SOURCE=replay` and
-  `SNAKE_WATCH_REPLAY_DIR`. **Live bare `b8-s3` remains the automatic fallback** (empty, invalid, or
-  exhausted bank), and **Play always stays live** (`b8-s3` without a veto).
-- **Watch replay rollback & serving caveats:** unset `SNAKE_WATCH_SOURCE` (or set
-  `SNAKE_WATCH_SOURCE=live`) and restart. While `GameSession.load_checkpoint` (`session.py:1541-1544`)
-  already exits replay and closes `_replay_bank`, `__init__`, `reset_game`, and `set_mode` still
-  select `ReplayBank` whenever `SNAKE_WATCH_SOURCE=replay` and `checkpoint is None` (without checking
-  `served_checkpoint == "b8-s3"`, `watch_roster == "mixed"`, `Watch6`, or prior `set_epsilon`/`set_food`
-  live opt-outs across `reset_game`), and `GameSession.set_mode` (`session.py:1445-1453`) calls
-  `_leave_watch_replay()` *before* refusing `MODE_TRAIN` on forward-only `ego2s-*` / `raster31v2`
-  (dropping active Watch replay to live `b8-s3` on rejected train toggles). Any env-var checkpoint/roster rollback
-  (`SNAKE_SERVE_CHECKPOINT=frp3-s12|champion` or `SNAKE_SERVE_WATCH_ROSTER=all_b8`) must therefore also
-  unset `SNAKE_WATCH_SOURCE` (or set `=live`) until the `set_mode("train")` guard reorder,
-  `set_epsilon`/`set_food`-scoped `_replay_opted_out`
-  (cleared on `_build` / split `"new_game"`, leaving `Play -> Watch` intact), and the multi-entrypoint
-  mixed-Watch6 `b8-s3` guard tracked in [research/ROADMAP.md](research/ROADMAP.md) §2.1 land on `main`
-  (leaving V3 worktrees untouched, patching `"SNAKE_WATCH_SOURCE": "live"` in `open_watch`,
-  keeping operational manifests in `ops/manifests/` for `ready_queue.py`/`dispatch.py` slot visibility
-  while isolating future confirmation lineage in `ops/studies/<namespace>/`, and hashing `git ls-tree`
-  science-only `identity()` excluding `tools/ops/*` — `package_spec.py` is hashed in
-  `watch6_search_efficacy_v3/protocol.py:94` — `watch_replay.py` — imported by `session.py:568` —
-  and `app.py`).
-- **`exact-stop-l1` validator, mixed-controller bank & first-cycle ordering (`73974411` & `395eacbb`, 2026-11-01):**
-  `web/backend/watch_replay.py` and `research/watch_replay/` accept `"exact-stop-l1"` (`L >= 1`,
-  `interval = 5`, `H = 300`) in `ASSISTED_CONTROLLERS` alongside `"exact-stop-l2-prime"`, and
-  `web/serve.py` was restarted at `b5b63cd1` to serve `watch-replay-bank-live-168` (`132`
-  `exact-stop-l2-prime` + `36` `exact-stop-l1` `.watch.gz` recordings). Two current `ReplayBank`
-  details tracked in [research/ROADMAP.md](research/ROADMAP.md) §2.1: (1) `ReplayBank._prefetch`
-  walks `sorted(root.glob("*.watch.gz"))[:1024]` on cycle 1 before `SystemRandom().shuffle` runs on
-  cycle 2 (`132 × 250 s = 9.17 h` of `bank01–12` `l2-prime` play before `bank14l1–16l1` after a
-  restart, fixable via injectable `shuffle_discovery=True`), while `verify_payload` sleeps
-  `stop.wait(0.001)` per frame (`~8.5 s` cold load / `~200` live-B8 fallback ticks, fixable via a
-  `64`-frame cooperative yield `< 0.35 s` + shallow `Recording.snapshot`); and (2) restricting
-  playback to a single confirmed controller (`exact-stop-l2-prime`-only via
-  `watch-replay-bank-live-132`, or `exact-stop-l1`-only after confirmation) requires a
-  single-controller `SNAKE_WATCH_REPLAY_DIR` or landing line-1 `.watch.gz` header filtering via
-  `SNAKE_WATCH_REPLAY_CONTROLLER` (recorded `.watch.gz` banks remain at `H = 6,000` under
-  `watch_replay.py`'s `MAX_DECODED = 512 MiB` cap, while `record=None` confirmation runs at
-  `H = 14,400` with guarded `if record is not None: snapshot()` in `watch_replay/engine.py`).
-- **Product efficacy measurement status:** synchronous `exact-stop-l2-prime` efficacy vs bare B8 in the
-  product H14400 setting is **not yet confirmed and is currently running in Watch6 V3**
-  ([`research/watch6_search_efficacy_v3/`](../research/watch6_search_efficacy_v3/)), and `exact-stop-l1`
-  H14400 efficacy (`Watch6-L1-V1` in [research/ROADMAP.md](research/ROADMAP.md)) has not yet entered
-  confirmation. The earlier Watch6 V2
-  96-pair confirmation ([`research/watch6_search_efficacy/`](../research/watch6_search_efficacy/)) ended
-  **`INVALID_OR_INCOMPLETE`** on 2026-10-31 (shard 6 / index 5 exhausted original + 2 completions on
-  pre-start transport failures; Astra rulings `t34-sol/watch6-shard6-ruling/RULING_SHARD6.md` and
-  `t34-sol/watch6-v3-registration-q/ANSWER.md` denied extra attempts and an 88+8 V3; running shards
-  stopped 10:10 PT with verified stops; zero outcomes were read).
+- **Active bank & controller filter (`f5912f44`):** `snake-dqn-artifacts/watch-replay-bank-live-132`
+  (**132 confirmed `exact-stop-l2-prime` sessions** from banks `01–08` and `10–12`), served with
+  `SNAKE_WATCH_SOURCE=replay` and `SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l2-prime` in
+  `.claude/launch.json` (`snake-web`, verified live on `:8000`). The `168`-session mixed bank
+  `watch-replay-bank-live-168` (`132` `exact-stop-l2-prime` + `36` unconfirmed `exact-stop-l1` sessions
+  from banks `14l1–16l1`) remains on disk while `exact-stop-l1` awaits `H = 14,400` confirmation
+  (`Watch6-L1-V1` in [research/ROADMAP.md](research/ROADMAP.md) §2.3).
+- **Serving guards, cooperative prefetch & Mac `24 fps` qualification (`dc834ded`–`fec81656`):**
+  - `GameSession` ([`web/backend/session.py`](../web/backend/session.py)) gates Watch replay on
+    `_is_clean_mixed_watch6_b8()` across `__init__`, `_build`, `reset_game`, and `set_mode` (so env-var
+    `SNAKE_SERVE_CHECKPOINT` or `SNAKE_SERVE_WATCH_ROSTER` rollbacks, `Watch8/12`, or explicit checkpoints
+    automatically run live); refuses `MODE_TRAIN` on forward-only `ego2s-*` / `raster31v2` / `raster31v3`
+    and un-overridden reward-contract mismatches *before* calling `_leave_watch_replay()` (recovering
+    replay on fallback to Watch); and scopes `_replay_opted_out = True` to `set_epsilon`, live `set_hero`
+    change, and `set_food` (cleared by `_build` and `new_game()`, wired to `"new_game"` in `app.py:311`,
+    leaving `Play -> Watch` intact).
+  - `ReplayBank` ([`web/backend/watch_replay.py`](../web/backend/watch_replay.py)) filters recordings on
+    line 1 via `peek_header` + `SNAKE_WATCH_REPLAY_CONTROLLER` (`all | exact-stop-l2-prime | exact-stop-l1`,
+    failing closed to live B8 on invalid values), shuffles cycle-1 discovery (`shuffle_discovery=True`),
+    uses shallow `Recording.snapshot`, and yields the GIL every `0.25 ms` / `64` frames for
+    `max(1.0 ms, 4.0 * slice_elapsed)` (`<= 20%` GIL duty cycle) during `verify_payload`.
+  - [`research/watch_replay/qualify.py`](../research/watch_replay/qualify.py)
+    (`t34-sol/argon-replay-qual/{SUMMARY.md,qualification.json}`, Fable review `APPROVE_WITH_CONDITIONS`
+    with `C1–C3` resolved at `fec81656`) passed `132/132` inventory parity, cold readiness `0.349–0.435 s`
+    (`< 0.45 s`), concurrent cold-verification live-B8 fallback `update p95 = 8.78 ms <= 11.688 ms`,
+    `0/120` paced-`24 fps` overruns (`step p99 = 11.34 ms <= 41.67 ms`), and seamless recorded playback
+    cutover after `~18.5–23.1 s` (`recorded update p95 = 0.002 ms`). Recorded `.watch.gz` v2 banks stay
+    at `H = 6,000` (`< 512 MiB` `MAX_DECODED`), while `record=None` confirmation runs at `H = 14,400`.
+- **Fallback & rollback:** **Live bare `b8-s3` remains the automatic fallback** (during cold startup
+  prefetch, or on an empty, invalid, or single-session exhausted bank), and **Play always stays live**
+  (`b8-s3` without a veto). Explicit rollback to live mixed-Watch6 `b8-s3`: unset `SNAKE_WATCH_SOURCE`
+  (or set `SNAKE_WATCH_SOURCE=live`) and restart; rollback to the previous mixed bank: point
+  `SNAKE_WATCH_REPLAY_DIR` at `watch-replay-bank-live-168` without `SNAKE_WATCH_REPLAY_CONTROLLER`.
+- **Product efficacy confirmation status:**
+  - **`exact-stop-l2-prime` (`L >= 600`) — CONFIRMED (`GO_EFFICACY_ONLY`, 2026-11-01 14:40 PT, `52135312`):**
+    Watch6 V3 ([`research/watch6_search_efficacy_v3/`](../research/watch6_search_efficacy_v3/)) passed
+    both co-primary bars over all `96/96` primary `H = 14,400` Watch6-v2 pairs (`0` reserves,
+    `2,764,800/2,764,800` mirror frames): **`Δdeaths/1k = -0.125`** (`CI95 [-0.153, -0.097] < 0`) and
+    **Fieller pooled mass `+63.7%`** (`CI95 [+49.8%, +78.5%] >= -5%`) $\Rightarrow$
+    `ELIGIBLE_FOR_REPLAY_QUALIFICATION` (followed by Mac qualification `fec81656` and release `f5912f44`).
+    The earlier Watch6 V2 run ([`research/watch6_search_efficacy/`](../research/watch6_search_efficacy/))
+    closed `INVALID_OR_INCOMPLETE` on 2026-10-31 with `0` outcomes read after shard 6 exhausted pre-start
+    retries (`t34-sol/watch6-shard6-ruling/RULING_SHARD6.md`).
+  - **`exact-stop-l1` (`L >= 1`) — exploration `ADOPT` complete; `H = 14,400` confirmation pending:**
+    passed the `N = 48, H = 6,000` exploration screen (`+98.3` mass, `-67.4%` `deaths/1k` vs `L >= 600`),
+    with `36` sessions (`14l1–16l1`) staged on disk awaiting prospective `H = 14,400` confirmation
+    (`Watch6-L1-V1` in [research/ROADMAP.md](research/ROADMAP.md) §2.3), Mac qualification, and owner OK.
 
 ### Play & live Watch fallback: released bare `b8-s3` checkpoint (2026-10-17)
 
@@ -150,7 +142,7 @@ For synthesized current-round and later-round research plans (**advice, not deci
 - **Completed Oct 30 Claim-A & ruler receipts awaiting Mac readout (and `spatial-student-pilot` fit canceled):**
   - `b8-head-closedloop` (`origin/astra-doom-auc-smoke`, `N = 192` v1 H5000 worlds, `m in {0, 10, 25, 50}`, run without `boost_decisions` logging): **sole remaining Claim-A gameplay screen**; A100 receipt **`PASS`** (`t34-sol/b8-head-closedloop/main-01/output/receipt.json`, `SUMMARY.md:50-52`), awaiting `< 2 min` Mac `closedloop_readout.py` against binding v1 `H = 5,000` `>= +40` pooled-mass / survival / `<= 15%` override bars (plus a `0 u`, `10 min` v2 boost `[0.5%, 10%]` check if any arm survives).
   - `spatial-qbytes-01` (`origin/astra-spatial-student-pilot`, `t34-sol/spatial-qbytes-fix/SUMMARY.md:85-88`): **GPU Q-byte / `.so` cache throughput & parity ruler only** (not a Claim-A gameplay screen); A100 receipt **`PASS`** (`t34-sol/spatial-qbytes-fix/t34-spatial-qbytes-01/ruler-output-a100-fallback/receipt.json`), awaiting Mac parity/timing audit while the `40–48 A100 u` `spatial-student-pilot` GPU fit is canceled (`0 u`, retaining compiled `.so` caches) per `t34-sol/student-direction/{astra,fable}.md` and T4 Gate-1 `KILL_T4`.
-- **Colab concurrency caps:** **`6` concurrent runtimes total** (`ACCOUNT_ASSIGNMENT_CAP = 6`, tree `36285bc6` active in `ops/colab-cli-qualified.json` and verified live at `6/6` concurrent runtimes — `3 A100 @ 6.73 u/h + 3 L4 @ 1.94 u/h = 26.01 u/h`, balance `~2,154.66 u`, all `3` A100 slots now free after `14l1–16l1` finished), at most **`3` concurrent L4** (`ACCOUNT_L4_CAP = 3` in `tools/ops/ready_queue.py`; direct-dispatch `L4 < 3` locking in `tools/ops/dispatch.py` tracked in [research/ROADMAP.md](research/ROADMAP.md) §2.2).
+- **Colab concurrency caps:** **`6` concurrent runtimes total** (`ACCOUNT_ASSIGNMENT_CAP = 6`, tree `36285bc6` active in `ops/colab-cli-qualified.json` and verified live at `6/6` concurrent runtimes — `3 A100 @ 6.73 u/h + 3 L4 @ 1.94 u/h = 26.01 u/h`, balance `~2,154.66 u`, all `6/6` slots — `3 A100 + 3 L4` — now free after `14l1–16l1` and Watch6 V3 finished), at most **`3` concurrent L4** (`ACCOUNT_L4_CAP = 3` in `tools/ops/ready_queue.py`; direct-dispatch `L4 < 3` locking in `tools/ops/dispatch.py` tracked in [research/ROADMAP.md](research/ROADMAP.md) §2.2).
 - **Closed Oct 29–31 learned-policy, critic, and macro-fallback verdicts (`KILL` / `FAIL`):**
   - **TRAIN-01 GPU-resident PPO** ([`research/sandbox_a_resident/`](../research/sandbox_a_resident/),
     `t34-sol/train01-closeout/SUMMARY.md`) — **Closed** after `384` updates (`100.7M` rows): H5000 equal-mix
@@ -180,10 +172,10 @@ For synthesized current-round and later-round research plans (**advice, not deci
     static `tau <= 1` with `2 * min(black, white)` acting only as an upper bound on non-Hamiltonian 2-cores,
     and vacuously set `t_cert = 1` on `ext_gain == 0` internal tail cells —
     failing `+3.85 pp < +10.0 pp` total `L >= 600` lift and `2 > 0` newly caused ordinary lethal flips from
-    single-suffix `sel0` and aggressive `O3`/`O5`; `0` assessment roots opened; informs closed-loop `PCCS-L1`
-    (step-exact `2.33`-pop/tick boost `TimeClearCert_v3` + hysteretic `COIL_HOLD` `π_shield` online and in rollouts +
-    dual `1.15×` `v8` head-on rules) + `P1+3W` Branch-Grafted `D = 384` `ShadowSpine` (`P1` `3`-tick/frame refill +
-    `P2–P4` `3` `20.13×` `v8_decide` workers without `dto_split.py`) advice in [research/ROADMAP.md](research/ROADMAP.md) §3).
+    single-suffix `sel0` and aggressive `O3`/`O5`; `0` assessment roots opened; informs `CBFS-L1`
+    (`H_sim = 128` `DeadPocketPrune` + `interval = 1` `CertMask` with `TailReach_v2` + post-burn
+    `L_{0,post} >= 1.15(L_j + 1)` defensive/pinch rules + `1`-policy `(5E, 2)` fused `v8_decide`) + spawned
+    `P1+3W` `D = 240` `ShadowSpine` advice in [research/ROADMAP.md](research/ROADMAP.md) §3).
 
 ---
 
@@ -222,7 +214,7 @@ Active campaign: **T34 ExIt-B8**. Binding documents on `main`, in order:
 These rules replace older conflicting text (e.g. the 5× RunPod rule, "always serverless", or
 `champion + v8` / `frp3-s12 + v8` as the served agent).
 
-- **Served defaults:** Watch = 168-session exact-stop replay bank (`watch-replay-bank-live-168`: `132` `exact-stop-l2-prime` banks `01–08, 10–12` + `36` `exact-stop-l1` banks `14l1–16l1`) with live `b8-s3` fallback; Play = live bare `b8-s3` (`3e649783`) without a veto. Rollbacks and monitoring thresholds are at the top of this file.
+- **Served defaults:** Watch = 132-session confirmed `exact-stop-l2-prime` replay bank (`watch-replay-bank-live-132`, `SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l2-prime`, banks `01–08, 10–12`; released 2026-11-01 at `f5912f44`) with live `b8-s3` fallback; Play = live bare `b8-s3` (`3e649783`) without a veto. Rollbacks and monitoring thresholds are at the top of this file.
 - **Implementers (owner, 2026-10-27, standing):** project code is implemented and reviewed only by **Argon** (Gemini 4 Argon via Antigravity CLI, own git worktree, local commits) and **Astra** (Codex). The reviewer is always the other one; authors never review their own builds. Do not use the Sol implementer persona (`AGENTS.md`, commit `1ad5dc95`).
 - **Standing scope decisions (2026-10-17):**
   - *October redesign goal met and closed:* `b8-s3` beat `frp3-s12 + v8` without a veto.

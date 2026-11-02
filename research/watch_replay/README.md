@@ -52,34 +52,38 @@ Generation checks decoded and line limits after every frame, reserving header
 space before computing the next frame. Operational unit rows include decoded
 bytes, compressed size, peak line bytes, elapsed time and search counters.
 
-Set `SNAKE_WATCH_SOURCE=replay` and `SNAKE_WATCH_REPLAY_DIR=/absolute/bank` only
-when ready to opt in. The server first builds the normal released live fallback.
-Path B live search is disabled in replay-source Watch. `ReplayBank._prefetch`
-traverses `sorted(root.glob("*.watch.gz"))[:1024]` deterministically on cycle 1
-(so lexicographically earlier banks play first after a restart) and runs
-`SystemRandom().shuffle` without reusing a unit within a cycle or immediately
-repeating the boundary unit from cycle 2 onward (injectable `shuffle_discovery=True`
-for cycle 1, line-1 `.watch.gz` header filtering via `SNAKE_WATCH_REPLAY_CONTROLLER`,
-keeping recorded `.watch.gz` banks at `H = 6,000` under `MAX_DECODED = 512 MiB` while guarding
-`if record is not None: snapshot()` + adding `timing`/`respawns_per_slot` in `engine.py:run_arm` for
-`H = 14,400` `record=None` confirmation, shallow `Recording.snapshot`, and
-`64`-frame cooperative yield cold-load speedup from `~8.5 s` to `< 0.35 s` in `verify_payload` are tracked in
-[`docs/research/ROADMAP.md`](../../docs/research/ROADMAP.md) §2.1). Empty/exhausted single-session banks use live B8. No bad file is repeatedly
-hashed on live ticks.
+Set `SNAKE_WATCH_SOURCE=replay` and `SNAKE_WATCH_REPLAY_DIR=/absolute/bank`
+(plus optional `SNAKE_WATCH_REPLAY_CONTROLLER=all|exact-stop-l2-prime|exact-stop-l1`,
+which filters recordings on line 1 via `peek_header` and fails closed to live B8 on
+invalid values) only when ready to opt in. In `.claude/launch.json`, Watch serves
+`watch-replay-bank-live-132` (`132` confirmed `exact-stop-l2-prime` sessions) with
+`SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l2-prime`. The server first builds the normal
+released live fallback, and Path B live search is disabled in replay-source Watch.
+`ReplayBank` shuffles cycle-1 discovery by default (`shuffle_discovery=True`) and every
+subsequent cycle via `SystemRandom().shuffle` without reusing a unit within a cycle or
+immediately repeating the boundary unit, uses shallow `Recording.snapshot`, and yields
+the GIL every `0.25 ms` / `64` frames for `max(1.0 ms, 4.0 * slice_elapsed)` (`<= 20%`
+duty cycle) in `verify_payload` — passing Mac `24 fps` qualification (`qualify.py`,
+cold session `< 0.45 s`, concurrent live fallback `update p95 = 8.78 ms <= 11.688 ms`,
+`0/120` paced-`24 fps` overruns). Recorded `.watch.gz` v2 banks remain at `H = 6,000`
+under `MAX_DECODED = 512 MiB` (guarding `if record is not None: snapshot()` at
+`engine.py:216` for `record=None` confirmation is tracked in
+[`docs/research/ROADMAP.md`](../../docs/research/ROADMAP.md) §2.1). Empty/exhausted
+single-session banks use live B8. No bad file is repeatedly hashed on live ticks.
 
 The header visibly says replay and “Recorded assisted hero” for exact-stop.
 Search overrides are marked “Move from search” in the inspector alongside the
 bare action; displayed Q-values remain the bare network. Pause/speed operate on playback. Inspector follows recorded hero #0; roster
-remains visible. Hero selection reports that limit. A valid `load_checkpoint` exits replay and closes
-`_replay_bank` immediately, while food/epsilon changes (and currently rejected `set_mode("train")` toggles on
-`ego2s-*`, which call `_leave_watch_replay()` first at `session.py:1445`) also switch to live operation (note:
-`reset_game` currently re-enters `_select_watch_replay()` after `set_food`/`set_epsilon` until the `set_mode("train")`
-guard reorder and `set_epsilon`/`set_food`-scoped `_replay_opted_out` — cleared on `_build` / split `"new_game"` so
-`Play -> Watch` stays intact — in [`docs/research/ROADMAP.md`](../../docs/research/ROADMAP.md) §2.1 land). Play always clears replay and uses
-the live game/input/scoring path. Explicit `GameSession(checkpoint=...)` constructors bypass replay
-(note: env-var `SNAKE_SERVE_CHECKPOINT` or `SNAKE_SERVE_WATCH_ROSTER` rollbacks still construct
-`GameSession(checkpoint=None)`, and `reset_game` / `set_mode` also re-select `_replay_bank`, so unset
-`SNAKE_WATCH_SOURCE` or set `SNAKE_WATCH_SOURCE=live` when rolling back live checkpoints/rosters).
+remains visible. Hero selection reports that limit. `GameSession` gates replay on
+`_is_clean_mixed_watch6_b8()` across `__init__`, `_build`, `reset_game`, and `set_mode`
+(so explicit `GameSession(checkpoint=...)` constructors, `Watch8/12`, or env-var
+`SNAKE_SERVE_CHECKPOINT` / `SNAKE_SERVE_WATCH_ROSTER` rollbacks automatically run live),
+and refuses `set_mode("train")` on forward-only `ego2s-*` / `raster31v2` / `raster31v3`
+*before* calling `_leave_watch_replay()`. A valid `load_checkpoint` exits replay and
+closes `_replay_bank` immediately, while `set_epsilon`, live `set_hero` changes, and
+`set_food` set `_replay_opted_out = True` across `reset` (`new_game` and `_build` clear
+the opt-out, and `Play -> Watch` resumes replay). Play always clears replay and uses
+the live game/input/scoring path.
 Playback statistics are recorded session statistics, not live B8 release-monitor
 samples. Fresh viewer count, pause/speed and errors overlay the stored DTO.
 
