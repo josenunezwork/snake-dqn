@@ -1,7 +1,7 @@
 # F4 frozen-B8 residual dose study
 
 **Summary:** F4's retention gain passed its funding bars, but D1024 failed the harm screen, producing terminal STOP_FUNDING and sealed D4096 discard; the post-mortem exporter was accepted conditionally. (src: big-lever/exp/astra-20261024/JUDGMENT_RA_STOP_FUNDING_f9c08082_20261025.md:7-9; docs/research/final_run_20261019/CAMPAIGN_LOG.md:1429)
-**As of:** 2026-10-25 PT · **Sources:** fact sheet `_facts/f4-study.md`; primary records cited inline.
+**As of:** 2026-10-25 PT · **Sources:** consolidated record [`docs/research/history/f4-f5.md`](../research/history/f4-f5.md); primary records cited inline.
 **Related:** [Index](README.md), [GLOSSARY](GLOSSARY.md), [Label factory](label-factory.md), [Successors](r30-r32-f5-successors.md), [Compute infrastructure](colab-and-compute-infra.md)
 
 ## Verdict sequence
@@ -12,7 +12,7 @@
 4. **2026-10-24 09:15 PT — KEEP_QUALIFIED_UPLOAD_FOR_LABELS_MOVE_B8_TO_EXISTING_PUBLIC_URL:** the transport ruling kept labels private and moved only B8 to its existing public URL. (src: big-lever/exp/f4/JUDGMENT_D1024_FIT_TRANSPORT_20261024.md:1-3)
 5. **2026-10-24 PT, clock time unrecorded — ACCEPT:** the follow-up D1024 review accepted `fa07bd75` after the transport-row and hardening changes. (src: big-lever/exp/f4/CLAUDE_V_STANDIN_D1024_FIT_REVIEW_02.json:1-12; big-lever/exp/f4/CLAUDE_V_STANDIN_D1024_FIT_REVIEW_02.json:47-52)
 6. **2026-10-24 ≈11:30 PT — ADMIT_D4096_OLD_W12 / ADMIT_SEALED_EARLY_COLLECTION / BUILD_NOW:** the judge admitted sealed Mac collection and commissioned F2 (the selected-action survival volume test). (src: big-lever/exp/f4/JUDGMENT_D4096_START_20261024.md:1-3; big-lever/exp/f4/JUDGMENT_D4096_START_20261024.md:120-133)
-7. **2026-10-24 PT, clock time unrecorded — FIX-FIRST:** I3's D4096 admission repair required exact-zero projection for zero-charge Mac collection, with Mac/B2 checks. (src: research/bl_residual/I3_FIXFIRST_HANDOFF_20261024.md:1-16)
+7. **2026-10-24 PT, clock time unrecorded — FIX-FIRST:** I3's D4096 admission repair required exact-zero projection for zero-charge Mac collection, with Mac/B2 checks. (src: docs/research/history/f4-f5.md)
 8. **2026-10-24 12:35 PT — conditional ACCEPT:** the D4096 I1 build re-review accepted sealing and starting collection subject to B1/B2; I2 still had a publication-time blocker. (src: docs/research/final_run_20261019/CAMPAIGN_LOG.md:1339)
 9. **2026-10-24 13:36 PT — ACCEPT:** Astra accepted I2/F2 tooling at `92f26cc4` after four fix rounds. (src: docs/research/final_run_20261019/CAMPAIGN_LOG.md:1356)
 10. **2026-10-24 13:36 PT — ACCEPT:** the I3 L4-accounting repair `da4dbf25` was accepted. (src: docs/research/final_run_20261019/CAMPAIGN_LOG.md:1356)
@@ -149,7 +149,7 @@
 - **D256 harm-screen result at R-A:** neither complete held-out record was exported, so a D256 pass/fail claim was not established by the retained funding receipt. (src: big-lever/exp/astra-20261024/JUDGMENT_RA_STOP_FUNDING_f9c08082_20261025.md:9)
 - **Post-mortem C, U and margin-bin outcomes:** the exporter remained gated at the source cutoff, so no diagnostic results were verified. (src: docs/research/final_run_20261019/CAMPAIGN_LOG.md:1429)
 - **F2 immutable-successor ruling clock time:** its header supplied only 2026-10-24, so its exact time could not be assigned. (src: big-lever/exp/astra-20261024/JUDGMENT_F2_IMMUTABLE_SUCCESSOR_20261024.md:1-4)
-- **Other date-only verdict times:** the initial/follow-up D1024 reviews and I3 FIX-FIRST lacked clock times; their placement in the ordered sequence follows documented dependencies rather than an invented timestamp. (src: big-lever/exp/f4/CLAUDE_V_STANDIN_D1024_FIT_REVIEW.json:1-65; big-lever/exp/f4/CLAUDE_V_STANDIN_D1024_FIT_REVIEW_02.json:1-52; research/bl_residual/I3_FIXFIRST_HANDOFF_20261024.md:1-16)
+- **Other date-only verdict times:** the initial/follow-up D1024 reviews and I3 FIX-FIRST lacked clock times; their placement in the ordered sequence follows documented dependencies rather than an invented timestamp. (src: big-lever/exp/f4/CLAUDE_V_STANDIN_D1024_FIT_REVIEW.json:1-65; big-lever/exp/f4/CLAUDE_V_STANDIN_D1024_FIT_REVIEW_02.json:1-52; docs/research/history/f4-f5.md)
 - **Metadata pack-01 disposition:** the continuation handoff explicitly selected pack-02, but did not establish the fact sheet's proposed explicit supersession of pack-01. (src: research/bl_residual/D256_METADATA_POSTFIT_HANDOFF_20261024.md:3-8)
 - **D256 stage-level wall time beyond the 676 s total:** full receipt-stage accounting was not verified because output directories were excluded from verification. (src: big-lever/exp/f4/HANDOFF_D1024_FIT_20261024.md:39)
 - **Reconciliation of D1024 parent totals:** the cited package, preemption, progress and completion records did not establish why their counts differed. (src: docs/research/final_run_20261019/CAMPAIGN_LOG.md:1003; docs/research/final_run_20261019/CAMPAIGN_LOG.md:252; docs/research/final_run_20261019/CAMPAIGN_LOG.md:1336; docs/research/final_run_20261019/CAMPAIGN_LOG.md:1365)
