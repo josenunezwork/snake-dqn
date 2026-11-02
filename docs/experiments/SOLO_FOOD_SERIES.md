@@ -3,7 +3,7 @@
 Catalog of every `docs/experiments/solo_food_*` record. Question and outcome are condensed from
 each record's own title and opening summary; read the linked README for gates, seeds and caveats.
 Study codes (AM, BJ, CX, ...) are the ones the records use; "-" means the record gives none.
-The authors' own narrative map is [solo_food_learning_progress_2026-09-21.md](solo_food_learning_progress_2026-09-21.md).
+The authors' own narrative map is [solo-ambient-early.md](../research/history/solo-ambient-early.md).
 None of these studies promoted a model.
 
 ## What the series learned
@@ -18,10 +18,10 @@ None of these studies promoted a model.
 
 | Date | Code | Question | Outcome | Link |
 |---|---|---|---|---|
-| 2026-09-13 | - | Do the ambient-reward endpoints get a positive native TD signal for adjacent food, and can a local optimizer fit it? | Immediate food target works; no seed passed the full held-out teacher screen | [signal](solo_food_signal_2026-09-13/README.md) |
-| 2026-09-13 | - | Do solo networks change action values when one pellet is moved next to the head? | Audited descriptive probe (PASS, 12 checks); no causal claim | [response](solo_food_response_2026-09-13/README.md) |
-| 2026-09-13 | - | Do S1 seeds show a food-contact/mass signal with survival kept? | `SOLO_SIGNAL_PRESENT_BOTH_SEEDS`; narrow signal, not useful foraging | [survival](solo_food_survival_2026-09-13/README.md) |
-| 2026-09-13 | - | Where did seed 2026091601's huge food count come from? | 98.5% of contacts were its own boost trail | [source_trace](solo_food_source_trace_2026-09-13/README.md) |
+| 2026-09-13 | - | Do the ambient-reward endpoints get a positive native TD signal for adjacent food, and can a local optimizer fit it? | Immediate food target works; no seed passed the full held-out teacher screen | [signal](../research/history/solo-ambient-early.md) |
+| 2026-09-13 | - | Do solo networks change action values when one pellet is moved next to the head? | Audited descriptive probe (PASS, 12 checks); no causal claim | [response](../research/history/solo-ambient-early.md) |
+| 2026-09-13 | - | Do S1 seeds show a food-contact/mass signal with survival kept? | `SOLO_SIGNAL_PRESENT_BOTH_SEEDS`; narrow signal, not useful foraging | [survival](../research/history/solo-ambient-early.md) |
+| 2026-09-13 | - | Where did seed 2026091601's huge food count come from? | 98.5% of contacts were its own boost trail | [source_trace](../research/history/solo-ambient-early.md) |
 | 2026-09-13 | - | Does BC vs native PQN pass a fixed short food microbenchmark? | BC 3/3, PQN 1/3 (`bc_plays_well_pqn_fails`) | [microbenchmark](solo_food_microbenchmark_2026-09-13/README.md) |
 | 2026-09-13 | - | Does PQN λ=1 (vs .65) give reliable food seeking? | No; gate passed 1/3 seeds | [lambda1](solo_food_lambda1_2026-09-13/README.md) |
 | 2026-09-13 | - | Does a late-half learning-rate schedule fix PQN food learning? | 2/3 seeds; not a reliable remedy, LR branch ended | [late_half_lr](solo_food_late_half_lr_2026-09-13/README.md) |
@@ -96,4 +96,4 @@ None of these studies promoted a model.
 | 2026-09-21 | CZ | Does enemy visibility help learning vs opponents? | Learned progress 1 visible seed; access benefit 1/3 | [pqn_enemy_access](solo_food_pqn_enemy_access_2026-09-21/README.md) |
 | 2026-09-21 | DA | Why did CZ opponent learning differ? | Saved diagnosis; boost fractions vary widely, cause not established | [pqn_enemy_learning_diagnostic](solo_food_pqn_enemy_learning_diagnostic_2026-09-21/README.md) |
 | 2026-09-21 | - | Do 1,024 more native updates improve opponent survival for CZ visible lineages? | Diagnostic continuation; outcome: unclear from summary, see record | [pqn_enemy_dose](solo_food_pqn_enemy_dose_2026-09-21/README.md) |
-| 2026-09-21 | - | Readable map of the whole solo-food line | Narrative summary | [learning_progress](solo_food_learning_progress_2026-09-21.md) |
+| 2026-09-21 | - | Readable map of the whole solo-food line | Narrative summary | [learning_progress](../research/history/solo-ambient-early.md) |
