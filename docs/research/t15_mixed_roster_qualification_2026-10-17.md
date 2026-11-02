@@ -10,7 +10,7 @@ it is not a release or authorization to change the default.
 
 ## Evidence and registration
 
-Authority is [the T15 spec](specs/t15_mixed_roster_qual_spec_2026-10-17.md).
+Authority is [the T15 spec (consolidated in `docs/research/history/b8-release-serving.md`)](history/b8-release-serving.md).
 The sibling [protocol](../../research/t15_mixed_roster_20261017/protocol.md)
 was committed and pushed at `0853cae6` before any non-smoke episode. Its SHA256 is
 `0b882fc2a11e47ce67a0ec541f560d157bd32c6e62c95ce9554683633603428d`.

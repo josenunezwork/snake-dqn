@@ -118,10 +118,10 @@ SNAKE_DQN_DEVICE=cpu OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 ./venv/bin/python 
 
 Outputs refuse overwrite; reproduction needs a fresh output directory.
 
-- [Protocol](../../research/t13b_six_snake_20261017/protocol.md), [pre-run review](../../research/t13b_six_snake_20261017/REVIEW.md), and [five-cell fresh-seed H100 smoke](../../research/t13b_six_snake_20261017/SMOKE.json).
+- [Protocol](../../research/t13b_six_snake_20261017/protocol.md), [pre-run review (consolidated)](history/b8-release-serving.md), and [five-cell fresh-seed H100 smoke](../../research/t13b_six_snake_20261017/SMOKE.json).
 - [Seed audit](../../research/t13b_six_snake_20261017/SEED_AUDIT.json): 1,184,647 registered exclusions, zero registered or visible JSON/JSONL collisions; T7 final/rejected allocations, T12 banks, T13 worlds/smoke and historical banks included. No claim about opaque or unrecorded external experiments.
 - [Summary and full CIs](../../research/t13b_six_snake_20261017/results/summary.json), [compressed raw episodes](../../research/t13b_six_snake_20261017/results/episodes.json.gz), [intent/source hashes](../../research/t13b_six_snake_20261017/results/intent.json), [completion receipts](../../research/t13b_six_snake_20261017/results/completion.json), and [evidence hashes](../../research/t13b_six_snake_20261017/results/evidence_sha256.json).
-- [Machine-readable rule application](../../research/t13b_six_snake_20261017/RULE_RESULT.json) and [independent final review](../../research/t13b_six_snake_20261017/FINAL_REVIEW.md).
+- [Machine-readable rule application](../../research/t13b_six_snake_20261017/RULE_RESULT.json) and [independent final review (consolidated)](history/b8-release-serving.md).
 - Focused harness/analysis tests: 13 passed before launch. Final monitor tests and independent evidence checks are recorded in the final review.
 
 Real GameSession step/snapshot and respawn paths were retained. Legacy homogeneous rows protect only their hero; mixed protects only its FRP3 opponents. The mixed comparison changes checkpoint and wrapping together, so it does not isolate those effects. All study telemetry is offline and excluded from product release monitoring. No policy math, network, checkpoint pin, gameplay rule, or serving default was changed.
