@@ -57,15 +57,22 @@ def run_arm(
     batches = 0
     batches_lt600 = 0
     batches_ge600 = 0
+    batches_ge1000 = 0
     interventions = 0
     interventions_lt600 = 0
     interventions_ge600 = 0
     evaluated = 0
+    branches_lt600 = 0
+    branches_600_999 = 0
+    branches_ge1000 = 0
     skipped = 0
     kernel_rows = 0
     mirror_frames = 0
     main_seconds = 0.0
     search_seconds = 0.0
+    search_seconds_lt600 = 0.0
+    search_seconds_600_999 = 0.0
+    search_seconds_ge1000 = 0.0
     action_counts = [0] * 6
     recent_actions: list[int] = []
     all_frame_masses: list[int] = []
@@ -117,9 +124,11 @@ def run_arm(
                 selected: dict[str, Any] = {}
 
                 def choose(sim: Any) -> np.ndarray:
-                    nonlocal batches, batches_lt600, batches_ge600
+                    nonlocal batches, batches_lt600, batches_ge600, batches_ge1000
                     nonlocal interventions, interventions_lt600, interventions_ge600
-                    nonlocal evaluated, skipped, kernel_rows, step_search, trigger
+                    nonlocal evaluated, branches_lt600, branches_600_999, branches_ge1000
+                    nonlocal skipped, kernel_rows, step_search, trigger
+                    nonlocal search_seconds_lt600, search_seconds_600_999, search_seconds_ge1000
                     world.runtime.prepare(sim)
                     active = bool(sim.alive[0, 0])
                     if active and not was_alive and isinstance(min_length, int):
@@ -139,26 +148,38 @@ def run_arm(
                         advisory = sim.get_advisory_action_mask()[0, 0]
                         legal, bare_action = _legal(q_row, advisory)
                         chosen = int(bare_action)
-                        fired = trigger is not None and trigger.fires(
-                            decisions, length, bool(advisory.any())
-                        )
+                        # Pass alive=True to DenseTrigger.fires so an empty advisory mask on the
+                        # first length-eligible decision still anchors the 5-decision clock,
+                        # matching V3, watch6_alllen_screen, watch_replay, and ceiling.py:236.
+                        fired = trigger is not None and trigger.fires(decisions, length, True)
                         if fired and bool(advisory.any()):
                             t0 = time.monotonic()
                             batch = dense_batch(world, frame_index - 1, q_row, legal)
-                            step_search += time.monotonic() - t0
+                            batch_dt = time.monotonic() - t0
+                            step_search += batch_dt
                             chosen = int(batch["chosen"])
-                            if chosen not in legal or not 0 <= chosen < 6:
+                            if not 0 <= chosen < 6 or not bool(legal[chosen]):
                                 raise ScientificFault("illegal exact-stop action selection")
                             batches += 1
                             intervened = int(chosen != bare_action)
                             interventions += intervened
+                            b_eval = int(batch["branches_evaluated"])
                             if length < 600:
                                 batches_lt600 += 1
                                 interventions_lt600 += intervened
+                                branches_lt600 += b_eval
+                                search_seconds_lt600 += batch_dt
                             else:
                                 batches_ge600 += 1
                                 interventions_ge600 += intervened
-                            evaluated += int(batch["branches_evaluated"])
+                                if length < 1000:
+                                    branches_600_999 += b_eval
+                                    search_seconds_600_999 += batch_dt
+                                else:
+                                    batches_ge1000 += 1
+                                    branches_ge1000 += b_eval
+                                    search_seconds_ge1000 += batch_dt
+                            evaluated += b_eval
                             skipped += int(batch["branches_skipped"])
                             kernel_rows += int(batch["native_v8"]["kernel_rows"])
                         selected.update(
@@ -305,6 +326,7 @@ def run_arm(
             "batches": batches,
             "batches_lt600": batches_lt600,
             "batches_ge600": batches_ge600,
+            "batches_ge1000": batches_ge1000,
             "interventions": interventions,
             "interventions_lt600": interventions_lt600,
             "interventions_ge600": interventions_ge600,
@@ -313,7 +335,16 @@ def run_arm(
             "native_v8_kernel_rows": kernel_rows,
             "mirror_identity_frames": mirror_frames,
             "respawns_per_slot": respawns,
-            "timing": {"main_seconds": main_seconds, "search_seconds": search_seconds},
+            "timing": {
+                "main_seconds": main_seconds,
+                "search_seconds": search_seconds,
+                "search_seconds_lt600": search_seconds_lt600,
+                "search_seconds_600_999": search_seconds_600_999,
+                "search_seconds_ge1000": search_seconds_ge1000,
+                "branches_lt600": branches_lt600,
+                "branches_600_999": branches_600_999,
+                "branches_ge1000": branches_ge1000,
+            },
             "roster": roster,
         }
     finally:

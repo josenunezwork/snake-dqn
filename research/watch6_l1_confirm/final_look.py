@@ -23,7 +23,9 @@ import contextlib
 import json
 import os
 import platform
+import shutil
 import sys
+import tempfile
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,13 +34,17 @@ from research.colab_cli import canary
 from research.watch6_l1_confirm import protocol as p
 from research.watch6_l1_confirm.admission import (
     RETAINED_PENDING_CLEANUP_ERROR,
+    has_non_inert_entries,
     is_external_transport_compute_failure,
+    is_inert_macos_metadata,
     is_prestart_transport_failure,
 )
 from research.watch6_l1_confirm.analyze import DEFAULT_ALPHA, analyze_verified_union
+from research.watch6_l1_confirm.mirror import validate as validate_mirror
 from research.watch6_l1_confirm.ratify import validate_ruling_receipt
 from research.watch6_l1_confirm.resume import WORLD_NAME_RE
 from research.watch6_l1_confirm.resume import build as build_verified_ledger
+from research.watch6_l1_confirm.uploads import METADATA, stage_metadata
 from tools.ops.package_spec import digest, publish_json, verify_immutable
 
 DEFAULT_OPS_DIR = p.ROOT.parent / "snake-dqn-artifacts/ops"
@@ -155,11 +161,17 @@ def _is_valid_live_unallocated_proof(proof_path: Path, out_dir: Path) -> bool:
     )
 
 
+def _looks_like_l1_v1_name(text: str) -> bool:
+    lowered = text.lower()
+    return any(tok in lowered for tok in (p.NAMESPACE.lower(), "watch6-l1", "watch6_l1"))
+
+
 def _is_proven_unallocated(ops_dir: Path, name: str, out_dir: Path) -> bool:
     log_path = ops_dir / "logs" / f"{name}.log"
     if (
-        not out_dir.exists()
-        and not (ops_dir / "dispatch" / name).exists()
+        not out_dir.is_symlink()
+        and not has_non_inert_entries(out_dir)
+        and not has_non_inert_entries(ops_dir / "dispatch" / name)
         and _log_has_exit(log_path)
     ):
         return True
@@ -168,6 +180,84 @@ def _is_proven_unallocated(ops_dir: Path, name: str, out_dir: Path) -> bool:
         *sorted(ops_dir.glob(f"unallocated-{name}*.json")),
     ]
     return any(_is_valid_live_unallocated_proof(cand, out_dir) for cand in proof_candidates)
+
+
+def _verify_attempt_mac_mirror(
+    attempt_dir: Path,
+    exec_manifest: dict,
+    mirror_cache: dict[str, str],
+) -> str:
+    """Verify executed manifest binds a valid current-identity full-14,400-frame mac-mirror.json."""
+    inputs = exec_manifest.get("inputs")
+    if not isinstance(inputs, list):
+        raise ValueError(
+            f"INVALID_OR_INCOMPLETE: missing inputs list in executed manifest: {attempt_dir}"
+        )
+    meta_item = next(
+        (item for item in inputs if isinstance(item, dict) and item.get("dest") == METADATA),
+        None,
+    )
+    if meta_item is None:
+        raise ValueError(
+            f"INVALID_OR_INCOMPLETE: missing {METADATA} input binding in {attempt_dir}"
+        )
+    meta_sha = str(meta_item.get("sha256") or "")
+    env_sha = str(exec_manifest.get("env", {}).get("WATCH6_METADATA_SHA256") or "")
+    if not meta_sha or meta_sha != env_sha:
+        raise ValueError(
+            f"INVALID_OR_INCOMPLETE: {METADATA} SHA256/WATCH6_METADATA_SHA256 mismatch in "
+            f"{attempt_dir}"
+        )
+    meta_path = Path(str(meta_item.get("path") or ""))
+    if meta_path.is_symlink() or not meta_path.is_file() or digest(meta_path) != meta_sha:
+        raise ValueError(
+            f"INVALID_OR_INCOMPLETE: missing, symlinked, or hash-mismatched {METADATA} in "
+            f"{attempt_dir}: {meta_path}"
+        )
+
+    input_hashes_path = attempt_dir / "input-hashes.json"
+    if input_hashes_path.is_symlink():
+        raise ValueError(
+            f"INVALID_OR_INCOMPLETE: symlinked input-hashes.json refused: {input_hashes_path}"
+        )
+    if input_hashes_path.exists():
+        try:
+            recorded_hashes = json.loads(input_hashes_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise ValueError(
+                f"INVALID_OR_INCOMPLETE: unreadable input-hashes.json in {attempt_dir}: {exc}"
+            ) from exc
+        if (
+            not isinstance(recorded_hashes, dict)
+            or recorded_hashes.get(f"inputs/{METADATA}") != meta_sha
+        ):
+            raise ValueError(
+                f"INVALID_OR_INCOMPLETE: input-hashes.json {METADATA} digest mismatch in "
+                f"{attempt_dir}"
+            )
+
+    if meta_sha not in mirror_cache:
+        with tempfile.TemporaryDirectory(prefix="watch6-l1-final-mirror-") as temporary:
+            tmp_root = Path(temporary)
+            shutil.copyfile(meta_path, tmp_root / METADATA)
+            try:
+                stage_metadata(
+                    tmp_root,
+                    meta_sha,
+                    verify_pins=False,
+                    materialize_checkpoints=False,
+                )
+                mirror_desc = verify_immutable(tmp_root / "mac-mirror.json")
+                validate_mirror(
+                    json.loads((tmp_root / "mac-mirror.json").read_text(encoding="utf-8"))
+                )
+            except ValueError as exc:
+                raise ValueError(
+                    f"INVALID_OR_INCOMPLETE: missing, invalid, or foreign mac-mirror.json in "
+                    f"{attempt_dir}: {exc}"
+                ) from exc
+            mirror_cache[meta_sha] = mirror_desc["sha256"]
+    return mirror_cache[meta_sha]
 
 
 def _classify_attempt(attempt_dir: Path, receipt: dict) -> str:
@@ -439,7 +529,6 @@ def run_final_look(
     ops_dir: Path,
     out_dir: Path,
     ruling_json: Path | None = None,
-    alpha: float = DEFAULT_ALPHA,
 ) -> dict:
     """Audit all Watch6-L1-V1 ops manifests/receipts/lineages pre-outcome, then take 1 sole look."""
     if platform.system() != "Darwin":
@@ -459,23 +548,58 @@ def run_final_look(
         shard_attempts: dict[int, list[_ShardAttempt]] = {s: [] for s in range(p.SHARDS)}
         unallocated_manifests: set[Path] = set()
         seen_output_dirs: set[Path] = set()
+        ignored_foreign_manifest_symlinks: list[str] = []
+        mirror_cache: dict[str, str] = {}
+        verified_mirror_shas: set[str] = set()
 
         for mf_path in sorted(manifests_dir.iterdir()):
-            if mf_path.name.startswith("."):
+            if is_inert_macos_metadata(mf_path):
                 continue
-            if mf_path.is_symlink():
-                raise ValueError(f"INVALID_OR_INCOMPLETE: symlink in ops manifests: {mf_path}")
+            is_sym = mf_path.is_symlink()
             if mf_path.suffix != ".json" or mf_path.name.endswith(".live.json"):
+                if is_sym:
+                    link_target = os.readlink(mf_path)
+                    if _looks_like_l1_v1_name(mf_path.name) or _looks_like_l1_v1_name(link_target):
+                        raise ValueError(
+                            "INVALID_OR_INCOMPLETE: symlink in Watch6-L1-V1 ops manifests: "
+                            f"{mf_path}"
+                        )
+                    ignored_foreign_manifest_symlinks.append(str(mf_path))
                 continue
             try:
                 data = json.loads(mf_path.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
+            except (OSError, ValueError) as exc:
+                if is_sym:
+                    link_target = os.readlink(mf_path)
+                    if _looks_like_l1_v1_name(mf_path.name) or _looks_like_l1_v1_name(link_target):
+                        raise ValueError(
+                            "INVALID_OR_INCOMPLETE: broken or unreadable Watch6-L1-V1 symlink "
+                            f"in ops manifests: {mf_path}"
+                        ) from exc
+                    ignored_foreign_manifest_symlinks.append(str(mf_path))
+                    continue
+                if _looks_like_l1_v1_name(mf_path.name):
+                    raise ValueError(
+                        f"INVALID_OR_INCOMPLETE: corrupt Watch6-L1-V1 ops manifest: {mf_path}"
+                    ) from exc
                 continue
             if not isinstance(data, dict):
+                if is_sym:
+                    ignored_foreign_manifest_symlinks.append(str(mf_path))
                 continue
             binding = data.get("watch6_l1_v1")
             if not isinstance(binding, dict) or binding.get("namespace") != p.NAMESPACE:
+                if is_sym:
+                    ignored_foreign_manifest_symlinks.append(str(mf_path))
                 continue
+            if is_sym:
+                raise ValueError(
+                    f"INVALID_OR_INCOMPLETE: symlink in Watch6-L1-V1 ops manifests: {mf_path}"
+                )
+            if mf_path.name.startswith("."):
+                raise ValueError(
+                    f"INVALID_OR_INCOMPLETE: unexpected hidden Watch6-L1-V1 ops manifest: {mf_path}"
+                )
             if binding.get("science") != p.identity():
                 raise ValueError(
                     "INVALID_OR_INCOMPLETE: foreign science identity under L1-V1 namespace: "
@@ -546,6 +670,9 @@ def run_final_look(
                         "INVALID_OR_INCOMPLETE: executed manifest allocation/science mismatch: "
                         f"{attempt_dir}"
                     )
+
+                mirror_sha = _verify_attempt_mac_mirror(attempt_dir, exec_manifest, mirror_cache)
+                verified_mirror_shas.add(mirror_sha)
 
                 gpu = str(exec_manifest.get("requirements", {}).get("gpu", ""))
                 if gpu not in p.TARGET_GPUS:
@@ -633,11 +760,39 @@ def run_final_look(
                 seen_slots[slot] = resolved_cand
                 unit_paths.append(resolved_cand)
 
-            efficacy_dir = att.attempt_dir / "exports/efficacy"
+            exports_root = att.attempt_dir / "exports"
+            if exports_root.is_symlink():
+                raise ValueError(f"INVALID_OR_INCOMPLETE: symlinked exports dir: {exports_root}")
+            if exports_root.is_dir():
+                for top_entry in sorted(exports_root.iterdir()):
+                    if is_inert_macos_metadata(top_entry, root=exports_root):
+                        continue
+                    if top_entry.is_symlink():
+                        raise ValueError(f"INVALID_OR_INCOMPLETE: symlink in exports/: {top_entry}")
+                    if top_entry.name.startswith("."):
+                        raise ValueError(
+                            "INVALID_OR_INCOMPLETE: unexpected non-inert dot-file in exports/: "
+                            f"{top_entry}"
+                        )
+
+            efficacy_dir = exports_root / "efficacy"
+            if efficacy_dir.is_symlink():
+                raise ValueError(f"INVALID_OR_INCOMPLETE: symlinked efficacy_dir: {efficacy_dir}")
             if efficacy_dir.is_dir():
                 for disk_file in sorted(efficacy_dir.iterdir()):
+                    if is_inert_macos_metadata(disk_file, root=efficacy_dir):
+                        continue
+                    if disk_file.is_symlink():
+                        raise ValueError(
+                            f"INVALID_OR_INCOMPLETE: symlink in exports/efficacy: {disk_file}"
+                        )
+                    if disk_file.name.startswith("."):
+                        raise ValueError(
+                            "INVALID_OR_INCOMPLETE: unexpected non-inert dot-file in "
+                            f"exports/efficacy: {disk_file}"
+                        )
                     if WORLD_NAME_RE.fullmatch(disk_file.name) is not None:
-                        if disk_file.is_symlink() or disk_file.resolve() not in declared_worlds:
+                        if disk_file.resolve() not in declared_worlds:
                             raise ValueError(
                                 "INVALID_OR_INCOMPLETE: unrecorded world file on disk outside "
                                 f"receipt exports: {disk_file}"
@@ -677,6 +832,8 @@ def run_final_look(
             "verified_worlds": len(verified_slots),
             "shards_verified": p.SHARDS,
             "passing_canaries_by_gpu": passing_canaries_by_gpu,
+            "mac_mirror_sha256s": sorted(verified_mirror_shas),
+            "ignored_foreign_manifest_symlinks": ignored_foreign_manifest_symlinks,
             "total_main_attempts": len(ordered_main_attempts),
             "final_ledger_sha256": digest(ledger_path),
             "outcome_files_opened_during_audit": 0,
@@ -685,10 +842,12 @@ def run_final_look(
         publish_json(accounting_path, accounting_cert)
 
     # Pre-outcome guard lifted ONLY after all 18 shards / 96 worlds passed and certificate sealed.
-    decision = analyze_verified_union(unit_paths, main_receipts, alpha=alpha)
+    # Confirmation level is unconditionally fixed at DEFAULT_ALPHA (0.05).
+    decision = analyze_verified_union(unit_paths, main_receipts, alpha=DEFAULT_ALPHA)
     decision["pre_data_ruling"] = ruling_receipt
     decision["pre_outcome_accounting_sha256"] = digest(accounting_path)
     decision["passing_canaries_by_gpu"] = passing_canaries_by_gpu
+    decision["mac_mirror_sha256s"] = sorted(verified_mirror_shas)
     decision["total_main_attempts"] = len(ordered_main_attempts)
     decision["final_ledger_sha256"] = digest(ledger_path)
     publish_json(out_dir / "l1-confirm-decision.json", decision)
@@ -702,13 +861,11 @@ def main() -> None:
     parser.add_argument(
         "--ruling-json", "--ruling-receipt", dest="ruling_json", type=Path, default=None
     )
-    parser.add_argument("--alpha", type=float, default=DEFAULT_ALPHA)
     args = parser.parse_args()
     decision = run_final_look(
         ops_dir=args.ops_dir,
         out_dir=args.out_dir.resolve(),
         ruling_json=args.ruling_json,
-        alpha=args.alpha,
     )
     print(
         json.dumps(

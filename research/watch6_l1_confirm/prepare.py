@@ -209,6 +209,7 @@ def prepare(
             "SNAKE_WATCH_SOURCE": "live",
             "WATCH6_SCIENCE": p.identity(),
             "WATCH6_METADATA_SHA256": metadata_sha256,
+            "PYTHONDONTWRITEBYTECODE": "1",
             "PYTHONUNBUFFERED": "1",
             **{
                 k: "1"

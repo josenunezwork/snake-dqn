@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-python -m research.watch6_l1_confirm.uploads
+export PYTHONDONTWRITEBYTECODE="1"
 
-python - <<'PY'
+python -B -m research.watch6_l1_confirm.uploads
+
+python -B - <<'PY'
 import os
 from pathlib import Path
 from research.watch_replay.product import stage_release_evidence
@@ -16,7 +18,7 @@ export WATCH6_RELEASE_EVIDENCE="${COLAB_INPUT_DIR}/release-evidence"
 export SNAKE_WATCH_SOURCE="live"
 
 if [[ "${WATCH6_FIXTURE}" == "1" ]]; then
-  python -m research.watch6_l1_confirm.run \
+  exec python -B -m research.watch6_l1_confirm.run \
     --out "${COLAB_EXPORT_DIR}/efficacy" \
     --ledger "${COLAB_INPUT_DIR}/verified-ledger.json" \
     --workers "${WATCH6_WORKERS}" \
@@ -27,7 +29,7 @@ if [[ "${WATCH6_FIXTURE}" == "1" ]]; then
     --fixture-horizon 60 \
     --canary-performance-out "${COLAB_EXPORT_DIR}/performance.json"
 else
-  python - <<'PY'
+  python -B - <<'PY'
 import json
 import os
 from pathlib import Path
@@ -39,7 +41,7 @@ publish_json(
     json.loads(cost_path.read_text(encoding="utf-8")),
 )
 PY
-  python -m research.watch6_l1_confirm.run \
+  exec python -B -m research.watch6_l1_confirm.run \
     --out "${COLAB_EXPORT_DIR}/efficacy" \
     --ledger "${COLAB_INPUT_DIR}/verified-ledger.json" \
     --workers "${WATCH6_WORKERS}" \

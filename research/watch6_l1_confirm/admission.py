@@ -34,9 +34,45 @@ EXTERNAL_TRANSPORT_CLASSES = {
 }
 
 LEASE_TERMINAL_REASONS = frozenset({"lease_expired", "release_credential_expiring"})
+GRACEFUL_COMPUTE_TERMINAL_REASONS = LEASE_TERMINAL_REASONS | frozenset({"timeout"})
 RETAINED_PENDING_CLEANUP_ERROR = "ALLOCATION_UNRESOLVED: retained pending record"
 
-FORBIDDEN_TIMEOUT_SUBSTRINGS = (
+# Explicit allowlist of inert macOS filesystem metadata names ignored under exports/, output_dir/,
+# and ops/manifests/ directory scans. Every other dot-file (e.g. .tmp, .part) remains fail-closed.
+INERT_MACOS_METADATA_NAMES: frozenset[str] = frozenset(
+    {
+        ".DS_Store",
+        "._.DS_Store",
+        ".localized",
+        ".Spotlight-V100",
+        ".Trashes",
+        ".fseventsd",
+        ".TemporaryItems",
+        ".VolumeIcon.icns",
+    }
+)
+
+ALLOWED_PREALLOC_FILES: frozenset[str] = frozenset(
+    {
+        "manifest.json",
+        "manifest.json.sha256",
+        "manifest.json.complete",
+        "receipt.json",
+        "receipt.json.sha256",
+        "receipt.json.complete",
+        "unavailable.json",
+        "unavailable.json.sha256",
+        "unavailable.json.complete",
+    }
+)
+
+FORBIDDEN_WATCHDOG_SUBSTRINGS = (
+    "WATCHDOG",
+    "FAULTHANDLER",
+    "DUMP_TRACEBACK_LATER",
+)
+
+WALL_TIMEOUT_SUBSTRINGS = (
     "WALL_TIMEOUT",
     "WHOLE-SESSION WALL CAP",
     "WHOLE-SESSION DEADLINE",
@@ -44,9 +80,6 @@ FORBIDDEN_TIMEOUT_SUBSTRINGS = (
     "TIMEOUT_MINUTES",
     "EXCEEDED WALL",
     "EXCEEDED TIMEOUT",
-    "WATCHDOG",
-    "FAULTHANDLER",
-    "DUMP_TRACEBACK_LATER",
 )
 
 _NON_TRANSPORT_FAULT_RE = re.compile(
@@ -88,14 +121,7 @@ _NON_TRANSPORT_FAULT_RE = re.compile(
     r"|\bcublas\b"
     r"|segfault"
     r"|segmentation fault"
-    r"|\bsig(?:segv|abrt|bus|ill|fpe|kill|usr1)\b"
-    r"|wall_timeout"
-    r"|whole-session wall cap"
-    r"|whole-session deadline"
-    r"|wall cap reached"
-    r"|timeout_minutes"
-    r"|exceeded wall"
-    r"|exceeded timeout"
+    r"|\bsig(?:segv|abrt|bus|ill|fpe)\b"
     r"|\bwatchdog\b"
     r"|\bfaulthandler\b"
     r"|dump_traceback_later"
@@ -193,13 +219,45 @@ def _unwrap_text_variants(raw: object) -> list[str]:
     return variants
 
 
+def is_inert_macos_metadata(path: Path, *, root: Path | None = None) -> bool:
+    """True iff path is a non-symlink entry under an explicitly listed inert macOS metadata name."""
+    if path.is_symlink():
+        return False
+    rel_parts = path.relative_to(root).parts if root is not None else (path.name,)
+    return any(part in INERT_MACOS_METADATA_NAMES for part in rel_parts)
+
+
+def has_non_inert_entries(directory: Path) -> bool:
+    """True iff directory is a symlink or contains any entry outside INERT_MACOS_METADATA_NAMES."""
+    if directory.is_symlink():
+        return True
+    if not directory.exists():
+        return False
+    for entry in directory.rglob("*"):
+        if entry.is_symlink():
+            return True
+        if is_inert_macos_metadata(entry, root=directory):
+            continue
+        return True
+    return False
+
+
 def has_non_transport_fault(text: object) -> bool:
-    """True iff error/log text carries any scientific, integrity, child, or wall-timeout fault."""
+    """True iff error/log text carries any scientific, integrity, child, or watchdog fault."""
     for candidate in _unwrap_text_variants(text):
         if _NON_TRANSPORT_FAULT_RE.search(candidate) is not None:
             return True
         upper = candidate.upper()
-        if any(token in upper for token in FORBIDDEN_TIMEOUT_SUBSTRINGS):
+        if any(token in upper for token in FORBIDDEN_WATCHDOG_SUBSTRINGS):
+            return True
+    return False
+
+
+def has_wall_timeout_marker(text: object) -> bool:
+    """True iff text carries a whole-session wall-timeout marker (compute-only, never prestart)."""
+    for candidate in _unwrap_text_variants(text):
+        upper = candidate.upper()
+        if any(token in upper for token in WALL_TIMEOUT_SUBSTRINGS):
             return True
     return False
 
@@ -284,13 +342,32 @@ def _read_optional_measurement(path: Path) -> tuple[bool, dict | None]:
     return True, data
 
 
+def _audit_job_log_clean(output_dir: Path) -> bool:
+    """Verify job.log (when present) has zero tracebacks, scientific faults, or watchdog hangs."""
+    job_log = output_dir / "job.log"
+    if not job_log.exists() and not job_log.is_symlink():
+        return True
+    if job_log.is_symlink() or not job_log.is_file():
+        return False
+    try:
+        text = job_log.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return (
+        "Traceback (most recent call last)" not in text
+        and "WATCH6_L1_SCIENTIFIC_FAULT" not in text
+        and _GENERIC_LOG_EXCEPTION_RE.search(text) is None
+        and not has_non_transport_fault(text)
+    )
+
+
 def _audit_poll_files(
     output_dir: Path,
     *,
-    allow_lease_terminal: bool = False,
+    allow_graceful_compute_terminal: bool = False,
     allow_precompute_fetch_rc74: bool = False,
 ) -> tuple[bool, int]:
-    """Audit real supervisor poll-*.json snapshots for zero scientific/child faults."""
+    """Audit real supervisor poll-*.json snapshots for zero scientific/child/watchdog faults."""
     for legacy in sorted(output_dir.glob("telemetry-*.json")):
         try:
             raw_legacy = legacy.read_text(encoding="utf-8")
@@ -312,9 +389,10 @@ def _audit_poll_files(
         term = poll.get("terminal")
         if term is not None:
             if (
-                allow_lease_terminal
+                allow_graceful_compute_terminal
                 and isinstance(term, dict)
-                and (term.get("reason") in LEASE_TERMINAL_REASONS)
+                and (term.get("reason") in GRACEFUL_COMPUTE_TERMINAL_REASONS)
+                and term.get("returncode") != 86
             ):
                 pass
             elif (
@@ -329,7 +407,11 @@ def _audit_poll_files(
         if not isinstance(state, dict):
             return False, len(poll_paths)
         if state.get("status") not in ("starting", "running"):
-            if allow_lease_terminal and state.get("reason") in LEASE_TERMINAL_REASONS:
+            if (
+                allow_graceful_compute_terminal
+                and state.get("reason") in GRACEFUL_COMPUTE_TERMINAL_REASONS
+                and state.get("returncode") != 86
+            ):
                 pass
             elif allow_precompute_fetch_rc74 and state.get("returncode") == 74:
                 pass
@@ -365,7 +447,7 @@ def _is_precompute_public_fetch_failure(receipt: dict, output_dir: Path) -> bool
     ):
         return False
     exports_dir = output_dir / "exports"
-    if exports_dir.is_symlink() or (exports_dir.exists() and any(exports_dir.rglob("*"))):
+    if has_non_inert_entries(exports_dir):
         return False
     terminal = receipt.get("terminal")
     if not isinstance(terminal, dict) or terminal.get("returncode") != 74:
@@ -389,9 +471,27 @@ def _is_precompute_public_fetch_failure(receipt: dict, output_dir: Path) -> bool
     )
 
 
+def _prealloc_tree_clean(output_dir: Path) -> bool:
+    """Verify a pre-allocation output_dir contains only inert macOS metadata and prealloc files."""
+    if output_dir.is_symlink():
+        return False
+    exports_dir = output_dir / "exports"
+    for entry in output_dir.rglob("*"):
+        if entry.is_symlink():
+            return False
+        if is_inert_macos_metadata(entry, root=output_dir):
+            continue
+        if entry == exports_dir and entry.is_dir() and not has_non_inert_entries(exports_dir):
+            continue
+        rel = entry.relative_to(output_dir)
+        if len(rel.parts) != 1 or rel.name not in ALLOWED_PREALLOC_FILES or not entry.is_file():
+            return False
+    return True
+
+
 def is_prestart_transport_failure(receipt: dict, output_dir: Path | None) -> bool:
     """True iff positive supervisor evidence proves failure occurred before unit compute began."""
-    if not isinstance(output_dir, Path) or not output_dir.is_dir():
+    if not isinstance(output_dir, Path) or output_dir.is_symlink() or not output_dir.is_dir():
         return False
     for fault_glob in ("runtime-measurement*", "scientific-fault*"):
         if any(output_dir.glob(fault_glob)):
@@ -405,7 +505,7 @@ def is_prestart_transport_failure(receipt: dict, output_dir: Path | None) -> boo
     if (output_dir / "terminal.json").exists() or (output_dir / "terminal.json").is_symlink():
         return False
     exports_dir = output_dir / "exports"
-    if exports_dir.is_symlink() or (exports_dir.exists() and any(exports_dir.rglob("*"))):
+    if has_non_inert_entries(exports_dir):
         return False
 
     if (
@@ -422,7 +522,9 @@ def is_prestart_transport_failure(receipt: dict, output_dir: Path | None) -> boo
     if failure_class in {"CHILD_NONZERO_EXIT", "FOREIGN_GENERATION"}:
         return False
     for field in ("error", "traceback", "last_traceback_line"):
-        if has_non_transport_fault(receipt.get(field)):
+        if has_non_transport_fault(receipt.get(field)) or has_wall_timeout_marker(
+            receipt.get(field)
+        ):
             return False
 
     ok_w, warmup = _read_optional_measurement(output_dir / "warmup-measurement.json")
@@ -438,6 +540,8 @@ def is_prestart_transport_failure(receipt: dict, output_dir: Path | None) -> boo
     # Proof 1: Pre-allocation refusal before any VM endpoint was assigned (including 412/503).
     if endpoint is None:
         if any((output_dir / name).exists() for name in FORBIDDEN_PREALLOC_ENTRIES):
+            return False
+        if not _prealloc_tree_clean(output_dir):
             return False
         return (
             receipt.get("stop_verified") is False
@@ -524,8 +628,8 @@ def is_prestart_transport_failure(receipt: dict, output_dir: Path | None) -> boo
 
 
 def is_external_transport_compute_failure(receipt: dict, output_dir: Path | None = None) -> bool:
-    """True iff compute started (hardware.json) and stopped purely on verified transport/lease."""
-    if not isinstance(output_dir, Path) or not output_dir.is_dir():
+    """True iff compute started and stopped cleanly on verified transport, lease, or wall cap."""
+    if not isinstance(output_dir, Path) or output_dir.is_symlink() or not output_dir.is_dir():
         return False
     if any(output_dir.glob("scientific-fault*")):
         return False
@@ -541,20 +645,25 @@ def is_external_transport_compute_failure(receipt: dict, output_dir: Path | None
         return False
     if not (output_dir / "hardware.json").is_file() or (output_dir / "hardware.json").is_symlink():
         return False
+    if not _audit_job_log_clean(output_dir):
+        return False
 
     failure_class = str(receipt.get("failure_class") or "")
 
-    # Subcase A: runtime.py self-fenced strictly on lease expiry / release-credential expiry
-    # (never wall timeout, watchdog, or child scientific exit).
+    # Subcase A: runtime.py self-fenced on lease expiry, release-credential expiry, or 2x wall cap
+    # (never faulthandler 900s watchdog, ScientificFault rc=86, or child Python exception).
     if failure_class == "CHILD_NONZERO_EXIT":
         terminal = receipt.get("terminal")
         if (
             not isinstance(terminal, dict)
-            or terminal.get("reason") not in LEASE_TERMINAL_REASONS
+            or terminal.get("reason") not in GRACEFUL_COMPUTE_TERMINAL_REASONS
+            or terminal.get("returncode") in (0, 86)
             or has_non_transport_fault(terminal.get("error"))
+            or has_non_transport_fault(terminal.get("last_traceback_line"))
+            or has_non_transport_fault(receipt.get("error"))
         ):
             return False
-        polls_clean, _ = _audit_poll_files(output_dir, allow_lease_terminal=True)
+        polls_clean, _ = _audit_poll_files(output_dir, allow_graceful_compute_terminal=True)
         return polls_clean
 
     if receipt.get("terminal") is not None or (output_dir / "terminal.json").exists():
@@ -573,6 +682,21 @@ def is_external_transport_compute_failure(receipt: dict, output_dir: Path | None
     if failure_class == "ACCOUNTING":
         err_text = str(receipt.get("error") or "")
         return bool(err_text) and _ACCOUNTING_PROVIDER_LAG_RE.search(err_text) is not None
+
+    # Subcase B: Mac supervisor whole-session wall cap reached cleanly with zero child faults.
+    if failure_class == "SUPERVISOR" and (
+        "whole-session wall cap reached" in str(receipt.get("error") or "").lower()
+    ):
+        tb_texts = _unwrap_text_variants(receipt.get("traceback"))
+        for tb in tb_texts:
+            frame_paths = _FRAME_PATH_RE.findall(tb) + _RICH_FRAME_PATH_RE.findall(tb)
+            if any(_FORBIDDEN_FRAME_RE.search(fp) is not None for fp in frame_paths):
+                return False
+            if frame_paths and not any(
+                _ALLOWED_TRANSPORT_FRAME_RE.search(fp) is not None for fp in frame_paths
+            ):
+                return False
+        return True
 
     if not _has_failed_transport_record(receipt):
         return False

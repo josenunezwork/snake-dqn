@@ -251,19 +251,25 @@ def audit(
     repo_primary_hits = _rg_hits(
         primary,
         p.ROOT,
-        extra_globs=["!**/research/watch6_l1_confirm/REGISTRATION_L1_V1.md"],
+        extra_globs=[
+            "!**/.pytest_cache/**",
+            "!**/.pytest_tmp*/**",
+            "!**/research/watch6_l1_confirm/REGISTRATION_L1_V1.md",
+        ],
     )
     # Fixture seeds appear literally in research/watch6_l1_confirm/ and its test; scan rest of repo.
     repo_fixture_hits = _rg_hits(
         fixtures,
         p.ROOT,
         extra_globs=[
+            "!**/.pytest_cache/**",
+            "!**/.pytest_tmp*/**",
             "!**/research/watch6_l1_confirm/**",
             "!**/tests/test_watch6_l1_confirm.py",
         ],
     )
 
-    artifact_globs: list[str] = ["!**/t34-sol/argon-l1v1-pkg/**"]
+    artifact_globs: list[str] = ["!**/t34-sol/argon-l1v1-pkg*/**"]
     if own_artifact_subdir is not None and resolved_artifacts.exists():
         try:
             rel_own = own_artifact_subdir.resolve().relative_to(resolved_artifacts.resolve())
