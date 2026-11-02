@@ -22,7 +22,7 @@ product Watch6 v2, `5× frp3-s12 + v8` opponents, 6,000-frame sessions; pipeline
   `.claude/launch.json` (`snake-web`, verified live on `:8000`). The `168`-session mixed bank
   `watch-replay-bank-live-168` (`132` `exact-stop-l2-prime` + `36` unconfirmed `exact-stop-l1` sessions
   from banks `14l1–16l1`) remains on disk while `exact-stop-l1` awaits `H = 14,400` confirmation
-  (`Watch6-L1-V1` in [research/ROADMAP.md](research/ROADMAP.md) §2.3).
+  (ratified `Watch6-L1-V1`, [`research/watch6_l1_confirm/REGISTRATION_L1_V1.md`](../research/watch6_l1_confirm/REGISTRATION_L1_V1.md) + `t34-sol/argon-l1v1-pkg/RULING_L1_V1.md`; see [research/ROADMAP.md](research/ROADMAP.md) §2.3).
 - **Serving guards, cooperative prefetch & Mac `24 fps` qualification (`dc834ded`–`fec81656`):**
   - `GameSession` ([`web/backend/session.py`](../web/backend/session.py)) gates Watch replay on
     `_is_clean_mixed_watch6_b8()` across `__init__`, `_build`, `reset_game`, and `set_mode` (so env-var
@@ -59,10 +59,17 @@ product Watch6 v2, `5× frp3-s12 + v8` opponents, 6,000-frame sessions; pipeline
     The earlier Watch6 V2 run ([`research/watch6_search_efficacy/`](../research/watch6_search_efficacy/))
     closed `INVALID_OR_INCOMPLETE` on 2026-10-31 with `0` outcomes read after shard 6 exhausted pre-start
     retries (`t34-sol/watch6-shard6-ruling/RULING_SHARD6.md`).
-  - **`exact-stop-l1` (`L >= 1`) — exploration `ADOPT` complete; `H = 14,400` confirmation pending:**
+  - **`exact-stop-l1` (`L >= 1`) — exploration `ADOPT` complete; `Watch6-L1-V1` ratified pre-data, `H = 14,400` execution pending:**
     passed the `N = 48, H = 6,000` exploration screen (`+98.3` mass, `-67.4%` `deaths/1k` vs `L >= 600`),
-    with `36` sessions (`14l1–16l1`) staged on disk awaiting prospective `H = 14,400` confirmation
-    (`Watch6-L1-V1` in [research/ROADMAP.md](research/ROADMAP.md) §2.3), Mac qualification, and owner OK.
+    with `36` sessions (`14l1–16l1`) staged on disk. Prospective `H = 14,400` 3-arm confirmation
+    ([`research/watch6_l1_confirm/REGISTRATION_L1_V1.md`](../research/watch6_l1_confirm/REGISTRATION_L1_V1.md),
+    merged at `ac250f05` from `cf07791b`) is ratified pre-data by Fable (`APPROVE-WITH-CONDITIONS` in
+    `t34-sol/argon-l1v1-pkg/RULING_L1_V1.md`, delta verified in `fable-review.md`, bound `science = c015d5cb…e84f`),
+    with the full-`14,400`-frame 3-arm Mac mirror (`t34-sol/argon-l1v1-pkg-fix1/mac-mirror.json`,
+    `43,200/43,200` frames, `0` mismatches, `1.272×` 3-arm wall ratio replacing `M0b`) and `18` single-wave
+    shards (`12×6 A100 W = 6` + `6×4 L4 W = 4`, receipts-based forecast **`~638.2 u` central**,
+    `603.7–739.3 u`, `~27.7 h` in `t34-sol/argon-l1v1-pkg-fix1/staged-prep-check/forecast.json`) prepared for
+    dispatch, followed by Mac qualification and owner OK ([research/ROADMAP.md](research/ROADMAP.md) §2.1 & §2.3).
 
 ### Play & live Watch fallback: released bare `b8-s3` checkpoint (2026-10-17)
 
@@ -131,7 +138,7 @@ For synthesized current-round and later-round research plans (**advice, not deci
   - `bare` (`b8-s3`): mass **`351.1`** (`CI95 [320.2, 381.9]`), deaths **`0.288/1k`** (`83` deaths: `53` at `L < 600`, `30` at `L >= 600`, `21` at `L >= 800`).
   - `l2_prime_600` (served `L >= 600`): mass **`461.2`** (`+110.1` vs `bare`, `CI95 [+72.1, +148.1]`), deaths **`0.160/1k`** (`-44.6%` vs `bare`; `46` deaths: `34` at `L < 600`, `12` at `L >= 600`, `11` at `L >= 800`), `449.6` mean branches/session.
   - **`exact_stop_alllen` (`L >= 1`, `interval = 5`, `H = 300`):** mass **`559.4`** (**`+208.4` vs `bare`**, `CI95 [+170.1, +246.7]`; **`+98.3` vs `L >= 600`**, `CI95 [+50.6, +146.0]`), deaths **`0.052/1k`** (**`-81.9%` vs `bare`**; **`-67.4%` / `-0.108/1k` vs `L >= 600`**, `CI95 [-0.161, -0.054]`; `15` total deaths: **`1` at `L < 600`**, **`14` at `L >= 600`**, **`13` at `L >= 800`**), **`2.82×` search branches** (`1,268.5` mean branches/session, `0.142%` `L < 600` overrides, `mean_max_length = 1,096.0`).
-  - Pre-stated adoption rule (`>= +15.0` incremental mass and `<= 0.0` `deaths/1k` vs `L >= 600`) met: commit `73974411` added `"exact-stop-l1"` to `research/watch_replay/` and `web/backend/watch_replay.py`, and A100 `W = 6` banks `14l1–16l1` (`3 × 12` = `36/36` verified `H = 6,000` sessions on disjoint seeds in **`3.03–3.07 h/bank`, `20.36–20.67 A100 u/bank` = `~61.5 A100 u` observed total** at `6.73 u/h` vs the `2.821×`-calibrated `75.6 u` base / `151.2 u` 2× forecast in `t34-sol/argon-banks-l1/SUMMARY.md:38-40`; at `H = 14,400`, `DenseTrigger(min_length=1, interval=5)` is physically capped at `<= 2,880` roots / `~3,045–3,250` branches = **`1.19–1.28×`** V3's `2,549.4` at `H = 14,400` and `~2.4–2.6×` `l1`'s `1,268.5` at `H = 6,000`) were verified and merged into `watch-replay-bank-live-168` (`395eacbb`, `web/serve.py` restarted on `b5b63cd1`). Exploration screen only — confirming `exact-stop-l1` as a Claim-B release requires prospective H14400 confirmation via [`research/watch6_l1_confirm/`](../research/watch6_l1_confirm/) ([`REGISTRATION_L1_V1.md`](../research/watch6_l1_confirm/REGISTRATION_L1_V1.md), merged at `ac250f05` after Fable pre-data review `APPROVE_WITH_CONDITIONS` resolved at `cf07791b`: 3-arm fixed-sequence `{bare, l2_prime, l1}`, `N = 96, H = 14,400`, cyclic 6-permutation Latin order, `18` shards = `12×6 A100 W = 6` + `6×4 L4 W = 4`; see also [research/ROADMAP.md](research/ROADMAP.md) §2.3).
+  - Pre-stated adoption rule (`>= +15.0` incremental mass and `<= 0.0` `deaths/1k` vs `L >= 600`) met: commit `73974411` added `"exact-stop-l1"` to `research/watch_replay/` and `web/backend/watch_replay.py`, and A100 `W = 6` banks `14l1–16l1` (`3 × 12` = `36/36` verified `H = 6,000` sessions on disjoint seeds in **`3.03–3.07 h/bank`, `20.36–20.67 A100 u/bank` = `~61.5 A100 u` observed total** at `6.73 u/h` vs the `2.821×`-calibrated `75.6 u` base / `151.2 u` 2× forecast in `t34-sol/argon-banks-l1/SUMMARY.md:38-40`; at `H = 14,400`, `DenseTrigger(min_length=1, interval=5)` is physically capped at `<= 2,880` roots / `~3,045–3,250` branches = **`1.19–1.28×`** V3's `2,549.4` at `H = 14,400` and `~2.4–2.6×` `l1`'s `1,268.5` at `H = 6,000`) were verified and merged into `watch-replay-bank-live-168` (`395eacbb`, `web/serve.py` restarted on `b5b63cd1`). Exploration screen only — confirming `exact-stop-l1` as a Claim-B release requires prospective H14400 confirmation via [`research/watch6_l1_confirm/`](../research/watch6_l1_confirm/) ([`REGISTRATION_L1_V1.md`](../research/watch6_l1_confirm/REGISTRATION_L1_V1.md), merged at `ac250f05` after Fable pre-data ruling `APPROVE-WITH-CONDITIONS` in `t34-sol/argon-l1v1-pkg/RULING_L1_V1.md` and delta review `fable-review.md` bound to `cf07791b` / `science = c015d5cb…e84f`, with the full-`14,400`-frame 3-arm Mac mirror receipt `t34-sol/argon-l1v1-pkg-fix1/mac-mirror.json` passing `43,200/43,200` frames at `1.272×` 3-arm wall ratio in place of `M0b`, and `18` single-wave shards = `12×6 A100 W = 6` + `6×4 L4 W = 4` prepared at a receipts-based forecast of **`~638.2 u` central**, `603.7–739.3 u`, `~27.7 h` in `t34-sol/argon-l1v1-pkg-fix1/staged-prep-check/forecast.json`; see [research/ROADMAP.md](research/ROADMAP.md) §2.1 & §2.3).
 - **Completed parity — GPU `DeviceSim` v2 parity `PASS` on A100**
   ([`research/devicesim_v2_parity/`](../research/devicesim_v2_parity/),
   `t34-sol/argon-devicesim-v2/packet-a100-v2-parity-01/main-run-01/receipt.json`): **`0` mismatches**
@@ -172,10 +179,11 @@ For synthesized current-round and later-round research plans (**advice, not deci
     static `tau <= 1` with `2 * min(black, white)` acting only as an upper bound on non-Hamiltonian 2-cores,
     and vacuously set `t_cert = 1` on `ext_gain == 0` internal tail cells —
     failing `+3.85 pp < +10.0 pp` total `L >= 600` lift and `2 > 0` newly caused ordinary lethal flips from
-    single-suffix `sel0` and aggressive `O3`/`O5`; `0` assessment roots opened; informs `WCPHS-L1` / `ZWRHS-L1`
-    (`interval = 1` live-safe `ZeroCopyHeroV8` + constructive `WitnessMask` with `TailTrackWitness`, bitwise-exact
-    `O(1)` `decision_free_space` + sparse `touched` + `step_prepared`/root-step-0 hoisted `OwnerPadRolloutBatch`,
-    closed-loop `WitnessMask` rollout continuations + `h = 128` leaf cert
+    single-suffix `sel0` and aggressive `O3`/`O5`; `0` assessment roots opened; informs `TS-ZWRHS-L1`
+    (`Two-Stage Exact-Stop` `Stage A E = 1 bare` + `Stage B E = B - 1 <= 5` lockstep, single-clone
+    `_policy_phase_prepared = True` + `12.5×` `_recap_sim` + `full_digest` v3, direct `"kernel"`
+    `v8_decide(..., membership="owner_pad")` + `O(5)` `seg_count` sum + `OUTCOME_NO_SPACIOUS = 2`,
+    closed-loop `WitnessMask` with `TailTrackWitness` `min_boost_length = 5` & `ext_gain >= L_0` + `h = 128` leaf cert
     $H_{\text{eff}} = 128 + L_0$, and post-burn `L_{0,post} >= 1.15(L_j + 1)` Pinch-Funnel/Corpse-Surge rollouts) +
     spawned `P1+3W` `D = 120–240` `ShadowSpine` advice in [research/ROADMAP.md](research/ROADMAP.md) §3).
 
