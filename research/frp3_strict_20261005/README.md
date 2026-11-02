@@ -7,4 +7,4 @@
 ## Key Files & Results
 
 - **Package entrypoints / artifacts:** [`protocol.md`](protocol.md), [`spec.py`](spec.py), [`preregistration.py`](preregistration.py), [`preflight.py`](preflight.py), [`frozen_plan.json`](frozen_plan.json)
-- **Related docs / results:** [`docs/research/frp3_strict_result_2026-10-06.md`](../../docs/research/frp3_strict_result_2026-10-06.md), [`docs/research/catalog/legacy_packages.md`](../../docs/research/catalog/legacy_packages.md)
+- **Related docs / results:** [`docs/research/frp3_strict_result_2026-10-06.md`](../../docs/research/frp3_strict_result_2026-10-06.md), [`docs/research/history/frp.md`](../../docs/research/history/frp.md)
