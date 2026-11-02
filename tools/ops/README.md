@@ -642,9 +642,17 @@ The exact `account-wide assignment cap 6 (including notebooks)` refusal (and
 legacy `cap 3` on older qualified broker trees; running side-effect-free
 `check_capacity_and_settle()` with `>= 20 s` sibling start + `>= 30 s` post-stop settle
 inside `ops/alloc.lock` *before* `dispatch.py:2849-2855`
-creates `ops/dispatch/<name>` and `ops/manifests/<name>.json`, alongside matching
-`REFUSE: account L4 assignment cap 3` in `ready_queue.py:capacity_refused` at `lines 783–795`,
-is tracked in [`docs/research/ROADMAP.md`](../../docs/research/ROADMAP.md) §2.2) is
+creates `ops/dispatch/<name>` and `ops/manifests/<name>.json`, enforcing
+**`ACCOUNT_A100_CAP = 3`** alongside `ACCOUNT_L4_CAP = 3` in `ready_queue.py:40,602-607,682-702`
+and calling `reconcile_unavailable()` on single-GPU `412` failures in `dispatch.py:2935`,
+and applying the `Watch6-L1-V1` `M0b` live-ops patch — adding `"web/backend/session.py"` to
+`EXCLUDED_WEB_NON_SCIENCE` (`protocol.py:84-90`) to restore `protocol.identity() == 57ec544f…`,
+allowing `staging/*`, `accounting-baseline.json`, `public-input-preflight.json`, and
+`upload-measurement.json` in `admission.py:_prealloc_tree_clean()`, isolating `l1v1-packet-01`
+failed canaries at `final_look.py:603,662,674,683`, exempting `0`-export pre-start drops from
+the `1 <= top_comp <= 2` / `attempt < 2` retry caps, and keeping `l1v1-main-01` pinned to
+`1873b902` with Tier-0 `cb72db0f…` reuse vs. Tier-1 `recover.py --commit 1873b902` —
+is tracked in [`docs/research/ROADMAP.md`](../../docs/research/ROADMAP.md) §1.3 & §2.2) is
 transient. Before any dispatch identity is reserved, a completed refusal with
 no dispatch directory, manifest snapshot, output directory or supervisor log
 returns the same queue row to READY with backoff and a fresh worker log. After
