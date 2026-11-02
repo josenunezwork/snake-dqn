@@ -93,7 +93,7 @@ The Claim A pipeline itself (9230b150, e301cfeb) lives in `research/t34_claim_a/
 |---|---|---|---|---|
 | 2026-10-19 | Rules-audit code fixes (owner "yes all") | spec | IMPLEMENTED 4c4f3d71, 99b7d4c7, 10a73528 | [2026-10-19_rules_audit_code_fixes.md](2026-10-19_rules_audit_code_fixes.md) |
 | 2026-10-19 | Colab accounting carry-over fix | spec | IMPLEMENTED dab00823 (Colab CLI re-qualified c91a1d48) | [2026-10-19_colab_accounting_carryover_fix.md](2026-10-19_colab_accounting_carryover_fix.md) |
-| 2026-10-20 | Test-suite hygiene (15 non-Inductor failures) | spec | PENDING (Sol job running, branch `t34-test-hygiene-20261020`; not merged) | [2026-10-20_test_suite_hygiene.md](2026-10-20_test_suite_hygiene.md) |
+| 2026-10-20 | Test-suite hygiene (15 non-Inductor failures) | spec | PENDING (Sol job running, branch `t34-test-hygiene-20261020`; not merged) | [2026-10-20_test_suite_hygiene.md](../history/architecture-and-specs.md) |
 
 ## Earlier T-series and Colab/GPU lanes (2026-10-15 → 10-17, B8 gap campaign)
 
@@ -180,7 +180,7 @@ Outcomes are from [../INDEX.md](../INDEX.md) and the result docs. Everything her
 | 2026-10-17 | T16 notebook fix: Colab ships Python 3.13 (use 3.12) | spec | IMPLEMENTED c5157ae1, 58b461da | [t16b_python312_spec_2026-10-17.md](t16b_python312_spec_2026-10-17.md) |
 | 2026-10-17 | T17: take the replay gather off the learner thread, then re-smoke | spec | IMPLEMENTED a271931f, 3f073162, a660cb22 | [t17_colab_learner_gather_spec_2026-10-17.md](t17_colab_learner_gather_spec_2026-10-17.md) |
 | 2026-10-17 | T17b: fold the advisor's T17 review into main, then smoke-03 | spec | IMPLEMENTED f7e96e01, 75ac7984; smoke-03 results a22c03a9 | [t17b_advisor_merge_spec_2026-10-17.md](t17b_advisor_merge_spec_2026-10-17.md) |
-| 2026-10-17 | Actor throughput plan | plan | HISTORICAL (design doc 2bfe729f; how much of it was built is unclear. T24 v8 sharing, e.g. 94b2ae2e, overlaps) | [actor_throughput_plan_2026-10-17.md](actor_throughput_plan_2026-10-17.md) |
-| 2026-10-17 | Lane A: a bounded league to beat released B8 | plan | HISTORICAL (design proposal, self-declared not ratified; league R0 later ran as T23 → **KILL** 56d59d27) | [lane_a_league_design_2026-10-17.md](lane_a_league_design_2026-10-17.md) |
-| 2026-10-17 | H100 pre-runs: merged plan before the long Colab H100 run | plan | HISTORICAL (1331b346; N=3 league tooling and T19 baselines followed; long H100 run not bought after T23 KILL) | [h100_preruns_plan_2026-10-17.md](h100_preruns_plan_2026-10-17.md) |
-| 2026-10-17 | After T23: merged plan (Q0 audit, Q1 factorial, ...) | plan | HISTORICAL (4a00c5ac; Q0 ran, Q1 refused at A5 e602b489; replaced by S1, then T34) | [after_t23_plan_2026-10-17.md](after_t23_plan_2026-10-17.md) |
+| 2026-10-17 | Actor throughput plan | plan | HISTORICAL (design doc 2bfe729f; how much of it was built is unclear. T24 v8 sharing, e.g. 94b2ae2e, overlaps) | [actor_throughput_plan_2026-10-17.md](../history/t16-t24-perf-league.md) |
+| 2026-10-17 | Lane A: a bounded league to beat released B8 | plan | HISTORICAL (design proposal, self-declared not ratified; league R0 later ran as T23 → **KILL** 56d59d27) | [lane_a_league_design_2026-10-17.md](../history/t16-t24-perf-league.md) |
+| 2026-10-17 | H100 pre-runs: merged plan before the long Colab H100 run | plan | HISTORICAL (1331b346; N=3 league tooling and T19 baselines followed; long H100 run not bought after T23 KILL) | [h100_preruns_plan_2026-10-17.md](../history/t16-t24-perf-league.md) |
+| 2026-10-17 | After T23: merged plan (Q0 audit, Q1 factorial, ...) | plan | HISTORICAL (4a00c5ac; Q0 ran, Q1 refused at A5 e602b489; replaced by S1, then T34) | [after_t23_plan_2026-10-17.md](../history/t16-t24-perf-league.md) |

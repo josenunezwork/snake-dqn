@@ -51,13 +51,13 @@ separately from the scientific label. Protected L3/L4 packages are not edited.
 L0′ uses retained smoke records only. It exports own-deadline tables,
 LAD-reachability curves, dense-receipt demand census and per-doom reachable
 window durations/root counts. Missing fields remain INCOMPLETE. Historical
-L0 outputs and the sealed Round 0 study are untouched; see [L0_README.md](L0_README.md).
+L0 outputs and the sealed Round 0 study are untouched; see [L0_README.md](../../docs/research/history/bl-served-search-l2.md).
 
 Use the primary checkout's venv interpreter with CPU and one math thread per
 worker. Only targeted package tests run. Exports are create-only payloads
 with `.sha256` and `.complete` sidecars. Current commands, pins, manifests,
 forecasts and remaining admission requirements are recorded in the artifact
-root's `DISPATCH.txt` and [PREFLIGHT_08.md](PREFLIGHT_08.md).
+root's `DISPATCH.txt` and [PREFLIGHT_08.md](../../docs/research/history/bl-served-search-l2.md).
 
 Y1 upload recovery uses the Z-9 public checkpoint catalog and a single
 `ruler-fixtures.tar.gz` upload containing the original 30 fixture export
