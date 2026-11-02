@@ -32,7 +32,7 @@ from research.watch_replay.uploads import (
     _verify_checkpoint_pins,
     materialize_watch_checkpoints,
 )
-from tools.ops.package_spec import digest, verify_immutable
+from tools.ops.package_spec import digest, publish_immutable, verify_immutable
 
 SMALL_PAYLOADS: tuple[str, ...] = (
     "runtime-contract.json",
@@ -170,7 +170,45 @@ def stage_metadata(
     if verify_pins:
         _verify_checkpoint_pins(root / "public-inputs.json")
     if materialize_checkpoints:
-        materialize_watch_checkpoints(root, verify_pins=verify_pins, opener=opener)
+        _materialize_local_or_remote_checkpoints(
+            root,
+            verify_pins=verify_pins,
+            opener=opener,
+        )
+
+
+def _materialize_local_or_remote_checkpoints(
+    root: Path,
+    *,
+    verify_pins: bool = True,
+    opener: Callable[..., Any] = urlopen,
+) -> None:
+    """Publish verified local checkpoints on Mac when present; otherwise fetch release assets."""
+    if opener is urlopen:
+        saved = p.ROOT.parent / "snake-dqn/saved_snakes"
+        if not saved.is_dir():
+            saved = p.ROOT / "saved_snakes"
+        pins = json.loads((p.ROOT / "web/backend/served_checkpoint_pins.json").read_text("utf-8"))
+        if saved.is_dir() and all(
+            (saved / name).is_file()
+            and (saved / name).stat().st_size == size
+            and digest(saved / name) == pins["checkpoints"][pin]["checkpoint_sha256"]
+            for name, (pin, size) in CHECKPOINTS.items()
+        ):
+            for ckpt_name in CHECKPOINTS:
+                for suffix in ("", ".sha256", ".complete"):
+                    _assert_safe_new_target(root, f"checkpoints/{ckpt_name}{suffix}")
+                publish_immutable(
+                    root / "checkpoints" / ckpt_name,
+                    (saved / ckpt_name).read_bytes(),
+                )
+            if verify_pins:
+                _verify_checkpoint_pins(root)
+            else:
+                for ckpt_name in CHECKPOINTS:
+                    verify_immutable(root / "checkpoints" / ckpt_name)
+            return
+    materialize_watch_checkpoints(root, verify_pins=verify_pins, opener=opener)
 
 
 def check_uploads(manifest: dict[str, Any]) -> dict[str, Any]:

@@ -254,6 +254,7 @@ def audit(
         extra_globs=[
             "!**/.pytest_cache/**",
             "!**/.pytest_tmp*/**",
+            "!**/.pytest-tmp*/**",
             "!**/research/watch6_l1_confirm/REGISTRATION_L1_V1.md",
         ],
     )
@@ -264,6 +265,7 @@ def audit(
         extra_globs=[
             "!**/.pytest_cache/**",
             "!**/.pytest_tmp*/**",
+            "!**/.pytest-tmp*/**",
             "!**/research/watch6_l1_confirm/**",
             "!**/tests/test_watch6_l1_confirm.py",
         ],
