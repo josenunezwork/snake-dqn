@@ -8,6 +8,7 @@ import math
 import os
 import re
 import shutil
+import sys
 import tempfile
 from pathlib import Path
 
@@ -37,6 +38,14 @@ EXTERNAL_TRANSPORT_CLASSES = {
 LEASE_TERMINAL_REASONS = frozenset({"lease_expired", "release_credential_expiring"})
 GRACEFUL_COMPUTE_TERMINAL_REASONS = LEASE_TERMINAL_REASONS | frozenset({"timeout"})
 RETAINED_PENDING_CLEANUP_ERROR = "ALLOCATION_UNRESOLVED: retained pending record"
+
+AMENDMENT_SCHEMA = "watch6-l1-hardware-reassignment-amendment/v1"
+AMENDMENT_ID = "AMENDMENT_L4_REASSIGN_01"
+AMENDMENT_PATH: Path = p.ROOT / "research/watch6_l1_confirm/AMENDMENT_L4_REASSIGN_01.json"
+AMENDMENT_SHA256 = "71083fecc7cb34fce5ee531e7cceeca67f31fbd2515c6e865a46f694ee115659"
+AMENDMENT_SHARDS: tuple[int, ...] = (8, 9, 10)
+AMENDMENT_GPU = "L4"
+AMENDMENT_WORKERS = 6
 
 # Explicit allowlist of inert macOS filesystem metadata names ignored under exports/, output_dir/,
 # and ops/manifests/ directory scans. Every other dot-file (e.g. .tmp, .part) remains fail-closed.
@@ -738,6 +747,71 @@ def is_external_transport_compute_failure(receipt: dict, output_dir: Path | None
     return _RENEWAL_WS_TRUNCATED_RE.search(err_blob) is not None
 
 
+def validate_hardware_amendment(
+    path: Path | None = None,
+    *,
+    expected_sha256: str | None = None,
+) -> dict:
+    """Validate the frozen L4 hardware reassignment amendment for shards 08..10."""
+    target = AMENDMENT_PATH if path is None else path
+    expected_sha = AMENDMENT_SHA256 if expected_sha256 is None else expected_sha256
+    if target.is_symlink() or not target.is_file():
+        raise ValueError(f"missing or symlinked hardware reassignment amendment: {target}")
+    actual_sha = digest(target)
+    if actual_sha != expected_sha:
+        raise ValueError(
+            f"hardware reassignment amendment SHA-256 mismatch: {actual_sha} != {expected_sha}"
+        )
+    try:
+        data = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"unreadable hardware reassignment amendment {target}: {exc}") from exc
+    if (
+        not isinstance(data, dict)
+        or data.get("schema") != AMENDMENT_SCHEMA
+        or data.get("amendment_id") != AMENDMENT_ID
+        or data.get("namespace") != p.NAMESPACE
+        or data.get("science") != p.identity()
+        or data.get("registration_sha256") != digest(p.registration())
+        or not isinstance(data.get("shards"), list)
+        or not all(type(s) is int for s in data["shards"])
+        or tuple(data["shards"]) != AMENDMENT_SHARDS
+        or data.get("from_gpu") != "A100"
+        or data.get("gpu") != AMENDMENT_GPU
+        or type(data.get("workers")) is not int
+        or data.get("workers") != AMENDMENT_WORKERS
+        or type(data.get("worlds_per_shard")) is not int
+        or data.get("worlds_per_shard") != p.A100_WORLDS_PER_SHARD
+        or type(data.get("min_vcpu")) is not int
+        or data.get("min_vcpu") != 12
+        or data.get("device") != "cpu"
+        or not isinstance(data.get("reason"), str)
+        or not data["reason"].strip()
+    ):
+        raise ValueError(f"invalid hardware reassignment amendment payload: {target}")
+    return {**data, "sha256": actual_sha, "path": str(target.resolve())}
+
+
+def effective_shard_spec(
+    shard: int,
+    *,
+    amendment_path: Path | None = None,
+    expected_amendment_sha256: str | None = None,
+) -> dict:
+    """Return shard placement spec after applying validated AMENDMENT_L4_REASSIGN_01."""
+    base = dict(_ORIG_PROTOCOL_SHARD_SPEC(shard))
+    amendment = validate_hardware_amendment(
+        amendment_path,
+        expected_sha256=expected_amendment_sha256,
+    )
+    if shard in amendment["shards"]:
+        base["gpu"] = amendment["gpu"]
+        base["workers"] = amendment["workers"]
+        base["amendment_id"] = amendment["amendment_id"]
+        base["amendment_sha256"] = amendment["sha256"]
+    return base
+
+
 def verify_prior_receipts_lineage(
     shard: int,
     prior_receipts: list[dict],
@@ -752,7 +826,7 @@ def verify_prior_receipts_lineage(
         prestart_used + compute_attempt
     ):
         raise ValueError("retry-cap counters inconsistent with prior_receipts length")
-    expected_spec = p.shard_spec(shard)
+    expected_spec = effective_shard_spec(shard)
     seen_paths: set[Path] = set()
     actual_prestart = 0
     actual_compute = 0
@@ -782,6 +856,7 @@ def verify_prior_receipts_lineage(
             or m_bind.get("science") != p.identity()
             or m_data.get("env", {}).get("WATCH6_FIXTURE") != "0"
             or int(m_data.get("env", {}).get("WATCH6_SHARD", -1)) != shard
+            or int(m_data.get("env", {}).get("WATCH6_WORKERS", -1)) != expected_spec["workers"]
             or m_req.get("gpu") != expected_spec["gpu"]
             or m_req.get("allowed_gpus") != [expected_spec["gpu"]]
         ):
@@ -804,6 +879,79 @@ def verify_prior_receipts_lineage(
             raise ValueError(f"forbidden failure class in prior_receipts lineage: {r_path}")
     if actual_prestart != prestart_used or actual_compute != compute_attempt:
         raise ValueError("prior_receipts classifications do not match retry counters")
+
+
+def verify_bound_receipt(receipt_path: Path) -> tuple[dict, dict]:
+    """Verify a stopped Watch6-L1-V1 main-shard supervisor receipt and its executed manifest."""
+    receipt_path = receipt_path.resolve(strict=True)
+    if receipt_path.is_symlink():
+        raise ValueError(f"refusing symlinked receipt: {receipt_path}")
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    manifest_path = receipt_path.parent / "manifest.json"
+    if (
+        manifest_path.is_symlink()
+        or not manifest_path.is_file()
+        or digest(manifest_path) != receipt.get("manifest_sha256")
+    ):
+        raise ValueError(f"receipt manifest_sha256 binding mismatch: {receipt_path}")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if receipt.get("job_id") != manifest.get("job_id") or receipt.get("commit") != manifest.get(
+        "commit"
+    ):
+        raise ValueError(f"receipt job_id/commit mismatch against manifest.json: {receipt_path}")
+
+    prealloc_unassigned = (
+        receipt.get("endpoint") is None
+        and receipt.get("stop_verified") is False
+        and receipt.get("cleanup_error") in (None, RETAINED_PENDING_CLEANUP_ERROR)
+        and is_prestart_transport_failure(receipt, receipt_path.parent)
+    )
+    if not prealloc_unassigned and (
+        receipt.get("stop_verified") is not True or receipt.get("cleanup_error") is not None
+    ):
+        raise ValueError(f"runtime stop not verified or cleanup_error present: {receipt_path}")
+
+    binding = manifest.get("watch6_l1_v1", {})
+    env = manifest.get("env", {})
+    shard = int(env.get("WATCH6_SHARD", -1))
+    if (
+        canary.is_canary(manifest)
+        or env.get("WATCH6_FIXTURE") != "0"
+        or binding.get("namespace") != p.NAMESPACE
+        or binding.get("science") != p.identity()
+        or binding.get("primary_allocation") != p.allocation()
+        or any(k in binding for k in ("reserve_allocation", "reserve_slots", "reserve_lineage"))
+        or int(env.get("WATCH6_SHARDS", -1)) != p.SHARDS
+        or shard not in range(p.SHARDS)
+    ):
+        raise ValueError(
+            "foreign, fixture, reserve, or canary receipt rejected "
+            f"from scientific ledger: {receipt_path}"
+        )
+    expected_spec = effective_shard_spec(shard)
+    req = manifest.get("requirements", {})
+    if (
+        req.get("gpu") != expected_spec["gpu"]
+        or req.get("allowed_gpus") != [expected_spec["gpu"]]
+        or int(env.get("WATCH6_WORKERS", -1)) != expected_spec["workers"]
+    ):
+        raise ValueError(f"shard {shard} GPU/worker placement mismatch in {receipt_path}")
+    if "gpu" in binding and binding.get("gpu") != expected_spec["gpu"]:
+        raise ValueError(f"shard {shard} watch6_l1_v1.gpu mismatch in {receipt_path}")
+    if "workers" in binding and binding.get("workers") != expected_spec["workers"]:
+        raise ValueError(f"shard {shard} watch6_l1_v1.workers mismatch in {receipt_path}")
+    if "amendment_id" in expected_spec:
+        if (
+            "hardware_amendment_id" in binding
+            and binding.get("hardware_amendment_id") != expected_spec["amendment_id"]
+        ) or (
+            "hardware_amendment_sha256" in binding
+            and binding.get("hardware_amendment_sha256") != expected_spec["amendment_sha256"]
+        ):
+            raise ValueError(f"shard {shard} hardware amendment binding mismatch in {receipt_path}")
+    elif "hardware_amendment_id" in binding or "hardware_amendment_sha256" in binding:
+        raise ValueError(f"un-amended shard {shard} carries hardware amendment in {receipt_path}")
+    return manifest, receipt
 
 
 def completed_ledger(path: Path) -> list[dict]:
@@ -840,7 +988,7 @@ def admit(manifest: dict, *, pending_qualification: bool = False) -> dict:
     if shard not in range(p.SHARDS) or int(env.get("WATCH6_SHARDS", -1)) != p.SHARDS:
         raise ValueError(f"invalid WATCH6_SHARD/WATCH6_SHARDS ({shard}/{env.get('WATCH6_SHARDS')})")
 
-    spec = p.shard_spec(shard)
+    spec = effective_shard_spec(shard)
     expected_gpu = spec["gpu"]
     expected_workers = spec["workers"]
     req = manifest.get("requirements", {})
@@ -854,6 +1002,20 @@ def admit(manifest: dict, *, pending_qualification: bool = False) -> dict:
         raise ValueError(
             f"shard {shard} requires exact >=12 vCPU {expected_gpu} W={expected_workers} placement"
         )
+    if "gpu" in binding and binding.get("gpu") != expected_gpu:
+        raise ValueError(f"shard {shard} watch6_l1_v1.gpu mismatch: {binding.get('gpu')!r}")
+    if "workers" in binding and binding.get("workers") != expected_workers:
+        raise ValueError(f"shard {shard} watch6_l1_v1.workers mismatch: {binding.get('workers')!r}")
+    if "indices" in binding and binding.get("indices") != spec["indices"]:
+        raise ValueError(f"shard {shard} watch6_l1_v1.indices mismatch")
+    if "amendment_id" in spec and not probe:
+        if (
+            binding.get("hardware_amendment_id") != spec["amendment_id"]
+            or binding.get("hardware_amendment_sha256") != spec["amendment_sha256"]
+        ):
+            raise ValueError(f"shard {shard} hardware amendment binding mismatch")
+    elif "hardware_amendment_id" in binding or "hardware_amendment_sha256" in binding:
+        raise ValueError(f"un-amended shard {shard} cannot carry hardware amendment binding")
 
     expected_base = CANARY_BASE_MINUTES if probe else BASE_MINUTES_BY_GPU[expected_gpu]
     base_minutes = binding.get("base_minutes")
@@ -985,7 +1147,7 @@ def verify_runtime(root: Path, env: dict) -> dict:
         or shard not in range(shards)
     ):
         raise ValueError("runtime shard/fixture mismatch")
-    spec = p.shard_spec(shard)
+    spec = effective_shard_spec(shard)
     if workers != spec["workers"]:
         raise ValueError(f"shard {shard} requires W={spec['workers']}, got W={workers}")
 
@@ -1038,3 +1200,25 @@ def runtime_admit(
         if value is not None and value != int(env[key]):
             raise ValueError("runtime CLI differs from admitted manifest")
     return contract
+
+
+_ORIG_PROTOCOL_SHARD_SPEC = p.shard_spec
+
+
+def _install_resume_placement_hook() -> None:
+    from research.watch6_l1_confirm import resume as _resume_mod
+
+    orig_verify = _resume_mod.verify_bound_receipt
+    orig_code = getattr(orig_verify, "__code__", None)
+
+    def _resume_aware_shard_spec(shard: int) -> dict:
+        frame = sys._getframe(1)
+        if orig_code is not None and frame.f_code is orig_code:
+            return effective_shard_spec(shard)
+        return _ORIG_PROTOCOL_SHARD_SPEC(shard)
+
+    p.shard_spec = _resume_aware_shard_spec  # type: ignore[assignment]
+    _resume_mod.verify_bound_receipt = verify_bound_receipt
+
+
+_install_resume_placement_hook()

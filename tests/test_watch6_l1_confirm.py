@@ -187,8 +187,11 @@ def test_science_identity_decoupled_from_ops_and_colab_cli() -> None:
     assert not any(path.startswith("research/colab_cli/") for path in sci)
     assert "web/backend/watch_replay.py" not in sci
     assert "web/backend/app.py" not in sci
+    assert "research/watch6_l1_confirm/admission.py" not in sci
     assert "research/watch6_l1_confirm/prepare.py" not in sci
+    assert "research/watch6_l1_confirm/finalize.py" not in sci
     assert "research/watch6_l1_confirm/final_look.py" not in sci
+    assert "research/watch6_l1_confirm/AMENDMENT_L4_REASSIGN_01.json" not in sci
 
 
 def test_analyze_fixed_sequence_gates_and_parameterized_alpha() -> None:
@@ -1039,7 +1042,7 @@ def test_admission_failure_predicates_and_final_look_sole_look_guard(
     (mf_dir / "shard-00-a2.json").write_text(json.dumps(s0_comp_mf), encoding="utf-8")
 
     for shard in range(p.SHARDS):
-        spec = p.shard_spec(shard)
+        spec = admission.effective_shard_spec(shard)
         s_out = tmp_path / f"shard-{shard:02d}-pass"
         eff_dir = s_out / "exports/efficacy"
         eff_dir.mkdir(parents=True)
@@ -1102,6 +1105,9 @@ def test_admission_failure_predicates_and_final_look_sole_look_guard(
                 "total_dispatches_for_shard": 1,
                 "prior_receipts": [],
             }
+            if "amendment_id" in spec:
+                w_bind["hardware_amendment_id"] = spec["amendment_id"]
+                w_bind["hardware_amendment_sha256"] = spec["amendment_sha256"]
 
         s_mf = {
             "job_id": f"watch6-l1-shard-{shard:02d}",
@@ -1166,6 +1172,42 @@ def test_admission_failure_predicates_and_final_look_sole_look_guard(
     acct = json.loads((tmp_path / "final-out/pre-outcome-accounting.json").read_text("utf-8"))
     assert len(acct["ignored_foreign_manifest_symlinks"]) == 2
     assert len(acct["mac_mirror_sha256s"]) == 1
+    assert acct["hardware_amendment"] == {
+        "amendment_id": admission.AMENDMENT_ID,
+        "sha256": admission.AMENDMENT_SHA256,
+        "shards": [8, 9, 10],
+        "gpu": "L4",
+        "workers": 6,
+    }
+
+    # Amended shard 08 on A100 (or W=4) or un-amended shard 11 on L4 MUST fail closed in final_look!
+    for bad_shard, bad_gpu, bad_w in ((8, "A100", 6), (8, "L4", 4), (11, "L4", 6)):
+        s_dir = tmp_path / f"shard-{bad_shard:02d}-pass"
+        orig_mf = json.loads((s_dir / "manifest.json").read_text(encoding="utf-8"))
+        orig_rec = json.loads((s_dir / "receipt.json").read_text(encoding="utf-8"))
+        tampered_mf = {
+            **orig_mf,
+            "requirements": {"gpu": bad_gpu, "allowed_gpus": [bad_gpu], "min_vcpu": 12},
+            "env": {**orig_mf["env"], "WATCH6_WORKERS": str(bad_w)},
+        }
+        (s_dir / "manifest.json").write_text(json.dumps(tampered_mf), encoding="utf-8")
+        (s_dir / "receipt.json").write_text(
+            json.dumps({**orig_rec, "manifest_sha256": digest(s_dir / "manifest.json")}),
+            encoding="utf-8",
+        )
+        (mf_dir / f"shard-{bad_shard:02d}.json").write_text(
+            json.dumps(tampered_mf),
+            encoding="utf-8",
+        )
+        with pytest.raises(ValueError, match="GPU/worker mismatch"):
+            final_look.run_final_look(
+                ops_dir=ops_dir,
+                out_dir=tmp_path / f"final-out-bad-s{bad_shard}-{bad_gpu}-{bad_w}",
+                ruling_json=ruling_json,
+            )
+        (s_dir / "manifest.json").write_text(json.dumps(orig_mf), encoding="utf-8")
+        (s_dir / "receipt.json").write_text(json.dumps(orig_rec), encoding="utf-8")
+        (mf_dir / f"shard-{bad_shard:02d}.json").write_text(json.dumps(orig_mf), encoding="utf-8")
 
     # Finding 4a: A symlinked Watch6-L1-V1 manifest MUST fail closed!
     l1_symlink = mf_dir / "shard-17-symlink.json"
@@ -1437,3 +1479,388 @@ def test_job_sh_fixture_end_to_end_with_runtime_and_canary_manifest_env(
     assert perf["native_v8"]["stock_rows"] == 0
     assert perf["native_v8"]["fallback_rows"] == 0
     assert perf["native_v8"]["noncandidate_rows"] == 0
+
+
+def test_hardware_reassignment_amendment_l4_shards_08_09_10(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Verify AMENDMENT_L4_REASSIGN_01 moves shards 8..10 to L4 W=6 with zero science change."""
+    from research.watch6_l1_confirm import finalize, prepare
+
+    # 1. Science identity and registration SHA-256 are completely unchanged.
+    assert p.identity() == "57ec544fe45f7a8a876dbc9363048468b63358e224b2ee8e11dff41401dcfbd3"
+    assert (
+        digest(p.registration())
+        == "8b46779ff52d0c9648ff8de00c1893f77beb9bd99eb4a4e51afbe0bdf36800a0"
+    )
+
+    # 2. protocol.shard_spec remains untouched; effective_shard_spec reassigns only shards 8, 9, 10.
+    amendment = admission.validate_hardware_amendment()
+    assert amendment["amendment_id"] == "AMENDMENT_L4_REASSIGN_01"
+    assert amendment["shards"] == [8, 9, 10]
+    assert amendment["gpu"] == "L4"
+    assert amendment["workers"] == 6
+    assert amendment["sha256"] == admission.AMENDMENT_SHA256
+
+    for s in range(p.SHARDS):
+        raw_spec = p.shard_spec(s)
+        eff_spec = admission.effective_shard_spec(s)
+        assert eff_spec["indices"] == raw_spec["indices"]
+        assert eff_spec["world_count"] == raw_spec["world_count"]
+        if s in (8, 9, 10):
+            assert raw_spec["gpu"] == "A100" and raw_spec["workers"] == 6
+            assert eff_spec["gpu"] == "L4" and eff_spec["workers"] == 6
+            assert eff_spec["world_count"] == 6 and len(eff_spec["indices"]) == 6
+            assert eff_spec["amendment_id"] == admission.AMENDMENT_ID
+            assert eff_spec["amendment_sha256"] == admission.AMENDMENT_SHA256
+        elif s < 12:
+            assert raw_spec["gpu"] == "A100" and raw_spec["workers"] == 6
+            assert eff_spec["gpu"] == "A100" and eff_spec["workers"] == 6
+            assert "amendment_id" not in eff_spec
+        else:
+            assert raw_spec["gpu"] == "L4" and raw_spec["workers"] == 4
+            assert eff_spec["gpu"] == "L4" and eff_spec["workers"] == 4
+            assert "amendment_id" not in eff_spec
+
+    # 3. prepare + finalize for shards 8, 9, 10 with L4 canary receipt and L4 2x cost envelope.
+    commit = "bc11385b4ec0ae3c9e7f035c68dd5ce61dbc76f3"
+    monkeypatch.setattr(prepare, "_require_published_pin", lambda _commit: None)
+    monkeypatch.setattr(canary, "check", lambda *_a, **_k: {"status": "PASS"})
+    monkeypatch.setattr(
+        admission,
+        "check_uploads",
+        lambda _m: {"status": "PASS", "upload_count": 1, "total_bytes": 1024},
+    )
+
+    sci = p.identity()
+    benchmark_path = tmp_path / "benchmark.json"
+    publish_json(
+        benchmark_path,
+        {
+            "schema": "watch6-l1-mac-preflight/v1",
+            "status": "PASS",
+            "science": sci,
+            "fixture": True,
+        },
+    )
+    mirror_path = tmp_path / "mac-mirror.json"
+    publish_json(
+        mirror_path,
+        {
+            "schema": mirror.SCHEMA,
+            "status": "PASS",
+            "platform": "macOS-test",
+            "namespace": p.NAMESPACE,
+            "science": sci,
+            "fixture": True,
+            "seed": p.FIXTURE_SEEDS[0],
+            "horizon": p.HORIZON,
+            "total_mirrored_frames": p.HORIZON * len(p.ARMS),
+            "mirror_mismatches": 0,
+            "elapsed_seconds": 12.0,
+            "arms": {
+                arm: {
+                    "frames": p.HORIZON,
+                    "mirror_identity_frames": p.HORIZON,
+                    "mirror_mismatches": 0,
+                    "respawns_per_slot": [1, 1, 1, 1, 1, 1],
+                    "batches": 0 if arm == "bare" else 1200,
+                    "native_v8_kernel_rows": 0 if arm == "bare" else 90000,
+                    "wall_seconds": 4.0,
+                    "timing": {
+                        "main_seconds": 2.0,
+                        "search_seconds": 0.0 if arm == "bare" else 2.0,
+                    },
+                }
+                for arm in p.ARMS
+            },
+        },
+    )
+    costs_path = tmp_path / "costs.json"
+    publish_json(costs_path, costs.build_cost_report())
+    ruling_md = tmp_path / "RULING_L1_V1.md"
+    ruling_md.write_text("# Ruling\nStatus: RATIFIED\nVerdict: APPROVE\n", encoding="utf-8")
+    ruling_json = tmp_path / "ruling-l1-v1.json"
+    ratify.record_ruling(ruling_md, ruling_json, judge="Astra")
+
+    prep_dir = tmp_path / "prepared-l4-move"
+    summary = prepare.prepare(
+        prep_dir,
+        benchmark_path,
+        commit,
+        mirror_path,
+        costs_path,
+        main_shards=True,
+        pending_canary=True,
+        target_shards=[8, 9, 10],
+        canary_gpus=["L4"],
+    )
+    assert summary["shards"] == 18
+    assert sorted(p_mf.name for p_mf in prep_dir.glob("shard-*.pending.json")) == [
+        "shard-08.pending.json",
+        "shard-09.pending.json",
+        "shard-10.pending.json",
+    ]
+    assert (prep_dir / "canary-l4.json").is_file()
+    assert not (prep_dir / "canary-a100.json").exists()
+
+    # Create a passing L4 canary receipt bound to canary-l4.json and finalize shards 8..10.
+    canary_l4_mf = json.loads((prep_dir / "canary-l4.json").read_text(encoding="utf-8"))
+    canary_l4_out = Path(canary_l4_mf["output_dir"])
+    (canary_l4_out / "exports").mkdir(parents=True, exist_ok=True)
+    publish_json(
+        canary_l4_out / "exports/performance.json",
+        {
+            "schema": "watch6-l1-canary-performance/v1",
+            "science": sci,
+            "fixture": True,
+            "frames_executed": [300],
+            "native_v8": {
+                "kernel_rows": 9000,
+                "stock_rows": 0,
+                "fallback_rows": 0,
+                "noncandidate_rows": 0,
+            },
+        },
+    )
+    (canary_l4_out / "manifest.json").write_text(
+        (prep_dir / "canary-l4.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    canary_l4_rec_path = canary_l4_out / "receipt.json"
+    canary_l4_rec = {
+        "job_id": canary_l4_mf["job_id"],
+        "commit": commit,
+        "manifest_sha256": digest(canary_l4_out / "manifest.json"),
+        "status": "PASS",
+        "endpoint": "m-s-canary-l4",
+        "stop_verified": True,
+        "cleanup_error": None,
+        "failure_class": None,
+        "error": None,
+        "terminal": {"returncode": 0, "reason": None, "error": None},
+        "exports": [],
+    }
+    canary_l4_rec_path.write_text(json.dumps(canary_l4_rec), encoding="utf-8")
+
+    fin_res = finalize.finalize(
+        prep_dir,
+        canary_l4_receipt=canary_l4_rec_path,
+    )
+    assert sorted(fin_res["finalized_manifests"]) == [
+        "shard-08.json",
+        "shard-09.json",
+        "shard-10.json",
+    ]
+
+    for shard in (8, 9, 10):
+        mf = json.loads((prep_dir / f"shard-{shard:02d}.json").read_text(encoding="utf-8"))
+        assert mf["requirements"] == {
+            "gpu": "L4",
+            "allowed_gpus": ["L4"],
+            "min_vcpu": 12,
+            "est_minutes": 540,
+        }
+        assert mf["timeout_minutes"] == 1080
+        assert mf["budget"] == {
+            "rate_units_per_hour": 2.5,
+            "unit_cap": 45.0,
+            "reserve_units": 9.0,
+            "other_assignments": {},
+        }
+        assert mf["env"]["WATCH6_SHARD"] == str(shard)
+        assert mf["env"]["WATCH6_WORKERS"] == "6"
+        assert mf["env"]["WATCH6_BASE_MINUTES"] == "540"
+        assert mf["canary"]["receipt"]["path"] == str(canary_l4_rec_path.resolve())
+        assert mf["canary"]["receipt"]["sha256"] == digest(canary_l4_rec_path)
+        assert mf["watch6_l1_v1"]["gpu"] == "L4"
+        assert mf["watch6_l1_v1"]["workers"] == 6
+        assert mf["watch6_l1_v1"]["base_minutes"] == 540
+        assert mf["watch6_l1_v1"]["base_unit_cap"] == 22.5
+        assert mf["watch6_l1_v1"]["base_reserve_units"] == 4.5
+        assert mf["watch6_l1_v1"]["indices"] == p.shard_indices(shard)
+        assert mf["watch6_l1_v1"]["hardware_amendment_id"] == admission.AMENDMENT_ID
+        assert mf["watch6_l1_v1"]["hardware_amendment_sha256"] == admission.AMENDMENT_SHA256
+        # Full non-pending admission succeeds:
+        admission.admit(mf, pending_qualification=False)
+
+    # 4. Amended shard 08 rejected on any other GPU or worker count or base_minutes in admit().
+    mf08 = json.loads((prep_dir / "shard-08.json").read_text(encoding="utf-8"))
+    for bad_gpu in ("A100", "T4"):
+        bad_mf = json.loads(json.dumps(mf08))
+        bad_mf["requirements"]["gpu"] = bad_gpu
+        bad_mf["requirements"]["allowed_gpus"] = [bad_gpu]
+        bad_mf["watch6_l1_v1"]["gpu"] = bad_gpu
+        with pytest.raises(ValueError, match="requires exact >=12 vCPU L4 W=6 placement"):
+            admission.admit(bad_mf, pending_qualification=False)
+
+    for bad_w in (4, 8):
+        bad_mf = json.loads(json.dumps(mf08))
+        bad_mf["env"]["WATCH6_WORKERS"] = str(bad_w)
+        bad_mf["watch6_l1_v1"]["workers"] = bad_w
+        with pytest.raises(ValueError, match="requires exact >=12 vCPU L4 W=6 placement"):
+            admission.admit(bad_mf, pending_qualification=False)
+
+    bad_env_mf = json.loads(json.dumps(mf08))
+    bad_env_mf["watch6_l1_v1"]["base_minutes"] = 570
+    bad_env_mf["timeout_minutes"] = 1140
+    bad_env_mf["requirements"]["est_minutes"] = 570
+    bad_env_mf["env"]["WATCH6_BASE_MINUTES"] = "570"
+    with pytest.raises(ValueError, match="invalid base_minutes envelope"):
+        admission.admit(bad_env_mf, pending_qualification=False)
+
+    # 5. Un-amended shards still require their registered GPU and worker count.
+    prep_unamended = tmp_path / "prepared-unamended"
+    prepare.prepare(
+        prep_unamended,
+        benchmark_path,
+        commit,
+        mirror_path,
+        costs_path,
+        main_shards=True,
+        pending_canary=True,
+        target_shards=[7, 11, 12],
+        canary_gpus=["A100", "L4"],
+    )
+    for s_a100 in (7, 11):
+        mf_s = json.loads(
+            (prep_unamended / f"shard-{s_a100:02d}.pending.json").read_text(encoding="utf-8")
+        )
+        assert mf_s["requirements"]["gpu"] == "A100"
+        assert mf_s["env"]["WATCH6_WORKERS"] == "6"
+        assert "hardware_amendment_id" not in mf_s["watch6_l1_v1"]
+        bad_l4 = json.loads(json.dumps(mf_s))
+        bad_l4["requirements"]["gpu"] = "L4"
+        bad_l4["requirements"]["allowed_gpus"] = ["L4"]
+        with pytest.raises(ValueError, match="requires exact >=12 vCPU A100 W=6 placement"):
+            admission.admit(bad_l4, pending_qualification=True)
+        bad_amend_tag = json.loads(json.dumps(mf_s))
+        bad_amend_tag["watch6_l1_v1"]["hardware_amendment_id"] = admission.AMENDMENT_ID
+        with pytest.raises(ValueError, match="un-amended shard"):
+            admission.admit(bad_amend_tag, pending_qualification=True)
+
+    mf_s12 = json.loads((prep_unamended / "shard-12.pending.json").read_text(encoding="utf-8"))
+    assert mf_s12["requirements"]["gpu"] == "L4"
+    assert mf_s12["env"]["WATCH6_WORKERS"] == "4"
+    bad_s12_w6 = json.loads(json.dumps(mf_s12))
+    bad_s12_w6["env"]["WATCH6_WORKERS"] = "6"
+    with pytest.raises(ValueError, match="requires exact >=12 vCPU L4 W=4 placement"):
+        admission.admit(bad_s12_w6, pending_qualification=True)
+    bad_s12_a100 = json.loads(json.dumps(mf_s12))
+    bad_s12_a100["requirements"]["gpu"] = "A100"
+    bad_s12_a100["requirements"]["allowed_gpus"] = ["A100"]
+    with pytest.raises(ValueError, match="requires exact >=12 vCPU L4 W=4 placement"):
+        admission.admit(bad_s12_a100, pending_qualification=True)
+
+    # 6. resume.verify_bound_receipt and resume.build accept L4 W=6 on shard 08 and reject others.
+    s08_dir = tmp_path / "exec-shard-08"
+    (s08_dir / "exports/efficacy").mkdir(parents=True)
+    panel = _synthetic_panel()
+    alloc = p.allocation()
+    idx48 = p.shard_indices(8)[0]
+    w48_path = s08_dir / f"exports/efficacy/world-{idx48:02d}.json"
+    w48_desc = publish_json(w48_path, panel[idx48])
+    publish_json(
+        w48_path.with_suffix(".meta.json"),
+        {
+            "namespace": p.NAMESPACE,
+            "science": sci,
+            "seed_kind": "primary",
+            "allocation": alloc[idx48],
+            "fixture": False,
+            "sha256": w48_desc["sha256"],
+            "size": w48_desc["size"],
+        },
+    )
+    (s08_dir / "manifest.json").write_text(json.dumps(mf08), encoding="utf-8")
+    s08_rec_path = s08_dir / "receipt.json"
+    s08_rec = {
+        "job_id": mf08["job_id"],
+        "commit": mf08["commit"],
+        "manifest_sha256": digest(s08_dir / "manifest.json"),
+        "status": "INCOMPLETE",
+        "endpoint": "m-s-s08",
+        "stop_verified": True,
+        "cleanup_error": None,
+        "failure_class": "CHILD_NONZERO_EXIT",
+        "terminal": {"returncode": 75, "reason": "timeout", "error": None},
+        "exports": [
+            {
+                "path": f"efficacy/world-{idx48:02d}.json",
+                "sha256": w48_desc["sha256"],
+                "size": w48_desc["size"],
+            }
+        ],
+    }
+    s08_rec_path.write_text(json.dumps(s08_rec), encoding="utf-8")
+    verified_mf, verified_rec = resume.verify_bound_receipt(s08_rec_path)
+    assert verified_mf["requirements"]["gpu"] == "L4"
+    assert verified_rec["job_id"] == mf08["job_id"]
+    ledger_payload = resume.build([w48_path], [s08_rec_path])
+    assert [u["index"] for u in ledger_payload["units"]] == [idx48]
+
+    # Reject shard 08 receipt if manifest had A100 or W=4, and reject shard 11 receipt if on L4:
+    for bad_patch in (
+        {"requirements": {"gpu": "A100", "allowed_gpus": ["A100"], "min_vcpu": 12}},
+        {"env": {**mf08["env"], "WATCH6_WORKERS": "4"}},
+    ):
+        bad_s08_mf = {**mf08, **bad_patch}
+        (s08_dir / "manifest.json").write_text(json.dumps(bad_s08_mf), encoding="utf-8")
+        s08_rec_path.write_text(
+            json.dumps({**s08_rec, "manifest_sha256": digest(s08_dir / "manifest.json")}),
+            encoding="utf-8",
+        )
+        with pytest.raises(ValueError, match="GPU/worker placement mismatch"):
+            resume.verify_bound_receipt(s08_rec_path)
+
+    bad_s11_mf = {
+        **mf08,
+        "env": {**mf08["env"], "WATCH6_SHARD": "11"},
+    }
+    (s08_dir / "manifest.json").write_text(json.dumps(bad_s11_mf), encoding="utf-8")
+    s08_rec_path.write_text(
+        json.dumps({**s08_rec, "manifest_sha256": digest(s08_dir / "manifest.json")}),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="GPU/worker placement mismatch"):
+        resume.verify_bound_receipt(s08_rec_path)
+
+    # Restore valid s08 manifest/receipt.
+    (s08_dir / "manifest.json").write_text(json.dumps(mf08), encoding="utf-8")
+    s08_rec_path.write_text(json.dumps(s08_rec), encoding="utf-8")
+
+    # 7. Amendment with extra shard [8, 9, 10, 11], wrong hash, or missing file is rejected.
+    orig_amend_data = json.loads(admission.AMENDMENT_PATH.read_text(encoding="utf-8"))
+    extra_shard_path = tmp_path / "amendment-extra-shard.json"
+    extra_payload = {**orig_amend_data, "shards": [8, 9, 10, 11]}
+    extra_shard_path.write_text(json.dumps(extra_payload), encoding="utf-8")
+    extra_sha = digest(extra_shard_path)
+
+    # Wrong hash against pinned AMENDMENT_SHA256 rejected:
+    with pytest.raises(ValueError, match="SHA-256 mismatch"):
+        admission.validate_hardware_amendment(extra_shard_path)
+
+    # Even if hash were matched, extra shard [8, 9, 10, 11] is rejected by schema/shard guard:
+    with pytest.raises(ValueError, match="invalid hardware reassignment amendment payload"):
+        admission.validate_hardware_amendment(extra_shard_path, expected_sha256=extra_sha)
+
+    # Missing amendment file rejected:
+    with pytest.raises(ValueError, match="missing or symlinked hardware reassignment amendment"):
+        admission.validate_hardware_amendment(tmp_path / "nonexistent-amendment.json")
+
+    # Monkeypatching AMENDMENT_PATH to tampered file rejects effective_shard_spec, admit,
+    # resume.verify_bound_receipt, and final_look.run_final_look:
+    monkeypatch.setattr(admission, "AMENDMENT_PATH", extra_shard_path)
+    with pytest.raises(ValueError, match="SHA-256 mismatch"):
+        admission.effective_shard_spec(8)
+    with pytest.raises(ValueError, match="SHA-256 mismatch"):
+        admission.admit(mf08, pending_qualification=False)
+    with pytest.raises(ValueError, match="SHA-256 mismatch"):
+        resume.verify_bound_receipt(s08_rec_path)
+    with pytest.raises(ValueError, match="SHA-256 mismatch"):
+        final_look.run_final_look(
+            ops_dir=tmp_path,
+            out_dir=tmp_path / "bad-amend-final",
+            ruling_json=ruling_json,
+        )

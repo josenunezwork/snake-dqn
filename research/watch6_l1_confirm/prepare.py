@@ -13,7 +13,12 @@ from pathlib import Path
 from research.colab_cli import canary
 from research.t34_exit_b8 import public_inputs
 from research.watch6_l1_confirm import protocol as p
-from research.watch6_l1_confirm.admission import admit, completed_ledger
+from research.watch6_l1_confirm.admission import (
+    admit,
+    completed_ledger,
+    effective_shard_spec,
+    validate_hardware_amendment,
+)
 from research.watch6_l1_confirm.costs import (
     BASE_MINUTES_BY_GPU,
     CANARY_BASE_MINUTES,
@@ -29,6 +34,7 @@ from tools.ops.package_spec import Input, digest, empty_ledger, publish_json, st
 ALLOWED_REMOTE_BRANCHES = (
     "origin/main",
     "origin/argon-l1v1-pkg-1101",
+    "origin/argon-l1v1-acct-1102",
 )
 
 # Representative shard indices used for the two hardware-tier canaries (0 = A100, 12 = L4).
@@ -42,7 +48,8 @@ def _require_published_pin(commit: str) -> None:
     )
     if not any(branch in refs for branch in ALLOWED_REMOTE_BRANCHES):
         raise ValueError(
-            f"commit {commit} must be pushed to origin/main or origin/argon-l1v1-pkg-1101"
+            f"commit {commit} must be pushed to origin/main, origin/argon-l1v1-pkg-1101, "
+            "or origin/argon-l1v1-acct-1102"
         )
     if subprocess.check_output(["git", "diff", commit, "--", *p.source_paths()], cwd=p.ROOT):
         raise ValueError("local Watch6-L1-V1 executable source closure differs from pinned commit")
@@ -60,6 +67,7 @@ def prepare(
     pending_canary: bool = False,
     ledger: Path | None = None,
     target_shards: list[int] | None = None,
+    canary_gpus: list[str] | None = None,
     shard_meta: dict[int, dict] | None = None,
     reuse_staged_inputs: list[dict] | None = None,
     judge: str = "Astra",
@@ -68,15 +76,19 @@ def prepare(
     canary_receipts_by_gpu = dict(canary_receipts_by_gpu or {})
     if judge not in ("Astra", "Fable"):
         raise ValueError("judge must be Astra or Fable")
+    validate_hardware_amendment()
 
     selected_shards = sorted(target_shards) if target_shards is not None else list(range(p.SHARDS))
     if any(s not in range(p.SHARDS) for s in selected_shards):
         raise ValueError(f"target_shards out of range 0..{p.SHARDS - 1}")
-    required_gpus = (
-        sorted({p.shard_spec(s)["gpu"] for s in selected_shards})
-        if main_shards
-        else list(p.TARGET_GPUS)
-    )
+    if canary_gpus is not None:
+        if any(g not in p.TARGET_GPUS for g in canary_gpus):
+            raise ValueError(f"unsupported canary_gpus {canary_gpus}; expected {p.TARGET_GPUS}")
+        required_gpus = sorted(set(canary_gpus))
+    elif main_shards or target_shards is not None:
+        required_gpus = sorted({effective_shard_spec(s)["gpu"] for s in selected_shards})
+    else:
+        required_gpus = list(p.TARGET_GPUS)
 
     if main_shards and not pending_canary:
         missing_gpus = [g for g in required_gpus if g not in canary_receipts_by_gpu]
@@ -244,7 +256,7 @@ def prepare(
         jobs.extend((f"shard-{s:02d}", s, False) for s in selected_shards)
 
     for label, shard, probe in jobs:
-        spec = p.shard_spec(shard)
+        spec = effective_shard_spec(shard)
         gpu = spec["gpu"]
         workers = spec["workers"]
         rate = PRICED_CEILING_RATES_U_PER_H[gpu]
@@ -293,6 +305,11 @@ def prepare(
             base_unit_cap=unit,
             base_reserve_units=unit * 0.2,
         )
+        if "amendment_id" in spec and not probe:
+            value["watch6_l1_v1"].update(
+                hardware_amendment_id=spec["amendment_id"],
+                hardware_amendment_sha256=spec["amendment_sha256"],
+            )
         value["env"].update(
             WATCH6_SHARD=str(shard),
             WATCH6_FIXTURE="1" if probe else "0",
@@ -348,6 +365,15 @@ def main() -> None:
     parser.add_argument("--canary-l4-receipt", type=Path, default=None)
     parser.add_argument("--canary-only", action="store_true")
     parser.add_argument("--pending-canary", action="store_true")
+    parser.add_argument(
+        "--shards",
+        "--target-shards",
+        dest="target_shards",
+        type=int,
+        nargs="*",
+        default=None,
+    )
+    parser.add_argument("--gpus", nargs="*", choices=p.TARGET_GPUS, default=None)
     parser.add_argument("--ledger", type=Path, default=None)
     parser.add_argument("--judge", default="Astra", choices=("Astra", "Fable"))
     args = parser.parse_args()
@@ -368,6 +394,8 @@ def main() -> None:
         main_shards=not args.canary_only,
         pending_canary=args.pending_canary,
         ledger=args.ledger.resolve() if args.ledger else None,
+        target_shards=args.target_shards,
+        canary_gpus=args.gpus,
         judge=args.judge,
     )
     print(json.dumps(result, indent=2), flush=True)

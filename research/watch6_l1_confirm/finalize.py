@@ -8,7 +8,7 @@ from pathlib import Path
 
 from research.colab_cli import canary
 from research.watch6_l1_confirm import protocol as p
-from research.watch6_l1_confirm.admission import admit
+from research.watch6_l1_confirm.admission import admit, effective_shard_spec
 from tools.ops.package_spec import digest, publish_json, verify_immutable
 
 
@@ -62,7 +62,16 @@ def finalize(
 ) -> dict:
     """Bind passing A100/L4 canary receipts into shard-XX.pending.json and emit shard-XX.json."""
     packet_dir = packet_dir.resolve(strict=True)
-    target_gpus = set(gpus) if gpus is not None else set(p.TARGET_GPUS)
+    pending_paths = sorted(packet_dir.glob("shard-*.pending.json"))
+    if gpus is not None:
+        target_gpus = set(gpus)
+    elif pending_paths:
+        target_gpus = {
+            str(json.loads(p_path.read_text(encoding="utf-8")).get("requirements", {}).get("gpu"))
+            for p_path in pending_paths
+        }
+    else:
+        target_gpus = set(p.TARGET_GPUS)
     if not target_gpus.issubset(set(p.TARGET_GPUS)):
         raise ValueError(f"unsupported GPUs {target_gpus}; expected subset of {p.TARGET_GPUS}")
 
@@ -78,9 +87,15 @@ def finalize(
         resolved_canaries[gpu] = _validate_canary_receipt(cand, gpu)
 
     finalized: list[str] = []
-    for pending_path in sorted(packet_dir.glob("shard-*.pending.json")):
+    for pending_path in pending_paths:
         manifest = json.loads(pending_path.read_text(encoding="utf-8"))
+        shard = int(manifest.get("env", {}).get("WATCH6_SHARD", -1))
+        spec = effective_shard_spec(shard)
         gpu = manifest.get("requirements", {}).get("gpu")
+        if gpu != spec["gpu"]:
+            raise ValueError(
+                f"pending shard {shard} GPU {gpu!r} does not match effective spec {spec['gpu']!r}"
+            )
         if gpu not in target_gpus:
             continue
         qual = resolved_canaries[gpu]

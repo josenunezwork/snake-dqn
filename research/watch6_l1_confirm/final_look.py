@@ -34,10 +34,12 @@ from research.colab_cli import canary
 from research.watch6_l1_confirm import protocol as p
 from research.watch6_l1_confirm.admission import (
     RETAINED_PENDING_CLEANUP_ERROR,
+    effective_shard_spec,
     has_non_inert_entries,
     is_external_transport_compute_failure,
     is_inert_macos_metadata,
     is_prestart_transport_failure,
+    validate_hardware_amendment,
 )
 from research.watch6_l1_confirm.analyze import DEFAULT_ALPHA, analyze_verified_union
 from research.watch6_l1_confirm.mirror import validate as validate_mirror
@@ -536,6 +538,7 @@ def run_final_look(
 
     with pre_outcome_open_guard():
         ruling_receipt = validate_ruling_receipt(ruling_json)
+        hardware_amendment = validate_hardware_amendment()
 
         ops_dir = ops_dir.resolve(strict=True)
         manifests_dir = ops_dir / "manifests"
@@ -609,6 +612,25 @@ def run_final_look(
                 k in binding for k in ("reserve_allocation", "reserve_slots", "reserve_lineage")
             ):
                 raise ValueError(f"INVALID_OR_INCOMPLETE: forbidden reserve fields in {mf_path}")
+            if not (canary.is_canary(data) or data.get("env", {}).get("WATCH6_FIXTURE") == "1"):
+                mf_env = data.get("env", {})
+                mf_shard = int(mf_env.get("WATCH6_SHARD", -1))
+                if mf_shard not in range(p.SHARDS) or int(mf_env.get("WATCH6_SHARDS", -1)) != (
+                    p.SHARDS
+                ):
+                    raise ValueError(
+                        f"INVALID_OR_INCOMPLETE: invalid shard/shards in ops manifest {mf_path}"
+                    )
+                mf_spec = effective_shard_spec(mf_shard)
+                mf_req = data.get("requirements", {})
+                if (
+                    mf_req.get("gpu") != mf_spec["gpu"]
+                    or mf_req.get("allowed_gpus") != [mf_spec["gpu"]]
+                    or int(mf_env.get("WATCH6_WORKERS", -1)) != mf_spec["workers"]
+                ):
+                    raise ValueError(
+                        f"INVALID_OR_INCOMPLETE: shard {mf_shard} GPU/worker mismatch in {mf_path}"
+                    )
 
             name = mf_path.stem
             raw_out_unres = Path(data["output_dir"])
@@ -697,10 +719,46 @@ def run_final_look(
                         raise ValueError(
                             f"INVALID_OR_INCOMPLETE: invalid shard {shard} in {attempt_dir}"
                         )
-                    spec = p.shard_spec(shard)
-                    if gpu != spec["gpu"] or int(env.get("WATCH6_WORKERS", -1)) != spec["workers"]:
+                    spec = effective_shard_spec(shard)
+                    req = exec_manifest.get("requirements", {})
+                    if (
+                        gpu != spec["gpu"]
+                        or req.get("allowed_gpus") != [spec["gpu"]]
+                        or int(env.get("WATCH6_WORKERS", -1)) != spec["workers"]
+                    ):
                         raise ValueError(
                             f"INVALID_OR_INCOMPLETE: shard {shard} GPU/worker mismatch "
+                            f"in {attempt_dir}"
+                        )
+                    if "gpu" in exec_binding and exec_binding.get("gpu") != spec["gpu"]:
+                        raise ValueError(
+                            f"INVALID_OR_INCOMPLETE: shard {shard} watch6_l1_v1.gpu mismatch "
+                            f"in {attempt_dir}"
+                        )
+                    if "workers" in exec_binding and exec_binding.get("workers") != spec["workers"]:
+                        raise ValueError(
+                            f"INVALID_OR_INCOMPLETE: shard {shard} watch6_l1_v1.workers mismatch "
+                            f"in {attempt_dir}"
+                        )
+                    if "amendment_id" in spec:
+                        if (
+                            "hardware_amendment_id" in exec_binding
+                            and exec_binding.get("hardware_amendment_id") != spec["amendment_id"]
+                        ) or (
+                            "hardware_amendment_sha256" in exec_binding
+                            and exec_binding.get("hardware_amendment_sha256")
+                            != spec["amendment_sha256"]
+                        ):
+                            raise ValueError(
+                                "INVALID_OR_INCOMPLETE: shard hardware amendment mismatch "
+                                f"in {attempt_dir}"
+                            )
+                    elif (
+                        "hardware_amendment_id" in exec_binding
+                        or "hardware_amendment_sha256" in exec_binding
+                    ):
+                        raise ValueError(
+                            "INVALID_OR_INCOMPLETE: un-amended shard carries hardware amendment "
                             f"in {attempt_dir}"
                         )
                     shard_attempts[shard].append(
@@ -836,6 +894,13 @@ def run_final_look(
             "ignored_foreign_manifest_symlinks": ignored_foreign_manifest_symlinks,
             "total_main_attempts": len(ordered_main_attempts),
             "final_ledger_sha256": digest(ledger_path),
+            "hardware_amendment": {
+                "amendment_id": hardware_amendment["amendment_id"],
+                "sha256": hardware_amendment["sha256"],
+                "shards": hardware_amendment["shards"],
+                "gpu": hardware_amendment["gpu"],
+                "workers": hardware_amendment["workers"],
+            },
             "outcome_files_opened_during_audit": 0,
         }
         accounting_path = out_dir / "pre-outcome-accounting.json"
@@ -850,6 +915,7 @@ def run_final_look(
     decision["mac_mirror_sha256s"] = sorted(verified_mirror_shas)
     decision["total_main_attempts"] = len(ordered_main_attempts)
     decision["final_ledger_sha256"] = digest(ledger_path)
+    decision["hardware_amendment"] = accounting_cert["hardware_amendment"]
     publish_json(out_dir / "l1-confirm-decision.json", decision)
     return decision
 
