@@ -23,7 +23,7 @@ thresholds, and standing operating rules.
   `SNAKE_WATCH_REPLAY_DIR`, and `SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l2-prime`
   in `.claude/launch.json`). The `168`-session mixed bank (`watch-replay-bank-live-168`,
   adding `36` `exact-stop-l1` sessions from `14l1–16l1`) remains on disk pending
-  `H = 14,400` confirmation. Live bare `b8-s3` is the automatic fallback during cold
+  ratified `Watch6-L1-V1` `H = 14,400` confirmation ([`research/watch6_l1_confirm/REGISTRATION_L1_V1.md`](research/watch6_l1_confirm/REGISTRATION_L1_V1.md)). Live bare `b8-s3` is the automatic fallback during cold
   prefetch or if the bank is unset, empty, or invalid.
 - **Play (and live Watch fallback):** runs **live bare B8 seed 3 (`b8-s3`), served
   without a veto** (checkpoint SHA prefix `3e649783`). In **Play**, `1` human steers

@@ -14,7 +14,7 @@ for the current program state. This page has two parts:
 |---|---|
 | **Project & experiment map** | [../INDEX.md](../INDEX.md) |
 | **Current served state & standing rules** | [../STATUS.md](../STATUS.md) |
-| **Research roadmap (Round-20 advice, not decisions)** | [ROADMAP.md](ROADMAP.md) |
+| **Research roadmap (Round-21 advice, not decisions)** | [ROADMAP.md](ROADMAP.md) |
 | **Current campaign (T34, search teacher & Watch6)** | [final_run_20261019/](final_run_20261019/) (`HANDOFF_2026-10-20.md`, `CAMPAIGN_LOG.md`, `SUCCESS_CONTRACT.md`, `FINAL_PLAN.md`, `P7_STATISTICS.md`) |
 | Specs and pre-registrations | [specs/INDEX.md](specs/INDEX.md) |
 | Advisor and panel advice | [advice/INDEX.md](advice/INDEX.md) |
