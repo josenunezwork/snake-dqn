@@ -6,8 +6,8 @@ evidence only; it does not authorize efficacy, training, a gate, or a serving ch
 
 Binding documents: [measurement spec](../../docs/research/specs/2026-10-19_t34_shadow_measurements.md),
 [Design v2 and pre-data Amendment 1](../../docs/research/final_run_20261019/DESIGN_V2_SHADOW.md),
-[LAD addendum](../../docs/research/specs/2026-10-19_t34_shadow_addendum_lad.md), and
-[execution choices](README.md). Amendment 1 was merged from main `105debee` and
+[LAD addendum](../../docs/research/history/t34-search-teacher.md), and
+[execution choices](../../docs/research/history/t34-search-teacher.md). Amendment 1 was merged from main `105debee` and
 implemented before any M2 data. The two search rules were committed in `6bc83348`.
 
 ## GO / NO-GO table

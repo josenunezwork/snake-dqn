@@ -189,7 +189,7 @@ proof.
 
 | Requirement | Verification / deciding evidence |
 |---|---|
-| Exact batched v8 continuation and B8 tie/mask semantics | Independent reference traces and focused engine tests; see `VERIFICATION_V2.md` |
+| Exact batched v8 continuation and B8 tie/mask semantics | Independent reference traces and focused engine tests; see [t34-pathb.md](../../docs/research/history/t34-pathb.md) |
 | One thread, one request, bounded confirmation history, stale/late fallback | Controller queue, identity, mismatch and overflow regressions |
 | Real terminal + continuous Watch adapter | Tiny actual adapter smoke, physical/carry/v8 comparison |
 | T3 pre-check >=50/64 at 24 fps | Separately authorized development pre-check with an 8 h cap; full run reserved for operator |
@@ -239,7 +239,7 @@ including a 7.088855-unit reserve; it is not debited to the Mac caps. Before a
 Colab allocation, the operator runs the required Mac preflight of two
 development worlds at short frames. It produces no efficacy row and cannot
 qualify timing or any contract bar. The new OC power numbers and complete
-verification are in [VERIFICATION_RETENTION_RESIZE.md](VERIFICATION_RETENTION_RESIZE.md).
+verification are in [t34-pathb.md](../../docs/research/history/t34-pathb.md).
 
 Package validation (safe during implementation; no pre-check or efficacy):
 
@@ -544,7 +544,7 @@ invalidate the otherwise preserved decision; it never silently substitutes a
 new result.
 
 Package verification, exact preparation commands and the development-only OC
-results are recorded in [VERIFICATION_RETENTION_V2.md](VERIFICATION_RETENTION_V2.md).
+results are recorded in [t34-pathb.md](../../docs/research/history/t34-pathb.md).
 
 
 ### FIX-FIRST #5 timing history
