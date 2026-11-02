@@ -670,6 +670,123 @@ def test_admission_failure_predicates_and_final_look_sole_look_guard(
     assert admission.is_prestart_transport_failure(prealloc_rec, prealloc_dir) is False
     (prealloc_dir / "exports/.DS_Store").unlink()
 
+    # 1b. Exact shard-01 pre-allocation refusal shape with local supervisor staging/ tree.
+    shard01_dir = tmp_path / "output-shard-01"
+    shard01_staging = shard01_dir / "staging"
+    shard01_staging.mkdir(parents=True)
+    (shard01_dir / "manifest.json").write_text(
+        '{"job_id": "watch6-l1-shard-01"}\n', encoding="utf-8"
+    )
+    for fname in (
+        "bootstrap.sh",
+        "release.py",
+        "runtime.py",
+        "schema-validation.json",
+        "source-plan.json",
+        "source.py",
+        "source.tar.gz",
+    ):
+        (shard01_staging / fname).write_bytes(f"staged:{fname}".encode("utf-8"))
+    shard01_rec = {
+        "accounting": None,
+        "cleanup_error": None,
+        "cli_calls": [],
+        "commit": "1873b9025d5a563dcefaf7fcb3cda1e4e6e25306",
+        "contents_transfers": [],
+        "control_operations": [],
+        "elapsed_seconds": 0.0017196668777614832,
+        "endpoint": None,
+        "error": "Refused('unresolved allocation/stop: reconcile pending records first')",
+        "exec_poll_recovery_base_seconds": 600.0,
+        "exec_poll_recovery_seconds": 1200.0,
+        "exports": [],
+        "failure_class": "SUPERVISOR",
+        "generation": "88a230800e4a45b29049625fa4ab4457",
+        "job_id": "watch6-l1-shard-01-l1v1-main-01",
+        "manifest_sha256": digest(shard01_dir / "manifest.json"),
+        "session": "snake-watch6-l1-shard-01-l1v1-main-01-88a230800e4a",
+        "status": "INCOMPLETE",
+        "stop_verified": False,
+        "supervisor_sha256": "12da8937ce9cee01ddb5984a7e3a2eca1dde20bfc127921c230bcc524b172ec9",
+        "terminal": None,
+        "transfers": [],
+        "usage_after": None,
+        "usage_before": None,
+        "warmup_seconds": 0.0,
+    }
+    (shard01_dir / "receipt.json").write_text(json.dumps(shard01_rec), encoding="utf-8")
+    # (a) Exact shard-01 shape classifies as prestart (and not compute):
+    assert admission.is_prestart_transport_failure(shard01_rec, shard01_dir) is True
+    assert admission.is_external_transport_compute_failure(shard01_rec, shard01_dir) is False
+
+    # (b) Extra/unknown file, missing file, subdirectory, symlink, or any exports/terminal/
+    #     hardware/poll evidence in or alongside staging/ MUST fail closed:
+    extra_staging_file = shard01_staging / "unknown-extra.txt"
+    extra_staging_file.write_text("extra\n", encoding="utf-8")
+    assert admission.is_prestart_transport_failure(shard01_rec, shard01_dir) is False
+    extra_staging_file.unlink()
+
+    (shard01_staging / "source.tar.gz").unlink()
+    assert admission.is_prestart_transport_failure(shard01_rec, shard01_dir) is False
+    (shard01_staging / "source.tar.gz").write_bytes(b"staged:source.tar.gz")
+
+    extra_subdir = shard01_staging / "nested"
+    extra_subdir.mkdir()
+    assert admission.is_prestart_transport_failure(shard01_rec, shard01_dir) is False
+    extra_subdir.rmdir()
+
+    (shard01_staging / "runtime.py").unlink()
+    (shard01_staging / "runtime.py").symlink_to(shard01_dir / "manifest.json")
+    assert admission.is_prestart_transport_failure(shard01_rec, shard01_dir) is False
+    (shard01_staging / "runtime.py").unlink()
+    (shard01_staging / "runtime.py").write_bytes(b"staged:runtime.py")
+
+    assert (
+        admission.is_prestart_transport_failure(
+            {
+                **shard01_rec,
+                "exports": [{"path": "efficacy/world-06.json", "sha256": "0" * 64, "size": 10}],
+            },
+            shard01_dir,
+        )
+        is False
+    )
+    (shard01_dir / "exports").mkdir()
+    (shard01_dir / "exports/world-06.json").write_text("{}", encoding="utf-8")
+    assert admission.is_prestart_transport_failure(shard01_rec, shard01_dir) is False
+    (shard01_dir / "exports/world-06.json").unlink()
+    (shard01_dir / "exports").rmdir()
+
+    assert (
+        admission.is_prestart_transport_failure(
+            {**shard01_rec, "terminal": {"returncode": 1, "reason": "error", "error": "boom"}},
+            shard01_dir,
+        )
+        is False
+    )
+    for forbidden_evidence in ("terminal.json", "hardware.json", "poll-000000.json"):
+        ev_path = shard01_dir / forbidden_evidence
+        ev_path.write_text("{}\n", encoding="utf-8")
+        assert admission.is_prestart_transport_failure(shard01_rec, shard01_dir) is False
+        ev_path.unlink()
+    assert admission.is_prestart_transport_failure(shard01_rec, shard01_dir) is True
+
+    # (c) An endpoint-assigned receipt with staging/ is unaffected:
+    assert (
+        admission.is_prestart_transport_failure(
+            {**shard01_rec, "endpoint": "gpu-a100-s-assigned", "stop_verified": True},
+            shard01_dir,
+        )
+        is False
+    )
+    assert (
+        admission.is_external_transport_compute_failure(
+            {**shard01_rec, "endpoint": "gpu-a100-s-assigned", "stop_verified": True},
+            shard01_dir,
+        )
+        is False
+    )
+
     # 2. Pre-workload-started public checkpoint fetch failure (rc=74, inert exports/) -> prestart.
     rc74_dir = tmp_path / "rc74"
     (rc74_dir / "exports").mkdir(parents=True)
@@ -831,7 +948,9 @@ def test_admission_failure_predicates_and_final_look_sole_look_guard(
 
     # Shard 0 linear chain: prestart -> wall-timeout compute (slot 0) -> PASS (slots 1..5).
     s0_pre = tmp_path / "shard-00-att1"
-    s0_pre.mkdir()
+    (s0_pre / "staging").mkdir(parents=True)
+    for fname in admission.ALLOWED_PREALLOC_STAGING_FILES:
+        (s0_pre / "staging" / fname).write_bytes(f"staged:{fname}".encode("utf-8"))
     s0_spec = p.shard_spec(0)
     base_s0_mf = {
         "job_id": "watch6-l1-shard-00-a1",

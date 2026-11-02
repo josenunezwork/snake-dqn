@@ -12,6 +12,7 @@ import tempfile
 from pathlib import Path
 
 from research.colab_cli import canary
+from research.colab_cli import source as colab_source
 from research.watch6_l1_confirm import protocol as p
 from research.watch6_l1_confirm.costs import (
     BASE_MINUTES_BY_GPU,
@@ -63,6 +64,20 @@ ALLOWED_PREALLOC_FILES: frozenset[str] = frozenset(
         "unavailable.json",
         "unavailable.json.sha256",
         "unavailable.json.complete",
+    }
+)
+
+# Local staging files written by research/colab_cli/supervisor.py (Broker.run) and
+# research/colab_cli/source.py (prepare) into output_dir/staging/ before VM allocation.
+ALLOWED_PREALLOC_STAGING_FILES: frozenset[str] = frozenset(
+    {
+        colab_source.ARCHIVE_NAME,
+        colab_source.PLAN_NAME,
+        "schema-validation.json",
+        "runtime.py",
+        "bootstrap.sh",
+        "release.py",
+        "source.py",
     }
 )
 
@@ -476,16 +491,33 @@ def _prealloc_tree_clean(output_dir: Path) -> bool:
     if output_dir.is_symlink():
         return False
     exports_dir = output_dir / "exports"
+    staging_dir = output_dir / "staging"
+    has_staging_dir = False
+    staging_files: set[str] = set()
     for entry in output_dir.rglob("*"):
         if entry.is_symlink():
             return False
+        rel = entry.relative_to(output_dir)
+        if rel.parts[0] == "staging":
+            if entry == staging_dir and entry.is_dir():
+                has_staging_dir = True
+                continue
+            if (
+                len(rel.parts) != 2
+                or rel.name not in ALLOWED_PREALLOC_STAGING_FILES
+                or not entry.is_file()
+            ):
+                return False
+            staging_files.add(rel.name)
+            continue
         if is_inert_macos_metadata(entry, root=output_dir):
             continue
         if entry == exports_dir and entry.is_dir() and not has_non_inert_entries(exports_dir):
             continue
-        rel = entry.relative_to(output_dir)
         if len(rel.parts) != 1 or rel.name not in ALLOWED_PREALLOC_FILES or not entry.is_file():
             return False
+    if has_staging_dir and staging_files != ALLOWED_PREALLOC_STAGING_FILES:
+        return False
     return True
 
 
