@@ -1,0 +1,47 @@
+{
+  "attempt_manifest_sha256": "39b6a38eab5d479256a59140025b6d2c43134ed51515d012d75ab6b4050ea0c5",
+  "attempt_output_dir": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/auto-retry/watch6-l1v1-shard-11-retry-1cf3c2c133/output",
+  "classification": "external_transport_compute",
+  "compute_completion_attempt": 1,
+  "exports_listing": [
+    "performance.json",
+    "performance.json.sha256",
+    "performance.json.complete",
+    "workload-started.json",
+    "workload-started.json.sha256",
+    "workload-started.json.complete"
+  ],
+  "gpu": "A100",
+  "hardware_json_sha256": "4bb40c6832c129f498af1d3df0cc7e9d970f46a96cd3ecaa728bf709cbbf6885",
+  "host_boot_epoch": 1793670392,
+  "incident_id": "INCIDENT_HOST_RESTART_01",
+  "last_poll": {
+    "name": "poll-001082.json",
+    "sha256": "0226d9d4e98039f0fe23ddf81edd88ecbd68284ddd69ddf05777b263f126f876",
+    "state_status": "running",
+    "updated_at": 1793669698
+  },
+  "manifest_commit": "1873b9025d5a563dcefaf7fcb3cda1e4e6e25306",
+  "namespace": "t34-watch6-l1-confirm-20261101-v1",
+  "poll_count": 1083,
+  "registration_sha256": "8b46779ff52d0c9648ff8de00c1893f77beb9bd99eb4a4e51afbe0bdf36800a0",
+  "ruling": "RULING_L1_V1_R5.md",
+  "ruling_sha256": "78bcb2ff6f682ce73f422743acea1b8e06ce23fb1005bcedea034b17058dda5b",
+  "schema": "watch6-l1-host-interrupted-attempt/v1",
+  "science": "57ec544fe45f7a8a876dbc9363048468b63358e224b2ee8e11dff41401dcfbd3",
+  "sessions_evidence": {
+    "captured_pt": "2026-11-02T18:33:31",
+    "command": "colab sessions",
+    "output_sha256": "39fa4c0bd3c146fad6bcd449c25d877952b55799a578d35c092a458e89a79512",
+    "output_text": "[colab] No active sessions found on server."
+  },
+  "shard": 11,
+  "supervisor_log": {
+    "last_write_pt": "2026-11-02T17:34:46",
+    "lines": 1083,
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/logs/watch6-l1v1-shard-11-retry-1cf3c2c133.log",
+    "sha256": "4c06420dae61797a58001195851be81023a1babf0c2d6aebf3b1a8140923613c"
+  },
+  "workers": 6,
+  "world_outputs": 0
+}

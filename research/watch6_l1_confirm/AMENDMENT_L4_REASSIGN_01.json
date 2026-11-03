@@ -1,0 +1,20 @@
+{
+  "amendment_id": "AMENDMENT_L4_REASSIGN_01",
+  "device": "cpu",
+  "from_gpu": "A100",
+  "gpu": "L4",
+  "min_vcpu": 12,
+  "namespace": "t34-watch6-l1-confirm-20261101-v1",
+  "reason": "Reassign undispatched Watch6-L1-V1 shards 08, 09, 10 (6 worlds/shard, W=6, min_vcpu=12, SNAKE_DQN_DEVICE=cpu) from A100 to idle L4 runtimes while all 3 A100 slots are busy; each world is a paired-world atomic unit executed on one 12-vCPU host with measured W=6 vs W=4 contention of 1.03128x (REGISTRATION_L1_V1.md section 5) and zero change to science identity, seeds, arms, horizons, or per-shard world/worker counts.",
+  "registration_sha256": "8b46779ff52d0c9648ff8de00c1893f77beb9bd99eb4a4e51afbe0bdf36800a0",
+  "schema": "watch6-l1-hardware-reassignment-amendment/v1",
+  "science": "57ec544fe45f7a8a876dbc9363048468b63358e224b2ee8e11dff41401dcfbd3",
+  "shards": [
+    8,
+    9,
+    10
+  ],
+  "w6_vs_w4_contention_ratio_12vcpu": 1.03128,
+  "workers": 6,
+  "worlds_per_shard": 6
+}

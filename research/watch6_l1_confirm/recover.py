@@ -8,8 +8,11 @@ from pathlib import Path
 
 from research.watch6_l1_confirm import protocol as p
 from research.watch6_l1_confirm.admission import (
+    INCIDENT_SHARD,
     is_external_transport_compute_failure,
     is_prestart_transport_failure,
+    resolve_host_interrupted_attempt_dir,
+    validate_host_interrupted_incident,
 )
 from research.watch6_l1_confirm.prepare import prepare
 from research.watch6_l1_confirm.resume import WORLD_NAME_RE
@@ -31,11 +34,16 @@ def build_recovery_packet(
     judge: str = "Astra",
 ) -> dict:
     """Build study-wide union verified-ledger.json and fresh linear recovery manifests."""
+    incident = validate_host_interrupted_incident()
     out_dir = out_dir.resolve()
     unit_paths: list[Path] = []
+    stopped_receipt_files: list[Path] = []
     seen_slots: set[int] = set()
     for r_path in all_stopped_main_receipts:
+        if resolve_host_interrupted_attempt_dir(r_path) is not None:
+            continue
         resolved = r_path.resolve(strict=True)
+        stopped_receipt_files.append(resolved)
         rec = json.loads(resolved.read_text(encoding="utf-8"))
         for row in rec.get("exports", []):
             rel = str(row.get("path", ""))
@@ -50,11 +58,12 @@ def build_recovery_packet(
             seen_slots.add(slot)
             unit_paths.append((resolved.parent / "exports" / rel).resolve(strict=True))
 
-    ledger = build_verified_ledger(unit_paths, all_stopped_main_receipts)
+    ledger = build_verified_ledger(unit_paths, stopped_receipt_files)
     verified_indices = {row["index"] for row in ledger["units"]}
 
     target_shards: list[int] = []
     shard_meta: dict[int, dict] = {}
+    seen_interrupted_dirs: set[Path] = set()
     for shard, history_paths in sorted(prior_receipts_by_shard.items()):
         owned = set(p.shard_indices(shard))
         if owned.issubset(verified_indices):
@@ -65,6 +74,27 @@ def build_recovery_packet(
         compute_used = 0
         priors: list[dict] = []
         for hp in history_paths:
+            interrupted_dir = resolve_host_interrupted_attempt_dir(hp)
+            if interrupted_dir is not None:
+                if shard != INCIDENT_SHARD or interrupted_dir in seen_interrupted_dirs:
+                    raise ValueError(
+                        "host-interrupted compute attempt is single-use and valid only on "
+                        f"shard {INCIDENT_SHARD}: {hp}"
+                    )
+                seen_interrupted_dirs.add(interrupted_dir)
+                compute_used += 1
+                priors.append(
+                    {
+                        "receipt_path": str(Path(incident["path"]).resolve()),
+                        "receipt_sha256": incident["sha256"],
+                        "classification": "external_transport_compute",
+                        "incident_id": incident["incident_id"],
+                        "incident_sha256": incident["sha256"],
+                        "attempt_output_dir": str(interrupted_dir),
+                    }
+                )
+                continue
+
             rp = hp.resolve(strict=True)
             rec = json.loads(rp.read_text(encoding="utf-8"))
             if rec.get("status") == "PASS":
@@ -125,11 +155,20 @@ def main() -> None:
     parser.add_argument("--commit", required=True)
     parser.add_argument("--mirror-receipt", type=Path, required=True)
     parser.add_argument("--empirical-costs", type=Path, required=True)
+    parser.add_argument("--canary-a100-receipt", type=Path, default=None)
+    parser.add_argument("--canary-l4-receipt", type=Path, default=None)
     parser.add_argument("--judge", default="Astra", choices=("Astra", "Fable"))
     args = parser.parse_args()
     spec = json.loads(args.spec_json.resolve().read_text(encoding="utf-8"))
     by_shard = {int(k): [Path(x) for x in v] for k, v in spec["prior_receipts_by_shard"].items()}
     all_receipts = [Path(x) for x in spec["all_stopped_main_receipts"]]
+    by_gpu: dict[str, Path] = {
+        str(k): Path(v).resolve() for k, v in (spec.get("canary_receipts_by_gpu") or {}).items()
+    }
+    if args.canary_a100_receipt is not None:
+        by_gpu["A100"] = args.canary_a100_receipt.resolve()
+    if args.canary_l4_receipt is not None:
+        by_gpu["L4"] = args.canary_l4_receipt.resolve()
     result = build_recovery_packet(
         prior_receipts_by_shard=by_shard,
         all_stopped_main_receipts=all_receipts,
@@ -138,6 +177,8 @@ def main() -> None:
         commit=args.commit,
         mirror_receipt=args.mirror_receipt.resolve(),
         empirical_costs=args.empirical_costs.resolve(),
+        canary_receipts_by_gpu=by_gpu or None,
+        pending_canary=not bool(by_gpu),
         judge=args.judge,
     )
     print(json.dumps(result, indent=2), flush=True)
