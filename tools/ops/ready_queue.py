@@ -38,6 +38,12 @@ from research.colab_cli.accounting import ACCOUNT_ASSIGNMENT_CAP  # noqa: E402
 # 13:39 and 14:20 PT) and ACCOUNT_ASSIGNMENT_CAP=6 total (3 L4 + 3 A100 accepted
 # in the 08:49 PT probe; 7th refused).
 ACCOUNT_L4_CAP = 3
+# Measured 2026-11-02: G4 max 3, T4 max 3, CPU-only pool 5 separate.
+ACCOUNT_GPU_SUBCAPS: dict[str, int] = {
+    "L4": ACCOUNT_L4_CAP,
+    "G4": 3,
+    "T4": 3,
+}
 
 SCHEMA = "snake-dqn-ready-queue/v1"
 # Cover the 600s lock wait, two 1200s host admissions, two 600s allocation
@@ -638,7 +644,8 @@ def tick(
             if row["status"] != "READY" or not ready(queue, row):
                 continue
             gpu = row_gpu(row)
-            if gpu == "L4" and by_gpu["L4"] >= ACCOUNT_L4_CAP:
+            subcap = ACCOUNT_GPU_SUBCAPS.get(gpu) if gpu else None
+            if subcap is not None and by_gpu[gpu] >= subcap:
                 continue
             would_dispatch.append(row["id"])
             slots -= 1
@@ -679,7 +686,8 @@ def tick(
             if row["status"] != "READY" or not ready(queue, row):
                 continue
             gpu = row_gpu(row)
-            if gpu == "L4" and by_gpu["L4"] >= ACCOUNT_L4_CAP:
+            subcap = ACCOUNT_GPU_SUBCAPS.get(gpu) if gpu else None
+            if subcap is not None and by_gpu[gpu] >= subcap:
                 continue
             row.update(status="DISPATCHING", token=uuid.uuid4().hex, claimed=False)
             save(ops / "ready-queue.json", queue)

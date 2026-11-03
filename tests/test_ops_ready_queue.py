@@ -1054,6 +1054,7 @@ def add_gpu_job(
 
 def test_l4_cap_skips_l4_without_holding_or_reordering_and_dispatches_a100(tmp_path, monkeypatch):
     assert rq.ACCOUNT_L4_CAP == 3
+    assert rq.ACCOUNT_GPU_SUBCAPS == {"L4": 3, "G4": 3, "T4": 3}
     assert rq.ACCOUNT_ASSIGNMENT_CAP == 6
     ops = tmp_path / "ops"
     add_gpu_job(tmp_path, ops, "l4-first", "L4")
@@ -1073,6 +1074,34 @@ def test_l4_cap_skips_l4_without_holding_or_reordering_and_dispatches_a100(tmp_p
     assert queue["jobs"][0]["status"] == "READY" and "error" not in queue["jobs"][0]
     assert queue["jobs"][1]["status"] == "READY" and "error" not in queue["jobs"][1]
     assert queue["jobs"][2]["status"] == "DISPATCHING"
+
+
+@pytest.mark.parametrize(("capped_gpu", "other_gpu"), [("G4", "T4"), ("T4", "G4")])
+def test_g4_and_t4_subcaps_skip_capped_gpu_and_dispatch_uncapped(
+    tmp_path, monkeypatch, capped_gpu, other_gpu
+):
+    ops = tmp_path / "ops"
+    add_gpu_job(tmp_path, ops, f"{capped_gpu.lower()}-blocked", capped_gpu)
+    add_gpu_job(tmp_path, ops, f"{other_gpu.lower()}-ready", other_gpu)
+
+    three_active = {f"ep-{capped_gpu.lower()}-{i}": capped_gpu for i in (1, 2, 3)}
+    dry = rq.tick(ops, dry_run=True, inventory=three_active)
+    assert dry == {
+        "active": 3,
+        "reserved": 0,
+        "would_dispatch": [f"{other_gpu.lower()}-ready"],
+    }
+
+    monkeypatch.setattr(rq.subprocess, "Popen", lambda *a, **k: None)
+    live = rq.tick(ops, inventory=three_active)
+    assert live == {
+        "active": 3,
+        "reserved": 0,
+        "dispatched": [f"{other_gpu.lower()}-ready"],
+    }
+    queue = ar.read(ops / "ready-queue.json")
+    assert queue["jobs"][0]["status"] == "READY"
+    assert queue["jobs"][1]["status"] == "DISPATCHING"
 
 
 def test_six_total_assignments_dispatches_nothing(tmp_path, monkeypatch):

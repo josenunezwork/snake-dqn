@@ -1338,7 +1338,7 @@ def refresh_assignments(manifest: Path, evidence: Path, deadline: float) -> Path
         ):
             budget_warning("BROKER_RATE_UNAVAILABLE", endpoint=endpoint, rate=rate)
             rate = 0.0
-        registered = {"L4": 1.54, "CPU": 0.08}.get(hardware.upper())
+        registered = {"L4": 1.54, "CPU": 0.08, "G4": 10.05}.get(hardware.upper())
         if registered is not None and not math.isclose(rate, registered, rel_tol=0, abs_tol=1e-9):
             budget_warning(
                 "BROKER_RATE_DIFFERS_FROM_REGISTERED",
@@ -1346,7 +1346,7 @@ def refresh_assignments(manifest: Path, evidence: Path, deadline: float) -> Path
                 rate=rate,
                 registered=registered,
             )
-        if hardware.upper() not in ("L4", "CPU", "A100", "H100"):
+        if hardware.upper() not in ("L4", "CPU", "A100", "H100", "G4", "T4"):
             raise Refused(f"unregistered live hardware: {hardware}")
         rates[endpoint] = rate
     original = manifest.read_bytes()

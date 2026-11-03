@@ -365,6 +365,15 @@ def active(endpoint, rate, **fields):
             ],
             {"a100": 5.3, "cpu": 0.08},
         ),
+        (
+            {},
+            {"g4": "G4", "t4": "T4"},
+            [
+                active("g4", 12, priced_rate_units_per_hour=12, observed_rate_units_per_hour=10.05),
+                active("t4", 1.96),
+            ],
+            {"g4": 10.05, "t4": 1.96},
+        ),
     ],
 )
 def test_refreshes_departed_and_new_owned_endpoints(fixture, declared, sessions, records, expected):
@@ -431,13 +440,15 @@ def test_refuses_mixed_valid_and_unparsed_inventory(fixture, tail):
         ("A100", active("owned", True)),
         ("A100", active("owned", float("nan"))),
         ("G4", active("owned", 8)),
+        ("T4", active("owned", 0)),
+        ("V100", active("owned", 8)),
     ],
 )
 def test_prices_warn_but_hardware_ownership_still_refuses(fixture, hardware, record):
     f = fixture
     f["inventory"]({"owned": hardware}, [record])
     result = f["invoke"]()
-    if hardware == "G4":
+    if hardware == "V100":
         assert result.returncode == 1
         assert not runs(f)
     else:
