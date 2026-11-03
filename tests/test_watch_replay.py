@@ -1667,3 +1667,117 @@ def test_set_mode_exception_in_watch_reselects_replay_under_clean_gate(tmp_path,
         assert session.last_error == "Cannot enter play mode: late play build boom"
     finally:
         session.close()
+
+
+def test_verify_payload_and_recording_step_do_not_promote_frame_containers_to_older_gc_generations(
+    tmp_path,
+):
+    import gc
+
+    import web.backend.watch_replay as replay
+
+    saved_thresholds = gc.get_threshold()
+    saved_enabled = gc.isenabled()
+    gc_events: list[int] = []
+
+    def on_gc(phase: str, info: dict) -> None:
+        if phase == "start":
+            gc_events.append(int(info["generation"]))
+
+    gc.callbacks.append(on_gc)
+    try:
+        gc.enable()
+        gc.set_threshold(700, 10, 10)
+        replay._ensure_frame_gc_thresholds()
+        t0, t1, t2 = gc.get_threshold()
+        assert t0 >= replay.GC_GEN0_THRESHOLD
+        assert t1 >= replay.GC_GEN1_THRESHOLD
+        assert t2 >= replay.GC_GEN2_THRESHOLD
+
+        # Nested/re-entrant suppression must restore prior enabled/disabled state accurately.
+        replay._enter_gc_suppress()
+        replay._enter_gc_suppress()
+        assert not gc.isenabled()
+        replay._exit_gc_suppress()
+        assert not gc.isenabled()
+        replay._exit_gc_suppress()
+        assert gc.isenabled()
+
+        gc.disable()
+        replay._enter_gc_suppress()
+        replay._exit_gc_suppress()
+        assert not gc.isenabled()
+        gc.enable()
+
+        # Build a 64-frame heavy payload where each frame allocates >1,800 [x, y] lists
+        # (>2x CPython's default 700 Gen-0 threshold per frame; >115,000 lists total).
+        horizon = 64
+        header = {
+            "schema": SCHEMA,
+            "controller": "exact-stop-l1",
+            "horizon": horizon,
+            "world": "watch6-mechanics-v2-continuous-respawn",
+            "protocol_version": 2,
+            "checkpoint_shas": {"hero": B8_SHA, "opponents": FRP3_SHA},
+            "seed": 77,
+            "unit_id": "heavy_gc_unit",
+            "fixture": True,
+            "stats": {},
+        }
+        heavy_frames = []
+        for idx in range(1, horizon + 1):
+            dto = frame(idx)
+            for s_idx, snake in enumerate(dto["snakes"]):
+                snake["segments"] = [[s_idx * 10 + k, (idx + k) % 500] for k in range(250)]
+                snake["length"] = 250
+            dto["food"] = [[k, (idx + k) % 500] for k in range(350)]
+            heavy_frames.append(canonical(dto))
+        payload = gzip.compress(canonical(header) + b"".join(heavy_frames), mtime=0)
+        path = tmp_path / "heavy_gc_unit.watch.gz"
+        publish_immutable(path, payload)
+
+        gc.collect()
+        gc_events.clear()
+        g0_before_verify, g1_before_verify, g2_before_verify = gc.get_count()
+
+        stop = threading.Event()
+        verified_header = replay.verify_payload(payload, product=False, stop=stop)
+        assert verified_header["unit_id"] == "heavy_gc_unit"
+        assert gc.isenabled()
+        g0_after_verify, g1_after_verify, g2_after_verify = gc.get_count()
+        assert [g for g in gc_events if g >= 1] == []
+        assert g1_after_verify == g1_before_verify
+        assert g2_after_verify == g2_before_verify
+        assert abs(g0_after_verify - g0_before_verify) < 500
+
+        # Stepping through the entire Recording must also release each prior frame in Gen 0
+        # without promoting transient frame containers into Gen 1 / Gen 2.
+        rec = Recording(path, product=False)
+        g0_frame1 = gc.get_count()[0]
+        steps = 0
+        while rec.step():
+            steps += 1
+        assert steps == horizon - 1
+        assert rec.frame["frame"] == horizon
+        assert gc.isenabled()
+        g0_end, g1_end, g2_end = gc.get_count()
+        assert [g for g in gc_events if g >= 1] == []
+        assert g1_end == g1_before_verify
+        assert g2_end == g2_before_verify
+        assert abs(g0_end - g0_frame1) < 500
+
+        # Error paths inside verify_payload must always restore GC state.
+        bad_dto = frame(1)
+        bad_dto["snakes"][0]["length"] = -1
+        bad_payload = gzip.compress(canonical(header) + canonical(bad_dto), mtime=0)
+        with pytest.raises(ValueError, match="invalid recorded snake"):
+            replay.verify_payload(bad_payload, product=False)
+        assert gc.isenabled()
+    finally:
+        if on_gc in gc.callbacks:
+            gc.callbacks.remove(on_gc)
+        gc.set_threshold(*saved_thresholds)
+        if saved_enabled:
+            gc.enable()
+        else:
+            gc.disable()

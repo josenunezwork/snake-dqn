@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import gzip
 import hashlib
 import io
@@ -31,6 +32,45 @@ COOPERATIVE_YIELD_FRAMES = 64
 COOPERATIVE_YIELD_SLICE_SECONDS = 0.00025
 COOPERATIVE_YIELD_MIN_WAIT_SECONDS = 0.001
 COOPERATIVE_YIELD_DUTY_FACTOR = 4.0
+GC_GEN0_THRESHOLD = 50_000
+GC_GEN1_THRESHOLD = 20
+GC_GEN2_THRESHOLD = 20
+
+_GC_SUPPRESS_LOCK = threading.Lock()
+_gc_suppress_depth = 0
+_gc_restore_enabled = False
+
+
+def _ensure_frame_gc_thresholds() -> None:
+    """Keep Gen-0 GC threshold above a single Watch frame's container working set."""
+    t0, t1, t2 = gc.get_threshold()
+    if t0 < GC_GEN0_THRESHOLD or t1 < GC_GEN1_THRESHOLD or t2 < GC_GEN2_THRESHOLD:
+        gc.set_threshold(
+            max(t0, GC_GEN0_THRESHOLD),
+            max(t1, GC_GEN1_THRESHOLD),
+            max(t2, GC_GEN2_THRESHOLD),
+        )
+
+
+def _enter_gc_suppress() -> None:
+    global _gc_suppress_depth, _gc_restore_enabled
+    with _GC_SUPPRESS_LOCK:
+        if _gc_suppress_depth == 0:
+            _gc_restore_enabled = gc.isenabled()
+            if _gc_restore_enabled:
+                gc.disable()
+        _gc_suppress_depth += 1
+
+
+def _exit_gc_suppress() -> None:
+    global _gc_suppress_depth
+    with _GC_SUPPRESS_LOCK:
+        _gc_suppress_depth -= 1
+        if _gc_suppress_depth == 0 and _gc_restore_enabled:
+            gc.enable()
+
+
+_ensure_frame_gc_thresholds()
 
 _REQUIRED_FRAME_KEYS = frozenset(
     {
@@ -245,15 +285,30 @@ def verify_payload(
     payload: bytes, *, product: bool = True, stop: threading.Event | None = None
 ) -> dict:
     """Validate bounded compressed bytes before a producer marks them complete."""
+    _ensure_frame_gc_thresholds()
     if len(payload) > MAX_COMPRESSED:
         raise ValueError("oversized replay")
     records = _records(payload)
-    header = next(records)
-    validate_header(header, product=product)
+    _enter_gc_suppress()
+    try:
+        header = next(records)
+        validate_header(header, product=product)
+    finally:
+        _exit_gc_suppress()
     count = 0
     slice_start = time.perf_counter() if stop is not None else 0.0
-    for count, frame in enumerate(records, 1):
-        validate_frame(frame, count)
+    while True:
+        frame = None
+        _enter_gc_suppress()
+        try:
+            frame = next(records, None)
+            if frame is None:
+                break
+            count += 1
+            validate_frame(frame, count)
+        finally:
+            frame = None
+            _exit_gc_suppress()
         # Serving verification cooperatively releases the GIL at least every
         # 64 records and whenever a single verification slice reaches 0.25 ms
         # so heavy late-game frames cannot starve live Watch fallback ticks.
@@ -286,6 +341,7 @@ class Recording:
         cache: dict | None = None,
         stop: threading.Event | None = None,
     ) -> None:
+        _ensure_frame_gc_thresholds()
         sha_path, _ = _check_replay_files(path)
         with path.open("rb") as stream:
             payload = stream.read(MAX_COMPRESSED + 1)
@@ -300,17 +356,28 @@ class Recording:
             if cache is not None:
                 cache[key] = self.header
         self._records = _records(payload)
-        next(self._records)
-        self.frame = next(self._records)
+        _enter_gc_suppress()
+        try:
+            next(self._records)
+            self.frame = next(self._records)
+        finally:
+            _exit_gc_suppress()
         self.path = path
 
     def step(self) -> bool:
         """Advance one frame; false asks the caller to rotate or use live Watch."""
-        frame = next(self._records, None)
-        if frame is None:
-            return False
-        self.frame = frame
-        return True
+        if self.frame["frame"] >= self.header["horizon"]:
+            return next(self._records, None) is not None
+        _enter_gc_suppress()
+        try:
+            self.frame = None  # type: ignore[assignment]
+            frame = next(self._records, None)
+            if frame is None:
+                return False
+            self.frame = frame
+            return True
+        finally:
+            _exit_gc_suppress()
 
     def snapshot(self, session: Any) -> dict:
         """Keep recorded inspector/roster, overlay only present playback controls."""
