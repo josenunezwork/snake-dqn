@@ -116,7 +116,7 @@ def test_prepare_probe_package_and_stage_metadata_roundtrip(tmp_path: Path) -> N
         release_evidence_bytes=b"synthetic-release-evidence",
         verify_pins=False,
     )
-    assert set(written.keys()) == {"cpu", "T4", "L4", "A100"}
+    assert set(written.keys()) == {"cpu", "T4", "L4", "A100", "G4"}
 
     for hw, manifest_path in written.items():
         verified = verify_immutable(manifest_path)

@@ -44,7 +44,7 @@ CANARY_PACKAGE = "research/runtime_probe"
 DEFAULT_NAMESPACE = "runtime-probe-v1"
 MAX_EXPORT_BYTES = 10 * 1024 * 1024
 
-TARGETS: tuple[str, ...] = ("CPU", "T4", "L4", "A100")
+TARGETS: tuple[str, ...] = ("CPU", "T4", "L4", "A100", "G4")
 
 RUNTIME_SPECS: dict[str, dict[str, Any]] = {
     "cpu": {
@@ -91,6 +91,18 @@ RUNTIME_SPECS: dict[str, dict[str, Any]] = {
         "unit_cap": 0.5,
         "reserve_units": 0.1,
     },
+    # G4: 48 vCPU AMD EPYC 9B45, 185 GB (limits probe 2026-11-02); unit rate not yet measured.
+    "G4": {
+        "target": "G4",
+        "gpu": "G4",
+        "allowed_gpus": ["G4"],
+        "min_vcpu": 12,
+        "est_minutes": 7.5,
+        "timeout_minutes": 15.0,
+        "rate_units_per_hour": 3.5,
+        "unit_cap": 0.5,
+        "reserve_units": 0.1,
+    },
 }
 
 
@@ -108,13 +120,13 @@ SMALL_PAYLOADS: tuple[str, ...] = (
 
 
 def normalize_gpu_target(gpu: str) -> str:
-    """Normalize target name in {CPU, T4, L4, A100} to supervisor requirement key."""
+    """Normalize target name in {CPU, T4, L4, A100, G4} to supervisor requirement key."""
     if not isinstance(gpu, str):
         raise ValueError("gpu target must be a string")
     token = gpu.strip().upper()
     if token == "CPU":
         return "cpu"
-    if token in ("T4", "L4", "A100"):
+    if token in ("T4", "L4", "A100", "G4"):
         return token
     raise ValueError(f"unsupported gpu target {gpu!r}; expected one of {TARGETS}")
 
