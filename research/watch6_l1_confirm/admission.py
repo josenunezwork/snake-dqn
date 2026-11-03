@@ -112,6 +112,8 @@ INERT_MACOS_METADATA_NAMES: frozenset[str] = frozenset(
 
 ALLOWED_PREALLOC_FILES: frozenset[str] = frozenset(
     {
+        # research/colab_cli/supervisor.py write_once before colab new (RULING_L1_V1_R7).
+        "accounting-baseline.json",
         "manifest.json",
         "manifest.json.sha256",
         "manifest.json.complete",

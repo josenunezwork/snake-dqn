@@ -2586,3 +2586,226 @@ def test_real_shard11_host_interrupted_attempt_validates_read_only() -> None:
     assert inc["compute_completion_attempt"] == 1
     assert inc["world_outputs"] == 0
     assert admission.is_host_interrupted_compute_attempt(REAL_SHARD11_HOST_INTERRUPTED_DIR) is True
+
+
+def test_shard03_prealloc_accounting_baseline_shape_and_refusals(tmp_path: Path) -> None:
+    """Verify R7 pre-allocation refusal shape with accounting-baseline.json and all refusals."""
+    shard03_dir = tmp_path / "output-shard-03"
+    shard03_staging = shard03_dir / "staging"
+    shard03_staging.mkdir(parents=True)
+    (shard03_dir / "manifest.json").write_text(
+        '{"job_id": "watch6-l1-shard-03-l1v1-main-01"}\n',
+        encoding="utf-8",
+    )
+    baseline_payload = {
+        "assignments": [
+            {
+                "endpoint": "gpu-a100-s-ass1c0-2ued36dh85ogk",
+                "rate_units_per_hour": 6.73,
+                "session": "?",
+                "source": "broker.active",
+            },
+            {
+                "endpoint": "gpu-a100-s-ass1c0-3fprojzw40j5k",
+                "rate_units_per_hour": 6.73,
+                "session": "?",
+                "source": "broker.active",
+            },
+            {
+                "endpoint": "gpu-a100-s-usc1b0-rccadq0b9wuq",
+                "rate_units_per_hour": 6.73,
+                "session": "?",
+                "source": "broker.active",
+            },
+        ],
+        "baseline_balance_units": 2108.15,
+        "baseline_rate_units_per_hour": 20.19,
+        "declared_other_rate_units_per_hour": 20.19,
+        "unaccounted_endpoints": [],
+    }
+    baseline_path = shard03_dir / "accounting-baseline.json"
+    baseline_path.write_text(json.dumps(baseline_payload), encoding="utf-8")
+    for fname in (
+        "bootstrap.sh",
+        "release.py",
+        "runtime.py",
+        "schema-validation.json",
+        "source-plan.json",
+        "source.py",
+        "source.tar.gz",
+    ):
+        (shard03_staging / fname).write_bytes(f"staged:{fname}".encode("utf-8"))
+
+    shard03_rec = {
+        "accounting": {
+            "accounting_rate_basis": "priced_informational",
+            "allocated_endpoint": None,
+            "assignments": baseline_payload["assignments"],
+            "baseline_balance_units": 2108.15,
+            "baseline_rate_units_per_hour": 20.19,
+            "calibration": None,
+            "declared_other_rate_units_per_hour": 20.19,
+            "integrated_accounted_other_units": 0.0,
+            "last_crosscheck": None,
+            "observed_rate_units_per_hour": None,
+            "own_rate_units_per_hour": 8.0,
+            "priced_rate_units_per_hour": 8.0,
+            "rate_measurement_unavailable": True,
+            "unaccounted_endpoints": [],
+            "unit_cap": 152.0,
+        },
+        "cleanup_error": admission.RETAINED_PENDING_CLEANUP_ERROR,
+        "cli_calls": [
+            {"attempt": 1, "command": "version", "operation": "control", "status": "completed"},
+            {"attempt": 1, "command": "sessions", "operation": "control", "status": "completed"},
+            {"attempt": 1, "command": "usage", "operation": "control", "status": "completed"},
+            {"attempt": 1, "command": "new", "operation": "control", "status": "failed"},
+        ],
+        "commit": "1873b9025d5a563dcefaf7fcb3cda1e4e6e25306",
+        "contents_transfers": [],
+        "control_operations": [],
+        "elapsed_seconds": 3.43,
+        "endpoint": None,
+        "error": (
+            'Refused("colab new failed (1): [colab] Creating session '
+            "'snake-watch6-l1-shard-03-l1v1-main-01-0bc089f05593'...\\n"
+            '[colab] Allocation refused (precondition failed).")'
+        ),
+        "exec_poll_recovery_base_seconds": 600.0,
+        "exec_poll_recovery_seconds": 1200.0,
+        "exports": [],
+        "failure_class": "SUPERVISOR",
+        "generation": "0bc089f0559341ee98fa1c7d8b2eefd3",
+        "job_id": "watch6-l1-shard-03-l1v1-main-01",
+        "manifest_sha256": digest(shard03_dir / "manifest.json"),
+        "session": "snake-watch6-l1-shard-03-l1v1-main-01-0bc089f05593",
+        "status": "INCOMPLETE",
+        "stop_verified": False,
+        "supervisor_sha256": "12da8937ce9cee01ddb5984a7e3a2eca1dde20bfc127921c230bcc524b172ec9",
+        "terminal": None,
+        "transfers": [],
+        "usage_after": None,
+        "usage_before": {"assignments": 3.0, "balance": 2108.15, "rate": 20.19},
+        "warmup_seconds": 0.0,
+    }
+    (shard03_dir / "receipt.json").write_text(json.dumps(shard03_rec), encoding="utf-8")
+
+    # (a) Exact shard-03 shape classifies as prestart (and not compute):
+    assert admission._prealloc_tree_clean(shard03_dir) is True
+    assert admission.is_prestart_transport_failure(shard03_rec, shard03_dir) is True
+    assert admission.is_external_transport_compute_failure(shard03_rec, shard03_dir) is False
+
+    # (b.1) accounting-baseline.json replaced by a symlink -> False:
+    ext_target = tmp_path / "external-accounting-baseline.json"
+    ext_target.write_text(json.dumps(baseline_payload), encoding="utf-8")
+    baseline_path.unlink()
+    baseline_path.symlink_to(ext_target)
+    assert admission.is_prestart_transport_failure(shard03_rec, shard03_dir) is False
+    baseline_path.unlink()
+    baseline_path.write_text(json.dumps(baseline_payload), encoding="utf-8")
+    assert admission.is_prestart_transport_failure(shard03_rec, shard03_dir) is True
+
+    # (b.2) accounting-baseline.json placed under staging/ -> False:
+    staged_baseline = shard03_staging / "accounting-baseline.json"
+    staged_baseline.write_text(json.dumps(baseline_payload), encoding="utf-8")
+    assert admission.is_prestart_transport_failure(shard03_rec, shard03_dir) is False
+    baseline_path.unlink()
+    assert admission.is_prestart_transport_failure(shard03_rec, shard03_dir) is False
+    staged_baseline.unlink()
+    baseline_path.write_text(json.dumps(baseline_payload), encoding="utf-8")
+    assert admission.is_prestart_transport_failure(shard03_rec, shard03_dir) is True
+
+    # (b.3) Additional unknown top-level file (e.g. intent.json, or unallowed sidecars) -> False:
+    for bad_top_name in (
+        "intent.json",
+        "accounting-baseline.json.sha256",
+        "accounting-baseline.json.complete",
+    ):
+        bad_top = shard03_dir / bad_top_name
+        bad_top.write_text("{}\n", encoding="utf-8")
+        assert admission.is_prestart_transport_failure(shard03_rec, shard03_dir) is False
+        bad_top.unlink()
+    assert admission.is_prestart_transport_failure(shard03_rec, shard03_dir) is True
+
+    # (b.4) hardware.json present -> False:
+    hw_path = shard03_dir / "hardware.json"
+    hw_path.write_text('{"cpu_count": 12}\n', encoding="utf-8")
+    assert admission.is_prestart_transport_failure(shard03_rec, shard03_dir) is False
+    hw_path.unlink()
+
+    # (b.5) poll-0001.json present -> False:
+    poll_path = shard03_dir / "poll-0001.json"
+    poll_path.write_text('{"state": {"status": "running"}}\n', encoding="utf-8")
+    assert admission.is_prestart_transport_failure(shard03_rec, shard03_dir) is False
+    poll_path.unlink()
+
+    # (b.6) usage-allocated.json present -> False:
+    usage_alloc_path = shard03_dir / "usage-allocated.json"
+    usage_alloc_path.write_text("{}\n", encoding="utf-8")
+    assert admission.is_prestart_transport_failure(shard03_rec, shard03_dir) is False
+    usage_alloc_path.unlink()
+    assert admission.is_prestart_transport_failure(shard03_rec, shard03_dir) is True
+
+    # (b.7) endpoint set to a string -> False:
+    assert (
+        admission.is_prestart_transport_failure(
+            {**shard03_rec, "endpoint": "gpu-a100-s-assigned"},
+            shard03_dir,
+        )
+        is False
+    )
+
+    # (b.8) transfers non-empty -> False:
+    assert (
+        admission.is_prestart_transport_failure(
+            {**shard03_rec, "transfers": [{"status": "completed", "direction": "upload"}]},
+            shard03_dir,
+        )
+        is False
+    )
+
+    # (b.9) failure_class CHILD_NONZERO_EXIT -> False:
+    assert (
+        admission.is_prestart_transport_failure(
+            {**shard03_rec, "failure_class": "CHILD_NONZERO_EXIT"},
+            shard03_dir,
+        )
+        is False
+    )
+
+    # (b.10) cleanup_error any other string -> False:
+    assert (
+        admission.is_prestart_transport_failure(
+            {**shard03_rec, "cleanup_error": "STOP_FAILED: session still active"},
+            shard03_dir,
+        )
+        is False
+    )
+
+
+REAL_L1V1_MAIN01_DIR = Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/l1v1-main-01")
+
+
+@pytest.mark.skipif(
+    not (
+        REAL_L1V1_MAIN01_DIR.is_dir()
+        and (REAL_L1V1_MAIN01_DIR / "output-shard-03/receipt.json").is_file()
+        and (REAL_L1V1_MAIN01_DIR / "output-shard-01/receipt.json").is_file()
+        and (REAL_L1V1_MAIN01_DIR / "output-shard-05/receipt.json").is_file()
+        and (REAL_L1V1_MAIN01_DIR / "output-shard-00").is_dir()
+    ),
+    reason="real l1v1-main-01 attempt directories not present on this machine",
+)
+def test_real_l1v1_main01_prealloc_shards_validate_read_only() -> None:
+    """Read-only check on real l1v1-main-01 shard-03, -01, -05 (True) and shard-00 (False)."""
+    with final_look.pre_outcome_open_guard():
+        for shard_name in ("output-shard-03", "output-shard-01", "output-shard-05"):
+            shard_dir = REAL_L1V1_MAIN01_DIR / shard_name
+            mf = json.loads((shard_dir / "manifest.json").read_text(encoding="utf-8"))
+            rec = json.loads((shard_dir / "receipt.json").read_text(encoding="utf-8"))
+            assert isinstance(mf.get("job_id"), str) and bool(mf["job_id"])
+            assert admission._prealloc_tree_clean(shard_dir) is True
+            assert admission.is_prestart_transport_failure(rec, shard_dir) is True
+
+        shard00_dir = REAL_L1V1_MAIN01_DIR / "output-shard-00"
+        assert admission._prealloc_tree_clean(shard00_dir) is False
