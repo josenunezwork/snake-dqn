@@ -10,7 +10,23 @@ file is updated when they change.
 
 ## Current served setup (Watch & Play)
 
-### Watch: 132-session confirmed `exact-stop-l2-prime` replay bank (released 2026-11-01 ~16:00 PT)
+### Watch: 36-session confirmed `exact-stop-l1` replay bank (released 2026-11-03 PT)
+
+- **Active (2026-11-03):** `snake-dqn-artifacts/watch-replay-bank-live-36-l1` — **36 confirmed `exact-stop-l1`
+  sessions** (banks `14l1–16l1`, `source_commit 73974411`, `H = 6,000`, hero `b8-s3` `3e649783…`), served
+  **pure bank direct** with `SNAKE_WATCH_SOURCE=replay`, `SNAKE_WATCH_REPLAY_DIR=.../watch-replay-bank-live-36-l1`,
+  `SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l1`. Basis: Watch6-L1-V1 `GO_L1_SUPERIOR` (sealed, ledger `2eff534c…`).
+  Install receipt `t34-sol/argon-l1-serve/install-bank-live-36-l1.json` (`96e54c93…`); Mac 24 fps qualification
+  (`qualify.py` at `10058e29`, cherry-picked to main): run 1 `ab94e748…` NOT_QUALIFIED (1/120 overrun on the
+  filtered-over-168 path only; pure path all PASS), run 2 `b9cafcf4…` QUALIFIED (all bars, both paths). Ruling
+  `t34-sol/argon-l1-serve/RELEASE_RULING_L1_WATCH.md` (Fable `APPROVE-WITH-CONDITIONS`, `2ee9075f…`). Variety:
+  36 × 6,000 frames ≈ 2.5 h before the shuffle repeats; expansion to ≥ 96–132 sessions via G4 banks is in progress
+  and needs a new install receipt + fresh qualification before repointing. **Rollback:** restore
+  `SNAKE_WATCH_REPLAY_DIR=.../watch-replay-bank-live-132` + `SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l2-prime`
+  and restart; emergency `SNAKE_WATCH_SOURCE=live`. Keep live-132 on disk ≥ 7 days; check serving log daily for 3 days.
+  The filtered-over-168 path is NOT qualified for serving.
+
+### Previous: 132-session confirmed `exact-stop-l2-prime` replay bank (released 2026-11-01 ~16:00 PT; rollback target)
 
 Watch plays **confirmed Colab-precomputed replays** (`exact-stop-l2-prime` search hero at `L >= 600` over
 product Watch6 v2, `5× frp3-s12 + v8` opponents, 6,000-frame sessions; pipeline in
@@ -20,8 +36,8 @@ product Watch6 v2, `5× frp3-s12 + v8` opponents, 6,000-frame sessions; pipeline
   (**132 confirmed `exact-stop-l2-prime` sessions** from banks `01–08` and `10–12`), served with
   `SNAKE_WATCH_SOURCE=replay` and `SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l2-prime` in
   `.claude/launch.json` (`snake-web`, verified live on `:8000`). The `168`-session mixed bank
-  `watch-replay-bank-live-168` (`132` `exact-stop-l2-prime` + `36` unconfirmed `exact-stop-l1` sessions
-  from banks `14l1–16l1`) remains on disk while `exact-stop-l1` awaits `H = 14,400` confirmation
+  `watch-replay-bank-live-168` (`132` `exact-stop-l2-prime` + `36` confirmed `exact-stop-l1` sessions
+  from banks `14l1–16l1`; confirmed by Watch6-L1-V1 `GO_L1_SUPERIOR`, 2026-11-03) remains on disk
   (ratified `Watch6-L1-V1`, [`research/watch6_l1_confirm/REGISTRATION_L1_V1.md`](../research/watch6_l1_confirm/REGISTRATION_L1_V1.md) + `t34-sol/argon-l1v1-pkg/RULING_L1_V1.md`; see [research/ROADMAP.md](research/ROADMAP.md) §2.3).
 - **Serving guards, cooperative prefetch & Mac `24 fps` qualification (`dc834ded`–`fec81656`):**
   - `GameSession` ([`web/backend/session.py`](../web/backend/session.py)) gates Watch replay on
