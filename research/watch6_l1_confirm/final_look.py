@@ -42,6 +42,7 @@ from research.watch6_l1_confirm.admission import (
     is_prestart_transport_failure,
     validate_hardware_amendment,
     validate_host_interrupted_incident,
+    verify_ops_proof_immutable,
 )
 from research.watch6_l1_confirm.analyze import DEFAULT_ALPHA, analyze_verified_union
 from research.watch6_l1_confirm.mirror import validate as validate_mirror
@@ -414,8 +415,8 @@ def _verify_shard_lineage(
                 )
             parent_of[att.receipt_path] = base_receipt
         elif retry_json.is_file():
-            verify_immutable(retry_json)
-            verify_immutable(att.attempt_dir.parent / "manifest.json")
+            verify_ops_proof_immutable(retry_json)
+            verify_ops_proof_immutable(att.attempt_dir.parent / "manifest.json")
             proof = json.loads(retry_json.read_text(encoding="utf-8"))
             if (
                 proof.get("schema") != "ops-zero-export-retry/v1"

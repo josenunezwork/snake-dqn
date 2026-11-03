@@ -27,6 +27,7 @@ from research.watch6_l1_confirm import (
 from research.watch6_l1_confirm.run import DEFAULT_LOCAL_SAVED_DIR
 from tools.ops.package_spec import (
     Input,
+    PackageRefused,
     digest,
     empty_ledger,
     publish_json,
@@ -3195,3 +3196,182 @@ def test_real_l1v1_source_delivery_poll_deadline_shards_validate_read_only() -> 
         shard00_dir = REAL_L1V1_MAIN01_DIR / "output-shard-00"
         shard00_rec = json.loads((shard00_dir / "receipt.json").read_text(encoding="utf-8"))
         assert admission.is_prestart_transport_failure(shard00_rec, shard00_dir) is False
+
+
+def test_verify_ops_proof_immutable_accepts_and_refuses(tmp_path: Path) -> None:
+    """Verify R9 verify_ops_proof_immutable accepts bare and two-field sidecars and refuses (b)."""
+    payload = tmp_path / "RETRY.json"
+    payload.write_text('{"schema": "ops-zero-export-retry/v1"}\n', encoding="utf-8")
+    sidecar = Path(f"{payload}.sha256")
+    marker = Path(f"{payload}.complete")
+    marker.write_bytes(b"complete\n")
+    sha = digest(payload)
+
+    # (a.1) Bare-digest sidecar (`sha + "\n"`) accepted:
+    sidecar.write_text(f"{sha}\n", encoding="utf-8")
+    res_bare = admission.verify_ops_proof_immutable(payload)
+    assert res_bare == {"path": str(payload), "sha256": sha, "size": payload.stat().st_size}
+    assert res_bare["sha256"] == sha
+
+    # (a.2) Two-field sidecar (`sha + "  " + name + "\n"`) accepted:
+    sidecar.write_text(f"{sha}  {payload.name}\n", encoding="utf-8")
+    res_two = admission.verify_ops_proof_immutable(payload)
+    assert res_two == {"path": str(payload), "sha256": sha, "size": payload.stat().st_size}
+    assert res_two["sha256"] == sha
+
+    # (b.1) Wrong digest (one hex char changed):
+    bad_sha = ("0" if sha[0] != "0" else "1") + sha[1:]
+    sidecar.write_text(f"{bad_sha}\n", encoding="utf-8")
+    with pytest.raises(PackageRefused, match="destination-sidecar mismatch"):
+        admission.verify_ops_proof_immutable(payload)
+    sidecar.write_text(f"{bad_sha}  {payload.name}\n", encoding="utf-8")
+    with pytest.raises(PackageRefused, match="destination-sidecar mismatch"):
+        admission.verify_ops_proof_immutable(payload)
+
+    # (b.2) Two-field with a different basename:
+    sidecar.write_text(f"{sha}  manifest.json\n", encoding="utf-8")
+    with pytest.raises(PackageRefused, match="destination-sidecar mismatch"):
+        admission.verify_ops_proof_immutable(payload)
+
+    # (b.3) Uppercase hex:
+    sidecar.write_text(f"{sha.upper()}\n", encoding="utf-8")
+    with pytest.raises(PackageRefused, match="destination-sidecar mismatch"):
+        admission.verify_ops_proof_immutable(payload)
+    sidecar.write_text(f"{sha.upper()}  {payload.name}\n", encoding="utf-8")
+    with pytest.raises(PackageRefused, match="destination-sidecar mismatch"):
+        admission.verify_ops_proof_immutable(payload)
+
+    # (b.4) Three tokens:
+    sidecar.write_text(f"{sha}  {payload.name}  extra\n", encoding="utf-8")
+    with pytest.raises(PackageRefused, match="destination-sidecar mismatch"):
+        admission.verify_ops_proof_immutable(payload)
+
+    # (b.5) Empty sidecar:
+    sidecar.write_text("", encoding="utf-8")
+    with pytest.raises(PackageRefused, match="destination-sidecar mismatch"):
+        admission.verify_ops_proof_immutable(payload)
+    sidecar.write_text("   \n", encoding="utf-8")
+    with pytest.raises(PackageRefused, match="destination-sidecar mismatch"):
+        admission.verify_ops_proof_immutable(payload)
+
+    # (b.6) Sidecar of 1025 bytes (digest followed by padding):
+    padded_1025 = sha + (" " * (admission.OPS_PROOF_SIDECAR_MAX_BYTES - len(sha))) + "\n"
+    sidecar.write_text(padded_1025, encoding="utf-8")
+    assert sidecar.stat().st_size == 1025
+    with pytest.raises(PackageRefused, match="oversized sidecar"):
+        admission.verify_ops_proof_immutable(payload)
+
+    # Restore valid sidecar before testing missing/marker/symlink/dir cases:
+    sidecar.write_text(f"{sha}\n", encoding="utf-8")
+    assert admission.verify_ops_proof_immutable(payload)["sha256"] == sha
+
+    # (b.7) Missing .sha256:
+    sidecar.unlink()
+    with pytest.raises(PackageRefused, match="missing or unsafe immutable export"):
+        admission.verify_ops_proof_immutable(payload)
+    sidecar.write_text(f"{sha}\n", encoding="utf-8")
+
+    # (b.8) Missing .complete:
+    marker.unlink()
+    with pytest.raises(PackageRefused, match="missing or unsafe immutable export"):
+        admission.verify_ops_proof_immutable(payload)
+
+    # (b.9) Marker `complete` without newline:
+    marker.write_bytes(b"complete")
+    with pytest.raises(PackageRefused, match="invalid completion marker"):
+        admission.verify_ops_proof_immutable(payload)
+
+    # (b.10) Marker `done\n`:
+    marker.write_bytes(b"done\n")
+    with pytest.raises(PackageRefused, match="invalid completion marker"):
+        admission.verify_ops_proof_immutable(payload)
+    marker.write_bytes(b"complete\n")
+    assert admission.verify_ops_proof_immutable(payload)["sha256"] == sha
+
+    # (b.11) Symlinked payload:
+    ext_payload = tmp_path / "ext-RETRY.json"
+    ext_payload.write_bytes(payload.read_bytes())
+    payload.unlink()
+    payload.symlink_to(ext_payload)
+    with pytest.raises(PackageRefused, match="missing or unsafe immutable export"):
+        admission.verify_ops_proof_immutable(payload)
+    payload.unlink()
+    payload.write_bytes(ext_payload.read_bytes())
+    assert admission.verify_ops_proof_immutable(payload)["sha256"] == sha
+
+    # (b.12) Symlinked sidecar:
+    ext_sidecar = tmp_path / "ext-RETRY.json.sha256"
+    ext_sidecar.write_text(f"{sha}\n", encoding="utf-8")
+    sidecar.unlink()
+    sidecar.symlink_to(ext_sidecar)
+    with pytest.raises(PackageRefused, match="missing or unsafe immutable export"):
+        admission.verify_ops_proof_immutable(payload)
+    sidecar.unlink()
+    sidecar.write_text(f"{sha}\n", encoding="utf-8")
+    assert admission.verify_ops_proof_immutable(payload)["sha256"] == sha
+
+    # (b.13) Symlinked marker:
+    ext_marker = tmp_path / "ext-RETRY.json.complete"
+    ext_marker.write_bytes(b"complete\n")
+    marker.unlink()
+    marker.symlink_to(ext_marker)
+    with pytest.raises(PackageRefused, match="missing or unsafe immutable export"):
+        admission.verify_ops_proof_immutable(payload)
+    marker.unlink()
+    marker.write_bytes(b"complete\n")
+    assert admission.verify_ops_proof_immutable(payload)["sha256"] == sha
+
+    # (b.14) Payload is a directory:
+    dir_payload = tmp_path / "dir-payload"
+    dir_payload.mkdir()
+    Path(f"{dir_payload}.sha256").write_text(f"{sha}\n", encoding="utf-8")
+    Path(f"{dir_payload}.complete").write_bytes(b"complete\n")
+    with pytest.raises(PackageRefused, match="missing or unsafe immutable export"):
+        admission.verify_ops_proof_immutable(dir_payload)
+
+
+REAL_AUTO_RETRY_ROOT = Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/auto-retry")
+REAL_L1V1_AUTO_RETRY_DIRS: tuple[str, ...] = (
+    "watch6-l1v1-rec02-shard-11-retry-91caab5f03",
+    "watch6-l1v1-shard-01-retry-98afc26d66",
+    "watch6-l1v1-shard-03-retry-17a0a5b808",
+    "watch6-l1v1-shard-05-retry-52e04ef43c",
+    "watch6-l1v1-shard-06-retry-2b8fab8e6a",
+    "watch6-l1v1-shard-11-retry-1cf3c2c133",
+    "watch6-l1v1-shard-rec01-canary-a100-retry-b4daebaa31",
+    "watch6-l1v1-shard-rec01-shard-01-retry-86cf1c8e5d",
+)
+
+
+@pytest.mark.skipif(
+    not (
+        REAL_AUTO_RETRY_ROOT.is_dir()
+        and all(
+            (REAL_AUTO_RETRY_ROOT / d / name).is_file()
+            for d in REAL_L1V1_AUTO_RETRY_DIRS
+            for name in ("RETRY.json", "manifest.json")
+        )
+    ),
+    reason="real ops/auto-retry/watch6-l1v1-* directories not present on this machine",
+)
+def test_real_l1v1_ops_auto_retry_proofs_validate_read_only() -> None:
+    """Read-only check on all 16 real watch6-l1v1 auto-retry proof files under open guard."""
+    with final_look.pre_outcome_open_guard():
+        checked = 0
+        for dir_name in REAL_L1V1_AUTO_RETRY_DIRS:
+            retry_dir = REAL_AUTO_RETRY_ROOT / dir_name
+            for fname in ("RETRY.json", "manifest.json"):
+                target = retry_dir / fname
+                sidecar_tokens = Path(f"{target}.sha256").read_text(encoding="utf-8").split()
+                assert len(sidecar_tokens) == 1
+                desc = admission.verify_ops_proof_immutable(target)
+                assert desc["sha256"] == sidecar_tokens[0]
+                assert desc["sha256"] == digest(target)
+                checked += 1
+        assert checked == 16
+
+        shard06_retry_json = (
+            REAL_AUTO_RETRY_ROOT / "watch6-l1v1-shard-06-retry-2b8fab8e6a/RETRY.json"
+        )
+        with pytest.raises(PackageRefused, match="destination-sidecar mismatch"):
+            verify_immutable(shard06_retry_json)

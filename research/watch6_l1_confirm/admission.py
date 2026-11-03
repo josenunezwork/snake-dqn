@@ -27,7 +27,7 @@ from research.watch6_l1_confirm.costs import (
 from research.watch6_l1_confirm.mirror import validate as validate_mirror
 from research.watch6_l1_confirm.resume import WORLD_NAME_RE
 from research.watch6_l1_confirm.uploads import METADATA, check_uploads, stage_metadata
-from tools.ops.package_spec import digest, read_ledger, verify_immutable
+from tools.ops.package_spec import PackageRefused, digest, read_ledger, verify_immutable
 
 EXTERNAL_TRANSPORT_CLASSES = {
     "RPC_EXEC_POLL_TIMEOUT",
@@ -578,6 +578,30 @@ def _prealloc_tree_clean(output_dir: Path) -> bool:
     if has_staging_dir and staging_files != ALLOWED_PREALLOC_STAGING_FILES:
         return False
     return True
+
+
+OPS_PROOF_SIDECAR_MAX_BYTES = 1024
+
+
+def verify_ops_proof_immutable(path: Path) -> dict:
+    """verify_immutable for ops/auto-retry proofs: accepts the bare-digest sidecar
+    written by tools/ops/auto_retry.py:436-439 as well as the destination-bound
+    `<sha256>  <name>` form (RULING_L1_V1_R9). Content rule is unchanged."""
+    path = Path(path)
+    sidecar = Path(f"{path}.sha256")
+    marker = Path(f"{path}.complete")
+    for item in (path, sidecar, marker):
+        if item.is_symlink() or not item.is_file():
+            raise PackageRefused(f"missing or unsafe immutable export: {path}")
+    if marker.read_bytes() != b"complete\n":
+        raise PackageRefused(f"invalid completion marker: {path}")
+    if sidecar.stat().st_size > OPS_PROOF_SIDECAR_MAX_BYTES:
+        raise PackageRefused(f"oversized sidecar: {path}")
+    observed = digest(path)
+    tokens = sidecar.read_text(encoding="utf-8").split()
+    if tokens not in ([observed], [observed, path.name]):
+        raise PackageRefused(f"destination-sidecar mismatch: {path}")
+    return {"path": str(path), "sha256": observed, "size": path.stat().st_size}
 
 
 SOURCE_DELIVERY_POLL_DEADLINE_ERROR = "Refused('deadline reached during telemetry recovery')"
