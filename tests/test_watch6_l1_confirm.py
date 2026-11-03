@@ -2359,6 +2359,19 @@ def test_host_interrupted_incident_accepted_and_refusals(
     second_incident_file.unlink()
     assert admission.is_host_interrupted_compute_attempt(s11_att1) is True
 
+    orig_root = p.ROOT
+    fake_root = tmp_path / "fake-pkg-root"
+    fake_pkg_dir = fake_root / "research/watch6_l1_confirm"
+    fake_pkg_dir.mkdir(parents=True)
+    (fake_pkg_dir / "INCIDENT_HOST_RESTART_01.json").write_bytes(fixture_incident_path.read_bytes())
+    (fake_pkg_dir / "INCIDENT_HOST_RESTART_02.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(p, "ROOT", fake_root)
+    assert admission.is_host_interrupted_compute_attempt(s11_att1) is False
+    with pytest.raises(ValueError, match=r"expected exactly one INCIDENT_\* file"):
+        admission.validate_host_interrupted_incident()
+    monkeypatch.setattr(p, "ROOT", orig_root)
+    assert admission.is_host_interrupted_compute_attempt(s11_att1) is True
+
     # 5. Refusal (b): Tampered incident file (without updating INCIDENT_SHA256).
     orig_incident_bytes = fixture_incident_path.read_bytes()
     tampered_incident = {**fixture_incident, "world_outputs": 1}
@@ -2375,7 +2388,7 @@ def test_host_interrupted_incident_accepted_and_refusals(
     fixture_incident_path.write_bytes(orig_incident_bytes)
     assert admission.is_host_interrupted_compute_attempt(s11_att1) is True
 
-    # 6. Refusal (c): Extra file under exports/.
+    # 6. Refusal (c): Extra file or .DS_Store under exports/.
     extra_export = s11_att1 / "exports/extra-file.txt"
     extra_export.write_text("unexpected\n", encoding="utf-8")
     assert admission.is_host_interrupted_compute_attempt(s11_att1) is False
@@ -2388,7 +2401,19 @@ def test_host_interrupted_incident_accepted_and_refusals(
     extra_export.unlink()
     assert admission.is_host_interrupted_compute_attempt(s11_att1) is True
 
-    # 7. Refusal (d): Stray world-66.json under exports/.
+    ds_store_export = s11_att1 / "exports/.DS_Store"
+    ds_store_export.write_bytes(b"macos")
+    assert admission.is_host_interrupted_compute_attempt(s11_att1) is False
+    with pytest.raises(ValueError, match=r"unfinished runtime \(missing receipt\.json\)"):
+        final_look.run_final_look(
+            ops_dir=ops_dir,
+            out_dir=tmp_path / "final-bad-ds-store-export",
+            ruling_json=ruling_json,
+        )
+    ds_store_export.unlink()
+    assert admission.is_host_interrupted_compute_attempt(s11_att1) is True
+
+    # 7. Refusal (d): Stray world-66.json under exports/efficacy/ AND outside efficacy/ (os.walk).
     (s11_att1 / "exports/efficacy").mkdir(parents=True)
     stray_w66 = s11_att1 / "exports/efficacy/world-66.json"
     stray_w66.write_text("{}", encoding="utf-8")
@@ -2403,7 +2428,19 @@ def test_host_interrupted_incident_accepted_and_refusals(
     (s11_att1 / "exports/efficacy").rmdir()
     assert admission.is_host_interrupted_compute_attempt(s11_att1) is True
 
-    # 8. Refusal (e): Poll-count mismatch.
+    stray_w66_outside = s11_att1 / "staging/world-66.json"
+    stray_w66_outside.write_text("{}", encoding="utf-8")
+    assert admission.is_host_interrupted_compute_attempt(s11_att1) is False
+    with pytest.raises(ValueError, match=r"unfinished runtime \(missing receipt\.json\)"):
+        final_look.run_final_look(
+            ops_dir=ops_dir,
+            out_dir=tmp_path / "final-bad-stray-w66-outside",
+            ruling_json=ruling_json,
+        )
+    stray_w66_outside.unlink()
+    assert admission.is_host_interrupted_compute_attempt(s11_att1) is True
+
+    # 8. Refusal (e): Poll-count mismatch and non-contiguous poll names.
     extra_poll = s11_att1 / "poll-001083.json"
     extra_poll.write_text('{"poll": 1083, "state": {"status": "running"}}', encoding="utf-8")
     assert admission.is_host_interrupted_compute_attempt(s11_att1) is False
@@ -2414,6 +2451,19 @@ def test_host_interrupted_incident_accepted_and_refusals(
             ruling_json=ruling_json,
         )
     extra_poll.unlink()
+    assert admission.is_host_interrupted_compute_attempt(s11_att1) is True
+
+    poll_500 = s11_att1 / "poll-000500.json"
+    poll_499a = s11_att1 / "poll-000499a.json"
+    poll_500.rename(poll_499a)
+    assert admission.is_host_interrupted_compute_attempt(s11_att1) is False
+    with pytest.raises(ValueError, match=r"unfinished runtime \(missing receipt\.json\)"):
+        final_look.run_final_look(
+            ops_dir=ops_dir,
+            out_dir=tmp_path / "final-bad-poll-gap",
+            ruling_json=ruling_json,
+        )
+    poll_499a.rename(poll_500)
     assert admission.is_host_interrupted_compute_attempt(s11_att1) is True
 
     # 9. Refusal (f): Supervisor log-sha mismatch.
@@ -2428,6 +2478,89 @@ def test_host_interrupted_incident_accepted_and_refusals(
         )
     sup_log_path.write_bytes(orig_log_bytes)
     assert admission.is_host_interrupted_compute_attempt(s11_att1) is True
+
+    # 10. Refusal (g): Non-canonical prior_receipts representation (attempt_manifest_sha256 or
+    #     missing incident fields) refused in both admission and final_look.
+    canonical_priors = rec_mf["watch6_l1_v1"]["prior_receipts"]
+    bad_sha_priors = [
+        canonical_priors[0],
+        {
+            **canonical_priors[1],
+            "receipt_sha256": fixture_incident["attempt_manifest_sha256"],
+        },
+    ]
+    with pytest.raises(ValueError, match="host-interrupted prior SHA-256 mismatch"):
+        admission.verify_prior_receipts_lineage(11, bad_sha_priors, 1, 1, 3)
+    for missing_key in ("incident_id", "incident_sha256", "attempt_output_dir"):
+        stripped_entry = {k: v for k, v in canonical_priors[1].items() if k != missing_key}
+        with pytest.raises(ValueError, match="host-interrupted"):
+            admission.verify_prior_receipts_lineage(
+                11,
+                [canonical_priors[0], stripped_entry],
+                1,
+                1,
+                3,
+            )
+
+    s11_pass_out = tmp_path / "shard-11-pass"
+    orig_s11_pass_mf_bytes = (s11_pass_out / "manifest.json").read_bytes()
+    orig_s11_pass_rec_bytes = (s11_pass_out / "receipt.json").read_bytes()
+    orig_s11_ops_mf_bytes = (mf_dir / "shard-11-pass.json").read_bytes()
+    s11_pass_mf = json.loads(orig_s11_pass_mf_bytes.decode("utf-8"))
+    bad_s11_pass_mf = {
+        **s11_pass_mf,
+        "watch6_l1_v1": {
+            **s11_pass_mf["watch6_l1_v1"],
+            "prior_receipts": bad_sha_priors,
+        },
+    }
+    (s11_pass_out / "manifest.json").write_text(json.dumps(bad_s11_pass_mf), encoding="utf-8")
+    s11_pass_rec = json.loads(orig_s11_pass_rec_bytes.decode("utf-8"))
+    (s11_pass_out / "receipt.json").write_text(
+        json.dumps({**s11_pass_rec, "manifest_sha256": digest(s11_pass_out / "manifest.json")}),
+        encoding="utf-8",
+    )
+    (mf_dir / "shard-11-pass.json").write_text(json.dumps(bad_s11_pass_mf), encoding="utf-8")
+    with pytest.raises(ValueError, match="missing or mismatched prior receipt"):
+        final_look.run_final_look(
+            ops_dir=ops_dir,
+            out_dir=tmp_path / "final-bad-prior-sha",
+            ruling_json=ruling_json,
+        )
+    (s11_pass_out / "manifest.json").write_bytes(orig_s11_pass_mf_bytes)
+    (s11_pass_out / "receipt.json").write_bytes(orig_s11_pass_rec_bytes)
+    (mf_dir / "shard-11-pass.json").write_bytes(orig_s11_ops_mf_bytes)
+
+    # 11. Refusal (h): Receipt carrying the "host_interrupted" marker key is not treated as the
+    #     incident and is refused on disk.
+    with pytest.raises(ValueError, match="forbidden failure class"):
+        final_look._classify_attempt(
+            s11_att1,
+            {"status": "INCOMPLETE", "host_interrupted": True, "exports": [], "terminal": None},
+        )
+    assert (
+        final_look._classify_attempt(
+            s11_att0,
+            {**s11_att0_rec, "host_interrupted": True},
+            receipt_path=(s11_att0 / "receipt.json").resolve(),
+            receipt_sha256=digest(s11_att0 / "receipt.json"),
+        )
+        == "prestart"
+    )
+    orig_att0_rec_bytes = (s11_att0 / "receipt.json").read_bytes()
+    (s11_att0 / "receipt.json").write_text(
+        json.dumps({**s11_att0_rec, "host_interrupted": True}),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="forbidden host_interrupted key"):
+        final_look._verify_attempt_stop_and_hashes(s11_att0)
+    with pytest.raises(ValueError, match="forbidden host_interrupted key"):
+        final_look.run_final_look(
+            ops_dir=ops_dir,
+            out_dir=tmp_path / "final-bad-marker-key",
+            ruling_json=ruling_json,
+        )
+    (s11_att0 / "receipt.json").write_bytes(orig_att0_rec_bytes)
 
 
 REAL_SHARD11_HOST_INTERRUPTED_DIR = Path(

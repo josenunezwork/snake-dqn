@@ -264,8 +264,28 @@ def _verify_attempt_mac_mirror(
     return mirror_cache[meta_sha]
 
 
-def _classify_attempt(attempt_dir: Path, receipt: dict) -> str:
-    if receipt.get("host_interrupted") is True and is_host_interrupted_compute_attempt(attempt_dir):
+def _is_verified_incident_ref(
+    receipt_path: Path | None,
+    receipt_sha256: str | None,
+    host_incident: dict | None = None,
+) -> bool:
+    if receipt_path is None or receipt_sha256 is None:
+        return False
+    inc = validate_host_interrupted_incident() if host_incident is None else host_incident
+    return receipt_path == Path(inc["path"]).resolve() and receipt_sha256 == inc["sha256"]
+
+
+def _classify_attempt(
+    attempt_dir: Path,
+    receipt: dict,
+    *,
+    receipt_path: Path | None = None,
+    receipt_sha256: str | None = None,
+    host_incident: dict | None = None,
+) -> str:
+    if _is_verified_incident_ref(
+        receipt_path, receipt_sha256, host_incident
+    ) and is_host_interrupted_compute_attempt(attempt_dir):
         return "external_transport_compute"
     if receipt.get("status") == "PASS":
         terminal = receipt.get("terminal")
@@ -303,7 +323,6 @@ def _verify_attempt_stop_and_hashes(attempt_dir: Path) -> tuple[dict, dict, Path
             exec_manifest = json.loads(exec_manifest_path.read_text(encoding="utf-8"))
             synthetic_receipt = {
                 "status": "INCOMPLETE",
-                "host_interrupted": True,
                 "incident_id": incident["incident_id"],
                 "incident_sha256": incident["sha256"],
                 "manifest_sha256": incident["attempt_manifest_sha256"],
@@ -327,6 +346,11 @@ def _verify_attempt_stop_and_hashes(attempt_dir: Path) -> tuple[dict, dict, Path
 
     resolved_receipt = receipt_path.resolve()
     receipt = json.loads(resolved_receipt.read_text(encoding="utf-8"))
+    if not isinstance(receipt, dict) or "host_interrupted" in receipt:
+        raise ValueError(
+            "INVALID_OR_INCOMPLETE: forbidden host_interrupted key in on-disk receipt: "
+            f"{resolved_receipt}"
+        )
     exec_manifest = json.loads(exec_manifest_path.read_text(encoding="utf-8"))
     if (
         digest(exec_manifest_path) != receipt.get("manifest_sha256")
@@ -355,6 +379,8 @@ def _verify_shard_lineage(
     shard: int,
     attempts: list[_ShardAttempt],
     unallocated_manifests: set[Path],
+    *,
+    host_incident: dict | None = None,
 ) -> list[_ShardAttempt]:
     if not attempts:
         raise ValueError(
@@ -362,13 +388,8 @@ def _verify_shard_lineage(
             "has zero attempts"
         )
 
+    inc = validate_host_interrupted_incident() if host_incident is None else host_incident
     by_receipt_path = {att.receipt_path: att for att in attempts}
-    by_prior_ref: dict[Path, _ShardAttempt] = dict(by_receipt_path)
-    for att in attempts:
-        if att.receipt.get("host_interrupted") is True:
-            by_prior_ref[att.attempt_dir.resolve()] = att
-            by_prior_ref[(att.attempt_dir / "receipt.json").resolve()] = att
-            by_prior_ref[(att.attempt_dir / "manifest.json").resolve()] = att
     parent_of: dict[Path, Path | None] = {}
     recover_history_of: dict[Path, list[tuple[Path, str, str]]] = {}
 
@@ -471,37 +492,38 @@ def _verify_shard_lineage(
                         raise ValueError(
                             f"INVALID_OR_INCOMPLETE: malformed prior_receipts on shard {shard}"
                         )
-                    raw_pr_path = (
-                        entry.get("receipt_path")
-                        or entry.get("attempt_output_dir")
-                        or entry.get("incident_path")
-                        or ""
+                    raw_pr_path = entry.get("receipt_path")
+                    pr_path = (
+                        Path(raw_pr_path).resolve()
+                        if isinstance(raw_pr_path, str) and raw_pr_path
+                        else Path()
                     )
-                    pr_path = Path(raw_pr_path).resolve() if raw_pr_path else Path()
                     pr_sha = str(entry.get("receipt_sha256", ""))
                     pr_cls = str(entry.get("classification", ""))
-                    pr_att = by_prior_ref.get(pr_path)
-                    if pr_att is None or pr_att.classification != pr_cls:
+                    pr_att = by_receipt_path.get(pr_path)
+                    if (
+                        pr_att is None
+                        or pr_att.classification != pr_cls
+                        or pr_att.receipt_sha256 != pr_sha
+                    ):
                         raise ValueError(
                             f"INVALID_OR_INCOMPLETE: missing or mismatched prior receipt {pr_path} "
                             f"in shard {shard} lineage"
                         )
-                    if pr_att.receipt.get("host_interrupted") is True:
-                        allowed_shas = {
-                            pr_att.receipt_sha256,
-                            str(pr_att.receipt.get("manifest_sha256", "")),
-                        }
-                        if pr_sha not in allowed_shas:
+                    if _is_verified_incident_ref(pr_att.receipt_path, pr_att.receipt_sha256, inc):
+                        raw_att_dir = entry.get("attempt_output_dir")
+                        if (
+                            entry.get("incident_id") != inc["incident_id"]
+                            or entry.get("incident_sha256") != inc["sha256"]
+                            or not isinstance(raw_att_dir, str)
+                            or not raw_att_dir
+                            or Path(raw_att_dir).resolve() != pr_att.attempt_dir.resolve()
+                        ):
                             raise ValueError(
-                                "INVALID_OR_INCOMPLETE: mismatched host-interrupted prior sha "
-                                f"{pr_sha} in shard {shard} lineage"
+                                "INVALID_OR_INCOMPLETE: malformed host-interrupted prior entry "
+                                f"in shard {shard} lineage"
                             )
-                    elif pr_att.receipt_sha256 != pr_sha:
-                        raise ValueError(
-                            f"INVALID_OR_INCOMPLETE: missing or mismatched prior receipt {pr_path} "
-                            f"in shard {shard} lineage"
-                        )
-                    history.append((pr_att.receipt_path, pr_att.receipt_sha256, pr_cls))
+                    history.append((pr_path, pr_sha, pr_cls))
                 parent_of[att.receipt_path] = history[-1][0]
                 recover_history_of[att.receipt_path] = history
 
@@ -752,8 +774,14 @@ def run_final_look(
                         f"INVALID_OR_INCOMPLETE: unsupported GPU {gpu!r} in {attempt_dir}"
                     )
 
-                classification = _classify_attempt(attempt_dir, receipt)
-                if receipt.get("host_interrupted") is True:
+                classification = _classify_attempt(
+                    attempt_dir,
+                    receipt,
+                    receipt_path=receipt_path,
+                    receipt_sha256=receipt_sha,
+                    host_incident=host_incident,
+                )
+                if _is_verified_incident_ref(receipt_path, receipt_sha, host_incident):
                     if (
                         canary.is_canary(exec_manifest)
                         or exec_manifest.get("env", {}).get("WATCH6_FIXTURE") == "1"
@@ -838,7 +866,12 @@ def run_final_look(
 
         ordered_main_attempts: list[_ShardAttempt] = []
         for shard in range(p.SHARDS):
-            chain = _verify_shard_lineage(shard, shard_attempts[shard], unallocated_manifests)
+            chain = _verify_shard_lineage(
+                shard,
+                shard_attempts[shard],
+                unallocated_manifests,
+                host_incident=host_incident,
+            )
             ordered_main_attempts.extend(chain)
 
         used_gpus = sorted({att.gpu for att in ordered_main_attempts})
@@ -854,7 +887,7 @@ def run_final_look(
         main_receipts = [
             att.receipt_path
             for att in ordered_main_attempts
-            if not att.receipt.get("host_interrupted")
+            if not _is_verified_incident_ref(att.receipt_path, att.receipt_sha256, host_incident)
         ]
         unit_paths: list[Path] = []
         seen_slots: dict[int, Path] = {}

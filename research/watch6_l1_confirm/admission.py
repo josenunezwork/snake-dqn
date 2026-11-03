@@ -1037,7 +1037,9 @@ def is_host_interrupted_compute_attempt(
     if not polls_clean or poll_count != incident["poll_count"] or poll_count != INCIDENT_POLL_COUNT:
         return False
     poll_paths = sorted(attempt_dir.glob("poll-*.json"))
-    if len(poll_paths) != INCIDENT_POLL_COUNT:
+    if [p_path.name for p_path in poll_paths] != [
+        f"poll-{i:06d}.json" for i in range(INCIDENT_POLL_COUNT)
+    ]:
         return False
     last_poll_path = poll_paths[-1]
     last_poll_spec = incident["last_poll"]
@@ -1094,11 +1096,7 @@ def is_host_interrupted_compute_attempt(
         return False
     export_names: list[str] = []
     for entry in sorted(exports_dir.iterdir()):
-        if entry.is_symlink():
-            return False
-        if is_inert_macos_metadata(entry, root=exports_dir):
-            continue
-        if not entry.is_file():
+        if entry.is_symlink() or not entry.is_file():
             return False
         export_names.append(entry.name)
     if len(export_names) != len(INCIDENT_EXPORTS_LISTING) or sorted(export_names) != sorted(
@@ -1271,23 +1269,27 @@ def verify_prior_receipts_lineage(
                 )
             seen_paths.add(interrupted_dir)
             incident = validate_host_interrupted_incident()
+            if (
+                not isinstance(entry.get("receipt_path"), str)
+                or not entry["receipt_path"]
+                or Path(entry["receipt_path"]).resolve() != Path(incident["path"]).resolve()
+            ):
+                raise ValueError(f"host-interrupted prior receipt_path mismatch: {raw_ref}")
             if entry.get("classification") != "external_transport_compute":
                 raise ValueError(
                     "host-interrupted prior attempt requires classification "
                     f"external_transport_compute: {raw_ref}"
                 )
-            if entry.get("receipt_sha256") not in {
-                incident["sha256"],
-                incident["attempt_manifest_sha256"],
-            }:
+            if entry.get("receipt_sha256") != incident["sha256"]:
                 raise ValueError(f"host-interrupted prior SHA-256 mismatch: {raw_ref}")
-            if "incident_id" in entry and entry.get("incident_id") != incident["incident_id"]:
+            if entry.get("incident_id") != incident["incident_id"]:
                 raise ValueError(f"host-interrupted incident_id mismatch: {raw_ref}")
-            if "incident_sha256" in entry and entry.get("incident_sha256") != incident["sha256"]:
+            if entry.get("incident_sha256") != incident["sha256"]:
                 raise ValueError(f"host-interrupted incident_sha256 mismatch: {raw_ref}")
             if (
-                "attempt_output_dir" in entry
-                and Path(str(entry["attempt_output_dir"])).resolve() != interrupted_dir
+                not isinstance(entry.get("attempt_output_dir"), str)
+                or not entry["attempt_output_dir"]
+                or Path(entry["attempt_output_dir"]).resolve() != interrupted_dir
             ):
                 raise ValueError(f"host-interrupted attempt_output_dir mismatch: {raw_ref}")
             actual_compute += 1
