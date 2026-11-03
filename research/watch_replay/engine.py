@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import contextlib
+import copy
 import time
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 from unittest.mock import patch
 
 import numpy as np
@@ -64,13 +65,23 @@ def dense_batch(world: Any, decision: int, q: np.ndarray, legal: np.ndarray) -> 
 
 
 @contextlib.contextmanager
-def step_guard(check: Callable[[], None]) -> Any:
+def step_guard(check: Callable[[], None], *, defer_stop_to_frame_end: bool = False) -> Any:
     """Bound even a long all-die branch by the cumulative cap/host stop fence."""
     from src.simd_env.grid_sim import GridBatchSim
 
+    stop_first_seen: float | None = None
+
     def guard(original: Callable) -> Callable:
         def step(*args: Any, **kwargs: Any) -> Any:
-            check()
+            nonlocal stop_first_seen
+            if defer_stop_to_frame_end and bool(getattr(check, "stop_requested", lambda: False)()):
+                now = time.monotonic()
+                if stop_first_seen is None:
+                    stop_first_seen = now
+                elif now - stop_first_seen >= 12.0:
+                    check()
+            else:
+                check()
             return original(*args, **kwargs)
 
         return step
@@ -88,6 +99,10 @@ def run_arm(
     check: Callable[[], None],
     horizon: int = 6000,
     record: Callable[[dict], None] | None = None,
+    *,
+    checkpoint_interval: int = 0,
+    on_checkpoint: Callable[[int, dict[str, Any]], None] | None = None,
+    resume_state: Mapping[str, Any] | None = None,
 ) -> dict:
     """Use the existing continuous Watch/Grid bridge, auditing every real tick."""
     from research.watch_replay.product import open_watch
@@ -108,19 +123,44 @@ def run_arm(
         raise ValueError("C1 requires continuous respawn in real Watch and mirror")
     if getattr(session.live, "pathb", None) is not None:
         raise ValueError("C1 refuses Path B assistance")
-    frames, decisions, batches = [], [], []
     from research.t15_mixed_roster_20261017.episodes import _assert_mixed, roster_identity
 
     _assert_mixed(session.live, 6)
     roster = roster_identity(session.live)
-    life, was_alive = 1, True
-    trigger = (
-        DenseTrigger(min_length=min_length, interval=interval) if min_length is not None else None
-    )
+    if resume_state is not None:
+        from research.world_checkpoint.checkpoint import (
+            restore_run_session_state,
+            restore_trigger_state,
+        )
+
+        resumed_frame = int(resume_state["frame"])
+        if not 1 <= resumed_frame < horizon:
+            raise ValueError(f"invalid resume frame {resumed_frame} for horizon {horizon}")
+        orig_speed = session.live.speed
+        orig_speed_ceiling = session.live.speed_ceiling
+        restore_run_session_state(session, resume_state["run_session_state"])
+        session.live.speed = orig_speed
+        session.live.speed_ceiling = orig_speed_ceiling
+        life = int(resume_state["life"])
+        was_alive = bool(resume_state["was_alive"])
+        trigger = restore_trigger_state(resume_state["trigger"])
+        frames = [dict(f) for f in resume_state["frames"]]
+        decisions = [copy.deepcopy(d) for d in resume_state["decisions"]]
+        batches = [copy.deepcopy(b) for b in resume_state["batches"]]
+        start_frame = resumed_frame + 1
+    else:
+        frames, decisions, batches = [], [], []
+        life, was_alive = 1, True
+        trigger = (
+            DenseTrigger(min_length=min_length, interval=interval)
+            if min_length is not None
+            else None
+        )
+        start_frame = 1
     last_progress = time.monotonic()
     try:
-        with step_guard(check):
-            for frame in range(1, horizon + 1):
+        with step_guard(check, defer_stop_to_frame_end=on_checkpoint is not None):
+            for frame in range(start_frame, horizon + 1):
                 check()
                 selected: dict = {}
 
@@ -247,6 +287,35 @@ def run_arm(
                         "death_length": selected.get("length", 0) if death else 0,
                     }
                 )
+                stop_pending = bool(getattr(check, "stop_requested", lambda: False)())
+                if (
+                    on_checkpoint is not None
+                    and frame < horizon
+                    and (
+                        (checkpoint_interval > 0 and frame % checkpoint_interval == 0)
+                        or stop_pending
+                    )
+                ):
+                    from research.world_checkpoint.checkpoint import (
+                        snapshot_run_session_state,
+                        snapshot_trigger_state,
+                    )
+
+                    on_checkpoint(
+                        frame,
+                        {
+                            "frame": frame,
+                            "life": life,
+                            "was_alive": was_alive,
+                            "trigger": snapshot_trigger_state(trigger),
+                            "frames": copy.deepcopy(frames),
+                            "decisions": copy.deepcopy(decisions),
+                            "batches": copy.deepcopy(batches),
+                            "run_session_state": snapshot_run_session_state(session),
+                        },
+                    )
+                if stop_pending:
+                    check()
                 if time.monotonic() - last_progress >= 60:
                     print(
                         f"Watch6 efficacy seed={seed} arm={controller} "

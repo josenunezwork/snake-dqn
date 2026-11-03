@@ -1667,3 +1667,342 @@ def test_set_mode_exception_in_watch_reselects_replay_under_clean_gate(tmp_path,
         assert session.last_error == "Cannot enter play mode: late play build boom"
     finally:
         session.close()
+
+
+def test_extract_controller_bank_copies_verified_triples_and_verifies_sha_first(tmp_path):
+    from research.watch_replay.install import extract_controller_bank
+    from tools.ops.package_spec import verify_immutable
+
+    mixed = tmp_path / "mixed"
+    mixed.mkdir()
+    p0 = recording(mixed, "000000", unit_id="u_l2_0", controller="exact-stop-l2-prime", seed=101)
+    p1 = recording(mixed, "000001", unit_id="u_l2_1", controller="exact-stop-l2-prime", seed=102)
+    p2 = recording(mixed, "000132", unit_id="u_l1_0", controller="exact-stop-l1", seed=201)
+    p3 = recording(mixed, "000133", unit_id="u_l1_1", controller="exact-stop-l1", seed=202)
+    orig_bytes = {p.name: p.read_bytes() for p in (p0, p1, p2, p3)}
+
+    pure_l1 = tmp_path / "pure-l1"
+    summary = extract_controller_bank(mixed, "exact-stop-l1", pure_l1)
+    assert summary["copied_count"] == 2
+    assert summary["skipped_count"] == 2
+    assert summary["skipped_by_controller"] == {"exact-stop-l2-prime": 2}
+    assert sorted(p.name for p in pure_l1.glob("*.watch.gz")) == [
+        "000132.watch.gz",
+        "000133.watch.gz",
+    ]
+    for name in ("000132.watch.gz", "000133.watch.gz"):
+        dst = pure_l1 / name
+        assert dst.read_bytes() == orig_bytes[name]
+        assert verify_immutable(dst)["sha256"] == verify_immutable(mixed / name)["sha256"]
+        assert Recording(dst).header["controller"] == "exact-stop-l1"
+    # Source bank must remain completely untouched (copied, never moved).
+    for p in (p0, p1, p2, p3):
+        assert p.is_file() and p.read_bytes() == orig_bytes[p.name]
+        assert verify_immutable(p)
+
+    # Refuses existing destination or same source/destination.
+    with pytest.raises(FileExistsError):
+        extract_controller_bank(mixed, "exact-stop-l1", pure_l1)
+    with pytest.raises(ValueError, match="differ"):
+        extract_controller_bank(mixed, "exact-stop-l1", mixed)
+
+    # Verifies every SHA first: corrupting even a non-target file in source_bank must fail closed
+    # without leaving a partial destination directory behind.
+    corrupt_mixed = tmp_path / "corrupt-mixed"
+    corrupt_mixed.mkdir()
+    bad_l2 = recording(
+        corrupt_mixed, "000000", unit_id="u_l2_0", controller="exact-stop-l2-prime", seed=101
+    )
+    recording(corrupt_mixed, "000132", unit_id="u_l1_0", controller="exact-stop-l1", seed=201)
+    bad_l2.chmod(0o644)
+    bad_l2.write_bytes(bad_l2.read_bytes() + b"tamper")
+    failed_dest = tmp_path / "should-not-exist"
+    with pytest.raises(ValueError, match="mismatch"):
+        extract_controller_bank(corrupt_mixed, "exact-stop-l1", failed_dest)
+    assert not failed_dest.exists()
+
+
+def test_qualify_generalized_controllers_audit_and_targets(tmp_path, monkeypatch):
+    from research.watch_replay import qualify as qual
+    from research.watch_replay.install import extract_controller_bank
+
+    mixed = tmp_path / "mixed"
+    mixed.mkdir()
+    recording(mixed, "000000", unit_id="u_l2_0", controller="exact-stop-l2-prime", seed=101)
+    recording(mixed, "000001", unit_id="u_l2_1", controller="exact-stop-l2-prime", seed=102)
+    recording(mixed, "000132", unit_id="u_l1_0", controller="exact-stop-l1", seed=201)
+    recording(mixed, "000133", unit_id="u_l1_1", controller="exact-stop-l1", seed=202)
+
+    pure_l1 = tmp_path / "pure-l1"
+    extract_controller_bank(mixed, "exact-stop-l1", pure_l1)
+    pure_l2 = tmp_path / "pure-l2"
+    extract_controller_bank(mixed, "exact-stop-l2-prime", pure_l2)
+
+    # 1. Adversarial line-1 filter proof for exact-stop-l1 must peek and skip both l2-prime files
+    # with 0 verify_payload calls before picking exact-stop-l1.
+    proof_l1 = qual.prove_line1_filter_skips_non_target_payloads(mixed, controller="exact-stop-l1")
+    assert proof_l1["controller_filter"] == "exact-stop-l1"
+    assert proof_l1["non_target_headers_peeked_and_skipped_before_first_pick"] == 2
+    assert proof_l1["l2_prime_headers_peeked_and_skipped_before_first_pick"] == 2
+    assert proof_l1["non_target_verify_payload_calls"] == 0
+    assert proof_l1["first_picked_controller"] == "exact-stop-l1"
+
+    # 2. audit_banks for exact-stop-l1 and exact-stop-l2-prime.
+    inv_l1 = qual.audit_banks(mixed, pure_l1, controller="exact-stop-l1")
+    assert inv_l1["target_controller"] == "exact-stop-l1"
+    assert inv_l1["target_count_in_mixed"] == 2
+    assert inv_l1["non_target_count_in_mixed"] == 2
+    assert inv_l1["target_count_in_pure"] == 2
+    assert inv_l1["other_controllers_in_pure"] == []
+    assert inv_l1["filtered_mixed_equals_pure_exact_sha_seed_unit_set"] is True
+    assert inv_l1["filtered_168_equals_132_exact_sha_seed_unit_set"] is True
+
+    inv_l2 = qual.audit_banks(mixed, pure_l2, controller="exact-stop-l2-prime")
+    assert inv_l2["target_controller"] == "exact-stop-l2-prime"
+    assert inv_l2["filtered_mixed_equals_pure_exact_sha_seed_unit_set"] is True
+
+    # Cross-controller mismatch must fail parity check.
+    inv_mismatch = qual.audit_banks(mixed, pure_l2, controller="exact-stop-l1")
+    assert inv_mismatch["filtered_mixed_equals_pure_exact_sha_seed_unit_set"] is False
+
+    # 3. ConcurrentColdVerifier and run_qualification for exact-stop-l1 (with lightweight probes).
+    verifier = qual.ConcurrentColdVerifier(mixed, "exact-stop-l1")
+    with verifier.active():
+        time.sleep(0.05)
+    snap_counts = verifier.snapshot_counters()
+    assert snap_counts["errors"] == 0
+    assert snap_counts["frames_validated"] > 0
+    assert snap_counts["headers_filtered_out"] > 0
+
+    monkeypatch.setattr(
+        qual,
+        "measure_cold_readiness",
+        lambda bank_dir, controller: {
+            "session_probe": {
+                "session_construct_plus_snapshot_seconds": 0.25,
+                "clean_mixed_watch6_b8": True,
+                "first_verified_replay": {"replay_info": {"controller": controller}},
+            },
+            "http_ws_probe": {"ws_first_frame_ready_seconds": 0.30, "health_status": 200},
+            "cold_readiness_bar_seconds": 1.0,
+            "pass": True,
+        },
+    )
+    monkeypatch.setattr(
+        qual,
+        "measure_live_fallback_under_cold_verification",
+        lambda bank_dir, controller, seed=17001: {
+            "unpaced_1500": {
+                "update_ms": {"p95": 8.1},
+                "step_ms": {"p99": 12.0},
+                "tick_ms": {"p99": 12.5},
+            },
+            "paced_24fps_120": {"overruns": 0, "tick_ms": {"max": 14.0}},
+            "pass": True,
+        },
+    )
+    monkeypatch.setattr(
+        qual,
+        "measure_replay_playback_under_cold_verification",
+        lambda bank_dir, controller: {
+            "non_target_controller_frames": 0,
+            "live_update_calls_during_replay": 0,
+            "unpaced_1500": {"step_ms": {"p99": 1.2}, "tick_ms": {"p99": 1.5}},
+            "paced_24fps_120": {"overruns": 0, "tick_ms": {"max": 2.0}},
+            "pass": True,
+        },
+    )
+    report = qual.run_qualification(
+        mixed,
+        pure_l1,
+        controller="exact-stop-l1",
+        bank=pure_l1,
+        mixed_bank=mixed,
+    )
+    assert report["verdict"] == "QUALIFIED"
+    assert report["qualified_for_controller"] == "exact-stop-l1"
+    assert report["targets"]["pure_bank_direct"]["pass"] is True
+    assert report["targets"]["mixed_bank_filtered"]["pass"] is True
+    assert (
+        report["targets"]["pure_bank_direct"]["bars"][
+            "replay_playback_strict_target_controller_only"
+        ]["target_controller"]
+        == "exact-stop-l1"
+    )
+
+
+def test_prepare_g4_pricing_workers_and_min_vcpu(tmp_path, monkeypatch):
+    from research.watch_replay import prepare as prep
+
+    assert prep.GPU_RATES["G4"] == 10.05
+    assert prep.MIN_VCPU_BY_GPU["G4"] == 48
+    assert prep.DEFAULT_WORKERS_BY_GPU["G4"] == 12
+    assert prep.g4_contention_factor(1) == pytest.approx(1.0)
+    assert prep.g4_decisions_per_second(1) == pytest.approx(1.0 / 1.38)
+    assert prep.g4_decisions_per_second(48) == pytest.approx(14.3)
+    assert prep.G4_PER_CORE_SPEEDUP_VS_L4 == pytest.approx(4.05 / 1.38)
+
+    commit = "4" * 40
+    monkeypatch.setattr(
+        prep.subprocess,
+        "check_output",
+        lambda argv, **kw: ("  origin/main\n" if "branch" in argv else b""),
+    )
+    monkeypatch.setattr(
+        prep,
+        "check_uploads",
+        lambda manifest: {
+            "status": "PASS",
+            "normal_transfer_count": len(manifest["inputs"]) + 2,
+            "transfer_count": len(manifest["inputs"]) + 3,
+            "estimated_transfer_seconds": 21.6,
+        },
+    )
+    benchmark = tmp_path / "benchmark.json"
+    benchmark.write_text(
+        json.dumps({"commit": commit, "branch_timings": [{"seconds": 6.6, "branches": 6}]}) + "\n"
+    )
+
+    out_w12 = tmp_path / "packet-bank17l1-g4-w12"
+    forecast_w12 = prep.prepare(
+        out_w12,
+        commit,
+        benchmark,
+        "t34-watch-replay-20261103-bank17l1",
+        12,
+        "exact-stop-l1",
+        gpu="G4",
+    )
+    assert forecast_w12["gpu"] == "G4"
+    assert forecast_w12["min_vcpu"] == 48
+    assert forecast_w12["rate_units_per_hour"] == 10.05
+    assert forecast_w12["workers"] == 12
+    assert forecast_w12["g4_empirical_l1_session_minutes_1w"] < 45.0
+    assert forecast_w12["g4_empirical_l1_session_minutes_at_workers"] < 45.0
+
+    canary_manifest = json.loads((out_w12 / "canary.json").read_text())
+    main_manifest = json.loads((out_w12 / "main-unsealed.json").read_text())
+    assert canary_manifest["requirements"] == {
+        "gpu": "G4",
+        "allowed_gpus": ["G4"],
+        "min_vcpu": 48,
+        "est_minutes": 15,
+    }
+    assert canary_manifest["budget"]["rate_units_per_hour"] == 10.05
+    assert canary_manifest["env"]["WATCH_REPLAY_WORKERS"] == "1"
+    assert main_manifest["requirements"]["gpu"] == "G4"
+    assert main_manifest["requirements"]["allowed_gpus"] == ["G4"]
+    assert main_manifest["requirements"]["min_vcpu"] == 48
+    assert main_manifest["budget"]["rate_units_per_hour"] == 10.05
+    assert main_manifest["env"]["WATCH_REPLAY_WORKERS"] == "12"
+    assert main_manifest["timeout_minutes"] == 2 * main_manifest["requirements"]["est_minutes"]
+    assert main_manifest["budget"]["unit_cap"] == pytest.approx(
+        2 * main_manifest["watch_replay"]["base_unit_cap"]
+    )
+
+    # Custom G4 worker and session count (e.g. count=24, workers=24).
+    out_w24 = tmp_path / "packet-bank18l1-g4-w24"
+    forecast_w24 = prep.prepare(
+        out_w24,
+        commit,
+        benchmark,
+        "t34-watch-replay-20261103-bank18l1",
+        24,
+        "exact-stop-l1",
+        gpu="G4",
+        workers=24,
+    )
+    assert forecast_w24["workers"] == 24
+    main_w24 = json.loads((out_w24 / "main-unsealed.json").read_text())
+    assert main_w24["env"]["WATCH_REPLAY_WORKERS"] == "24"
+
+
+def test_intra_session_checkpoint_resume_matches_uninterrupted_bytes(tmp_path, monkeypatch):
+    from research.t1_commitment_20261015.replay import configure_cpu
+    from research.watch6_alllen_screen.protocol import ROOT
+    from research.watch_replay.resume import stage_session_checkpoints
+    from research.watch_replay.run import allocation, identity, run
+    from research.world_checkpoint.checkpoint import find_latest_checkpoint, verify_checkpoint
+
+    saved = None
+    for candidate in (ROOT.parent / "snake-dqn/saved_snakes", ROOT / "saved_snakes"):
+        if (candidate / "b8_s3_t7_20261016.pth").is_file() and (
+            candidate / "frp3_m3_s12_u60000_20261005.pth"
+        ).is_file():
+            saved = candidate
+            break
+    if saved is None:
+        pytest.skip("product checkpoints unavailable in test environment")
+    monkeypatch.setenv("SNAKE_CKPT_DIR", str(saved))
+    monkeypatch.setenv("SNAKE_DQN_DEVICE", "cpu")
+    configure_cpu()
+
+    horizon = 10
+    contract = {
+        **allocation("t34-watch-replay-ckpt-determinism-test", 1, "exact-stop-l1", horizon),
+        "commit": "5" * 40,
+    }
+    contract["rows"][0]["seed"] = 42424242
+    ledger = tmp_path / "ledger.json"
+    publish_json(ledger, empty_ledger(contract["namespace"], "sessions", identity(contract)))
+
+    # 1. Uninterrupted baseline run.
+    uninterrupted_dir = tmp_path / "uninterrupted"
+    rows_full = run(contract, ledger, uninterrupted_dir, 1)
+    assert len(rows_full) == 1
+    full_watch_path = uninterrupted_dir / "000000.watch.gz"
+    assert full_watch_path.is_file()
+    assert not (uninterrupted_dir / "checkpoints").exists()
+
+    # 2. Interrupted run that checkpoints at frame 5 and then stops.
+    import research.watch_replay.run as run_mod
+
+    interrupted_dir = tmp_path / "interrupted"
+    stop_event = SimpleNamespace(is_set=lambda: False)
+    original_run_arm = __import__("research.watch_replay.engine", fromlist=["run_arm"]).run_arm
+
+    def stop_after_ckpt_5(*args, **kwargs):
+        orig_on_ckpt = kwargs.get("on_checkpoint")
+
+        def wrapped_on_ckpt(frame_idx, state):
+            if orig_on_ckpt is not None:
+                orig_on_ckpt(frame_idx, state)
+            if frame_idx == 5:
+                stop_event.is_set = lambda: True
+
+        kwargs["on_checkpoint"] = wrapped_on_ckpt
+        return original_run_arm(*args, **kwargs)
+
+    monkeypatch.setattr(run_mod, "_STOP", stop_event)
+    monkeypatch.setattr("research.watch_replay.engine.run_arm", stop_after_ckpt_5)
+    rows_partial = run(contract, ledger, interrupted_dir, 1, checkpoint_interval=5)
+    assert rows_partial == []
+    assert not (interrupted_dir / "000000.watch.gz").exists()
+    ckpt_file = find_latest_checkpoint(
+        interrupted_dir / "checkpoints" / "000000", verify_identity=True
+    )
+    assert ckpt_file is not None and "frame-000005" in ckpt_file.name
+    verify_checkpoint(ckpt_file)
+
+    # 3. Stage the intra-session checkpoint and resume to completion; bytes must match.
+    monkeypatch.setattr(run_mod, "_STOP", None)
+    monkeypatch.setattr("research.watch_replay.engine.run_arm", original_run_arm)
+    staged_ckpt_dir = tmp_path / "staged-ckpts"
+    staged = stage_session_checkpoints(contract, [interrupted_dir], staged_ckpt_dir)
+    assert len(staged) == 1 and staged[0]["index"] == 0 and staged[0]["frame"] == 5
+
+    resumed_dir = tmp_path / "resumed"
+    rows_resumed = run(
+        contract,
+        ledger,
+        resumed_dir,
+        1,
+        checkpoint_in=staged_ckpt_dir,
+        checkpoint_interval=5,
+    )
+    assert len(rows_resumed) == 1
+    resumed_watch_path = resumed_dir / "000000.watch.gz"
+    assert resumed_watch_path.read_bytes() == full_watch_path.read_bytes()
+    assert rows_resumed[0]["sha256"] == rows_full[0]["sha256"]
+    assert rows_resumed[0]["stats"] == rows_full[0]["stats"]
+    assert not (resumed_dir / "checkpoints").exists()

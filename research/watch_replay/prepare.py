@@ -20,8 +20,41 @@ from research.watch_replay.uploads import CHECKPOINTS, METADATA, check_uploads, 
 from tools.ops.package_spec import Input, digest, empty_ledger, publish_json, stage_inputs
 from web.backend.watch_replay import CONTROLLERS
 
-GPU_RATES: dict[str, float] = {"L4": 1.54, "A100": 8.0}
-DEFAULT_WORKERS_BY_GPU: dict[str, int] = {"L4": 4, "A100": 6}
+GPU_RATES: dict[str, float] = {"L4": 1.54, "A100": 8.0, "G4": 10.05}
+DEFAULT_WORKERS_BY_GPU: dict[str, int] = {"L4": 4, "A100": 6, "G4": 12}
+MAX_WORKERS_BY_GPU: dict[str, int] = {"L4": 12, "A100": 12, "G4": 48}
+MAX_COUNT_BY_GPU: dict[str, int] = {"L4": 12, "A100": 12, "G4": 48}
+MIN_VCPU_BY_GPU: dict[str, int] = {"L4": 12, "A100": 12, "G4": 48}
+
+# Measured Watch6 decision speed on Colab G4 (48 vCPU AMD EPYC 9B45 Zen 5) vs L4/A100 (12 vCPU):
+#   L4/A100: 1 worker = 4.05 s/decision, 12 vCPU = 1.69 decisions/s
+#   G4:      1 worker = 1.38 s/decision (~2.935x/core), 48 workers = 14.3 decisions/s (~8.46x node)
+#   A100 12-session exact-stop-l1 banks (14l1-16l1, W=6): ~3.05 h (~1.525 h/session) & ~20.5 u
+L4_SINGLETON_DECISION_SECONDS = 4.05
+L4_NODE_DECISIONS_PER_SECOND = 1.69
+G4_SINGLETON_DECISION_SECONDS = 1.38
+G4_48W_DECISIONS_PER_SECOND = 14.3
+G4_PER_CORE_SPEEDUP_VS_L4 = L4_SINGLETON_DECISION_SECONDS / G4_SINGLETON_DECISION_SECONDS
+G4_NODE_SPEEDUP_VS_L4 = G4_48W_DECISIONS_PER_SECOND / L4_NODE_DECISIONS_PER_SECOND
+A100_L1_BANK12_W6_HOURS = 3.05
+A100_L1_BANK12_W6_UNITS = 20.5
+A100_L1_SESSION_SECONDS_AT_W6 = (A100_L1_BANK12_W6_HOURS / 2.0) * 3600.0
+
+
+def g4_contention_factor(workers: int) -> float:
+    """Interpolate G4 per-worker contention from measured 1W (1.38s/dec) to 48W (14.3 dec/s)."""
+    if type(workers) is not int or not 1 <= workers <= MAX_WORKERS_BY_GPU["G4"]:
+        raise ValueError(f"G4 workers must be an integer in 1..{MAX_WORKERS_BY_GPU['G4']}")
+    max_contention = (48.0 / G4_48W_DECISIONS_PER_SECOND) / G4_SINGLETON_DECISION_SECONDS
+    return 1.0 + ((workers - 1) / 47.0) * (max_contention - 1.0)
+
+
+def g4_decisions_per_second(workers: int) -> float:
+    """Expected aggregate Watch6 decisions/s on G4 for `workers` concurrent workers."""
+    per_worker_seconds = G4_SINGLETON_DECISION_SECONDS * g4_contention_factor(workers)
+    return workers / per_worker_seconds
+
+
 SCREEN_MEAN_ROOTS_BY_CONTROLLER: dict[str, float] = {
     "bare-b8": 0.0,
     "exact-stop-l2-prime": 403.7291666666667,
@@ -72,13 +105,15 @@ def prepare(
     workers: int | None = None,
 ) -> dict:
     """Ship identical inputs for an excluded long-body canary and N sessions."""
-    if not 1 <= count <= 12:
-        raise ValueError("one packet contains 1..12 sessions within bounded exports")
     if gpu not in GPU_RATES:
         raise ValueError(f"unsupported watch_replay gpu {gpu!r}; expected one of {list(GPU_RATES)}")
+    max_count = MAX_COUNT_BY_GPU[gpu]
+    if type(count) is not int or not 1 <= count <= max_count:
+        raise ValueError(f"one packet contains 1..{max_count} sessions within bounded exports")
     resolved_workers = DEFAULT_WORKERS_BY_GPU[gpu] if workers is None else workers
-    if type(resolved_workers) is not int or not 1 <= resolved_workers <= 12:
-        raise ValueError("workers must be an integer in 1..12")
+    max_workers = MAX_WORKERS_BY_GPU[gpu]
+    if type(resolved_workers) is not int or not 1 <= resolved_workers <= max_workers:
+        raise ValueError(f"workers must be an integer in 1..{max_workers}")
     refs = subprocess.check_output(
         ["git", "branch", "-r", "--contains", commit], cwd=ROOT, text=True
     )
@@ -196,17 +231,23 @@ def prepare(
     l2_prime_branches = SCREEN_MEAN_BRANCHES_BY_CONTROLLER["exact-stop-l2-prime"]
     search_multiplier = screen_branches / l2_prime_branches if l2_prime_branches else 0.0
     branches_forecast = screen_branches * BRANCH_TAIL_MARGIN
+    if gpu == "G4":
+        cloud_slowdown = CLOUD_SLOWDOWN_PROJECTION / G4_PER_CORE_SPEEDUP_VS_L4
+        contention = g4_contention_factor(resolved_workers)
+        mirror_base_seconds = (MIRROR_BASE_COLAB_SECONDS / G4_PER_CORE_SPEEDUP_VS_L4) * contention
+    else:
+        cloud_slowdown = CLOUD_SLOWDOWN_PROJECTION
+        contention = CONTENTION_PROJECTION
+        mirror_base_seconds = MIRROR_BASE_COLAB_SECONDS
     # Planning assumptions calibrated to the N=48 screen (~2.82x search cost for exact-stop-l1).
-    search_seconds = (
-        branches_forecast * singleton * CLOUD_SLOWDOWN_PROJECTION * CONTENTION_PROJECTION
-    )
-    session_seconds = MIRROR_BASE_COLAB_SECONDS + search_seconds
+    search_seconds = branches_forecast * singleton * cloud_slowdown * contention
+    session_seconds = mirror_base_seconds + search_seconds
     minutes = math.ceil(
         session_seconds * math.ceil(count / resolved_workers) / 60 + SETUP_EXPORT_MINUTES
     )
     if minutes > 600:
         raise ValueError("forecast exceeds bounded runtime; use separate frozen packets")
-    forecast = {
+    forecast: dict = {
         "controller": controller,
         "canary_horizon": canary_horizon,
         "mac_h300_singleton_seconds": singleton,
@@ -217,13 +258,15 @@ def prepare(
         "branches_per_session_forecast": branches_forecast,
         "roots_per_session_max": 1200 if controller != "bare-b8" else 0,
         "branches_per_root_max": 6,
-        "cloud_slowdown_projection": CLOUD_SLOWDOWN_PROJECTION,
-        "contention_projection": CONTENTION_PROJECTION,
-        "mirror_base_colab_seconds_per_session": MIRROR_BASE_COLAB_SECONDS,
+        "cloud_slowdown_projection": cloud_slowdown,
+        "contention_projection": contention,
+        "mirror_base_colab_seconds_per_session": mirror_base_seconds,
         "setup_export_minutes": SETUP_EXPORT_MINUTES,
         "search_colab_seconds_per_session": search_seconds,
         "session_colab_seconds": session_seconds,
         "gpu": gpu,
+        "min_vcpu": MIN_VCPU_BY_GPU[gpu],
+        "rate_units_per_hour": GPU_RATES[gpu],
         "workers": resolved_workers,
         "base_minutes": minutes,
         "effective_minutes": 2 * minutes,
@@ -233,8 +276,29 @@ def prepare(
             "cost); includes mirror + setup/export"
         ),
     }
+    if gpu == "G4":
+        # Empirical G4 session time derived from A100 14l1-16l1 receipts (91.5 min/session at W=6)
+        # scaled by measured G4 per-core speedup (4.05 / 1.38 = 2.9348x) and G4 worker contention.
+        g4_1w_session_seconds = A100_L1_SESSION_SECONDS_AT_W6 / G4_PER_CORE_SPEEDUP_VS_L4
+        g4_worker_session_seconds = g4_1w_session_seconds * contention
+        forecast.update(
+            {
+                "g4_measured_1w_seconds_per_decision": G4_SINGLETON_DECISION_SECONDS,
+                "g4_measured_48w_decisions_per_second": G4_48W_DECISIONS_PER_SECOND,
+                "g4_per_core_speedup_vs_l4": round(G4_PER_CORE_SPEEDUP_VS_L4, 6),
+                "g4_node_speedup_vs_l4": round(G4_NODE_SPEEDUP_VS_L4, 6),
+                "g4_expected_decisions_per_second_at_workers": round(
+                    g4_decisions_per_second(resolved_workers), 4
+                ),
+                "g4_empirical_l1_session_minutes_1w": round(g4_1w_session_seconds / 60.0, 2),
+                "g4_empirical_l1_session_minutes_at_workers": round(
+                    g4_worker_session_seconds / 60.0, 2
+                ),
+            }
+        )
     publish_json(out / "forecast.json", forecast)
     rate = GPU_RATES[gpu]
+    min_vcpu = MIN_VCPU_BY_GPU[gpu]
     for label in ("canary", "main"):
         base = 15 if label == "canary" else minutes
         unit = base / 60 * rate
@@ -253,7 +317,7 @@ def prepare(
             "requirements": {
                 "gpu": gpu,
                 "allowed_gpus": [gpu],
-                "min_vcpu": 12,
+                "min_vcpu": min_vcpu,
                 "est_minutes": base,
             },
             "budget": {

@@ -22,6 +22,12 @@ DEFAULT_NAMESPACES: tuple[str, ...] = (
     "t34-watch-replay-20261101-bank16l1",
 )
 
+G4_CANARY_NAMESPACE = "t34-watch-replay-20261103-g4-canary-l1-v1"
+
+G4_EXPANSION_NAMESPACES: tuple[str, ...] = tuple(
+    f"t34-watch-replay-20261103-g4-bank{i:02d}l1" for i in range(17, 25)
+)
+
 KNOWN_NAMESPACE_PREFIXES: tuple[tuple[str, int], ...] = (
     # Watch6 V1 and V2 confirmation banks
     ("t34-watch6-exact-stop-efficacy-20261030-v1", 64),
@@ -37,15 +43,22 @@ KNOWN_NAMESPACE_PREFIXES: tuple[tuple[str, int], ...] = (
     ("t34-watch6-search-efficacy-20261031-v3-reserve", 256),
     ("t34-watch6-v3-confirm-20261031", 512),
     ("t34-watch6-v3-confirm-20261031-reserve", 256),
+    # Watch6-L1-V1 confirmation namespaces
+    ("t34-watch6-l1-confirm-20261101-v1", 512),
+    ("t34-watch6-l1-confirm-20261101-v1/primary", 512),
+    ("t34-watch6-l1-confirm-20261101-v1/reserve", 512),
+    ("t34-watch6-l1-confirm-20261101-v1-reserve", 256),
     # Watch6 all-length screen (main + canary + preflight)
     ("t34-explore-watch6-alllen-screen-20261031-r1", 256),
     ("t34-explore-watch6-alllen-canary-20261031-r1", 32),
     ("t34-explore-watch6-alllen-preflight-20261031-r1", 32),
-    # Previous Watch replay banks 01-13 + replay fixtures
+    # Previous Watch replay banks 01-13 + 13l1-16l1 + replay fixtures
     *((f"t34-watch-replay-fix-20261030-bank{i:02d}", 128) for i in range(1, 14)),
     *((f"t34-watch-replay-20261030-bank{i:02d}", 128) for i in range(1, 14)),
     *((f"t34-watch-replay-20261031-bank{i:02d}", 128) for i in range(1, 14)),
     *((f"t34-watch-replay-20261101-bank{i:02d}", 128) for i in range(1, 14)),
+    *((f"t34-watch-replay-20261101-bank{i:02d}l1", 128) for i in range(13, 17)),
+    *((f"t34-watch-replay-20261102-bank{i:02d}l1", 128) for i in range(13, 17)),
     ("t34-watch-replay-full-size-fixture-v1", 32),
     ("t34-watch-replay-mac-fixture-v1", 32),
     ("t34-watch-replay-parity-fixture-v1", 32),
@@ -166,7 +179,10 @@ def audit(
 
     collisions: list[dict[str, Any]] = []
     checked_namespaces: dict[str, int] = {}
+    self_default_exempt = set(DEFAULT_NAMESPACES) if namespaces == DEFAULT_NAMESPACES else set()
     for ns, limit in KNOWN_NAMESPACE_PREFIXES:
+        if ns in self_default_exempt:
+            continue
         ns_seeds = {seed_for(ns, idx) for idx in range(limit)}
         checked_namespaces[ns] = limit
         overlap = bank_seeds & ns_seeds
@@ -184,14 +200,19 @@ def audit(
         if overlap:
             collisions.append({"source": f"discovered:{label}", "seeds": sorted(overlap)})
 
-    live_headers = (
-        _live_bank_headers(artifacts / "watch-replay-bank-live") if read_live_bank else []
-    )
+    live_headers: list[dict[str, Any]] = []
+    if read_live_bank:
+        for bank_dir_name in (
+            "watch-replay-bank-live-168",
+            "watch-replay-bank-live-132",
+            "watch-replay-bank-live",
+        ):
+            live_headers.extend(_live_bank_headers(artifacts / bank_dir_name))
     live_seeds = {row["seed"] for row in live_headers}
     if bank_seeds & live_seeds:
         collisions.append(
             {
-                "source": str(artifacts / "watch-replay-bank-live"),
+                "source": "watch-replay-bank-live*",
                 "seeds": sorted(bank_seeds & live_seeds),
             }
         )
@@ -263,9 +284,10 @@ def audit(
         "!**/pair-*.json",
         "!**/*.watch.gz",
         "!**/watch-replay-bank-live*/**",
-        "!**/t34-sol/watch6-efficacy*/**",
+        "!**/t34-sol/watch6*/**",
         "!**/t34-sol/argon-replay-banks/**",
         "!**/t34-sol/argon-banks-l1/**",
+        "!**/t34-sol/argon-l1-serve/**",
         "!**/research/watch_replay/seed_audit.py",
     ):
         command += ["--glob", excluded]
@@ -343,6 +365,7 @@ def main() -> None:
         namespaces=args.namespaces,
         count=args.count,
         controller=args.controller,
+        read_live_bank=True,
     )
     publish_json(args.out.resolve(), report)
     print(

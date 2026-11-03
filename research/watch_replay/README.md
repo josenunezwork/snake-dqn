@@ -109,14 +109,28 @@ staging transfer cap), writing `canary.json` and `main-unsealed.json` (plus
 Sparse source includes the static research closure plus product source/config.
 No runtime `/Users` dependency or Drive.
 
-Use L4 (default, four independent one-thread CPU session workers) or A100 (`--gpu A100 --workers 6`
+Use L4 (default, four independent one-thread CPU session workers), A100 (`--gpu A100 --workers 6`
 added in `73974411` for `exact-stop-l1` banks `14l1–16l1` on 12-vCPU A100 runtimes; measured
-`3.03–3.07 h` and `~20.36–20.67 u` per `12`-session bank = `~61.5 A100 u` total at `6.73 u/h`) with
->=12 vCPUs; GPU is unused. This is CPU singleton policy/v8/simulator/search work. L4 supplies the
-known host/core configuration; A100/H100 adds idle accelerator capacity when the `L4 <= 3` sub-cap is
-saturated. CPU runtime remains an alternative only after its actual vCPU count and useful rate
-are qualified. Planning L4 rate=1.54 u/h is refreshed by dispatch, never assumed
-to be a guaranteed current provider rate.
+`3.03–3.07 h` and `~20.36–20.67 u` per `12`-session bank = `~61.5 A100 u` total at `6.73 u/h`), or
+G4 (`--gpu G4 --workers 1..48`, default `12`; 48 vCPU AMD EPYC 9B45 Zen 5, 185 GB RAM, `min_vcpu: 48`,
+observed `10.05 u/h`, measured `1.38 s/decision` at 1 worker vs `4.05 s/decision` on L4 and `14.3`
+decisions/s at 48 workers vs `1.69` on L4/A100). GPU is unused. This is CPU singleton
+policy/v8/simulator/search work.
+
+Sessions with `horizon > checkpoint_interval` (default `1,500` frames = `300` search roots, `~7.8–19 min`
+on G4) write verified intra-session checkpoints (`watch-replay-session-checkpoint/v1` via
+`research/world_checkpoint.checkpoint`) under `sessions/checkpoints/<index>/` every `1,500` frames and at
+the frame boundary on `SIGTERM`/`SIGUSR1`, cleaning up intermediate checkpoints once `.watch.gz.complete`
+is published. `resume --checkpoint-out` stages incomplete sessions' latest verified checkpoints and
+`run --checkpoint-in` resumes them bit-identically.
+
+`install --source-bank SOURCE_BANK --controller {exact-stop-l2-prime,exact-stop-l1,bare-b8} --bank DEST_BANK`
+builds a controller-pure bank directory by verifying every `.watch.gz + .sha256 + .complete` triple's SHA
+and header first and copying (never moving) the matching controller triples into `DEST_BANK`.
+`qualify --controller {exact-stop-l2-prime,exact-stop-l1} --bank PURE_BANK --mixed-bank MIXED_BANK --json-out REPORT.json`
+qualifies any controller/bank against the cold readiness (`< 1.0 s`), `update_ms` `p95 <= 11.688 ms`,
+`step_ms`/`tick_ms` `p99 <= 41.67 ms`, and `0/120` paced-`24 fps` overrun bars for both live fallback and
+active replay playback.
 
 Forecast (explicit assumptions): 1,200 possible roots/session ×1.2 branches/root
 ×slowest measured H300 singleton seconds ×3 cloud slowdown ×1.5 W4 contention.

@@ -12,7 +12,11 @@ export WATCH6_RELEASE_EVIDENCE="$COLAB_INPUT_DIR/release-evidence"
 PY="$COLAB_CLI_ROOT/.venv/bin/python"
 "$PY" -c 'from pathlib import Path; import os; from research.watch_replay.uploads import stage_metadata; stage_metadata(Path(os.environ["COLAB_INPUT_DIR"]), os.environ["WATCH_REPLAY_METADATA_SHA256"])'
 "$PY" -c 'from pathlib import Path; import os; from research.watch_replay.product import stage_release_evidence; stage_release_evidence(Path(os.environ["COLAB_INPUT_DIR"]))'
-"$PY" -m research.watch_replay.run --contract "$COLAB_INPUT_DIR/$WATCH_REPLAY_CONTRACT" --ledger "$COLAB_INPUT_DIR/$WATCH_REPLAY_LEDGER" --out "$COLAB_OUTPUT_DIR/sessions" --workers "$WATCH_REPLAY_WORKERS"
+CKPT_ARGS=()
+if [[ -d "$COLAB_INPUT_DIR/checkpoints-resume" ]]; then
+  CKPT_ARGS+=(--checkpoint-in "$COLAB_INPUT_DIR/checkpoints-resume")
+fi
+"$PY" -m research.watch_replay.run --contract "$COLAB_INPUT_DIR/$WATCH_REPLAY_CONTRACT" --ledger "$COLAB_INPUT_DIR/$WATCH_REPLAY_LEDGER" --out "$COLAB_OUTPUT_DIR/sessions" --workers "$WATCH_REPLAY_WORKERS" "${CKPT_ARGS[@]}"
 if [[ "${SNAKE_COLAB_CANARY:-0}" == 1 ]]; then
   "$PY" -m research.watch_replay.preflight --branches-only --out "$COLAB_OUTPUT_DIR/branches.json" --segment-operational "$COLAB_OUTPUT_DIR/sessions/operational.json"
 fi
