@@ -10,7 +10,9 @@ file is updated when they change.
 
 ## Current served setup (Watch & Play)
 
-### Watch: 36-session confirmed `exact-stop-l1` replay bank (released 2026-11-03 PT)
+### Watch: 132-session confirmed `exact-stop-l1` replay bank (expanded 2026-11-03 ~11:30 PT; first released with 36)
+
+- **Active (11:30 PT):** `watch-replay-bank-live-132-l1` (36 A100 + 96 G4 sessions, banks 14l1–24l1), pure bank direct, controller `exact-stop-l1`; Mac qual runs 2+3 QUALIFIED consecutively (run 1 one 53.9 ms overrun). Rollback: `.../watch-replay-bank-live-36-l1` (same controller) or the l2-prime lines below. Records: campaign log 2026-11-03 11:30 row.
 
 - **Active (2026-11-03):** `snake-dqn-artifacts/watch-replay-bank-live-36-l1` — **36 confirmed `exact-stop-l1`
   sessions** (banks `14l1–16l1`, `source_commit 73974411`, `H = 6,000`, hero `b8-s3` `3e649783…`), served
