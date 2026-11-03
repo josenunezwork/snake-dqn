@@ -44,6 +44,8 @@ _gc_restore_enabled = False
 def _ensure_frame_gc_thresholds() -> None:
     """Keep Gen-0 GC threshold above a single Watch frame's container working set."""
     t0, t1, t2 = gc.get_threshold()
+    if t0 == 0:
+        return
     if t0 < GC_GEN0_THRESHOLD or t1 < GC_GEN1_THRESHOLD or t2 < GC_GEN2_THRESHOLD:
         gc.set_threshold(
             max(t0, GC_GEN0_THRESHOLD),
@@ -69,8 +71,6 @@ def _exit_gc_suppress() -> None:
         if _gc_suppress_depth == 0 and _gc_restore_enabled:
             gc.enable()
 
-
-_ensure_frame_gc_thresholds()
 
 _REQUIRED_FRAME_KEYS = frozenset(
     {
@@ -285,7 +285,8 @@ def verify_payload(
     payload: bytes, *, product: bool = True, stop: threading.Event | None = None
 ) -> dict:
     """Validate bounded compressed bytes before a producer marks them complete."""
-    _ensure_frame_gc_thresholds()
+    if stop is not None:
+        _ensure_frame_gc_thresholds()
     if len(payload) > MAX_COMPRESSED:
         raise ValueError("oversized replay")
     records = _records(payload)
@@ -341,7 +342,8 @@ class Recording:
         cache: dict | None = None,
         stop: threading.Event | None = None,
     ) -> None:
-        _ensure_frame_gc_thresholds()
+        if stop is not None:
+            _ensure_frame_gc_thresholds()
         sha_path, _ = _check_replay_files(path)
         with path.open("rb") as stream:
             payload = stream.read(MAX_COMPRESSED + 1)
@@ -369,14 +371,20 @@ class Recording:
         if self.frame["frame"] >= self.header["horizon"]:
             return next(self._records, None) is not None
         _enter_gc_suppress()
+        prev_frame = self.frame
         try:
             self.frame = None  # type: ignore[assignment]
             frame = next(self._records, None)
             if frame is None:
+                self.frame = prev_frame
                 return False
             self.frame = frame
             return True
+        except BaseException:
+            self.frame = prev_frame
+            raise
         finally:
+            prev_frame = None
             _exit_gc_suppress()
 
     def snapshot(self, session: Any) -> dict:
@@ -430,6 +438,7 @@ class ReplayBank:
         controller: str | None = None,
         shuffle_discovery: bool = True,
     ) -> None:
+        _ensure_frame_gc_thresholds()
         self.root = root
         self.controller, self.error = resolve_replay_controller(controller)
         self._shuffle_discovery = bool(shuffle_discovery)

@@ -6,6 +6,7 @@ background loop and broadcasts serialized frames; control messages mutate it.
 
 from __future__ import annotations
 
+import gc
 import math
 import os
 import threading
@@ -782,6 +783,10 @@ class GameSession:
                 ego2s_exception(checkpoint="b8-s3", mode=mode, error=exc)
             initialize_config(previous_config)
             raise
+        finally:
+            # Reclaim cyclic policy/game/veto references after each build or
+            # set_mode rebuild (never called on the step/snapshot tick path).
+            gc.collect()
 
     def _build_impl(
         self, checkpoint: Optional[str], mode: str, override_reward_contract: bool = False

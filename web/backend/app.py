@@ -29,12 +29,14 @@ from web.backend.session import (
     SAVED_DIR,
     GameSession,
 )
+from web.backend.watch_replay import _ensure_frame_gc_thresholds
 
 # Pin torch to one intra-op thread for the whole server process. The per-frame
 # inference (raster or vector) is a tiny forward pass; torch's default of one
 # thread per core oversubscribes the CPU against the event loop (measured ~3x
 # slowdown). Set at import so it applies under uvicorn regardless of launcher.
 torch.set_num_threads(1)
+_ensure_frame_gc_thresholds()
 
 logger = logging.getLogger(__name__)
 
@@ -147,6 +149,7 @@ hub = Hub()
 
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
+    _ensure_frame_gc_thresholds()
     hub.store = ScoreStore(os.environ.get("SNAKE_SCORES_DB", DEFAULT_SCORES_DB))
     hub.session = await asyncio.to_thread(GameSession)
     hub.engine_task = asyncio.create_task(hub.engine_loop())

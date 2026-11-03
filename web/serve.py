@@ -17,11 +17,14 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 import torch  # noqa: E402
 import uvicorn  # noqa: E402
 
+from web.backend.watch_replay import _ensure_frame_gc_thresholds  # noqa: E402
+
 # Pin torch to a single intra-op thread. Inference for this small model runs
 # inline in the async game-loop coroutine; letting torch spin up a thread per
 # core there oversubscribes the CPU (measured ~3x slowdown) against the event
 # loop and the frame serializer. One thread is faster and more predictable.
 torch.set_num_threads(1)
+_ensure_frame_gc_thresholds()
 
 if __name__ == "__main__":
     uvicorn.run(

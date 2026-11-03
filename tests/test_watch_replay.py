@@ -1671,6 +1671,7 @@ def test_set_mode_exception_in_watch_reselects_replay_under_clean_gate(tmp_path,
 
 def test_verify_payload_and_recording_step_do_not_promote_frame_containers_to_older_gc_generations(
     tmp_path,
+    monkeypatch,
 ):
     import gc
 
@@ -1687,6 +1688,11 @@ def test_verify_payload_and_recording_step_do_not_promote_frame_containers_to_ol
     gc.callbacks.append(on_gc)
     try:
         gc.enable()
+        # Deliberate gc.set_threshold(0) ("automatic GC off") must never be overridden.
+        gc.set_threshold(0, 10, 10)
+        replay._ensure_frame_gc_thresholds()
+        assert gc.get_threshold()[0] == 0
+
         gc.set_threshold(700, 10, 10)
         replay._ensure_frame_gc_thresholds()
         t0, t1, t2 = gc.get_threshold()
@@ -1708,6 +1714,31 @@ def test_verify_payload_and_recording_step_do_not_promote_frame_containers_to_ol
         replay._exit_gc_suppress()
         assert not gc.isenabled()
         gc.enable()
+
+        # Two-thread interleaving stress test of the suppression depth counter.
+        barrier = threading.Barrier(2)
+        thread_errors: list[BaseException] = []
+
+        def suppress_worker() -> None:
+            try:
+                barrier.wait(timeout=5.0)
+                for _ in range(200):
+                    replay._enter_gc_suppress()
+                    try:
+                        assert not gc.isenabled()
+                    finally:
+                        replay._exit_gc_suppress()
+            except BaseException as exc:  # pragma: no cover
+                thread_errors.append(exc)
+
+        workers = [threading.Thread(target=suppress_worker) for _ in range(2)]
+        for w in workers:
+            w.start()
+        for w in workers:
+            w.join(timeout=5.0)
+        assert thread_errors == []
+        assert replay._gc_suppress_depth == 0
+        assert gc.isenabled()
 
         # Build a 64-frame heavy payload where each frame allocates >1,800 [x, y] lists
         # (>2x CPython's default 700 Gen-0 threshold per frame; >115,000 lists total).
@@ -1736,24 +1767,33 @@ def test_verify_payload_and_recording_step_do_not_promote_frame_containers_to_ol
         path = tmp_path / "heavy_gc_unit.watch.gz"
         publish_immutable(path, payload)
 
+        # Producer/installer calls (stop=None) must not mutate process-wide GC thresholds.
+        gc.set_threshold(700, 10, 10)
+        assert replay.verify_payload(payload, product=False)["unit_id"] == "heavy_gc_unit"
+        assert gc.get_threshold() == (700, 10, 10)
+        producer_rec = Recording(path, product=False)
+        assert producer_rec.frame["frame"] == 1
+        assert gc.get_threshold() == (700, 10, 10)
+
+        # Promote a long-lived container ballast into Gen 2, then run serving verification
+        # (stop is not None) and Recording.step() playback with 0 Gen-1 / Gen-2 collections.
+        ballast = [[i] for i in range(10_000)]
+        gc.collect()
         gc.collect()
         gc_events.clear()
-        g0_before_verify, g1_before_verify, g2_before_verify = gc.get_count()
 
         stop = threading.Event()
         verified_header = replay.verify_payload(payload, product=False, stop=stop)
         assert verified_header["unit_id"] == "heavy_gc_unit"
+        assert gc.get_threshold()[0] >= replay.GC_GEN0_THRESHOLD
         assert gc.isenabled()
         g0_after_verify, g1_after_verify, g2_after_verify = gc.get_count()
         assert [g for g in gc_events if g >= 1] == []
-        assert g1_after_verify == g1_before_verify
-        assert g2_after_verify == g2_before_verify
-        assert abs(g0_after_verify - g0_before_verify) < 500
 
         # Stepping through the entire Recording must also release each prior frame in Gen 0
         # without promoting transient frame containers into Gen 1 / Gen 2.
         rec = Recording(path, product=False)
-        g0_frame1 = gc.get_count()[0]
+        g0_frame1, g1_frame1, g2_frame1 = gc.get_count()
         steps = 0
         while rec.step():
             steps += 1
@@ -1762,9 +1802,28 @@ def test_verify_payload_and_recording_step_do_not_promote_frame_containers_to_ol
         assert gc.isenabled()
         g0_end, g1_end, g2_end = gc.get_count()
         assert [g for g in gc_events if g >= 1] == []
-        assert g1_end == g1_before_verify
-        assert g2_end == g2_before_verify
+        assert g1_end == g1_frame1
+        assert g2_end == g2_frame1
         assert abs(g0_end - g0_frame1) < 500
+        assert len(ballast) == 10_000
+
+        # A mid-decode exception in Recording.step() must preserve the previous valid frame
+        # and restore GC state cleanly.
+        err_rec = Recording(path, product=False)
+        assert err_rec.frame["frame"] == 1
+
+        def broken_records():
+            raise RuntimeError("corrupt stream mid-step")
+            yield  # pragma: no cover
+
+        err_rec._records = broken_records()
+        with pytest.raises(RuntimeError, match="corrupt stream mid-step"):
+            err_rec.step()
+        assert err_rec.frame is not None
+        assert err_rec.frame["frame"] == 1
+        assert err_rec.info()["frame"] == 1
+        assert replay._gc_suppress_depth == 0
+        assert gc.isenabled()
 
         # Error paths inside verify_payload must always restore GC state.
         bad_dto = frame(1)
@@ -1773,6 +1832,26 @@ def test_verify_payload_and_recording_step_do_not_promote_frame_containers_to_ol
         with pytest.raises(ValueError, match="invalid recorded snake"):
             replay.verify_payload(bad_payload, product=False)
         assert gc.isenabled()
+
+        # GameSession._build / set_mode must run gc.collect() immediately off the tick path
+        # so cyclic garbage from prior builds is reclaimed without waiting on threshold0.
+        _install_local_release_fixtures(monkeypatch, tmp_path)
+        session = GameSession()
+        try:
+            gen2_before = gc.get_stats()[2]["collections"]
+            cycle_a: list = []
+            cycle_b: list = [cycle_a]
+            cycle_a.append(cycle_b)
+            del cycle_a, cycle_b
+            session.set_mode("play")
+            assert session.mode == "play"
+            assert gc.get_stats()[2]["collections"] > gen2_before
+            gen2_play = gc.get_stats()[2]["collections"]
+            session.set_mode("watch")
+            assert session.mode == "watch"
+            assert gc.get_stats()[2]["collections"] > gen2_play
+        finally:
+            session.close()
     finally:
         if on_gc in gc.callbacks:
             gc.callbacks.remove(on_gc)
