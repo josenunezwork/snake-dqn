@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import contextlib
 import faulthandler
 import gzip
 import hashlib
@@ -11,7 +10,6 @@ import io
 import json
 import multiprocessing
 import os
-import shutil
 import signal
 import tempfile
 import time
@@ -34,7 +32,7 @@ from web.backend.watch_replay import (
 ROOT = Path(__file__).resolve().parents[2]
 _STOP = None
 MAX_WORKERS = 48
-DEFAULT_CHECKPOINT_INTERVAL = 1500
+DEFAULT_CHECKPOINT_INTERVAL = 0
 SESSION_CHECKPOINT_SCHEMA = "watch-replay-session-checkpoint/v1"
 
 
@@ -85,7 +83,7 @@ def _load_session_checkpoint(
     row: dict,
     candidate_dirs: list[Path],
 ) -> dict[str, Any] | None:
-    """Find and verify the latest intra-session checkpoint for `row['index']`."""
+    """Find and verify the newest intra-session checkpoint for `row['index']` across candidates."""
     from research.world_checkpoint.checkpoint import (
         CheckpointIdentityError,
         find_latest_checkpoint,
@@ -93,9 +91,16 @@ def _load_session_checkpoint(
         verify_checkpoint_identity,
     )
 
+    best_key: tuple[int, int] | None = None
+    best_ckpt: dict[str, Any] | None = None
+    seen_dirs: set[Path] = set()
     for cdir in candidate_dirs:
         if not cdir.is_dir():
             continue
+        resolved = cdir.resolve()
+        if resolved in seen_dirs:
+            continue
+        seen_dirs.add(resolved)
         latest = find_latest_checkpoint(cdir, verify_identity=False)
         if latest is None:
             continue
@@ -113,8 +118,11 @@ def _load_session_checkpoint(
             raise CheckpointIdentityError(
                 f"foreign or mismatched watch-replay session checkpoint: {latest}"
             )
-        return ckpt
-    return None
+        key = (int(ckpt["frame"]), int(ckpt.get("checkpoint_seq", 0)))
+        if best_key is None or key > best_key:
+            best_key = key
+            best_ckpt = ckpt
+    return best_ckpt
 
 
 def generate(task: tuple) -> dict:
@@ -162,8 +170,15 @@ def generate(task: tuple) -> dict:
 
     check.stop_requested = stop_requested  # type: ignore[attr-defined]
 
+    from research.world_checkpoint.checkpoint import (
+        highest_checkpoint_seq_on_disk,
+        quarantine_incomplete_checkpoints,
+    )
+
     unit_tag = f"{row['index']:06d}"
     out_ckpt_dir = out / "checkpoints" / unit_tag
+    if out_ckpt_dir.is_dir():
+        quarantine_incomplete_checkpoints(out_ckpt_dir)
     candidate_ckpt_dirs: list[Path] = []
     if checkpoint_in_dir:
         in_root = Path(checkpoint_in_dir)
@@ -179,7 +194,7 @@ def generate(task: tuple) -> dict:
 
     decoded_bytes = 0
     peak_line_bytes = 0
-    ckpt_seq = 0
+    ckpt_seq = highest_checkpoint_seq_on_disk(out_ckpt_dir, *candidate_ckpt_dirs)
     resume_state: dict[str, Any] | None = None
     with tempfile.TemporaryFile() as frames:
         if loaded_ckpt is not None:
@@ -191,7 +206,7 @@ def generate(task: tuple) -> dict:
             frames.write(raw_prefix)
             decoded_bytes = int(loaded_ckpt["decoded_bytes"])
             peak_line_bytes = int(loaded_ckpt["peak_line_bytes"])
-            ckpt_seq = int(loaded_ckpt["checkpoint_seq"])
+            ckpt_seq = max(ckpt_seq, int(loaded_ckpt["checkpoint_seq"]))
             resume_state = dict(loaded_ckpt["engine_state"])
 
         def record(frame: dict) -> None:
@@ -225,7 +240,10 @@ def generate(task: tuple) -> dict:
             frames.seek(0, io.SEEK_END)
             if len(raw_jsonl) != decoded_bytes:
                 raise ValueError("recorded frame stream size mismatch during checkpoint")
-            ckpt_seq += 1
+            ckpt_seq = (
+                max(ckpt_seq, highest_checkpoint_seq_on_disk(out_ckpt_dir, *candidate_ckpt_dirs))
+                + 1
+            )
             out_ckpt_dir.mkdir(parents=True, exist_ok=True)
             ckpt_name = (
                 f"ckpt-seq-{ckpt_seq:04d}-arm-{contract['controller']}-frame-{frame_idx:06d}.ckpt"
@@ -246,15 +264,12 @@ def generate(task: tuple) -> dict:
                 "decoded_bytes": int(decoded_bytes),
                 "peak_line_bytes": int(peak_line_bytes),
                 "recorded_jsonl_sha256": hashlib.sha256(raw_jsonl).hexdigest(),
-                "recorded_jsonl_gz": gzip.compress(raw_jsonl, compresslevel=1, mtime=0),
+                "recorded_jsonl_gz": gzip.compress(raw_jsonl, compresslevel=6, mtime=0),
                 "engine_state": engine_state,
             }
+            # Publish create-only under $COLAB_OUTPUT_DIR/sessions/checkpoints/<unit_tag>;
+            # never unlink or rmtree published .complete exports (runtime.py:335).
             save_checkpoint(payload_state, ckpt_path)
-            # Retain only the newest verified checkpoint per incomplete session.
-            for existing in sorted(out_ckpt_dir.glob("ckpt-seq-*.ckpt")):
-                if existing != ckpt_path:
-                    for suffix in ("", ".sha256", ".complete"):
-                        Path(str(existing) + suffix).unlink(missing_ok=True)
             faulthandler.dump_traceback_later(900, exit=True)
 
         try:
@@ -315,12 +330,6 @@ def generate(task: tuple) -> dict:
             payload = buffer.getvalue()
             verify_payload(payload, product=not header["fixture"])
             result = publish_immutable(path, payload)
-            if out_ckpt_dir.is_dir():
-                shutil.rmtree(out_ckpt_dir, ignore_errors=True)
-                ckpt_parent = out / "checkpoints"
-                if ckpt_parent.is_dir() and not any(ckpt_parent.iterdir()):
-                    with contextlib.suppress(OSError):
-                        ckpt_parent.rmdir()
         finally:
             faulthandler.cancel_dump_traceback_later()
     seconds = time.monotonic() - started

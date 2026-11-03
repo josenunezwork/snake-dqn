@@ -14,9 +14,22 @@ from pathlib import Path
 from research.colab_cli import canary
 from research.t34_exit_b8 import public_inputs
 from research.watch_replay.preflight import CANARY_HORIZON_BY_CONTROLLER
-from research.watch_replay.run import ROOT, allocation, completed, identity
+from research.watch_replay.resume import stage_session_checkpoints
+from research.watch_replay.run import (
+    ROOT,
+    SESSION_CHECKPOINT_SCHEMA,
+    allocation,
+    completed,
+    identity,
+)
 from research.watch_replay.source import source_paths
-from research.watch_replay.uploads import CHECKPOINTS, METADATA, check_uploads, pack_inputs
+from research.watch_replay.uploads import (
+    CHECKPOINTS,
+    METADATA,
+    check_uploads,
+    pack_checkpoint_resume,
+    pack_inputs,
+)
 from tools.ops.package_spec import Input, digest, empty_ledger, publish_json, stage_inputs
 from web.backend.watch_replay import CONTROLLERS
 
@@ -25,6 +38,14 @@ DEFAULT_WORKERS_BY_GPU: dict[str, int] = {"L4": 4, "A100": 6, "G4": 12}
 MAX_WORKERS_BY_GPU: dict[str, int] = {"L4": 12, "A100": 12, "G4": 48}
 MAX_COUNT_BY_GPU: dict[str, int] = {"L4": 12, "A100": 12, "G4": 48}
 MIN_VCPU_BY_GPU: dict[str, int] = {"L4": 12, "A100": 12, "G4": 48}
+DEFAULT_CANARY_NAMESPACE = "t34-watch-replay-full-size-fixture-v1"
+G4_CANARY_NAMESPACE = "t34-watch-replay-20261103-g4-canary-l1-v1"
+CANARY_NAMESPACE_BY_GPU: dict[str, str] = {
+    "L4": DEFAULT_CANARY_NAMESPACE,
+    "A100": DEFAULT_CANARY_NAMESPACE,
+    "G4": G4_CANARY_NAMESPACE,
+}
+DEFAULT_CHECKPOINT_INTERVAL_BY_GPU: dict[str, int] = {"L4": 0, "A100": 0, "G4": 1500}
 
 # Measured Watch6 decision speed on Colab G4 (48 vCPU AMD EPYC 9B45 Zen 5) vs L4/A100 (12 vCPU):
 #   L4/A100: 1 worker = 4.05 s/decision, 12 vCPU = 1.69 decisions/s
@@ -32,6 +53,8 @@ MIN_VCPU_BY_GPU: dict[str, int] = {"L4": 12, "A100": 12, "G4": 48}
 #   A100 12-session exact-stop-l1 banks (14l1-16l1, W=6): ~3.05 h (~1.525 h/session) & ~20.5 u
 L4_SINGLETON_DECISION_SECONDS = 4.05
 L4_NODE_DECISIONS_PER_SECOND = 1.69
+L4_12W_CONTENTION_FACTOR = (12.0 / L4_NODE_DECISIONS_PER_SECOND) / L4_SINGLETON_DECISION_SECONDS
+A100_W6_CONTENTION_FACTOR = 1.0 + (5.0 / 11.0) * (L4_12W_CONTENTION_FACTOR - 1.0)
 G4_SINGLETON_DECISION_SECONDS = 1.38
 G4_48W_DECISIONS_PER_SECOND = 14.3
 G4_PER_CORE_SPEEDUP_VS_L4 = L4_SINGLETON_DECISION_SECONDS / G4_SINGLETON_DECISION_SECONDS
@@ -39,6 +62,7 @@ G4_NODE_SPEEDUP_VS_L4 = G4_48W_DECISIONS_PER_SECOND / L4_NODE_DECISIONS_PER_SECO
 A100_L1_BANK12_W6_HOURS = 3.05
 A100_L1_BANK12_W6_UNITS = 20.5
 A100_L1_SESSION_SECONDS_AT_W6 = (A100_L1_BANK12_W6_HOURS / 2.0) * 3600.0
+A100_L1_SESSION_SECONDS_1W = A100_L1_SESSION_SECONDS_AT_W6 / A100_W6_CONTENTION_FACTOR
 
 
 def g4_contention_factor(workers: int) -> float:
@@ -90,6 +114,46 @@ def release_bundle(bundle: Path, pins: dict) -> None:
                         archive.addfile(member, io.BytesIO(path.read_bytes()))
 
 
+def _validate_checkpoint_resume_dir(
+    checkpoint_dir: Path,
+    contract: dict,
+    completed_indices: set[int],
+) -> None:
+    from research.world_checkpoint.checkpoint import find_latest_checkpoint, load_checkpoint
+
+    if not checkpoint_dir.is_dir():
+        raise ValueError(f"checkpoint_resume directory does not exist: {checkpoint_dir}")
+    found = 0
+    for sub in sorted(checkpoint_dir.iterdir()):
+        if not sub.is_dir() or len(sub.name) != 6 or not sub.name.isdigit():
+            continue
+        index = int(sub.name)
+        if not 0 <= index < contract["count"] or index in completed_indices:
+            raise ValueError(
+                f"checkpoint_resume contains completed or out-of-range session index: {index}"
+            )
+        latest = find_latest_checkpoint(sub, verify_identity=False)
+        if latest is None:
+            continue
+        found += 1
+        ckpt = load_checkpoint(latest, verify_identity=False)
+        row = contract["rows"][index]
+        if (
+            ckpt.get("session_checkpoint_schema") != SESSION_CHECKPOINT_SCHEMA
+            or ckpt.get("allocation") != identity(contract)
+            or ckpt.get("namespace") != contract["namespace"]
+            or int(ckpt.get("index", -1)) != index
+            or int(ckpt.get("seed", -1)) != int(row["seed"])
+            or ckpt.get("controller") != contract["controller"]
+            or int(ckpt.get("horizon", -1)) != int(contract["horizon"])
+        ):
+            raise ValueError(f"checkpoint_resume mismatch for session {index}: {latest}")
+    if found == 0:
+        raise ValueError(
+            f"checkpoint_resume directory contains zero verified checkpoints: {checkpoint_dir}"
+        )
+
+
 def prepare(
     out: Path,
     commit: str,
@@ -103,6 +167,8 @@ def prepare(
     *,
     gpu: str = "L4",
     workers: int | None = None,
+    checkpoint_resume: Path | None = None,
+    checkpoint_interval: int | None = None,
 ) -> dict:
     """Ship identical inputs for an excluded long-body canary and N sessions."""
     if gpu not in GPU_RATES:
@@ -114,6 +180,13 @@ def prepare(
     max_workers = MAX_WORKERS_BY_GPU[gpu]
     if type(resolved_workers) is not int or not 1 <= resolved_workers <= max_workers:
         raise ValueError(f"workers must be an integer in 1..{max_workers}")
+    resolved_ckpt_interval = (
+        DEFAULT_CHECKPOINT_INTERVAL_BY_GPU[gpu]
+        if checkpoint_interval is None
+        else checkpoint_interval
+    )
+    if type(resolved_ckpt_interval) is not int or resolved_ckpt_interval < 0:
+        raise ValueError("checkpoint_interval must be a non-negative integer")
     refs = subprocess.check_output(
         ["git", "branch", "-r", "--contains", commit], cwd=ROOT, text=True
     )
@@ -128,13 +201,14 @@ def prepare(
         raise ValueError("Mac preflight must match current commit")
     out.mkdir(parents=True, exist_ok=False)
     canary_horizon = CANARY_HORIZON_BY_CONTROLLER[controller]
+    canary_namespace = CANARY_NAMESPACE_BY_GPU[gpu]
     contracts = {
         "main": {**allocation(namespace, count, controller), "commit": commit},
-        # Frozen excluded prefix from the measured full-session fixture. L2' reaches
-        # L>=600/search within 3,000 frames; L>=1 exercises 60 roots within 300 frames
+        # Frozen excluded prefix from the measured full-session fixture (or G4 canary namespace).
+        # L2' reaches L>=600/search within 3,000 frames; L>=1 exercises 60 roots within 300 frames
         # while fitting the fixed 15/30-minute canary guard.
         "canary": {
-            **allocation("t34-watch-replay-full-size-fixture-v1", 1, controller, canary_horizon),
+            **allocation(canary_namespace, 1, controller, canary_horizon),
             "commit": commit,
         },
     }
@@ -225,6 +299,24 @@ def prepare(
     raw_staged = stage_inputs(out / "staged", inputs)
     staged = pack_inputs(raw_staged, out / METADATA)
     metadata_sha256 = next(row["sha256"] for row in staged if row["dest"] == METADATA)
+    completed_indices = {int(r["index"]) for r in verified}
+    if checkpoint_resume is None and previous_receipts:
+        auto_ckpt_out = out / "staged-checkpoints-resume"
+        try:
+            auto_staged = stage_session_checkpoints(
+                contracts["main"],
+                [r.parent for r in previous_receipts],
+                auto_ckpt_out,
+            )
+        except (FileNotFoundError, ValueError):
+            auto_staged = []
+        if auto_staged:
+            checkpoint_resume = auto_ckpt_out
+    ckpt_resume_rows: list[dict] = []
+    if checkpoint_resume is not None:
+        _validate_checkpoint_resume_dir(checkpoint_resume, contracts["main"], completed_indices)
+        ckpt_resume_rows = pack_checkpoint_resume(checkpoint_resume, out / "staged")
+        staged.extend(ckpt_resume_rows)
     singleton = max(t["seconds"] / t["branches"] for t in measured["branch_timings"])
     screen_roots = SCREEN_MEAN_ROOTS_BY_CONTROLLER[controller]
     screen_branches = SCREEN_MEAN_BRANCHES_BY_CONTROLLER[controller]
@@ -277,12 +369,19 @@ def prepare(
         ),
     }
     if gpu == "G4":
-        # Empirical G4 session time derived from A100 14l1-16l1 receipts (91.5 min/session at W=6)
-        # scaled by measured G4 per-core speedup (4.05 / 1.38 = 2.9348x) and G4 worker contention.
-        g4_1w_session_seconds = A100_L1_SESSION_SECONDS_AT_W6 / G4_PER_CORE_SPEEDUP_VS_L4
+        # Empirical G4 session time derived from A100 14l1-16l1 receipts (91.5 min/session at W=6),
+        # de-biased for A100 W=6 contention (1.3424x -> 68.16 min at 1W) before scaling by G4
+        # per-core speedup (4.05 / 1.38 = 2.9348x) and G4 worker contention. Also report the
+        # conservative unadjusted bound (treating A100 W=6 as 1.0x contention).
+        g4_1w_session_seconds = A100_L1_SESSION_SECONDS_1W / G4_PER_CORE_SPEEDUP_VS_L4
         g4_worker_session_seconds = g4_1w_session_seconds * contention
+        g4_cons_1w_seconds = A100_L1_SESSION_SECONDS_AT_W6 / G4_PER_CORE_SPEEDUP_VS_L4
+        g4_cons_worker_seconds = g4_cons_1w_seconds * contention
         forecast.update(
             {
+                "canary_namespace": canary_namespace,
+                "checkpoint_interval": resolved_ckpt_interval,
+                "a100_w6_contention_factor": round(A100_W6_CONTENTION_FACTOR, 6),
                 "g4_measured_1w_seconds_per_decision": G4_SINGLETON_DECISION_SECONDS,
                 "g4_measured_48w_decisions_per_second": G4_48W_DECISIONS_PER_SECOND,
                 "g4_per_core_speedup_vs_l4": round(G4_PER_CORE_SPEEDUP_VS_L4, 6),
@@ -294,8 +393,14 @@ def prepare(
                 "g4_empirical_l1_session_minutes_at_workers": round(
                     g4_worker_session_seconds / 60.0, 2
                 ),
+                "g4_conservative_l1_session_minutes_1w": round(g4_cons_1w_seconds / 60.0, 2),
+                "g4_conservative_l1_session_minutes_at_workers": round(
+                    g4_cons_worker_seconds / 60.0, 2
+                ),
             }
         )
+    elif resolved_ckpt_interval > 0:
+        forecast["checkpoint_interval"] = resolved_ckpt_interval
     publish_json(out / "forecast.json", forecast)
     rate = GPU_RATES[gpu]
     min_vcpu = MIN_VCPU_BY_GPU[gpu]
@@ -352,6 +457,16 @@ def prepare(
                 "WATCH_REPLAY_WORKERS": "1" if label == "canary" else str(resolved_workers),
             },
         }
+        if resolved_ckpt_interval > 0:
+            manifest["env"]["WATCH_REPLAY_CHECKPOINT_INTERVAL"] = (
+                "0" if label == "canary" else str(resolved_ckpt_interval)
+            )
+        if ckpt_resume_rows:
+            manifest["env"]["WATCH_REPLAY_CHECKPOINT_RESUME_SHAS"] = json.dumps(
+                {row["dest"]: row["sha256"] for row in ckpt_resume_rows},
+                sort_keys=True,
+                separators=(",", ":"),
+            )
         skipped = {row["index"] for row in verified} if label == "main" else set()
         if label == "canary":
             manifest["required_exports"].extend(
@@ -403,6 +518,8 @@ def main() -> None:
     parser.add_argument("--controller", choices=sorted(CONTROLLERS), default="exact-stop-l2-prime")
     parser.add_argument("--gpu", choices=list(GPU_RATES), default="L4")
     parser.add_argument("--workers", type=int)
+    parser.add_argument("--checkpoint-interval", type=int)
+    parser.add_argument("--checkpoint-resume", type=Path)
     parser.add_argument("--canary-receipt", type=Path)
     parser.add_argument("--ledger", type=Path)
     parser.add_argument("--previous-receipts", type=Path, nargs="*", default=[])
@@ -421,6 +538,8 @@ def main() -> None:
                 args.previous_receipts,
                 gpu=args.gpu,
                 workers=args.workers,
+                checkpoint_resume=args.checkpoint_resume,
+                checkpoint_interval=args.checkpoint_interval,
             ),
             indent=2,
         )

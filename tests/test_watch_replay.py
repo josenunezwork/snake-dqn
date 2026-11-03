@@ -1877,8 +1877,14 @@ def test_prepare_g4_pricing_workers_and_min_vcpu(tmp_path, monkeypatch):
     assert forecast_w12["min_vcpu"] == 48
     assert forecast_w12["rate_units_per_hour"] == 10.05
     assert forecast_w12["workers"] == 12
-    assert forecast_w12["g4_empirical_l1_session_minutes_1w"] < 45.0
+    assert forecast_w12["canary_namespace"] == prep.G4_CANARY_NAMESPACE
+    assert forecast_w12["checkpoint_interval"] == 1500
+    assert forecast_w12["g4_empirical_l1_session_minutes_1w"] == pytest.approx(23.23, abs=0.05)
+    assert forecast_w12["g4_conservative_l1_session_minutes_1w"] == pytest.approx(31.18, abs=0.05)
     assert forecast_w12["g4_empirical_l1_session_minutes_at_workers"] < 45.0
+
+    canary_contract = json.loads((out_w12 / "canary-contract.json").read_text())
+    assert canary_contract["namespace"] == prep.G4_CANARY_NAMESPACE
 
     canary_manifest = json.loads((out_w12 / "canary.json").read_text())
     main_manifest = json.loads((out_w12 / "main-unsealed.json").read_text())
@@ -1890,11 +1896,13 @@ def test_prepare_g4_pricing_workers_and_min_vcpu(tmp_path, monkeypatch):
     }
     assert canary_manifest["budget"]["rate_units_per_hour"] == 10.05
     assert canary_manifest["env"]["WATCH_REPLAY_WORKERS"] == "1"
+    assert canary_manifest["env"]["WATCH_REPLAY_CHECKPOINT_INTERVAL"] == "0"
     assert main_manifest["requirements"]["gpu"] == "G4"
     assert main_manifest["requirements"]["allowed_gpus"] == ["G4"]
     assert main_manifest["requirements"]["min_vcpu"] == 48
     assert main_manifest["budget"]["rate_units_per_hour"] == 10.05
     assert main_manifest["env"]["WATCH_REPLAY_WORKERS"] == "12"
+    assert main_manifest["env"]["WATCH_REPLAY_CHECKPOINT_INTERVAL"] == "1500"
     assert main_manifest["timeout_minutes"] == 2 * main_manifest["requirements"]["est_minutes"]
     assert main_manifest["budget"]["unit_cap"] == pytest.approx(
         2 * main_manifest["watch_replay"]["base_unit_cap"]
@@ -1918,11 +1926,18 @@ def test_prepare_g4_pricing_workers_and_min_vcpu(tmp_path, monkeypatch):
 
 
 def test_intra_session_checkpoint_resume_matches_uninterrupted_bytes(tmp_path, monkeypatch):
+    from research.colab_cli.runtime import _exports
     from research.t1_commitment_20261015.replay import configure_cpu
     from research.watch6_alllen_screen.protocol import ROOT
     from research.watch_replay.resume import stage_session_checkpoints
-    from research.watch_replay.run import allocation, identity, run
-    from research.world_checkpoint.checkpoint import find_latest_checkpoint, verify_checkpoint
+    from research.watch_replay.run import _load_session_checkpoint, allocation, identity, run
+    from research.world_checkpoint.checkpoint import (
+        CheckpointIdentityError,
+        find_latest_checkpoint,
+        load_checkpoint,
+        save_checkpoint,
+        verify_checkpoint,
+    )
 
     saved = None
     for candidate in (ROOT.parent / "snake-dqn/saved_snakes", ROOT / "saved_snakes"):
@@ -1946,7 +1961,7 @@ def test_intra_session_checkpoint_resume_matches_uninterrupted_bytes(tmp_path, m
     ledger = tmp_path / "ledger.json"
     publish_json(ledger, empty_ledger(contract["namespace"], "sessions", identity(contract)))
 
-    # 1. Uninterrupted baseline run.
+    # 1. Uninterrupted baseline run (default checkpoint_interval=0 -> opt-in, no checkpoints).
     uninterrupted_dir = tmp_path / "uninterrupted"
     rows_full = run(contract, ledger, uninterrupted_dir, 1)
     assert len(rows_full) == 1
@@ -1954,55 +1969,388 @@ def test_intra_session_checkpoint_resume_matches_uninterrupted_bytes(tmp_path, m
     assert full_watch_path.is_file()
     assert not (uninterrupted_dir / "checkpoints").exists()
 
-    # 2. Interrupted run that checkpoints at frame 5 and then stops.
+    # 2. Interrupted run that writes checkpoints at frames 3 and 6 and then stops, while
+    #    calling research.colab_cli.runtime._exports with a persistent cache after EVERY
+    #    checkpoint to prove append-only checkpoints never trip runtime.py:335.
     import research.watch_replay.run as run_mod
 
-    interrupted_dir = tmp_path / "interrupted"
+    interrupted_root = tmp_path / "interrupted"
+    interrupted_dir = interrupted_root / "output" / "sessions"
+    interrupted_dir.parent.mkdir(parents=True)
+    export_cache: dict = {}
     stop_event = SimpleNamespace(is_set=lambda: False)
     original_run_arm = __import__("research.watch_replay.engine", fromlist=["run_arm"]).run_arm
 
-    def stop_after_ckpt_5(*args, **kwargs):
+    def stop_after_ckpt_6(*args, **kwargs):
         orig_on_ckpt = kwargs.get("on_checkpoint")
 
         def wrapped_on_ckpt(frame_idx, state):
             if orig_on_ckpt is not None:
                 orig_on_ckpt(frame_idx, state)
-            if frame_idx == 5:
+            exported = _exports(interrupted_root, 64 * 1024**2, export_cache)
+            assert any(f"frame-{frame_idx:06d}.ckpt" in row["path"] for row in exported)
+            if frame_idx == 6:
                 stop_event.is_set = lambda: True
 
         kwargs["on_checkpoint"] = wrapped_on_ckpt
         return original_run_arm(*args, **kwargs)
 
     monkeypatch.setattr(run_mod, "_STOP", stop_event)
-    monkeypatch.setattr("research.watch_replay.engine.run_arm", stop_after_ckpt_5)
-    rows_partial = run(contract, ledger, interrupted_dir, 1, checkpoint_interval=5)
+    monkeypatch.setattr("research.watch_replay.engine.run_arm", stop_after_ckpt_6)
+    rows_partial = run(contract, ledger, interrupted_dir, 1, checkpoint_interval=3)
     assert rows_partial == []
     assert not (interrupted_dir / "000000.watch.gz").exists()
+    # Both frame 3 and frame 6 checkpoints remain intact on disk; runtime._exports succeeds.
+    exported_after_interrupt = _exports(interrupted_root, 64 * 1024**2, export_cache)
+    ckpt_exports = [r["path"] for r in exported_after_interrupt if r["path"].endswith(".ckpt")]
+    assert len(ckpt_exports) == 2
     ckpt_file = find_latest_checkpoint(
         interrupted_dir / "checkpoints" / "000000", verify_identity=True
     )
-    assert ckpt_file is not None and "frame-000005" in ckpt_file.name
+    assert ckpt_file is not None and "frame-000006" in ckpt_file.name
     verify_checkpoint(ckpt_file)
 
-    # 3. Stage the intra-session checkpoint and resume to completion; bytes must match.
+    # 3. Verify _load_session_checkpoint chooses the newest checkpoint across all candidate_dirs
+    #    even when an older checkpoint is in candidate_dirs[0] and a newer one is in [1].
+    older_dir = tmp_path / "older-candidate" / "000000"
+    newer_dir = tmp_path / "newer-candidate" / "000000"
+    older_dir.mkdir(parents=True)
+    newer_dir.mkdir(parents=True)
+    ckpt3 = next((interrupted_dir / "checkpoints" / "000000").glob("*frame-000003.ckpt"))
+    ckpt6 = next((interrupted_dir / "checkpoints" / "000000").glob("*frame-000006.ckpt"))
+    save_checkpoint(load_checkpoint(ckpt3), older_dir / ckpt3.name)
+    save_checkpoint(load_checkpoint(ckpt6), newer_dir / ckpt6.name)
+    chosen = _load_session_checkpoint(contract, contract["rows"][0], [older_dir, newer_dir])
+    assert chosen is not None and int(chosen["frame"]) == 6
+
+    # 4. Verify a foreign/mismatched checkpoint is refused with CheckpointIdentityError.
+    foreign_dir = tmp_path / "foreign-candidate" / "000000"
+    foreign_dir.mkdir(parents=True)
+    bad_payload = dict(load_checkpoint(ckpt6), namespace="foreign-namespace")
+    save_checkpoint(bad_payload, foreign_dir / ckpt6.name)
+    with pytest.raises(CheckpointIdentityError, match="foreign or mismatched"):
+        _load_session_checkpoint(contract, contract["rows"][0], [foreign_dir])
+
+    # 5. Stage the intra-session checkpoint and resume to completion; bytes must match, and
+    #    runtime._exports with a persistent cache must never raise across completion.
     monkeypatch.setattr(run_mod, "_STOP", None)
     monkeypatch.setattr("research.watch_replay.engine.run_arm", original_run_arm)
     staged_ckpt_dir = tmp_path / "staged-ckpts"
-    staged = stage_session_checkpoints(contract, [interrupted_dir], staged_ckpt_dir)
-    assert len(staged) == 1 and staged[0]["index"] == 0 and staged[0]["frame"] == 5
+    staged = stage_session_checkpoints(contract, [interrupted_dir.parent], staged_ckpt_dir)
+    assert len(staged) == 1 and staged[0]["index"] == 0 and staged[0]["frame"] == 6
+    assert (staged_ckpt_dir / "checkpoints-resume.tar.gz").is_file()
 
-    resumed_dir = tmp_path / "resumed"
+    resumed_root = tmp_path / "resumed"
+    resumed_dir = resumed_root / "output" / "sessions"
+    resumed_dir.parent.mkdir(parents=True)
+    resume_export_cache: dict = {}
     rows_resumed = run(
         contract,
         ledger,
         resumed_dir,
         1,
         checkpoint_in=staged_ckpt_dir,
-        checkpoint_interval=5,
+        checkpoint_interval=3,
     )
     assert len(rows_resumed) == 1
     resumed_watch_path = resumed_dir / "000000.watch.gz"
     assert resumed_watch_path.read_bytes() == full_watch_path.read_bytes()
     assert rows_resumed[0]["sha256"] == rows_full[0]["sha256"]
     assert rows_resumed[0]["stats"] == rows_full[0]["stats"]
-    assert not (resumed_dir / "checkpoints").exists()
+    final_exports = _exports(resumed_root, 64 * 1024**2, resume_export_cache)
+    assert any(r["path"] == "sessions/000000.watch.gz" for r in final_exports)
+    assert any("frame-000009.ckpt" in r["path"] for r in final_exports)
+
+
+def test_two_process_sigterm_interrupt_and_cross_runtime_resume_multiworker(tmp_path, monkeypatch):
+    import os
+    import shutil
+    import signal
+    import subprocess
+    import sys
+
+    from research.t1_commitment_20261015.replay import configure_cpu
+    from research.watch6_alllen_screen.protocol import ROOT
+    from research.watch_replay import prepare as prep
+    from research.watch_replay.run import allocation, identity, run
+    from research.watch_replay.uploads import stage_checkpoint_resume
+
+    saved = None
+    for candidate in (ROOT.parent / "snake-dqn/saved_snakes", ROOT / "saved_snakes"):
+        if (candidate / "b8_s3_t7_20261016.pth").is_file() and (
+            candidate / "frp3_m3_s12_u60000_20261005.pth"
+        ).is_file():
+            saved = candidate
+            break
+    if saved is None:
+        pytest.skip("product checkpoints unavailable in test environment")
+
+    # Verify bash 3.2 syntax and empty CKPT_ARGS expansion under `set -euo pipefail`.
+    bash_syntax = subprocess.run(
+        ["/bin/bash", "-n", str(ROOT / "research/watch_replay/job.sh")],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert bash_syntax.returncode == 0, bash_syntax.stderr
+    bash_empty_arr = subprocess.run(
+        [
+            "/bin/bash",
+            "-c",
+            'set -euo pipefail; CKPT_ARGS=(); printf "%s" ${CKPT_ARGS[@]+"${CKPT_ARGS[@]}"}',
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert bash_empty_arr.returncode == 0, bash_empty_arr.stderr
+
+    monkeypatch.setenv("SNAKE_CKPT_DIR", str(saved))
+    monkeypatch.setenv("SNAKE_DQN_DEVICE", "cpu")
+    configure_cpu()
+
+    horizon = 8
+    namespace = "t34-watch-replay-2proc-ckpt-test"
+    contract = {
+        **allocation(namespace, 2, "exact-stop-l1", horizon),
+        "commit": "6" * 40,
+    }
+    contract_path = tmp_path / "contract.json"
+    publish_json(contract_path, contract)
+    ledger_path = tmp_path / "ledger.json"
+    publish_json(ledger_path, empty_ledger(namespace, "sessions", identity(contract)))
+
+    # 1. Uninterrupted baseline for 2 sessions.
+    baseline_dir = tmp_path / "baseline"
+    baseline_rows = run(contract, ledger_path, baseline_dir, 1)
+    assert len(baseline_rows) == 2
+
+    # 2. Subprocess 1: run `research.watch_replay.run --workers 2 --checkpoint-interval 4`,
+    #    pause in each spawned worker after frame 4 checkpoint is written so SIGTERM interrupts
+    #    both workers deterministically mid-session.
+    attempt1_root = tmp_path / "attempt1"
+    attempt1_sessions = attempt1_root / "exports" / "sessions"
+    attempt1_root.mkdir(parents=True)
+    hook_dir = tmp_path / "hook"
+    hook_dir.mkdir(parents=True)
+    (hook_dir / "sitecustomize.py").write_text(
+        "import os, time\n"
+        "if os.environ.get('WATCH_REPLAY_TEST_PAUSE_AT_FRAME') == '4':\n"
+        "    import research.watch_replay.engine as eng\n"
+        "    _orig = eng.run_arm\n"
+        "    def _wrapped(*args, **kwargs):\n"
+        "        orig_cb = kwargs.get('on_checkpoint')\n"
+        "        check_fn = args[2]\n"
+        "        def _cb(frame_idx, state):\n"
+        "            if orig_cb is not None:\n"
+        "                orig_cb(frame_idx, state)\n"
+        "            if frame_idx == 4:\n"
+        "                deadline = time.monotonic() + 25.0\n"
+        "                while time.monotonic() < deadline:\n"
+        "                    check_fn()\n"
+        "                    time.sleep(0.05)\n"
+        "        kwargs['on_checkpoint'] = _cb\n"
+        "        return _orig(*args, **kwargs)\n"
+        "    eng.run_arm = _wrapped\n"
+    )
+    env = {
+        **os.environ,
+        "PYTHONPATH": str(ROOT),
+        "SNAKE_CKPT_DIR": str(saved),
+        "SNAKE_DQN_DEVICE": "cpu",
+        "OMP_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "VECLIB_MAXIMUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "TORCH_NUM_THREADS": "1",
+    }
+    env_proc1 = {
+        **env,
+        "PYTHONPATH": f"{hook_dir}:{ROOT}",
+        "WATCH_REPLAY_TEST_PAUSE_AT_FRAME": "4",
+    }
+    proc1 = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "research.watch_replay.run",
+            "--contract",
+            str(contract_path),
+            "--ledger",
+            str(ledger_path),
+            "--out",
+            str(attempt1_sessions),
+            "--workers",
+            "2",
+            "--checkpoint-interval",
+            "4",
+        ],
+        cwd=ROOT,
+        env=env_proc1,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    deadline = time.monotonic() + 45.0
+    while time.monotonic() < deadline:
+        c0 = list((attempt1_sessions / "checkpoints" / "000000").glob("*.ckpt.complete"))
+        c1 = list((attempt1_sessions / "checkpoints" / "000001").glob("*.ckpt.complete"))
+        if c0 and c1:
+            break
+        if proc1.poll() is not None:
+            out_s, err_s = proc1.communicate()
+            pytest.fail(f"subprocess 1 exited early ({proc1.returncode}): {out_s}\n{err_s}")
+        time.sleep(0.05)
+    else:
+        proc1.kill()
+        pytest.fail("timed out waiting for subprocess 1 workers to write frame-4 checkpoints")
+
+    proc1.send_signal(signal.SIGTERM)
+    out1, err1 = proc1.communicate(timeout=30)
+    assert proc1.returncode == 0, f"proc1 failed: {out1}\n{err1}"
+    assert not (attempt1_sessions / "000000.watch.gz").exists()
+    assert not (attempt1_sessions / "000001.watch.gz").exists()
+    op1 = json.loads((attempt1_sessions / "operational.json").read_text())
+    assert op1["completed"] == 0 and len(op1["exclusions"]) == 2
+
+    # 3. Run resume.py CLI with --checkpoint-out to produce ledger + checkpoints-resume.tar.gz.
+    resumed_ledger = tmp_path / "resumed-ledger.json"
+    staged_ckpt_out = tmp_path / "staged-ckpt-out"
+    res_cli = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "research.watch_replay.resume",
+            "--contract",
+            str(contract_path),
+            "--roots",
+            str(attempt1_root),
+            "--out",
+            str(resumed_ledger),
+            "--checkpoint-out",
+            str(staged_ckpt_out),
+        ],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert res_cli.returncode == 0
+    assert (staged_ckpt_out / "checkpoints-resume.tar.gz").is_file()
+    assert (staged_ckpt_out / "000000").is_dir() and (staged_ckpt_out / "000001").is_dir()
+
+    # 4. Verify prepare.py refuses mismatched horizon (H=8 vs H=6000) and packages a matching
+    #    H=6000 --checkpoint-resume directory into manifest["inputs"] and env.
+    from research.world_checkpoint.checkpoint import load_checkpoint, save_checkpoint
+
+    monkeypatch.setattr(
+        prep.subprocess,
+        "check_output",
+        lambda argv, **kw: ("  origin/main\n" if "branch" in argv else b""),
+    )
+    monkeypatch.setattr(
+        prep,
+        "check_uploads",
+        lambda manifest: {
+            "status": "PASS",
+            "normal_transfer_count": len(manifest["inputs"]) + 2,
+            "transfer_count": len(manifest["inputs"]) + 3,
+            "estimated_transfer_seconds": 25.0,
+        },
+    )
+    benchmark = tmp_path / "benchmark.json"
+    benchmark.write_text(
+        json.dumps(
+            {"commit": contract["commit"], "branch_timings": [{"seconds": 6.6, "branches": 6}]}
+        )
+        + "\n"
+    )
+    with pytest.raises(ValueError, match="checkpoint_resume mismatch"):
+        prep.prepare(
+            tmp_path / "packet-bad-horizon",
+            contract["commit"],
+            benchmark,
+            namespace,
+            2,
+            "exact-stop-l1",
+            gpu="G4",
+            workers=2,
+            checkpoint_resume=staged_ckpt_out,
+        )
+
+    contract_6000 = {
+        **allocation(namespace, 2, "exact-stop-l1", 6000),
+        "commit": contract["commit"],
+    }
+    staged_ckpt_6000 = tmp_path / "staged-ckpt-6000"
+    for idx in (0, 1):
+        src_ckpt = next((staged_ckpt_out / f"{idx:06d}").glob("*.ckpt"))
+        ckpt_data = dict(
+            load_checkpoint(src_ckpt),
+            allocation=identity(contract_6000),
+            horizon=6000,
+        )
+        save_checkpoint(ckpt_data, staged_ckpt_6000 / f"{idx:06d}" / src_ckpt.name)
+
+    packet_dir = tmp_path / "packet-resumed"
+    prep.prepare(
+        packet_dir,
+        contract["commit"],
+        benchmark,
+        namespace,
+        2,
+        "exact-stop-l1",
+        gpu="G4",
+        workers=2,
+        checkpoint_resume=staged_ckpt_6000,
+    )
+    main_unsealed = json.loads((packet_dir / "main-unsealed.json").read_text())
+    input_dests = {row["dest"] for row in main_unsealed["inputs"]}
+    assert "checkpoints-resume.tar.gz" in input_dests
+    shas_map = json.loads(main_unsealed["env"]["WATCH_REPLAY_CHECKPOINT_RESUME_SHAS"])
+    assert "checkpoints-resume.tar.gz" in shas_map
+
+    # 5. Stage the H=8 checkpoint archive into a fresh COLAB_INPUT_DIR and run Subprocess 2
+    #    with --workers 2 and --checkpoint-in to completion; verify byte-identical .watch.gz!
+    colab_input = tmp_path / "colab-input"
+    colab_input.mkdir(parents=True)
+    archive_src = staged_ckpt_out / "checkpoints-resume.tar.gz"
+    shutil.copy2(archive_src, colab_input / "checkpoints-resume.tar.gz")
+    expected_shas_json = json.dumps(
+        {"checkpoints-resume.tar.gz": prep.digest(archive_src)}, sort_keys=True
+    )
+    unpacked_ckpt_dir = stage_checkpoint_resume(colab_input, expected_shas_json)
+    assert unpacked_ckpt_dir == colab_input / "checkpoints-resume"
+
+    attempt2_sessions = tmp_path / "attempt2" / "sessions"
+    proc2 = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "research.watch_replay.run",
+            "--contract",
+            str(contract_path),
+            "--ledger",
+            str(resumed_ledger),
+            "--out",
+            str(attempt2_sessions),
+            "--workers",
+            "2",
+            "--checkpoint-in",
+            str(unpacked_ckpt_dir),
+            "--checkpoint-interval",
+            "4",
+        ],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert proc2.returncode == 0
+    for idx in (0, 1):
+        name = f"{idx:06d}.watch.gz"
+        assert (attempt2_sessions / name).read_bytes() == (baseline_dir / name).read_bytes()

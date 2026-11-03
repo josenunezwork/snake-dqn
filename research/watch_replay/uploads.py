@@ -24,6 +24,9 @@ CHUNK_BYTES = 2 * 1024**2
 MAX_METADATA_BYTES = 4 * 1024**2
 METADATA = "input-metadata.tar.gz"
 INDEX = "input-inventory.json"
+CHECKPOINT_RESUME_ARCHIVE = "checkpoints-resume.tar.gz"
+CHECKPOINT_RESUME_INDEX = "checkpoints-inventory.json"
+MAX_CHECKPOINT_RESUME_PARTS = 4
 
 MAX_TRANSFERS = 8
 SECONDS_PER_TRANSFER = 5.0
@@ -332,6 +335,197 @@ def stage_metadata(
         verify_immutable(root / payload_name)
     if materialize_checkpoints:
         materialize_watch_checkpoints(root, verify_pins=verify_pins, opener=opener)
+
+
+def _encode_checkpoint_tar_gz(
+    groups: list[tuple[str, dict[str, bytes], dict[str, dict[str, Any]]]],
+) -> bytes:
+    payloads: dict[str, bytes] = {}
+    inventory: dict[str, dict[str, Any]] = {}
+    for _unit_name, unit_payloads, unit_inv in groups:
+        payloads.update(unit_payloads)
+        inventory.update(unit_inv)
+    payloads[CHECKPOINT_RESUME_INDEX] = json.dumps(inventory, sort_keys=True).encode("utf-8")
+    buf = io.BytesIO()
+    with (
+        gzip.GzipFile(filename="", mode="wb", fileobj=buf, mtime=0, compresslevel=9) as compressed,
+        tarfile.open(fileobj=compressed, mode="w") as archive,
+    ):
+        for name, data in sorted(payloads.items()):
+            member = tarfile.TarInfo(name)
+            member.size = len(data)
+            member.mtime = 0
+            member.mode = 0o444
+            member.uid = 0
+            member.gid = 0
+            member.uname = ""
+            member.gname = ""
+            archive.addfile(member, io.BytesIO(data))
+    return buf.getvalue()
+
+
+def pack_checkpoint_resume(checkpoint_dir: Path, out_dir: Path) -> list[dict[str, Any]]:
+    """Bundle verified staged session checkpoints into <=2 MiB deterministic tar.gz part(s)."""
+    from research.world_checkpoint.checkpoint import find_latest_checkpoint, load_checkpoint
+
+    checkpoint_dir = checkpoint_dir.resolve(strict=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    unit_dirs = sorted(
+        p
+        for p in checkpoint_dir.iterdir()
+        if p.is_dir() and not p.is_symlink() and len(p.name) == 6 and p.name.isdigit()
+    )
+    groups: list[tuple[str, dict[str, bytes], dict[str, dict[str, Any]]]] = []
+    for unit_dir in unit_dirs:
+        latest = find_latest_checkpoint(unit_dir, verify_identity=False)
+        if latest is None:
+            continue
+        verify_immutable(latest)
+        load_checkpoint(latest, verify_identity=False)
+        unit_payloads: dict[str, bytes] = {}
+        unit_inv: dict[str, dict[str, Any]] = {}
+        for suffix in ("", ".sha256", ".complete"):
+            src = Path(str(latest) + suffix)
+            if src.is_symlink() or not src.is_file():
+                raise ValueError(f"missing checkpoint sidecar: {src}")
+            rel = f"{unit_dir.name}/{src.name}"
+            data = src.read_bytes()
+            unit_payloads[rel] = data
+            unit_inv[rel] = {"sha256": hashlib.sha256(data).hexdigest(), "size": len(data)}
+        groups.append((unit_dir.name, unit_payloads, unit_inv))
+
+    if not groups:
+        return []
+
+    single_bytes = _encode_checkpoint_tar_gz(groups)
+    if len(single_bytes) <= CHUNK_BYTES:
+        archive_path = out_dir / CHECKPOINT_RESUME_ARCHIVE
+        meta = publish_immutable(archive_path, single_bytes)
+        return [
+            {
+                "path": str(archive_path),
+                "dest": CHECKPOINT_RESUME_ARCHIVE,
+                "sha256": str(meta["sha256"]),
+                "size_bytes": int(meta["size"]),
+            }
+        ]
+
+    parts: list[list[tuple[str, dict[str, bytes], dict[str, dict[str, Any]]]]] = []
+    current: list[tuple[str, dict[str, bytes], dict[str, dict[str, Any]]]] = []
+    for group in groups:
+        candidate = [*current, group]
+        if len(_encode_checkpoint_tar_gz(candidate)) <= CHUNK_BYTES:
+            current = candidate
+        else:
+            if not current:
+                raise ValueError(f"single session checkpoint exceeds 2 MiB chunk bound: {group[0]}")
+            parts.append(current)
+            current = [group]
+            if len(_encode_checkpoint_tar_gz(current)) > CHUNK_BYTES:
+                raise ValueError(f"single session checkpoint exceeds 2 MiB chunk bound: {group[0]}")
+    if current:
+        parts.append(current)
+    if len(parts) > MAX_CHECKPOINT_RESUME_PARTS:
+        raise ValueError(
+            f"checkpoint resume requires {len(parts)} parts (max {MAX_CHECKPOINT_RESUME_PARTS})"
+        )
+
+    rows: list[dict[str, Any]] = []
+    for idx, part_groups in enumerate(parts):
+        dest_name = f"checkpoints-resume-part{idx:02d}.tar.gz"
+        archive_path = out_dir / dest_name
+        part_bytes = _encode_checkpoint_tar_gz(part_groups)
+        meta = publish_immutable(archive_path, part_bytes)
+        rows.append(
+            {
+                "path": str(archive_path),
+                "dest": dest_name,
+                "sha256": str(meta["sha256"]),
+                "size_bytes": int(meta["size"]),
+            }
+        )
+    return rows
+
+
+def stage_checkpoint_resume(root: Path, expected_shas_json: str = "") -> Path | None:
+    """Verify and unpack uploaded checkpoint-resume archive(s) into root/checkpoints-resume."""
+    root = root.resolve(strict=True)
+    expected_shas: dict[str, str] = (
+        json.loads(expected_shas_json) if expected_shas_json.strip() else {}
+    )
+    if expected_shas:
+        archive_names = sorted(expected_shas)
+    else:
+        archive_names = sorted(
+            p.name
+            for p in root.glob("checkpoints-resume*.tar.gz")
+            if p.is_file() and not p.is_symlink()
+        )
+    if not archive_names:
+        return None
+
+    dest_root = root / "checkpoints-resume"
+    if dest_root.exists() or dest_root.is_symlink():
+        raise ValueError("checkpoints-resume destination already exists or is unsafe")
+    dest_root.mkdir(parents=True, exist_ok=False)
+
+    all_payloads: dict[str, bytes] = {}
+    for archive_name in archive_names:
+        if archive_name != CHECKPOINT_RESUME_ARCHIVE and not (
+            archive_name.startswith("checkpoints-resume-part") and archive_name.endswith(".tar.gz")
+        ):
+            raise ValueError(f"unexpected checkpoint resume archive name: {archive_name}")
+        path = root / archive_name
+        if (
+            path.is_symlink()
+            or not path.is_file()
+            or path.stat().st_size > CHUNK_BYTES
+            or (archive_name in expected_shas and digest(path) != expected_shas[archive_name])
+        ):
+            raise ValueError(f"checkpoint resume archive SHA256 or size mismatch: {archive_name}")
+        with tarfile.open(path, "r:gz") as archive:
+            members = archive.getmembers()
+            names = [member.name for member in members]
+            if (
+                len(names) != len(set(names))
+                or CHECKPOINT_RESUME_INDEX not in names
+                or any(not member.isfile() or member.size < 0 for member in members)
+                or sum(member.size for member in members) > MAX_METADATA_BYTES * 4
+            ):
+                raise ValueError(f"unsafe or malformed checkpoint resume archive: {archive_name}")
+            part_payloads: dict[str, bytes] = {}
+            for member in members:
+                extracted = archive.extractfile(member)
+                if extracted is None:
+                    raise ValueError(f"missing checkpoint tar member stream: {member.name}")
+                part_payloads[member.name] = extracted.read()
+        inventory = json.loads(part_payloads.pop(CHECKPOINT_RESUME_INDEX).decode("utf-8"))
+        if set(inventory) != set(part_payloads):
+            raise ValueError(f"checkpoint resume inventory mismatch: {archive_name}")
+        for name, data in part_payloads.items():
+            if name in all_payloads:
+                raise ValueError(f"duplicate checkpoint resume member across parts: {name}")
+            if inventory[name] != {"sha256": hashlib.sha256(data).hexdigest(), "size": len(data)}:
+                raise ValueError(f"checkpoint resume member digest/size mismatch: {name}")
+            _assert_safe_new_target(dest_root, name)
+            all_payloads[name] = data
+
+    with tempfile.TemporaryDirectory(prefix=".ckpt-resume-", dir=dest_root) as temporary:
+        ordered = sorted(all_payloads, key=lambda item: (item.endswith(".complete"), item))
+        for index, name in enumerate(ordered):
+            staged = Path(temporary) / str(index)
+            staged.write_bytes(all_payloads[name])
+            staged.chmod(0o444)
+            target = dest_root / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            os.link(staged, target)
+
+    ckpt_files = sorted(dest_root.glob("*/*.ckpt"))
+    if not ckpt_files:
+        raise ValueError("checkpoint resume archive contained zero .ckpt payloads")
+    for ckpt_file in ckpt_files:
+        verify_immutable(ckpt_file)
+    return dest_root
 
 
 def _serial_rpcs_for_size(size: int) -> int:

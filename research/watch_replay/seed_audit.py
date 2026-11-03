@@ -59,6 +59,8 @@ KNOWN_NAMESPACE_PREFIXES: tuple[tuple[str, int], ...] = (
     *((f"t34-watch-replay-20261101-bank{i:02d}", 128) for i in range(1, 14)),
     *((f"t34-watch-replay-20261101-bank{i:02d}l1", 128) for i in range(13, 17)),
     *((f"t34-watch-replay-20261102-bank{i:02d}l1", 128) for i in range(13, 17)),
+    *((ns, 128) for ns in G4_EXPANSION_NAMESPACES),
+    (G4_CANARY_NAMESPACE, 32),
     ("t34-watch-replay-full-size-fixture-v1", 32),
     ("t34-watch-replay-mac-fixture-v1", 32),
     ("t34-watch-replay-parity-fixture-v1", 32),
@@ -176,10 +178,18 @@ def audit(
     ]["seed"]
     if canary_seed in bank_seeds:
         raise ValueError("replay bank seed collides with excluded canary fixture seed")
+    g4_canary_seed = allocation(G4_CANARY_NAMESPACE, 1, controller, 3000)["rows"][0]["seed"]
+    if g4_canary_seed in bank_seeds and G4_CANARY_NAMESPACE not in namespaces:
+        raise ValueError("replay bank seed collides with excluded G4 canary seed")
 
     collisions: list[dict[str, Any]] = []
     checked_namespaces: dict[str, int] = {}
-    self_default_exempt = set(DEFAULT_NAMESPACES) if namespaces == DEFAULT_NAMESPACES else set()
+    allowed_self_exempt = (
+        set(DEFAULT_NAMESPACES) | set(G4_EXPANSION_NAMESPACES) | {G4_CANARY_NAMESPACE}
+    )
+    self_default_exempt = (
+        set(namespaces) & allowed_self_exempt if set(namespaces) <= allowed_self_exempt else set()
+    )
     for ns, limit in KNOWN_NAMESPACE_PREFIXES:
         if ns in self_default_exempt:
             continue
@@ -201,13 +211,10 @@ def audit(
             collisions.append({"source": f"discovered:{label}", "seeds": sorted(overlap)})
 
     live_headers: list[dict[str, Any]] = []
-    if read_live_bank:
-        for bank_dir_name in (
-            "watch-replay-bank-live-168",
-            "watch-replay-bank-live-132",
-            "watch-replay-bank-live",
-        ):
-            live_headers.extend(_live_bank_headers(artifacts / bank_dir_name))
+    if read_live_bank and artifacts.is_dir():
+        for bank_dir in sorted(artifacts.glob("watch-replay-bank-live*")):
+            if bank_dir.is_dir():
+                live_headers.extend(_live_bank_headers(bank_dir))
     live_seeds = {row["seed"] for row in live_headers}
     if bank_seeds & live_seeds:
         collisions.append(
@@ -281,13 +288,15 @@ def audit(
         "!**/.git/**",
         f"!**/{bank.SEALED}/**",
         "!**/exports/**",
+        "!**/efficacy/**",
+        "!**/world-*.json",
         "!**/pair-*.json",
         "!**/*.watch.gz",
         "!**/watch-replay-bank-live*/**",
-        "!**/t34-sol/watch6*/**",
+        "!**/t34-sol/watch6-efficacy*/**",
         "!**/t34-sol/argon-replay-banks/**",
         "!**/t34-sol/argon-banks-l1/**",
-        "!**/t34-sol/argon-l1-serve/**",
+        "!**/t34-sol/argon-l1-serve*/**",
         "!**/research/watch_replay/seed_audit.py",
     ):
         command += ["--glob", excluded]
@@ -337,6 +346,7 @@ def audit(
         "total_seeds": len(bank_seeds),
         "controller": controller,
         "excluded_canary_seed": canary_seed,
+        "excluded_g4_canary_seed": g4_canary_seed,
         "live_bank_sessions_checked": len(live_headers),
         "live_bank_distinct_seeds": len(live_seeds),
         "prior_replay_contracts_checked": prior_contracts,

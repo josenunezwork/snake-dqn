@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from research.watch_replay.run import SESSION_CHECKPOINT_SCHEMA, identity
+from research.watch_replay.uploads import pack_checkpoint_resume
 from tools.ops.package_spec import (
     empty_ledger,
     publish_immutable,
@@ -17,11 +18,26 @@ from tools.ops.package_spec import (
 )
 
 
+def _resolve_sessions_root(root: Path) -> Path:
+    if (
+        (root / "contract.json").is_file()
+        or (root / "checkpoints").is_dir()
+        or any(root.glob("*.watch.gz"))
+    ):
+        return root
+    if (root / "sessions").is_dir():
+        return root / "sessions"
+    if (root / "exports" / "sessions").is_dir():
+        return root / "exports" / "sessions"
+    return root
+
+
 def build(contract: dict, roots: list[Path]) -> dict:
     """Read only frozen paths/sizes/digests, never frames or session stats."""
     value = empty_ledger(contract["namespace"], "sessions", identity(contract))
     seen = set()
-    for root in roots:
+    for raw_root in roots:
+        root = _resolve_sessions_root(raw_root)
         for path in sorted(root.glob("*.watch.gz")):
             index = int(path.name.split(".")[0])
             if index in seen or not 0 <= index < contract["count"]:
@@ -59,9 +75,10 @@ def stage_session_checkpoints(
 
     ledger = build(contract, roots)
     completed_indices = {int(row["index"]) for row in ledger["units"]}
-    latest_by_index: dict[int, tuple[int, Path, str]] = {}
+    latest_by_index: dict[int, tuple[tuple[int, int], Path, str]] = {}
 
-    for root in roots:
+    for raw_root in roots:
+        root = _resolve_sessions_root(raw_root)
         binding_path = root / "contract.json"
         if binding_path.is_file():
             verify_immutable(binding_path)
@@ -92,26 +109,29 @@ def stage_session_checkpoints(
                 or int(ckpt.get("horizon", -1)) != int(contract["horizon"])
             ):
                 raise ValueError(f"foreign or mismatched session checkpoint: {latest}")
-            frame_num = int(ckpt["frame"])
+            key = (int(ckpt["frame"]), int(ckpt.get("checkpoint_seq", 0)))
             prev = latest_by_index.get(index)
-            if prev is None or frame_num > prev[0]:
-                latest_by_index[index] = (frame_num, latest, sha)
+            if prev is None or key > prev[0]:
+                latest_by_index[index] = (key, latest, sha)
 
     staged: list[dict[str, Any]] = []
     for index in sorted(latest_by_index):
-        frame_num, src_ckpt, sha = latest_by_index[index]
+        (frame_num, ckpt_seq), src_ckpt, sha = latest_by_index[index]
         dst_ckpt = checkpoint_out / f"{index:06d}" / src_ckpt.name
         meta = publish_immutable(dst_ckpt, src_ckpt.read_bytes())
         staged.append(
             {
                 "index": index,
                 "frame": frame_num,
+                "checkpoint_seq": ckpt_seq,
                 "source": str(src_ckpt),
                 "dest": str(dst_ckpt.relative_to(checkpoint_out)),
                 "sha256": sha,
                 "size": int(meta["size"]),
             }
         )
+    if staged:
+        pack_checkpoint_resume(checkpoint_out, checkpoint_out)
     return staged
 
 
