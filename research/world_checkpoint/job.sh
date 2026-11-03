@@ -38,6 +38,11 @@ EXTRA_ARGS=()
 if [[ "${WATCH6_LOCAL_SMOKE:-0}" == "1" ]]; then
   EXTRA_ARGS+=("--local-smoke")
 fi
+if [[ -n "${WATCH6_PRIOR_EXPORTS_DIR:-}" ]]; then
+  EXTRA_ARGS+=("--prior-exports-dir" "${WATCH6_PRIOR_EXPORTS_DIR}")
+elif [[ -d "${COLAB_INPUT_DIR}/prior-exports" ]]; then
+  EXTRA_ARGS+=("--prior-exports-dir" "${COLAB_INPUT_DIR}/prior-exports")
+fi
 
 if [[ "${WATCH6_FIXTURE:-0}" == "1" ]]; then
   FIXTURE_COUNT="${WATCH6_FIXTURE_COUNT:-2}"

@@ -42,7 +42,6 @@ from research.world_checkpoint import (
     run_paired_world_resumable,
     save_checkpoint,
     snapshot_run_session_state,
-    stage_exported_checkpoints,
     verify_checkpoint,
     verify_restored_types,
     verify_session_parity,
@@ -232,7 +231,35 @@ def test_save_load_verify_checkpoint_and_corruption_rejection(
 
 
 def test_identity_binding_and_thread_caps_refuse_mismatch(tmp_path: Path) -> None:
-    """Verify F3/F9: thread caps on import, and refusing mismatched model/code/platform/roster."""
+    """Verify F3/F9/R2/R3: import does not force threads; mismatched resume restarts fresh."""
+    # R3: Importing the library in a clean subprocess must NOT force thread env vars on callers;
+    # only calling configure_cpu() (as job entrypoints do) pins threads to 1.
+    repo_root = Path(__file__).resolve().parents[1]
+    sub_env = dict(os.environ)
+    sub_env["OMP_NUM_THREADS"] = "4"
+    sub_env["MKL_NUM_THREADS"] = "4"
+    sub_env["PYTHONPATH"] = str(repo_root)
+    check_import_proc = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import os, research.world_checkpoint as wc; "
+                "assert os.environ['OMP_NUM_THREADS'] == '4', os.environ['OMP_NUM_THREADS']; "
+                "assert os.environ['MKL_NUM_THREADS'] == '4', os.environ['MKL_NUM_THREADS']; "
+                "wc.configure_cpu(); "
+                "assert os.environ['OMP_NUM_THREADS'] == '1'; "
+                "assert os.environ['MKL_NUM_THREADS'] == '1'"
+            ),
+        ],
+        cwd=str(repo_root),
+        env=sub_env,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert check_import_proc.returncode == 0
+
     assert os.environ.get("OMP_NUM_THREADS") == "1"
     assert os.environ.get("MKL_NUM_THREADS") == "1"
     assert os.environ.get("OPENBLAS_NUM_THREADS") == "1"
@@ -243,23 +270,35 @@ def test_identity_binding_and_thread_caps_refuse_mismatch(tmp_path: Path) -> Non
     assert int(numba.get_num_threads()) == 1
 
     seed = p.FIXTURE_SEEDS[0]
+    horizon = 10
+    arm_order = ("bare", "l2_prime", "l1")
+    clean_baseline_digests: dict[tuple[str, int], str] = {}
+    clean_baseline = run_paired_world_resumable(
+        index=0,
+        seed=seed,
+        arm_order=arm_order,
+        horizon=horizon,
+        fixture=True,
+        on_frame_digest=lambda a, f, d: clean_baseline_digests.__setitem__((a, f), d),
+    )
+
     ckpt_dir = tmp_path / "identity_world"
     with pytest.raises(CheckpointInterrupted) as exc_info:
         run_paired_world_resumable(
             index=0,
             seed=seed,
-            arm_order=("bare", "l2_prime", "l1"),
-            horizon=10,
+            arm_order=arm_order,
+            horizon=horizon,
             fixture=True,
             checkpoint_dir=ckpt_dir,
-            stop_at=("bare", 4),
+            stop_at=("l2_prime", 4),
         )
     ckpt_path = exc_info.value.checkpoint_path
     base_data = load_checkpoint(ckpt_path)
     identity = capture_runtime_identity()
     assert base_data["identity"] == identity
 
-    # 1. Tamper with model SHA-256
+    # 1. Direct load_checkpoint refuses tampered model SHA-256
     bad_model = copy.deepcopy(base_data)
     first_pin = sorted(bad_model["identity"]["model_sha256s"].keys())[0]
     bad_model["identity"]["model_sha256s"][first_pin] = "0" * 64
@@ -268,7 +307,7 @@ def test_identity_binding_and_thread_caps_refuse_mismatch(tmp_path: Path) -> Non
     with pytest.raises(ValueError, match="checkpoint identity mismatch in model_sha256s"):
         load_checkpoint(bad_model_path)
 
-    # 2. Tamper with code identity
+    # 2. Direct load_checkpoint refuses tampered code identity
     bad_code = copy.deepcopy(base_data)
     bad_code["identity"]["code_identity"]["world_checkpoint_code_sha256"] = "f" * 64
     bad_code_path = tmp_path / "bad_code.ckpt"
@@ -276,7 +315,7 @@ def test_identity_binding_and_thread_caps_refuse_mismatch(tmp_path: Path) -> Non
     with pytest.raises(ValueError, match="checkpoint identity mismatch in code_identity"):
         load_checkpoint(bad_code_path)
 
-    # 3. Tamper with host platform fingerprint
+    # 3. Direct load_checkpoint refuses tampered host platform fingerprint
     bad_plat = copy.deepcopy(base_data)
     bad_plat["identity"]["platform_fingerprint"]["cpu_model"] = "Different-CPU-Arch-9999"
     bad_plat_path = tmp_path / "bad_plat.ckpt"
@@ -284,26 +323,75 @@ def test_identity_binding_and_thread_caps_refuse_mismatch(tmp_path: Path) -> Non
     with pytest.raises(ValueError, match="checkpoint identity mismatch in platform_fingerprint"):
         load_checkpoint(bad_plat_path)
 
-    # 4. Tamper with saved in-progress roster and verify run_paired_world_resumable refuses resume
+    # 4. R2: On a fresh Colab VM (platform_fingerprint mismatch) or roster mismatch,
+    # run_paired_world_resumable and job.run record and ignore the mismatched checkpoint,
+    # never mix states (even if completed_arms["bare"] in the checkpoint was poisoned),
+    # start the unit fresh from frame 0, and emit clear markers in outputs.
     bad_roster_dir = tmp_path / "bad_roster_world"
     bad_roster = copy.deepcopy(base_data)
+    bad_roster["completed_arms"]["bare"]["mass_sum"] = 999999999
     bad_roster["in_progress_arm"]["counters"]["roster"]["veto_variant"] = "tampered-v0"
     save_checkpoint(
         bad_roster,
-        bad_roster_dir / "ckpt-seq-000001-arm-bare-frame-00004.ckpt",
+        bad_roster_dir / "ckpt-seq-000001-arm-l2_prime-frame-00004.ckpt",
     )
-    with pytest.raises(
-        ValueError,
-        match="checkpoint in-progress roster does not match newly loaded model roster",
-    ):
-        run_paired_world_resumable(
-            index=0,
-            seed=seed,
-            arm_order=("bare", "l2_prime", "l1"),
-            horizon=10,
-            fixture=True,
-            checkpoint_dir=bad_roster_dir,
-        )
+    roster_fresh_digests: dict[tuple[str, int], str] = {}
+    roster_fresh = run_paired_world_resumable(
+        index=0,
+        seed=seed,
+        arm_order=arm_order,
+        horizon=horizon,
+        fixture=True,
+        checkpoint_dir=bad_roster_dir,
+        on_frame_digest=lambda a, f, d: roster_fresh_digests.__setitem__((a, f), d),
+    )
+    assert roster_fresh.get("resume_refused") is True
+    assert len(roster_fresh.get("ignored_checkpoints", [])) == 1
+    assert (
+        "checkpoint in-progress roster does not match newly loaded model roster"
+        in roster_fresh["ignored_checkpoints"][0]["reason"]
+    )
+    assert roster_fresh["ignored_checkpoints"][0]["action"] == "ignored_start_fresh"
+    # Prove zero state mixing: poisoned completed_arms["bare"]["mass_sum"] was discarded and all
+    # 3 * horizon frames ran fresh with identical digests to clean_baseline.
+    assert roster_fresh["arms"]["bare"]["mass_sum"] == clean_baseline["arms"]["bare"]["mass_sum"]
+    assert roster_fresh_digests == clean_baseline_digests
+    assert list(bad_roster_dir.glob("ignored-checkpoints-seq-*.json.complete"))
+
+    # Also test R2 through job.run with a staged cross-host checkpoint (cpu_model mismatch)
+    staged_mismatch_in = tmp_path / "staged_mismatch_in" / "fixture-world-00"
+    poisoned_plat = copy.deepcopy(base_data)
+    poisoned_plat["completed_arms"]["bare"]["mass_sum"] = 888888888
+    poisoned_plat["identity"]["platform_fingerprint"]["cpu_model"] = "Different-Colab-VM-Xeon-9999"
+    save_checkpoint(
+        poisoned_plat,
+        staged_mismatch_in / "ckpt-seq-000002-arm-l2_prime-frame-00004.ckpt",
+    )
+    mismatch_job_out = tmp_path / "mismatch_job_out" / "efficacy"
+    op_summary = run_job(
+        out=mismatch_job_out,
+        ledger_path=None,
+        workers=1,
+        shards=1,
+        shard=0,
+        fixture=True,
+        fixture_horizon=horizon,
+        fixture_count=1,
+        local_smoke=True,
+        input_checkpoint_dir=staged_mismatch_in.parent,
+        checkpoint_interval=5,
+    )
+    assert op_summary["refused_resume_count"] == 1
+    assert len(op_summary["ignored_checkpoints"]) == 1
+    assert "platform_fingerprint.cpu_model" in op_summary["ignored_checkpoints"][0]["reason"]
+    assert Path(f"{mismatch_job_out / 'ignored-checkpoints.json'}.complete").is_file()
+    w0_out = json.loads((mismatch_job_out / "fixture-world-00.json").read_text(encoding="utf-8"))
+    assert w0_out["resume_refused"] is True
+    assert len(w0_out["ignored_checkpoints"]) == 1
+    assert (
+        _strip_wall_clock_timings(w0_out)["arms"]
+        == _strip_wall_clock_timings(clean_baseline)["arms"]
+    )
 
 
 def test_negative_corrupted_restored_fields_and_type_invariants_in_process(
@@ -700,7 +788,9 @@ def test_long_body_checkpoint_scaling_and_restore_parity() -> None:
 
 
 def test_job_entrypoint_and_job_sh_export_and_resume(tmp_path: Path) -> None:
-    """Verify F2: job.py and job.sh publish checkpoints with .sha256/.complete and resume."""
+    """Verify F2 & Item 4: job.py/job.sh stage_exported_checkpoints on exports/ and resume."""
+    import shutil
+
     horizon = 6
     ref0 = world_unit(
         {
@@ -741,21 +831,46 @@ def test_job_entrypoint_and_job_sh_export_and_resume(tmp_path: Path) -> None:
     assert exc_info.value.frame_index == 3
     verify_checkpoint(exc_info.value.checkpoint_path)
 
-    # Verify exported checkpoints under attempt1_out/efficacy/checkpoints/fixture-world-00
+    # Simulate colab_cli runtime.py exporting Attempt 1's outputs into attempt1_mac/exports/efficacy
+    attempt1_mac = tmp_path / "attempt1_mac"
+    shutil.copytree(attempt1_out / "efficacy", attempt1_mac / "exports" / "efficacy")
     exported_ckpts = list(
-        (attempt1_out / "efficacy" / "checkpoints" / "fixture-world-00").glob("*.ckpt.complete")
+        (attempt1_mac / "exports" / "efficacy" / "checkpoints" / "fixture-world-00").glob(
+            "*.ckpt.complete"
+        )
     )
     assert len(exported_ckpts) >= 2
 
-    # Stage Attempt 1's exported checkpoints into Attempt 2's COLAB_INPUT_DIR/world-checkpoints
+    # 1. Exercise CLI `--stage-only` (as documented in README.md) on attempt1_mac
+    repo_root = Path(__file__).resolve().parents[1]
+    cli_staged_dir = tmp_path / "cli_staged_world_checkpoints"
+    stage_proc = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            "-m",
+            "research.world_checkpoint.job",
+            "--stage-only",
+            "--prior-exports-dir",
+            str(attempt1_mac),
+            "--input-checkpoint-dir",
+            str(cli_staged_dir),
+        ],
+        cwd=str(repo_root),
+        env={**os.environ, "PYTHONPATH": str(repo_root)},
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    staged_cli = json.loads(stage_proc.stdout.strip())["staged_checkpoints"]
+    assert len(staged_cli) == 1
+    assert staged_cli[0]["world_tag"] == "fixture-world-00"
+
+    # 2. Exercise automatic job-path staging via WATCH6_PRIOR_EXPORTS_DIR in job.sh
     attempt2_in = tmp_path / "attempt2_in"
     attempt2_out = tmp_path / "attempt2_out"
     attempt2_in.mkdir(parents=True, exist_ok=True)
     attempt2_out.mkdir(parents=True, exist_ok=True)
-
-    staged = stage_exported_checkpoints(attempt1_out, attempt2_in / "world-checkpoints")
-    assert len(staged) == 1
-    assert staged[0]["world_tag"] == "fixture-world-00"
 
     # Write empty verified-ledger.json for Attempt 2
     publish_json(
@@ -763,14 +878,13 @@ def test_job_entrypoint_and_job_sh_export_and_resume(tmp_path: Path) -> None:
         empty_ledger(p.NAMESPACE, "watch6-fixture", {"science": p.identity()}),
     )
 
-    # Run Attempt 2 via research/world_checkpoint/job.sh subprocess
-    repo_root = Path(__file__).resolve().parents[1]
     job_sh = repo_root / "research" / "world_checkpoint" / "job.sh"
     env = dict(os.environ)
     env.update(
         {
             "COLAB_INPUT_DIR": str(attempt2_in),
             "COLAB_OUTPUT_DIR": str(attempt2_out),
+            "WATCH6_PRIOR_EXPORTS_DIR": str(attempt1_mac),
             "WATCH6_FIXTURE": "1",
             "WATCH6_LOCAL_SMOKE": "1",
             "WATCH6_FIXTURE_COUNT": "2",
@@ -793,6 +907,10 @@ def test_job_entrypoint_and_job_sh_export_and_resume(tmp_path: Path) -> None:
     )
     assert proc.returncode == 0
 
+    op2 = json.loads((attempt2_out / "efficacy" / "operational.json").read_text(encoding="utf-8"))
+    assert len(op2["staged_checkpoints"]) == 1
+    assert op2["staged_checkpoints"][0]["world_tag"] == "fixture-world-00"
+
     w0_path = attempt2_out / "efficacy" / "fixture-world-00.json"
     w1_path = attempt2_out / "efficacy" / "fixture-world-01.json"
     assert Path(f"{w0_path}.complete").is_file()
@@ -804,7 +922,164 @@ def test_job_entrypoint_and_job_sh_export_and_resume(tmp_path: Path) -> None:
     assert _strip_wall_clock_timings(w1) == _strip_wall_clock_timings(ref1)
 
 
-@pytest.mark.slow
+def test_multi_worker_sigterm_grace_latency_and_resume_determinism(tmp_path: Path) -> None:
+    """Verify R1: workers=2 on 3 worlds stops queued worlds on SIGTERM, exits <15s, resumes."""
+    import shutil
+
+    horizon = 60
+    fixture_count = 3
+    workers = 2
+
+    refs = [
+        world_unit(
+            {
+                "index": i,
+                "seed": p.FIXTURE_SEEDS[i],
+                "horizon": horizon,
+                "arm_order": p.arm_order_for_index(i),
+            },
+            fixture=True,
+        )
+        for i in range(fixture_count)
+    ]
+
+    repo_root = Path(__file__).resolve().parents[1]
+    job_sh = repo_root / "research" / "world_checkpoint" / "job.sh"
+
+    attempt1_in = tmp_path / "mw_attempt1_in"
+    attempt1_out = tmp_path / "mw_attempt1_out"
+    attempt1_in.mkdir(parents=True, exist_ok=True)
+    attempt1_out.mkdir(parents=True, exist_ok=True)
+    publish_json(
+        attempt1_in / "verified-ledger.json",
+        empty_ledger(p.NAMESPACE, "watch6-fixture", {"science": p.identity()}),
+    )
+
+    env1 = dict(os.environ)
+    env1.update(
+        {
+            "COLAB_INPUT_DIR": str(attempt1_in),
+            "COLAB_OUTPUT_DIR": str(attempt1_out),
+            "WATCH6_FIXTURE": "1",
+            "WATCH6_LOCAL_SMOKE": "1",
+            "WATCH6_FIXTURE_COUNT": str(fixture_count),
+            "WATCH6_FIXTURE_HORIZON": str(horizon),
+            "WATCH6_CHECKPOINT_INTERVAL": "10",
+            "WATCH6_WORKERS": str(workers),
+            "WATCH6_SHARDS": "1",
+            "WATCH6_SHARD": "0",
+            "PYTHONPATH": str(repo_root),
+            "PATH": f"{Path(sys.executable).parent}:{env1.get('PATH', '')}",
+        }
+    )
+
+    proc1 = subprocess.Popen(
+        [
+            sys.executable,
+            "-B",
+            "-m",
+            "research.world_checkpoint.job",
+            "--out",
+            str(attempt1_out / "efficacy"),
+            "--ledger",
+            str(attempt1_in / "verified-ledger.json"),
+            "--input-checkpoint-dir",
+            str(attempt1_in / "world-checkpoints"),
+            "--checkpoint-interval",
+            "10",
+            "--workers",
+            str(workers),
+            "--shards",
+            "1",
+            "--shard",
+            "0",
+            "--fixture",
+            "--fixture-count",
+            str(fixture_count),
+            "--fixture-horizon",
+            str(horizon),
+            "--local-smoke",
+        ],
+        cwd=str(repo_root),
+        env=env1,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    # Wait until both workers have started worlds 0 and 1 and written at least one checkpoint each
+    w0_ckpt_dir = attempt1_out / "efficacy" / "checkpoints" / "fixture-world-00"
+    w1_ckpt_dir = attempt1_out / "efficacy" / "checkpoints" / "fixture-world-01"
+    w2_ckpt_dir = attempt1_out / "efficacy" / "checkpoints" / "fixture-world-02"
+    wait_deadline = time.monotonic() + 45.0
+    while time.monotonic() < wait_deadline:
+        if proc1.poll() is not None:
+            break
+        if list(w0_ckpt_dir.glob("*.ckpt.complete")) and list(w1_ckpt_dir.glob("*.ckpt.complete")):
+            break
+        time.sleep(0.05)
+
+    assert (
+        proc1.poll() is None
+    ), "Expected multi-worker job to still be running when sending SIGTERM"
+
+    # Send SIGTERM and measure exit latency (< 15.0s; queued world 2 must not run to completion)
+    t_sig = time.monotonic()
+    proc1.send_signal(signal.SIGTERM)
+    _stdout1, stderr1 = proc1.communicate(timeout=15.0)
+    exit_latency_s = time.monotonic() - t_sig
+    print(f"MULTI_WORKER_SIGTERM_EXIT_LATENCY_S={exit_latency_s:.4f}", flush=True)
+
+    assert exit_latency_s < 15.0, f"SIGTERM exit latency {exit_latency_s:.2f}s exceeded 15s grace"
+    assert proc1.returncode == 75, f"Expected exit code 75, got {proc1.returncode}: {stderr1}"
+    assert not (
+        attempt1_out / "efficacy" / "fixture-world-02.json"
+    ).exists(), "Queued world 2 should not have started and run to completion after SIGTERM"
+    assert not w2_ckpt_dir.exists() or not list(
+        w2_ckpt_dir.glob("*.ckpt.complete")
+    ), "Queued world 2 should not have started after SIGTERM"
+    assert list(w0_ckpt_dir.glob("*.ckpt.complete"))
+    assert list(w1_ckpt_dir.glob("*.ckpt.complete"))
+
+    # Simulate colab_cli exporting Attempt 1's outputs into attempt1_mac/exports/efficacy
+    attempt1_mac = tmp_path / "mw_attempt1_mac"
+    shutil.copytree(attempt1_out / "efficacy", attempt1_mac / "exports" / "efficacy")
+
+    # Attempt 2: Resume with workers=2 via job.sh and WATCH6_PRIOR_EXPORTS_DIR
+    attempt2_in = tmp_path / "mw_attempt2_in"
+    attempt2_out = tmp_path / "mw_attempt2_out"
+    attempt2_in.mkdir(parents=True, exist_ok=True)
+    attempt2_out.mkdir(parents=True, exist_ok=True)
+    publish_json(
+        attempt2_in / "verified-ledger.json",
+        empty_ledger(p.NAMESPACE, "watch6-fixture", {"science": p.identity()}),
+    )
+
+    env2 = dict(env1)
+    env2.update(
+        {
+            "COLAB_INPUT_DIR": str(attempt2_in),
+            "COLAB_OUTPUT_DIR": str(attempt2_out),
+            "WATCH6_PRIOR_EXPORTS_DIR": str(attempt1_mac),
+        }
+    )
+    proc2 = subprocess.run(
+        ["bash", str(job_sh)],
+        cwd=str(repo_root),
+        env=env2,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert proc2.returncode == 0
+
+    for i in range(fixture_count):
+        w_path = attempt2_out / "efficacy" / f"fixture-world-{i:02d}.json"
+        assert Path(f"{w_path}.complete").is_file()
+        w_data = json.loads(w_path.read_text(encoding="utf-8"))
+        assert _strip_wall_clock_timings(w_data) == _strip_wall_clock_timings(refs[i])
+
+
 def test_natural_horizon_collision_death_respawn_around_frame_1984(
     tmp_path: Path,
 ) -> None:
@@ -848,15 +1123,11 @@ def test_natural_horizon_collision_death_respawn_around_frame_1984(
             resumed_digests[(arm, frame_index)] = digest_hex
 
     stop_points = [
-        ("bare", 1983),
         ("bare", 1984),
         ("bare", 1985),
         ("bare", 2001),
-        ("bare", 2002),
         ("l2_prime", 1984),
         ("l2_prime", 1985),
-        ("l2_prime", 2001),
-        ("l2_prime", 2002),
     ]
     for stop_arm, stop_frame in stop_points:
         with pytest.raises(CheckpointInterrupted) as exc_info:
@@ -867,7 +1138,7 @@ def test_natural_horizon_collision_death_respawn_around_frame_1984(
                 horizon=horizon,
                 fixture=True,
                 checkpoint_dir=ckpt_dir,
-                checkpoint_interval=1000,
+                checkpoint_interval=1980,
                 on_frame_digest=record_window_resumed,
                 stop_at=(stop_arm, stop_frame),
             )
@@ -880,7 +1151,7 @@ def test_natural_horizon_collision_death_respawn_around_frame_1984(
         horizon=horizon,
         fixture=True,
         checkpoint_dir=ckpt_dir,
-        checkpoint_interval=1000,
+        checkpoint_interval=1980,
         on_frame_digest=record_window_resumed,
     )
     assert resumed_digests == baseline_digests

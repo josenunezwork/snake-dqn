@@ -28,9 +28,6 @@ THREAD_ENV_VARS: tuple[str, ...] = (
     "NUMBA_NUM_THREADS",
 )
 
-for _env_var in THREAD_ENV_VARS:
-    os.environ[_env_var] = "1"
-
 import numba  # noqa: E402
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
@@ -54,6 +51,10 @@ MASK_ENCODING_SCHEMA = "mask-value/v1"
 _CKPT_SEQ_RE = re.compile(r"ckpt-seq-(\d+)")
 
 
+class CheckpointIdentityError(ValueError):
+    """Raised when a checkpoint's model, code, platform, roster, or world identity mismatches."""
+
+
 def configure_cpu() -> None:
     """Pin BLAS environment variables, PyTorch, and Numba to a single CPU thread."""
     for var in THREAD_ENV_VARS:
@@ -67,10 +68,6 @@ def configure_cpu() -> None:
         numba.set_num_threads(1)
     except Exception:
         pass
-
-
-# Enforce single-thread CPU determinism as soon as the library is imported.
-configure_cpu()
 
 
 class _PrimitiveUnpickler(pickle.Unpickler):
@@ -256,7 +253,7 @@ def verify_checkpoint_identity(
     """Refuse to resume if model SHA-256s, science/code identity, or host platform differ."""
     saved_id = ckpt_data.get("identity")
     if not isinstance(saved_id, Mapping):
-        raise ValueError("checkpoint is missing required 'identity' binding")
+        raise CheckpointIdentityError("checkpoint is missing required 'identity' binding")
     current_id = (
         dict(expected_identity) if expected_identity is not None else capture_runtime_identity()
     )
@@ -265,11 +262,11 @@ def verify_checkpoint_identity(
         saved_sec = saved_id.get(section)
         cur_sec = current_id.get(section)
         if not isinstance(saved_sec, Mapping) or not isinstance(cur_sec, Mapping):
-            raise ValueError(f"checkpoint identity missing section {section!r}")
+            raise CheckpointIdentityError(f"checkpoint identity missing section {section!r}")
         for key, expected_val in cur_sec.items():
             actual_val = saved_sec.get(key)
             if actual_val != expected_val:
-                raise ValueError(
+                raise CheckpointIdentityError(
                     f"checkpoint identity mismatch in {section}.{key}: "
                     f"saved={actual_val!r} != current={expected_val!r}"
                 )
@@ -305,7 +302,6 @@ def save_checkpoint(
     overwrite: bool = False,
 ) -> dict[str, Any]:
     """Atomically write checkpoint payload, ``.sha256`` sidecar, and ``.complete`` marker."""
-    configure_cpu()
     target = Path(path)
     payload = dict(state)
     payload.setdefault("checkpoint_schema", WORLD_CHECKPOINT_SCHEMA)
@@ -367,7 +363,6 @@ def load_checkpoint(
     expected_identity: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Verify ``.complete``/``.sha256``, unpickle primitives only, and check identity."""
-    configure_cpu()
     target = Path(path)
     verify_checkpoint(target)
     raw = target.read_bytes()
@@ -398,6 +393,31 @@ def highest_checkpoint_seq_on_disk(*checkpoint_dirs: str | Path | None) -> int:
             if match is not None:
                 highest = max(highest, int(match.group(1)))
     return highest
+
+
+def quarantine_checkpoint_file(ckpt_path: str | Path, reason: str) -> list[Path]:
+    """Move a ``.ckpt`` file and its ``.sha256`` / ``.complete`` sidecars into ``.quarantine``."""
+    base = Path(ckpt_path)
+    root = base.parent
+    if not root.is_dir():
+        return []
+    q_dir = root / ".quarantine"
+    moved: list[Path] = []
+    for candidate in (Path(f"{base}.complete"), Path(f"{base}.sha256"), base):
+        if candidate.is_file() and not candidate.is_symlink():
+            q_dir.mkdir(parents=True, exist_ok=True)
+            dest = q_dir / f"{candidate.name}.quarantined-{os.getpid()}"
+            counter = 1
+            while dest.exists():
+                dest = q_dir / f"{candidate.name}.quarantined-{os.getpid()}-{counter}"
+                counter += 1
+            shutil.move(str(candidate), str(dest))
+            moved.append(dest)
+            logger.warning("Quarantined %s (%s) -> %s", candidate, reason, dest)
+    if moved:
+        _fsync_dir(root)
+        _fsync_dir(q_dir)
+    return moved
 
 
 def quarantine_incomplete_checkpoints(checkpoint_dir: str | Path) -> list[Path]:
@@ -1521,7 +1541,6 @@ def verify_session_parity(session: Any) -> None:
 
 def restore_run_session_state(session: Any, data: Mapping[str, Any]) -> None:
     """Restore the complete RunSession and verify field types and live/GridBatchSim parity."""
-    configure_cpu()
     world = session.world
     restore_sim_state(world.sim, data["sim"])
     restore_runtime_state(world.runtime, data["runtime"])

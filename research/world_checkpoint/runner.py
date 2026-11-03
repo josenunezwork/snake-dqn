@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import faulthandler
 import json
+import logging
 import os
 import signal
 import sys
@@ -27,11 +28,13 @@ from research.watch6_search_efficacy.engine import DenseTrigger, dense_batch, st
 from research.watch6_search_efficacy.product import open_watch
 from research.world_checkpoint.checkpoint import (
     WORLD_CHECKPOINT_SCHEMA,
+    CheckpointIdentityError,
     capture_runtime_identity,
     configure_cpu,
     find_latest_checkpoint,
     highest_checkpoint_seq_on_disk,
     load_checkpoint,
+    quarantine_checkpoint_file,
     quarantine_incomplete_checkpoints,
     restore_run_session_state,
     restore_trigger_state,
@@ -44,13 +47,21 @@ from research.world_checkpoint.checkpoint import (
 )
 from src.simd_env.batch_sim import CARDINAL
 from src.simd_env.grid_scenarios import inject_serpentines
-from tools.ops.package_spec import digest
+from tools.ops.package_spec import digest, publish_json
 
-configure_cpu()
+logger = logging.getLogger(__name__)
 
 DEFAULT_CHECKPOINT_INTERVAL = 1800
 GRACE_SECONDS = 15.0
 WORLD_UNIT_SCHEMA = "watch6-l1-world/v1"
+
+_EXTERNAL_SIGNAL_GETTER: Callable[[], int | None] | None = None
+
+
+def set_external_signal_getter(getter: Callable[[], int | None] | None) -> None:
+    """Register a process-level signal polling callback (used by worker pools)."""
+    global _EXTERNAL_SIGNAL_GETTER
+    _EXTERNAL_SIGNAL_GETTER = getter
 
 
 class CheckpointInterrupted(RuntimeError):
@@ -65,6 +76,7 @@ class CheckpointInterrupted(RuntimeError):
         frame_index: int,
         signal_number: int | None = None,
         reason: str = "interrupted",
+        ignored_checkpoints: Sequence[Mapping[str, Any]] = (),
     ) -> None:
         super().__init__(message)
         self.checkpoint_path = Path(checkpoint_path)
@@ -72,6 +84,7 @@ class CheckpointInterrupted(RuntimeError):
         self.frame_index = int(frame_index)
         self.signal_number = signal_number
         self.reason = str(reason)
+        self.ignored_checkpoints = [dict(x) for x in ignored_checkpoints]
 
 
 class _SignalAbortSearch(Exception):
@@ -264,7 +277,9 @@ def _validate_checkpoint_matches_world(
     for key, val in expected.items():
         actual = ckpt.get(key)
         if actual != val:
-            raise ValueError(f"checkpoint {key}={actual!r} does not match requested {val!r}")
+            raise CheckpointIdentityError(
+                f"checkpoint {key}={actual!r} does not match requested {val!r}"
+            )
 
 
 def run_paired_world_resumable(
@@ -285,9 +300,9 @@ def run_paired_world_resumable(
     stop_at: Callable[[str, int], bool] | tuple[str, int] | None = None,
     signal_on_search: tuple[str, int, int] | None = None,
     initial_session_hook: Callable[[Any, str], None] | None = None,
+    external_signal_getter: Callable[[], int | None] | None = None,
 ) -> dict[str, Any]:
     """Run a Watch6-L1-V1 paired world with periodic/signal checkpoints and verified resume."""
-    configure_cpu()
     os.environ.setdefault("SNAKE_WATCH_SOURCE", "live")
     if check is None:
         check = lambda: None  # noqa: E731
@@ -323,6 +338,70 @@ def run_paired_world_resumable(
     elapsed_seconds_accum = 0.0
     checkpoint_seq = highest_checkpoint_seq_on_disk(ckpt_root, *extra_resume_dirs)
     resumed_in_progress: dict[str, Any] | None = None
+    ignored_checkpoints: list[dict[str, Any]] = []
+    loaded_ckpt_path: Path | None = None
+    loaded_ckpt_data: dict[str, Any] | None = None
+
+    def _record_and_ignore_mismatched_checkpoint(
+        ckpt_path: Path,
+        ckpt_data: Mapping[str, Any] | None,
+        reason: str,
+    ) -> None:
+        nonlocal elapsed_seconds_accum, resumed_in_progress, checkpoint_seq
+        seq_num = int(ckpt_data.get("checkpoint_seq", 0)) if isinstance(ckpt_data, Mapping) else 0
+        checkpoint_seq = max(
+            checkpoint_seq,
+            seq_num,
+            highest_checkpoint_seq_on_disk(ckpt_root, *extra_resume_dirs),
+        )
+        record = {
+            "index": int(index),
+            "seed": int(seed),
+            "checkpoint_path": str(ckpt_path),
+            "checkpoint_seq": seq_num,
+            "current_arm": (
+                ckpt_data.get("current_arm") if isinstance(ckpt_data, Mapping) else None
+            ),
+            "current_frame": (
+                int(ckpt_data.get("current_frame", 0)) if isinstance(ckpt_data, Mapping) else 0
+            ),
+            "reason": str(reason),
+            "action": "ignored_start_fresh",
+        }
+        ignored_checkpoints.append(record)
+        logger.warning(
+            "Refused mismatched checkpoint %s (%s); ignoring and starting world %s fresh",
+            ckpt_path,
+            reason,
+            index,
+        )
+        # Never mix states: reset progress and quarantine mismatched checkpoints in ckpt_root
+        completed_arms.clear()
+        rosters.clear()
+        elapsed_seconds_accum = 0.0
+        resumed_in_progress = None
+        if ckpt_root is not None and ckpt_root.is_dir():
+            for existing_ckpt in sorted(ckpt_root.glob("*.ckpt")):
+                quarantine_checkpoint_file(
+                    existing_ckpt, f"ignored mismatched checkpoint: {reason}"
+                )
+            marker_seq = max(1, checkpoint_seq)
+            marker_path = ckpt_root / f"ignored-checkpoints-seq-{marker_seq:06d}.json"
+            suffix = 1
+            while marker_path.exists():
+                marker_path = ckpt_root / f"ignored-checkpoints-seq-{marker_seq:06d}-{suffix}.json"
+                suffix += 1
+            publish_json(
+                marker_path,
+                {
+                    "schema": "watch6-world-checkpoint-ignored/v1",
+                    "index": int(index),
+                    "seed": int(seed),
+                    "horizon": int(horizon),
+                    "fixture": bool(fixture),
+                    "ignored_checkpoints": list(ignored_checkpoints),
+                },
+            )
 
     if ckpt_root is not None or extra_resume_dirs:
         latest_path = find_latest_checkpoint(
@@ -331,21 +410,29 @@ def run_paired_world_resumable(
             verify_identity=False,
         )
         if latest_path is not None:
-            ckpt_data = load_checkpoint(latest_path, verify_identity=True)
-            _validate_checkpoint_matches_world(
-                ckpt_data,
-                index=index,
-                seed=seed,
-                horizon=horizon,
-                arm_order=order,
-                fixture=fixture,
-            )
-            completed_arms = {str(k): dict(v) for k, v in ckpt_data["completed_arms"].items()}
-            rosters = [dict(r) for r in ckpt_data["rosters"]]
-            elapsed_seconds_accum = float(ckpt_data.get("elapsed_seconds_accum", 0.0))
-            checkpoint_seq = max(checkpoint_seq, int(ckpt_data.get("checkpoint_seq", 0)))
-            if ckpt_data.get("in_progress_arm") is not None:
-                resumed_in_progress = dict(ckpt_data["in_progress_arm"])
+            raw_ckpt_data = load_checkpoint(latest_path, verify_identity=False)
+            try:
+                _validate_checkpoint_matches_world(
+                    raw_ckpt_data,
+                    index=index,
+                    seed=seed,
+                    horizon=horizon,
+                    arm_order=order,
+                    fixture=fixture,
+                )
+            except (CheckpointIdentityError, ValueError) as exc:
+                _record_and_ignore_mismatched_checkpoint(latest_path, raw_ckpt_data, str(exc))
+            else:
+                loaded_ckpt_path = latest_path
+                loaded_ckpt_data = raw_ckpt_data
+                completed_arms = {
+                    str(k): dict(v) for k, v in raw_ckpt_data["completed_arms"].items()
+                }
+                rosters = [dict(r) for r in raw_ckpt_data["rosters"]]
+                elapsed_seconds_accum = float(raw_ckpt_data.get("elapsed_seconds_accum", 0.0))
+                checkpoint_seq = max(checkpoint_seq, int(raw_ckpt_data.get("checkpoint_seq", 0)))
+                if raw_ckpt_data.get("in_progress_arm") is not None:
+                    resumed_in_progress = dict(raw_ckpt_data["in_progress_arm"])
 
     signal_state: dict[str, int | float | None] = {
         "signum": None,
@@ -361,10 +448,21 @@ def run_paired_world_resumable(
             signal_state["signum"] = int(signum)
             signal_state["received_at"] = time.monotonic()
 
+    def _poll_external_signal() -> None:
+        if signal_state["signum"] is not None:
+            return
+        getter = external_signal_getter or _EXTERNAL_SIGNAL_GETTER
+        if getter is not None:
+            ext_sig = getter()
+            if ext_sig is not None and int(ext_sig) > 0:
+                signal_state["signum"] = int(ext_sig)
+                signal_state["received_at"] = time.monotonic()
+
     if can_install_signals:
         for sig in (signal.SIGUSR1, signal.SIGTERM):
             previous_handlers[sig] = signal.getsignal(sig)
             signal.signal(sig, _on_signal)
+    _poll_external_signal()
 
     def _write_ckpt(
         *,
@@ -376,7 +474,9 @@ def run_paired_world_resumable(
         nonlocal checkpoint_seq
         if ckpt_root is None:
             return None
-        checkpoint_seq = max(checkpoint_seq, highest_checkpoint_seq_on_disk(ckpt_root)) + 1
+        checkpoint_seq = (
+            max(checkpoint_seq, highest_checkpoint_seq_on_disk(ckpt_root, *extra_resume_dirs)) + 1
+        )
         arm_tag = current_arm if current_arm is not None else "boundary"
         ckpt_name = f"ckpt-seq-{checkpoint_seq:06d}-arm-{arm_tag}-frame-{current_frame:05d}.ckpt"
         ckpt_path = ckpt_root / ckpt_name
@@ -411,502 +511,579 @@ def run_paired_world_resumable(
     run_started_mono = time.monotonic()
     verified_fresh_roster_once = False
     try:
-        for arm in order:
-            if arm in completed_arms:
-                continue
+        for _roster_attempt in range(2):
+            restarted_due_to_roster = False
+            for arm in order:
+                if arm in completed_arms:
+                    continue
 
-            if use_watchdog:
-                faulthandler.dump_traceback_later(int(watchdog_seconds), exit=True)
-                last_watchdog = time.monotonic()
+                if use_watchdog:
+                    faulthandler.dump_traceback_later(int(watchdog_seconds), exit=True)
+                    last_watchdog = time.monotonic()
 
-            spec = p.ARM_SPECS[arm]
-            min_length = spec["min_length"]
-            interval = int(spec["interval"])
+                spec = p.ARM_SPECS[arm]
+                min_length = spec["min_length"]
+                interval = int(spec["interval"])
 
-            check()
-            session = open_watch({"seed": int(seed)}, 24, "bare")
-            try:
-                world = session.world
-                if not world.sim.allow_respawn or any(
-                    not getattr(s, "auto_respawn", True) for s in session.live.game.snakes
-                ):
-                    raise ScientificFault(
-                        "Watch6-L1-V1 requires continuous respawn in live and mirror"
-                    )
-                if getattr(session.live, "pathb", None) is not None:
-                    raise ScientificFault("Watch6-L1-V1 refuses Path B assistance")
-                _assert_mixed(session.live, 6)
-
-                # Always recompute roster from loaded models and verify against checkpoint.
-                fresh_roster = _compute_session_roster(session)
-                if any(r != fresh_roster for r in rosters):
-                    raise ValueError(
-                        "checkpoint completed-arm roster does not match newly loaded model roster"
-                    )
-                verified_fresh_roster_once = True
-
-                if resumed_in_progress is not None and resumed_in_progress.get("arm") == arm:
-                    arm_counters = dict(resumed_in_progress["counters"])
-                    saved_roster = dict(arm_counters["roster"])
-                    if saved_roster != fresh_roster:
-                        raise ValueError(
-                            "checkpoint in-progress roster does not match newly loaded model roster"
-                        )
-                    restore_run_session_state(session, resumed_in_progress["session"])
-                    start_frame = int(arm_counters["frame_index"]) + 1
-                    trigger = restore_trigger_state(arm_counters["trigger"])
-                    was_alive = bool(arm_counters["was_alive"])
-                    previous_alive = [bool(x) for x in arm_counters["previous_alive"]]
-                    respawns = [int(x) for x in arm_counters["respawns"]]
-                    roster = fresh_roster
-                    decisions = int(arm_counters["decisions"])
-                    boost = int(arm_counters["boost"])
-                    deaths = int(arm_counters["deaths"])
-                    alive_frames = int(arm_counters["alive_frames"])
-                    mass_sum = int(arm_counters["mass_sum"])
-                    batches = int(arm_counters["batches"])
-                    batches_lt600 = int(arm_counters["batches_lt600"])
-                    batches_ge600 = int(arm_counters["batches_ge600"])
-                    batches_ge1000 = int(arm_counters["batches_ge1000"])
-                    interventions = int(arm_counters["interventions"])
-                    interventions_lt600 = int(arm_counters["interventions_lt600"])
-                    interventions_ge600 = int(arm_counters["interventions_ge600"])
-                    evaluated = int(arm_counters["evaluated"])
-                    branches_lt600 = int(arm_counters["branches_lt600"])
-                    branches_600_999 = int(arm_counters["branches_600_999"])
-                    branches_ge1000 = int(arm_counters["branches_ge1000"])
-                    skipped = int(arm_counters["skipped"])
-                    kernel_rows = int(arm_counters["kernel_rows"])
-                    mirror_frames = int(arm_counters["mirror_frames"])
-                    main_seconds = float(arm_counters["main_seconds"])
-                    search_seconds = float(arm_counters["search_seconds"])
-                    search_seconds_lt600 = float(arm_counters["search_seconds_lt600"])
-                    search_seconds_600_999 = float(arm_counters["search_seconds_600_999"])
-                    search_seconds_ge1000 = float(arm_counters["search_seconds_ge1000"])
-                    action_counts = [int(x) for x in arm_counters["action_counts"]]
-                    recent_actions = [int(x) for x in arm_counters["recent_actions"]]
-                    all_frame_masses = [int(x) for x in arm_counters["all_frame_masses"]]
-                    alive_lengths = [int(x) for x in arm_counters["alive_lengths"]]
-                    death_lengths = [int(x) for x in arm_counters["death_lengths"]]
-                    resumed_in_progress = None
-                else:
-                    if initial_session_hook is not None:
-                        initial_session_hook(session, arm)
-                    start_frame = 1
-                    roster = fresh_roster
-                    trigger = (
-                        DenseTrigger(min_length=int(min_length), interval=interval)
-                        if isinstance(min_length, int)
-                        else None
-                    )
-                    was_alive = bool(world.sim.alive[0, 0])
-                    previous_alive = [bool(s.is_alive) for s in session.live.game.snakes]
-                    respawns = [0] * 6
-                    decisions = 0
-                    boost = 0
-                    deaths = 0
-                    alive_frames = 0
-                    mass_sum = 0
-                    batches = 0
-                    batches_lt600 = 0
-                    batches_ge600 = 0
-                    batches_ge1000 = 0
-                    interventions = 0
-                    interventions_lt600 = 0
-                    interventions_ge600 = 0
-                    evaluated = 0
-                    branches_lt600 = 0
-                    branches_600_999 = 0
-                    branches_ge1000 = 0
-                    skipped = 0
-                    kernel_rows = 0
-                    mirror_frames = 0
-                    main_seconds = 0.0
-                    search_seconds = 0.0
-                    search_seconds_lt600 = 0.0
-                    search_seconds_600_999 = 0.0
-                    search_seconds_ge1000 = 0.0
-                    action_counts = [0] * 6
-                    recent_actions = []
-                    all_frame_masses = []
-                    alive_lengths = []
-                    death_lengths = []
-
-                def _current_in_progress_dict(frame_idx: int) -> dict[str, Any]:
-                    counters = _pack_arm_counters(
-                        arm=arm,
-                        seed=seed,
-                        horizon=horizon,
-                        frame_index=frame_idx,
-                        min_length=min_length,
-                        interval=interval,
-                        trigger=trigger,
-                        was_alive=was_alive,
-                        previous_alive=previous_alive,
-                        respawns=respawns,
-                        roster=roster,
-                        decisions=decisions,
-                        boost=boost,
-                        deaths=deaths,
-                        alive_frames=alive_frames,
-                        mass_sum=mass_sum,
-                        batches=batches,
-                        batches_lt600=batches_lt600,
-                        batches_ge600=batches_ge600,
-                        batches_ge1000=batches_ge1000,
-                        interventions=interventions,
-                        interventions_lt600=interventions_lt600,
-                        interventions_ge600=interventions_ge600,
-                        evaluated=evaluated,
-                        branches_lt600=branches_lt600,
-                        branches_600_999=branches_600_999,
-                        branches_ge1000=branches_ge1000,
-                        skipped=skipped,
-                        kernel_rows=kernel_rows,
-                        mirror_frames=mirror_frames,
-                        main_seconds=main_seconds,
-                        search_seconds=search_seconds,
-                        search_seconds_lt600=search_seconds_lt600,
-                        search_seconds_600_999=search_seconds_600_999,
-                        search_seconds_ge1000=search_seconds_ge1000,
-                        action_counts=action_counts,
-                        recent_actions=recent_actions,
-                        all_frame_masses=all_frame_masses,
-                        alive_lengths=alive_lengths,
-                        death_lengths=death_lengths,
-                    )
-                    return {
-                        "arm": arm,
-                        "frame_index": int(frame_idx),
-                        "counters": counters,
-                        "session": snapshot_run_session_state(session),
-                    }
-
-                in_search_branch = False
-                search_signal_sent = False
-
-                def _guarded_check() -> None:
-                    nonlocal search_signal_sent, last_watchdog
-                    if use_watchdog:
-                        now_mono = time.monotonic()
-                        if now_mono - last_watchdog >= 60.0:
-                            faulthandler.dump_traceback_later(int(watchdog_seconds), exit=True)
-                            last_watchdog = now_mono
-                    check()
-                    if (
-                        in_search_branch
-                        and signal_on_search is not None
-                        and not search_signal_sent
-                        and signal_on_search[0] == arm
-                        and int(signal_on_search[1]) == current_frame_index
+                check()
+                _poll_external_signal()
+                session = open_watch({"seed": int(seed)}, 24, "bare")
+                try:
+                    world = session.world
+                    if not world.sim.allow_respawn or any(
+                        not getattr(s, "auto_respawn", True) for s in session.live.game.snakes
                     ):
-                        search_signal_sent = True
-                        os.kill(os.getpid(), int(signal_on_search[2]))
-                    if in_search_branch and signal_state["signum"] is not None:
-                        raise _SignalAbortSearch()
-
-                with step_guard(_guarded_check):
-                    for frame_index in range(start_frame, horizon + 1):
-                        current_frame_index = frame_index
-                        frame_started = time.monotonic()
-                        step_search = 0.0
-                        _guarded_check()
-
-                        if signal_state["signum"] is not None:
-                            sig_num = int(signal_state["signum"])
-                            ckpt_path = _write_ckpt(
-                                current_arm=arm,
-                                current_frame=frame_index - 1,
-                                in_progress_arm=_current_in_progress_dict(frame_index - 1),
-                                run_started_mono=run_started_mono,
-                            )
-                            raise CheckpointInterrupted(
-                                f"signal {sig_num} received before frame {frame_index} of {arm}",
-                                checkpoint_path=ckpt_path or Path(""),
-                                arm=arm,
-                                frame_index=frame_index - 1,
-                                signal_number=sig_num,
-                                reason=f"signal:{sig_num}",
-                            )
-
-                        if on_progress is not None:
-                            on_progress(arm, frame_index)
-
-                        # Snapshot before search-eligible frames (including respawn frames
-                        # where choose() creates a fresh DenseTrigger) so if SIGUSR1/SIGTERM
-                        # interrupts dense_batch mid-search, we can roll back to frame_index - 1
-                        # and write a verified checkpoint in milliseconds.
-                        pre_search_snapshot: dict[str, Any] | None = None
-                        if _will_trigger_fire_this_frame(
-                            trigger,
-                            bool(world.sim.alive[0, 0]),
-                            int(world.sim.length[0, 0]),
-                            decisions,
-                            min_length=min_length,
-                            was_alive=was_alive,
-                        ):
-                            pre_search_snapshot = _current_in_progress_dict(frame_index - 1)
-
-                        selected: dict[str, Any] = {}
-
-                        def choose(sim: Any) -> np.ndarray:
-                            nonlocal batches, batches_lt600, batches_ge600, batches_ge1000
-                            nonlocal interventions, interventions_lt600, interventions_ge600
-                            nonlocal evaluated, branches_lt600, branches_600_999, branches_ge1000
-                            nonlocal skipped, kernel_rows, step_search, trigger
-                            nonlocal search_seconds_lt600, search_seconds_600_999
-                            nonlocal search_seconds_ge1000, in_search_branch
-                            world.runtime.prepare(sim)
-                            active = bool(sim.alive[0, 0])
-                            if active and not was_alive and isinstance(min_length, int):
-                                trigger = DenseTrigger(
-                                    min_length=int(min_length), interval=interval
-                                )
-                            actions = np.ones((1, sim.S), dtype=np.int64)
-                            if active:
-                                length = int(sim.length[0, 0])
-                                obs = build_ego_raster(
-                                    sim,
-                                    EgoRasterConfig(version="bv8"),
-                                    backend="numba",
-                                    rows=np.array([[0, 0]]),
-                                )
-                                q_row = np.asarray(prepared_q(world, obs), dtype=np.float32)
-                                if not np.isfinite(q_row).all():
-                                    raise ScientificFault("nonfinite hero Q row")
-                                advisory = sim.get_advisory_action_mask()[0, 0]
-                                legal, bare_action = _legal(q_row, advisory)
-                                chosen = int(bare_action)
-                                fired = trigger is not None and trigger.fires(
-                                    decisions, length, True
-                                )
-                                if fired and bool(advisory.any()):
-                                    t0 = time.monotonic()
-                                    in_search_branch = True
-                                    try:
-                                        batch = dense_batch(world, frame_index - 1, q_row, legal)
-                                    finally:
-                                        in_search_branch = False
-                                    batch_dt = time.monotonic() - t0
-                                    step_search += batch_dt
-                                    chosen = int(batch["chosen"])
-                                    if not 0 <= chosen < 6 or not bool(legal[chosen]):
-                                        raise ScientificFault("illegal exact-stop action selection")
-                                    batches += 1
-                                    intervened = int(chosen != bare_action)
-                                    interventions += intervened
-                                    b_eval = int(batch["branches_evaluated"])
-                                    if length < 600:
-                                        batches_lt600 += 1
-                                        interventions_lt600 += intervened
-                                        branches_lt600 += b_eval
-                                        search_seconds_lt600 += batch_dt
-                                    else:
-                                        batches_ge600 += 1
-                                        interventions_ge600 += intervened
-                                        if length < 1000:
-                                            branches_600_999 += b_eval
-                                            search_seconds_600_999 += batch_dt
-                                        else:
-                                            batches_ge1000 += 1
-                                            branches_ge1000 += b_eval
-                                            search_seconds_ge1000 += batch_dt
-                                    evaluated += b_eval
-                                    skipped += int(batch["branches_skipped"])
-                                    kernel_rows += int(batch["native_v8"]["kernel_rows"])
-                                selected.update(
-                                    length=length,
-                                    bare=int(bare_action),
-                                    chosen=chosen,
-                                    q=q_row.copy(),
-                                )
-                            _dispatch_actions(
-                                sim,
-                                sim.get_resolved_action_mask(),
-                                actions,
-                                [world.hero],
-                                [world.opponents],
-                            )
-                            if active:
-                                if int(actions[0, 0]) != selected["bare"]:
-                                    raise ScientificFault("bare dispatch/Q mismatch")
-                                actions[0, 0] = selected["chosen"]
-                            return actions
-
-                        actions_holder: dict[str, np.ndarray] = {}
-
-                        def choose_record(sim: Any) -> np.ndarray:
-                            actions = choose(sim)
-                            actions_holder["actions"] = actions.copy()
-                            return actions
-
-                        try:
-                            world.sim.step_with_policy(choose_record)
-                        except _SignalAbortSearch:
-                            if pre_search_snapshot is None:
-                                raise RuntimeError("missing pre-search snapshot on signal abort")
-                            restore_run_session_state(session, pre_search_snapshot["session"])
-                            sig_num = int(signal_state["signum"] or signal.SIGUSR1)
-                            ckpt_path = _write_ckpt(
-                                current_arm=arm,
-                                current_frame=frame_index - 1,
-                                in_progress_arm=pre_search_snapshot,
-                                run_started_mono=run_started_mono,
-                            )
-                            raise CheckpointInterrupted(
-                                f"signal {sig_num} aborted search at frame {frame_index} of {arm}; "
-                                f"checkpointed frame {frame_index - 1}",
-                                checkpoint_path=ckpt_path or Path(""),
-                                arm=arm,
-                                frame_index=frame_index - 1,
-                                signal_number=sig_num,
-                                reason=f"signal_mid_search:{sig_num}",
-                            )
-
-                        world.runtime.observe_step(world.sim)
-
-                        actual_decisions: list[int] = []
-                        hero = session.live.game.snakes[0]
-                        original_update = hero.update
-                        original_q = session.live.policy._next_dispatch_q
-
-                        def observed_update(*args: Any, **kwargs: Any) -> Any:
-                            actual_decisions.append(int(hero.length))
-                            return original_update(*args, **kwargs)
-
-                        def observed_q(*args: Any, **kwargs: Any) -> Any:
-                            value = original_q(*args, **kwargs)
-                            if not selected or not np.array_equal(
-                                value.detach().cpu().numpy().reshape(6),
-                                np.asarray(selected["q"], dtype=np.float32),
-                            ):
-                                raise ScientificFault(
-                                    f"live/mirror B8 Q mismatch at frame {frame_index}"
-                                )
-                            return value
-
-                        hero.update = observed_update
-                        session.live.policy._next_dispatch_q = observed_q
-                        try:
-                            session._step_live(actions_holder["actions"])
-                        finally:
-                            hero.update = original_update
-                            session.live.policy._next_dispatch_q = original_q
-
-                        if actual_decisions != ([selected["length"]] if selected else []):
-                            raise ScientificFault(
-                                f"live/mirror actual hero decision mismatch at frame {frame_index}"
-                            )
-
-                        hero = session.live.game.snakes[0]
-                        death = int(hero.id) in session.live.game.frame_death_causes
-                        grid_death = bool(
-                            world.sim.get_transition_valid()[0, 0] and not world.sim.alive[0, 0]
+                        raise ScientificFault(
+                            "Watch6-L1-V1 requires continuous respawn in live and mirror"
                         )
-                        if death != grid_death:
-                            raise ScientificFault(
-                                f"Watch/mirror death event mismatch at frame {frame_index}"
-                            )
-                        if selected:
-                            if int(hero.last_action) != selected["chosen"]:
-                                raise ScientificFault(
-                                    f"live delivered action mismatch at frame {frame_index}"
+                    if getattr(session.live, "pathb", None) is not None:
+                        raise ScientificFault("Watch6-L1-V1 refuses Path B assistance")
+                    _assert_mixed(session.live, 6)
+
+                    # Always recompute roster from loaded models and verify against checkpoint.
+                    fresh_roster = _compute_session_roster(session)
+                    if not verified_fresh_roster_once and loaded_ckpt_path is not None:
+                        in_prog_roster = (
+                            dict(resumed_in_progress["counters"]["roster"])
+                            if (
+                                resumed_in_progress is not None
+                                and isinstance(resumed_in_progress.get("counters"), Mapping)
+                                and isinstance(
+                                    resumed_in_progress["counters"].get("roster"), Mapping
                                 )
-                            decisions += 1
-                            chosen_act = int(selected["chosen"])
-                            boost += int(chosen_act >= 3)
-                            action_counts[chosen_act] += 1
-                            recent_actions.append(chosen_act)
-                            if len(recent_actions) >= COLLAPSE_DECISIONS:
-                                window = recent_actions[-COLLAPSE_DECISIONS:]
-                                if max(window.count(a) for a in range(6)) > int(
-                                    COLLAPSE_DECISIONS * COLLAPSE_SHARE
+                            )
+                            else None
+                        )
+                        if any(r != fresh_roster for r in rosters) or (
+                            in_prog_roster is not None and in_prog_roster != fresh_roster
+                        ):
+                            mismatch_msg = (
+                                "checkpoint completed-arm roster does not match "
+                                "newly loaded model roster"
+                                if any(r != fresh_roster for r in rosters)
+                                else (
+                                    "checkpoint in-progress roster does not match "
+                                    "newly loaded model roster"
+                                )
+                            )
+                            _record_and_ignore_mismatched_checkpoint(
+                                loaded_ckpt_path,
+                                loaded_ckpt_data,
+                                mismatch_msg,
+                            )
+                            loaded_ckpt_path = None
+                            loaded_ckpt_data = None
+                            verified_fresh_roster_once = True
+                            restarted_due_to_roster = True
+                            break
+                    verified_fresh_roster_once = True
+
+                    if resumed_in_progress is not None and resumed_in_progress.get("arm") == arm:
+                        arm_counters = dict(resumed_in_progress["counters"])
+                        restore_run_session_state(session, resumed_in_progress["session"])
+                        start_frame = int(arm_counters["frame_index"]) + 1
+                        trigger = restore_trigger_state(arm_counters["trigger"])
+                        was_alive = bool(arm_counters["was_alive"])
+                        previous_alive = [bool(x) for x in arm_counters["previous_alive"]]
+                        respawns = [int(x) for x in arm_counters["respawns"]]
+                        roster = fresh_roster
+                        decisions = int(arm_counters["decisions"])
+                        boost = int(arm_counters["boost"])
+                        deaths = int(arm_counters["deaths"])
+                        alive_frames = int(arm_counters["alive_frames"])
+                        mass_sum = int(arm_counters["mass_sum"])
+                        batches = int(arm_counters["batches"])
+                        batches_lt600 = int(arm_counters["batches_lt600"])
+                        batches_ge600 = int(arm_counters["batches_ge600"])
+                        batches_ge1000 = int(arm_counters["batches_ge1000"])
+                        interventions = int(arm_counters["interventions"])
+                        interventions_lt600 = int(arm_counters["interventions_lt600"])
+                        interventions_ge600 = int(arm_counters["interventions_ge600"])
+                        evaluated = int(arm_counters["evaluated"])
+                        branches_lt600 = int(arm_counters["branches_lt600"])
+                        branches_600_999 = int(arm_counters["branches_600_999"])
+                        branches_ge1000 = int(arm_counters["branches_ge1000"])
+                        skipped = int(arm_counters["skipped"])
+                        kernel_rows = int(arm_counters["kernel_rows"])
+                        mirror_frames = int(arm_counters["mirror_frames"])
+                        main_seconds = float(arm_counters["main_seconds"])
+                        search_seconds = float(arm_counters["search_seconds"])
+                        search_seconds_lt600 = float(arm_counters["search_seconds_lt600"])
+                        search_seconds_600_999 = float(arm_counters["search_seconds_600_999"])
+                        search_seconds_ge1000 = float(arm_counters["search_seconds_ge1000"])
+                        action_counts = [int(x) for x in arm_counters["action_counts"]]
+                        recent_actions = [int(x) for x in arm_counters["recent_actions"]]
+                        all_frame_masses = [int(x) for x in arm_counters["all_frame_masses"]]
+                        alive_lengths = [int(x) for x in arm_counters["alive_lengths"]]
+                        death_lengths = [int(x) for x in arm_counters["death_lengths"]]
+                        resumed_in_progress = None
+                    else:
+                        if initial_session_hook is not None:
+                            initial_session_hook(session, arm)
+                        start_frame = 1
+                        roster = fresh_roster
+                        trigger = (
+                            DenseTrigger(min_length=int(min_length), interval=interval)
+                            if isinstance(min_length, int)
+                            else None
+                        )
+                        was_alive = bool(world.sim.alive[0, 0])
+                        previous_alive = [bool(s.is_alive) for s in session.live.game.snakes]
+                        respawns = [0] * 6
+                        decisions = 0
+                        boost = 0
+                        deaths = 0
+                        alive_frames = 0
+                        mass_sum = 0
+                        batches = 0
+                        batches_lt600 = 0
+                        batches_ge600 = 0
+                        batches_ge1000 = 0
+                        interventions = 0
+                        interventions_lt600 = 0
+                        interventions_ge600 = 0
+                        evaluated = 0
+                        branches_lt600 = 0
+                        branches_600_999 = 0
+                        branches_ge1000 = 0
+                        skipped = 0
+                        kernel_rows = 0
+                        mirror_frames = 0
+                        main_seconds = 0.0
+                        search_seconds = 0.0
+                        search_seconds_lt600 = 0.0
+                        search_seconds_600_999 = 0.0
+                        search_seconds_ge1000 = 0.0
+                        action_counts = [0] * 6
+                        recent_actions = []
+                        all_frame_masses = []
+                        alive_lengths = []
+                        death_lengths = []
+
+                    def _current_in_progress_dict(frame_idx: int) -> dict[str, Any]:
+                        counters = _pack_arm_counters(
+                            arm=arm,
+                            seed=seed,
+                            horizon=horizon,
+                            frame_index=frame_idx,
+                            min_length=min_length,
+                            interval=interval,
+                            trigger=trigger,
+                            was_alive=was_alive,
+                            previous_alive=previous_alive,
+                            respawns=respawns,
+                            roster=roster,
+                            decisions=decisions,
+                            boost=boost,
+                            deaths=deaths,
+                            alive_frames=alive_frames,
+                            mass_sum=mass_sum,
+                            batches=batches,
+                            batches_lt600=batches_lt600,
+                            batches_ge600=batches_ge600,
+                            batches_ge1000=batches_ge1000,
+                            interventions=interventions,
+                            interventions_lt600=interventions_lt600,
+                            interventions_ge600=interventions_ge600,
+                            evaluated=evaluated,
+                            branches_lt600=branches_lt600,
+                            branches_600_999=branches_600_999,
+                            branches_ge1000=branches_ge1000,
+                            skipped=skipped,
+                            kernel_rows=kernel_rows,
+                            mirror_frames=mirror_frames,
+                            main_seconds=main_seconds,
+                            search_seconds=search_seconds,
+                            search_seconds_lt600=search_seconds_lt600,
+                            search_seconds_600_999=search_seconds_600_999,
+                            search_seconds_ge1000=search_seconds_ge1000,
+                            action_counts=action_counts,
+                            recent_actions=recent_actions,
+                            all_frame_masses=all_frame_masses,
+                            alive_lengths=alive_lengths,
+                            death_lengths=death_lengths,
+                        )
+                        return {
+                            "arm": arm,
+                            "frame_index": int(frame_idx),
+                            "counters": counters,
+                            "session": snapshot_run_session_state(session),
+                        }
+
+                    in_search_branch = False
+                    search_signal_sent = False
+
+                    def _guarded_check() -> None:
+                        nonlocal search_signal_sent, last_watchdog
+                        if use_watchdog:
+                            now_mono = time.monotonic()
+                            if now_mono - last_watchdog >= 60.0:
+                                faulthandler.dump_traceback_later(int(watchdog_seconds), exit=True)
+                                last_watchdog = now_mono
+                        check()
+                        _poll_external_signal()
+                        if (
+                            in_search_branch
+                            and signal_on_search is not None
+                            and not search_signal_sent
+                            and signal_on_search[0] == arm
+                            and int(signal_on_search[1]) == current_frame_index
+                        ):
+                            search_signal_sent = True
+                            os.kill(os.getpid(), int(signal_on_search[2]))
+                        if in_search_branch and signal_state["signum"] is not None:
+                            raise _SignalAbortSearch()
+
+                    with step_guard(_guarded_check):
+                        for frame_index in range(start_frame, horizon + 1):
+                            current_frame_index = frame_index
+                            frame_started = time.monotonic()
+                            step_search = 0.0
+                            _guarded_check()
+
+                            if signal_state["signum"] is not None:
+                                sig_num = int(signal_state["signum"])
+                                ckpt_path = _write_ckpt(
+                                    current_arm=arm,
+                                    current_frame=frame_index - 1,
+                                    in_progress_arm=_current_in_progress_dict(frame_index - 1),
+                                    run_started_mono=run_started_mono,
+                                )
+                                raise CheckpointInterrupted(
+                                    f"signal {sig_num} received before frame "
+                                    f"{frame_index} of {arm}",
+                                    checkpoint_path=ckpt_path or Path(""),
+                                    arm=arm,
+                                    frame_index=frame_index - 1,
+                                    signal_number=sig_num,
+                                    reason=f"signal:{sig_num}",
+                                    ignored_checkpoints=ignored_checkpoints,
+                                )
+
+                            if on_progress is not None:
+                                on_progress(arm, frame_index)
+
+                            # Snapshot before search-eligible frames (including respawn frames
+                            # where choose() creates a fresh DenseTrigger) so if SIGUSR1/SIGTERM
+                            # interrupts dense_batch mid-search, we can roll back to frame_index - 1
+                            # and write a verified checkpoint in milliseconds.
+                            pre_search_snapshot: dict[str, Any] | None = None
+                            if _will_trigger_fire_this_frame(
+                                trigger,
+                                bool(world.sim.alive[0, 0]),
+                                int(world.sim.length[0, 0]),
+                                decisions,
+                                min_length=min_length,
+                                was_alive=was_alive,
+                            ):
+                                pre_search_snapshot = _current_in_progress_dict(frame_index - 1)
+
+                            selected: dict[str, Any] = {}
+
+                            def choose(sim: Any) -> np.ndarray:
+                                nonlocal batches, batches_lt600, batches_ge600, batches_ge1000
+                                nonlocal interventions, interventions_lt600, interventions_ge600
+                                nonlocal evaluated, branches_lt600
+                                nonlocal branches_600_999, branches_ge1000
+                                nonlocal skipped, kernel_rows, step_search, trigger
+                                nonlocal search_seconds_lt600, search_seconds_600_999
+                                nonlocal search_seconds_ge1000, in_search_branch
+                                world.runtime.prepare(sim)
+                                active = bool(sim.alive[0, 0])
+                                if active and not was_alive and isinstance(min_length, int):
+                                    trigger = DenseTrigger(
+                                        min_length=int(min_length), interval=interval
+                                    )
+                                actions = np.ones((1, sim.S), dtype=np.int64)
+                                if active:
+                                    length = int(sim.length[0, 0])
+                                    obs = build_ego_raster(
+                                        sim,
+                                        EgoRasterConfig(version="bv8"),
+                                        backend="numba",
+                                        rows=np.array([[0, 0]]),
+                                    )
+                                    q_row = np.asarray(prepared_q(world, obs), dtype=np.float32)
+                                    if not np.isfinite(q_row).all():
+                                        raise ScientificFault("nonfinite hero Q row")
+                                    advisory = sim.get_advisory_action_mask()[0, 0]
+                                    legal, bare_action = _legal(q_row, advisory)
+                                    chosen = int(bare_action)
+                                    fired = trigger is not None and trigger.fires(
+                                        decisions, length, True
+                                    )
+                                    if fired and bool(advisory.any()):
+                                        t0 = time.monotonic()
+                                        in_search_branch = True
+                                        try:
+                                            batch = dense_batch(
+                                                world, frame_index - 1, q_row, legal
+                                            )
+                                        finally:
+                                            in_search_branch = False
+                                        batch_dt = time.monotonic() - t0
+                                        step_search += batch_dt
+                                        chosen = int(batch["chosen"])
+                                        if not 0 <= chosen < 6 or not bool(legal[chosen]):
+                                            raise ScientificFault(
+                                                "illegal exact-stop action selection"
+                                            )
+                                        batches += 1
+                                        intervened = int(chosen != bare_action)
+                                        interventions += intervened
+                                        b_eval = int(batch["branches_evaluated"])
+                                        if length < 600:
+                                            batches_lt600 += 1
+                                            interventions_lt600 += intervened
+                                            branches_lt600 += b_eval
+                                            search_seconds_lt600 += batch_dt
+                                        else:
+                                            batches_ge600 += 1
+                                            interventions_ge600 += intervened
+                                            if length < 1000:
+                                                branches_600_999 += b_eval
+                                                search_seconds_600_999 += batch_dt
+                                            else:
+                                                batches_ge1000 += 1
+                                                branches_ge1000 += b_eval
+                                                search_seconds_ge1000 += batch_dt
+                                        evaluated += b_eval
+                                        skipped += int(batch["branches_skipped"])
+                                        kernel_rows += int(batch["native_v8"]["kernel_rows"])
+                                    selected.update(
+                                        length=length,
+                                        bare=int(bare_action),
+                                        chosen=chosen,
+                                        q=q_row.copy(),
+                                    )
+                                _dispatch_actions(
+                                    sim,
+                                    sim.get_resolved_action_mask(),
+                                    actions,
+                                    [world.hero],
+                                    [world.opponents],
+                                )
+                                if active:
+                                    if int(actions[0, 0]) != selected["bare"]:
+                                        raise ScientificFault("bare dispatch/Q mismatch")
+                                    actions[0, 0] = selected["chosen"]
+                                return actions
+
+                            actions_holder: dict[str, np.ndarray] = {}
+
+                            def choose_record(sim: Any) -> np.ndarray:
+                                actions = choose(sim)
+                                actions_holder["actions"] = actions.copy()
+                                return actions
+
+                            try:
+                                world.sim.step_with_policy(choose_record)
+                            except _SignalAbortSearch:
+                                if pre_search_snapshot is None:
+                                    raise RuntimeError(
+                                        "missing pre-search snapshot on signal abort"
+                                    )
+                                restore_run_session_state(session, pre_search_snapshot["session"])
+                                sig_num = int(signal_state["signum"] or signal.SIGUSR1)
+                                ckpt_path = _write_ckpt(
+                                    current_arm=arm,
+                                    current_frame=frame_index - 1,
+                                    in_progress_arm=pre_search_snapshot,
+                                    run_started_mono=run_started_mono,
+                                )
+                                raise CheckpointInterrupted(
+                                    f"signal {sig_num} aborted search at frame {frame_index} "
+                                    f"of {arm}; checkpointed frame {frame_index - 1}",
+                                    checkpoint_path=ckpt_path or Path(""),
+                                    arm=arm,
+                                    frame_index=frame_index - 1,
+                                    signal_number=sig_num,
+                                    reason=f"signal_mid_search:{sig_num}",
+                                    ignored_checkpoints=ignored_checkpoints,
+                                )
+
+                            world.runtime.observe_step(world.sim)
+
+                            actual_decisions: list[int] = []
+                            hero = session.live.game.snakes[0]
+                            original_update = hero.update
+                            original_q = session.live.policy._next_dispatch_q
+
+                            def observed_update(*args: Any, **kwargs: Any) -> Any:
+                                actual_decisions.append(int(hero.length))
+                                return original_update(*args, **kwargs)
+
+                            def observed_q(*args: Any, **kwargs: Any) -> Any:
+                                value = original_q(*args, **kwargs)
+                                if not selected or not np.array_equal(
+                                    value.detach().cpu().numpy().reshape(6),
+                                    np.asarray(selected["q"], dtype=np.float32),
                                 ):
                                     raise ScientificFault(
-                                        "unconditional action-collapse fault (>90%)"
+                                        f"live/mirror B8 Q mismatch at frame {frame_index}"
+                                    )
+                                return value
+
+                            hero.update = observed_update
+                            session.live.policy._next_dispatch_q = observed_q
+                            try:
+                                session._step_live(actions_holder["actions"])
+                            finally:
+                                hero.update = original_update
+                                session.live.policy._next_dispatch_q = original_q
+
+                            if actual_decisions != ([selected["length"]] if selected else []):
+                                raise ScientificFault(
+                                    "live/mirror actual hero decision mismatch "
+                                    f"at frame {frame_index}"
+                                )
+
+                            hero = session.live.game.snakes[0]
+                            death = int(hero.id) in session.live.game.frame_death_causes
+                            grid_death = bool(
+                                world.sim.get_transition_valid()[0, 0] and not world.sim.alive[0, 0]
+                            )
+                            if death != grid_death:
+                                raise ScientificFault(
+                                    f"Watch/mirror death event mismatch at frame {frame_index}"
+                                )
+                            if selected:
+                                if int(hero.last_action) != selected["chosen"]:
+                                    raise ScientificFault(
+                                        f"live delivered action mismatch at frame {frame_index}"
+                                    )
+                                decisions += 1
+                                chosen_act = int(selected["chosen"])
+                                boost += int(chosen_act >= 3)
+                                action_counts[chosen_act] += 1
+                                recent_actions.append(chosen_act)
+                                if len(recent_actions) >= COLLAPSE_DECISIONS:
+                                    window = recent_actions[-COLLAPSE_DECISIONS:]
+                                    if max(window.count(a) for a in range(6)) > int(
+                                        COLLAPSE_DECISIONS * COLLAPSE_SHARE
+                                    ):
+                                        raise ScientificFault(
+                                            "unconditional action-collapse fault (>90%)"
+                                        )
+
+                            was_alive = bool(hero.is_alive)
+                            if was_alive != bool(world.sim.alive[0, 0]) or (
+                                was_alive and int(hero.length) != int(world.sim.length[0, 0])
+                            ):
+                                raise ScientificFault(
+                                    f"live/mirror alive or length mismatch at frame {frame_index}"
+                                )
+
+                            alive_now = [bool(s.is_alive) for s in session.live.game.snakes]
+                            for slot in range(6):
+                                respawns[slot] += int(alive_now[slot] and not previous_alive[slot])
+                            previous_alive = alive_now
+
+                            if death:
+                                deaths += 1
+                                death_lengths.append(int(selected.get("length", 0)))
+
+                            if was_alive:
+                                cur_len = int(hero.length)
+                                alive_frames += 1
+                                mass_sum += cur_len
+                                all_frame_masses.append(cur_len)
+                                alive_lengths.append(cur_len)
+                            else:
+                                all_frame_masses.append(0)
+
+                            main_seconds += time.monotonic() - frame_started - step_search
+                            search_seconds += step_search
+                            mirror_frames += 1
+
+                            if on_frame_digest is not None:
+                                counters_for_digest = _pack_arm_counters(
+                                    arm=arm,
+                                    seed=seed,
+                                    horizon=horizon,
+                                    frame_index=frame_index,
+                                    min_length=min_length,
+                                    interval=interval,
+                                    trigger=trigger,
+                                    was_alive=was_alive,
+                                    previous_alive=previous_alive,
+                                    respawns=respawns,
+                                    roster=roster,
+                                    decisions=decisions,
+                                    boost=boost,
+                                    deaths=deaths,
+                                    alive_frames=alive_frames,
+                                    mass_sum=mass_sum,
+                                    batches=batches,
+                                    batches_lt600=batches_lt600,
+                                    batches_ge600=batches_ge600,
+                                    batches_ge1000=batches_ge1000,
+                                    interventions=interventions,
+                                    interventions_lt600=interventions_lt600,
+                                    interventions_ge600=interventions_ge600,
+                                    evaluated=evaluated,
+                                    branches_lt600=branches_lt600,
+                                    branches_600_999=branches_600_999,
+                                    branches_ge1000=branches_ge1000,
+                                    skipped=skipped,
+                                    kernel_rows=kernel_rows,
+                                    mirror_frames=mirror_frames,
+                                    main_seconds=main_seconds,
+                                    search_seconds=search_seconds,
+                                    search_seconds_lt600=search_seconds_lt600,
+                                    search_seconds_600_999=search_seconds_600_999,
+                                    search_seconds_ge1000=search_seconds_ge1000,
+                                    action_counts=action_counts,
+                                    recent_actions=recent_actions,
+                                    all_frame_masses=all_frame_masses,
+                                    alive_lengths=alive_lengths,
+                                    death_lengths=death_lengths,
+                                )
+                                on_frame_digest(
+                                    arm, frame_index, state_digest(session, counters_for_digest)
+                                )
+
+                            # Signal check immediately after completing frame_index
+                            _poll_external_signal()
+                            if signal_state["signum"] is not None:
+                                sig_num = int(signal_state["signum"])
+                                if frame_index < horizon:
+                                    ckpt_path = _write_ckpt(
+                                        current_arm=arm,
+                                        current_frame=frame_index,
+                                        in_progress_arm=_current_in_progress_dict(frame_index),
+                                        run_started_mono=run_started_mono,
+                                    )
+                                    raise CheckpointInterrupted(
+                                        f"signal {sig_num} received at frame "
+                                        f"{frame_index} of {arm}",
+                                        checkpoint_path=ckpt_path or Path(""),
+                                        arm=arm,
+                                        frame_index=frame_index,
+                                        signal_number=sig_num,
+                                        reason=f"signal:{sig_num}",
+                                        ignored_checkpoints=ignored_checkpoints,
                                     )
 
-                        was_alive = bool(hero.is_alive)
-                        if was_alive != bool(world.sim.alive[0, 0]) or (
-                            was_alive and int(hero.length) != int(world.sim.length[0, 0])
-                        ):
-                            raise ScientificFault(
-                                f"live/mirror alive or length mismatch at frame {frame_index}"
-                            )
+                            # Periodic mid-arm checkpoint
+                            if (
+                                ckpt_root is not None
+                                and frame_index < horizon
+                                and frame_index % checkpoint_interval == 0
+                            ):
+                                _write_ckpt(
+                                    current_arm=arm,
+                                    current_frame=frame_index,
+                                    in_progress_arm=_current_in_progress_dict(frame_index),
+                                    run_started_mono=run_started_mono,
+                                )
 
-                        alive_now = [bool(s.is_alive) for s in session.live.game.snakes]
-                        for slot in range(6):
-                            respawns[slot] += int(alive_now[slot] and not previous_alive[slot])
-                        previous_alive = alive_now
-
-                        if death:
-                            deaths += 1
-                            death_lengths.append(int(selected.get("length", 0)))
-
-                        if was_alive:
-                            cur_len = int(hero.length)
-                            alive_frames += 1
-                            mass_sum += cur_len
-                            all_frame_masses.append(cur_len)
-                            alive_lengths.append(cur_len)
-                        else:
-                            all_frame_masses.append(0)
-
-                        main_seconds += time.monotonic() - frame_started - step_search
-                        search_seconds += step_search
-                        mirror_frames += 1
-
-                        if on_frame_digest is not None:
-                            counters_for_digest = _pack_arm_counters(
-                                arm=arm,
-                                seed=seed,
-                                horizon=horizon,
-                                frame_index=frame_index,
-                                min_length=min_length,
-                                interval=interval,
-                                trigger=trigger,
-                                was_alive=was_alive,
-                                previous_alive=previous_alive,
-                                respawns=respawns,
-                                roster=roster,
-                                decisions=decisions,
-                                boost=boost,
-                                deaths=deaths,
-                                alive_frames=alive_frames,
-                                mass_sum=mass_sum,
-                                batches=batches,
-                                batches_lt600=batches_lt600,
-                                batches_ge600=batches_ge600,
-                                batches_ge1000=batches_ge1000,
-                                interventions=interventions,
-                                interventions_lt600=interventions_lt600,
-                                interventions_ge600=interventions_ge600,
-                                evaluated=evaluated,
-                                branches_lt600=branches_lt600,
-                                branches_600_999=branches_600_999,
-                                branches_ge1000=branches_ge1000,
-                                skipped=skipped,
-                                kernel_rows=kernel_rows,
-                                mirror_frames=mirror_frames,
-                                main_seconds=main_seconds,
-                                search_seconds=search_seconds,
-                                search_seconds_lt600=search_seconds_lt600,
-                                search_seconds_600_999=search_seconds_600_999,
-                                search_seconds_ge1000=search_seconds_ge1000,
-                                action_counts=action_counts,
-                                recent_actions=recent_actions,
-                                all_frame_masses=all_frame_masses,
-                                alive_lengths=alive_lengths,
-                                death_lengths=death_lengths,
-                            )
-                            on_frame_digest(
-                                arm, frame_index, state_digest(session, counters_for_digest)
-                            )
-
-                        # Signal check immediately after completing frame_index
-                        if signal_state["signum"] is not None:
-                            sig_num = int(signal_state["signum"])
-                            if frame_index < horizon:
+                            # Deterministic stop hook for mid-arm interruption tests
+                            if (
+                                stop_predicate is not None
+                                and frame_index < horizon
+                                and stop_predicate(arm, frame_index)
+                            ):
                                 ckpt_path = _write_ckpt(
                                     current_arm=arm,
                                     current_frame=frame_index,
@@ -914,143 +1091,125 @@ def run_paired_world_resumable(
                                     run_started_mono=run_started_mono,
                                 )
                                 raise CheckpointInterrupted(
-                                    f"signal {sig_num} received at frame {frame_index} of {arm}",
+                                    f"stopped at requested mid-arm point ({arm}, {frame_index})",
                                     checkpoint_path=ckpt_path or Path(""),
                                     arm=arm,
                                     frame_index=frame_index,
-                                    signal_number=sig_num,
-                                    reason=f"signal:{sig_num}",
+                                    reason="stop_at",
+                                    ignored_checkpoints=ignored_checkpoints,
                                 )
 
-                        # Periodic mid-arm checkpoint
-                        if (
-                            ckpt_root is not None
-                            and frame_index < horizon
-                            and frame_index % checkpoint_interval == 0
-                        ):
-                            _write_ckpt(
-                                current_arm=arm,
-                                current_frame=frame_index,
-                                in_progress_arm=_current_in_progress_dict(frame_index),
-                                run_started_mono=run_started_mono,
-                            )
+                    if mirror_frames != horizon:
+                        raise ScientificFault(
+                            f"incomplete mirror frame coverage ({mirror_frames} != {horizon})"
+                        )
 
-                        # Deterministic stop hook for mid-arm interruption tests
-                        if (
-                            stop_predicate is not None
-                            and frame_index < horizon
-                            and stop_predicate(arm, frame_index)
-                        ):
-                            ckpt_path = _write_ckpt(
-                                current_arm=arm,
-                                current_frame=frame_index,
-                                in_progress_arm=_current_in_progress_dict(frame_index),
-                                run_started_mono=run_started_mono,
-                            )
-                            raise CheckpointInterrupted(
-                                f"stopped at requested mid-arm point ({arm}, {frame_index})",
-                                checkpoint_path=ckpt_path or Path(""),
-                                arm=arm,
-                                frame_index=frame_index,
-                                reason="stop_at",
-                            )
+                    arm_summary = {
+                        "arm": arm,
+                        "frames": horizon,
+                        "alive_frames": alive_frames,
+                        "mass_sum": mass_sum,
+                        "deaths": deaths,
+                        "decisions": decisions,
+                        "boost_decisions": boost,
+                        "action_counts": action_counts,
+                        "length_median": float(np.median(all_frame_masses)),
+                        "alive_length_median": (
+                            float(np.median(alive_lengths)) if alive_lengths else 0.0
+                        ),
+                        "length_p95": (
+                            float(np.percentile(alive_lengths, 95)) if alive_lengths else 0.0
+                        ),
+                        "max_length": max(alive_lengths, default=0),
+                        "death_lengths": death_lengths,
+                        "short_body_deaths_lt600": sum(length < 600 for length in death_lengths),
+                        "long_body_deaths_ge600": sum(length >= 600 for length in death_lengths),
+                        "late_large_body_deaths": sum(length >= 800 for length in death_lengths),
+                        "batches": batches,
+                        "batches_lt600": batches_lt600,
+                        "batches_ge600": batches_ge600,
+                        "batches_ge1000": batches_ge1000,
+                        "interventions": interventions,
+                        "interventions_lt600": interventions_lt600,
+                        "interventions_ge600": interventions_ge600,
+                        "branches_evaluated": evaluated,
+                        "branches_skipped": skipped,
+                        "native_v8_kernel_rows": kernel_rows,
+                        "mirror_identity_frames": mirror_frames,
+                        "respawns_per_slot": respawns,
+                        "timing": {
+                            "main_seconds": main_seconds,
+                            "search_seconds": search_seconds,
+                            "search_seconds_lt600": search_seconds_lt600,
+                            "search_seconds_600_999": search_seconds_600_999,
+                            "search_seconds_ge1000": search_seconds_ge1000,
+                            "branches_lt600": branches_lt600,
+                            "branches_600_999": branches_600_999,
+                            "branches_ge1000": branches_ge1000,
+                        },
+                    }
+                    completed_arms[arm] = arm_summary
+                    rosters.append(roster)
+                finally:
+                    session.close()
 
-                if mirror_frames != horizon:
-                    raise ScientificFault(
-                        f"incomplete mirror frame coverage ({mirror_frames} != {horizon})"
+                # Arm boundary checkpoint & signal/stop checks
+                boundary_ckpt = _write_ckpt(
+                    current_arm=None,
+                    current_frame=horizon,
+                    in_progress_arm=None,
+                    run_started_mono=run_started_mono,
+                )
+                _poll_external_signal()
+                if signal_state["signum"] is not None:
+                    sig_num = int(signal_state["signum"])
+                    raise CheckpointInterrupted(
+                        f"signal {sig_num} received at end of arm {arm}",
+                        checkpoint_path=boundary_ckpt or Path(""),
+                        arm=arm,
+                        frame_index=horizon,
+                        signal_number=sig_num,
+                        reason=f"signal:{sig_num}",
+                        ignored_checkpoints=ignored_checkpoints,
+                    )
+                if stop_predicate is not None and stop_predicate(arm, horizon):
+                    raise CheckpointInterrupted(
+                        f"stopped at requested arm boundary ({arm}, {horizon})",
+                        checkpoint_path=boundary_ckpt or Path(""),
+                        arm=arm,
+                        frame_index=horizon,
+                        reason="stop_at_boundary",
+                        ignored_checkpoints=ignored_checkpoints,
                     )
 
-                arm_summary = {
-                    "arm": arm,
-                    "frames": horizon,
-                    "alive_frames": alive_frames,
-                    "mass_sum": mass_sum,
-                    "deaths": deaths,
-                    "decisions": decisions,
-                    "boost_decisions": boost,
-                    "action_counts": action_counts,
-                    "length_median": float(np.median(all_frame_masses)),
-                    "alive_length_median": (
-                        float(np.median(alive_lengths)) if alive_lengths else 0.0
-                    ),
-                    "length_p95": (
-                        float(np.percentile(alive_lengths, 95)) if alive_lengths else 0.0
-                    ),
-                    "max_length": max(alive_lengths, default=0),
-                    "death_lengths": death_lengths,
-                    "short_body_deaths_lt600": sum(length < 600 for length in death_lengths),
-                    "long_body_deaths_ge600": sum(length >= 600 for length in death_lengths),
-                    "late_large_body_deaths": sum(length >= 800 for length in death_lengths),
-                    "batches": batches,
-                    "batches_lt600": batches_lt600,
-                    "batches_ge600": batches_ge600,
-                    "batches_ge1000": batches_ge1000,
-                    "interventions": interventions,
-                    "interventions_lt600": interventions_lt600,
-                    "interventions_ge600": interventions_ge600,
-                    "branches_evaluated": evaluated,
-                    "branches_skipped": skipped,
-                    "native_v8_kernel_rows": kernel_rows,
-                    "mirror_identity_frames": mirror_frames,
-                    "respawns_per_slot": respawns,
-                    "timing": {
-                        "main_seconds": main_seconds,
-                        "search_seconds": search_seconds,
-                        "search_seconds_lt600": search_seconds_lt600,
-                        "search_seconds_600_999": search_seconds_600_999,
-                        "search_seconds_ge1000": search_seconds_ge1000,
-                        "branches_lt600": branches_lt600,
-                        "branches_600_999": branches_600_999,
-                        "branches_ge1000": branches_ge1000,
-                    },
-                }
-                completed_arms[arm] = arm_summary
-                rosters.append(roster)
-            finally:
-                session.close()
+            if restarted_due_to_roster:
+                continue
 
-            # Arm boundary checkpoint & signal/stop checks
-            boundary_ckpt = _write_ckpt(
-                current_arm=None,
-                current_frame=horizon,
-                in_progress_arm=None,
-                run_started_mono=run_started_mono,
-            )
-            if signal_state["signum"] is not None:
-                sig_num = int(signal_state["signum"])
-                raise CheckpointInterrupted(
-                    f"signal {sig_num} received at end of arm {arm}",
-                    checkpoint_path=boundary_ckpt or Path(""),
-                    arm=arm,
-                    frame_index=horizon,
-                    signal_number=sig_num,
-                    reason=f"signal:{sig_num}",
-                )
-            if stop_predicate is not None and stop_predicate(arm, horizon):
-                raise CheckpointInterrupted(
-                    f"stopped at requested arm boundary ({arm}, {horizon})",
-                    checkpoint_path=boundary_ckpt or Path(""),
-                    arm=arm,
-                    frame_index=horizon,
-                    reason="stop_at_boundary",
-                )
+            if not verified_fresh_roster_once and rosters:
+                session = open_watch({"seed": int(seed)}, 24, "bare")
+                try:
+                    fresh_roster = _compute_session_roster(session)
+                finally:
+                    session.close()
+                if any(r != fresh_roster for r in rosters) and loaded_ckpt_path is not None:
+                    _record_and_ignore_mismatched_checkpoint(
+                        loaded_ckpt_path,
+                        loaded_ckpt_data,
+                        "checkpoint completed-arm roster does not match newly loaded model roster",
+                    )
+                    loaded_ckpt_path = None
+                    loaded_ckpt_data = None
+                    verified_fresh_roster_once = True
+                    continue
+                verified_fresh_roster_once = True
 
-        if not verified_fresh_roster_once and rosters:
-            session = open_watch({"seed": int(seed)}, 24, "bare")
-            try:
-                fresh_roster = _compute_session_roster(session)
-            finally:
-                session.close()
-            if any(r != fresh_roster for r in rosters):
-                raise ValueError(
-                    "checkpoint completed-arm roster does not match newly loaded model roster"
-                )
+            break
 
         if any(r != rosters[0] for r in rosters[1:]):
             raise ScientificFault("arm roster identity mismatch within paired world")
 
         total_elapsed = elapsed_seconds_accum + (time.monotonic() - run_started_mono)
-        return {
+        world_out: dict[str, Any] = {
             "schema": WORLD_UNIT_SCHEMA,
             "namespace": p.NAMESPACE,
             "science": p.identity(),
@@ -1065,6 +1224,10 @@ def run_paired_world_resumable(
             "arms": {arm: completed_arms[arm] for arm in p.ARMS if arm in completed_arms},
             "elapsed_seconds": total_elapsed,
         }
+        if ignored_checkpoints:
+            world_out["resume_refused"] = True
+            world_out["ignored_checkpoints"] = list(ignored_checkpoints)
+        return world_out
     finally:
         if use_watchdog:
             faulthandler.cancel_dump_traceback_later()
@@ -1126,7 +1289,6 @@ def measure_checkpoint_scaling(
     repeats: int = 5,
 ) -> list[dict[str, Any]]:
     """Measure checkpoint size and save/load timings across snake body lengths on the Mac."""
-    configure_cpu()
     results: list[dict[str, Any]] = []
     with tempfile.TemporaryDirectory(prefix="world-ckpt-bench-") as tmp_dir:
         tmp_root = Path(tmp_dir)
