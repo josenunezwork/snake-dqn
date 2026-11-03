@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 import math
 import os
@@ -24,6 +25,7 @@ from research.watch6_l1_confirm.costs import (
     verify_report_evidence,
 )
 from research.watch6_l1_confirm.mirror import validate as validate_mirror
+from research.watch6_l1_confirm.resume import WORLD_NAME_RE
 from research.watch6_l1_confirm.uploads import METADATA, check_uploads, stage_metadata
 from tools.ops.package_spec import digest, read_ledger, verify_immutable
 
@@ -46,6 +48,52 @@ AMENDMENT_SHA256 = "71083fecc7cb34fce5ee531e7cceeca67f31fbd2515c6e865a46f694ee11
 AMENDMENT_SHARDS: tuple[int, ...] = (8, 9, 10)
 AMENDMENT_GPU = "L4"
 AMENDMENT_WORKERS = 6
+
+INCIDENT_SCHEMA = "watch6-l1-host-interrupted-attempt/v1"
+INCIDENT_ID = "INCIDENT_HOST_RESTART_01"
+INCIDENT_PATH: Path = p.ROOT / "research/watch6_l1_confirm/INCIDENT_HOST_RESTART_01.json"
+INCIDENT_SHA256 = "6b9218fea73febbb8595af16859dda07001687c9bd39f916408638e75c77e1b9"
+INCIDENT_SHARD = 11
+INCIDENT_POLL_COUNT = 1083
+INCIDENT_LAST_POLL_NAME = "poll-001082.json"
+INCIDENT_LAST_POLL_UPDATED_AT = 1793669698
+INCIDENT_HOST_BOOT_EPOCH = 1793670392
+INCIDENT_RULING = "RULING_L1_V1_R5.md"
+INCIDENT_EXPORTS_LISTING: tuple[str, ...] = (
+    "performance.json",
+    "performance.json.sha256",
+    "performance.json.complete",
+    "workload-started.json",
+    "workload-started.json.sha256",
+    "workload-started.json.complete",
+)
+EXPECTED_INCIDENT_KEYS: frozenset[str] = frozenset(
+    {
+        "schema",
+        "incident_id",
+        "namespace",
+        "science",
+        "registration_sha256",
+        "shard",
+        "compute_completion_attempt",
+        "classification",
+        "attempt_output_dir",
+        "attempt_manifest_sha256",
+        "manifest_commit",
+        "gpu",
+        "workers",
+        "hardware_json_sha256",
+        "last_poll",
+        "poll_count",
+        "supervisor_log",
+        "host_boot_epoch",
+        "sessions_evidence",
+        "exports_listing",
+        "world_outputs",
+        "ruling",
+        "ruling_sha256",
+    }
+)
 
 # Explicit allowlist of inert macOS filesystem metadata names ignored under exports/, output_dir/,
 # and ops/manifests/ directory scans. Every other dot-file (e.g. .tmp, .part) remains fail-closed.
@@ -812,6 +860,378 @@ def effective_shard_spec(
     return base
 
 
+def validate_host_interrupted_incident(
+    path: Path | None = None,
+    *,
+    expected_sha256: str | None = None,
+) -> dict:
+    """Validate the single-use frozen host-interrupted compute attempt incident for shard 11."""
+    target = INCIDENT_PATH if path is None else path
+    expected_sha = INCIDENT_SHA256 if expected_sha256 is None else expected_sha256
+    if target.is_symlink() or not target.is_file():
+        raise ValueError(f"missing or symlinked host-interrupted incident file: {target}")
+
+    pkg_dir = p.ROOT / "research/watch6_l1_confirm"
+    pkg_incidents = sorted(pkg_dir.glob("INCIDENT_*"))
+    if (
+        any(cand.is_symlink() for cand in pkg_incidents)
+        or len(pkg_incidents) != 1
+        or pkg_incidents[0].name != "INCIDENT_HOST_RESTART_01.json"
+    ):
+        raise ValueError(
+            "single-use incident mechanism violated: expected exactly one INCIDENT_* file in "
+            f"{pkg_dir}, found {[c.name for c in pkg_incidents]}"
+        )
+    resolved_target = target.resolve()
+    extra_sibling_incidents = [
+        cand
+        for cand in sorted(target.parent.glob("INCIDENT_*"))
+        if cand.is_symlink() or cand.resolve() != resolved_target
+    ]
+    if extra_sibling_incidents:
+        raise ValueError(
+            "single-use incident mechanism violated: multiple INCIDENT_* files in "
+            f"{target.parent}: {[c.name for c in extra_sibling_incidents]}"
+        )
+
+    actual_sha = digest(target)
+    if actual_sha != expected_sha:
+        raise ValueError(
+            f"host-interrupted incident SHA-256 mismatch: {actual_sha} != {expected_sha}"
+        )
+    try:
+        data = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"unreadable host-interrupted incident {target}: {exc}") from exc
+
+    spec = effective_shard_spec(INCIDENT_SHARD)
+    last_poll = data.get("last_poll") if isinstance(data, dict) else None
+    sup_log = data.get("supervisor_log") if isinstance(data, dict) else None
+    sess = data.get("sessions_evidence") if isinstance(data, dict) else None
+    if (
+        not isinstance(data, dict)
+        or set(data.keys()) != EXPECTED_INCIDENT_KEYS
+        or data.get("schema") != INCIDENT_SCHEMA
+        or data.get("incident_id") != INCIDENT_ID
+        or data.get("namespace") != p.NAMESPACE
+        or data.get("science") != p.identity()
+        or data.get("registration_sha256") != digest(p.registration())
+        or type(data.get("shard")) is not int
+        or data.get("shard") != INCIDENT_SHARD
+        or type(data.get("compute_completion_attempt")) is not int
+        or data.get("compute_completion_attempt") != 1
+        or data.get("classification") != "external_transport_compute"
+        or not isinstance(data.get("attempt_output_dir"), str)
+        or not Path(data["attempt_output_dir"]).is_absolute()
+        or not isinstance(data.get("attempt_manifest_sha256"), str)
+        or not re.fullmatch(r"[0-9a-f]{64}", data["attempt_manifest_sha256"])
+        or not isinstance(data.get("manifest_commit"), str)
+        or not re.fullmatch(r"[0-9a-f]{40}", data["manifest_commit"])
+        or data.get("gpu") != spec["gpu"]
+        or type(data.get("workers")) is not int
+        or data.get("workers") != spec["workers"]
+        or not isinstance(data.get("hardware_json_sha256"), str)
+        or not re.fullmatch(r"[0-9a-f]{64}", data["hardware_json_sha256"])
+        or not isinstance(last_poll, dict)
+        or set(last_poll.keys()) != {"name", "sha256", "state_status", "updated_at"}
+        or last_poll.get("name") != INCIDENT_LAST_POLL_NAME
+        or not isinstance(last_poll.get("sha256"), str)
+        or not re.fullmatch(r"[0-9a-f]{64}", last_poll["sha256"])
+        or last_poll.get("state_status") != "running"
+        or type(last_poll.get("updated_at")) is not int
+        or last_poll.get("updated_at") != INCIDENT_LAST_POLL_UPDATED_AT
+        or type(data.get("poll_count")) is not int
+        or data.get("poll_count") != INCIDENT_POLL_COUNT
+        or not isinstance(sup_log, dict)
+        or set(sup_log.keys()) != {"path", "sha256", "lines", "last_write_pt"}
+        or not isinstance(sup_log.get("path"), str)
+        or not Path(sup_log["path"]).is_absolute()
+        or not isinstance(sup_log.get("sha256"), str)
+        or not re.fullmatch(r"[0-9a-f]{64}", sup_log["sha256"])
+        or type(sup_log.get("lines")) is not int
+        or sup_log.get("lines") != INCIDENT_POLL_COUNT
+        or not isinstance(sup_log.get("last_write_pt"), str)
+        or not sup_log["last_write_pt"].strip()
+        or type(data.get("host_boot_epoch")) is not int
+        or data.get("host_boot_epoch") != INCIDENT_HOST_BOOT_EPOCH
+        or not isinstance(sess, dict)
+        or set(sess.keys()) != {"captured_pt", "command", "output_sha256", "output_text"}
+        or not isinstance(sess.get("captured_pt"), str)
+        or not sess["captured_pt"].strip()
+        or sess.get("command") != "colab sessions"
+        or not isinstance(sess.get("output_text"), str)
+        or not isinstance(sess.get("output_sha256"), str)
+        or sess.get("output_sha256")
+        != hashlib.sha256(sess["output_text"].encode("utf-8")).hexdigest()
+        or not isinstance(data.get("exports_listing"), list)
+        or len(data["exports_listing"]) != len(INCIDENT_EXPORTS_LISTING)
+        or sorted(data["exports_listing"]) != sorted(INCIDENT_EXPORTS_LISTING)
+        or type(data.get("world_outputs")) is not int
+        or data.get("world_outputs") != 0
+        or data.get("ruling") != INCIDENT_RULING
+        or not isinstance(data.get("ruling_sha256"), str)
+        or not re.fullmatch(r"[0-9a-f]{64}", data["ruling_sha256"])
+    ):
+        raise ValueError(f"invalid host-interrupted incident payload: {target}")
+    return {**data, "sha256": actual_sha, "path": str(resolved_target)}
+
+
+def is_host_interrupted_compute_attempt(
+    attempt_dir: Path | None,
+    *,
+    incident_path: Path | None = None,
+    expected_incident_sha256: str | None = None,
+) -> bool:
+    """True iff attempt_dir matches every condition of the shard-11 host restart incident."""
+    if not isinstance(attempt_dir, Path) or attempt_dir.is_symlink() or not attempt_dir.is_dir():
+        return False
+    try:
+        incident = validate_host_interrupted_incident(
+            incident_path,
+            expected_sha256=expected_incident_sha256,
+        )
+    except ValueError:
+        return False
+
+    inc_out = Path(incident["attempt_output_dir"])
+    if inc_out.is_symlink():
+        return False
+    try:
+        resolved_attempt = attempt_dir.resolve(strict=True)
+        if resolved_attempt != inc_out.resolve(strict=True):
+            return False
+    except OSError:
+        return False
+
+    if any(attempt_dir.glob("scientific-fault*")) or not _audit_job_log_clean(attempt_dir):
+        return False
+
+    for forbidden in (
+        "receipt.json",
+        "receipt.json.sha256",
+        "receipt.json.complete",
+        "terminal.json",
+        "terminal.json.sha256",
+        "terminal.json.complete",
+        "state.json",
+        "state.json.sha256",
+        "state.json.complete",
+    ):
+        cand = attempt_dir / forbidden
+        if cand.exists() or cand.is_symlink():
+            return False
+
+    hw_path = attempt_dir / "hardware.json"
+    if hw_path.is_symlink() or not hw_path.is_file():
+        return False
+    if digest(hw_path) != incident["hardware_json_sha256"]:
+        return False
+    try:
+        hw_data = json.loads(hw_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    if not isinstance(hw_data, dict) or hw_data.get("ready") is not True:
+        return False
+
+    polls_clean, poll_count = _audit_poll_files(attempt_dir)
+    if not polls_clean or poll_count != incident["poll_count"] or poll_count != INCIDENT_POLL_COUNT:
+        return False
+    poll_paths = sorted(attempt_dir.glob("poll-*.json"))
+    if len(poll_paths) != INCIDENT_POLL_COUNT:
+        return False
+    last_poll_path = poll_paths[-1]
+    last_poll_spec = incident["last_poll"]
+    if (
+        last_poll_path.name != last_poll_spec["name"]
+        or digest(last_poll_path) != last_poll_spec["sha256"]
+    ):
+        return False
+    try:
+        last_poll_data = json.loads(last_poll_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    last_state = last_poll_data.get("state") if isinstance(last_poll_data, dict) else None
+    raw_updated = last_state.get("updated_at") if isinstance(last_state, dict) else None
+    if (
+        not isinstance(last_poll_data, dict)
+        or last_poll_data.get("terminal") is not None
+        or not isinstance(last_state, dict)
+        or last_state.get("status") != last_poll_spec["state_status"]
+        or last_state.get("status") != "running"
+        or isinstance(raw_updated, bool)
+        or not isinstance(raw_updated, (int, float))
+        or not math.isfinite(raw_updated)
+        or int(raw_updated) != last_poll_spec["updated_at"]
+    ):
+        return False
+
+    sup_spec = incident["supervisor_log"]
+    sup_path = Path(sup_spec["path"])
+    if sup_path.is_symlink() or not sup_path.is_file():
+        return False
+    if digest(sup_path) != sup_spec["sha256"]:
+        return False
+    try:
+        sup_text = sup_path.read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        return False
+    if (
+        len(sup_text.splitlines()) != sup_spec["lines"]
+        or sup_spec["lines"] != INCIDENT_POLL_COUNT
+        or "EXIT" in sup_text
+        or "SCIENTIFIC_FAULT" in sup_text
+        or "Traceback" in sup_text
+        or "Timeout (0:15:00)" in sup_text
+        or has_non_transport_fault(sup_text)
+    ):
+        return False
+
+    exports_dir = attempt_dir / "exports"
+    if exports_dir.is_symlink() or not exports_dir.is_dir():
+        return False
+    efficacy_dir = exports_dir / "efficacy"
+    if efficacy_dir.exists() or efficacy_dir.is_symlink():
+        return False
+    export_names: list[str] = []
+    for entry in sorted(exports_dir.iterdir()):
+        if entry.is_symlink():
+            return False
+        if is_inert_macos_metadata(entry, root=exports_dir):
+            continue
+        if not entry.is_file():
+            return False
+        export_names.append(entry.name)
+    if len(export_names) != len(INCIDENT_EXPORTS_LISTING) or sorted(export_names) != sorted(
+        incident["exports_listing"]
+    ):
+        return False
+
+    for dirpath, dirnames, filenames in os.walk(attempt_dir, followlinks=False):
+        cur_dir = Path(dirpath)
+        for dname in dirnames:
+            dpath = cur_dir / dname
+            if dpath.is_symlink() or dname == "efficacy" or WORLD_NAME_RE.fullmatch(dname):
+                return False
+        for fname in filenames:
+            fpath = cur_dir / fname
+            if fpath.is_symlink() or fname == "efficacy" or WORLD_NAME_RE.fullmatch(fname):
+                return False
+
+    mf_path = attempt_dir / "manifest.json"
+    if mf_path.is_symlink() or not mf_path.is_file():
+        return False
+    if digest(mf_path) != incident["attempt_manifest_sha256"]:
+        return False
+    parent_mf_path = attempt_dir.parent / "manifest.json"
+    if parent_mf_path.exists() or parent_mf_path.is_symlink():
+        if (
+            parent_mf_path.is_symlink()
+            or not parent_mf_path.is_file()
+            or digest(parent_mf_path) != incident["attempt_manifest_sha256"]
+        ):
+            return False
+    try:
+        mf = json.loads(mf_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    if not isinstance(mf, dict):
+        return False
+
+    spec = effective_shard_spec(INCIDENT_SHARD)
+    req = mf.get("requirements", {})
+    env = mf.get("env", {})
+    binding = mf.get("watch6_l1_v1", {})
+    try:
+        mf_out_resolved = Path(str(mf.get("output_dir") or "")).resolve(strict=True)
+        mf_shard = int(env.get("WATCH6_SHARD", -1))
+        mf_shards = int(env.get("WATCH6_SHARDS", -1))
+        mf_workers = int(env.get("WATCH6_WORKERS", -1))
+    except (OSError, TypeError, ValueError):
+        return False
+
+    if (
+        mf.get("commit") != incident["manifest_commit"]
+        or mf_out_resolved != resolved_attempt
+        or not isinstance(req, dict)
+        or req.get("gpu") != incident["gpu"]
+        or req.get("gpu") != spec["gpu"]
+        or req.get("allowed_gpus") != [spec["gpu"]]
+        or not isinstance(env, dict)
+        or env.get("WATCH6_FIXTURE") != "0"
+        or mf_shards != p.SHARDS
+        or mf_shard != incident["shard"]
+        or mf_shard != INCIDENT_SHARD
+        or mf_workers != incident["workers"]
+        or mf_workers != spec["workers"]
+        or not isinstance(binding, dict)
+        or binding.get("namespace") != p.NAMESPACE
+        or binding.get("science") != p.identity()
+        or binding.get("primary_allocation") != p.allocation()
+        or binding.get("shard", INCIDENT_SHARD) != INCIDENT_SHARD
+        or binding.get("gpu", spec["gpu"]) != spec["gpu"]
+        or binding.get("workers", spec["workers"]) != spec["workers"]
+        or any(k in binding for k in ("reserve_allocation", "reserve_slots", "reserve_lineage"))
+    ):
+        return False
+
+    return True
+
+
+def resolve_host_interrupted_attempt_dir(
+    path: Path | None,
+    *,
+    incident_path: Path | None = None,
+    expected_incident_sha256: str | None = None,
+) -> Path | None:
+    """Resolve a path (attempt_dir, attempt_dir/{receipt,manifest}.json, or incident file)
+    to the verified host-interrupted attempt directory iff it validates.
+    """
+    if not isinstance(path, Path) or path.is_symlink():
+        return None
+    try:
+        incident = validate_host_interrupted_incident(
+            incident_path,
+            expected_sha256=expected_incident_sha256,
+        )
+        inc_path = Path(incident["path"]).resolve(strict=True)
+        inc_out = Path(incident["attempt_output_dir"]).resolve(strict=True)
+    except (OSError, ValueError):
+        return None
+
+    candidate_dir: Path | None = None
+    if path.is_dir():
+        try:
+            if path.resolve(strict=True) == inc_out:
+                candidate_dir = inc_out
+        except OSError:
+            return None
+    elif path.is_file():
+        try:
+            resolved_file = path.resolve(strict=True)
+        except OSError:
+            return None
+        if resolved_file == inc_path or resolved_file == (inc_out / "manifest.json"):
+            candidate_dir = inc_out
+    elif (
+        path.name in ("receipt.json", "manifest.json")
+        and path.parent.is_dir()
+        and not path.parent.is_symlink()
+    ):
+        try:
+            if path.parent.resolve(strict=True) == inc_out:
+                candidate_dir = inc_out
+        except OSError:
+            return None
+
+    if candidate_dir is not None and is_host_interrupted_compute_attempt(
+        candidate_dir,
+        incident_path=incident_path,
+        expected_incident_sha256=expected_incident_sha256,
+    ):
+        return candidate_dir
+    return None
+
+
 def verify_prior_receipts_lineage(
     shard: int,
     prior_receipts: list[dict],
@@ -833,6 +1253,46 @@ def verify_prior_receipts_lineage(
     for entry in prior_receipts:
         if not isinstance(entry, dict):
             raise ValueError("malformed prior_receipts entry")
+        raw_ref = (
+            entry.get("receipt_path")
+            or entry.get("attempt_output_dir")
+            or entry.get("incident_path")
+            or ""
+        )
+        interrupted_dir = (
+            resolve_host_interrupted_attempt_dir(Path(raw_ref))
+            if isinstance(raw_ref, str) and raw_ref
+            else None
+        )
+        if interrupted_dir is not None:
+            if shard != INCIDENT_SHARD or interrupted_dir in seen_paths:
+                raise ValueError(
+                    f"duplicate or wrong-shard host-interrupted attempt in lineage: {raw_ref}"
+                )
+            seen_paths.add(interrupted_dir)
+            incident = validate_host_interrupted_incident()
+            if entry.get("classification") != "external_transport_compute":
+                raise ValueError(
+                    "host-interrupted prior attempt requires classification "
+                    f"external_transport_compute: {raw_ref}"
+                )
+            if entry.get("receipt_sha256") not in {
+                incident["sha256"],
+                incident["attempt_manifest_sha256"],
+            }:
+                raise ValueError(f"host-interrupted prior SHA-256 mismatch: {raw_ref}")
+            if "incident_id" in entry and entry.get("incident_id") != incident["incident_id"]:
+                raise ValueError(f"host-interrupted incident_id mismatch: {raw_ref}")
+            if "incident_sha256" in entry and entry.get("incident_sha256") != incident["sha256"]:
+                raise ValueError(f"host-interrupted incident_sha256 mismatch: {raw_ref}")
+            if (
+                "attempt_output_dir" in entry
+                and Path(str(entry["attempt_output_dir"])).resolve() != interrupted_dir
+            ):
+                raise ValueError(f"host-interrupted attempt_output_dir mismatch: {raw_ref}")
+            actual_compute += 1
+            continue
+
         r_path = Path(entry.get("receipt_path", ""))
         if not r_path.is_absolute() or r_path.is_symlink() or not r_path.is_file():
             raise ValueError(f"missing or symlinked prior receipt in lineage: {r_path}")

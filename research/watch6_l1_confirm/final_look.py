@@ -37,9 +37,11 @@ from research.watch6_l1_confirm.admission import (
     effective_shard_spec,
     has_non_inert_entries,
     is_external_transport_compute_failure,
+    is_host_interrupted_compute_attempt,
     is_inert_macos_metadata,
     is_prestart_transport_failure,
     validate_hardware_amendment,
+    validate_host_interrupted_incident,
 )
 from research.watch6_l1_confirm.analyze import DEFAULT_ALPHA, analyze_verified_union
 from research.watch6_l1_confirm.mirror import validate as validate_mirror
@@ -263,6 +265,8 @@ def _verify_attempt_mac_mirror(
 
 
 def _classify_attempt(attempt_dir: Path, receipt: dict) -> str:
+    if receipt.get("host_interrupted") is True and is_host_interrupted_compute_attempt(attempt_dir):
+        return "external_transport_compute"
     if receipt.get("status") == "PASS":
         terminal = receipt.get("terminal")
         if (
@@ -293,6 +297,27 @@ def _verify_attempt_stop_and_hashes(attempt_dir: Path) -> tuple[dict, dict, Path
         raise ValueError(f"INVALID_OR_INCOMPLETE: symlinked attempt_dir refused: {attempt_dir}")
     receipt_path = attempt_dir / "receipt.json"
     if receipt_path.is_symlink() or not receipt_path.is_file():
+        if not receipt_path.is_symlink() and is_host_interrupted_compute_attempt(attempt_dir):
+            incident = validate_host_interrupted_incident()
+            exec_manifest_path = attempt_dir / "manifest.json"
+            exec_manifest = json.loads(exec_manifest_path.read_text(encoding="utf-8"))
+            synthetic_receipt = {
+                "status": "INCOMPLETE",
+                "host_interrupted": True,
+                "incident_id": incident["incident_id"],
+                "incident_sha256": incident["sha256"],
+                "manifest_sha256": incident["attempt_manifest_sha256"],
+                "job_id": exec_manifest.get("job_id"),
+                "commit": exec_manifest.get("commit"),
+                "exports": [],
+                "terminal": None,
+            }
+            return (
+                exec_manifest,
+                synthetic_receipt,
+                Path(incident["path"]).resolve(),
+                incident["sha256"],
+            )
         raise ValueError(
             f"INVALID_OR_INCOMPLETE: unfinished runtime (missing receipt.json): {attempt_dir}"
         )
@@ -338,6 +363,12 @@ def _verify_shard_lineage(
         )
 
     by_receipt_path = {att.receipt_path: att for att in attempts}
+    by_prior_ref: dict[Path, _ShardAttempt] = dict(by_receipt_path)
+    for att in attempts:
+        if att.receipt.get("host_interrupted") is True:
+            by_prior_ref[att.attempt_dir.resolve()] = att
+            by_prior_ref[(att.attempt_dir / "receipt.json").resolve()] = att
+            by_prior_ref[(att.attempt_dir / "manifest.json").resolve()] = att
     parent_of: dict[Path, Path | None] = {}
     recover_history_of: dict[Path, list[tuple[Path, str, str]]] = {}
 
@@ -440,20 +471,37 @@ def _verify_shard_lineage(
                         raise ValueError(
                             f"INVALID_OR_INCOMPLETE: malformed prior_receipts on shard {shard}"
                         )
-                    pr_path = Path(entry.get("receipt_path", "")).resolve()
+                    raw_pr_path = (
+                        entry.get("receipt_path")
+                        or entry.get("attempt_output_dir")
+                        or entry.get("incident_path")
+                        or ""
+                    )
+                    pr_path = Path(raw_pr_path).resolve() if raw_pr_path else Path()
                     pr_sha = str(entry.get("receipt_sha256", ""))
                     pr_cls = str(entry.get("classification", ""))
-                    pr_att = by_receipt_path.get(pr_path)
-                    if (
-                        pr_att is None
-                        or pr_att.receipt_sha256 != pr_sha
-                        or pr_att.classification != pr_cls
-                    ):
+                    pr_att = by_prior_ref.get(pr_path)
+                    if pr_att is None or pr_att.classification != pr_cls:
                         raise ValueError(
                             f"INVALID_OR_INCOMPLETE: missing or mismatched prior receipt {pr_path} "
                             f"in shard {shard} lineage"
                         )
-                    history.append((pr_path, pr_sha, pr_cls))
+                    if pr_att.receipt.get("host_interrupted") is True:
+                        allowed_shas = {
+                            pr_att.receipt_sha256,
+                            str(pr_att.receipt.get("manifest_sha256", "")),
+                        }
+                        if pr_sha not in allowed_shas:
+                            raise ValueError(
+                                "INVALID_OR_INCOMPLETE: mismatched host-interrupted prior sha "
+                                f"{pr_sha} in shard {shard} lineage"
+                            )
+                    elif pr_att.receipt_sha256 != pr_sha:
+                        raise ValueError(
+                            f"INVALID_OR_INCOMPLETE: missing or mismatched prior receipt {pr_path} "
+                            f"in shard {shard} lineage"
+                        )
+                    history.append((pr_att.receipt_path, pr_att.receipt_sha256, pr_cls))
                 parent_of[att.receipt_path] = history[-1][0]
                 recover_history_of[att.receipt_path] = history
 
@@ -539,6 +587,7 @@ def run_final_look(
     with pre_outcome_open_guard():
         ruling_receipt = validate_ruling_receipt(ruling_json)
         hardware_amendment = validate_hardware_amendment()
+        host_incident = validate_host_interrupted_incident()
 
         ops_dir = ops_dir.resolve(strict=True)
         manifests_dir = ops_dir / "manifests"
@@ -551,6 +600,7 @@ def run_final_look(
         shard_attempts: dict[int, list[_ShardAttempt]] = {s: [] for s in range(p.SHARDS)}
         unallocated_manifests: set[Path] = set()
         seen_output_dirs: set[Path] = set()
+        seen_host_interrupted_dirs: list[Path] = []
         ignored_foreign_manifest_symlinks: list[str] = []
         mirror_cache: dict[str, str] = {}
         verified_mirror_shas: set[str] = set()
@@ -703,6 +753,17 @@ def run_final_look(
                     )
 
                 classification = _classify_attempt(attempt_dir, receipt)
+                if receipt.get("host_interrupted") is True:
+                    if (
+                        canary.is_canary(exec_manifest)
+                        or exec_manifest.get("env", {}).get("WATCH6_FIXTURE") == "1"
+                        or len(seen_host_interrupted_dirs) >= 1
+                    ):
+                        raise ValueError(
+                            "INVALID_OR_INCOMPLETE: host-interrupted incident is single-use "
+                            f"on main shard {host_incident['shard']}: {attempt_dir}"
+                        )
+                    seen_host_interrupted_dirs.append(attempt_dir.resolve())
                 if (
                     canary.is_canary(exec_manifest)
                     or exec_manifest.get("env", {}).get("WATCH6_FIXTURE") == "1"
@@ -790,7 +851,11 @@ def run_final_look(
                 )
             passing_canaries_by_gpu[gpu] = passing
 
-        main_receipts = [att.receipt_path for att in ordered_main_attempts]
+        main_receipts = [
+            att.receipt_path
+            for att in ordered_main_attempts
+            if not att.receipt.get("host_interrupted")
+        ]
         unit_paths: list[Path] = []
         seen_slots: dict[int, Path] = {}
 
@@ -882,6 +947,16 @@ def run_final_look(
                 f"missing shards {missing_by_shard} (no outcome look taken)"
             )
 
+        incident_summary = {
+            "incident_id": host_incident["incident_id"],
+            "id": host_incident["incident_id"],
+            "sha256": host_incident["sha256"],
+            "attempt_output_dir": host_incident["attempt_output_dir"],
+            "attempt_dir": host_incident["attempt_output_dir"],
+            "shard": host_incident["shard"],
+            "compute_completion_attempt": host_incident["compute_completion_attempt"],
+            "classification": host_incident["classification"],
+        }
         accounting_cert = {
             "schema": "watch6-l1-pre-outcome-accounting/v1",
             "status": "PRE_OUTCOME_ACCOUNTING_PASSED",
@@ -901,6 +976,8 @@ def run_final_look(
                 "gpu": hardware_amendment["gpu"],
                 "workers": hardware_amendment["workers"],
             },
+            "host_interrupted_incident": incident_summary,
+            "incident": incident_summary,
             "outcome_files_opened_during_audit": 0,
         }
         accounting_path = out_dir / "pre-outcome-accounting.json"
@@ -916,6 +993,8 @@ def run_final_look(
     decision["total_main_attempts"] = len(ordered_main_attempts)
     decision["final_ledger_sha256"] = digest(ledger_path)
     decision["hardware_amendment"] = accounting_cert["hardware_amendment"]
+    decision["host_interrupted_incident"] = accounting_cert["host_interrupted_incident"]
+    decision["incident"] = accounting_cert["incident"]
     publish_json(out_dir / "l1-confirm-decision.json", decision)
     return decision
 
