@@ -192,6 +192,9 @@ def test_science_identity_decoupled_from_ops_and_colab_cli() -> None:
     assert "research/watch6_l1_confirm/finalize.py" not in sci
     assert "research/watch6_l1_confirm/final_look.py" not in sci
     assert "research/watch6_l1_confirm/AMENDMENT_L4_REASSIGN_01.json" not in sci
+    assert "research/watch6_l1_confirm/INCIDENT_HOST_RESTART_01.json" not in sci
+    assert p.MAX_COMPUTE_COMPLETIONS_PER_SHARD == 2
+    assert p.identity() == "57ec544fe45f7a8a876dbc9363048468b63358e224b2ee8e11dff41401dcfbd3"
 
 
 def test_analyze_fixed_sequence_gates_and_parameterized_alpha() -> None:
@@ -1864,3 +1867,589 @@ def test_hardware_reassignment_amendment_l4_shards_08_09_10(
             out_dir=tmp_path / "bad-amend-final",
             ruling_json=ruling_json,
         )
+
+
+def test_host_interrupted_incident_accepted_and_refusals(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Test synthetic shard-11 host-interrupted incident acceptance, recovery, and refusals."""
+    import hashlib
+
+    from research.watch6_l1_confirm import recover
+
+    # Build a synthetic fixture tree + synthetic incident file (NOT the real ops/ tree).
+    incident_dir = tmp_path / "incident_cfg"
+    incident_dir.mkdir(parents=True)
+    fixture_incident_path = incident_dir / "INCIDENT_HOST_RESTART_01.json"
+
+    ops_dir = tmp_path / "ops"
+    mf_dir = ops_dir / "manifests"
+    mf_dir.mkdir(parents=True)
+    meta_input = _make_metadata_archive(tmp_path / "meta-inc")
+    meta_inputs_field = [{k: meta_input[k] for k in ("path", "dest", "sha256")}]
+
+    ruling_md = tmp_path / "RULING_L1_V1.md"
+    ruling_md.write_text("# Ruling\nStatus: RATIFIED\nVerdict: APPROVE\n", encoding="utf-8")
+    ruling_json = tmp_path / "ruling-l1-v1.json"
+    ratify.record_ruling(ruling_md, ruling_json, judge="Astra")
+
+    # Passing A100 and L4 canary receipts.
+    canary_recs: dict[str, Path] = {}
+    for gpu, c_shard in (("A100", 0), ("L4", 12)):
+        c_out = tmp_path / f"canary-{gpu.lower()}-out"
+        (c_out / "exports").mkdir(parents=True)
+        publish_json(
+            c_out / "exports/performance.json",
+            {
+                "schema": "watch6-l1-canary-performance/v1",
+                "science": p.identity(),
+                "fixture": True,
+                "frames_executed": [300],
+                "native_v8": {
+                    "kernel_rows": 9000,
+                    "stock_rows": 0,
+                    "fallback_rows": 0,
+                    "noncandidate_rows": 0,
+                },
+            },
+        )
+        c_mf = {
+            "job_id": f"watch6-l1-canary-{gpu.lower()}",
+            "commit": "1873b9025d5a563dcefaf7fcb3cda1e4e6e25306",
+            "output_dir": str(c_out),
+            "inputs": meta_inputs_field,
+            "requirements": {"gpu": gpu, "allowed_gpus": [gpu], "min_vcpu": 12},
+            "canary": {"schema": canary.SCHEMA, "mode": "probe", "family": "fam"},
+            "env": {
+                "WATCH6_FIXTURE": "1",
+                "WATCH6_SHARDS": str(p.SHARDS),
+                "WATCH6_SHARD": str(c_shard),
+                "WATCH6_WORKERS": str(p.shard_spec(c_shard)["workers"]),
+                "WATCH6_METADATA_SHA256": meta_input["sha256"],
+            },
+            "watch6_l1_v1": {
+                "namespace": p.NAMESPACE,
+                "science": p.identity(),
+                "primary_allocation": p.allocation(),
+            },
+        }
+        (c_out / "manifest.json").write_text(json.dumps(c_mf), encoding="utf-8")
+        c_rec = {
+            "job_id": c_mf["job_id"],
+            "commit": c_mf["commit"],
+            "manifest_sha256": digest(c_out / "manifest.json"),
+            "status": "PASS",
+            "endpoint": f"m-s-canary-{gpu.lower()}",
+            "stop_verified": True,
+            "cleanup_error": None,
+            "failure_class": None,
+            "error": None,
+            "terminal": {"returncode": 0, "reason": None, "error": None},
+            "exports": [],
+        }
+        c_rec_path = c_out / "receipt.json"
+        c_rec_path.write_text(json.dumps(c_rec), encoding="utf-8")
+        (mf_dir / f"canary-{gpu.lower()}.json").write_text(json.dumps(c_mf), encoding="utf-8")
+        canary_recs[gpu] = c_rec_path
+
+    panel = _synthetic_panel()
+    alloc = p.allocation()
+
+    # Shard 11 attempt 0: prestart failure (kernel-creation GuardError before ready/hardware.json).
+    s11_att0 = tmp_path / "shard-11-att0"
+    (s11_att0 / "staging").mkdir(parents=True)
+    for fname in admission.ALLOWED_PREALLOC_STAGING_FILES:
+        (s11_att0 / "staging" / fname).write_bytes(f"staged:{fname}".encode("utf-8"))
+    (s11_att0 / "warmup-measurement.json").write_text(
+        '{"status": "INCOMPLETE", "error": "GuardError: kernel creation already attempted"}\n',
+        encoding="utf-8",
+    )
+    s11_spec = admission.effective_shard_spec(11)
+    s11_att0_mf = {
+        "job_id": "watch6-l1v1-shard-11",
+        "commit": "1873b9025d5a563dcefaf7fcb3cda1e4e6e25306",
+        "output_dir": str(s11_att0),
+        "inputs": meta_inputs_field,
+        "requirements": {"gpu": "A100", "allowed_gpus": ["A100"], "min_vcpu": 12},
+        "env": {
+            "WATCH6_FIXTURE": "0",
+            "WATCH6_SHARDS": str(p.SHARDS),
+            "WATCH6_SHARD": "11",
+            "WATCH6_WORKERS": str(s11_spec["workers"]),
+            "WATCH6_METADATA_SHA256": meta_input["sha256"],
+        },
+        "watch6_l1_v1": {
+            "namespace": p.NAMESPACE,
+            "science": p.identity(),
+            "primary_allocation": alloc,
+            "prestart_retries_used": 0,
+            "compute_completion_attempt": 0,
+            "total_dispatches_for_shard": 1,
+            "prior_receipts": [],
+        },
+    }
+    (s11_att0 / "manifest.json").write_text(json.dumps(s11_att0_mf), encoding="utf-8")
+    s11_att0_rec = {
+        "job_id": s11_att0_mf["job_id"],
+        "commit": s11_att0_mf["commit"],
+        "manifest_sha256": digest(s11_att0 / "manifest.json"),
+        "status": "INCOMPLETE",
+        "endpoint": "m-s-s11-att0",
+        "stop_verified": True,
+        "cleanup_error": None,
+        "failure_class": "SUPERVISOR",
+        "error": (
+            "Refused('colab exec failed (1):\\n"
+            "GuardError: kernel creation already attempted; refusing uncertain retry\\n')"
+        ),
+        "cli_calls": [{"command": "exec", "status": "failed"}],
+        "terminal": None,
+        "exports": [],
+    }
+    (s11_att0 / "receipt.json").write_text(json.dumps(s11_att0_rec), encoding="utf-8")
+    (mf_dir / "watch6-l1v1-shard-11.json").write_text(json.dumps(s11_att0_mf), encoding="utf-8")
+
+    # Shard 11 attempt 1: receipt-less host-interrupted compute completion attempt #1 of 2.
+    s11_retry_root = ops_dir / "auto-retry/watch6-l1v1-shard-11-retry-synth"
+    s11_att1 = s11_retry_root / "output"
+    (s11_att1 / "exports").mkdir(parents=True)
+    (s11_att1 / "staging").mkdir(parents=True)
+    for fname in admission.ALLOWED_PREALLOC_STAGING_FILES:
+        (s11_att1 / "staging" / fname).write_bytes(f"staged:{fname}".encode("utf-8"))
+    publish_json(s11_att1 / "exports/performance.json", {"frames_executed": [300]})
+    publish_json(s11_att1 / "exports/workload-started.json", {"started": True})
+    (s11_att1 / "hardware.json").write_text(
+        '{"cpu_count": 12, "gpu": "A100", "ready": true}\n',
+        encoding="utf-8",
+    )
+
+    # Write 1083 contiguous poll files poll-000000.json .. poll-001082.json.
+    for i in range(admission.INCIDENT_POLL_COUNT):
+        poll_payload = {
+            "poll": i,
+            "state": {
+                "status": "running",
+                "returncode": None,
+                "reason": None,
+                "error": None,
+                "updated_at": (
+                    float(admission.INCIDENT_LAST_POLL_UPDATED_AT)
+                    if i == admission.INCIDENT_POLL_COUNT - 1
+                    else float(admission.INCIDENT_LAST_POLL_UPDATED_AT - 1000 + i)
+                ),
+            },
+            "terminal": None,
+        }
+        (s11_att1 / f"poll-{i:06d}.json").write_text(
+            json.dumps(poll_payload),
+            encoding="utf-8",
+        )
+
+    s11_att1_mf = {
+        **s11_att0_mf,
+        "job_id": "watch6-l1v1-shard-11-retry-synth",
+        "completion_attempt": 1,
+        "output_dir": str(s11_att1),
+    }
+    publish_json(s11_retry_root / "manifest.json", s11_att1_mf)
+    s11_att1_mf_text = (s11_retry_root / "manifest.json").read_text(encoding="utf-8")
+    (s11_att1 / "manifest.json").write_text(s11_att1_mf_text, encoding="utf-8")
+    (mf_dir / "watch6-l1v1-shard-11-retry-synth.json").write_text(
+        s11_att1_mf_text,
+        encoding="utf-8",
+    )
+    retry_json_payload = {
+        "schema": "ops-zero-export-retry/v1",
+        "completion_attempt": 1,
+        "max_completion_attempts": 1,
+        "prior_manifest": {
+            "path": str((mf_dir / "watch6-l1v1-shard-11.json").resolve()),
+            "sha256": digest(mf_dir / "watch6-l1v1-shard-11.json"),
+        },
+        "prior_receipt": {
+            "path": str((s11_att0 / "receipt.json").resolve()),
+            "sha256": digest(s11_att0 / "receipt.json"),
+        },
+        "manifest_sha256": digest(s11_att1 / "manifest.json"),
+        "unallocated_proof": None,
+        "ledger_action": "preserve original uploaded ledger; zero new exports",
+    }
+    publish_json(s11_retry_root / "RETRY.json", retry_json_payload)
+
+    sup_log_path = ops_dir / "logs/watch6-l1v1-shard-11-retry-synth.log"
+    sup_log_path.parent.mkdir(parents=True)
+    sup_log_path.write_text(
+        "".join(f'{{"event": "poll", "poll": {i}}}\n' for i in range(1083)),
+        encoding="utf-8",
+    )
+
+    sessions_out_text = "No active sessions.\n"
+    fixture_incident = {
+        "schema": admission.INCIDENT_SCHEMA,
+        "incident_id": admission.INCIDENT_ID,
+        "namespace": p.NAMESPACE,
+        "science": p.identity(),
+        "registration_sha256": digest(p.registration()),
+        "shard": 11,
+        "compute_completion_attempt": 1,
+        "classification": "external_transport_compute",
+        "attempt_output_dir": str(s11_att1.resolve()),
+        "attempt_manifest_sha256": digest(s11_att1 / "manifest.json"),
+        "manifest_commit": "1873b9025d5a563dcefaf7fcb3cda1e4e6e25306",
+        "gpu": "A100",
+        "workers": 6,
+        "hardware_json_sha256": digest(s11_att1 / "hardware.json"),
+        "last_poll": {
+            "name": "poll-001082.json",
+            "sha256": digest(s11_att1 / "poll-001082.json"),
+            "state_status": "running",
+            "updated_at": admission.INCIDENT_LAST_POLL_UPDATED_AT,
+        },
+        "poll_count": admission.INCIDENT_POLL_COUNT,
+        "supervisor_log": {
+            "path": str(sup_log_path.resolve()),
+            "sha256": digest(sup_log_path),
+            "lines": 1083,
+            "last_write_pt": "2026-11-02T17:34:46",
+        },
+        "host_boot_epoch": admission.INCIDENT_HOST_BOOT_EPOCH,
+        "sessions_evidence": {
+            "captured_pt": "2026-11-02T18:05:00",
+            "command": "colab sessions",
+            "output_sha256": hashlib.sha256(sessions_out_text.encode("utf-8")).hexdigest(),
+            "output_text": sessions_out_text,
+        },
+        "exports_listing": list(admission.INCIDENT_EXPORTS_LISTING),
+        "world_outputs": 0,
+        "ruling": admission.INCIDENT_RULING,
+        "ruling_sha256": "78bcb2ff6f682ce73f422743acea1b8e06ce23fb1005bcedea034b17058dda5b",
+    }
+    fixture_incident_path.write_text(
+        json.dumps(fixture_incident, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    fixture_incident_sha = digest(fixture_incident_path)
+    monkeypatch.setattr(admission, "INCIDENT_PATH", fixture_incident_path)
+    monkeypatch.setattr(admission, "INCIDENT_SHA256", fixture_incident_sha)
+
+    # 1. Incident is accepted for the synthetic shard-11 receipt-less attempt:
+    assert admission.is_host_interrupted_compute_attempt(s11_att1) is True
+
+    # 2. Test recover.build_recovery_packet on shard 11 after attempt 0 + receipt-less attempt 1:
+    #    It must count 1 prestart + 1 compute failure (next attempt is completion #2 of 2).
+    monkeypatch.setattr(
+        "research.watch6_l1_confirm.prepare._require_published_pin", lambda _c: None
+    )
+    monkeypatch.setattr(canary, "check", lambda *_a, **_k: {"status": "PASS"})
+    monkeypatch.setattr(
+        admission,
+        "check_uploads",
+        lambda _m: {"status": "PASS", "upload_count": 1, "total_bytes": 1024},
+    )
+    benchmark_path = tmp_path / "benchmark.json"
+    publish_json(
+        benchmark_path,
+        {
+            "schema": "watch6-l1-mac-preflight/v1",
+            "status": "PASS",
+            "science": p.identity(),
+            "fixture": True,
+        },
+    )
+    mirror_path = tmp_path / "mac-mirror.json"
+    publish_json(
+        mirror_path,
+        {
+            "schema": mirror.SCHEMA,
+            "status": "PASS",
+            "platform": "macOS-test",
+            "namespace": p.NAMESPACE,
+            "science": p.identity(),
+            "fixture": True,
+            "seed": p.FIXTURE_SEEDS[0],
+            "horizon": p.HORIZON,
+            "total_mirrored_frames": p.HORIZON * len(p.ARMS),
+            "mirror_mismatches": 0,
+            "elapsed_seconds": 12.0,
+            "arms": {
+                arm: {
+                    "frames": p.HORIZON,
+                    "mirror_identity_frames": p.HORIZON,
+                    "mirror_mismatches": 0,
+                    "respawns_per_slot": [1, 1, 1, 1, 1, 1],
+                    "batches": 0 if arm == "bare" else 1200,
+                    "native_v8_kernel_rows": 0 if arm == "bare" else 90000,
+                    "wall_seconds": 4.0,
+                    "timing": {
+                        "main_seconds": 2.0,
+                        "search_seconds": 0.0 if arm == "bare" else 2.0,
+                    },
+                }
+                for arm in p.ARMS
+            },
+        },
+    )
+    costs_path = tmp_path / "costs.json"
+    publish_json(costs_path, costs.build_cost_report())
+
+    rec_out = tmp_path / "recover-s11"
+    rec_pkt = recover.build_recovery_packet(
+        prior_receipts_by_shard={11: [s11_att0 / "receipt.json", s11_att1]},
+        all_stopped_main_receipts=[s11_att0 / "receipt.json", s11_att1],
+        out_dir=rec_out,
+        benchmark=benchmark_path,
+        commit="1873b9025d5a563dcefaf7fcb3cda1e4e6e25306",
+        mirror_receipt=mirror_path,
+        empirical_costs=costs_path,
+        canary_receipts_by_gpu={"A100": canary_recs["A100"]},
+        pending_canary=False,
+    )
+    assert rec_pkt["shards"] == 18
+    rec_mf = json.loads((rec_out / "shard-11.json").read_text(encoding="utf-8"))
+    assert rec_mf["watch6_l1_v1"]["prestart_retries_used"] == 1
+    assert rec_mf["watch6_l1_v1"]["compute_completion_attempt"] == 1
+    assert rec_mf["watch6_l1_v1"]["total_dispatches_for_shard"] == 3
+    assert len(rec_mf["watch6_l1_v1"]["prior_receipts"]) == 2
+    assert rec_mf["watch6_l1_v1"]["prior_receipts"][0] == {
+        "receipt_path": str((s11_att0 / "receipt.json").resolve()),
+        "receipt_sha256": digest(s11_att0 / "receipt.json"),
+        "classification": "prestart",
+    }
+    assert rec_mf["watch6_l1_v1"]["prior_receipts"][1] == {
+        "receipt_path": str(fixture_incident_path.resolve()),
+        "receipt_sha256": fixture_incident_sha,
+        "classification": "external_transport_compute",
+        "incident_id": admission.INCIDENT_ID,
+        "incident_sha256": fixture_incident_sha,
+        "attempt_output_dir": str(s11_att1.resolve()),
+    }
+
+    # 3. Complete all 18 shards (with shard 11 finishing on completion #2 of 2) and run final_look:
+    for shard in range(p.SHARDS):
+        spec = admission.effective_shard_spec(shard)
+        s_out = tmp_path / f"shard-{shard:02d}-pass"
+        eff_dir = s_out / "exports/efficacy"
+        eff_dir.mkdir(parents=True)
+        indices_to_write = spec["indices"]
+        exports_rows: list[dict] = []
+        for idx in indices_to_write:
+            w_path = eff_dir / f"world-{idx:02d}.json"
+            desc = publish_json(w_path, panel[idx])
+            publish_json(
+                w_path.with_suffix(".meta.json"),
+                {
+                    "namespace": p.NAMESPACE,
+                    "science": p.identity(),
+                    "seed_kind": "primary",
+                    "allocation": alloc[idx],
+                    "fixture": False,
+                    "sha256": desc["sha256"],
+                    "size": desc["size"],
+                },
+            )
+            exports_rows.append(
+                {
+                    "path": f"efficacy/world-{idx:02d}.json",
+                    "sha256": desc["sha256"],
+                    "size": desc["size"],
+                }
+            )
+        if shard == 11:
+            s_mf = {
+                **rec_mf,
+                "output_dir": str(s_out),
+                "inputs": meta_inputs_field,
+                "env": {
+                    **rec_mf["env"],
+                    "WATCH6_METADATA_SHA256": meta_input["sha256"],
+                },
+            }
+        else:
+            w_bind = {
+                "namespace": p.NAMESPACE,
+                "science": p.identity(),
+                "primary_allocation": alloc,
+                "prestart_retries_used": 0,
+                "compute_completion_attempt": 0,
+                "total_dispatches_for_shard": 1,
+                "prior_receipts": [],
+            }
+            if "amendment_id" in spec:
+                w_bind["hardware_amendment_id"] = spec["amendment_id"]
+                w_bind["hardware_amendment_sha256"] = spec["amendment_sha256"]
+            s_mf = {
+                "job_id": f"watch6-l1v1-shard-{shard:02d}",
+                "commit": "1873b9025d5a563dcefaf7fcb3cda1e4e6e25306",
+                "output_dir": str(s_out),
+                "inputs": meta_inputs_field,
+                "requirements": {
+                    "gpu": spec["gpu"],
+                    "allowed_gpus": [spec["gpu"]],
+                    "min_vcpu": 12,
+                },
+                "env": {
+                    "WATCH6_FIXTURE": "0",
+                    "WATCH6_SHARDS": str(p.SHARDS),
+                    "WATCH6_SHARD": str(shard),
+                    "WATCH6_WORKERS": str(spec["workers"]),
+                    "WATCH6_METADATA_SHA256": meta_input["sha256"],
+                },
+                "watch6_l1_v1": w_bind,
+            }
+        (s_out / "manifest.json").write_text(json.dumps(s_mf), encoding="utf-8")
+        s_rec = {
+            "job_id": s_mf["job_id"],
+            "commit": s_mf["commit"],
+            "manifest_sha256": digest(s_out / "manifest.json"),
+            "status": "PASS",
+            "endpoint": f"m-s-shard-{shard:02d}",
+            "stop_verified": True,
+            "cleanup_error": None,
+            "failure_class": None,
+            "error": None,
+            "terminal": {"returncode": 0, "reason": None, "error": None},
+            "exports": exports_rows,
+        }
+        (s_out / "receipt.json").write_text(json.dumps(s_rec), encoding="utf-8")
+        (mf_dir / f"shard-{shard:02d}-pass.json").write_text(json.dumps(s_mf), encoding="utf-8")
+
+    decision = final_look.run_final_look(
+        ops_dir=ops_dir,
+        out_dir=tmp_path / "final-inc-ok",
+        ruling_json=ruling_json,
+    )
+    assert decision["verdict"] == "GO_L1_SUPERIOR"
+    assert decision["total_main_attempts"] == 20  # 18 PASS + s11 att0 + s11 host-interrupted att1
+    assert decision["incident"] == {
+        "incident_id": admission.INCIDENT_ID,
+        "id": admission.INCIDENT_ID,
+        "sha256": fixture_incident_sha,
+        "attempt_output_dir": str(s11_att1.resolve()),
+        "attempt_dir": str(s11_att1.resolve()),
+        "shard": 11,
+        "compute_completion_attempt": 1,
+        "classification": "external_transport_compute",
+    }
+    acct = json.loads((tmp_path / "final-inc-ok/pre-outcome-accounting.json").read_text("utf-8"))
+    assert acct["host_interrupted_incident"] == decision["incident"]
+    assert acct["incident"] == decision["incident"]
+
+    # 4. Refusal (a): A second receipt-less directory (or other shard) or second INCIDENT_* file.
+    second_receiptless = tmp_path / "second-receiptless"
+    second_receiptless.mkdir()
+    (second_receiptless / "manifest.json").write_text(s11_att1_mf_text, encoding="utf-8")
+    assert admission.is_host_interrupted_compute_attempt(second_receiptless) is False
+    second_mf = {**s11_att1_mf, "output_dir": str(second_receiptless)}
+    second_mf_path = mf_dir / "shard-11-second-receiptless.json"
+    second_mf_path.write_text(json.dumps(second_mf), encoding="utf-8")
+    with pytest.raises(ValueError, match=r"unfinished runtime \(missing receipt\.json\)"):
+        final_look.run_final_look(
+            ops_dir=ops_dir,
+            out_dir=tmp_path / "final-bad-second-dir",
+            ruling_json=ruling_json,
+        )
+    second_mf_path.unlink()
+
+    second_incident_file = incident_dir / "INCIDENT_HOST_RESTART_02.json"
+    second_incident_file.write_text("{}", encoding="utf-8")
+    assert admission.is_host_interrupted_compute_attempt(s11_att1) is False
+    with pytest.raises(ValueError, match="multiple INCIDENT_"):
+        admission.validate_host_interrupted_incident()
+    second_incident_file.unlink()
+    assert admission.is_host_interrupted_compute_attempt(s11_att1) is True
+
+    # 5. Refusal (b): Tampered incident file (without updating INCIDENT_SHA256).
+    orig_incident_bytes = fixture_incident_path.read_bytes()
+    tampered_incident = {**fixture_incident, "world_outputs": 1}
+    fixture_incident_path.write_text(json.dumps(tampered_incident), encoding="utf-8")
+    assert admission.is_host_interrupted_compute_attempt(s11_att1) is False
+    with pytest.raises(ValueError, match="SHA-256 mismatch"):
+        admission.validate_host_interrupted_incident()
+    with pytest.raises(ValueError, match="SHA-256 mismatch"):
+        final_look.run_final_look(
+            ops_dir=ops_dir,
+            out_dir=tmp_path / "final-bad-tampered-inc",
+            ruling_json=ruling_json,
+        )
+    fixture_incident_path.write_bytes(orig_incident_bytes)
+    assert admission.is_host_interrupted_compute_attempt(s11_att1) is True
+
+    # 6. Refusal (c): Extra file under exports/.
+    extra_export = s11_att1 / "exports/extra-file.txt"
+    extra_export.write_text("unexpected\n", encoding="utf-8")
+    assert admission.is_host_interrupted_compute_attempt(s11_att1) is False
+    with pytest.raises(ValueError, match=r"unfinished runtime \(missing receipt\.json\)"):
+        final_look.run_final_look(
+            ops_dir=ops_dir,
+            out_dir=tmp_path / "final-bad-extra-export",
+            ruling_json=ruling_json,
+        )
+    extra_export.unlink()
+    assert admission.is_host_interrupted_compute_attempt(s11_att1) is True
+
+    # 7. Refusal (d): Stray world-66.json under exports/.
+    (s11_att1 / "exports/efficacy").mkdir(parents=True)
+    stray_w66 = s11_att1 / "exports/efficacy/world-66.json"
+    stray_w66.write_text("{}", encoding="utf-8")
+    assert admission.is_host_interrupted_compute_attempt(s11_att1) is False
+    with pytest.raises(ValueError, match=r"unfinished runtime \(missing receipt\.json\)"):
+        final_look.run_final_look(
+            ops_dir=ops_dir,
+            out_dir=tmp_path / "final-bad-stray-w66",
+            ruling_json=ruling_json,
+        )
+    stray_w66.unlink()
+    (s11_att1 / "exports/efficacy").rmdir()
+    assert admission.is_host_interrupted_compute_attempt(s11_att1) is True
+
+    # 8. Refusal (e): Poll-count mismatch.
+    extra_poll = s11_att1 / "poll-001083.json"
+    extra_poll.write_text('{"poll": 1083, "state": {"status": "running"}}', encoding="utf-8")
+    assert admission.is_host_interrupted_compute_attempt(s11_att1) is False
+    with pytest.raises(ValueError, match=r"unfinished runtime \(missing receipt\.json\)"):
+        final_look.run_final_look(
+            ops_dir=ops_dir,
+            out_dir=tmp_path / "final-bad-poll-count",
+            ruling_json=ruling_json,
+        )
+    extra_poll.unlink()
+    assert admission.is_host_interrupted_compute_attempt(s11_att1) is True
+
+    # 9. Refusal (f): Supervisor log-sha mismatch.
+    orig_log_bytes = sup_log_path.read_bytes()
+    sup_log_path.write_bytes(orig_log_bytes + b'{"event": "extra"}\n')
+    assert admission.is_host_interrupted_compute_attempt(s11_att1) is False
+    with pytest.raises(ValueError, match=r"unfinished runtime \(missing receipt\.json\)"):
+        final_look.run_final_look(
+            ops_dir=ops_dir,
+            out_dir=tmp_path / "final-bad-log-sha",
+            ruling_json=ruling_json,
+        )
+    sup_log_path.write_bytes(orig_log_bytes)
+    assert admission.is_host_interrupted_compute_attempt(s11_att1) is True
+
+
+REAL_SHARD11_HOST_INTERRUPTED_DIR = Path(
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/auto-retry/"
+    "watch6-l1v1-shard-11-retry-1cf3c2c133/output"
+)
+REAL_SHARD11_SUPERVISOR_LOG = Path(
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/logs/"
+    "watch6-l1v1-shard-11-retry-1cf3c2c133.log"
+)
+
+
+@pytest.mark.skipif(
+    not (REAL_SHARD11_HOST_INTERRUPTED_DIR.is_dir() and REAL_SHARD11_SUPERVISOR_LOG.is_file()),
+    reason="real shard-11 host-interrupted attempt evidence not present on this machine",
+)
+def test_real_shard11_host_interrupted_attempt_validates_read_only() -> None:
+    """Read-only check that the real shard-11 attempt validates against INCIDENT_HOST_RESTART_01."""
+    inc = admission.validate_host_interrupted_incident()
+    assert inc["incident_id"] == admission.INCIDENT_ID
+    assert inc["sha256"] == admission.INCIDENT_SHA256
+    assert inc["shard"] == 11
+    assert inc["compute_completion_attempt"] == 1
+    assert inc["world_outputs"] == 0
+    assert admission.is_host_interrupted_compute_attempt(REAL_SHARD11_HOST_INTERRUPTED_DIR) is True
