@@ -580,6 +580,89 @@ def _prealloc_tree_clean(output_dir: Path) -> bool:
     return True
 
 
+SOURCE_DELIVERY_POLL_DEADLINE_ERROR = "Refused('deadline reached during telemetry recovery')"
+ALLOWED_STAGING_PHASE_FILES: frozenset[str] = ALLOWED_PREALLOC_FILES | frozenset(
+    {
+        "warmup-measurement.json",
+        "rate-calibration.json",
+        "upload-measurement.json",
+        "usage-allocated.json",
+    }
+)
+_RATE_CALIBRATION_SAMPLE_RE = re.compile(r"^rate-calibration-\d{3}\.json$")
+
+
+def _is_source_delivery_poll_deadline(receipt: dict, output_dir: Path, upload: dict | None) -> bool:
+    """True iff a supervisor poll_rpc deadline fired inside deliver_source, pre-ready.json."""
+    if (
+        receipt.get("failure_class") != "RPC_EXEC_POLL_TIMEOUT"
+        or receipt.get("error") != SOURCE_DELIVERY_POLL_DEADLINE_ERROR
+        or receipt.get("traceback") is not None
+        or receipt.get("last_traceback_line") is not None
+        or receipt.get("exports") != []
+        or receipt.get("terminal") is not None
+        or not isinstance(upload, dict)
+        or upload.get("staging_completed") is not False
+        or not isinstance(upload.get("source_delivery_seconds"), (int, float))
+        or isinstance(upload.get("source_delivery_seconds"), bool)
+        or upload["source_delivery_seconds"] <= 0
+    ):
+        return False
+    transfers = receipt.get("transfers")
+    if not isinstance(transfers, list) or not transfers:
+        return False
+    if any(not isinstance(t, dict) or t.get("status") != "verified" for t in transfers):
+        return False
+    failed_ops = [
+        op.get("operation")
+        for op in (receipt.get("control_operations") or [])
+        if isinstance(op, dict)
+        and op.get("status") != "completed"
+        and op.get("operation") != "renewal-heartbeat"
+    ]
+    if failed_ops not in (["source-fetch"], ["source-install_fallback"]):
+        return False
+    for name in (
+        "source-delivery.json",
+        "input-hashes.json",
+        "hardware.json",
+        "ready.json",
+        "terminal.json",
+        "job.log",
+        "supervisor.log",
+    ):
+        if (output_dir / name).exists() or (output_dir / name).is_symlink():
+            return False
+    # Fail-closed tree allowlist for the staging phase (mirrors _prealloc_tree_clean).
+    staging_dir = output_dir / "staging"
+    staging_files: set[str] = set()
+    for entry in output_dir.rglob("*"):
+        if entry.is_symlink():
+            return False
+        rel = entry.relative_to(output_dir)
+        if rel.parts[0] == "staging":
+            if entry == staging_dir and entry.is_dir():
+                continue
+            if (
+                len(rel.parts) != 2
+                or rel.name not in ALLOWED_PREALLOC_STAGING_FILES
+                or not entry.is_file()
+            ):
+                return False
+            staging_files.add(rel.name)
+            continue
+        if is_inert_macos_metadata(entry, root=output_dir):
+            continue
+        if len(rel.parts) != 1 or not entry.is_file():
+            return False
+        if (
+            rel.name not in ALLOWED_STAGING_PHASE_FILES
+            and _RATE_CALIBRATION_SAMPLE_RE.match(rel.name) is None
+        ):
+            return False
+    return staging_files == ALLOWED_PREALLOC_STAGING_FILES
+
+
 def is_prestart_transport_failure(receipt: dict, output_dir: Path | None) -> bool:
     """True iff positive supervisor evidence proves failure occurred before unit compute began."""
     if not isinstance(output_dir, Path) or output_dir.is_symlink() or not output_dir.is_dir():
@@ -702,6 +785,12 @@ def is_prestart_transport_failure(receipt: dict, output_dir: Path | None) -> boo
         if has_source_delivery or has_input_hashes:
             return False
         if failure_class == "UPLOAD_CAP":
+            return True
+        # Proof 5b (RULING_L1_V1_R8): supervisor-side poll_rpc deadline during
+        # source delivery (supervisor.py deliver_source -> poll_rpc "deadline reached
+        # during telemetry recovery"); failed before source-delivery.json,
+        # input-hashes.json, hardware.json and ready.json, so no unit could start.
+        if _is_source_delivery_poll_deadline(receipt, output_dir, upload):
             return True
         return _has_failed_transport_record(receipt) and has_verified_transport_traceback(receipt)
 

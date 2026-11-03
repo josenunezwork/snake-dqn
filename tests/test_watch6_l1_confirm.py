@@ -2809,3 +2809,389 @@ def test_real_l1v1_main01_prealloc_shards_validate_read_only() -> None:
 
         shard00_dir = REAL_L1V1_MAIN01_DIR / "output-shard-00"
         assert admission._prealloc_tree_clean(shard00_dir) is False
+
+
+def test_shard06_source_delivery_poll_deadline_shape_and_refusals(tmp_path: Path) -> None:
+    """Verify R8 Proof 5b post-allocation source-delivery poll_rpc deadline shape and refusals."""
+    shard06_dir = tmp_path / "output-shard-06"
+    shard06_staging = shard06_dir / "staging"
+    shard06_staging.mkdir(parents=True)
+    (shard06_dir / "manifest.json").write_text(
+        '{"job_id": "watch6-l1-shard-06-l1v1-main-01"}\n',
+        encoding="utf-8",
+    )
+    (shard06_dir / "accounting-baseline.json").write_text(
+        json.dumps(
+            {
+                "assignments": [],
+                "baseline_balance_units": 1813.64,
+                "baseline_rate_units_per_hour": 19.28,
+                "declared_other_rate_units_per_hour": 19.28,
+                "unaccounted_endpoints": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (shard06_dir / "warmup-measurement.json").write_text(
+        json.dumps({"attempts": 1, "elapsed_seconds": 3.432823915965855, "status": "PASS"}),
+        encoding="utf-8",
+    )
+    (shard06_dir / "rate-calibration.json").write_text(
+        json.dumps(
+            {
+                "informational_rate_units_per_hour": 6.73,
+                "interval_seconds": 5.0,
+                "observed_rate_units_per_hour": 6.73,
+                "priced_rate_units_per_hour": 8.0,
+                "required_stable_reads": 3,
+                "samples": [],
+                "stability_units_per_hour": 0.01,
+                "status": "PASS",
+                "timeout_seconds": 730.0,
+            }
+        ),
+        encoding="utf-8",
+    )
+    for sample_idx in range(3):
+        (shard06_dir / f"rate-calibration-{sample_idx:03d}.json").write_text(
+            json.dumps({"sample": sample_idx, "usage": {"assignments": 6.0, "rate": 26.01}}),
+            encoding="utf-8",
+        )
+    upload_payload = {
+        "elapsed_seconds": 177.84766391618177,
+        "input_transfer_seconds": {"input-metadata.tar.gz": 3.3123799171298742},
+        "setup_seconds": 2.7284136661328375,
+        "source_delivery_seconds": 165.0086683749687,
+        "staging_completed": False,
+        "transfer_seconds": 10.109884751029313,
+    }
+    upload_path = shard06_dir / "upload-measurement.json"
+    upload_path.write_text(json.dumps(upload_payload), encoding="utf-8")
+    (shard06_dir / "usage-allocated.json").write_text(
+        json.dumps({"assignments": 6.0, "balance": 1813.64, "rate": 26.01}),
+        encoding="utf-8",
+    )
+    for fname in (
+        "bootstrap.sh",
+        "release.py",
+        "runtime.py",
+        "schema-validation.json",
+        "source-plan.json",
+        "source.py",
+        "source.tar.gz",
+    ):
+        (shard06_staging / fname).write_bytes(f"staged:{fname}".encode("utf-8"))
+
+    transfers = [
+        {
+            "direction": "upload",
+            "remote": "/content/snake-cli/cc549514489f4e7fbb455d61e7181384/bootstrap.sh",
+            "sha256": "0e8c752b7b4602c79415a57a3e14145ba3b9cc1685e7cb3114a4f40cb95d70d4",
+            "size_bytes": 3244,
+            "status": "verified",
+        },
+        {
+            "direction": "upload",
+            "remote": "/content/snake-cli/cc549514489f4e7fbb455d61e7181384/source.py",
+            "sha256": "76dd3918da14090d412cfa51e3d9e7f82bb46290aa3f80262e8d723ebdc5080f",
+            "size_bytes": 14511,
+            "status": "verified",
+        },
+        {
+            "direction": "upload",
+            "remote": (
+                "/content/snake-cli/cc549514489f4e7fbb455d61e7181384/inputs/input-metadata.tar.gz"
+            ),
+            "sha256": "cb72db0f9beee6cffab272791cfe7879d27b4c2b3785e1cf4f867755416ac8ff",
+            "size_bytes": 299209,
+            "status": "verified",
+        },
+    ]
+    control_ops = [
+        {"operation": "PUT", "status": "completed", "elapsed_seconds": 1.29},
+        {"operation": "renewal-heartbeat", "status": "failed", "elapsed_seconds": 0.54},
+        {"operation": "renewal", "status": "completed", "elapsed_seconds": 2.31},
+        {"operation": "mkdir", "status": "completed", "elapsed_seconds": 2.73},
+        {"operation": "PUT", "status": "completed", "elapsed_seconds": 1.19},
+        {"operation": "verify", "status": "completed", "elapsed_seconds": 2.30},
+        {"operation": "PUT", "status": "completed", "elapsed_seconds": 1.00},
+        {"operation": "verify", "status": "completed", "elapsed_seconds": 2.30},
+        {"operation": "PUT", "status": "completed", "elapsed_seconds": 1.49},
+        {"operation": "renewal-heartbeat", "status": "completed", "elapsed_seconds": 1.00},
+        {"operation": "verify", "status": "completed", "elapsed_seconds": 1.82},
+        {"operation": "source-fetch", "status": "failed", "elapsed_seconds": 165.01},
+    ]
+    shard06_rec = {
+        "cleanup_error": None,
+        "cli_calls": [
+            {"attempt": 1, "command": "new", "operation": "control", "status": "completed"},
+            {"attempt": 1, "command": "exec", "operation": "source-fetch", "status": "failed"},
+            {"attempt": 1, "command": "stop", "operation": "control", "status": "completed"},
+            {"attempt": 1, "command": "sessions", "operation": "control", "status": "completed"},
+            {"attempt": 1, "command": "usage", "operation": "control", "status": "completed"},
+        ],
+        "commit": "1873b9025d5a563dcefaf7fcb3cda1e4e6e25306",
+        "contents_transfers": [],
+        "control_operations": control_ops,
+        "elapsed_seconds": 209.32530329190195,
+        "endpoint": "gpu-a100-s-ass1c0-1slz54hp3kb8k",
+        "error": "Refused('deadline reached during telemetry recovery')",
+        "exports": [],
+        "failure_class": "RPC_EXEC_POLL_TIMEOUT",
+        "job_id": "watch6-l1-shard-06-l1v1-main-01",
+        "manifest_sha256": digest(shard06_dir / "manifest.json"),
+        "status": "INCOMPLETE",
+        "stop_verified": True,
+        "terminal": None,
+        "transfers": transfers,
+    }
+    (shard06_dir / "receipt.json").write_text(json.dumps(shard06_rec), encoding="utf-8")
+
+    # (a) Exact §1.3 shape classifies as prestart (and not compute):
+    assert admission.is_prestart_transport_failure(shard06_rec, shard06_dir) is True
+    assert admission.is_external_transport_compute_failure(shard06_rec, shard06_dir) is False
+
+    # (b.1) error differing by one character -> False:
+    assert (
+        admission.is_prestart_transport_failure(
+            {**shard06_rec, "error": "Refused('deadline reached during telemetry recoverz')"},
+            shard06_dir,
+        )
+        is False
+    )
+
+    # (b.2) failure_class TRANSPORT_TIMEOUT -> False:
+    assert (
+        admission.is_prestart_transport_failure(
+            {**shard06_rec, "failure_class": "TRANSPORT_TIMEOUT"},
+            shard06_dir,
+        )
+        is False
+    )
+
+    # (b.3) traceback set to any string (or last_traceback_line set) -> False:
+    assert (
+        admission.is_prestart_transport_failure(
+            {**shard06_rec, "traceback": "Traceback (most recent call last):\nTimeoutError\n"},
+            shard06_dir,
+        )
+        is False
+    )
+    assert (
+        admission.is_prestart_transport_failure(
+            {**shard06_rec, "last_traceback_line": "TimeoutError: deadline"},
+            shard06_dir,
+        )
+        is False
+    )
+
+    # (b.4) any transfer with status completed instead of verified -> False:
+    bad_transfers = [transfers[0], {**transfers[1], "status": "completed"}, transfers[2]]
+    assert (
+        admission.is_prestart_transport_failure(
+            {**shard06_rec, "transfers": bad_transfers},
+            shard06_dir,
+        )
+        is False
+    )
+
+    # (b.5) a second failed non-heartbeat operation (e.g. mkdir) -> False:
+    bad_ops_second_fail = [
+        *control_ops[:-1],
+        {"operation": "mkdir", "status": "failed", "elapsed_seconds": 1.0},
+        control_ops[-1],
+    ]
+    assert (
+        admission.is_prestart_transport_failure(
+            {**shard06_rec, "control_operations": bad_ops_second_fail},
+            shard06_dir,
+        )
+        is False
+    )
+
+    # (b.6) no failed source-fetch -> False:
+    bad_ops_no_fetch_fail = [
+        *control_ops[:-1],
+        {"operation": "source-fetch", "status": "completed", "elapsed_seconds": 10.0},
+    ]
+    assert (
+        admission.is_prestart_transport_failure(
+            {**shard06_rec, "control_operations": bad_ops_no_fetch_fail},
+            shard06_dir,
+        )
+        is False
+    )
+
+    # (b.7) staging_completed true or absent -> False:
+    upload_path.write_text(
+        json.dumps({**upload_payload, "staging_completed": True}),
+        encoding="utf-8",
+    )
+    assert admission.is_prestart_transport_failure(shard06_rec, shard06_dir) is False
+    upload_path.write_text(
+        json.dumps({k: v for k, v in upload_payload.items() if k != "staging_completed"}),
+        encoding="utf-8",
+    )
+    assert admission.is_prestart_transport_failure(shard06_rec, shard06_dir) is False
+    upload_path.write_text(json.dumps(upload_payload), encoding="utf-8")
+    assert admission.is_prestart_transport_failure(shard06_rec, shard06_dir) is True
+
+    # (b.8) source_delivery_seconds 0 (or bool) -> False:
+    upload_path.write_text(
+        json.dumps({**upload_payload, "source_delivery_seconds": 0}),
+        encoding="utf-8",
+    )
+    assert admission.is_prestart_transport_failure(shard06_rec, shard06_dir) is False
+    upload_path.write_text(
+        json.dumps({**upload_payload, "source_delivery_seconds": True}),
+        encoding="utf-8",
+    )
+    assert admission.is_prestart_transport_failure(shard06_rec, shard06_dir) is False
+    upload_path.write_text(json.dumps(upload_payload), encoding="utf-8")
+    assert admission.is_prestart_transport_failure(shard06_rec, shard06_dir) is True
+
+    # (b.9-b.12) source-delivery.json, input-hashes.json, hardware.json, poll-0001.json present:
+    for forbidden_file in (
+        "source-delivery.json",
+        "input-hashes.json",
+        "hardware.json",
+        "poll-0001.json",
+    ):
+        f_path = shard06_dir / forbidden_file
+        f_path.write_text("{}\n", encoding="utf-8")
+        assert admission.is_prestart_transport_failure(shard06_rec, shard06_dir) is False
+        f_path.unlink()
+    assert admission.is_prestart_transport_failure(shard06_rec, shard06_dir) is True
+
+    # (b.13) terminal set to a dict -> False:
+    assert (
+        admission.is_prestart_transport_failure(
+            {**shard06_rec, "terminal": {"returncode": 1, "reason": "error", "error": "boom"}},
+            shard06_dir,
+        )
+        is False
+    )
+
+    # (b.14) exports non-empty -> False:
+    assert (
+        admission.is_prestart_transport_failure(
+            {
+                **shard06_rec,
+                "exports": [{"path": "efficacy/world-36.json", "sha256": "0" * 64, "size": 10}],
+            },
+            shard06_dir,
+        )
+        is False
+    )
+
+    # (b.15) unknown top-level file (e.g. intent.json) -> False:
+    intent_path = shard06_dir / "intent.json"
+    intent_path.write_text("{}\n", encoding="utf-8")
+    assert admission.is_prestart_transport_failure(shard06_rec, shard06_dir) is False
+    intent_path.unlink()
+    assert admission.is_prestart_transport_failure(shard06_rec, shard06_dir) is True
+
+    # (b.16) symlinked upload-measurement.json -> False:
+    ext_upload = tmp_path / "external-upload-measurement.json"
+    ext_upload.write_text(json.dumps(upload_payload), encoding="utf-8")
+    upload_path.unlink()
+    upload_path.symlink_to(ext_upload)
+    assert admission.is_prestart_transport_failure(shard06_rec, shard06_dir) is False
+    upload_path.unlink()
+    upload_path.write_text(json.dumps(upload_payload), encoding="utf-8")
+    assert admission.is_prestart_transport_failure(shard06_rec, shard06_dir) is True
+
+    # (b.17) non-empty exports/ -> False:
+    (shard06_dir / "exports").mkdir()
+    (shard06_dir / "exports/world-36.json").write_text("{}\n", encoding="utf-8")
+    assert admission.is_prestart_transport_failure(shard06_rec, shard06_dir) is False
+    (shard06_dir / "exports/world-36.json").unlink()
+    (shard06_dir / "exports").rmdir()
+    assert admission.is_prestart_transport_failure(shard06_rec, shard06_dir) is True
+
+    # (b.18) endpoint null -> False:
+    assert (
+        admission.is_prestart_transport_failure(
+            {**shard06_rec, "endpoint": None},
+            shard06_dir,
+        )
+        is False
+    )
+
+    # (b.19) stop_verified false -> False:
+    assert (
+        admission.is_prestart_transport_failure(
+            {**shard06_rec, "stop_verified": False},
+            shard06_dir,
+        )
+        is False
+    )
+
+    # (b.20) cleanup_error any string -> False:
+    assert (
+        admission.is_prestart_transport_failure(
+            {**shard06_rec, "cleanup_error": "STOP_FAILED: session still active"},
+            shard06_dir,
+        )
+        is False
+    )
+
+
+REAL_L1V1_RECOVERY01_DIR = Path(
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/l1v1-recovery-01"
+)
+REAL_MAIN01_SHARD06_RECEIPT_SHA256 = (
+    "25d20ed7d414e631b156b8fd6ee6f223fe78dc6d88cde38e5b2be35f47ef6589"
+)
+REAL_RECOVERY01_SHARD01_RECEIPT_SHA256 = (
+    "9378b4c0fa81ebc9c73cba2425bd60d2c8bda20eca13e19ed8ef228435b5cc65"
+)
+
+
+@pytest.mark.skipif(
+    not (
+        REAL_L1V1_MAIN01_DIR.is_dir()
+        and (REAL_L1V1_MAIN01_DIR / "output-shard-06/receipt.json").is_file()
+        and (REAL_L1V1_MAIN01_DIR / "output-shard-01/receipt.json").is_file()
+        and (REAL_L1V1_MAIN01_DIR / "output-shard-03/receipt.json").is_file()
+        and (REAL_L1V1_MAIN01_DIR / "output-shard-05/receipt.json").is_file()
+        and (REAL_L1V1_MAIN01_DIR / "output-shard-00/receipt.json").is_file()
+        and REAL_L1V1_RECOVERY01_DIR.is_dir()
+        and (REAL_L1V1_RECOVERY01_DIR / "output-shard-01/receipt.json").is_file()
+    ),
+    reason="real l1v1-main-01 / l1v1-recovery-01 attempt directories not present on this machine",
+)
+def test_real_l1v1_source_delivery_poll_deadline_shards_validate_read_only() -> None:
+    """Read-only check on real main-01 shard-06 and recovery-01 shard-01 under open guard."""
+    with final_look.pre_outcome_open_guard():
+        for shard_dir, expected_sha in (
+            (REAL_L1V1_MAIN01_DIR / "output-shard-06", REAL_MAIN01_SHARD06_RECEIPT_SHA256),
+            (
+                REAL_L1V1_RECOVERY01_DIR / "output-shard-01",
+                REAL_RECOVERY01_SHARD01_RECEIPT_SHA256,
+            ),
+        ):
+            receipt_path = (shard_dir / "receipt.json").resolve()
+            actual_sha = digest(receipt_path)
+            assert actual_sha == expected_sha
+            rec = json.loads(receipt_path.read_text(encoding="utf-8"))
+            assert admission.is_prestart_transport_failure(rec, shard_dir) is True
+            assert admission.is_external_transport_compute_failure(rec, shard_dir) is False
+            assert (
+                final_look._classify_attempt(
+                    shard_dir,
+                    rec,
+                    receipt_path=receipt_path,
+                    receipt_sha256=actual_sha,
+                )
+                == "prestart"
+            )
+
+        for shard_name in ("output-shard-01", "output-shard-03", "output-shard-05"):
+            pre_dir = REAL_L1V1_MAIN01_DIR / shard_name
+            pre_rec = json.loads((pre_dir / "receipt.json").read_text(encoding="utf-8"))
+            assert admission.is_prestart_transport_failure(pre_rec, pre_dir) is True
+
+        shard00_dir = REAL_L1V1_MAIN01_DIR / "output-shard-00"
+        shard00_rec = json.loads((shard00_dir / "receipt.json").read_text(encoding="utf-8"))
+        assert admission.is_prestart_transport_failure(shard00_rec, shard00_dir) is False
