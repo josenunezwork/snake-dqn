@@ -59,9 +59,14 @@ DEFAULT_BANK_132 = Path(
 WARMUP_TICKS = 200
 UNPACED_TICKS = 1500
 PACED_TICKS = 120
+SUPPORTED_CONTROLLERS = ("exact-stop-l2-prime", "exact-stop-l1")
 TARGET_CONTROLLER = "exact-stop-l2-prime"
 EXPECTED_CONFIRMED_COUNT = 132
 EXPECTED_UNCONFIRMED_L1_COUNT = 36
+EXPECTED_DEFAULT_COUNTS = {
+    "exact-stop-l2-prime": EXPECTED_CONFIRMED_COUNT,
+    "exact-stop-l1": EXPECTED_UNCONFIRMED_L1_COUNT,
+}
 
 BAR_COLD_READY_SECONDS = 1.0
 BAR_UPDATE_P95_MS = 11.688  # 1.5 * 7.792 ms (T15 Watch6 mixed update p95)
@@ -140,7 +145,7 @@ def collect_environment() -> dict[str, Any]:
     }
 
 
-def scan_bank_headers(root: Path) -> dict[str, Any]:
+def scan_bank_headers(root: Path, *, product: bool = True) -> dict[str, Any]:
     """Inspect line-1 headers and sidecar SHA-256s of every .watch.gz in root."""
     started = time.perf_counter()
     paths = sorted(root.glob("*.watch.gz"))
@@ -148,7 +153,7 @@ def scan_bank_headers(root: Path) -> dict[str, Any]:
     units_by_controller: dict[str, dict[str, dict[str, Any]]] = {}
     sizes: list[int] = []
     for path in paths:
-        header = peek_header(path, product=True)
+        header = peek_header(path, product=product)
         sha_tokens = Path(str(path) + ".sha256").read_text().split()
         if len(sha_tokens) != 2 or sha_tokens[1] != path.name:
             raise ValueError(f"malformed sha256 sidecar for {path}")
@@ -187,36 +192,56 @@ def scan_bank_headers(root: Path) -> dict[str, Any]:
     }
 
 
-def prove_line1_filter_skips_l1_payloads(bank_168: Path) -> dict[str, Any]:
-    """Prove ReplayBank skips all 36 exact-stop-l1 files on line 1 with 0 payload verifications."""
+def prove_line1_filter_skips_non_target_payloads(
+    mixed_bank: Path,
+    controller: str = TARGET_CONTROLLER,
+    *,
+    product: bool = True,
+) -> dict[str, Any]:
+    """Prove ReplayBank skips all non-target files on line 1 with 0 payload verifications."""
+    if controller not in SUPPORTED_CONTROLLERS:
+        raise ValueError(
+            f"unsupported controller {controller!r}; expected one of {SUPPORTED_CONTROLLERS}"
+        )
     verified_controllers: list[str] = []
     peeked_controllers: Counter[str] = Counter()
     original_verify = wr.verify_payload
     original_peek = wr.peek_header
+    non_target_paths = {
+        path
+        for path in sorted(mixed_bank.glob("*.watch.gz"))
+        if str(original_peek(path, product=product).get("controller")) != controller
+    }
 
-    def spy_peek(path: Path, *, product: bool = True) -> dict:
+    def spy_peek(path: Path, *, product: bool = product) -> dict:
         header = original_peek(path, product=product)
         peeked_controllers[str(header["controller"])] += 1
         return header
 
     def spy_verify(payload: bytes, **kwargs: Any) -> dict:
+        kwargs["product"] = product
         header = original_verify(payload, **kwargs)
         verified_controllers.append(str(header["controller"]))
         return header
 
-    class ReverseRng:
-        """Visit 000167..000132 (the 36 exact-stop-l1 files) FIRST before 000131."""
+    class NonTargetFirstRng:
+        """Visit every non-target recording FIRST (in reverse order) before any target recording."""
 
         def shuffle(self, items: list[Path]) -> None:
             items.reverse()
+            items.sort(key=lambda path: 0 if path in non_target_paths else 1)
 
     started = time.perf_counter()
     with (
         patch.object(wr, "peek_header", spy_peek),
         patch.object(wr, "verify_payload", spy_verify),
-        patch.object(wr.random, "SystemRandom", ReverseRng),
+        patch.object(wr.random, "SystemRandom", NonTargetFirstRng),
     ):
-        bank = ReplayBank(bank_168, controller=TARGET_CONTROLLER, shuffle_discovery=True)
+        bank = ReplayBank(
+            mixed_bank,
+            controller=controller,
+            shuffle_discovery=True,
+        )
         try:
             deadline = time.monotonic() + 30.0
             picked = None
@@ -226,23 +251,31 @@ def prove_line1_filter_skips_l1_payloads(bank_168: Path) -> dict[str, Any]:
                     break
                 time.sleep(0.01)
             if picked is None:
-                raise RuntimeError(f"ReplayBank failed to pick {TARGET_CONTROLLER}: {bank.error}")
+                raise RuntimeError(f"ReplayBank failed to pick {controller}: {bank.error}")
             elapsed = time.perf_counter() - started
             picked_info = picked.info()
         finally:
             bank.close()
 
+    non_target_peeked = sum(
+        count for ctrl, count in peeked_controllers.items() if ctrl != controller
+    )
     return {
-        "controller_filter": TARGET_CONTROLLER,
+        "controller_filter": controller,
+        "non_target_headers_peeked_and_skipped_before_first_pick": int(non_target_peeked),
+        "non_target_peeked_by_controller": {
+            ctrl: int(count)
+            for ctrl, count in sorted(peeked_controllers.items())
+            if ctrl != controller
+        },
         "l1_headers_peeked_and_skipped_before_first_pick": int(
             peeked_controllers.get("exact-stop-l1", 0)
         ),
-        "non_target_verify_payload_calls": sum(
-            1 for c in verified_controllers if c != TARGET_CONTROLLER
+        "l2_prime_headers_peeked_and_skipped_before_first_pick": int(
+            peeked_controllers.get("exact-stop-l2-prime", 0)
         ),
-        "target_verify_payload_calls": sum(
-            1 for c in verified_controllers if c == TARGET_CONTROLLER
-        ),
+        "non_target_verify_payload_calls": sum(1 for c in verified_controllers if c != controller),
+        "target_verify_payload_calls": sum(1 for c in verified_controllers if c == controller),
         "first_picked_unit_id": picked_info["unit_id"],
         "first_picked_controller": picked_info["controller"],
         "first_picked_sha256": picked_info["sha256"],
@@ -250,35 +283,104 @@ def prove_line1_filter_skips_l1_payloads(bank_168: Path) -> dict[str, Any]:
     }
 
 
-def audit_banks(bank_168: Path, bank_132: Path) -> dict[str, Any]:
-    scan_168 = scan_bank_headers(bank_168)
-    scan_132 = scan_bank_headers(bank_132)
-    l2_from_168 = scan_168["units_by_controller"].get(TARGET_CONTROLLER, {})
+def prove_line1_filter_skips_l1_payloads(
+    bank_168: Path,
+    controller: str = TARGET_CONTROLLER,
+    *,
+    product: bool = True,
+) -> dict[str, Any]:
+    """Backward-compatible wrapper around prove_line1_filter_skips_non_target_payloads."""
+    return prove_line1_filter_skips_non_target_payloads(
+        bank_168,
+        controller=controller,
+        product=product,
+    )
+
+
+def audit_banks(
+    bank_168: Path | None,
+    bank_132: Path,
+    controller: str = TARGET_CONTROLLER,
+    *,
+    product: bool = True,
+) -> dict[str, Any]:
+    if controller not in SUPPORTED_CONTROLLERS:
+        raise ValueError(
+            f"unsupported controller {controller!r}; expected one of {SUPPORTED_CONTROLLERS}"
+        )
+    scan_pure = scan_bank_headers(bank_132, product=product)
+    target_from_pure = scan_pure["units_by_controller"].get(controller, {})
+    comparable_pure = {
+        uid: (meta["sha256"], meta["seed"], meta["horizon"])
+        for uid, meta in target_from_pure.items()
+    }
+    other_controllers_in_pure = [k for k in scan_pure["by_controller"] if k != controller]
+    pure_clean = (
+        len(comparable_pure) > 0
+        and scan_pure["total_files"] == len(comparable_pure)
+        and not other_controllers_in_pure
+    )
+
+    if bank_168 is None:
+        return {
+            "target_controller": controller,
+            "mixed_bank": None,
+            "pure_bank": {k: v for k, v in scan_pure.items() if k != "units_by_controller"},
+            "live_168": None,
+            "live_132": {k: v for k, v in scan_pure.items() if k != "units_by_controller"},
+            "target_count_in_mixed": None,
+            "non_target_count_in_mixed": 0,
+            "target_count_in_pure": len(comparable_pure),
+            "other_controllers_in_pure": other_controllers_in_pure,
+            "other_controllers_in_132": other_controllers_in_pure,
+            "filtered_mixed_equals_pure_exact_sha_seed_unit_set": pure_clean,
+            "filtered_168_equals_132_exact_sha_seed_unit_set": pure_clean,
+            "line1_reverse_discovery_filter_proof": None,
+        }
+
+    scan_168 = scan_bank_headers(bank_168, product=product)
+    l2_from_168 = scan_168["units_by_controller"].get("exact-stop-l2-prime", {})
     l1_from_168 = scan_168["units_by_controller"].get("exact-stop-l1", {})
-    l2_from_132 = scan_132["units_by_controller"].get(TARGET_CONTROLLER, {})
+    target_from_168 = scan_168["units_by_controller"].get(controller, {})
 
     comparable_168 = {
-        uid: (meta["sha256"], meta["seed"], meta["horizon"]) for uid, meta in l2_from_168.items()
+        uid: (meta["sha256"], meta["seed"], meta["horizon"])
+        for uid, meta in target_from_168.items()
     }
-    comparable_132 = {
-        uid: (meta["sha256"], meta["seed"], meta["horizon"]) for uid, meta in l2_from_132.items()
-    }
-    exact_match = (
-        len(comparable_168) == EXPECTED_CONFIRMED_COUNT
-        and len(l1_from_168) == EXPECTED_UNCONFIRMED_L1_COUNT
-        and scan_132["total_files"] == EXPECTED_CONFIRMED_COUNT
-        and comparable_168 == comparable_132
+    non_target_count_in_mixed = scan_168["total_files"] - len(comparable_168)
+    exact_match = pure_clean and comparable_168 == comparable_pure
+    if bank_168.resolve() == DEFAULT_BANK_168.resolve():
+        exact_match = (
+            exact_match
+            and len(l2_from_168) == EXPECTED_CONFIRMED_COUNT
+            and len(l1_from_168) == EXPECTED_UNCONFIRMED_L1_COUNT
+            and len(comparable_pure) == EXPECTED_DEFAULT_COUNTS[controller]
+        )
+    filter_proof = prove_line1_filter_skips_non_target_payloads(
+        bank_168,
+        controller=controller,
+        product=product,
     )
-    filter_proof = prove_line1_filter_skips_l1_payloads(bank_168)
     return {
+        "target_controller": controller,
+        "mixed_bank": {k: v for k, v in scan_168.items() if k != "units_by_controller"},
+        "pure_bank": {k: v for k, v in scan_pure.items() if k != "units_by_controller"},
         "live_168": {k: v for k, v in scan_168.items() if k != "units_by_controller"},
-        "live_132": {k: v for k, v in scan_132.items() if k != "units_by_controller"},
-        "confirmed_l2_prime_count_in_168": len(comparable_168),
+        "live_132": {k: v for k, v in scan_pure.items() if k != "units_by_controller"},
+        "target_count_in_mixed": len(comparable_168),
+        "non_target_count_in_mixed": non_target_count_in_mixed,
+        "target_count_in_pure": len(comparable_pure),
+        "confirmed_l2_prime_count_in_168": len(l2_from_168),
         "unconfirmed_l1_count_in_168": len(l1_from_168),
-        "confirmed_l2_prime_count_in_132": len(comparable_132),
-        "other_controllers_in_132": [
-            k for k in scan_132["by_controller"] if k != TARGET_CONTROLLER
-        ],
+        "confirmed_l2_prime_count_in_132": len(
+            scan_pure["units_by_controller"].get("exact-stop-l2-prime", {})
+        ),
+        "exact_stop_l1_count_in_pure": len(
+            scan_pure["units_by_controller"].get("exact-stop-l1", {})
+        ),
+        "other_controllers_in_pure": other_controllers_in_pure,
+        "other_controllers_in_132": other_controllers_in_pure,
+        "filtered_mixed_equals_pure_exact_sha_seed_unit_set": exact_match,
         "filtered_168_equals_132_exact_sha_seed_unit_set": exact_match,
         "line1_reverse_discovery_filter_proof": filter_proof,
     }
@@ -403,8 +505,7 @@ print("QUAL_WS_JSON:" + json.dumps({
         and int(ws_metrics["health_status"]) == 200
         and bool(session_metrics["clean_mixed_watch6_b8"])
         and session_metrics["first_verified_replay"] is not None
-        and session_metrics["first_verified_replay"]["replay_info"]["controller"]
-        == TARGET_CONTROLLER
+        and session_metrics["first_verified_replay"]["replay_info"]["controller"] == controller
     )
     return {
         "session_probe": session_metrics,
@@ -429,19 +530,21 @@ class ConcurrentColdVerifier:
         self.errors: list[str] = []
 
         all_paths = sorted(bank_dir.glob("*.watch.gz"))
-        l2_by_size = []
+        target_by_size = []
         other_paths = []
         for path in all_paths:
             hdr = peek_header(path, product=True)
-            if hdr["controller"] == TARGET_CONTROLLER:
-                l2_by_size.append(path)
+            if controller == REPLAY_CONTROLLER_ALL or hdr["controller"] == controller:
+                target_by_size.append(path)
             else:
                 other_paths.append(path)
-        l2_by_size.sort(key=lambda p: p.stat().st_size, reverse=True)
-        # Interleave non-target files with the heaviest confirmed .watch.gz files
-        # so both line-1 filtering and worst-case 28-29 MB frame validation run concurrently.
+        if not target_by_size:
+            raise ValueError(f"no recordings for controller {controller!r} in {bank_dir}")
+        target_by_size.sort(key=lambda p: p.stat().st_size, reverse=True)
+        # Interleave non-target files with the heaviest target .watch.gz files
+        # so both line-1 filtering and worst-case frame validation run concurrently.
         schedule: list[Path] = []
-        top_heavy = l2_by_size[:8]
+        top_heavy = target_by_size[:8]
         for idx, heavy in enumerate(top_heavy):
             if other_paths:
                 schedule.append(other_paths[idx % len(other_paths)])
@@ -792,7 +895,7 @@ def measure_replay_playback_under_cold_verification(
     unpaced_tick_dist = distribution(ticks_ms)
     paced_step_dist = distribution(p_steps_ms)
     paced_tick_dist = distribution(p_ticks_ms)
-    non_target = sum(v for k, v in observed_controllers.items() if k != TARGET_CONTROLLER)
+    non_target = sum(v for k, v in observed_controllers.items() if k != controller)
     frames_unpaced = c_after_unpaced["frames_validated"] - c_before_unpaced["frames_validated"]
     frames_paced = c_after_paced["frames_validated"] - c_before_paced["frames_validated"]
 
@@ -838,7 +941,17 @@ def qualify_target(label: str, bank_dir: Path, controller: str) -> dict[str, Any
     live_fallback = measure_live_fallback_under_cold_verification(bank_dir, controller)
     replay_playback = measure_replay_playback_under_cold_verification(bank_dir, controller)
 
-    bars = {
+    strict_controller_bar = {
+        "bar": f"0 non-{controller} frames & 0 live update calls",
+        "target_controller": controller,
+        "measured_non_target_frames": replay_playback["non_target_controller_frames"],
+        "measured_live_updates": replay_playback["live_update_calls_during_replay"],
+        "pass": (
+            int(replay_playback["non_target_controller_frames"]) == 0
+            and int(replay_playback["live_update_calls_during_replay"]) == 0
+        ),
+    }
+    bars: dict[str, Any] = {
         "cold_session_ready_lt_1s": {
             "bar": f"< {BAR_COLD_READY_SECONDS:.3f} s",
             "measured": cold["session_probe"]["session_construct_plus_snapshot_seconds"],
@@ -886,16 +999,10 @@ def qualify_target(label: str, bank_dir: Path, controller: str) -> dict[str, Any
             "measured_max_tick_ms": replay_playback["paced_24fps_120"]["tick_ms"]["max"],
             "pass": int(replay_playback["paced_24fps_120"]["overruns"]) == 0,
         },
-        "replay_playback_strict_l2_prime_only": {
-            "bar": "0 non-exact-stop-l2-prime frames & 0 live update calls",
-            "measured_non_target_frames": replay_playback["non_target_controller_frames"],
-            "measured_live_updates": replay_playback["live_update_calls_during_replay"],
-            "pass": (
-                int(replay_playback["non_target_controller_frames"]) == 0
-                and int(replay_playback["live_update_calls_during_replay"]) == 0
-            ),
-        },
+        "replay_playback_strict_target_controller_only": strict_controller_bar,
     }
+    if controller == "exact-stop-l2-prime":
+        bars["replay_playback_strict_l2_prime_only"] = strict_controller_bar
     target_pass = (
         cold["pass"]
         and live_fallback["pass"]
@@ -914,28 +1021,61 @@ def qualify_target(label: str, bank_dir: Path, controller: str) -> dict[str, Any
     }
 
 
-def run_qualification(bank_168: Path, bank_132: Path) -> dict[str, Any]:
+def run_qualification(
+    bank_168: Path | None = DEFAULT_BANK_168,
+    bank_132: Path = DEFAULT_BANK_132,
+    *,
+    controller: str = TARGET_CONTROLLER,
+    bank: Path | None = None,
+    mixed_bank: Path | None = None,
+) -> dict[str, Any]:
+    if controller not in SUPPORTED_CONTROLLERS:
+        raise ValueError(
+            f"unsupported controller {controller!r}; expected one of {SUPPORTED_CONTROLLERS}"
+        )
+    pure_bank = bank if bank is not None else bank_132
+    resolved_mixed_bank = mixed_bank if mixed_bank is not None else bank_168
+
     started = time.perf_counter()
     env_meta = collect_environment()
-    inventory = audit_banks(bank_168, bank_132)
-    target_168 = qualify_target("live_168_filtered", bank_168, TARGET_CONTROLLER)
-    target_132 = qualify_target("live_132_direct", bank_132, TARGET_CONTROLLER)
+    inventory = audit_banks(resolved_mixed_bank, pure_bank, controller=controller)
+    target_pure = qualify_target("pure_bank_direct", pure_bank, controller)
+    targets: dict[str, Any] = {
+        "pure_bank_direct": target_pure,
+        "live_132_direct": target_pure,
+    }
+    if resolved_mixed_bank is not None:
+        target_mixed = qualify_target("mixed_bank_filtered", resolved_mixed_bank, controller)
+        targets["mixed_bank_filtered"] = target_mixed
+        targets["live_168_filtered"] = target_mixed
+    else:
+        target_mixed = None
+
     env_meta["load_average_end"] = [float(x) for x in os.getloadavg()]
     env_meta["total_qualification_seconds"] = time.perf_counter() - started
 
-    overall_pass = (
-        bool(inventory["filtered_168_equals_132_exact_sha_seed_unit_set"])
-        and int(
-            inventory["line1_reverse_discovery_filter_proof"]["non_target_verify_payload_calls"]
+    filter_proof = inventory["line1_reverse_discovery_filter_proof"]
+    filter_ok = (
+        True
+        if filter_proof is None
+        else (
+            int(filter_proof["non_target_verify_payload_calls"]) == 0
+            and int(filter_proof["non_target_headers_peeked_and_skipped_before_first_pick"])
+            == int(inventory["non_target_count_in_mixed"])
         )
-        == 0
-        and bool(target_168["pass"])
-        and bool(target_132["pass"])
+    )
+    overall_pass = (
+        bool(inventory["filtered_mixed_equals_pure_exact_sha_seed_unit_set"])
+        and filter_ok
+        and bool(target_pure["pass"])
+        and (True if target_mixed is None else bool(target_mixed["pass"]))
     )
     return {
         "schema": "t34-watch-replay-mac-qualification/v1",
         "verdict": "QUALIFIED" if overall_pass else "NOT_QUALIFIED",
-        "qualified_for_controller": TARGET_CONTROLLER,
+        "qualified_for_controller": controller,
+        "pure_bank_dir": str(pure_bank),
+        "mixed_bank_dir": None if resolved_mixed_bank is None else str(resolved_mixed_bank),
         "bars_contract": {
             "cold_readiness_seconds_lt": BAR_COLD_READY_SECONDS,
             "unpaced_ticks": UNPACED_TICKS,
@@ -951,10 +1091,7 @@ def run_qualification(bank_168: Path, bank_132: Path) -> dict[str, Any]:
         },
         "environment": env_meta,
         "bank_inventory_audit": inventory,
-        "targets": {
-            "live_168_filtered": target_168,
-            "live_132_direct": target_132,
-        },
+        "targets": targets,
         "not_measured": [
             (
                 "Real browser Canvas/DOM rendering and WebGL/2D paint latency "
@@ -962,9 +1099,9 @@ def run_qualification(bank_168: Path, bank_132: Path) -> dict[str, Any]:
                 "not Chromium/Safari GPU frame compositing)."
             ),
             (
-                "Multi-hour 132-session full-cycle endurance (verified all 132 line-1 headers + "
-                "sidecars, reverse-order 36-l1 skip proof, cold readiness, 1,500 unpaced + 120 "
-                "paced-24fps ticks under continuous worst-case 28-29 MB concurrent .watch.gz "
+                "Multi-hour full-bank endurance (verified all line-1 headers + sidecars, "
+                "adversarial non-target line-1 skip proof, cold readiness, 1,500 unpaced + 120 "
+                "paced-24fps ticks under continuous worst-case concurrent .watch.gz "
                 "verification, and mid-stream nonblocking session rotation)."
             ),
             (
@@ -977,18 +1114,57 @@ def run_qualification(bank_168: Path, bank_132: Path) -> dict[str, Any]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--bank-168", type=Path, default=DEFAULT_BANK_168)
-    parser.add_argument("--bank-132", type=Path, default=DEFAULT_BANK_132)
+    parser.add_argument(
+        "--controller",
+        choices=list(SUPPORTED_CONTROLLERS),
+        default=TARGET_CONTROLLER,
+        help="Replay controller to qualify (default: exact-stop-l2-prime).",
+    )
+    parser.add_argument(
+        "--bank",
+        "--bank-132",
+        dest="bank",
+        type=Path,
+        default=DEFAULT_BANK_132,
+        help="Controller-pure bank directory to qualify directly.",
+    )
+    parser.add_argument(
+        "--mixed-bank",
+        "--bank-168",
+        dest="mixed_bank",
+        type=Path,
+        default=DEFAULT_BANK_168,
+        help="Mixed bank directory for filtered-over-mixed parity and serving qualification.",
+    )
+    parser.add_argument(
+        "--no-mixed-bank",
+        action="store_true",
+        help="Qualify only --bank without a mixed bank parity target.",
+    )
     parser.add_argument("--json-out", type=Path, required=True)
     args = parser.parse_args()
 
-    report = run_qualification(args.bank_168, args.bank_132)
+    mixed = None if args.no_mixed_bank else args.mixed_bank
+    report = run_qualification(
+        mixed,
+        args.bank,
+        controller=args.controller,
+        bank=args.bank,
+        mixed_bank=mixed,
+    )
     args.json_out.parent.mkdir(parents=True, exist_ok=True)
     args.json_out.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+    mixed_pass = (
+        report["targets"]["mixed_bank_filtered"]["pass"]
+        if "mixed_bank_filtered" in report["targets"]
+        else None
+    )
+    pure_pass = report["targets"]["pure_bank_direct"]["pass"]
     print(
         f"verdict={report['verdict']} "
-        f"live_168_pass={report['targets']['live_168_filtered']['pass']} "
-        f"live_132_pass={report['targets']['live_132_direct']['pass']} "
+        f"controller={args.controller} "
+        f"mixed_pass={mixed_pass} "
+        f"pure_pass={pure_pass} "
         f"out={args.json_out}"
     )
     if report["verdict"] != "QUALIFIED":
