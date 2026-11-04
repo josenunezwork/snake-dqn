@@ -117,6 +117,26 @@ product Watch6 v2, `5× frp3-s12 + v8` opponents, 6,000-frame sessions; pipeline
 
 ---
 
+## T34 CLOSED (2026-11-04 PT) — final state
+
+T34 is **closed** by its pre-registered closeout audit (campaign log 2026-11-04 17:40 row; readout
+`t34-sol/argon-closeout-audit/REPORT.md`). Final shipped product: **Watch** serves 132 confirmed
+`exact-stop-l1` replays (`watch-replay-bank-live-132-l1`; Watch6-L1-V1 `GO_L1_SUPERIOR`: deaths −72%, mass
++95% vs bare at H=14,400); **Play** and the live Watch fallback serve bare `b8-s3`. Serving fixes: gen-2 GC
+tick stall (`5b4353c6`), Watch↔Play RSS growth (`7ecec2a0`).
+Closing evidence (all Mac-only, 0 Colab units):
+- **open-stop-h32-nb** (alive + un-enclosed H=32 certificate) PASSED a pre-registered 96-fresh-world gate
+  (deaths −70%, mass +51%, harmful overrides 0.88%) — valid offline controller, ~60 ms/root, not 24 fps-live.
+- **Search→bare distillation CLOSED** (Stage 1B: frozen-feature heads keep only 8–9% of open-stop rescues at
+  ≤1% ordinary flips; same selectivity wall as Sandbox B).
+- **Live search CLOSED** (closeout Part B: neither a one-tick H=12 budget nor a 3-tick-delayed async
+  open-stop keeps ≥50% of rescues within ≤1% false overrides).
+- **Claim A b8-head closed-loop**: all 4 arms lose mass (−305 … −26, LB90 < 0) → KILL (contract schema
+  partly missing in the receipt; reported INCONCLUSIVE-on-schema, FAIL on every measured bar).
+- Earlier stops this round: hero M4-B2 Stage 1A FAIL; v6 fast kernel parked (full step ≈1.65 ms).
+Reopening any hero-improvement line needs a new idea that clears the selectivity wall or the 24 fps
+budget, decided by the advisors (owner rule 2026-11-04).
+
 ## Active campaign state & Oct 31 / Nov 1 results (T34 ExIt-B8 — 2026-11-01)
 
 For synthesized current-round and later-round research plans (**advice, not decisions**), see
