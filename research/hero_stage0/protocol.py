@@ -22,6 +22,25 @@ STAGE1A_BAR_L_LT_600_DEATHS_REMOVED_PCT_MIN = 70.0
 STAGE1A_BAR_BOOST_SHARE_DELTA_PP_MAX = 0.5
 STAGE1A_BAR_HARMFUL_OVERRIDE_PCT_MAX = 1.0
 
+OPENSTOP_CONTROLLER = "open-stop-h32-nb"
+OPENSTOP_K1_ARM = "open-stop-h32-nb-k1"
+OPENSTOP_K2_ARM = "open-stop-h32-nb-k2"
+OPENSTOP_ARMS: tuple[str, ...] = ("bare", OPENSTOP_K1_ARM, OPENSTOP_K2_ARM)
+OPENSTOP_BRANCH_HORIZON = 32
+OPENSTOP_MIN_LENGTH = 1
+OPENSTOP_INTERVAL = 5
+OPENSTOP_K1_SELECTION_SUFFIXES: tuple[int, ...] = (0,)
+OPENSTOP_K2_SELECTION_SUFFIXES: tuple[int, ...] = (0, 1)
+OPENSTOP_SCORING_SUFFIXES: tuple[int, ...] = (4, 5, 6, 7)
+OPENSTOP_REGION_FRAC_MIN = 0.25
+OPENSTOP_POCKET_MIN_LENGTH = 160
+OPENSTOP_V8_NEED_CAP = 160
+OPENSTOP_V8_NEED_FLOOR = 4
+
+OPENSTOP_DEV_BAR_OVERRIDE_RATE_PCT_MAX = 0.5
+OPENSTOP_DEV_BAR_SELF_ENCLOSURE_REMOVED_PCT_MIN = 55.0
+OPENSTOP_DEV_BAR_L_LT_600_DEATHS_REMOVED_PCT_MIN = 70.0
+
 STAGE1A_ARM_SPECS: dict[str, dict[str, Any]] = {
     "bare": {
         "min_length": None,
@@ -30,6 +49,7 @@ STAGE1A_ARM_SPECS: dict[str, dict[str, Any]] = {
         "selection_suffixes": (),
         "scoring_suffixes": (),
         "prefer_nonboost": False,
+        "require_terminal_open": False,
         "label": "bare (b8-s3)",
     },
     STAGE1A_CONTROLLER: {
@@ -39,7 +59,34 @@ STAGE1A_ARM_SPECS: dict[str, dict[str, Any]] = {
         "selection_suffixes": STAGE1A_SELECTION_SUFFIXES,
         "scoring_suffixes": STAGE1A_SCORING_SUFFIXES,
         "prefer_nonboost": True,
+        "require_terminal_open": False,
         "label": "exact-stop-h48-nb (L>=1, interval=5, H=48, K=2 sel, non-boost first)",
+    },
+    OPENSTOP_K1_ARM: {
+        "min_length": OPENSTOP_MIN_LENGTH,
+        "interval": OPENSTOP_INTERVAL,
+        "branch_horizon": OPENSTOP_BRANCH_HORIZON,
+        "selection_suffixes": OPENSTOP_K1_SELECTION_SUFFIXES,
+        "scoring_suffixes": OPENSTOP_SCORING_SUFFIXES,
+        "prefer_nonboost": True,
+        "require_terminal_open": True,
+        "label": (
+            "open-stop-h32-nb K=1 "
+            "(L>=1, interval=5, H=32, K=1 sel, alive+un-enclosed, non-boost first)"
+        ),
+    },
+    OPENSTOP_K2_ARM: {
+        "min_length": OPENSTOP_MIN_LENGTH,
+        "interval": OPENSTOP_INTERVAL,
+        "branch_horizon": OPENSTOP_BRANCH_HORIZON,
+        "selection_suffixes": OPENSTOP_K2_SELECTION_SUFFIXES,
+        "scoring_suffixes": OPENSTOP_SCORING_SUFFIXES,
+        "prefer_nonboost": True,
+        "require_terminal_open": True,
+        "label": (
+            "open-stop-h32-nb K=2 "
+            "(L>=1, interval=5, H=32, K=2 sel, alive+un-enclosed, non-boost first)"
+        ),
     },
 }
 

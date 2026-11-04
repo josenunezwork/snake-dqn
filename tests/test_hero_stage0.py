@@ -10,12 +10,30 @@ import numpy as np
 
 from research.bl_served_search import ceiling, exact_stop
 from research.hero_stage0.death_audit import aggregate_death_audit
+from research.hero_stage0.open_stop import (
+    aggregate_open_stop_dev,
+    evaluate_terminal_openness,
+)
 from research.hero_stage0.protocol import (
     CAUSE_CLASSES,
     COUNT,
     HORIZON,
     LOOKBACK_FRAMES,
     NAMESPACE,
+    OPENSTOP_BRANCH_HORIZON,
+    OPENSTOP_CONTROLLER,
+    OPENSTOP_DEV_BAR_L_LT_600_DEATHS_REMOVED_PCT_MIN,
+    OPENSTOP_DEV_BAR_OVERRIDE_RATE_PCT_MAX,
+    OPENSTOP_DEV_BAR_SELF_ENCLOSURE_REMOVED_PCT_MIN,
+    OPENSTOP_INTERVAL,
+    OPENSTOP_K1_ARM,
+    OPENSTOP_K1_SELECTION_SUFFIXES,
+    OPENSTOP_K2_ARM,
+    OPENSTOP_K2_SELECTION_SUFFIXES,
+    OPENSTOP_MIN_LENGTH,
+    OPENSTOP_REGION_FRAC_MIN,
+    OPENSTOP_SCORING_SUFFIXES,
+    STAGE1A_ARM_SPECS,
     STAGE1A_BRANCH_HORIZON,
     STAGE1A_CONTROLLER,
     STAGE1A_INTERVAL,
@@ -37,6 +55,9 @@ from research.hero_stage0.stage1a import (
     branch_suffix_seed,
     evaluation_order_nb,
 )
+from src.simd_env.batch_sim import BatchSimConfig
+from src.simd_env.ego_raster import EgoRasterConfig, build_ego_raster
+from src.simd_env.grid_sim import GridBatchSim
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -441,4 +462,347 @@ def test_committed_stage1a_readout_receipt() -> None:
     assert data["override_scoring"]["total_overrides_scored"] == 343
     assert data["verdict"] == "FAIL"
     assert data["pass"] is False
+    assert len(data["per_world_summary"]) == 48
+
+
+def test_open_stop_protocol_and_terminal_openness_matches_ego_raster() -> None:
+    assert OPENSTOP_CONTROLLER == "open-stop-h32-nb"
+    assert OPENSTOP_K1_ARM == "open-stop-h32-nb-k1"
+    assert OPENSTOP_K2_ARM == "open-stop-h32-nb-k2"
+    assert OPENSTOP_BRANCH_HORIZON == 32
+    assert OPENSTOP_MIN_LENGTH == 1
+    assert OPENSTOP_INTERVAL == 5
+    assert OPENSTOP_K1_SELECTION_SUFFIXES == (0,)
+    assert OPENSTOP_K2_SELECTION_SUFFIXES == (0, 1)
+    assert OPENSTOP_SCORING_SUFFIXES == (4, 5, 6, 7)
+    assert abs(OPENSTOP_REGION_FRAC_MIN - 0.25) < 1e-12
+    assert OPENSTOP_DEV_BAR_OVERRIDE_RATE_PCT_MAX == 0.5
+    assert OPENSTOP_DEV_BAR_SELF_ENCLOSURE_REMOVED_PCT_MIN == 55.0
+    assert OPENSTOP_DEV_BAR_L_LT_600_DEATHS_REMOVED_PCT_MIN == 70.0
+    assert STAGE1A_ARM_SPECS[OPENSTOP_K1_ARM]["selection_suffixes"] == (0,)
+    assert STAGE1A_ARM_SPECS[OPENSTOP_K2_ARM]["selection_suffixes"] == (0, 1)
+
+    sim = GridBatchSim(BatchSimConfig(num_envs=1, num_snakes=6), seeds=[12345])
+    actions = np.zeros((1, 6), dtype=np.int32)
+    for _ in range(15):
+        sim.step(actions)
+    openness = evaluate_terminal_openness(sim)
+    obs = build_ego_raster(
+        sim,
+        EgoRasterConfig(version="bv8"),
+        backend="numba",
+        rows=np.array([[0, 0]]),
+    )
+    raster_region_fracs = [float(x) for x in obs["scalars"][0, 23:26]]
+    for got, exp in zip(openness["region_frac_dirs"], raster_region_fracs):
+        assert abs(got - exp) < 1e-6
+    assert openness["advisory_any"] is True
+    assert openness["un_enclosed"] == (openness["v8_open"] and openness["pocket_open"])
+
+
+def test_open_stop_certificate_selection_and_no_futile_override() -> None:
+    q = np.array([1.0, 3.0, 2.0, 9.0, 8.0, 7.0], dtype=np.float32)
+    legal = [0, 1, 2, 3, 4, 5]
+    bare = 1
+
+    # Case A: bare survives 32 steps raw (frames_survived=32) AND is certified un-enclosed
+    calls_a: list[int] = []
+
+    def eval_a(a: int) -> dict:
+        calls_a.append(a)
+        return {"survives": True, "frames_survived": 32}
+
+    with patch.object(exact_stop, "evaluation_order", evaluation_order_nb):
+        res_a = exact_stop.run(legal, bare, q, eval_a, ceiling._choose)
+    assert res_a["chosen"] == 1
+    assert calls_a == [1]
+
+    # Case B: bare survives 32 steps raw but is ENCLOSED at H=32 (survives=False),
+    # while non-boost 2 is certified un-enclosed (survives=True) -> picks non-boost 2 before boost.
+    calls_b: list[int] = []
+    cert_map_b = {1: False, 2: True, 0: False, 3: True, 4: True, 5: True}
+
+    def eval_b(a: int) -> dict:
+        calls_b.append(a)
+        return {"survives": cert_map_b[a], "frames_survived": 32}
+
+    with patch.object(exact_stop, "evaluation_order", evaluation_order_nb):
+        res_b = exact_stop.run(legal, bare, q, eval_b, ceiling._choose)
+    assert res_b["chosen"] == 2
+    assert calls_b == [1, 2]
+
+    # Case C: bare survives 32 steps raw (frames_survived=32) and NO action is certified un-enclosed
+    # (already inside a sealed pocket) -> ceiling._choose keeps bare (no futile override).
+    calls_c: list[int] = []
+
+    def eval_c(a: int) -> dict:
+        calls_c.append(a)
+        return {"survives": False, "frames_survived": 32 if a in (1, 2) else 18}
+
+    with patch.object(exact_stop, "evaluation_order", evaluation_order_nb):
+        res_c = exact_stop.run(legal, bare, q, eval_c, ceiling._choose)
+    assert res_c["chosen"] == 1
+    assert len(calls_c) == 6
+
+
+def test_aggregate_open_stop_dev_filter_verdict() -> None:
+    mode_block = {
+        "bare_vec": [False, False, False, False],
+        "chosen_vec": [True, True, True, True],
+        "diff_vec": [False, False, False, False],
+        "n_bare": 0,
+        "n_chosen": 4,
+        "n_diff": 0,
+        "s_score_bare": 0.0,
+        "s_score_chosen": 1.0,
+        "harmful_conditional_majority": False,
+        "harmful_majority_of_4": False,
+        "harmful_ge2_of_4": False,
+        "harmful_ge1_of_4": False,
+    }
+    fake_override = {
+        "world_index": 0,
+        "seed": 123,
+        "frame": 25,
+        "decision_index": 24,
+        "life": 1,
+        "length": 200,
+        "length_regime": "L<600",
+        "bare_action": 1,
+        "chosen_action": 0,
+        "bare_is_boost": False,
+        "chosen_is_boost": False,
+        "bare_raw_survived_selection": True,
+        "bare_failed_by_enclosure_only": True,
+        "q": [1.0, 2.0, 0.5, 0.1, 0.1, 0.1],
+        "advisory": [True, True, True, True, True, True],
+        "evaluation_order": [1, 0, 2, 3, 4, 5],
+        "branches_evaluated": 2,
+        "chosen_survived_selection_both": True,
+        "bare_selection_survives": [False],
+        "bare_selection_raw_survives": [True],
+        "chosen_selection_survives": [True],
+        "chosen_selection_raw_survives": [True],
+        "scoring": {
+            "scoring_suffixes": [4, 5, 6, 7],
+            "bare_action": 1,
+            "chosen_action": 0,
+            "bare_survives_vec": [False, False, False, False],
+            "chosen_survives_vec": [True, True, True, True],
+            "override_dies_where_b8_survives_vec": [False, False, False, False],
+            "n_scoring_suffixes": 4,
+            "n_bare_survives": 0,
+            "n_chosen_survives": 4,
+            "n_chosen_dies": 0,
+            "n_override_dies_where_b8_survives": 0,
+            "s_score_bare": 0.0,
+            "s_score_chosen": 1.0,
+            "harmful": False,
+            "harmful_conditional_majority": False,
+            "harmful_majority_of_4": False,
+            "harmful_ge2_of_4": False,
+            "harmful_ge1_of_4": False,
+            "h32_certified": mode_block,
+            "h48_raw": mode_block,
+            "bare_outcomes": {},
+            "chosen_outcomes": {},
+            "scoring_rollouts_evaluated": 8,
+            "scoring_env_frames": 384,
+            "scoring_wall_seconds": 0.05,
+        },
+    }
+    bare_arm = {
+        "world_index": 0,
+        "seed": 123,
+        "arm": "bare",
+        "min_length": None,
+        "interval": 5,
+        "frames": 6000,
+        "alive_frames": 5900,
+        "alive_frames_lt600": 4500,
+        "alive_frames_ge600": 1400,
+        "dead_frames": 100,
+        "mass_sum": 2400000,
+        "mass_integral": 400.0,
+        "deaths": 4,
+        "deaths_per_1k": 4.0 * 1000.0 / 6000.0,
+        "short_body_deaths_lt600": 4,
+        "long_body_deaths_ge600": 0,
+        "late_large_body_deaths_ge800": 0,
+        "deaths_lt600_per_1k_frames": 4.0 * 1000.0 / 6000.0,
+        "deaths_ge600_per_1k_frames": 0.0,
+        "deaths_lt600_per_1k_alive_lt600": 4.0 * 1000.0 / 4500.0,
+        "deaths_ge600_per_1k_alive_ge600": 0.0,
+        "lives": 5,
+        "decisions": 5900,
+        "decisions_lt600": 4500,
+        "decisions_ge600": 1400,
+        "boost_decisions": 10,
+        "boost_decisions_lt600": 8,
+        "boost_decisions_ge600": 2,
+        "boost_share": 10.0 / 5900.0,
+        "max_length": 700,
+        "alive_length_median": 380.0,
+        "alive_length_p95": 650.0,
+        "death_lengths": [100, 200, 300, 400],
+        "death_records": [
+            {"length": 100, "cause_class": "self-body enclosure"},
+            {"length": 200, "cause_class": "self-body enclosure"},
+            {"length": 300, "cause_class": "self-body enclosure"},
+            {"length": 400, "cause_class": "opponent head-on"},
+        ],
+        "search_roots": 0,
+        "search_roots_lt600": 0,
+        "search_roots_ge600": 0,
+        "bare_survived_both_roots": 0,
+        "all_die_roots": 0,
+        "interventions": 0,
+        "interventions_lt600": 0,
+        "interventions_ge600": 0,
+        "interventions_to_nonboost": 0,
+        "interventions_to_boost": 0,
+        "branches_evaluated": 0,
+        "branches_skipped": 0,
+        "selection_rollouts_evaluated": 0,
+        "selection_env_frames": 0,
+        "selection_wall_seconds": 0.0,
+        "scoring_rollouts_evaluated": 0,
+        "scoring_env_frames": 0,
+        "scoring_wall_seconds": 0.0,
+        "native_v8_kernel_rows": 0,
+        "overrides": [],
+        "respawns_per_slot": [4, 2, 2, 2, 2, 2],
+        "mirror_identity_frames": 6000,
+        "wall_seconds": 30.0,
+        "roster": {},
+    }
+    stage1a_arm = {
+        **bare_arm,
+        "arm": STAGE1A_CONTROLLER,
+        "min_length": 1,
+        "deaths": 2,
+        "short_body_deaths_lt600": 2,
+        "death_lengths": [200, 300],
+        "death_records": [
+            {"length": 200, "cause_class": "self-body enclosure"},
+            {"length": 300, "cause_class": "self-body enclosure"},
+        ],
+        "search_roots": 1180,
+        "selection_wall_seconds": 120.0,
+    }
+    k1_arm = {
+        **bare_arm,
+        "arm": OPENSTOP_K1_ARM,
+        "min_length": 1,
+        "branch_horizon": 32,
+        "k_selection_suffixes": 1,
+        "selection_suffixes": [0],
+        "mass_sum": 3300000,
+        "mass_integral": 550.0,
+        "deaths": 1,
+        "deaths_per_1k": 1.0 * 1000.0 / 6000.0,
+        "short_body_deaths_lt600": 1,
+        "deaths_lt600_per_1k_frames": 1.0 * 1000.0 / 6000.0,
+        "death_lengths": [400],
+        "death_records": [{"length": 400, "cause_class": "opponent head-on"}],
+        "search_roots": 1180,
+        "search_roots_lt600": 800,
+        "search_roots_ge600": 380,
+        "bare_survived_both_roots": 1179,
+        "bare_raw_survived_roots": 1180,
+        "bare_failed_by_enclosure_roots": 1,
+        "bare_failed_by_death_roots": 0,
+        "all_die_roots": 0,
+        "interventions": 1,
+        "interventions_lt600": 1,
+        "interventions_ge600": 0,
+        "interventions_to_nonboost": 1,
+        "interventions_to_boost": 0,
+        "interventions_from_enclosure_only": 1,
+        "interventions_from_raw_death": 0,
+        "branches_evaluated": 1181,
+        "branches_skipped": 4,
+        "selection_rollouts_evaluated": 1181,
+        "selection_env_frames": 37792,
+        "selection_wall_seconds": 40.0,
+        "scoring_rollouts_evaluated": 8,
+        "scoring_env_frames": 384,
+        "scoring_wall_seconds": 0.05,
+        "overrides": [fake_override],
+        "wall_seconds": 70.0,
+    }
+    k2_arm = {
+        **k1_arm,
+        "arm": OPENSTOP_K2_ARM,
+        "k_selection_suffixes": 2,
+        "selection_suffixes": [0, 1],
+        "interventions": 100,  # > 0.5% override rate -> K=2 fails override rate bar
+    }
+    row = {
+        "schema": "t34-hero-openstop-dev-world/v1",
+        "in_sample": True,
+        "namespace": NAMESPACE,
+        "world_index": 0,
+        "seed": 123,
+        "horizon": 6000,
+        "reused_stage1a_bare": True,
+        "reused_stage1a_h48_nb": True,
+        "k_arm_execution_order": [OPENSTOP_K1_ARM, OPENSTOP_K2_ARM],
+        "arms": {
+            "bare": bare_arm,
+            STAGE1A_CONTROLLER: stage1a_arm,
+            OPENSTOP_K1_ARM: k1_arm,
+            OPENSTOP_K2_ARM: k2_arm,
+        },
+        "paired_delta": {
+            OPENSTOP_K1_ARM: {
+                "mass_integral": 150.0,
+                "deaths": -3,
+                "deaths_lt600": -3,
+                "deaths_ge600": 0,
+                "deaths_per_1k": -3.0 * 1000.0 / 6000.0,
+                "boost_share_pp": 0.0,
+            },
+            OPENSTOP_K2_ARM: {
+                "mass_integral": 150.0,
+                "deaths": -3,
+                "deaths_lt600": -3,
+                "deaths_ge600": 0,
+                "deaths_per_1k": -3.0 * 1000.0 / 6000.0,
+                "boost_share_pp": 0.0,
+            },
+        },
+        "wall_seconds": 140.0,
+    }
+    agg = aggregate_open_stop_dev([row], wall_seconds=140.0, workers=1)
+    assert agg["decision"] == "CONTINUE"
+    assert agg["continue"] is True
+    assert (
+        agg["variants"][OPENSTOP_K1_ARM]["dev_filter_bars"]["pass_all_per_decision_override_rate"]
+        is True
+    )
+    assert (
+        agg["variants"][OPENSTOP_K2_ARM]["dev_filter_bars"]["pass_all_per_decision_override_rate"]
+        is False
+    )
+
+
+def test_committed_openstop_dev_readout_receipt() -> None:
+    readout_path = REPO_ROOT / "research" / "hero_stage0" / "OPENSTOP_DEV_READOUT.json"
+    assert readout_path.is_file()
+    data = json.loads(readout_path.read_text(encoding="utf-8"))
+    assert data["in_sample"] is True
+    assert data["namespace"] == NAMESPACE
+    assert data["world_count"] == 48
+    assert data["horizon_per_world"] == 6000
+    assert data["total_frames_per_arm"] == 288000
+    assert data["reused_stage1a_bare_worlds"] == 48
+    assert data["reused_stage1a_h48_nb_worlds"] == 48
+    assert data["decision"] == "CONTINUE"
+    assert data["variants"][OPENSTOP_K1_ARM]["summary"]["deaths"]["total"] == 17
+    assert data["variants"][OPENSTOP_K1_ARM]["summary"]["deaths"]["lt600"] == 7
+    assert data["variants"][OPENSTOP_K1_ARM]["summary"]["deaths"]["ge600"] == 10
+    assert data["variants"][OPENSTOP_K2_ARM]["summary"]["deaths"]["total"] == 23
+    assert data["variants"][OPENSTOP_K2_ARM]["summary"]["deaths"]["lt600"] == 6
+    assert data["variants"][OPENSTOP_K2_ARM]["summary"]["deaths"]["ge600"] == 17
     assert len(data["per_world_summary"]) == 48
