@@ -10,6 +10,39 @@ COUNT = 48
 HORIZON = 6000
 LOOKBACK_FRAMES = 300
 
+STAGE1A_CONTROLLER = "exact-stop-h48-nb"
+STAGE1A_ARMS: tuple[str, ...] = ("bare", STAGE1A_CONTROLLER)
+STAGE1A_BRANCH_HORIZON = 48
+STAGE1A_MIN_LENGTH = 1
+STAGE1A_INTERVAL = 5
+STAGE1A_SELECTION_SUFFIXES: tuple[int, ...] = (0, 1)
+STAGE1A_SCORING_SUFFIXES: tuple[int, ...] = (4, 5, 6, 7)
+
+STAGE1A_BAR_L_LT_600_DEATHS_REMOVED_PCT_MIN = 70.0
+STAGE1A_BAR_BOOST_SHARE_DELTA_PP_MAX = 0.5
+STAGE1A_BAR_HARMFUL_OVERRIDE_PCT_MAX = 1.0
+
+STAGE1A_ARM_SPECS: dict[str, dict[str, Any]] = {
+    "bare": {
+        "min_length": None,
+        "interval": STAGE1A_INTERVAL,
+        "branch_horizon": None,
+        "selection_suffixes": (),
+        "scoring_suffixes": (),
+        "prefer_nonboost": False,
+        "label": "bare (b8-s3)",
+    },
+    STAGE1A_CONTROLLER: {
+        "min_length": STAGE1A_MIN_LENGTH,
+        "interval": STAGE1A_INTERVAL,
+        "branch_horizon": STAGE1A_BRANCH_HORIZON,
+        "selection_suffixes": STAGE1A_SELECTION_SUFFIXES,
+        "scoring_suffixes": STAGE1A_SCORING_SUFFIXES,
+        "prefer_nonboost": True,
+        "label": "exact-stop-h48-nb (L>=1, interval=5, H=48, K=2 sel, non-boost first)",
+    },
+}
+
 CAUSE_CLASSES: tuple[str, ...] = (
     "self-body enclosure",
     "opponent head-on",
