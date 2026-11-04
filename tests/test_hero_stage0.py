@@ -1084,3 +1084,25 @@ def test_aggregate_open_stop_gate_bars_and_verdict() -> None:
     assert agg["bars"]["paired_mass_lb95_vs_bare"]["pass"] is True
     assert agg["bars"]["harmful_overrides_pct"]["observed_conditional_majority_pct"] == 0.0
     assert agg["bars"]["boost_share_delta_pp"]["observed_pooled_pp"] == 0.0
+
+
+def test_committed_openstop_gate_readout_receipt() -> None:
+    readout_path = REPO_ROOT / "research" / "hero_stage0" / "OPENSTOP_GATE_READOUT.json"
+    assert readout_path.is_file()
+    data = json.loads(readout_path.read_text(encoding="utf-8"))
+    assert data["in_sample"] is False
+    assert data["namespace"] == OPENSTOP_GATE_NAMESPACE
+    assert data["world_count"] == 96
+    assert data["horizon_per_world"] == 6000
+    assert data["total_frames_per_arm"] == 576000
+    assert data["verdict"] == "PASS"
+    assert data["pass"] is True
+    assert data["arms"]["bare"]["deaths"]["total"] == 169
+    assert data["arms"]["bare"]["deaths"]["lt600"] == 117
+    assert data["arms"]["bare"]["deaths"]["ge600"] == 52
+    assert data["arms"][OPENSTOP_K1_ARM]["deaths"]["total"] == 51
+    assert data["arms"][OPENSTOP_K1_ARM]["deaths"]["lt600"] == 19
+    assert data["arms"][OPENSTOP_K1_ARM]["deaths"]["ge600"] == 32
+    assert data["bars"]["harmful_overrides_pct"]["total_overrides_scored"] == 799
+    assert data["bars"]["harmful_overrides_pct"]["observed_conditional_majority_count"] == 7
+    assert len(data["per_world_summary"]) == 96
