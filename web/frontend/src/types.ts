@@ -177,6 +177,8 @@ export interface SessionState {
   serving_contract?: ServingContract | null;
   watch_roster?: string;
   watch_roster_reason?: string | null;
+  play_roster?: string;
+  play_roster_reason?: string | null;
   watch_source?: "live" | "replay";
   replay?: {
     label: string;
@@ -206,12 +208,16 @@ export interface PendingRun {
   frames: number;
   duration_seconds: number;
   checkpoint: string | null;
+  play_roster?: string | null;
+  play_opponents?: number | null;
 }
 
 export interface PlayState {
   active: boolean;
   human_id: number | null;
   opponents: number;
+  play_roster?: string;
+  play_roster_reason?: string | null;
   human_alive: boolean;
   length: number;
   food_eaten: number;
@@ -271,6 +277,7 @@ export type ControlAction =
   | "human_input"
   | "human_boost"
   | "set_play_opponents"
+  | "set_play_roster"
   // Saves the live policy weights to saved_snakes/web_train_<ts>.pth; the
   // server replies with an {type:"info"} frame that the client toasts.
   | "save_weights"
@@ -311,6 +318,8 @@ export interface LeaderboardEntry {
   // Registry identity of the model that served this player's best game. Null
   // for historical rows and manually loaded checkpoint artifacts.
   served_checkpoint?: string | null;
+  play_roster?: string | null;
+  play_opponents?: number | null;
   // Opaque per-browser id recorded with the game (schema v3); preferred over
   // the name match for the "me" highlight. Null/absent on older rows.
   client_id?: string | null;
@@ -344,6 +353,8 @@ export interface RecentGame {
   mode: string;
   checkpoint: string | null;
   served_checkpoint?: string | null;
+  play_roster?: string | null;
+  play_opponents?: number | null;
   created_at: string;
   client_id?: string | null;
 }
@@ -376,6 +387,8 @@ export interface SubmitResponse {
     length: number;
     food_eaten: number;
     kills: number;
+    play_roster?: string | null;
+    play_opponents?: number | null;
   };
   leaderboard?: LeaderboardEntry[];
 }

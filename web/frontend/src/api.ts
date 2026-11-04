@@ -61,8 +61,16 @@ export async function fetchMetrics(): Promise<DashboardData> {
   return getJson<DashboardData>("/api/metrics");
 }
 
-export async function fetchLeaderboard(limit = 10): Promise<LeaderboardData> {
-  return getJson<LeaderboardData>(withClientId(`/api/leaderboard?limit=${limit}`));
+export async function fetchLeaderboard(
+  limit = 10,
+  playRoster?: string,
+): Promise<LeaderboardData> {
+  const rosterParam = playRoster
+    ? `&play_roster=${encodeURIComponent(playRoster)}`
+    : "";
+  return getJson<LeaderboardData>(
+    withClientId(`/api/leaderboard?limit=${limit}${rosterParam}`),
+  );
 }
 
 export async function fetchRecent(limit = 8): Promise<RecentData> {
