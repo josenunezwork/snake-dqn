@@ -1,0 +1,612 @@
+{
+  "count": 96,
+  "horizon": 6000,
+  "lookback_frames": 300,
+  "namespace": "t34-openstop-gate-20261104-v1",
+  "schema": "t34-openstop-gate-allocation/v1",
+  "seeds": [
+    3355017415,
+    4159564159,
+    103264199,
+    702486256,
+    1914932249,
+    3525795761,
+    1237404956,
+    1339068307,
+    4241156891,
+    2537565585,
+    655842192,
+    3006883518,
+    231563449,
+    3892837085,
+    653847055,
+    3662358011,
+    3630489747,
+    3001521126,
+    3038676833,
+    3323541105,
+    1395126743,
+    2854492320,
+    4230060131,
+    3461383273,
+    657803929,
+    1302579646,
+    4108998426,
+    3187946182,
+    1588598883,
+    1239549107,
+    2826917315,
+    594707866,
+    2262553154,
+    2417140760,
+    3777790975,
+    2274212692,
+    2756179300,
+    1688336912,
+    3728121963,
+    1916724739,
+    3451052238,
+    364574148,
+    3107223846,
+    577223315,
+    2602540431,
+    3930685733,
+    1811613843,
+    1848150547,
+    1843367273,
+    3925855813,
+    1529654149,
+    2368775029,
+    4184548622,
+    380854130,
+    3565664725,
+    682076402,
+    468749751,
+    4087293646,
+    1070178709,
+    1401957893,
+    2013269313,
+    1215763348,
+    3019314943,
+    1655570735,
+    3114151354,
+    4133418184,
+    435876398,
+    299725056,
+    1403584120,
+    2962428439,
+    1571273457,
+    2182174653,
+    3677280948,
+    4255649346,
+    549862589,
+    174421915,
+    63721800,
+    4019842917,
+    1257655721,
+    3450905427,
+    2245612746,
+    2983903049,
+    3812557726,
+    3834873043,
+    2528313661,
+    1230670719,
+    1691280313,
+    4265366447,
+    2701029032,
+    2895840766,
+    3218534606,
+    514519099,
+    515976326,
+    1347174750,
+    776896908,
+    3906154335
+  ],
+  "seeds_sha256": "29c478d83f096389f4e7b18f33994cd4640c078dffd5a1b1d511b2aead02e44e",
+  "training_excluded": true,
+  "training_exclusions": {
+    "count": 96,
+    "path": "research/hero_stage0/training_exclusions_openstop_gate.json",
+    "sha256": "1033a38a04187809a1af47d67a1d81e62614b724f782c9f179863285224b6daf"
+  },
+  "world_contract": {
+    "constructor": "research.watch_replay.product.open_watch",
+    "continuous_respawn": true,
+    "hero_checkpoint": "b8-s3",
+    "hero_slot": 0,
+    "live_grid_mirror_audited": true,
+    "mechanics_version": 2,
+    "opponent_checkpoint": "frp3-s12",
+    "opponent_slots": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "opponent_veto": "v8",
+    "opponent_veto_lambda": 8.0
+  },
+  "worlds": [
+    {
+      "horizon": 6000,
+      "seed": 3355017415,
+      "world_index": 0
+    },
+    {
+      "horizon": 6000,
+      "seed": 4159564159,
+      "world_index": 1
+    },
+    {
+      "horizon": 6000,
+      "seed": 103264199,
+      "world_index": 2
+    },
+    {
+      "horizon": 6000,
+      "seed": 702486256,
+      "world_index": 3
+    },
+    {
+      "horizon": 6000,
+      "seed": 1914932249,
+      "world_index": 4
+    },
+    {
+      "horizon": 6000,
+      "seed": 3525795761,
+      "world_index": 5
+    },
+    {
+      "horizon": 6000,
+      "seed": 1237404956,
+      "world_index": 6
+    },
+    {
+      "horizon": 6000,
+      "seed": 1339068307,
+      "world_index": 7
+    },
+    {
+      "horizon": 6000,
+      "seed": 4241156891,
+      "world_index": 8
+    },
+    {
+      "horizon": 6000,
+      "seed": 2537565585,
+      "world_index": 9
+    },
+    {
+      "horizon": 6000,
+      "seed": 655842192,
+      "world_index": 10
+    },
+    {
+      "horizon": 6000,
+      "seed": 3006883518,
+      "world_index": 11
+    },
+    {
+      "horizon": 6000,
+      "seed": 231563449,
+      "world_index": 12
+    },
+    {
+      "horizon": 6000,
+      "seed": 3892837085,
+      "world_index": 13
+    },
+    {
+      "horizon": 6000,
+      "seed": 653847055,
+      "world_index": 14
+    },
+    {
+      "horizon": 6000,
+      "seed": 3662358011,
+      "world_index": 15
+    },
+    {
+      "horizon": 6000,
+      "seed": 3630489747,
+      "world_index": 16
+    },
+    {
+      "horizon": 6000,
+      "seed": 3001521126,
+      "world_index": 17
+    },
+    {
+      "horizon": 6000,
+      "seed": 3038676833,
+      "world_index": 18
+    },
+    {
+      "horizon": 6000,
+      "seed": 3323541105,
+      "world_index": 19
+    },
+    {
+      "horizon": 6000,
+      "seed": 1395126743,
+      "world_index": 20
+    },
+    {
+      "horizon": 6000,
+      "seed": 2854492320,
+      "world_index": 21
+    },
+    {
+      "horizon": 6000,
+      "seed": 4230060131,
+      "world_index": 22
+    },
+    {
+      "horizon": 6000,
+      "seed": 3461383273,
+      "world_index": 23
+    },
+    {
+      "horizon": 6000,
+      "seed": 657803929,
+      "world_index": 24
+    },
+    {
+      "horizon": 6000,
+      "seed": 1302579646,
+      "world_index": 25
+    },
+    {
+      "horizon": 6000,
+      "seed": 4108998426,
+      "world_index": 26
+    },
+    {
+      "horizon": 6000,
+      "seed": 3187946182,
+      "world_index": 27
+    },
+    {
+      "horizon": 6000,
+      "seed": 1588598883,
+      "world_index": 28
+    },
+    {
+      "horizon": 6000,
+      "seed": 1239549107,
+      "world_index": 29
+    },
+    {
+      "horizon": 6000,
+      "seed": 2826917315,
+      "world_index": 30
+    },
+    {
+      "horizon": 6000,
+      "seed": 594707866,
+      "world_index": 31
+    },
+    {
+      "horizon": 6000,
+      "seed": 2262553154,
+      "world_index": 32
+    },
+    {
+      "horizon": 6000,
+      "seed": 2417140760,
+      "world_index": 33
+    },
+    {
+      "horizon": 6000,
+      "seed": 3777790975,
+      "world_index": 34
+    },
+    {
+      "horizon": 6000,
+      "seed": 2274212692,
+      "world_index": 35
+    },
+    {
+      "horizon": 6000,
+      "seed": 2756179300,
+      "world_index": 36
+    },
+    {
+      "horizon": 6000,
+      "seed": 1688336912,
+      "world_index": 37
+    },
+    {
+      "horizon": 6000,
+      "seed": 3728121963,
+      "world_index": 38
+    },
+    {
+      "horizon": 6000,
+      "seed": 1916724739,
+      "world_index": 39
+    },
+    {
+      "horizon": 6000,
+      "seed": 3451052238,
+      "world_index": 40
+    },
+    {
+      "horizon": 6000,
+      "seed": 364574148,
+      "world_index": 41
+    },
+    {
+      "horizon": 6000,
+      "seed": 3107223846,
+      "world_index": 42
+    },
+    {
+      "horizon": 6000,
+      "seed": 577223315,
+      "world_index": 43
+    },
+    {
+      "horizon": 6000,
+      "seed": 2602540431,
+      "world_index": 44
+    },
+    {
+      "horizon": 6000,
+      "seed": 3930685733,
+      "world_index": 45
+    },
+    {
+      "horizon": 6000,
+      "seed": 1811613843,
+      "world_index": 46
+    },
+    {
+      "horizon": 6000,
+      "seed": 1848150547,
+      "world_index": 47
+    },
+    {
+      "horizon": 6000,
+      "seed": 1843367273,
+      "world_index": 48
+    },
+    {
+      "horizon": 6000,
+      "seed": 3925855813,
+      "world_index": 49
+    },
+    {
+      "horizon": 6000,
+      "seed": 1529654149,
+      "world_index": 50
+    },
+    {
+      "horizon": 6000,
+      "seed": 2368775029,
+      "world_index": 51
+    },
+    {
+      "horizon": 6000,
+      "seed": 4184548622,
+      "world_index": 52
+    },
+    {
+      "horizon": 6000,
+      "seed": 380854130,
+      "world_index": 53
+    },
+    {
+      "horizon": 6000,
+      "seed": 3565664725,
+      "world_index": 54
+    },
+    {
+      "horizon": 6000,
+      "seed": 682076402,
+      "world_index": 55
+    },
+    {
+      "horizon": 6000,
+      "seed": 468749751,
+      "world_index": 56
+    },
+    {
+      "horizon": 6000,
+      "seed": 4087293646,
+      "world_index": 57
+    },
+    {
+      "horizon": 6000,
+      "seed": 1070178709,
+      "world_index": 58
+    },
+    {
+      "horizon": 6000,
+      "seed": 1401957893,
+      "world_index": 59
+    },
+    {
+      "horizon": 6000,
+      "seed": 2013269313,
+      "world_index": 60
+    },
+    {
+      "horizon": 6000,
+      "seed": 1215763348,
+      "world_index": 61
+    },
+    {
+      "horizon": 6000,
+      "seed": 3019314943,
+      "world_index": 62
+    },
+    {
+      "horizon": 6000,
+      "seed": 1655570735,
+      "world_index": 63
+    },
+    {
+      "horizon": 6000,
+      "seed": 3114151354,
+      "world_index": 64
+    },
+    {
+      "horizon": 6000,
+      "seed": 4133418184,
+      "world_index": 65
+    },
+    {
+      "horizon": 6000,
+      "seed": 435876398,
+      "world_index": 66
+    },
+    {
+      "horizon": 6000,
+      "seed": 299725056,
+      "world_index": 67
+    },
+    {
+      "horizon": 6000,
+      "seed": 1403584120,
+      "world_index": 68
+    },
+    {
+      "horizon": 6000,
+      "seed": 2962428439,
+      "world_index": 69
+    },
+    {
+      "horizon": 6000,
+      "seed": 1571273457,
+      "world_index": 70
+    },
+    {
+      "horizon": 6000,
+      "seed": 2182174653,
+      "world_index": 71
+    },
+    {
+      "horizon": 6000,
+      "seed": 3677280948,
+      "world_index": 72
+    },
+    {
+      "horizon": 6000,
+      "seed": 4255649346,
+      "world_index": 73
+    },
+    {
+      "horizon": 6000,
+      "seed": 549862589,
+      "world_index": 74
+    },
+    {
+      "horizon": 6000,
+      "seed": 174421915,
+      "world_index": 75
+    },
+    {
+      "horizon": 6000,
+      "seed": 63721800,
+      "world_index": 76
+    },
+    {
+      "horizon": 6000,
+      "seed": 4019842917,
+      "world_index": 77
+    },
+    {
+      "horizon": 6000,
+      "seed": 1257655721,
+      "world_index": 78
+    },
+    {
+      "horizon": 6000,
+      "seed": 3450905427,
+      "world_index": 79
+    },
+    {
+      "horizon": 6000,
+      "seed": 2245612746,
+      "world_index": 80
+    },
+    {
+      "horizon": 6000,
+      "seed": 2983903049,
+      "world_index": 81
+    },
+    {
+      "horizon": 6000,
+      "seed": 3812557726,
+      "world_index": 82
+    },
+    {
+      "horizon": 6000,
+      "seed": 3834873043,
+      "world_index": 83
+    },
+    {
+      "horizon": 6000,
+      "seed": 2528313661,
+      "world_index": 84
+    },
+    {
+      "horizon": 6000,
+      "seed": 1230670719,
+      "world_index": 85
+    },
+    {
+      "horizon": 6000,
+      "seed": 1691280313,
+      "world_index": 86
+    },
+    {
+      "horizon": 6000,
+      "seed": 4265366447,
+      "world_index": 87
+    },
+    {
+      "horizon": 6000,
+      "seed": 2701029032,
+      "world_index": 88
+    },
+    {
+      "horizon": 6000,
+      "seed": 2895840766,
+      "world_index": 89
+    },
+    {
+      "horizon": 6000,
+      "seed": 3218534606,
+      "world_index": 90
+    },
+    {
+      "horizon": 6000,
+      "seed": 514519099,
+      "world_index": 91
+    },
+    {
+      "horizon": 6000,
+      "seed": 515976326,
+      "world_index": 92
+    },
+    {
+      "horizon": 6000,
+      "seed": 1347174750,
+      "world_index": 93
+    },
+    {
+      "horizon": 6000,
+      "seed": 776896908,
+      "world_index": 94
+    },
+    {
+      "horizon": 6000,
+      "seed": 3906154335,
+      "world_index": 95
+    }
+  ]
+}

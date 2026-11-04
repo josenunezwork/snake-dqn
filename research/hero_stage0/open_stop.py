@@ -12,6 +12,7 @@ from typing import Any, Callable, Sequence
 from unittest.mock import patch
 
 import numpy as np
+from scipy.stats import beta as beta_dist
 
 from research.bl_k1.native import RowStats, branch_scope, configure
 from research.bl_served_search import ceiling, exact_stop
@@ -27,6 +28,14 @@ from research.hero_stage0.protocol import (
     OPENSTOP_DEV_BAR_L_LT_600_DEATHS_REMOVED_PCT_MIN,
     OPENSTOP_DEV_BAR_OVERRIDE_RATE_PCT_MAX,
     OPENSTOP_DEV_BAR_SELF_ENCLOSURE_REMOVED_PCT_MIN,
+    OPENSTOP_GATE_BAR_BOOST_SHARE_DELTA_PP_MAX,
+    OPENSTOP_GATE_BAR_HARMFUL_OVERRIDE_PCT_MAX,
+    OPENSTOP_GATE_BAR_L_LT_600_DEATHS_REMOVED_PCT_MIN,
+    OPENSTOP_GATE_BAR_PAIRED_MASS_LB95_REL_BARE_MIN_PCT,
+    OPENSTOP_GATE_BAR_TOTAL_DEATHS_REMOVED_PCT_MIN,
+    OPENSTOP_GATE_COUNT,
+    OPENSTOP_GATE_HORIZON,
+    OPENSTOP_GATE_NAMESPACE,
     OPENSTOP_K1_ARM,
     OPENSTOP_K1_SELECTION_SUFFIXES,
     OPENSTOP_K2_ARM,
@@ -70,6 +79,9 @@ DEFAULT_STAGE1A_DIR = Path(
 )
 DEFAULT_OPENSTOP_OUT_DIR = Path(
     "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/argon-openstop-dev"
+)
+DEFAULT_OPENSTOP_GATE_OUT_DIR = Path(
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/argon-openstop-gate"
 )
 V8_LAMBDA = 8.0
 
@@ -1742,22 +1754,505 @@ def run_open_stop_dev(
     return summary
 
 
+def _clopper_pearson_ci95_pct(k: int, n: int) -> list[float]:
+    """Exact two-sided 95% Clopper-Pearson confidence interval in percent."""
+    if n <= 0:
+        return [0.0, 0.0]
+    lb = 0.0 if k <= 0 else float(beta_dist.ppf(0.025, k, n - k + 1) * 100.0)
+    ub = 100.0 if k >= n else float(beta_dist.ppf(0.975, k + 1, n - k) * 100.0)
+    return [lb, ub]
+
+
+def run_open_stop_gate_world_worker(job: dict[str, Any]) -> dict[str, Any]:
+    """Run paired bare and open-stop-h32-nb K=1 on one Watch6-v2 world with live/Grid mirror."""
+    _enforce_single_thread_env()
+    world_index = int(job["world_index"])
+    seed = int(job["seed"])
+    horizon = int(job.get("horizon", OPENSTOP_GATE_HORIZON))
+    namespace = str(job.get("namespace", OPENSTOP_GATE_NAMESPACE))
+    out_dir = Path(job["out_dir"]) if job.get("out_dir") else None
+    audit_live_mirror = bool(job.get("audit_live_mirror", True))
+
+    t0 = time.monotonic()
+    # Balanced arm execution order across even/odd worlds
+    arm_order = ("bare", OPENSTOP_K1_ARM) if (world_index % 2 == 0) else (OPENSTOP_K1_ARM, "bare")
+    arms_out: dict[str, dict[str, Any]] = {}
+    for arm in arm_order:
+        if arm == "bare":
+            arms_out["bare"] = run_stage1a_arm(
+                seed,
+                "bare",
+                world_index=world_index,
+                horizon=horizon,
+                audit_live_mirror=audit_live_mirror,
+                namespace=namespace,
+            )
+        else:
+            arms_out[arm] = run_open_stop_arm(
+                seed,
+                arm,
+                world_index=world_index,
+                horizon=horizon,
+                audit_live_mirror=audit_live_mirror,
+                namespace=namespace,
+            )
+
+    if arms_out["bare"]["roster"] != arms_out[OPENSTOP_K1_ARM]["roster"]:
+        raise ValueError(f"roster identity mismatch on world {world_index}")
+
+    paired_delta = {
+        "mass_integral": float(
+            arms_out[OPENSTOP_K1_ARM]["mass_integral"] - arms_out["bare"]["mass_integral"]
+        ),
+        "deaths": int(arms_out[OPENSTOP_K1_ARM]["deaths"] - arms_out["bare"]["deaths"]),
+        "deaths_lt600": int(
+            arms_out[OPENSTOP_K1_ARM]["short_body_deaths_lt600"]
+            - arms_out["bare"]["short_body_deaths_lt600"]
+        ),
+        "deaths_ge600": int(
+            arms_out[OPENSTOP_K1_ARM]["long_body_deaths_ge600"]
+            - arms_out["bare"]["long_body_deaths_ge600"]
+        ),
+        "deaths_per_1k": float(
+            arms_out[OPENSTOP_K1_ARM]["deaths_per_1k"] - arms_out["bare"]["deaths_per_1k"]
+        ),
+        "boost_share_pp": float(
+            (arms_out[OPENSTOP_K1_ARM]["boost_share"] - arms_out["bare"]["boost_share"]) * 100.0
+        ),
+    }
+
+    payload = {
+        "schema": "t34-openstop-gate-paired-world/v1",
+        "in_sample": False,
+        "namespace": namespace,
+        "world_index": world_index,
+        "seed": seed,
+        "horizon": horizon,
+        "arm_execution_order": list(arm_order),
+        "arms": {
+            "bare": arms_out["bare"],
+            OPENSTOP_K1_ARM: arms_out[OPENSTOP_K1_ARM],
+        },
+        "paired_delta": paired_delta,
+        "wall_seconds": float(time.monotonic() - t0),
+    }
+
+    if out_dir is not None:
+        worlds_dir = out_dir / "worlds"
+        worlds_dir.mkdir(parents=True, exist_ok=True)
+        world_path = worlds_dir / f"openstop-gate-world-{world_index:02d}.json"
+        tmp_path = world_path.with_suffix(".json.tmp")
+        tmp_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        tmp_path.replace(world_path)
+
+    return payload
+
+
+def aggregate_open_stop_gate(
+    world_results: Sequence[dict[str, Any]],
+    *,
+    wall_seconds: float,
+    workers: int,
+    namespace: str = OPENSTOP_GATE_NAMESPACE,
+    allocation_commit: str | None = None,
+) -> dict[str, Any]:
+    """Aggregate out-of-sample decisive gate evaluation of open-stop-h32-nb K=1 vs bare."""
+    ordered = sorted(world_results, key=lambda r: int(r["world_index"]))
+    n = len(ordered)
+    if n == 0:
+        raise ValueError("world_results must be non-empty")
+    horizon = int(ordered[0]["horizon"])
+    total_frames = n * horizon
+
+    bare_arm_rows = [r["arms"]["bare"] for r in ordered]
+    cand_arm_rows = [r["arms"][OPENSTOP_K1_ARM] for r in ordered]
+
+    bare_summary = _summarize_arm(ordered, "bare", horizon)
+    bare_summary["deaths"]["subbands"] = _subband_cause_table(bare_arm_rows)
+
+    k1_eval = _compare_variant(ordered, OPENSTOP_K1_ARM, bare_summary, None, horizon)
+    cand_summary = k1_eval["summary"]
+    paired = k1_eval["paired_vs_bare"]
+    scoring = k1_eval["override_scoring"]
+
+    # Fieller 95% CIs on death removal percentages
+    base_lt600_arr = np.array(
+        [a["short_body_deaths_lt600"] for a in bare_arm_rows], dtype=np.float64
+    )
+    cand_lt600_arr = np.array(
+        [a["short_body_deaths_lt600"] for a in cand_arm_rows], dtype=np.float64
+    )
+    _, lt600_rel_ci = _fieller_ratio_ci95(cand_lt600_arr, base_lt600_arr)
+    lt600_removed_ci95_fieller = (
+        [float(-lt600_rel_ci[1] * 100.0), float(-lt600_rel_ci[0] * 100.0)]
+        if lt600_rel_ci is not None
+        else None
+    )
+
+    base_total_arr = np.array([a["deaths"] for a in bare_arm_rows], dtype=np.float64)
+    cand_total_arr = np.array([a["deaths"] for a in cand_arm_rows], dtype=np.float64)
+    _, total_rel_ci = _fieller_ratio_ci95(cand_total_arr, base_total_arr)
+    total_removed_ci95_fieller = (
+        [float(-total_rel_ci[1] * 100.0), float(-total_rel_ci[0] * 100.0)]
+        if total_rel_ci is not None
+        else None
+    )
+
+    base_self_arr = np.array(
+        [
+            sum(1 for d in a["death_records"] if d["cause_class"] == "self-body enclosure")
+            for a in bare_arm_rows
+        ],
+        dtype=np.float64,
+    )
+    cand_self_arr = np.array(
+        [
+            sum(1 for d in a["death_records"] if d["cause_class"] == "self-body enclosure")
+            for a in cand_arm_rows
+        ],
+        dtype=np.float64,
+    )
+    _, self_rel_ci = _fieller_ratio_ci95(cand_self_arr, base_self_arr)
+    self_removed_ci95_fieller = (
+        [float(-self_rel_ci[1] * 100.0), float(-self_rel_ci[0] * 100.0)]
+        if self_rel_ci is not None
+        else None
+    )
+
+    # Bar 1: L<600 deaths removed >= 70%
+    lt600_removed_pct = float(paired["deaths_lt600_removed_pct"])
+    bar1_pass = bool(lt600_removed_pct >= OPENSTOP_GATE_BAR_L_LT_600_DEATHS_REMOVED_PCT_MIN)
+
+    # Bar 2: Total deaths removed >= 55%
+    total_removed_pct = float(paired["deaths_total_removed_pct"])
+    bar2_pass = bool(total_removed_pct >= OPENSTOP_GATE_BAR_TOTAL_DEATHS_REMOVED_PCT_MIN)
+
+    # Bar 3: Paired mass LB95 >= -5% of bare mean
+    bare_mass_mean = float(bare_summary["mass_mean"])
+    cand_mass_mean = float(cand_summary["mass_mean"])
+    mass_delta_mean = float(paired["mass_delta_mean"])
+    mass_delta_ci95 = [float(x) for x in paired["mass_delta_ci95"]]
+    required_mass_lb95_abs = float(
+        (OPENSTOP_GATE_BAR_PAIRED_MASS_LB95_REL_BARE_MIN_PCT / 100.0) * bare_mass_mean
+    )
+    observed_mass_lb95_pct_of_bare_mean = (
+        float(mass_delta_ci95[0] * 100.0 / bare_mass_mean) if bare_mass_mean > 0 else 0.0
+    )
+    observed_mass_ub95_pct_of_bare_mean = (
+        float(mass_delta_ci95[1] * 100.0 / bare_mass_mean) if bare_mass_mean > 0 else 0.0
+    )
+    rel_mass_fieller_ci = paired["mass_relative_ci95_fieller"]
+    observed_fieller_lb95_pct = (
+        float(rel_mass_fieller_ci[0] * 100.0)
+        if rel_mass_fieller_ci is not None
+        else observed_mass_lb95_pct_of_bare_mean
+    )
+    bar3_pass_paired_t = bool(
+        observed_mass_lb95_pct_of_bare_mean >= OPENSTOP_GATE_BAR_PAIRED_MASS_LB95_REL_BARE_MIN_PCT
+    )
+    bar3_pass_fieller = bool(
+        observed_fieller_lb95_pct >= OPENSTOP_GATE_BAR_PAIRED_MASS_LB95_REL_BARE_MIN_PCT
+    )
+    bar3_pass = bool(bar3_pass_paired_t and bar3_pass_fieller)
+
+    # Bar 4: Harmful overrides <= 1.0% (H=32 conditional majority on 4 independent suffixes)
+    h32_ov = scoring["h32_raw"]["overall"]
+    harmful_count = int(h32_ov["harmful_conditional_majority_count"])
+    overrides_scored = int(h32_ov["overrides_scored"])
+    harmful_pct = float(h32_ov["harmful_conditional_majority_pct"])
+    harmful_ci95_pct = _clopper_pearson_ci95_pct(harmful_count, overrides_scored)
+    bar4_pass = bool(harmful_pct <= OPENSTOP_GATE_BAR_HARMFUL_OVERRIDE_PCT_MAX)
+
+    # Bar 5: Boost share delta <= +0.5 pp
+    boost_delta_pooled_pp = float(paired["boost_share_delta_pooled_pp"])
+    boost_delta_world_mean_pp = float(paired["boost_share_delta_world_mean_pp"])
+    boost_delta_world_ci95_pp = [float(x) for x in paired["boost_share_delta_world_ci95_pp"]]
+    bar5_pass = bool(
+        boost_delta_pooled_pp <= OPENSTOP_GATE_BAR_BOOST_SHARE_DELTA_PP_MAX
+        and boost_delta_world_mean_pp <= OPENSTOP_GATE_BAR_BOOST_SHARE_DELTA_PP_MAX
+    )
+
+    overall_pass = bool(bar1_pass and bar2_pass and bar3_pass and bar4_pass and bar5_pass)
+
+    return {
+        "schema": "t34-openstop-gate-readout/v1",
+        "in_sample": False,
+        "namespace": namespace,
+        "allocation_commit": allocation_commit,
+        "world_count": n,
+        "horizon_per_world": horizon,
+        "total_frames_per_arm": total_frames,
+        "mirror_identity_frames_bare": sum(
+            int(r["arms"]["bare"]["mirror_identity_frames"]) for r in ordered
+        ),
+        "mirror_identity_frames_open_stop_h32_nb_k1": sum(
+            int(r["arms"][OPENSTOP_K1_ARM]["mirror_identity_frames"]) for r in ordered
+        ),
+        "workers": int(workers),
+        "wall_seconds": round(float(wall_seconds), 3),
+        "verdict": "PASS" if overall_pass else "FAIL",
+        "pass": overall_pass,
+        "bars": {
+            "l_lt_600_deaths_removed_pct": {
+                "required_min_pct": OPENSTOP_GATE_BAR_L_LT_600_DEATHS_REMOVED_PCT_MIN,
+                "observed_pct": lt600_removed_pct,
+                "observed_ci95_fieller_pct": lt600_removed_ci95_fieller,
+                "bare_l_lt_600_deaths": int(bare_summary["deaths"]["lt600"]),
+                "open_stop_h32_nb_k1_l_lt_600_deaths": int(cand_summary["deaths"]["lt600"]),
+                "removed_count": int(paired["deaths_lt600_removed_count"]),
+                "deaths_lt600_per_1k_delta_mean": float(paired["deaths_lt600_per_1k_delta_mean"]),
+                "deaths_lt600_per_1k_delta_ci95": paired["deaths_lt600_per_1k_delta_ci95"],
+                "pass": bar1_pass,
+            },
+            "total_deaths_removed_pct": {
+                "required_min_pct": OPENSTOP_GATE_BAR_TOTAL_DEATHS_REMOVED_PCT_MIN,
+                "observed_pct": total_removed_pct,
+                "observed_ci95_fieller_pct": total_removed_ci95_fieller,
+                "bare_total_deaths": int(bare_summary["deaths"]["total"]),
+                "open_stop_h32_nb_k1_total_deaths": int(cand_summary["deaths"]["total"]),
+                "removed_count": int(paired["deaths_total_removed_count"]),
+                "deaths_per_1k_delta_mean": float(paired["deaths_per_1k_delta_mean"]),
+                "deaths_per_1k_delta_ci95": paired["deaths_per_1k_delta_ci95"],
+                "pass": bar2_pass,
+            },
+            "paired_mass_lb95_vs_bare": {
+                "required_min_pct_of_bare_mean": (
+                    OPENSTOP_GATE_BAR_PAIRED_MASS_LB95_REL_BARE_MIN_PCT
+                ),
+                "required_min_abs_delta": required_mass_lb95_abs,
+                "bare_mass_mean": bare_mass_mean,
+                "open_stop_h32_nb_k1_mass_mean": cand_mass_mean,
+                "mass_delta_mean": mass_delta_mean,
+                "mass_delta_ci95": mass_delta_ci95,
+                "observed_lb95_abs": float(mass_delta_ci95[0]),
+                "observed_lb95_pct_of_bare_mean": observed_mass_lb95_pct_of_bare_mean,
+                "observed_ub95_pct_of_bare_mean": observed_mass_ub95_pct_of_bare_mean,
+                "observed_relative_mean_pct": (
+                    float(paired["mass_relative_difference"] * 100.0)
+                    if paired["mass_relative_difference"] is not None
+                    else 0.0
+                ),
+                "observed_fieller_ci95_pct": (
+                    [float(rel_mass_fieller_ci[0] * 100.0), float(rel_mass_fieller_ci[1] * 100.0)]
+                    if rel_mass_fieller_ci is not None
+                    else None
+                ),
+                "observed_fieller_lb95_pct": observed_fieller_lb95_pct,
+                "pass_paired_t_lb95": bar3_pass_paired_t,
+                "pass_fieller_lb95": bar3_pass_fieller,
+                "pass": bar3_pass,
+            },
+            "harmful_overrides_pct": {
+                "required_max_pct": OPENSTOP_GATE_BAR_HARMFUL_OVERRIDE_PCT_MAX,
+                "observed_conditional_majority_pct": harmful_pct,
+                "observed_conditional_majority_count": harmful_count,
+                "observed_conditional_majority_ci95_clopper_pearson_pct": harmful_ci95_pct,
+                "observed_majority_of_4_pct": float(h32_ov["harmful_majority_of_4_pct"]),
+                "observed_majority_of_4_count": int(h32_ov["harmful_majority_of_4_count"]),
+                "observed_ge2_of_4_pct": float(h32_ov["harmful_ge2_of_4_pct"]),
+                "observed_ge2_of_4_count": int(h32_ov["harmful_ge2_of_4_count"]),
+                "observed_ge1_of_4_pct": float(h32_ov["harmful_ge1_of_4_pct"]),
+                "observed_ge1_of_4_count": int(h32_ov["harmful_ge1_of_4_count"]),
+                "total_overrides_scored": overrides_scored,
+                "pass": bar4_pass,
+            },
+            "boost_share_delta_pp": {
+                "required_max_pp": OPENSTOP_GATE_BAR_BOOST_SHARE_DELTA_PP_MAX,
+                "observed_pooled_pp": boost_delta_pooled_pp,
+                "observed_world_mean_pp": boost_delta_world_mean_pp,
+                "observed_world_ci95_pp": boost_delta_world_ci95_pp,
+                "bare_boost_share_pct": float(bare_summary["boost"]["boost_share_pooled_pct"]),
+                "open_stop_h32_nb_k1_boost_share_pct": float(
+                    cand_summary["boost"]["boost_share_pooled_pct"]
+                ),
+                "pass": bar5_pass,
+            },
+        },
+        "self_enclosure_diagnostic": {
+            "bare_self_enclosure_deaths": int(
+                bare_summary["deaths"]["cause_breakdown"]["all"]["self-body enclosure"]
+            ),
+            "open_stop_h32_nb_k1_self_enclosure_deaths": int(
+                cand_summary["deaths"]["cause_breakdown"]["all"]["self-body enclosure"]
+            ),
+            "removed_count": int(paired["self_enclosure_all_removed_count"]),
+            "removed_pct": float(paired["self_enclosure_all_removed_pct"]),
+            "removed_ci95_fieller_pct": self_removed_ci95_fieller,
+            "lt600_removed_pct": float(paired["self_enclosure_lt600_removed_pct"]),
+            "ge600_removed_pct": float(paired["self_enclosure_ge600_removed_pct"]),
+        },
+        "arms": {
+            "bare": bare_summary,
+            OPENSTOP_K1_ARM: cand_summary,
+        },
+        "paired_vs_bare": paired,
+        "override_scoring": scoring,
+        "per_world_summary": [
+            {
+                "world_index": int(r["world_index"]),
+                "seed": int(r["seed"]),
+                "arm_execution_order": r["arm_execution_order"],
+                "bare_mass": float(r["arms"]["bare"]["mass_integral"]),
+                "k1_mass": float(r["arms"][OPENSTOP_K1_ARM]["mass_integral"]),
+                "mass_delta": float(r["paired_delta"]["mass_integral"]),
+                "bare_deaths": int(r["arms"]["bare"]["deaths"]),
+                "k1_deaths": int(r["arms"][OPENSTOP_K1_ARM]["deaths"]),
+                "bare_deaths_lt600": int(r["arms"]["bare"]["short_body_deaths_lt600"]),
+                "k1_deaths_lt600": int(r["arms"][OPENSTOP_K1_ARM]["short_body_deaths_lt600"]),
+                "bare_deaths_ge600": int(r["arms"]["bare"]["long_body_deaths_ge600"]),
+                "k1_deaths_ge600": int(r["arms"][OPENSTOP_K1_ARM]["long_body_deaths_ge600"]),
+                "bare_boost_share_pct": float(r["arms"]["bare"]["boost_share"] * 100.0),
+                "k1_boost_share_pct": float(r["arms"][OPENSTOP_K1_ARM]["boost_share"] * 100.0),
+                "search_roots": int(r["arms"][OPENSTOP_K1_ARM]["search_roots"]),
+                "overrides": int(r["arms"][OPENSTOP_K1_ARM]["interventions"]),
+                "overrides_lt600": int(r["arms"][OPENSTOP_K1_ARM]["interventions_lt600"]),
+                "overrides_ge600": int(r["arms"][OPENSTOP_K1_ARM]["interventions_ge600"]),
+                "selection_wall_seconds": float(
+                    r["arms"][OPENSTOP_K1_ARM]["selection_wall_seconds"]
+                ),
+                "scoring_wall_seconds": float(r["arms"][OPENSTOP_K1_ARM]["scoring_wall_seconds"]),
+                "k1_session_wall_seconds": float(r["arms"][OPENSTOP_K1_ARM]["wall_seconds"]),
+                "bare_session_wall_seconds": float(r["arms"]["bare"]["wall_seconds"]),
+            }
+            for r in ordered
+        ],
+    }
+
+
+def run_open_stop_gate(
+    *,
+    count: int = OPENSTOP_GATE_COUNT,
+    horizon: int = OPENSTOP_GATE_HORIZON,
+    workers: int = 8,
+    out_dir: Path = DEFAULT_OPENSTOP_GATE_OUT_DIR,
+    namespace: str = OPENSTOP_GATE_NAMESPACE,
+    allocation_commit: str | None = None,
+    resume_cached_worlds: bool = True,
+) -> dict[str, Any]:
+    """Execute decisive fresh-world gate evaluation of open-stop-h32-nb K=1 vs bare."""
+    if not 1 <= workers <= 8:
+        raise ValueError("workers must be in 1..8")
+    _enforce_single_thread_env()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    worlds_dir = out_dir / "worlds"
+    worlds_dir.mkdir(parents=True, exist_ok=True)
+
+    alloc = allocation(namespace, count)
+    jobs: list[dict[str, Any]] = []
+    completed: list[dict[str, Any]] = []
+
+    for w in alloc["worlds"]:
+        idx = int(w["world_index"])
+        seed = int(w["seed"])
+        cached = worlds_dir / f"openstop-gate-world-{idx:02d}.json"
+        if resume_cached_worlds and cached.is_file():
+            try:
+                data = json.loads(cached.read_text(encoding="utf-8"))
+                if (
+                    data.get("schema") == "t34-openstop-gate-paired-world/v1"
+                    and data.get("namespace") == namespace
+                    and int(data.get("world_index", -1)) == idx
+                    and int(data.get("seed", -1)) == seed
+                    and int(data.get("horizon", -1)) == horizon
+                    and int(data["arms"]["bare"]["mirror_identity_frames"]) == horizon
+                    and int(data["arms"][OPENSTOP_K1_ARM]["mirror_identity_frames"]) == horizon
+                ):
+                    completed.append(data)
+                    continue
+            except Exception:
+                pass
+        jobs.append(
+            {
+                "world_index": idx,
+                "seed": seed,
+                "horizon": horizon,
+                "namespace": namespace,
+                "out_dir": str(out_dir),
+                "audit_live_mirror": True,
+            }
+        )
+
+    t0 = time.monotonic()
+    if jobs:
+        with ProcessPoolExecutor(max_workers=workers) as ex:
+            fut_map = {
+                ex.submit(run_open_stop_gate_world_worker, job): job["world_index"] for job in jobs
+            }
+            for fut in as_completed(fut_map):
+                res = fut.result()
+                completed.append(res)
+                b_arm = res["arms"]["bare"]
+                k1_arm = res["arms"][OPENSTOP_K1_ARM]
+                print(
+                    f"[openstop-gate {len(completed):02d}/{count:02d}] "
+                    f"world={res['world_index']:02d} seed={res['seed']} "
+                    f"bare(d={b_arm['deaths']}[<600:{b_arm['short_body_deaths_lt600']}], "
+                    f"m={b_arm['mass_integral']:.1f}) "
+                    f"K1(d={k1_arm['deaths']}[<600:{k1_arm['short_body_deaths_lt600']}], "
+                    f"m={k1_arm['mass_integral']:.1f}, ov={k1_arm['interventions']}, "
+                    f"sel_t={k1_arm['selection_wall_seconds']:.1f}s) "
+                    f"wall={res['wall_seconds']:.1f}s",
+                    flush=True,
+                )
+
+    total_wall = time.monotonic() - t0
+    summary = aggregate_open_stop_gate(
+        completed,
+        wall_seconds=total_wall,
+        workers=workers,
+        namespace=namespace,
+        allocation_commit=allocation_commit,
+    )
+
+    readout_path = out_dir / "OPENSTOP_GATE_READOUT.json"
+    readout_path.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+    return summary
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--count", type=int, default=COUNT)
+    parser.add_argument("--gate", action="store_true")
+    parser.add_argument("--count", type=int, default=None)
     parser.add_argument("--horizon", type=int, default=HORIZON)
     parser.add_argument("--workers", type=int, default=8)
-    parser.add_argument("--out-dir", type=Path, default=DEFAULT_OPENSTOP_OUT_DIR)
+    parser.add_argument("--out-dir", type=Path, default=None)
     parser.add_argument("--stage1a-dir", type=Path, default=DEFAULT_STAGE1A_DIR)
+    parser.add_argument("--allocation-commit", type=str, default=None)
     parser.add_argument("--audit-live-mirror", action="store_true")
     parser.add_argument("--no-resume", action="store_true")
     args = parser.parse_args()
 
+    if args.gate:
+        target_count = args.count if args.count is not None else OPENSTOP_GATE_COUNT
+        target_out = args.out_dir if args.out_dir is not None else DEFAULT_OPENSTOP_GATE_OUT_DIR
+        summary = run_open_stop_gate(
+            count=target_count,
+            horizon=args.horizon,
+            workers=args.workers,
+            out_dir=target_out,
+            allocation_commit=args.allocation_commit,
+            resume_cached_worlds=not args.no_resume,
+        )
+        print(
+            json.dumps(
+                {
+                    "in_sample": summary["in_sample"],
+                    "verdict": summary["verdict"],
+                    "bars": summary["bars"],
+                },
+                indent=2,
+            ),
+            flush=True,
+        )
+        return
+
+    target_count = args.count if args.count is not None else COUNT
+    target_out = args.out_dir if args.out_dir is not None else DEFAULT_OPENSTOP_OUT_DIR
     summary = run_open_stop_dev(
-        count=args.count,
+        count=target_count,
         horizon=args.horizon,
         workers=args.workers,
-        out_dir=args.out_dir,
+        out_dir=target_out,
         stage1a_dir=args.stage1a_dir,
         audit_live_mirror=args.audit_live_mirror,
         resume_cached_worlds=not args.no_resume,

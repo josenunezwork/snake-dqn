@@ -12,6 +12,7 @@ from research.bl_served_search import ceiling, exact_stop
 from research.hero_stage0.death_audit import aggregate_death_audit
 from research.hero_stage0.open_stop import (
     aggregate_open_stop_dev,
+    aggregate_open_stop_gate,
     evaluate_terminal_openness,
 )
 from research.hero_stage0.protocol import (
@@ -25,6 +26,15 @@ from research.hero_stage0.protocol import (
     OPENSTOP_DEV_BAR_L_LT_600_DEATHS_REMOVED_PCT_MIN,
     OPENSTOP_DEV_BAR_OVERRIDE_RATE_PCT_MAX,
     OPENSTOP_DEV_BAR_SELF_ENCLOSURE_REMOVED_PCT_MIN,
+    OPENSTOP_GATE_ARMS,
+    OPENSTOP_GATE_BAR_BOOST_SHARE_DELTA_PP_MAX,
+    OPENSTOP_GATE_BAR_HARMFUL_OVERRIDE_PCT_MAX,
+    OPENSTOP_GATE_BAR_L_LT_600_DEATHS_REMOVED_PCT_MIN,
+    OPENSTOP_GATE_BAR_PAIRED_MASS_LB95_REL_BARE_MIN_PCT,
+    OPENSTOP_GATE_BAR_TOTAL_DEATHS_REMOVED_PCT_MIN,
+    OPENSTOP_GATE_COUNT,
+    OPENSTOP_GATE_HORIZON,
+    OPENSTOP_GATE_NAMESPACE,
     OPENSTOP_INTERVAL,
     OPENSTOP_K1_ARM,
     OPENSTOP_K1_SELECTION_SUFFIXES,
@@ -46,6 +56,7 @@ from research.hero_stage0.protocol import (
 )
 from research.hero_stage0.seed_audit import (
     collect_c1_and_committed_bank_seeds,
+    collect_hero_probe_stage0_seeds,
     collect_watch6_alllen_screen_seeds,
     collect_watch6_l1_v1_seeds,
     collect_watch_replay_seeds,
@@ -806,3 +817,270 @@ def test_committed_openstop_dev_readout_receipt() -> None:
     assert data["variants"][OPENSTOP_K2_ARM]["summary"]["deaths"]["lt600"] == 6
     assert data["variants"][OPENSTOP_K2_ARM]["summary"]["deaths"]["ge600"] == 17
     assert len(data["per_world_summary"]) == 48
+
+
+def test_openstop_gate_allocation_and_seed_disjointness() -> None:
+    assert OPENSTOP_GATE_NAMESPACE == "t34-openstop-gate-20261104-v1"
+    assert OPENSTOP_GATE_COUNT == 96
+    assert OPENSTOP_GATE_HORIZON == 6000
+    assert OPENSTOP_GATE_ARMS == ("bare", OPENSTOP_K1_ARM)
+    assert OPENSTOP_GATE_BAR_L_LT_600_DEATHS_REMOVED_PCT_MIN == 70.0
+    assert OPENSTOP_GATE_BAR_TOTAL_DEATHS_REMOVED_PCT_MIN == 55.0
+    assert OPENSTOP_GATE_BAR_PAIRED_MASS_LB95_REL_BARE_MIN_PCT == -5.0
+    assert OPENSTOP_GATE_BAR_HARMFUL_OVERRIDE_PCT_MAX == 1.0
+    assert OPENSTOP_GATE_BAR_BOOST_SHARE_DELTA_PP_MAX == 0.5
+
+    gate_alloc = allocation(OPENSTOP_GATE_NAMESPACE, OPENSTOP_GATE_COUNT)
+    probe_alloc = allocation(NAMESPACE, COUNT)
+    assert gate_alloc["world_contract"] == probe_alloc["world_contract"]
+    assert gate_alloc["count"] == 96
+    assert gate_alloc["horizon"] == 6000
+    assert gate_alloc["training_excluded"] is True
+    assert len(gate_alloc["worlds"]) == 96
+    assert len(gate_alloc["seeds"]) == 96
+    assert len(set(gate_alloc["seeds"])) == 96
+
+    gate_seeds = set(gate_alloc["seeds"])
+    assert len(gate_seeds & collect_hero_probe_stage0_seeds(REPO_ROOT)["seeds"]) == 0
+    assert len(gate_seeds & collect_watch6_alllen_screen_seeds()["seeds"]) == 0
+    assert len(gate_seeds & collect_watch6_l1_v1_seeds()["seeds"]) == 0
+    assert len(gate_seeds & collect_watch_replay_seeds()["seeds"]) == 0
+    assert len(gate_seeds & collect_c1_and_committed_bank_seeds(REPO_ROOT)["seeds"]) == 0
+
+    pkg_dir = REPO_ROOT / "research" / "hero_stage0"
+    excl_path = pkg_dir / "training_exclusions_openstop_gate.json"
+    bank_path = pkg_dir / "BANK_OPENSTOP_GATE.json"
+    audit_path = pkg_dir / "OPENSTOP_GATE_SEED_AUDIT.json"
+
+    assert excl_path.is_file()
+    assert bank_path.is_file()
+    assert audit_path.is_file()
+
+    excl = json.loads(excl_path.read_text(encoding="utf-8"))
+    bank = json.loads(bank_path.read_text(encoding="utf-8"))
+    audit = json.loads(audit_path.read_text(encoding="utf-8"))
+
+    assert excl == training_exclusions(OPENSTOP_GATE_NAMESPACE, OPENSTOP_GATE_COUNT)
+    assert len(excl) == 96
+    assert bank["seeds"] == gate_alloc["seeds"]
+    assert audit["status"] == "CLEAR"
+    assert audit["pass"] is True
+    assert audit["collisions"] == []
+    assert audit["training_exclusions"]["count"] == 96
+    assert audit["training_exclusions"]["combined_with_hero_probe_count"] == 144
+
+
+def test_aggregate_open_stop_gate_bars_and_verdict() -> None:
+    mode_block = {
+        "bare_vec": [False, False, False, False],
+        "chosen_vec": [True, True, True, True],
+        "diff_vec": [False, False, False, False],
+        "n_bare": 0,
+        "n_chosen": 4,
+        "n_diff": 0,
+        "s_score_bare": 0.0,
+        "s_score_chosen": 1.0,
+        "harmful_conditional_majority": False,
+        "harmful_majority_of_4": False,
+        "harmful_ge2_of_4": False,
+        "harmful_ge1_of_4": False,
+    }
+    fake_override = {
+        "world_index": 0,
+        "seed": 123,
+        "frame": 25,
+        "decision_index": 24,
+        "life": 1,
+        "length": 200,
+        "length_regime": "L<600",
+        "bare_action": 1,
+        "chosen_action": 0,
+        "bare_is_boost": False,
+        "chosen_is_boost": False,
+        "bare_raw_survived_selection": True,
+        "bare_failed_by_enclosure_only": True,
+        "q": [1.0, 2.0, 0.5, 0.1, 0.1, 0.1],
+        "advisory": [True, True, True, True, True, True],
+        "evaluation_order": [1, 0, 2, 3, 4, 5],
+        "branches_evaluated": 2,
+        "chosen_survived_selection_both": True,
+        "bare_selection_survives": [False],
+        "bare_selection_raw_survives": [True],
+        "chosen_selection_survives": [True],
+        "chosen_selection_raw_survives": [True],
+        "scoring": {
+            "scoring_suffixes": [4, 5, 6, 7],
+            "bare_action": 1,
+            "chosen_action": 0,
+            "bare_survives_vec": [False, False, False, False],
+            "chosen_survives_vec": [True, True, True, True],
+            "override_dies_where_b8_survives_vec": [False, False, False, False],
+            "n_scoring_suffixes": 4,
+            "n_bare_survives": 0,
+            "n_chosen_survives": 4,
+            "n_chosen_dies": 0,
+            "n_override_dies_where_b8_survives": 0,
+            "s_score_bare": 0.0,
+            "s_score_chosen": 1.0,
+            "harmful": False,
+            "harmful_conditional_majority": False,
+            "harmful_majority_of_4": False,
+            "harmful_ge2_of_4": False,
+            "harmful_ge1_of_4": False,
+            "h32_certified": mode_block,
+            "h48_raw": mode_block,
+            "bare_outcomes": {},
+            "chosen_outcomes": {},
+            "scoring_rollouts_evaluated": 8,
+            "scoring_env_frames": 384,
+            "scoring_wall_seconds": 0.05,
+        },
+    }
+    bare_arm = {
+        "world_index": 0,
+        "seed": 123,
+        "arm": "bare",
+        "min_length": None,
+        "interval": 5,
+        "frames": 6000,
+        "alive_frames": 5900,
+        "alive_frames_lt600": 4500,
+        "alive_frames_ge600": 1400,
+        "dead_frames": 100,
+        "mass_sum": 2400000,
+        "mass_integral": 400.0,
+        "deaths": 4,
+        "deaths_per_1k": 4.0 * 1000.0 / 6000.0,
+        "short_body_deaths_lt600": 4,
+        "long_body_deaths_ge600": 0,
+        "late_large_body_deaths_ge800": 0,
+        "deaths_lt600_per_1k_frames": 4.0 * 1000.0 / 6000.0,
+        "deaths_ge600_per_1k_frames": 0.0,
+        "deaths_lt600_per_1k_alive_lt600": 4.0 * 1000.0 / 4500.0,
+        "deaths_ge600_per_1k_alive_ge600": 0.0,
+        "lives": 5,
+        "decisions": 5900,
+        "decisions_lt600": 4500,
+        "decisions_ge600": 1400,
+        "boost_decisions": 10,
+        "boost_decisions_lt600": 8,
+        "boost_decisions_ge600": 2,
+        "boost_share": 10.0 / 5900.0,
+        "max_length": 700,
+        "alive_length_median": 380.0,
+        "alive_length_p95": 650.0,
+        "death_lengths": [100, 200, 300, 400],
+        "death_records": [
+            {"length": 100, "cause_class": "self-body enclosure"},
+            {"length": 200, "cause_class": "self-body enclosure"},
+            {"length": 300, "cause_class": "self-body enclosure"},
+            {"length": 400, "cause_class": "opponent head-on"},
+        ],
+        "search_roots": 0,
+        "search_roots_lt600": 0,
+        "search_roots_ge600": 0,
+        "bare_survived_both_roots": 0,
+        "all_die_roots": 0,
+        "interventions": 0,
+        "interventions_lt600": 0,
+        "interventions_ge600": 0,
+        "interventions_to_nonboost": 0,
+        "interventions_to_boost": 0,
+        "branches_evaluated": 0,
+        "branches_skipped": 0,
+        "selection_rollouts_evaluated": 0,
+        "selection_env_frames": 0,
+        "selection_wall_seconds": 0.0,
+        "scoring_rollouts_evaluated": 0,
+        "scoring_env_frames": 0,
+        "scoring_wall_seconds": 0.0,
+        "native_v8_kernel_rows": 0,
+        "overrides": [],
+        "respawns_per_slot": [4, 2, 2, 2, 2, 2],
+        "mirror_identity_frames": 6000,
+        "wall_seconds": 30.0,
+        "roster": {},
+    }
+    k1_arm = {
+        **bare_arm,
+        "arm": OPENSTOP_K1_ARM,
+        "min_length": 1,
+        "branch_horizon": 32,
+        "k_selection_suffixes": 1,
+        "selection_suffixes": [0],
+        "mass_sum": 3300000,
+        "mass_integral": 550.0,
+        "deaths": 1,
+        "deaths_per_1k": 1.0 * 1000.0 / 6000.0,
+        "short_body_deaths_lt600": 1,
+        "deaths_lt600_per_1k_frames": 1.0 * 1000.0 / 6000.0,
+        "death_lengths": [400],
+        "death_records": [{"length": 400, "cause_class": "opponent head-on"}],
+        "search_roots": 1180,
+        "search_roots_lt600": 800,
+        "search_roots_ge600": 380,
+        "bare_survived_both_roots": 1179,
+        "bare_raw_survived_roots": 1180,
+        "bare_failed_by_enclosure_roots": 1,
+        "bare_failed_by_death_roots": 0,
+        "all_die_roots": 0,
+        "interventions": 1,
+        "interventions_lt600": 1,
+        "interventions_ge600": 0,
+        "interventions_to_nonboost": 1,
+        "interventions_to_boost": 0,
+        "interventions_from_enclosure_only": 1,
+        "interventions_from_raw_death": 0,
+        "branches_evaluated": 1181,
+        "branches_skipped": 4,
+        "selection_rollouts_evaluated": 1181,
+        "selection_env_frames": 37792,
+        "selection_wall_seconds": 40.0,
+        "scoring_rollouts_evaluated": 8,
+        "scoring_env_frames": 384,
+        "scoring_wall_seconds": 0.05,
+        "overrides": [fake_override],
+        "wall_seconds": 70.0,
+    }
+    row0 = {
+        "schema": "t34-openstop-gate-paired-world/v1",
+        "in_sample": False,
+        "namespace": OPENSTOP_GATE_NAMESPACE,
+        "world_index": 0,
+        "seed": 123,
+        "horizon": 6000,
+        "arm_execution_order": ["bare", OPENSTOP_K1_ARM],
+        "arms": {"bare": bare_arm, OPENSTOP_K1_ARM: k1_arm},
+        "paired_delta": {
+            "mass_integral": 150.0,
+            "deaths": -3,
+            "deaths_lt600": -3,
+            "deaths_ge600": 0,
+            "deaths_per_1k": -3.0 * 1000.0 / 6000.0,
+            "boost_share_pp": 0.0,
+        },
+        "wall_seconds": 100.0,
+    }
+    row1 = {
+        **row0,
+        "world_index": 1,
+        "seed": 456,
+        "arm_execution_order": [OPENSTOP_K1_ARM, "bare"],
+        "arms": {
+            "bare": {**bare_arm, "world_index": 1, "seed": 456, "mass_integral": 410.0},
+            OPENSTOP_K1_ARM: {**k1_arm, "world_index": 1, "seed": 456, "mass_integral": 570.0},
+        },
+        "paired_delta": {
+            **row0["paired_delta"],
+            "mass_integral": 160.0,
+        },
+    }
+    agg = aggregate_open_stop_gate([row0, row1], wall_seconds=100.0, workers=2)
+    assert agg["in_sample"] is False
+    assert agg["verdict"] == "PASS"
+    assert agg["pass"] is True
+    assert agg["bars"]["l_lt_600_deaths_removed_pct"]["observed_pct"] == 75.0
+    assert agg["bars"]["total_deaths_removed_pct"]["observed_pct"] == 75.0
+    assert agg["bars"]["paired_mass_lb95_vs_bare"]["pass"] is True
+    assert agg["bars"]["harmful_overrides_pct"]["observed_conditional_majority_pct"] == 0.0
+    assert agg["bars"]["boost_share_delta_pp"]["observed_pooled_pp"] == 0.0
