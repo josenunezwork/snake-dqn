@@ -139,13 +139,14 @@ def _load_checkpoint_once(checkpoint_path: str) -> tuple[bytes, dict, str]:
         return b"", cached_blob, digest
     with open(checkpoint_path, "rb") as stream:
         payload = stream.read()
+    actual = sha256(payload).hexdigest()
     blob = torch.load(BytesIO(payload), map_location="cpu", weights_only=False)
     if not isinstance(blob, dict):
         raise ValueError("checkpoint must be a metadata mapping")
     if len(_CHECKPOINT_BLOB_CACHE) >= _CHECKPOINT_BLOB_CACHE_MAX:
         _CHECKPOINT_BLOB_CACHE.clear()
-    _CHECKPOINT_BLOB_CACHE[cache_key] = blob
-    return payload, blob, sha256(payload).hexdigest()
+    _CHECKPOINT_BLOB_CACHE[(str(checkpoint_path), actual, id(torch.load))] = blob
+    return payload, blob, actual
 
 
 def _validate_v3_serving_checkpoint(
@@ -1698,7 +1699,8 @@ class GameSession:
     # -- state report -------------------------------------------------------
     def close(self, wait: bool = False) -> None:
         """Release only this session's optional worker, outside the serving tick."""
-        self._leave_watch_replay()
+        with self._lock:
+            self._leave_watch_replay()
         if getattr(self, "_replay_bank", None) is not None:
             self._replay_bank.close()
         if getattr(self, "pathb", None) is not None:

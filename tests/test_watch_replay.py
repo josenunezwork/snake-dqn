@@ -2004,3 +2004,144 @@ def test_mode_switches_do_not_grow_object_or_tensor_counts_and_unmap_replays(tmp
         assert after["gc_objects"] - baseline["gc_objects"] < 500
     finally:
         session.close(wait=True)
+
+
+def test_checkpoint_rewrite_invalidates_blob_and_session_caches_and_keys_deserialized_bytes(
+    tmp_path, monkeypatch
+):
+    from dataclasses import replace
+    from hashlib import file_digest, sha256
+
+    import torch
+
+    from src.model.ego2s_network import Ego2sNet, save_ego2s_checkpoint
+    from src.training.apex_policy import ApexPolicy
+    from web.backend import served_checkpoint as registry
+    from web.backend import session as session_module
+
+    for key in (
+        "SNAKE_SERVE_WATCH_ROSTER",
+        "SNAKE_SERVE_CHECKPOINT",
+        "SNAKE_SERVE_VETO_WATCH_HERO",
+        "SNAKE_SERVE_VETO_PLAY_AI",
+        "SNAKE_SERVE_VETO_VARIANT",
+        "SNAKE_WATCH_REPLAY_CONTROLLER",
+        "SNAKE_WATCH_SOURCE",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+    real_load = session_module._load_checkpoint_once
+    real_sha256_file = registry._sha256_file
+    paths = _install_local_release_fixtures(monkeypatch, tmp_path)
+    monkeypatch.setattr(session_module, "_load_checkpoint_once", real_load)
+    monkeypatch.setattr(registry, "_sha256_file", real_sha256_file)
+
+    b8 = paths["b8"]
+    frp3 = paths["frp3"]
+    pins_path = Path(registry.PINS_PATH)
+
+    def bind_real_hashes() -> tuple[str, str]:
+        b8_sha = sha256(b8.read_bytes()).hexdigest()
+        frp_sha = sha256(frp3.read_bytes()).hexdigest()
+        monkeypatch.setattr(registry, "B8_S3_SHA256", b8_sha)
+        monkeypatch.setattr(registry, "FRP3_S12_SHA256", frp_sha)
+        monkeypatch.setattr(session_module, "B8_S3_SHA256", b8_sha)
+        monkeypatch.setattr(session_module, "FRP3_S12_SHA256", frp_sha)
+        monkeypatch.setattr(
+            registry,
+            "REGISTRY",
+            {
+                **registry.REGISTRY,
+                registry.NAME_B8_S3: replace(
+                    registry.REGISTRY[registry.NAME_B8_S3], sha256=b8_sha, artifact_path=None
+                ),
+                registry.NAME_FRP3_S12: replace(
+                    registry.REGISTRY[registry.NAME_FRP3_S12], sha256=frp_sha, artifact_path=None
+                ),
+            },
+        )
+        pins = json.loads(pins_path.read_text())
+        pins["checkpoints"][registry.NAME_B8_S3]["checkpoint_sha256"] = b8_sha
+        pins["checkpoints"][registry.NAME_FRP3_S12]["checkpoint_sha256"] = frp_sha
+        pins_path.write_text(json.dumps(pins))
+        return b8_sha, frp_sha
+
+    session_module._CHECKPOINT_BLOB_CACHE.clear()
+    b8_bytes_a = b8.read_bytes()
+    b8_sha_a, frp_sha_a = bind_real_hashes()
+
+    session = GameSession()
+    try:
+        key_b8_a = (str(b8), b8_sha_a, id(torch.load))
+        key_frp_a = (str(frp3), frp_sha_a, id(torch.load))
+        assert key_b8_a in session_module._CHECKPOINT_BLOB_CACHE
+        assert key_frp_a in session_module._CHECKPOINT_BLOB_CACHE
+        blob_b8_a = session_module._CHECKPOINT_BLOB_CACHE[key_b8_a]
+        blob_frp_a = session_module._CHECKPOINT_BLOB_CACHE[key_frp_a]
+        net_a = session.policy.net
+        opp_a = session.watch_opponent_policy
+        assert net_a is not None and opp_a is not None
+
+        # Unchanged bytes reuse both blob cache and per-session net/opponent caches.
+        session.set_mode("play")
+        session.set_mode("watch")
+        assert session.policy.net is net_a
+        assert session.watch_opponent_policy is opp_a
+        assert session_module._CHECKPOINT_BLOB_CACHE[key_b8_a] is blob_b8_a
+        assert session_module._CHECKPOINT_BLOB_CACHE[key_frp_a] is blob_frp_a
+
+        # Rewriting checkpoints in place at the same paths invalidates blob + session caches.
+        save_ego2s_checkpoint(b8, Ego2sNet(local_channels=7, n_scalars=60), {"fixture": "b8-rev-b"})
+        opp_b_seed = ApexPolicy(input_size=61, hidden_size=512, output_size=6, training=False)
+        with torch.no_grad():
+            for param in opp_b_seed.dqn.parameters():
+                param.add_(1.0)
+        torch.save(opp_b_seed.get_state_dict(), frp3)
+        b8_bytes_b = b8.read_bytes()
+        b8_sha_b, frp_sha_b = bind_real_hashes()
+        assert b8_sha_b != b8_sha_a and frp_sha_b != frp_sha_a
+        session.served_checkpoint["sha256"] = b8_sha_b
+
+        session.set_mode("play")
+        session.set_mode("watch")
+        key_b8_b = (str(b8), b8_sha_b, id(torch.load))
+        key_frp_b = (str(frp3), frp_sha_b, id(torch.load))
+        assert key_b8_b in session_module._CHECKPOINT_BLOB_CACHE
+        assert key_frp_b in session_module._CHECKPOINT_BLOB_CACHE
+        assert session_module._CHECKPOINT_BLOB_CACHE[key_b8_b] is not blob_b8_a
+        assert session_module._CHECKPOINT_BLOB_CACHE[key_frp_b] is not blob_frp_a
+        assert session.policy.net is not net_a
+        assert session.watch_opponent_policy is not opp_a
+        assert session._cached_ego2s_net[:2] == (str(b8), b8_sha_b)
+        assert session._cached_watch_opponent[0][:2] == (str(frp3), frp_sha_b)
+
+        # F1 regression check: an in-place rewrite between file_digest and payload read
+        # must key the cache by the deserialized payload's sha256, never the stale pre-read hash.
+        session_module._CHECKPOINT_BLOB_CACHE.clear()
+        b8.write_bytes(b8_bytes_a)
+        rewrote = False
+
+        def digest_then_rewrite(stream, name):
+            nonlocal rewrote
+            result = file_digest(stream, name)
+            if not rewrote:
+                rewrote = True
+                b8.write_bytes(b8_bytes_b)
+            return result
+
+        monkeypatch.setattr(session_module, "file_digest", digest_then_rewrite)
+        _, loaded_blob, loaded_sha = session_module._load_checkpoint_once(str(b8))
+        assert rewrote is True
+        assert loaded_sha == b8_sha_b
+        assert loaded_blob["meta"]["fixture"] == "b8-rev-b"
+        assert key_b8_a not in session_module._CHECKPOINT_BLOB_CACHE
+        assert session_module._CHECKPOINT_BLOB_CACHE.get(key_b8_b) is loaded_blob
+
+        # Reverting the file to revision A must load blob A, never return blob B under sha A.
+        b8.write_bytes(b8_bytes_a)
+        _, reverted_blob, reverted_sha = session_module._load_checkpoint_once(str(b8))
+        assert reverted_sha == b8_sha_a
+        assert reverted_blob["meta"]["fixture"] == "b8"
+        assert session_module._CHECKPOINT_BLOB_CACHE.get(key_b8_a) is reverted_blob
+    finally:
+        session.close(wait=True)
