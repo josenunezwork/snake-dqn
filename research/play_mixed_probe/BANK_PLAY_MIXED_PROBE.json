@@ -1,0 +1,6146 @@
+{
+  "by_opponents": {
+    "1": [
+      {
+        "global_index": 288,
+        "horizon_cap": 6000,
+        "is_smoke": true,
+        "num_snakes": 2,
+        "opponent_count": 1,
+        "run_index": 0,
+        "seed": 2549462188
+      },
+      {
+        "global_index": 289,
+        "horizon_cap": 6000,
+        "is_smoke": true,
+        "num_snakes": 2,
+        "opponent_count": 1,
+        "run_index": 1,
+        "seed": 4223455290
+      },
+      {
+        "global_index": 290,
+        "horizon_cap": 6000,
+        "is_smoke": true,
+        "num_snakes": 2,
+        "opponent_count": 1,
+        "run_index": 2,
+        "seed": 1835343903
+      },
+      {
+        "global_index": 291,
+        "horizon_cap": 6000,
+        "is_smoke": true,
+        "num_snakes": 2,
+        "opponent_count": 1,
+        "run_index": 3,
+        "seed": 4178311544
+      },
+      {
+        "global_index": 292,
+        "horizon_cap": 6000,
+        "is_smoke": true,
+        "num_snakes": 2,
+        "opponent_count": 1,
+        "run_index": 4,
+        "seed": 2202736473
+      },
+      {
+        "global_index": 293,
+        "horizon_cap": 6000,
+        "is_smoke": true,
+        "num_snakes": 2,
+        "opponent_count": 1,
+        "run_index": 5,
+        "seed": 3556042247
+      },
+      {
+        "global_index": 294,
+        "horizon_cap": 6000,
+        "is_smoke": true,
+        "num_snakes": 2,
+        "opponent_count": 1,
+        "run_index": 6,
+        "seed": 1810553365
+      },
+      {
+        "global_index": 295,
+        "horizon_cap": 6000,
+        "is_smoke": true,
+        "num_snakes": 2,
+        "opponent_count": 1,
+        "run_index": 7,
+        "seed": 4010244195
+      },
+      {
+        "global_index": 296,
+        "horizon_cap": 6000,
+        "is_smoke": true,
+        "num_snakes": 2,
+        "opponent_count": 1,
+        "run_index": 8,
+        "seed": 1221402285
+      },
+      {
+        "global_index": 297,
+        "horizon_cap": 6000,
+        "is_smoke": true,
+        "num_snakes": 2,
+        "opponent_count": 1,
+        "run_index": 9,
+        "seed": 2349909138
+      },
+      {
+        "global_index": 298,
+        "horizon_cap": 6000,
+        "is_smoke": true,
+        "num_snakes": 2,
+        "opponent_count": 1,
+        "run_index": 10,
+        "seed": 4049101585
+      },
+      {
+        "global_index": 299,
+        "horizon_cap": 6000,
+        "is_smoke": true,
+        "num_snakes": 2,
+        "opponent_count": 1,
+        "run_index": 11,
+        "seed": 3922790076
+      },
+      {
+        "global_index": 300,
+        "horizon_cap": 6000,
+        "is_smoke": true,
+        "num_snakes": 2,
+        "opponent_count": 1,
+        "run_index": 12,
+        "seed": 3712357209
+      },
+      {
+        "global_index": 301,
+        "horizon_cap": 6000,
+        "is_smoke": true,
+        "num_snakes": 2,
+        "opponent_count": 1,
+        "run_index": 13,
+        "seed": 2275650468
+      },
+      {
+        "global_index": 302,
+        "horizon_cap": 6000,
+        "is_smoke": true,
+        "num_snakes": 2,
+        "opponent_count": 1,
+        "run_index": 14,
+        "seed": 256835079
+      },
+      {
+        "global_index": 303,
+        "horizon_cap": 6000,
+        "is_smoke": true,
+        "num_snakes": 2,
+        "opponent_count": 1,
+        "run_index": 15,
+        "seed": 3732794355
+      }
+    ],
+    "11": [
+      {
+        "global_index": 304,
+        "horizon_cap": 6000,
+        "is_smoke": true,
+        "num_snakes": 12,
+        "opponent_count": 11,
+        "run_index": 0,
+        "seed": 925379380
+      },
+      {
+        "global_index": 305,
+        "horizon_cap": 6000,
+        "is_smoke": true,
+        "num_snakes": 12,
+        "opponent_count": 11,
+        "run_index": 1,
+        "seed": 2174542218
+      },
+      {
+        "global_index": 306,
+        "horizon_cap": 6000,
+        "is_smoke": true,
+        "num_snakes": 12,
+        "opponent_count": 11,
+        "run_index": 2,
+        "seed": 151600733
+      },
+      {
+        "global_index": 307,
+        "horizon_cap": 6000,
+        "is_smoke": true,
+        "num_snakes": 12,
+        "opponent_count": 11,
+        "run_index": 3,
+        "seed": 104504866
+      },
+      {
+        "global_index": 308,
+        "horizon_cap": 6000,
+        "is_smoke": true,
+        "num_snakes": 12,
+        "opponent_count": 11,
+        "run_index": 4,
+        "seed": 4286204816
+      },
+      {
+        "global_index": 309,
+        "horizon_cap": 6000,
+        "is_smoke": true,
+        "num_snakes": 12,
+        "opponent_count": 11,
+        "run_index": 5,
+        "seed": 895858977
+      },
+      {
+        "global_index": 310,
+        "horizon_cap": 6000,
+        "is_smoke": true,
+        "num_snakes": 12,
+        "opponent_count": 11,
+        "run_index": 6,
+        "seed": 198419921
+      },
+      {
+        "global_index": 311,
+        "horizon_cap": 6000,
+        "is_smoke": true,
+        "num_snakes": 12,
+        "opponent_count": 11,
+        "run_index": 7,
+        "seed": 3558714560
+      },
+      {
+        "global_index": 312,
+        "horizon_cap": 6000,
+        "is_smoke": true,
+        "num_snakes": 12,
+        "opponent_count": 11,
+        "run_index": 8,
+        "seed": 1452614429
+      },
+      {
+        "global_index": 313,
+        "horizon_cap": 6000,
+        "is_smoke": true,
+        "num_snakes": 12,
+        "opponent_count": 11,
+        "run_index": 9,
+        "seed": 1946320802
+      },
+      {
+        "global_index": 314,
+        "horizon_cap": 6000,
+        "is_smoke": true,
+        "num_snakes": 12,
+        "opponent_count": 11,
+        "run_index": 10,
+        "seed": 1743478877
+      },
+      {
+        "global_index": 315,
+        "horizon_cap": 6000,
+        "is_smoke": true,
+        "num_snakes": 12,
+        "opponent_count": 11,
+        "run_index": 11,
+        "seed": 1398109771
+      },
+      {
+        "global_index": 316,
+        "horizon_cap": 6000,
+        "is_smoke": true,
+        "num_snakes": 12,
+        "opponent_count": 11,
+        "run_index": 12,
+        "seed": 1933146447
+      },
+      {
+        "global_index": 317,
+        "horizon_cap": 6000,
+        "is_smoke": true,
+        "num_snakes": 12,
+        "opponent_count": 11,
+        "run_index": 13,
+        "seed": 3109627191
+      },
+      {
+        "global_index": 318,
+        "horizon_cap": 6000,
+        "is_smoke": true,
+        "num_snakes": 12,
+        "opponent_count": 11,
+        "run_index": 14,
+        "seed": 3740365749
+      },
+      {
+        "global_index": 319,
+        "horizon_cap": 6000,
+        "is_smoke": true,
+        "num_snakes": 12,
+        "opponent_count": 11,
+        "run_index": 15,
+        "seed": 1229907882
+      }
+    ],
+    "3": [
+      {
+        "global_index": 96,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 0,
+        "seed": 2585715196
+      },
+      {
+        "global_index": 97,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 1,
+        "seed": 1200306081
+      },
+      {
+        "global_index": 98,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 2,
+        "seed": 3660793200
+      },
+      {
+        "global_index": 99,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 3,
+        "seed": 1108533390
+      },
+      {
+        "global_index": 100,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 4,
+        "seed": 2804353813
+      },
+      {
+        "global_index": 101,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 5,
+        "seed": 3982312215
+      },
+      {
+        "global_index": 102,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 6,
+        "seed": 951808628
+      },
+      {
+        "global_index": 103,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 7,
+        "seed": 663262062
+      },
+      {
+        "global_index": 104,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 8,
+        "seed": 4254769365
+      },
+      {
+        "global_index": 105,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 9,
+        "seed": 1830827154
+      },
+      {
+        "global_index": 106,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 10,
+        "seed": 19659575
+      },
+      {
+        "global_index": 107,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 11,
+        "seed": 3600368695
+      },
+      {
+        "global_index": 108,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 12,
+        "seed": 3486254266
+      },
+      {
+        "global_index": 109,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 13,
+        "seed": 947742321
+      },
+      {
+        "global_index": 110,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 14,
+        "seed": 886620006
+      },
+      {
+        "global_index": 111,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 15,
+        "seed": 4233626015
+      },
+      {
+        "global_index": 112,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 16,
+        "seed": 3576574589
+      },
+      {
+        "global_index": 113,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 17,
+        "seed": 325736947
+      },
+      {
+        "global_index": 114,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 18,
+        "seed": 2637745148
+      },
+      {
+        "global_index": 115,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 19,
+        "seed": 2581929739
+      },
+      {
+        "global_index": 116,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 20,
+        "seed": 915896671
+      },
+      {
+        "global_index": 117,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 21,
+        "seed": 2801714269
+      },
+      {
+        "global_index": 118,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 22,
+        "seed": 1377017876
+      },
+      {
+        "global_index": 119,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 23,
+        "seed": 3572521542
+      },
+      {
+        "global_index": 120,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 24,
+        "seed": 3385940577
+      },
+      {
+        "global_index": 121,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 25,
+        "seed": 243083376
+      },
+      {
+        "global_index": 122,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 26,
+        "seed": 67456267
+      },
+      {
+        "global_index": 123,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 27,
+        "seed": 3802565861
+      },
+      {
+        "global_index": 124,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 28,
+        "seed": 2514643321
+      },
+      {
+        "global_index": 125,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 29,
+        "seed": 3142243136
+      },
+      {
+        "global_index": 126,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 30,
+        "seed": 1730894897
+      },
+      {
+        "global_index": 127,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 31,
+        "seed": 3322973056
+      },
+      {
+        "global_index": 128,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 32,
+        "seed": 884533834
+      },
+      {
+        "global_index": 129,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 33,
+        "seed": 2286564767
+      },
+      {
+        "global_index": 130,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 34,
+        "seed": 1796072800
+      },
+      {
+        "global_index": 131,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 35,
+        "seed": 2121085635
+      },
+      {
+        "global_index": 132,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 36,
+        "seed": 2334120752
+      },
+      {
+        "global_index": 133,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 37,
+        "seed": 1004150324
+      },
+      {
+        "global_index": 134,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 38,
+        "seed": 1249652706
+      },
+      {
+        "global_index": 135,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 39,
+        "seed": 3777329218
+      },
+      {
+        "global_index": 136,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 40,
+        "seed": 207897721
+      },
+      {
+        "global_index": 137,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 41,
+        "seed": 372357150
+      },
+      {
+        "global_index": 138,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 42,
+        "seed": 2329675943
+      },
+      {
+        "global_index": 139,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 43,
+        "seed": 4000879874
+      },
+      {
+        "global_index": 140,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 44,
+        "seed": 572911322
+      },
+      {
+        "global_index": 141,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 45,
+        "seed": 2046802285
+      },
+      {
+        "global_index": 142,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 46,
+        "seed": 123814037
+      },
+      {
+        "global_index": 143,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 47,
+        "seed": 3465846825
+      },
+      {
+        "global_index": 144,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 48,
+        "seed": 2640710682
+      },
+      {
+        "global_index": 145,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 49,
+        "seed": 1403852040
+      },
+      {
+        "global_index": 146,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 50,
+        "seed": 3436978351
+      },
+      {
+        "global_index": 147,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 51,
+        "seed": 949480393
+      },
+      {
+        "global_index": 148,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 52,
+        "seed": 3973474080
+      },
+      {
+        "global_index": 149,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 53,
+        "seed": 1407420896
+      },
+      {
+        "global_index": 150,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 54,
+        "seed": 3055537910
+      },
+      {
+        "global_index": 151,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 55,
+        "seed": 1892310479
+      },
+      {
+        "global_index": 152,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 56,
+        "seed": 2772705821
+      },
+      {
+        "global_index": 153,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 57,
+        "seed": 4086962669
+      },
+      {
+        "global_index": 154,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 58,
+        "seed": 115638180
+      },
+      {
+        "global_index": 155,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 59,
+        "seed": 2940756840
+      },
+      {
+        "global_index": 156,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 60,
+        "seed": 2883760302
+      },
+      {
+        "global_index": 157,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 61,
+        "seed": 3734549671
+      },
+      {
+        "global_index": 158,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 62,
+        "seed": 1641559723
+      },
+      {
+        "global_index": 159,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 63,
+        "seed": 3015427538
+      },
+      {
+        "global_index": 160,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 64,
+        "seed": 1627305503
+      },
+      {
+        "global_index": 161,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 65,
+        "seed": 3342781397
+      },
+      {
+        "global_index": 162,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 66,
+        "seed": 2355821710
+      },
+      {
+        "global_index": 163,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 67,
+        "seed": 2700880949
+      },
+      {
+        "global_index": 164,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 68,
+        "seed": 3961487625
+      },
+      {
+        "global_index": 165,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 69,
+        "seed": 2079590616
+      },
+      {
+        "global_index": 166,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 70,
+        "seed": 281103064
+      },
+      {
+        "global_index": 167,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 71,
+        "seed": 3186590125
+      },
+      {
+        "global_index": 168,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 72,
+        "seed": 115990414
+      },
+      {
+        "global_index": 169,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 73,
+        "seed": 3428058171
+      },
+      {
+        "global_index": 170,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 74,
+        "seed": 1984513977
+      },
+      {
+        "global_index": 171,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 75,
+        "seed": 752775972
+      },
+      {
+        "global_index": 172,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 76,
+        "seed": 3034831910
+      },
+      {
+        "global_index": 173,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 77,
+        "seed": 3387982481
+      },
+      {
+        "global_index": 174,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 78,
+        "seed": 4037862884
+      },
+      {
+        "global_index": 175,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 79,
+        "seed": 2157070460
+      },
+      {
+        "global_index": 176,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 80,
+        "seed": 292567005
+      },
+      {
+        "global_index": 177,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 81,
+        "seed": 3333881062
+      },
+      {
+        "global_index": 178,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 82,
+        "seed": 3173503457
+      },
+      {
+        "global_index": 179,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 83,
+        "seed": 2103879389
+      },
+      {
+        "global_index": 180,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 84,
+        "seed": 2111998541
+      },
+      {
+        "global_index": 181,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 85,
+        "seed": 2899802946
+      },
+      {
+        "global_index": 182,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 86,
+        "seed": 920017166
+      },
+      {
+        "global_index": 183,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 87,
+        "seed": 1318962012
+      },
+      {
+        "global_index": 184,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 88,
+        "seed": 3738025208
+      },
+      {
+        "global_index": 185,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 89,
+        "seed": 469329166
+      },
+      {
+        "global_index": 186,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 90,
+        "seed": 3050600731
+      },
+      {
+        "global_index": 187,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 91,
+        "seed": 1294162608
+      },
+      {
+        "global_index": 188,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 92,
+        "seed": 2512941607
+      },
+      {
+        "global_index": 189,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 93,
+        "seed": 3680911098
+      },
+      {
+        "global_index": 190,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 94,
+        "seed": 112101522
+      },
+      {
+        "global_index": 191,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 4,
+        "opponent_count": 3,
+        "run_index": 95,
+        "seed": 2514945879
+      }
+    ],
+    "5": [
+      {
+        "global_index": 0,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 0,
+        "seed": 2952223953
+      },
+      {
+        "global_index": 1,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 1,
+        "seed": 3950838937
+      },
+      {
+        "global_index": 2,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 2,
+        "seed": 153742058
+      },
+      {
+        "global_index": 3,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 3,
+        "seed": 2481854326
+      },
+      {
+        "global_index": 4,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 4,
+        "seed": 3185486190
+      },
+      {
+        "global_index": 5,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 5,
+        "seed": 2624419245
+      },
+      {
+        "global_index": 6,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 6,
+        "seed": 2852786607
+      },
+      {
+        "global_index": 7,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 7,
+        "seed": 1185505411
+      },
+      {
+        "global_index": 8,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 8,
+        "seed": 112754165
+      },
+      {
+        "global_index": 9,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 9,
+        "seed": 2397151747
+      },
+      {
+        "global_index": 10,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 10,
+        "seed": 2571884300
+      },
+      {
+        "global_index": 11,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 11,
+        "seed": 4202806467
+      },
+      {
+        "global_index": 12,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 12,
+        "seed": 2623463159
+      },
+      {
+        "global_index": 13,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 13,
+        "seed": 3951303974
+      },
+      {
+        "global_index": 14,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 14,
+        "seed": 3043123106
+      },
+      {
+        "global_index": 15,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 15,
+        "seed": 3339264052
+      },
+      {
+        "global_index": 16,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 16,
+        "seed": 2702526937
+      },
+      {
+        "global_index": 17,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 17,
+        "seed": 3652260791
+      },
+      {
+        "global_index": 18,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 18,
+        "seed": 1593765605
+      },
+      {
+        "global_index": 19,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 19,
+        "seed": 3808908110
+      },
+      {
+        "global_index": 20,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 20,
+        "seed": 2793189598
+      },
+      {
+        "global_index": 21,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 21,
+        "seed": 988768536
+      },
+      {
+        "global_index": 22,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 22,
+        "seed": 415024803
+      },
+      {
+        "global_index": 23,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 23,
+        "seed": 2422658709
+      },
+      {
+        "global_index": 24,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 24,
+        "seed": 3317276607
+      },
+      {
+        "global_index": 25,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 25,
+        "seed": 1299168566
+      },
+      {
+        "global_index": 26,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 26,
+        "seed": 611161128
+      },
+      {
+        "global_index": 27,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 27,
+        "seed": 3297896751
+      },
+      {
+        "global_index": 28,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 28,
+        "seed": 2471752742
+      },
+      {
+        "global_index": 29,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 29,
+        "seed": 4118010785
+      },
+      {
+        "global_index": 30,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 30,
+        "seed": 1471611673
+      },
+      {
+        "global_index": 31,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 31,
+        "seed": 227539200
+      },
+      {
+        "global_index": 32,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 32,
+        "seed": 3326295246
+      },
+      {
+        "global_index": 33,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 33,
+        "seed": 983058800
+      },
+      {
+        "global_index": 34,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 34,
+        "seed": 1425184445
+      },
+      {
+        "global_index": 35,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 35,
+        "seed": 2840629437
+      },
+      {
+        "global_index": 36,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 36,
+        "seed": 244257371
+      },
+      {
+        "global_index": 37,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 37,
+        "seed": 193213928
+      },
+      {
+        "global_index": 38,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 38,
+        "seed": 818118300
+      },
+      {
+        "global_index": 39,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 39,
+        "seed": 1793407496
+      },
+      {
+        "global_index": 40,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 40,
+        "seed": 3393399104
+      },
+      {
+        "global_index": 41,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 41,
+        "seed": 2934945866
+      },
+      {
+        "global_index": 42,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 42,
+        "seed": 1974976835
+      },
+      {
+        "global_index": 43,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 43,
+        "seed": 3189148202
+      },
+      {
+        "global_index": 44,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 44,
+        "seed": 488816309
+      },
+      {
+        "global_index": 45,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 45,
+        "seed": 3263418744
+      },
+      {
+        "global_index": 46,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 46,
+        "seed": 1848461245
+      },
+      {
+        "global_index": 47,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 47,
+        "seed": 275654489
+      },
+      {
+        "global_index": 48,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 48,
+        "seed": 393696093
+      },
+      {
+        "global_index": 49,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 49,
+        "seed": 574760370
+      },
+      {
+        "global_index": 50,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 50,
+        "seed": 822069257
+      },
+      {
+        "global_index": 51,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 51,
+        "seed": 2524212842
+      },
+      {
+        "global_index": 52,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 52,
+        "seed": 3887295428
+      },
+      {
+        "global_index": 53,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 53,
+        "seed": 3184104670
+      },
+      {
+        "global_index": 54,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 54,
+        "seed": 573023108
+      },
+      {
+        "global_index": 55,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 55,
+        "seed": 3048352414
+      },
+      {
+        "global_index": 56,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 56,
+        "seed": 3113725003
+      },
+      {
+        "global_index": 57,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 57,
+        "seed": 1460312620
+      },
+      {
+        "global_index": 58,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 58,
+        "seed": 2681596908
+      },
+      {
+        "global_index": 59,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 59,
+        "seed": 4246161670
+      },
+      {
+        "global_index": 60,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 60,
+        "seed": 2748140114
+      },
+      {
+        "global_index": 61,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 61,
+        "seed": 4153262274
+      },
+      {
+        "global_index": 62,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 62,
+        "seed": 4141193765
+      },
+      {
+        "global_index": 63,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 63,
+        "seed": 3100285540
+      },
+      {
+        "global_index": 64,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 64,
+        "seed": 4185008103
+      },
+      {
+        "global_index": 65,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 65,
+        "seed": 330529428
+      },
+      {
+        "global_index": 66,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 66,
+        "seed": 3375457936
+      },
+      {
+        "global_index": 67,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 67,
+        "seed": 1708294961
+      },
+      {
+        "global_index": 68,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 68,
+        "seed": 623448219
+      },
+      {
+        "global_index": 69,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 69,
+        "seed": 401309894
+      },
+      {
+        "global_index": 70,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 70,
+        "seed": 1850104104
+      },
+      {
+        "global_index": 71,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 71,
+        "seed": 1849819793
+      },
+      {
+        "global_index": 72,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 72,
+        "seed": 2206880137
+      },
+      {
+        "global_index": 73,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 73,
+        "seed": 968799653
+      },
+      {
+        "global_index": 74,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 74,
+        "seed": 1597044203
+      },
+      {
+        "global_index": 75,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 75,
+        "seed": 1184902227
+      },
+      {
+        "global_index": 76,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 76,
+        "seed": 2182199851
+      },
+      {
+        "global_index": 77,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 77,
+        "seed": 805146614
+      },
+      {
+        "global_index": 78,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 78,
+        "seed": 1001904255
+      },
+      {
+        "global_index": 79,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 79,
+        "seed": 3081963608
+      },
+      {
+        "global_index": 80,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 80,
+        "seed": 3772615413
+      },
+      {
+        "global_index": 81,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 81,
+        "seed": 1847468776
+      },
+      {
+        "global_index": 82,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 82,
+        "seed": 3472272316
+      },
+      {
+        "global_index": 83,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 83,
+        "seed": 3565582659
+      },
+      {
+        "global_index": 84,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 84,
+        "seed": 3770754853
+      },
+      {
+        "global_index": 85,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 85,
+        "seed": 2807722153
+      },
+      {
+        "global_index": 86,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 86,
+        "seed": 3896417473
+      },
+      {
+        "global_index": 87,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 87,
+        "seed": 2348299008
+      },
+      {
+        "global_index": 88,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 88,
+        "seed": 849574467
+      },
+      {
+        "global_index": 89,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 89,
+        "seed": 2645921021
+      },
+      {
+        "global_index": 90,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 90,
+        "seed": 3008409228
+      },
+      {
+        "global_index": 91,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 91,
+        "seed": 3124689249
+      },
+      {
+        "global_index": 92,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 92,
+        "seed": 3577276937
+      },
+      {
+        "global_index": 93,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 93,
+        "seed": 2780933168
+      },
+      {
+        "global_index": 94,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 94,
+        "seed": 2438970336
+      },
+      {
+        "global_index": 95,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 6,
+        "opponent_count": 5,
+        "run_index": 95,
+        "seed": 1420619921
+      }
+    ],
+    "8": [
+      {
+        "global_index": 192,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 0,
+        "seed": 3079095396
+      },
+      {
+        "global_index": 193,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 1,
+        "seed": 936268495
+      },
+      {
+        "global_index": 194,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 2,
+        "seed": 1926327347
+      },
+      {
+        "global_index": 195,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 3,
+        "seed": 2394100284
+      },
+      {
+        "global_index": 196,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 4,
+        "seed": 4172664061
+      },
+      {
+        "global_index": 197,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 5,
+        "seed": 1825572638
+      },
+      {
+        "global_index": 198,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 6,
+        "seed": 431469878
+      },
+      {
+        "global_index": 199,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 7,
+        "seed": 2634726427
+      },
+      {
+        "global_index": 200,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 8,
+        "seed": 1393677404
+      },
+      {
+        "global_index": 201,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 9,
+        "seed": 262649043
+      },
+      {
+        "global_index": 202,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 10,
+        "seed": 2578654561
+      },
+      {
+        "global_index": 203,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 11,
+        "seed": 1902854081
+      },
+      {
+        "global_index": 204,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 12,
+        "seed": 3229048392
+      },
+      {
+        "global_index": 205,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 13,
+        "seed": 3408451140
+      },
+      {
+        "global_index": 206,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 14,
+        "seed": 2523273918
+      },
+      {
+        "global_index": 207,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 15,
+        "seed": 1037591563
+      },
+      {
+        "global_index": 208,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 16,
+        "seed": 4195956116
+      },
+      {
+        "global_index": 209,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 17,
+        "seed": 853694359
+      },
+      {
+        "global_index": 210,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 18,
+        "seed": 677377970
+      },
+      {
+        "global_index": 211,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 19,
+        "seed": 3391888129
+      },
+      {
+        "global_index": 212,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 20,
+        "seed": 1820515101
+      },
+      {
+        "global_index": 213,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 21,
+        "seed": 3775286465
+      },
+      {
+        "global_index": 214,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 22,
+        "seed": 349012602
+      },
+      {
+        "global_index": 215,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 23,
+        "seed": 3462593348
+      },
+      {
+        "global_index": 216,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 24,
+        "seed": 2302989813
+      },
+      {
+        "global_index": 217,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 25,
+        "seed": 4253239096
+      },
+      {
+        "global_index": 218,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 26,
+        "seed": 2941300689
+      },
+      {
+        "global_index": 219,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 27,
+        "seed": 1612391205
+      },
+      {
+        "global_index": 220,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 28,
+        "seed": 1912999007
+      },
+      {
+        "global_index": 221,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 29,
+        "seed": 601079713
+      },
+      {
+        "global_index": 222,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 30,
+        "seed": 4033758452
+      },
+      {
+        "global_index": 223,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 31,
+        "seed": 1045856758
+      },
+      {
+        "global_index": 224,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 32,
+        "seed": 2263526794
+      },
+      {
+        "global_index": 225,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 33,
+        "seed": 2164143253
+      },
+      {
+        "global_index": 226,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 34,
+        "seed": 2869529600
+      },
+      {
+        "global_index": 227,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 35,
+        "seed": 3252870249
+      },
+      {
+        "global_index": 228,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 36,
+        "seed": 1705057537
+      },
+      {
+        "global_index": 229,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 37,
+        "seed": 2859421615
+      },
+      {
+        "global_index": 230,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 38,
+        "seed": 3030401557
+      },
+      {
+        "global_index": 231,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 39,
+        "seed": 3984731167
+      },
+      {
+        "global_index": 232,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 40,
+        "seed": 711803847
+      },
+      {
+        "global_index": 233,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 41,
+        "seed": 1733265588
+      },
+      {
+        "global_index": 234,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 42,
+        "seed": 3256709655
+      },
+      {
+        "global_index": 235,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 43,
+        "seed": 3736893615
+      },
+      {
+        "global_index": 236,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 44,
+        "seed": 3892202037
+      },
+      {
+        "global_index": 237,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 45,
+        "seed": 143584107
+      },
+      {
+        "global_index": 238,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 46,
+        "seed": 2910507297
+      },
+      {
+        "global_index": 239,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 47,
+        "seed": 1330125430
+      },
+      {
+        "global_index": 240,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 48,
+        "seed": 3772213855
+      },
+      {
+        "global_index": 241,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 49,
+        "seed": 4198842527
+      },
+      {
+        "global_index": 242,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 50,
+        "seed": 2832114115
+      },
+      {
+        "global_index": 243,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 51,
+        "seed": 3471409369
+      },
+      {
+        "global_index": 244,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 52,
+        "seed": 1147419141
+      },
+      {
+        "global_index": 245,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 53,
+        "seed": 206831715
+      },
+      {
+        "global_index": 246,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 54,
+        "seed": 2507260632
+      },
+      {
+        "global_index": 247,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 55,
+        "seed": 4164892015
+      },
+      {
+        "global_index": 248,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 56,
+        "seed": 2860711747
+      },
+      {
+        "global_index": 249,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 57,
+        "seed": 1049375442
+      },
+      {
+        "global_index": 250,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 58,
+        "seed": 2601881089
+      },
+      {
+        "global_index": 251,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 59,
+        "seed": 2001394828
+      },
+      {
+        "global_index": 252,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 60,
+        "seed": 3848426996
+      },
+      {
+        "global_index": 253,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 61,
+        "seed": 2670990001
+      },
+      {
+        "global_index": 254,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 62,
+        "seed": 179612095
+      },
+      {
+        "global_index": 255,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 63,
+        "seed": 1381422790
+      },
+      {
+        "global_index": 256,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 64,
+        "seed": 3960043509
+      },
+      {
+        "global_index": 257,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 65,
+        "seed": 2957409871
+      },
+      {
+        "global_index": 258,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 66,
+        "seed": 3722855409
+      },
+      {
+        "global_index": 259,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 67,
+        "seed": 230070789
+      },
+      {
+        "global_index": 260,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 68,
+        "seed": 1597091400
+      },
+      {
+        "global_index": 261,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 69,
+        "seed": 2672006419
+      },
+      {
+        "global_index": 262,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 70,
+        "seed": 640171137
+      },
+      {
+        "global_index": 263,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 71,
+        "seed": 4127093729
+      },
+      {
+        "global_index": 264,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 72,
+        "seed": 2090754791
+      },
+      {
+        "global_index": 265,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 73,
+        "seed": 2365697303
+      },
+      {
+        "global_index": 266,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 74,
+        "seed": 1371350438
+      },
+      {
+        "global_index": 267,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 75,
+        "seed": 3314414299
+      },
+      {
+        "global_index": 268,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 76,
+        "seed": 3800647113
+      },
+      {
+        "global_index": 269,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 77,
+        "seed": 2518407166
+      },
+      {
+        "global_index": 270,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 78,
+        "seed": 1066898401
+      },
+      {
+        "global_index": 271,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 79,
+        "seed": 98985337
+      },
+      {
+        "global_index": 272,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 80,
+        "seed": 2376743672
+      },
+      {
+        "global_index": 273,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 81,
+        "seed": 1975308542
+      },
+      {
+        "global_index": 274,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 82,
+        "seed": 2318814285
+      },
+      {
+        "global_index": 275,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 83,
+        "seed": 1285098850
+      },
+      {
+        "global_index": 276,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 84,
+        "seed": 2265600157
+      },
+      {
+        "global_index": 277,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 85,
+        "seed": 3762322881
+      },
+      {
+        "global_index": 278,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 86,
+        "seed": 2684310721
+      },
+      {
+        "global_index": 279,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 87,
+        "seed": 4126346279
+      },
+      {
+        "global_index": 280,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 88,
+        "seed": 1534359618
+      },
+      {
+        "global_index": 281,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 89,
+        "seed": 3783202410
+      },
+      {
+        "global_index": 282,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 90,
+        "seed": 3107296331
+      },
+      {
+        "global_index": 283,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 91,
+        "seed": 3154358736
+      },
+      {
+        "global_index": 284,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 92,
+        "seed": 3504018714
+      },
+      {
+        "global_index": 285,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 93,
+        "seed": 1213279420
+      },
+      {
+        "global_index": 286,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 94,
+        "seed": 4289784668
+      },
+      {
+        "global_index": 287,
+        "horizon_cap": 6000,
+        "is_smoke": false,
+        "num_snakes": 9,
+        "opponent_count": 8,
+        "run_index": 95,
+        "seed": 2632923778
+      }
+    ]
+  },
+  "horizon_cap": 6000,
+  "namespace": "t34-play-mixed-probe-20261104-v1",
+  "opponent_counts_order": [
+    5,
+    3,
+    8,
+    1,
+    11
+  ],
+  "roster_arms": [
+    "all_b8",
+    "mixed"
+  ],
+  "runs_per_opponent_count": {
+    "1": 16,
+    "11": 16,
+    "3": 96,
+    "5": 96,
+    "8": 96
+  },
+  "schema": "t34-play-mixed-probe-allocation/v1",
+  "seeds": [
+    2952223953,
+    3950838937,
+    153742058,
+    2481854326,
+    3185486190,
+    2624419245,
+    2852786607,
+    1185505411,
+    112754165,
+    2397151747,
+    2571884300,
+    4202806467,
+    2623463159,
+    3951303974,
+    3043123106,
+    3339264052,
+    2702526937,
+    3652260791,
+    1593765605,
+    3808908110,
+    2793189598,
+    988768536,
+    415024803,
+    2422658709,
+    3317276607,
+    1299168566,
+    611161128,
+    3297896751,
+    2471752742,
+    4118010785,
+    1471611673,
+    227539200,
+    3326295246,
+    983058800,
+    1425184445,
+    2840629437,
+    244257371,
+    193213928,
+    818118300,
+    1793407496,
+    3393399104,
+    2934945866,
+    1974976835,
+    3189148202,
+    488816309,
+    3263418744,
+    1848461245,
+    275654489,
+    393696093,
+    574760370,
+    822069257,
+    2524212842,
+    3887295428,
+    3184104670,
+    573023108,
+    3048352414,
+    3113725003,
+    1460312620,
+    2681596908,
+    4246161670,
+    2748140114,
+    4153262274,
+    4141193765,
+    3100285540,
+    4185008103,
+    330529428,
+    3375457936,
+    1708294961,
+    623448219,
+    401309894,
+    1850104104,
+    1849819793,
+    2206880137,
+    968799653,
+    1597044203,
+    1184902227,
+    2182199851,
+    805146614,
+    1001904255,
+    3081963608,
+    3772615413,
+    1847468776,
+    3472272316,
+    3565582659,
+    3770754853,
+    2807722153,
+    3896417473,
+    2348299008,
+    849574467,
+    2645921021,
+    3008409228,
+    3124689249,
+    3577276937,
+    2780933168,
+    2438970336,
+    1420619921,
+    2585715196,
+    1200306081,
+    3660793200,
+    1108533390,
+    2804353813,
+    3982312215,
+    951808628,
+    663262062,
+    4254769365,
+    1830827154,
+    19659575,
+    3600368695,
+    3486254266,
+    947742321,
+    886620006,
+    4233626015,
+    3576574589,
+    325736947,
+    2637745148,
+    2581929739,
+    915896671,
+    2801714269,
+    1377017876,
+    3572521542,
+    3385940577,
+    243083376,
+    67456267,
+    3802565861,
+    2514643321,
+    3142243136,
+    1730894897,
+    3322973056,
+    884533834,
+    2286564767,
+    1796072800,
+    2121085635,
+    2334120752,
+    1004150324,
+    1249652706,
+    3777329218,
+    207897721,
+    372357150,
+    2329675943,
+    4000879874,
+    572911322,
+    2046802285,
+    123814037,
+    3465846825,
+    2640710682,
+    1403852040,
+    3436978351,
+    949480393,
+    3973474080,
+    1407420896,
+    3055537910,
+    1892310479,
+    2772705821,
+    4086962669,
+    115638180,
+    2940756840,
+    2883760302,
+    3734549671,
+    1641559723,
+    3015427538,
+    1627305503,
+    3342781397,
+    2355821710,
+    2700880949,
+    3961487625,
+    2079590616,
+    281103064,
+    3186590125,
+    115990414,
+    3428058171,
+    1984513977,
+    752775972,
+    3034831910,
+    3387982481,
+    4037862884,
+    2157070460,
+    292567005,
+    3333881062,
+    3173503457,
+    2103879389,
+    2111998541,
+    2899802946,
+    920017166,
+    1318962012,
+    3738025208,
+    469329166,
+    3050600731,
+    1294162608,
+    2512941607,
+    3680911098,
+    112101522,
+    2514945879,
+    3079095396,
+    936268495,
+    1926327347,
+    2394100284,
+    4172664061,
+    1825572638,
+    431469878,
+    2634726427,
+    1393677404,
+    262649043,
+    2578654561,
+    1902854081,
+    3229048392,
+    3408451140,
+    2523273918,
+    1037591563,
+    4195956116,
+    853694359,
+    677377970,
+    3391888129,
+    1820515101,
+    3775286465,
+    349012602,
+    3462593348,
+    2302989813,
+    4253239096,
+    2941300689,
+    1612391205,
+    1912999007,
+    601079713,
+    4033758452,
+    1045856758,
+    2263526794,
+    2164143253,
+    2869529600,
+    3252870249,
+    1705057537,
+    2859421615,
+    3030401557,
+    3984731167,
+    711803847,
+    1733265588,
+    3256709655,
+    3736893615,
+    3892202037,
+    143584107,
+    2910507297,
+    1330125430,
+    3772213855,
+    4198842527,
+    2832114115,
+    3471409369,
+    1147419141,
+    206831715,
+    2507260632,
+    4164892015,
+    2860711747,
+    1049375442,
+    2601881089,
+    2001394828,
+    3848426996,
+    2670990001,
+    179612095,
+    1381422790,
+    3960043509,
+    2957409871,
+    3722855409,
+    230070789,
+    1597091400,
+    2672006419,
+    640171137,
+    4127093729,
+    2090754791,
+    2365697303,
+    1371350438,
+    3314414299,
+    3800647113,
+    2518407166,
+    1066898401,
+    98985337,
+    2376743672,
+    1975308542,
+    2318814285,
+    1285098850,
+    2265600157,
+    3762322881,
+    2684310721,
+    4126346279,
+    1534359618,
+    3783202410,
+    3107296331,
+    3154358736,
+    3504018714,
+    1213279420,
+    4289784668,
+    2632923778,
+    2549462188,
+    4223455290,
+    1835343903,
+    4178311544,
+    2202736473,
+    3556042247,
+    1810553365,
+    4010244195,
+    1221402285,
+    2349909138,
+    4049101585,
+    3922790076,
+    3712357209,
+    2275650468,
+    256835079,
+    3732794355,
+    925379380,
+    2174542218,
+    151600733,
+    104504866,
+    4286204816,
+    895858977,
+    198419921,
+    3558714560,
+    1452614429,
+    1946320802,
+    1743478877,
+    1398109771,
+    1933146447,
+    3109627191,
+    3740365749,
+    1229907882
+  ],
+  "seeds_sha256": "2f117b8f1e121babf5ad9bb8d91beb4f20713474de92e825eab22995264dc9be",
+  "stand_ins": [
+    "a_frp3_v8",
+    "b_b8_eps01_delay3_6",
+    "b_b8_eps03_delay3_6",
+    "c_greedy_food"
+  ],
+  "total_count": 320,
+  "training_excluded": true,
+  "training_exclusions": {
+    "count": 320,
+    "path": "research/play_mixed_probe/training_exclusions.json",
+    "sha256": "c2c36a54121416e06fc56683bb9395c0ccc275a0539cf17d865fd95cd97b6493"
+  },
+  "world_contract": {
+    "all_b8_roster": "slot 0 stand-in + N bare b8-s3",
+    "b8_checkpoint": "b8-s3",
+    "config": "configs/mechanics_v2.yaml",
+    "frp3_checkpoint": "frp3-s12",
+    "frp3_veto_lambda": 8.0,
+    "frp3_veto_variant": "v8",
+    "mechanics_version": 2,
+    "mixed_roster": "slot 0 stand-in + 1 bare b8-s3 (slot 1) + (N-1) frp3-s12+v8 (slots 2..N)",
+    "mode": "play",
+    "opponent_auto_respawn": true,
+    "slot_0_auto_respawn": false
+  },
+  "worlds": [
+    {
+      "global_index": 0,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 0,
+      "seed": 2952223953
+    },
+    {
+      "global_index": 1,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 1,
+      "seed": 3950838937
+    },
+    {
+      "global_index": 2,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 2,
+      "seed": 153742058
+    },
+    {
+      "global_index": 3,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 3,
+      "seed": 2481854326
+    },
+    {
+      "global_index": 4,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 4,
+      "seed": 3185486190
+    },
+    {
+      "global_index": 5,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 5,
+      "seed": 2624419245
+    },
+    {
+      "global_index": 6,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 6,
+      "seed": 2852786607
+    },
+    {
+      "global_index": 7,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 7,
+      "seed": 1185505411
+    },
+    {
+      "global_index": 8,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 8,
+      "seed": 112754165
+    },
+    {
+      "global_index": 9,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 9,
+      "seed": 2397151747
+    },
+    {
+      "global_index": 10,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 10,
+      "seed": 2571884300
+    },
+    {
+      "global_index": 11,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 11,
+      "seed": 4202806467
+    },
+    {
+      "global_index": 12,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 12,
+      "seed": 2623463159
+    },
+    {
+      "global_index": 13,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 13,
+      "seed": 3951303974
+    },
+    {
+      "global_index": 14,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 14,
+      "seed": 3043123106
+    },
+    {
+      "global_index": 15,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 15,
+      "seed": 3339264052
+    },
+    {
+      "global_index": 16,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 16,
+      "seed": 2702526937
+    },
+    {
+      "global_index": 17,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 17,
+      "seed": 3652260791
+    },
+    {
+      "global_index": 18,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 18,
+      "seed": 1593765605
+    },
+    {
+      "global_index": 19,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 19,
+      "seed": 3808908110
+    },
+    {
+      "global_index": 20,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 20,
+      "seed": 2793189598
+    },
+    {
+      "global_index": 21,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 21,
+      "seed": 988768536
+    },
+    {
+      "global_index": 22,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 22,
+      "seed": 415024803
+    },
+    {
+      "global_index": 23,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 23,
+      "seed": 2422658709
+    },
+    {
+      "global_index": 24,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 24,
+      "seed": 3317276607
+    },
+    {
+      "global_index": 25,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 25,
+      "seed": 1299168566
+    },
+    {
+      "global_index": 26,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 26,
+      "seed": 611161128
+    },
+    {
+      "global_index": 27,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 27,
+      "seed": 3297896751
+    },
+    {
+      "global_index": 28,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 28,
+      "seed": 2471752742
+    },
+    {
+      "global_index": 29,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 29,
+      "seed": 4118010785
+    },
+    {
+      "global_index": 30,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 30,
+      "seed": 1471611673
+    },
+    {
+      "global_index": 31,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 31,
+      "seed": 227539200
+    },
+    {
+      "global_index": 32,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 32,
+      "seed": 3326295246
+    },
+    {
+      "global_index": 33,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 33,
+      "seed": 983058800
+    },
+    {
+      "global_index": 34,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 34,
+      "seed": 1425184445
+    },
+    {
+      "global_index": 35,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 35,
+      "seed": 2840629437
+    },
+    {
+      "global_index": 36,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 36,
+      "seed": 244257371
+    },
+    {
+      "global_index": 37,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 37,
+      "seed": 193213928
+    },
+    {
+      "global_index": 38,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 38,
+      "seed": 818118300
+    },
+    {
+      "global_index": 39,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 39,
+      "seed": 1793407496
+    },
+    {
+      "global_index": 40,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 40,
+      "seed": 3393399104
+    },
+    {
+      "global_index": 41,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 41,
+      "seed": 2934945866
+    },
+    {
+      "global_index": 42,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 42,
+      "seed": 1974976835
+    },
+    {
+      "global_index": 43,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 43,
+      "seed": 3189148202
+    },
+    {
+      "global_index": 44,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 44,
+      "seed": 488816309
+    },
+    {
+      "global_index": 45,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 45,
+      "seed": 3263418744
+    },
+    {
+      "global_index": 46,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 46,
+      "seed": 1848461245
+    },
+    {
+      "global_index": 47,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 47,
+      "seed": 275654489
+    },
+    {
+      "global_index": 48,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 48,
+      "seed": 393696093
+    },
+    {
+      "global_index": 49,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 49,
+      "seed": 574760370
+    },
+    {
+      "global_index": 50,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 50,
+      "seed": 822069257
+    },
+    {
+      "global_index": 51,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 51,
+      "seed": 2524212842
+    },
+    {
+      "global_index": 52,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 52,
+      "seed": 3887295428
+    },
+    {
+      "global_index": 53,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 53,
+      "seed": 3184104670
+    },
+    {
+      "global_index": 54,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 54,
+      "seed": 573023108
+    },
+    {
+      "global_index": 55,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 55,
+      "seed": 3048352414
+    },
+    {
+      "global_index": 56,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 56,
+      "seed": 3113725003
+    },
+    {
+      "global_index": 57,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 57,
+      "seed": 1460312620
+    },
+    {
+      "global_index": 58,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 58,
+      "seed": 2681596908
+    },
+    {
+      "global_index": 59,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 59,
+      "seed": 4246161670
+    },
+    {
+      "global_index": 60,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 60,
+      "seed": 2748140114
+    },
+    {
+      "global_index": 61,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 61,
+      "seed": 4153262274
+    },
+    {
+      "global_index": 62,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 62,
+      "seed": 4141193765
+    },
+    {
+      "global_index": 63,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 63,
+      "seed": 3100285540
+    },
+    {
+      "global_index": 64,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 64,
+      "seed": 4185008103
+    },
+    {
+      "global_index": 65,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 65,
+      "seed": 330529428
+    },
+    {
+      "global_index": 66,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 66,
+      "seed": 3375457936
+    },
+    {
+      "global_index": 67,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 67,
+      "seed": 1708294961
+    },
+    {
+      "global_index": 68,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 68,
+      "seed": 623448219
+    },
+    {
+      "global_index": 69,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 69,
+      "seed": 401309894
+    },
+    {
+      "global_index": 70,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 70,
+      "seed": 1850104104
+    },
+    {
+      "global_index": 71,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 71,
+      "seed": 1849819793
+    },
+    {
+      "global_index": 72,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 72,
+      "seed": 2206880137
+    },
+    {
+      "global_index": 73,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 73,
+      "seed": 968799653
+    },
+    {
+      "global_index": 74,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 74,
+      "seed": 1597044203
+    },
+    {
+      "global_index": 75,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 75,
+      "seed": 1184902227
+    },
+    {
+      "global_index": 76,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 76,
+      "seed": 2182199851
+    },
+    {
+      "global_index": 77,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 77,
+      "seed": 805146614
+    },
+    {
+      "global_index": 78,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 78,
+      "seed": 1001904255
+    },
+    {
+      "global_index": 79,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 79,
+      "seed": 3081963608
+    },
+    {
+      "global_index": 80,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 80,
+      "seed": 3772615413
+    },
+    {
+      "global_index": 81,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 81,
+      "seed": 1847468776
+    },
+    {
+      "global_index": 82,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 82,
+      "seed": 3472272316
+    },
+    {
+      "global_index": 83,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 83,
+      "seed": 3565582659
+    },
+    {
+      "global_index": 84,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 84,
+      "seed": 3770754853
+    },
+    {
+      "global_index": 85,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 85,
+      "seed": 2807722153
+    },
+    {
+      "global_index": 86,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 86,
+      "seed": 3896417473
+    },
+    {
+      "global_index": 87,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 87,
+      "seed": 2348299008
+    },
+    {
+      "global_index": 88,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 88,
+      "seed": 849574467
+    },
+    {
+      "global_index": 89,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 89,
+      "seed": 2645921021
+    },
+    {
+      "global_index": 90,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 90,
+      "seed": 3008409228
+    },
+    {
+      "global_index": 91,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 91,
+      "seed": 3124689249
+    },
+    {
+      "global_index": 92,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 92,
+      "seed": 3577276937
+    },
+    {
+      "global_index": 93,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 93,
+      "seed": 2780933168
+    },
+    {
+      "global_index": 94,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 94,
+      "seed": 2438970336
+    },
+    {
+      "global_index": 95,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 6,
+      "opponent_count": 5,
+      "run_index": 95,
+      "seed": 1420619921
+    },
+    {
+      "global_index": 96,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 0,
+      "seed": 2585715196
+    },
+    {
+      "global_index": 97,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 1,
+      "seed": 1200306081
+    },
+    {
+      "global_index": 98,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 2,
+      "seed": 3660793200
+    },
+    {
+      "global_index": 99,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 3,
+      "seed": 1108533390
+    },
+    {
+      "global_index": 100,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 4,
+      "seed": 2804353813
+    },
+    {
+      "global_index": 101,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 5,
+      "seed": 3982312215
+    },
+    {
+      "global_index": 102,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 6,
+      "seed": 951808628
+    },
+    {
+      "global_index": 103,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 7,
+      "seed": 663262062
+    },
+    {
+      "global_index": 104,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 8,
+      "seed": 4254769365
+    },
+    {
+      "global_index": 105,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 9,
+      "seed": 1830827154
+    },
+    {
+      "global_index": 106,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 10,
+      "seed": 19659575
+    },
+    {
+      "global_index": 107,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 11,
+      "seed": 3600368695
+    },
+    {
+      "global_index": 108,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 12,
+      "seed": 3486254266
+    },
+    {
+      "global_index": 109,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 13,
+      "seed": 947742321
+    },
+    {
+      "global_index": 110,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 14,
+      "seed": 886620006
+    },
+    {
+      "global_index": 111,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 15,
+      "seed": 4233626015
+    },
+    {
+      "global_index": 112,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 16,
+      "seed": 3576574589
+    },
+    {
+      "global_index": 113,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 17,
+      "seed": 325736947
+    },
+    {
+      "global_index": 114,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 18,
+      "seed": 2637745148
+    },
+    {
+      "global_index": 115,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 19,
+      "seed": 2581929739
+    },
+    {
+      "global_index": 116,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 20,
+      "seed": 915896671
+    },
+    {
+      "global_index": 117,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 21,
+      "seed": 2801714269
+    },
+    {
+      "global_index": 118,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 22,
+      "seed": 1377017876
+    },
+    {
+      "global_index": 119,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 23,
+      "seed": 3572521542
+    },
+    {
+      "global_index": 120,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 24,
+      "seed": 3385940577
+    },
+    {
+      "global_index": 121,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 25,
+      "seed": 243083376
+    },
+    {
+      "global_index": 122,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 26,
+      "seed": 67456267
+    },
+    {
+      "global_index": 123,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 27,
+      "seed": 3802565861
+    },
+    {
+      "global_index": 124,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 28,
+      "seed": 2514643321
+    },
+    {
+      "global_index": 125,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 29,
+      "seed": 3142243136
+    },
+    {
+      "global_index": 126,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 30,
+      "seed": 1730894897
+    },
+    {
+      "global_index": 127,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 31,
+      "seed": 3322973056
+    },
+    {
+      "global_index": 128,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 32,
+      "seed": 884533834
+    },
+    {
+      "global_index": 129,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 33,
+      "seed": 2286564767
+    },
+    {
+      "global_index": 130,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 34,
+      "seed": 1796072800
+    },
+    {
+      "global_index": 131,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 35,
+      "seed": 2121085635
+    },
+    {
+      "global_index": 132,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 36,
+      "seed": 2334120752
+    },
+    {
+      "global_index": 133,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 37,
+      "seed": 1004150324
+    },
+    {
+      "global_index": 134,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 38,
+      "seed": 1249652706
+    },
+    {
+      "global_index": 135,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 39,
+      "seed": 3777329218
+    },
+    {
+      "global_index": 136,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 40,
+      "seed": 207897721
+    },
+    {
+      "global_index": 137,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 41,
+      "seed": 372357150
+    },
+    {
+      "global_index": 138,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 42,
+      "seed": 2329675943
+    },
+    {
+      "global_index": 139,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 43,
+      "seed": 4000879874
+    },
+    {
+      "global_index": 140,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 44,
+      "seed": 572911322
+    },
+    {
+      "global_index": 141,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 45,
+      "seed": 2046802285
+    },
+    {
+      "global_index": 142,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 46,
+      "seed": 123814037
+    },
+    {
+      "global_index": 143,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 47,
+      "seed": 3465846825
+    },
+    {
+      "global_index": 144,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 48,
+      "seed": 2640710682
+    },
+    {
+      "global_index": 145,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 49,
+      "seed": 1403852040
+    },
+    {
+      "global_index": 146,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 50,
+      "seed": 3436978351
+    },
+    {
+      "global_index": 147,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 51,
+      "seed": 949480393
+    },
+    {
+      "global_index": 148,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 52,
+      "seed": 3973474080
+    },
+    {
+      "global_index": 149,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 53,
+      "seed": 1407420896
+    },
+    {
+      "global_index": 150,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 54,
+      "seed": 3055537910
+    },
+    {
+      "global_index": 151,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 55,
+      "seed": 1892310479
+    },
+    {
+      "global_index": 152,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 56,
+      "seed": 2772705821
+    },
+    {
+      "global_index": 153,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 57,
+      "seed": 4086962669
+    },
+    {
+      "global_index": 154,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 58,
+      "seed": 115638180
+    },
+    {
+      "global_index": 155,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 59,
+      "seed": 2940756840
+    },
+    {
+      "global_index": 156,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 60,
+      "seed": 2883760302
+    },
+    {
+      "global_index": 157,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 61,
+      "seed": 3734549671
+    },
+    {
+      "global_index": 158,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 62,
+      "seed": 1641559723
+    },
+    {
+      "global_index": 159,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 63,
+      "seed": 3015427538
+    },
+    {
+      "global_index": 160,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 64,
+      "seed": 1627305503
+    },
+    {
+      "global_index": 161,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 65,
+      "seed": 3342781397
+    },
+    {
+      "global_index": 162,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 66,
+      "seed": 2355821710
+    },
+    {
+      "global_index": 163,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 67,
+      "seed": 2700880949
+    },
+    {
+      "global_index": 164,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 68,
+      "seed": 3961487625
+    },
+    {
+      "global_index": 165,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 69,
+      "seed": 2079590616
+    },
+    {
+      "global_index": 166,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 70,
+      "seed": 281103064
+    },
+    {
+      "global_index": 167,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 71,
+      "seed": 3186590125
+    },
+    {
+      "global_index": 168,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 72,
+      "seed": 115990414
+    },
+    {
+      "global_index": 169,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 73,
+      "seed": 3428058171
+    },
+    {
+      "global_index": 170,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 74,
+      "seed": 1984513977
+    },
+    {
+      "global_index": 171,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 75,
+      "seed": 752775972
+    },
+    {
+      "global_index": 172,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 76,
+      "seed": 3034831910
+    },
+    {
+      "global_index": 173,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 77,
+      "seed": 3387982481
+    },
+    {
+      "global_index": 174,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 78,
+      "seed": 4037862884
+    },
+    {
+      "global_index": 175,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 79,
+      "seed": 2157070460
+    },
+    {
+      "global_index": 176,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 80,
+      "seed": 292567005
+    },
+    {
+      "global_index": 177,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 81,
+      "seed": 3333881062
+    },
+    {
+      "global_index": 178,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 82,
+      "seed": 3173503457
+    },
+    {
+      "global_index": 179,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 83,
+      "seed": 2103879389
+    },
+    {
+      "global_index": 180,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 84,
+      "seed": 2111998541
+    },
+    {
+      "global_index": 181,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 85,
+      "seed": 2899802946
+    },
+    {
+      "global_index": 182,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 86,
+      "seed": 920017166
+    },
+    {
+      "global_index": 183,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 87,
+      "seed": 1318962012
+    },
+    {
+      "global_index": 184,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 88,
+      "seed": 3738025208
+    },
+    {
+      "global_index": 185,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 89,
+      "seed": 469329166
+    },
+    {
+      "global_index": 186,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 90,
+      "seed": 3050600731
+    },
+    {
+      "global_index": 187,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 91,
+      "seed": 1294162608
+    },
+    {
+      "global_index": 188,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 92,
+      "seed": 2512941607
+    },
+    {
+      "global_index": 189,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 93,
+      "seed": 3680911098
+    },
+    {
+      "global_index": 190,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 94,
+      "seed": 112101522
+    },
+    {
+      "global_index": 191,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 4,
+      "opponent_count": 3,
+      "run_index": 95,
+      "seed": 2514945879
+    },
+    {
+      "global_index": 192,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 0,
+      "seed": 3079095396
+    },
+    {
+      "global_index": 193,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 1,
+      "seed": 936268495
+    },
+    {
+      "global_index": 194,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 2,
+      "seed": 1926327347
+    },
+    {
+      "global_index": 195,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 3,
+      "seed": 2394100284
+    },
+    {
+      "global_index": 196,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 4,
+      "seed": 4172664061
+    },
+    {
+      "global_index": 197,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 5,
+      "seed": 1825572638
+    },
+    {
+      "global_index": 198,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 6,
+      "seed": 431469878
+    },
+    {
+      "global_index": 199,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 7,
+      "seed": 2634726427
+    },
+    {
+      "global_index": 200,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 8,
+      "seed": 1393677404
+    },
+    {
+      "global_index": 201,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 9,
+      "seed": 262649043
+    },
+    {
+      "global_index": 202,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 10,
+      "seed": 2578654561
+    },
+    {
+      "global_index": 203,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 11,
+      "seed": 1902854081
+    },
+    {
+      "global_index": 204,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 12,
+      "seed": 3229048392
+    },
+    {
+      "global_index": 205,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 13,
+      "seed": 3408451140
+    },
+    {
+      "global_index": 206,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 14,
+      "seed": 2523273918
+    },
+    {
+      "global_index": 207,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 15,
+      "seed": 1037591563
+    },
+    {
+      "global_index": 208,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 16,
+      "seed": 4195956116
+    },
+    {
+      "global_index": 209,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 17,
+      "seed": 853694359
+    },
+    {
+      "global_index": 210,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 18,
+      "seed": 677377970
+    },
+    {
+      "global_index": 211,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 19,
+      "seed": 3391888129
+    },
+    {
+      "global_index": 212,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 20,
+      "seed": 1820515101
+    },
+    {
+      "global_index": 213,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 21,
+      "seed": 3775286465
+    },
+    {
+      "global_index": 214,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 22,
+      "seed": 349012602
+    },
+    {
+      "global_index": 215,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 23,
+      "seed": 3462593348
+    },
+    {
+      "global_index": 216,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 24,
+      "seed": 2302989813
+    },
+    {
+      "global_index": 217,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 25,
+      "seed": 4253239096
+    },
+    {
+      "global_index": 218,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 26,
+      "seed": 2941300689
+    },
+    {
+      "global_index": 219,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 27,
+      "seed": 1612391205
+    },
+    {
+      "global_index": 220,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 28,
+      "seed": 1912999007
+    },
+    {
+      "global_index": 221,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 29,
+      "seed": 601079713
+    },
+    {
+      "global_index": 222,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 30,
+      "seed": 4033758452
+    },
+    {
+      "global_index": 223,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 31,
+      "seed": 1045856758
+    },
+    {
+      "global_index": 224,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 32,
+      "seed": 2263526794
+    },
+    {
+      "global_index": 225,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 33,
+      "seed": 2164143253
+    },
+    {
+      "global_index": 226,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 34,
+      "seed": 2869529600
+    },
+    {
+      "global_index": 227,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 35,
+      "seed": 3252870249
+    },
+    {
+      "global_index": 228,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 36,
+      "seed": 1705057537
+    },
+    {
+      "global_index": 229,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 37,
+      "seed": 2859421615
+    },
+    {
+      "global_index": 230,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 38,
+      "seed": 3030401557
+    },
+    {
+      "global_index": 231,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 39,
+      "seed": 3984731167
+    },
+    {
+      "global_index": 232,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 40,
+      "seed": 711803847
+    },
+    {
+      "global_index": 233,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 41,
+      "seed": 1733265588
+    },
+    {
+      "global_index": 234,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 42,
+      "seed": 3256709655
+    },
+    {
+      "global_index": 235,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 43,
+      "seed": 3736893615
+    },
+    {
+      "global_index": 236,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 44,
+      "seed": 3892202037
+    },
+    {
+      "global_index": 237,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 45,
+      "seed": 143584107
+    },
+    {
+      "global_index": 238,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 46,
+      "seed": 2910507297
+    },
+    {
+      "global_index": 239,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 47,
+      "seed": 1330125430
+    },
+    {
+      "global_index": 240,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 48,
+      "seed": 3772213855
+    },
+    {
+      "global_index": 241,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 49,
+      "seed": 4198842527
+    },
+    {
+      "global_index": 242,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 50,
+      "seed": 2832114115
+    },
+    {
+      "global_index": 243,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 51,
+      "seed": 3471409369
+    },
+    {
+      "global_index": 244,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 52,
+      "seed": 1147419141
+    },
+    {
+      "global_index": 245,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 53,
+      "seed": 206831715
+    },
+    {
+      "global_index": 246,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 54,
+      "seed": 2507260632
+    },
+    {
+      "global_index": 247,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 55,
+      "seed": 4164892015
+    },
+    {
+      "global_index": 248,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 56,
+      "seed": 2860711747
+    },
+    {
+      "global_index": 249,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 57,
+      "seed": 1049375442
+    },
+    {
+      "global_index": 250,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 58,
+      "seed": 2601881089
+    },
+    {
+      "global_index": 251,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 59,
+      "seed": 2001394828
+    },
+    {
+      "global_index": 252,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 60,
+      "seed": 3848426996
+    },
+    {
+      "global_index": 253,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 61,
+      "seed": 2670990001
+    },
+    {
+      "global_index": 254,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 62,
+      "seed": 179612095
+    },
+    {
+      "global_index": 255,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 63,
+      "seed": 1381422790
+    },
+    {
+      "global_index": 256,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 64,
+      "seed": 3960043509
+    },
+    {
+      "global_index": 257,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 65,
+      "seed": 2957409871
+    },
+    {
+      "global_index": 258,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 66,
+      "seed": 3722855409
+    },
+    {
+      "global_index": 259,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 67,
+      "seed": 230070789
+    },
+    {
+      "global_index": 260,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 68,
+      "seed": 1597091400
+    },
+    {
+      "global_index": 261,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 69,
+      "seed": 2672006419
+    },
+    {
+      "global_index": 262,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 70,
+      "seed": 640171137
+    },
+    {
+      "global_index": 263,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 71,
+      "seed": 4127093729
+    },
+    {
+      "global_index": 264,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 72,
+      "seed": 2090754791
+    },
+    {
+      "global_index": 265,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 73,
+      "seed": 2365697303
+    },
+    {
+      "global_index": 266,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 74,
+      "seed": 1371350438
+    },
+    {
+      "global_index": 267,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 75,
+      "seed": 3314414299
+    },
+    {
+      "global_index": 268,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 76,
+      "seed": 3800647113
+    },
+    {
+      "global_index": 269,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 77,
+      "seed": 2518407166
+    },
+    {
+      "global_index": 270,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 78,
+      "seed": 1066898401
+    },
+    {
+      "global_index": 271,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 79,
+      "seed": 98985337
+    },
+    {
+      "global_index": 272,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 80,
+      "seed": 2376743672
+    },
+    {
+      "global_index": 273,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 81,
+      "seed": 1975308542
+    },
+    {
+      "global_index": 274,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 82,
+      "seed": 2318814285
+    },
+    {
+      "global_index": 275,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 83,
+      "seed": 1285098850
+    },
+    {
+      "global_index": 276,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 84,
+      "seed": 2265600157
+    },
+    {
+      "global_index": 277,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 85,
+      "seed": 3762322881
+    },
+    {
+      "global_index": 278,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 86,
+      "seed": 2684310721
+    },
+    {
+      "global_index": 279,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 87,
+      "seed": 4126346279
+    },
+    {
+      "global_index": 280,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 88,
+      "seed": 1534359618
+    },
+    {
+      "global_index": 281,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 89,
+      "seed": 3783202410
+    },
+    {
+      "global_index": 282,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 90,
+      "seed": 3107296331
+    },
+    {
+      "global_index": 283,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 91,
+      "seed": 3154358736
+    },
+    {
+      "global_index": 284,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 92,
+      "seed": 3504018714
+    },
+    {
+      "global_index": 285,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 93,
+      "seed": 1213279420
+    },
+    {
+      "global_index": 286,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 94,
+      "seed": 4289784668
+    },
+    {
+      "global_index": 287,
+      "horizon_cap": 6000,
+      "is_smoke": false,
+      "num_snakes": 9,
+      "opponent_count": 8,
+      "run_index": 95,
+      "seed": 2632923778
+    },
+    {
+      "global_index": 288,
+      "horizon_cap": 6000,
+      "is_smoke": true,
+      "num_snakes": 2,
+      "opponent_count": 1,
+      "run_index": 0,
+      "seed": 2549462188
+    },
+    {
+      "global_index": 289,
+      "horizon_cap": 6000,
+      "is_smoke": true,
+      "num_snakes": 2,
+      "opponent_count": 1,
+      "run_index": 1,
+      "seed": 4223455290
+    },
+    {
+      "global_index": 290,
+      "horizon_cap": 6000,
+      "is_smoke": true,
+      "num_snakes": 2,
+      "opponent_count": 1,
+      "run_index": 2,
+      "seed": 1835343903
+    },
+    {
+      "global_index": 291,
+      "horizon_cap": 6000,
+      "is_smoke": true,
+      "num_snakes": 2,
+      "opponent_count": 1,
+      "run_index": 3,
+      "seed": 4178311544
+    },
+    {
+      "global_index": 292,
+      "horizon_cap": 6000,
+      "is_smoke": true,
+      "num_snakes": 2,
+      "opponent_count": 1,
+      "run_index": 4,
+      "seed": 2202736473
+    },
+    {
+      "global_index": 293,
+      "horizon_cap": 6000,
+      "is_smoke": true,
+      "num_snakes": 2,
+      "opponent_count": 1,
+      "run_index": 5,
+      "seed": 3556042247
+    },
+    {
+      "global_index": 294,
+      "horizon_cap": 6000,
+      "is_smoke": true,
+      "num_snakes": 2,
+      "opponent_count": 1,
+      "run_index": 6,
+      "seed": 1810553365
+    },
+    {
+      "global_index": 295,
+      "horizon_cap": 6000,
+      "is_smoke": true,
+      "num_snakes": 2,
+      "opponent_count": 1,
+      "run_index": 7,
+      "seed": 4010244195
+    },
+    {
+      "global_index": 296,
+      "horizon_cap": 6000,
+      "is_smoke": true,
+      "num_snakes": 2,
+      "opponent_count": 1,
+      "run_index": 8,
+      "seed": 1221402285
+    },
+    {
+      "global_index": 297,
+      "horizon_cap": 6000,
+      "is_smoke": true,
+      "num_snakes": 2,
+      "opponent_count": 1,
+      "run_index": 9,
+      "seed": 2349909138
+    },
+    {
+      "global_index": 298,
+      "horizon_cap": 6000,
+      "is_smoke": true,
+      "num_snakes": 2,
+      "opponent_count": 1,
+      "run_index": 10,
+      "seed": 4049101585
+    },
+    {
+      "global_index": 299,
+      "horizon_cap": 6000,
+      "is_smoke": true,
+      "num_snakes": 2,
+      "opponent_count": 1,
+      "run_index": 11,
+      "seed": 3922790076
+    },
+    {
+      "global_index": 300,
+      "horizon_cap": 6000,
+      "is_smoke": true,
+      "num_snakes": 2,
+      "opponent_count": 1,
+      "run_index": 12,
+      "seed": 3712357209
+    },
+    {
+      "global_index": 301,
+      "horizon_cap": 6000,
+      "is_smoke": true,
+      "num_snakes": 2,
+      "opponent_count": 1,
+      "run_index": 13,
+      "seed": 2275650468
+    },
+    {
+      "global_index": 302,
+      "horizon_cap": 6000,
+      "is_smoke": true,
+      "num_snakes": 2,
+      "opponent_count": 1,
+      "run_index": 14,
+      "seed": 256835079
+    },
+    {
+      "global_index": 303,
+      "horizon_cap": 6000,
+      "is_smoke": true,
+      "num_snakes": 2,
+      "opponent_count": 1,
+      "run_index": 15,
+      "seed": 3732794355
+    },
+    {
+      "global_index": 304,
+      "horizon_cap": 6000,
+      "is_smoke": true,
+      "num_snakes": 12,
+      "opponent_count": 11,
+      "run_index": 0,
+      "seed": 925379380
+    },
+    {
+      "global_index": 305,
+      "horizon_cap": 6000,
+      "is_smoke": true,
+      "num_snakes": 12,
+      "opponent_count": 11,
+      "run_index": 1,
+      "seed": 2174542218
+    },
+    {
+      "global_index": 306,
+      "horizon_cap": 6000,
+      "is_smoke": true,
+      "num_snakes": 12,
+      "opponent_count": 11,
+      "run_index": 2,
+      "seed": 151600733
+    },
+    {
+      "global_index": 307,
+      "horizon_cap": 6000,
+      "is_smoke": true,
+      "num_snakes": 12,
+      "opponent_count": 11,
+      "run_index": 3,
+      "seed": 104504866
+    },
+    {
+      "global_index": 308,
+      "horizon_cap": 6000,
+      "is_smoke": true,
+      "num_snakes": 12,
+      "opponent_count": 11,
+      "run_index": 4,
+      "seed": 4286204816
+    },
+    {
+      "global_index": 309,
+      "horizon_cap": 6000,
+      "is_smoke": true,
+      "num_snakes": 12,
+      "opponent_count": 11,
+      "run_index": 5,
+      "seed": 895858977
+    },
+    {
+      "global_index": 310,
+      "horizon_cap": 6000,
+      "is_smoke": true,
+      "num_snakes": 12,
+      "opponent_count": 11,
+      "run_index": 6,
+      "seed": 198419921
+    },
+    {
+      "global_index": 311,
+      "horizon_cap": 6000,
+      "is_smoke": true,
+      "num_snakes": 12,
+      "opponent_count": 11,
+      "run_index": 7,
+      "seed": 3558714560
+    },
+    {
+      "global_index": 312,
+      "horizon_cap": 6000,
+      "is_smoke": true,
+      "num_snakes": 12,
+      "opponent_count": 11,
+      "run_index": 8,
+      "seed": 1452614429
+    },
+    {
+      "global_index": 313,
+      "horizon_cap": 6000,
+      "is_smoke": true,
+      "num_snakes": 12,
+      "opponent_count": 11,
+      "run_index": 9,
+      "seed": 1946320802
+    },
+    {
+      "global_index": 314,
+      "horizon_cap": 6000,
+      "is_smoke": true,
+      "num_snakes": 12,
+      "opponent_count": 11,
+      "run_index": 10,
+      "seed": 1743478877
+    },
+    {
+      "global_index": 315,
+      "horizon_cap": 6000,
+      "is_smoke": true,
+      "num_snakes": 12,
+      "opponent_count": 11,
+      "run_index": 11,
+      "seed": 1398109771
+    },
+    {
+      "global_index": 316,
+      "horizon_cap": 6000,
+      "is_smoke": true,
+      "num_snakes": 12,
+      "opponent_count": 11,
+      "run_index": 12,
+      "seed": 1933146447
+    },
+    {
+      "global_index": 317,
+      "horizon_cap": 6000,
+      "is_smoke": true,
+      "num_snakes": 12,
+      "opponent_count": 11,
+      "run_index": 13,
+      "seed": 3109627191
+    },
+    {
+      "global_index": 318,
+      "horizon_cap": 6000,
+      "is_smoke": true,
+      "num_snakes": 12,
+      "opponent_count": 11,
+      "run_index": 14,
+      "seed": 3740365749
+    },
+    {
+      "global_index": 319,
+      "horizon_cap": 6000,
+      "is_smoke": true,
+      "num_snakes": 12,
+      "opponent_count": 11,
+      "run_index": 15,
+      "seed": 1229907882
+    }
+  ]
+}
