@@ -1,0 +1,324 @@
+{
+  "count": 48,
+  "horizon": 6000,
+  "lookback_frames": 300,
+  "namespace": "t34-hero-probe-20261103-v1",
+  "schema": "t34-hero-probe-allocation/v1",
+  "seeds": [
+    2062932752,
+    3785340679,
+    4218827148,
+    2415454477,
+    2977219390,
+    2628643480,
+    756767462,
+    1154321447,
+    945847054,
+    975190140,
+    3107027377,
+    1895355368,
+    4050160226,
+    2435685882,
+    1456278919,
+    1559494153,
+    3399611963,
+    3423899073,
+    3122211886,
+    2818026180,
+    2123997879,
+    244645779,
+    4180156207,
+    2057192298,
+    4042611737,
+    3060406266,
+    3913171354,
+    3803481744,
+    102410241,
+    690481545,
+    2500794294,
+    2778312588,
+    863838712,
+    4228541725,
+    4209784803,
+    488502840,
+    3162122039,
+    253126262,
+    751040636,
+    4049636215,
+    1353532238,
+    1481878349,
+    3999407681,
+    1650198235,
+    3654334958,
+    1631312248,
+    3284701936,
+    143115146
+  ],
+  "seeds_sha256": "e1370396bba2e764c20c62d857e87be63f4798a9047a3ef2e85994af73d5582f",
+  "training_excluded": true,
+  "training_exclusions": {
+    "count": 48,
+    "path": "research/hero_stage0/training_exclusions.json",
+    "sha256": "c1007781fdfdcce5f8ea58aacd9257e33544357e870b9faaad39646052b22a48"
+  },
+  "world_contract": {
+    "constructor": "research.watch_replay.product.open_watch",
+    "continuous_respawn": true,
+    "hero_checkpoint": "b8-s3",
+    "hero_slot": 0,
+    "live_grid_mirror_audited": true,
+    "mechanics_version": 2,
+    "opponent_checkpoint": "frp3-s12",
+    "opponent_slots": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "opponent_veto": "v8",
+    "opponent_veto_lambda": 8.0
+  },
+  "worlds": [
+    {
+      "horizon": 6000,
+      "seed": 2062932752,
+      "world_index": 0
+    },
+    {
+      "horizon": 6000,
+      "seed": 3785340679,
+      "world_index": 1
+    },
+    {
+      "horizon": 6000,
+      "seed": 4218827148,
+      "world_index": 2
+    },
+    {
+      "horizon": 6000,
+      "seed": 2415454477,
+      "world_index": 3
+    },
+    {
+      "horizon": 6000,
+      "seed": 2977219390,
+      "world_index": 4
+    },
+    {
+      "horizon": 6000,
+      "seed": 2628643480,
+      "world_index": 5
+    },
+    {
+      "horizon": 6000,
+      "seed": 756767462,
+      "world_index": 6
+    },
+    {
+      "horizon": 6000,
+      "seed": 1154321447,
+      "world_index": 7
+    },
+    {
+      "horizon": 6000,
+      "seed": 945847054,
+      "world_index": 8
+    },
+    {
+      "horizon": 6000,
+      "seed": 975190140,
+      "world_index": 9
+    },
+    {
+      "horizon": 6000,
+      "seed": 3107027377,
+      "world_index": 10
+    },
+    {
+      "horizon": 6000,
+      "seed": 1895355368,
+      "world_index": 11
+    },
+    {
+      "horizon": 6000,
+      "seed": 4050160226,
+      "world_index": 12
+    },
+    {
+      "horizon": 6000,
+      "seed": 2435685882,
+      "world_index": 13
+    },
+    {
+      "horizon": 6000,
+      "seed": 1456278919,
+      "world_index": 14
+    },
+    {
+      "horizon": 6000,
+      "seed": 1559494153,
+      "world_index": 15
+    },
+    {
+      "horizon": 6000,
+      "seed": 3399611963,
+      "world_index": 16
+    },
+    {
+      "horizon": 6000,
+      "seed": 3423899073,
+      "world_index": 17
+    },
+    {
+      "horizon": 6000,
+      "seed": 3122211886,
+      "world_index": 18
+    },
+    {
+      "horizon": 6000,
+      "seed": 2818026180,
+      "world_index": 19
+    },
+    {
+      "horizon": 6000,
+      "seed": 2123997879,
+      "world_index": 20
+    },
+    {
+      "horizon": 6000,
+      "seed": 244645779,
+      "world_index": 21
+    },
+    {
+      "horizon": 6000,
+      "seed": 4180156207,
+      "world_index": 22
+    },
+    {
+      "horizon": 6000,
+      "seed": 2057192298,
+      "world_index": 23
+    },
+    {
+      "horizon": 6000,
+      "seed": 4042611737,
+      "world_index": 24
+    },
+    {
+      "horizon": 6000,
+      "seed": 3060406266,
+      "world_index": 25
+    },
+    {
+      "horizon": 6000,
+      "seed": 3913171354,
+      "world_index": 26
+    },
+    {
+      "horizon": 6000,
+      "seed": 3803481744,
+      "world_index": 27
+    },
+    {
+      "horizon": 6000,
+      "seed": 102410241,
+      "world_index": 28
+    },
+    {
+      "horizon": 6000,
+      "seed": 690481545,
+      "world_index": 29
+    },
+    {
+      "horizon": 6000,
+      "seed": 2500794294,
+      "world_index": 30
+    },
+    {
+      "horizon": 6000,
+      "seed": 2778312588,
+      "world_index": 31
+    },
+    {
+      "horizon": 6000,
+      "seed": 863838712,
+      "world_index": 32
+    },
+    {
+      "horizon": 6000,
+      "seed": 4228541725,
+      "world_index": 33
+    },
+    {
+      "horizon": 6000,
+      "seed": 4209784803,
+      "world_index": 34
+    },
+    {
+      "horizon": 6000,
+      "seed": 488502840,
+      "world_index": 35
+    },
+    {
+      "horizon": 6000,
+      "seed": 3162122039,
+      "world_index": 36
+    },
+    {
+      "horizon": 6000,
+      "seed": 253126262,
+      "world_index": 37
+    },
+    {
+      "horizon": 6000,
+      "seed": 751040636,
+      "world_index": 38
+    },
+    {
+      "horizon": 6000,
+      "seed": 4049636215,
+      "world_index": 39
+    },
+    {
+      "horizon": 6000,
+      "seed": 1353532238,
+      "world_index": 40
+    },
+    {
+      "horizon": 6000,
+      "seed": 1481878349,
+      "world_index": 41
+    },
+    {
+      "horizon": 6000,
+      "seed": 3999407681,
+      "world_index": 42
+    },
+    {
+      "horizon": 6000,
+      "seed": 1650198235,
+      "world_index": 43
+    },
+    {
+      "horizon": 6000,
+      "seed": 3654334958,
+      "world_index": 44
+    },
+    {
+      "horizon": 6000,
+      "seed": 1631312248,
+      "world_index": 45
+    },
+    {
+      "horizon": 6000,
+      "seed": 3284701936,
+      "world_index": 46
+    },
+    {
+      "horizon": 6000,
+      "seed": 143115146,
+      "world_index": 47
+    }
+  ]
+}
