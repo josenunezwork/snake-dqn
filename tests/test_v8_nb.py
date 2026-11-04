@@ -238,3 +238,324 @@ def test_make_shield_backend_switch(monkeypatch):
     monkeypatch.setenv(T.V8_BACKEND_ENV, "fortran")
     with pytest.raises(ValueError):
         T.make_shield("unused", None)
+
+
+def _assert_v8_result_identical(res_ref, res_fast) -> int:
+    mismatches = 0
+    for field in res_ref.__dataclass_fields__:
+        a = np.asarray(getattr(res_ref, field))
+        b = np.asarray(getattr(res_fast, field))
+        diff = int(np.sum(a != b))
+        mismatches += diff
+        assert diff == 0, (field, a, b)
+    return mismatches
+
+
+def test_v6_fast_kernel_default_disabled_and_scope():
+    from src.simd_env.v8_nb import (
+        set_v6_fast_kernel,
+        v6_fast_kernel_enabled,
+        v6_fast_kernel_scope,
+    )
+
+    prev = set_v6_fast_kernel(False)
+    try:
+        assert not v6_fast_kernel_enabled()
+        with v6_fast_kernel_scope(True):
+            assert v6_fast_kernel_enabled()
+        assert not v6_fast_kernel_enabled()
+    finally:
+        set_v6_fast_kernel(prev)
+
+
+def test_v6_fast_kernel_bitwise_identity_serpentines_and_rollout():
+    """Bitwise identity of v6_fast_kernel vs default across L=150..1500 coils and rollouts."""
+    from research.bl_ppo.collector import _prepare_sim
+    from src.simd_env.batch_sim import BatchSimConfig
+    from src.simd_env.ego_raster import EgoRasterConfig, build_ego_raster
+    from src.simd_env.ego_raster_bv8 import v8_scalars
+    from src.simd_env.ego_raster_nb import region_sizes_numba
+    from src.simd_env.grid_scenarios import inject_serpentines
+    from src.simd_env.grid_sim import GridBatchSim
+    from src.simd_env.v8_nb import (
+        V8Result,
+        _get_result_buffer,
+        v6_fast_kernel_scope,
+        v8_decide,
+        v8_feature_planes,
+    )
+    from src.simd_env.vector61_policy import Vector61Runtime
+
+    rng = np.random.default_rng(34910101)
+    mismatches = 0
+    for hero_len in (150, 450, 900, 1200, 1500):
+        sim = GridBatchSim(
+            BatchSimConfig(
+                num_envs=1,
+                num_snakes=6,
+                mechanics_version=2,
+                max_capacity=2048,
+                body_storage_capacity=2048,
+            ),
+            seeds=[34910101 + hero_len],
+        )
+        inject_serpentines([sim], (hero_len, 900, 700, 500, 400, 300), box_height=11)
+        _prepare_sim(sim)
+        rt = Vector61Runtime(backend="numba")
+        rt.bind(sim, np.ones((sim.E, sim.S), dtype=bool))
+        rt.prepare(sim)
+        owner_before = sim._owner_pad.copy()
+
+        rows_all = np.argwhere(sim.alive)
+        with v6_fast_kernel_scope(False):
+            dfs_ref = rt.decision_free_space(sim, rows_all).copy()
+            reg_ref = region_sizes_numba(sim.ego_view(), rows_all).copy()
+            vs_ref, vres_ref = v8_scalars(sim, rows_all, reuse_buffer=False)
+            vs_ref = vs_ref.copy()
+            vres_ref_copy = V8Result(
+                **{k: getattr(vres_ref, k).copy() for k in V8Result.__dataclass_fields__}
+            )
+            ego_ref = build_ego_raster(
+                sim, EgoRasterConfig(version="bv8"), backend="numba", rows=rows_all[:1]
+            )
+            ego_ref = {k: v.copy() for k, v in ego_ref.items()}
+
+        with v6_fast_kernel_scope(True):
+            dfs_fast = rt.decision_free_space(sim, rows_all).copy()
+            reg_fast = region_sizes_numba(sim.ego_view(), rows_all).copy()
+            vs_fast, vres_fast = v8_scalars(sim, rows_all, reuse_buffer=True)
+            vs_fast = vs_fast.copy()
+            vres_fast_copy = V8Result(
+                **{k: getattr(vres_fast, k).copy() for k in V8Result.__dataclass_fields__}
+            )
+            ego_fast = build_ego_raster(
+                sim, EgoRasterConfig(version="bv8"), backend="numba", rows=rows_all[:1]
+            )
+
+        assert np.array_equal(sim._owner_pad, owner_before)
+        assert np.array_equal(dfs_ref, dfs_fast)
+        assert np.array_equal(reg_ref, reg_fast)
+        assert np.array_equal(vs_ref, vs_fast)
+        mismatches += _assert_v8_result_identical(vres_ref_copy, vres_fast_copy)
+        for k in ego_ref:
+            assert np.array_equal(ego_ref[k], ego_fast[k]), k
+
+        _, sel_mask = rt.selection(rows_all)
+        pre_counts = np.asarray(dfs_fast, dtype=np.int64)
+        for trial in range(4):
+            if trial == 0:
+                q = rng.normal(size=(len(rows_all), 6)).astype(np.float32)
+                mk = sel_mask
+            elif trial == 1:
+                q = rng.integers(0, 3, size=(len(rows_all), 6)).astype(np.float32)
+                mk = sel_mask
+            else:
+                q = rng.normal(size=(len(rows_all), 6)).astype(np.float32)
+                mk = rng.random((len(rows_all), 6)) < 0.5
+            for feats in (False, True):
+                with v6_fast_kernel_scope(False):
+                    r0 = v8_decide(sim, rows_all, q, mk, 8.0, features=feats)
+                    r0 = V8Result(
+                        **{k: getattr(r0, k).copy() for k in V8Result.__dataclass_fields__}
+                    )
+                with v6_fast_kernel_scope(True):
+                    r1 = v8_decide(sim, rows_all, q, mk, 8.0, features=feats)
+                    r1 = V8Result(
+                        **{k: getattr(r1, k).copy() for k in V8Result.__dataclass_fields__}
+                    )
+                    r2 = v8_decide(
+                        sim,
+                        rows_all,
+                        q,
+                        mk,
+                        8.0,
+                        features=feats,
+                        precomputed_counts=pre_counts,
+                        out_buffer=_get_result_buffer(len(rows_all)),
+                    )
+                    r2 = V8Result(
+                        **{k: getattr(r2, k).copy() for k in V8Result.__dataclass_fields__}
+                    )
+                mismatches += _assert_v8_result_identical(r0, r1)
+                mismatches += _assert_v8_result_identical(r0, r2)
+                if feats:
+                    assert np.array_equal(v8_feature_planes(r0), v8_feature_planes(r2))
+    assert mismatches == 0
+
+
+_R7_SNAP_PATH = Path(
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/"
+    "t34-sol/argon-r7-repack/r7-preflight/mac-timing-l800-snapshots.pt"
+)
+
+
+@pytest.mark.skipif(
+    not _R7_SNAP_PATH.exists(),
+    reason="needs cached R7 L>=800 root snapshots",
+)
+def test_v6_fast_kernel_cached_32_roots_bitwise_identity():
+    """Bitwise identity across the 16 L>=800 R7 roots and 16 regression roots from ROADMAP §3.2."""
+    import json
+
+    import torch
+
+    from research.bl_ppo.collector import _prepare_sim
+    from src.simd_env.batch_sim import BatchSimConfig
+    from src.simd_env.ego_raster import EgoRasterConfig, build_ego_raster
+    from src.simd_env.ego_raster_nb import region_sizes_numba
+    from src.simd_env.grid_scenarios import inject_serpentines
+    from src.simd_env.grid_sim import GridBatchSim
+    from src.simd_env.v8_nb import (
+        V8Result,
+        _get_result_buffer,
+        v6_fast_kernel_scope,
+        v8_decide,
+    )
+    from src.simd_env.vector61_policy import Vector61Runtime
+
+    def _sim_from_r7_snap(sdict):
+        bcap = max(2048, int(sdict["body_cap"]))
+        cfg = BatchSimConfig(
+            num_envs=1,
+            num_snakes=int(sdict["num_snakes"]),
+            mechanics_version=2,
+            max_capacity=bcap,
+            body_storage_capacity=bcap,
+        )
+        sim = GridBatchSim(cfg, seeds=[1], train_mode=False, allow_respawn=True)
+        st = sdict["small_tensors"]
+        boff = np.asarray(sdict["body_offsets"], dtype=np.int64)
+        bxy = np.asarray(sdict["body_segments_xy"], dtype=np.int64)
+        for s in range(sim.S):
+            hp = int(st["head_ptr"][s])
+            n = int(st["seg_count"][s])
+            sim.head_ptr[0, s] = hp
+            sim.seg_count[0, s] = n
+            sim.length[0, s] = int(st["length"][s])
+            sim.alive[0, s] = bool(st["alive"][s])
+            sim.direction[0, s] = int(st["direction"][s])
+            sim.boost_frames[0, s] = int(st["boost_frames"][s])
+            sim.frames_since_food[0, s] = int(st["frames_since_food"][s])
+            sim._boosted_this_step[0, s] = bool(st["_boosted_this_step"][s])
+            if n > 0:
+                rings = (hp - np.arange(n)) % sim.cap
+                sim.bodies[0, s, rings] = bxy[boff[s] : boff[s + 1]]
+        fxy = np.asarray(sdict["food_xy"], dtype=np.int64)
+        fcorp = np.asarray(sdict["food_corpse"], dtype=np.uint8)
+        sim.food_cells[0] = [(int(xy[0]), int(xy[1])) for xy in fxy]
+        sim.corpse_cells[0] = {(int(xy[0]), int(xy[1])) for xy, c in zip(fxy, fcorp) if c}
+        sim._sync_food_array(0)
+        sim._rebuild_env_grids(0, food=True)
+        sim._last_mask = sim._compute_action_masks()
+        return sim
+
+    raw_snaps = torch.load(_R7_SNAP_PATH, map_location="cpu", weights_only=False)["snapshots"]
+    snap_list = list(raw_snaps)[:16]
+    rng = np.random.default_rng(20261103)
+    mismatches = 0
+
+    for item in snap_list:
+        sim = _sim_from_r7_snap(item)
+        _prepare_sim(sim)
+        rt = Vector61Runtime(backend="numba")
+        rt.bind(sim, np.ones((sim.E, sim.S), dtype=bool))
+        rt.prepare(sim)
+        rows = np.argwhere(sim.alive)
+        _, sel_mask = rt.selection(rows)
+        with v6_fast_kernel_scope(False):
+            dfs0 = rt.decision_free_space(sim, rows).copy()
+            reg0 = region_sizes_numba(sim.ego_view(), rows).copy()
+            ego0 = build_ego_raster(
+                sim, EgoRasterConfig(version="bv8"), backend="numba", rows=rows[:1]
+            )
+            ego0 = {k: v.copy() for k, v in ego0.items()}
+        with v6_fast_kernel_scope(True):
+            dfs1 = rt.decision_free_space(sim, rows).copy()
+            reg1 = region_sizes_numba(sim.ego_view(), rows).copy()
+            ego1 = build_ego_raster(
+                sim, EgoRasterConfig(version="bv8"), backend="numba", rows=rows[:1]
+            )
+        assert np.array_equal(dfs0, dfs1)
+        assert np.array_equal(reg0, reg1)
+        for k in ego0:
+            assert np.array_equal(ego0[k], ego1[k]), k
+        pre = np.asarray(dfs1, dtype=np.int64)
+        q = rng.normal(size=(len(rows), 6)).astype(np.float32)
+        for feats in (False, True):
+            with v6_fast_kernel_scope(False):
+                r0 = v8_decide(sim, rows, q, sel_mask, 8.0, features=feats)
+                r0 = V8Result(**{k: getattr(r0, k).copy() for k in V8Result.__dataclass_fields__})
+            with v6_fast_kernel_scope(True):
+                r1 = v8_decide(
+                    sim,
+                    rows,
+                    q,
+                    sel_mask,
+                    8.0,
+                    features=feats,
+                    precomputed_counts=pre,
+                    out_buffer=_get_result_buffer(len(rows)),
+                )
+                r1 = V8Result(**{k: getattr(r1, k).copy() for k in V8Result.__dataclass_fields__})
+            mismatches += _assert_v8_result_identical(r0, r1)
+
+    analysis_path = Path(
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/argon-alllen-a100/analysis.json"
+    )
+    if analysis_path.exists():
+        per_session = json.loads(analysis_path.read_text())["per_session"]
+        worst16 = sorted(
+            per_session,
+            key=lambda r: float(r["exact_stop_alllen_mass"]) - float(r["l2_prime_600_mass"]),
+        )[:16]
+        for row_info in worst16:
+            w_seed = int(row_info["seed"])
+            sim = GridBatchSim(
+                BatchSimConfig(
+                    num_envs=1,
+                    num_snakes=6,
+                    mechanics_version=2,
+                    max_capacity=2048,
+                    body_storage_capacity=2048,
+                ),
+                seeds=[w_seed],
+            )
+            inject_serpentines([sim], (900, 700, 500, 400, 300, 200), box_height=11)
+            _prepare_sim(sim)
+            rt = Vector61Runtime(backend="numba")
+            rt.bind(sim, np.ones((sim.E, sim.S), dtype=bool))
+            rt.prepare(sim)
+            rows = np.argwhere(sim.alive)
+            _, sel_mask = rt.selection(rows)
+            with v6_fast_kernel_scope(False):
+                dfs0 = rt.decision_free_space(sim, rows).copy()
+                reg0 = region_sizes_numba(sim.ego_view(), rows).copy()
+            with v6_fast_kernel_scope(True):
+                dfs1 = rt.decision_free_space(sim, rows).copy()
+                reg1 = region_sizes_numba(sim.ego_view(), rows).copy()
+            assert np.array_equal(dfs0, dfs1)
+            assert np.array_equal(reg0, reg1)
+            pre = np.asarray(dfs1, dtype=np.int64)
+            q = rng.normal(size=(len(rows), 6)).astype(np.float32)
+            for feats in (False, True):
+                with v6_fast_kernel_scope(False):
+                    r0 = v8_decide(sim, rows, q, sel_mask, 8.0, features=feats)
+                    r0 = V8Result(
+                        **{k: getattr(r0, k).copy() for k in V8Result.__dataclass_fields__}
+                    )
+                with v6_fast_kernel_scope(True):
+                    r1 = v8_decide(
+                        sim,
+                        rows,
+                        q,
+                        sel_mask,
+                        8.0,
+                        features=feats,
+                        precomputed_counts=pre,
+                        out_buffer=_get_result_buffer(len(rows)),
+                    )
+                    r1 = V8Result(
+                        **{k: getattr(r1, k).copy() for k in V8Result.__dataclass_fields__}
+                    )
+                mismatches += _assert_v8_result_identical(r0, r1)
+    assert mismatches == 0

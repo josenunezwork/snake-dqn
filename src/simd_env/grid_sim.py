@@ -1081,4 +1081,5 @@ class GridBatchSim(BatchSim):
             # snake has length 1, and no other length-1 snake can have boosted, so
             # ``length > 1`` reproduces the live flag exactly (gate-world identity check).
             boosting=self.get_boosted_this_step() & (self.length > 1),
+            bodies=self.bodies,
         )

@@ -673,7 +673,22 @@ class Vector61Runtime:
         Mirrors the live veto, which recomputes ``_get_free_space_features`` at
         decision time instead of reading the possibly carried state.
         """
+        from src.simd_env.v8_nb import v6_fast_kernel_enabled
+
         slots = np.asarray(slots, dtype=np.int64).reshape(-1, 2)
+        if (
+            v6_fast_kernel_enabled()
+            and self.featurizer is not None
+            and self.featurizer is self.free_space_featurizer
+            and self.sel_state is not None
+            and self.sel_state.shape[-1] >= 61
+        ):
+            e, s = slots[:, 0], slots[:, 1]
+            if (len(slots) == 1 and self.sel_ready[int(e[0]), int(s[0])]) or np.all(
+                self.sel_ready[e, s]
+            ):
+                counts, _ = free_space_counts(self.sel_state[e, s], sim.length[e, s])
+                return counts
         states = self.free_space_featurizer.featurize(sim, slots, None, update_memory=False)
         counts, _ = free_space_counts(states, sim.length[slots[:, 0], slots[:, 1]])
         return counts

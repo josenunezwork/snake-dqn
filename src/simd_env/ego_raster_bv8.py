@@ -33,6 +33,7 @@ def v8_scalars(
     lam=8.0,
     *,
     membership: str = "painted",
+    reuse_buffer: bool = False,
 ):
     """``((N, 30) float32 features, V8Result or None)`` for ``rows`` (``None``: all ``E*S``).
 
@@ -51,7 +52,12 @@ def v8_scalars(
         ``rows`` (``None`` when ``rows`` is ``None`` or any row is dead), so a caller can take
         the v8 action for any Q with :func:`~src.simd_env.v8_nb.v8_redecide` without another flood.
     """
-    from src.simd_env.v8_nb import v8_decide, v8_feature_planes
+    from src.simd_env.v8_nb import (
+        _get_result_buffer,
+        v6_fast_kernel_enabled,
+        v8_decide,
+        v8_feature_planes,
+    )
 
     if not hasattr(sim, "bodies"):
         raise TypeError("ego2s-bv8 features need a GridBatchSim / BatchSim, not an EgoGridView")
@@ -70,7 +76,17 @@ def v8_scalars(
     res = None
     if len(live):
         q0 = np.zeros((len(live), 6), dtype=np.float32)
-        res = v8_decide(sim, rows[live], q0, mask[live], lam, features=True, membership=membership)
+        buf = _get_result_buffer(len(live)) if (reuse_buffer and v6_fast_kernel_enabled()) else None
+        res = v8_decide(
+            sim,
+            rows[live],
+            q0,
+            mask[live],
+            lam,
+            features=True,
+            membership=membership,
+            out_buffer=buf,
+        )
         out[live] = v8_feature_planes(res).reshape(len(live), N_V8_SCALARS)
     if whole or len(live) != len(rows):
         res = None  # only returned when it lines up with ``rows`` (all alive)

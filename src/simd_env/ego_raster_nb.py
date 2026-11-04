@@ -680,7 +680,198 @@ def _region_kernel_chunks(
         )
 
 
+@njit(cache=True, nogil=True)
+def _region_kernel_fast(
+    owner_pad: np.ndarray,  # (E, Hp, Wp) int16
+    owner_w: np.ndarray,  # (E, Hp, Wp // 4) uint64 view of owner_pad (when use_words)
+    use_words: bool,
+    slot_pad: np.ndarray,  # (E, Hp, Wp) int32
+    bodies: np.ndarray,  # (E, S, cap, 2) int64
+    seg_count: np.ndarray,  # (E, S) int64
+    pad: int,
+    H: int,
+    W: int,
+    cap: int,
+    head_ptr: np.ndarray,
+    length: np.ndarray,
+    alive: np.ndarray,
+    direction: np.ndarray,
+    heads: np.ndarray,
+    rows: np.ndarray,
+    dxs: np.ndarray,
+    dys: np.ndarray,
+    out: np.ndarray,  # (N, 3) int64, zeroed
+    workspace=None,
+) -> None:
+    """Fast-path ``_region_kernel`` using stack-local ``tail_flat[6]`` (0 per-cell modulo ops)."""
+    max_runs = H * (W // 2 + 1) + H
+    if workspace is None:
+        run_start = np.empty(max_runs, dtype=np.int64)
+        run_end = np.empty(max_runs, dtype=np.int64)
+        parent = np.empty(max_runs, dtype=np.int64)
+        total = np.empty(max_runs, dtype=np.int64)
+        row_first = np.empty(H + 1, dtype=np.int64)
+    else:
+        run_start, run_end, parent, total, row_first = workspace
+    Wp = owner_pad.shape[2]
+    S = head_ptr.shape[1]
+    tail_flat = np.empty(6, dtype=np.int64)
+    if rows.shape[0] <= 1:
+        order = np.zeros(rows.shape[0], dtype=np.int64)
+    else:
+        order = np.argsort(rows[:, 0], kind="mergesort")
+    current = -1
+    for jj in range(rows.shape[0]):
+        i = order[jj]
+        e = rows[i, 0]
+        s = rows[i, 1]
+        if not alive[e, s]:
+            continue
+        if e != current:
+            current = e
+            for o in range(6):
+                tail_flat[o] = -1
+            for o in range(S):
+                if alive[e, o]:
+                    n_seg = seg_count[e, o]
+                    L_o = length[e, o]
+                    if n_seg >= 1 and n_seg == L_o:
+                        t_slot = (head_ptr[e, o] - (n_seg - 1)) % cap
+                        tx = bodies[e, o, t_slot, 0]
+                        ty = bodies[e, o, t_slot, 1]
+                        if 0 <= tx < W and 0 <= ty < H:
+                            if (
+                                owner_pad[e, ty + pad, tx + pad] == o
+                                and slot_pad[e, ty + pad, tx + pad] == t_slot
+                            ):
+                                tail_flat[o] = (ty + pad) * Wp + (tx + pad)
+            nruns = 0
+            prev_first = 0
+            prev_last = 0
+            for y in range(H):
+                row_first[y] = nruns
+                yy = y + pad
+                row_base = yy * Wp
+                x = 0
+                p = prev_first
+                while x < W:
+                    # skip blocked cells
+                    while x < W:
+                        xp = x + pad
+                        o = np.int64(owner_pad[e, yy, xp])
+                        if o < 0 or (row_base + xp) == tail_flat[o]:
+                            break
+                        x += 1
+                    if x >= W:
+                        break
+                    start = x
+                    while x < W:
+                        # four empty cells at once (owner -1 == 0xFFFF each)
+                        if use_words and (x + pad) % 4 == 0 and x + 4 <= W:
+                            if owner_w[e, yy, (x + pad) // 4] == _FULL16:
+                                x += 4
+                                continue
+                        xp = x + pad
+                        o = np.int64(owner_pad[e, yy, xp])
+                        if o >= 0 and (row_base + xp) != tail_flat[o]:
+                            break
+                        x += 1
+                    r = nruns
+                    nruns += 1
+                    run_start[r] = start
+                    run_end[r] = x
+                    parent[r] = r
+                    # unite with overlapping runs of the previous row
+                    while p < prev_last and run_end[p] <= start:
+                        p += 1
+                    q = p
+                    while q < prev_last and run_start[q] < x:
+                        ra = _find(parent, q)
+                        rb = _find(parent, r)
+                        if ra != rb:
+                            parent[rb] = ra
+                        q += 1
+                prev_first = row_first[y]
+                prev_last = nruns
+            row_first[H] = nruns
+            for r in range(nruns):
+                total[r] = 0
+            for r in range(nruns):
+                total[_find(parent, r)] += run_end[r] - run_start[r]
+        hx = heads[e, s, 0]
+        hy = heads[e, s, 1]
+        for rel in range(3):
+            d = (direction[e, s] + rel - 1) % 4
+            x = hx + dxs[d]
+            y = hy + dys[d]
+            if x >= 0 and x < W and y >= 0 and y < H:
+                for r in range(row_first[y], row_first[y + 1]):
+                    if run_start[r] <= x < run_end[r]:
+                        out[i, rel] = total[_find(parent, r)]
+                        break
+
+
+@njit(cache=True, nogil=True, parallel=True)
+def _region_kernel_chunks_fast(
+    owner_pad,
+    owner_w,
+    use_words,
+    slot_pad,
+    bodies,
+    seg_count,
+    pad,
+    H,
+    W,
+    cap,
+    head_ptr,
+    length,
+    alive,
+    direction,
+    heads,
+    rows,
+    dxs,
+    dys,
+    out,
+    parts,
+    workspace,
+):
+    total = rows.shape[0]
+    for part in prange(parts):
+        begin = part * total // parts
+        end = (part + 1) * total // parts
+        _region_kernel_fast(
+            owner_pad,
+            owner_w,
+            use_words,
+            slot_pad,
+            bodies,
+            seg_count,
+            pad,
+            H,
+            W,
+            cap,
+            head_ptr,
+            length,
+            alive,
+            direction,
+            heads,
+            rows[begin:end],
+            dxs,
+            dys,
+            out[begin:end],
+            (
+                workspace[0][part],
+                workspace[1][part],
+                workspace[2][part],
+                workspace[3][part],
+                workspace[4][part],
+            ),
+        )
+
+
 _REGION_SCRATCH = threading.local()
+_REGION_DXS = np.array([0, 1, 0, -1], dtype=np.int64)
+_REGION_DYS = np.array([-1, 0, 1, 0], dtype=np.int64)
 
 
 def _region_workspace(height: int, width: int, parts: int) -> tuple:
@@ -699,9 +890,62 @@ def _region_workspace(height: int, width: int, parts: int) -> tuple:
 
 def region_sizes_numba(view: EgoGridView, rows: np.ndarray) -> np.ndarray:
     """Compiled :func:`src.simd_env.ego_raster_b.region_sizes` (bitwise equal)."""
+    from src.simd_env.v8_nb import v6_fast_kernel_enabled
+
     rows = _i64(rows)
     out = np.zeros((len(rows), 3), dtype=np.int64)
     if not len(rows):
+        return out
+    if (
+        v6_fast_kernel_enabled()
+        and view.bodies is not None
+        and int(view.S) <= 6
+        and np.all((view.length > 1) | (view.seg_count <= 1))
+        and np.all(view.seg_count <= view.length)
+    ):
+        owner_pad = (
+            view.owner_pad
+            if view.owner_pad.flags.c_contiguous
+            else np.ascontiguousarray(view.owner_pad)
+        )
+        food_pad = (
+            view.food_pad
+            if view.food_pad.flags.c_contiguous
+            else np.ascontiguousarray(view.food_pad)
+        )
+        slot_pad = (
+            view.slot_pad
+            if view.slot_pad.flags.c_contiguous
+            else np.ascontiguousarray(view.slot_pad)
+        )
+        words = word_views(owner_pad, food_pad)
+        args_fast = (
+            owner_pad,
+            words[0] if words is not None else np.zeros((1, 1, 1), dtype=np.uint64),
+            words is not None,
+            slot_pad,
+            _i64(view.bodies),
+            _i64(view.seg_count),
+            int(view.pad),
+            int(view.grid_h),
+            int(view.grid_w),
+            int(view.cap),
+            _i64(view.head_ptr),
+            _i64(view.length),
+            np.ascontiguousarray(view.alive, dtype=np.bool_),
+            _i64(view.direction),
+            _i64(view.heads),
+            rows,
+            _REGION_DXS,
+            _REGION_DYS,
+            out,
+        )
+        parts = 1 if len(rows) == 1 else min(len(rows), get_num_threads())
+        workspace = _region_workspace(int(view.grid_h), int(view.grid_w), max(1, parts))
+        if parts <= 1:
+            _region_kernel_fast(*args_fast, tuple(a[0] for a in workspace))
+        else:
+            _region_kernel_chunks_fast(*args_fast, parts, workspace)
         return out
     owner_pad = np.ascontiguousarray(view.owner_pad)
     food_pad = np.ascontiguousarray(view.food_pad)

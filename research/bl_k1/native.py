@@ -71,7 +71,7 @@ def _kernel_hook(
     audit: bool = False,
 ) -> np.ndarray:
     """Call v8_decide directly, retaining the stock configuration/input guards."""
-    from src.simd_env.v8_nb import v8_decide
+    from src.simd_env.v8_nb import _get_result_buffer, v6_fast_kernel_enabled, v8_decide
     from src.simd_env.vector61_policy import check_live_rule_config
 
     if audit:
@@ -90,6 +90,7 @@ def _kernel_hook(
             raise s2.NativeV8Mismatch("kernel live hook configuration differs")
     rows = np.asarray(rows, dtype=np.int64).reshape(-1, 2)
     base = actions[pick].copy()
+    fast = v6_fast_kernel_enabled()
     res = v8_decide(
         sim,
         rows,
@@ -97,6 +98,8 @@ def _kernel_hook(
         np.asarray(mask_rows, dtype=bool),
         float(policy.veto_spec.lam),
         grid_shape=(int(policy.runtime.featurizer.gw), int(policy.runtime.featurizer.gh)),
+        precomputed_counts=counts if fast else None,
+        out_buffer=_get_result_buffer(len(rows)) if fast else None,
     )
     for name, stock in (("base", base), ("counts", counts), ("cap", cap), ("need", need)):
         if not np.array_equal(getattr(res, name), stock):

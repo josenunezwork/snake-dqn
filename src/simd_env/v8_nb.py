@@ -46,23 +46,62 @@ counters (``veto_record`` / ``veto_diagnostics``) and the optional v8
 
 from __future__ import annotations
 
+import contextlib
+import os
 import threading
 from dataclasses import dataclass, replace
-from typing import Optional, Tuple
+from typing import Iterator, Optional, Tuple
 
 import numpy as np
-from numba import get_thread_id, njit, prange
+from numba import get_num_threads, get_thread_id, njit, prange
+
+from src.core.mechanics_constants import HEADON_SIZE_RATIO
 
 __all__ = [
     "V8Result",
+    "V8ResultBuffer",
     "v8_decide",
     "v8_feature_planes",
     "v8_redecide",
+    "v6_fast_kernel_enabled",
+    "set_v6_fast_kernel",
+    "v6_fast_kernel_scope",
     "FEATURE_NAMES",
     "OUTCOME_KEPT",
     "OUTCOME_VETOED",
     "OUTCOME_NO_SPACIOUS",
 ]
+
+_V6_FAST_KERNEL: bool = os.environ.get("SNAKE_V6_FAST_KERNEL", "").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+
+
+def v6_fast_kernel_enabled() -> bool:
+    """Return whether the opt-in M0_rhdag1_v6 fast kernel path is active."""
+    return _V6_FAST_KERNEL
+
+
+def set_v6_fast_kernel(enabled: bool) -> bool:
+    """Enable or disable the opt-in M0_rhdag1_v6 fast kernel path; returns previous state."""
+    global _V6_FAST_KERNEL
+    prev = _V6_FAST_KERNEL
+    _V6_FAST_KERNEL = bool(enabled)
+    return prev
+
+
+@contextlib.contextmanager
+def v6_fast_kernel_scope(enabled: bool = True) -> Iterator[None]:
+    """Context manager temporarily setting the M0_rhdag1_v6 fast kernel flag."""
+    prev = set_v6_fast_kernel(enabled)
+    try:
+        yield
+    finally:
+        set_v6_fast_kernel(prev)
+
 
 FREE_SPACE_BFS_CAP = 160  # src.game.snake_state (asserted in _constants_check)
 FREE_SPACE_MIN_CAP = 32
@@ -1425,6 +1464,744 @@ def _v8_rows_prange(
         )  # fmt: skip
 
 
+# ------------------------------------------------------------------ M0_rhdag1_v6 fast kernels
+@njit(cache=True, nogil=True)
+def _bfs_owner_slot_pad(
+    sx, sy, gw, gh, owner_pad, slot_pad, env, owner_offset, observer,
+    hp, ring, block_any, max_j, ix, iy, lpost, nh, use_rel,
+    seen, seen_cur, qx, qy, qd, cap,
+):  # fmt: skip
+    """Zero-body-walk stamped BFS reading post-move TTLs directly from ``slot_pad``."""
+    if sx < 0 or sx >= gw or sy < 0 or sy >= gh:
+        return 0
+    owner = int(owner_pad[env, sy + owner_offset, sx + owner_offset])
+    if owner >= 0 and (block_any or owner != observer):
+        return 0
+    if not use_rel and not block_any:
+        if sx == ix and sy == iy:
+            return 0
+        if owner == observer:
+            j0 = (hp - int(slot_pad[env, sy + owner_offset, sx + owner_offset])) % ring
+            if j0 < max_j:
+                return 0
+    idx = sx * gh + sy
+    seen[idx] = seen_cur
+    head = 0
+    tail = 1
+    qx[0] = sx
+    qy[0] = sy
+    qd[0] = 0
+    count = 0
+    while head < tail and count < cap:
+        x = qx[head]
+        y = qy[head]
+        d = qd[head]
+        head += 1
+        count += 1
+        for k in range(4):
+            nx = x + _NBX[k]
+            ny = y + _NBY[k]
+            if nx < 0 or nx >= gw or ny < 0 or ny >= gh:
+                continue
+            nidx = nx * gh + ny
+            if seen[nidx] == seen_cur:
+                continue
+            owner = int(owner_pad[env, ny + owner_offset, nx + owner_offset])
+            if owner >= 0 and (block_any or owner != observer):
+                continue
+            if not block_any:
+                if not use_rel:
+                    if nx == ix and ny == iy:
+                        continue
+                    if owner == observer:
+                        j = (hp - int(slot_pad[env, ny + owner_offset, nx + owner_offset])) % ring
+                        if j < max_j:
+                            continue
+                else:
+                    if nx == ix and ny == iy:
+                        if d + 1 < lpost:
+                            continue
+                    elif owner == observer:
+                        j = (hp - int(slot_pad[env, ny + owner_offset, nx + owner_offset])) % ring
+                        if j < max_j:
+                            when = lpost - j - (nh - 1)
+                            if d + 1 < when:
+                                continue
+            seen[nidx] = seen_cur
+            qx[tail] = nx
+            qy[tail] = ny
+            qd[tail] = d + 1
+            tail += 1
+    return count
+
+
+@njit(cache=True, nogil=True)
+def _bfs_owner_area_tracked(
+    sx, sy, gw, gh, owner_pad, slot_pad, env, owner_offset, observer,
+    hp, ring, max_j, ix, iy, lpost, nh,
+    seen, seen_cur, qx, qy, qd, area_cap, sub_cap,
+):  # fmt: skip
+    """Tail-aware area BFS tracking Subsumed-BFS and Component-Ceiling certificates."""
+    if sx < 0 or sx >= gw or sy < 0 or sy >= gh:
+        return 0, True, True, True, True, 0, 0
+    owner0 = int(owner_pad[env, sy + owner_offset, sx + owner_offset])
+    if owner0 >= 0 and owner0 != observer:
+        return 0, True, True, True, True, 0, 0
+    used_any_own_under_sub = (owner0 == observer) or (sx == ix and sy == iy)
+    used_retained_under_sub = sx == ix and sy == iy
+    if owner0 == observer:
+        j0 = (hp - int(slot_pad[env, sy + owner_offset, sx + owner_offset])) % ring
+        if j0 < max_j:
+            used_retained_under_sub = True
+    used_any_own_all = used_any_own_under_sub
+    used_retained_all = used_retained_under_sub
+    min_blocked_rel = 1000000000
+    idx = sx * gh + sy
+    seen[idx] = seen_cur
+    head = 0
+    tail = 1
+    qx[0] = sx
+    qy[0] = sy
+    qd[0] = 0
+    count = 0
+    while head < tail and count < area_cap:
+        x = qx[head]
+        y = qy[head]
+        d = qd[head]
+        head += 1
+        count += 1
+        for k in range(4):
+            nx = x + _NBX[k]
+            ny = y + _NBY[k]
+            if nx < 0 or nx >= gw or ny < 0 or ny >= gh:
+                continue
+            nidx = nx * gh + ny
+            if seen[nidx] == seen_cur:
+                continue
+            owner = int(owner_pad[env, ny + owner_offset, nx + owner_offset])
+            if owner >= 0 and owner != observer:
+                continue
+            if nx == ix and ny == iy:
+                when = lpost
+                if d + 1 < when:
+                    if when < min_blocked_rel:
+                        min_blocked_rel = when
+                    continue
+                used_any_own_all = True
+                used_retained_all = True
+                if tail < sub_cap:
+                    used_any_own_under_sub = True
+                    used_retained_under_sub = True
+            elif owner == observer:
+                j = (hp - int(slot_pad[env, ny + owner_offset, nx + owner_offset])) % ring
+                if j < max_j:
+                    when = lpost - j - (nh - 1)
+                    if d + 1 < when:
+                        if when < min_blocked_rel:
+                            min_blocked_rel = when
+                        continue
+                    used_any_own_all = True
+                    used_retained_all = True
+                    if tail < sub_cap:
+                        used_any_own_under_sub = True
+                        used_retained_under_sub = True
+                else:
+                    used_any_own_all = True
+                    if tail < sub_cap:
+                        used_any_own_under_sub = True
+            seen[nidx] = seen_cur
+            qx[tail] = nx
+            qy[tail] = ny
+            qd[tail] = d + 1
+            tail += 1
+    max_qd = int(qd[tail - 1]) if tail > 0 else 0
+    return (
+        count,
+        used_any_own_under_sub,
+        used_retained_under_sub,
+        used_any_own_all,
+        used_retained_all,
+        min_blocked_rel,
+        max_qd,
+    )
+
+
+@njit(cache=True, nogil=True)
+def _landing_count_slot_pad(
+    bodies, e, s, hp, ring, n, L, bf, heading, gw, gh, min_boost, boost_cost, cap,
+    owner_pad, slot_pad, owner_offset, ws, seen, qx, qy, qd,
+):  # fmt: skip
+    boosted, ln, lpost = _post_move(n, L, bf, True, min_boost, boost_cost)
+    if not boosted:
+        return _LANDING_NO_BOOST
+    hx = bodies[e, s, hp, 0]
+    hy = bodies[e, s, hp, 1]
+    dx = _DX[heading]
+    dy = _DY[heading]
+    ix = hx + dx if ln > 1 else -1
+    iy = hy + dy if ln > 1 else -1
+    max_j = max(0, ln - 2)
+    ws[1] += 1
+    return _bfs_owner_slot_pad(
+        hx + 2 * dx, hy + 2 * dy, gw, gh, owner_pad, slot_pad, e, owner_offset, s,
+        hp, ring, False, max_j, ix, iy, lpost, 2, False,
+        seen, ws[1], qx, qy, qd, cap,
+    )  # fmt: skip
+
+
+@njit(cache=True, nogil=True)
+def _landing_area_slot_pad(
+    bodies, e, s, hp, ring, n, L, bf, heading, action, gw, gh, min_boost, boost_cost, cap,
+    owner_pad, slot_pad, owner_offset, ws, seen, qx, qy, qd,
+):  # fmt: skip
+    rel = action % 3
+    hd = (heading + rel - 1) % 4
+    dx = _DX[hd]
+    dy = _DY[hd]
+    boosted, ln, lpost = _post_move(n, L, bf, action >= 3, min_boost, boost_cost)
+    nh = 2 if boosted else 1
+    hx = bodies[e, s, hp, 0]
+    hy = bodies[e, s, hp, 1]
+    ix = hx + dx if (boosted and ln > 1) else -1
+    iy = hy + dy if (boosted and ln > 1) else -1
+    max_j = max(0, ln - nh)
+    ws[1] += 1
+    return _bfs_owner_slot_pad(
+        hx + dx * nh, hy + dy * nh, gw, gh, owner_pad, slot_pad, e, owner_offset, s,
+        hp, ring, False, max_j, ix, iy, lpost, nh, True,
+        seen, ws[1], qx, qy, qd, cap,
+    )  # fmt: skip
+
+
+@njit(cache=True, nogil=True)
+def _eager_templates_owner_fast(
+    bodies, e, s, hp, ring, n, L, bf, heading, gw, gh, min_boost, boost_cost,
+    area_cap, landing_cap, owner_pad, slot_pad, owner_offset, ws, seen,
+    qx, qy, qd, area, landing, out_counts, compute_counts,
+):  # fmt: skip
+    """Subsumed-BFS + Component-Ceiling + zero-body-walk ``slot_pad`` eager templates."""
+    hx = bodies[e, s, hp, 0]
+    hy = bodies[e, s, hp, 1]
+
+    # ---- speed = 0 (normal move, nh = 1): area[0..2] + subsumed counts + component ceiling
+    _, ln0, lpost0 = _post_move(n, L, bf, False, min_boost, boost_cost)
+    max_j0 = max(0, ln0 - 1)
+    ref_valid = False
+    ref_tag = -1
+    ref_area = 0
+    ref_any_own_all = True
+    ref_min_blocked_rel = 0
+    ref_max_qd = 0
+    need_count_flood = np.zeros(3, dtype=np.bool_)
+
+    for d in range(3):
+        hd = (heading + d - 1) % 4
+        nx = hx + _DX[hd]
+        ny = hy + _DY[hd]
+        if nx < 0 or nx >= gw or ny < 0 or ny >= gh:
+            area[d] = 0
+            if compute_counts:
+                out_counts[d] = 0
+            continue
+        o_start = int(owner_pad[e, ny + owner_offset, nx + owner_offset])
+        if o_start >= 0 and o_start != s:
+            area[d] = 0
+            if compute_counts:
+                out_counts[d] = 0
+            continue
+        if ref_valid and seen[nx * gh + ny] == ref_tag:
+            if ref_area == area_cap:
+                area[d] = area_cap
+                if compute_counts:
+                    if o_start >= 0:
+                        out_counts[d] = 0
+                    elif area_cap >= landing_cap and not ref_any_own_all:
+                        out_counts[d] = landing_cap
+                    else:
+                        need_count_flood[d] = True
+                continue
+            elif ref_min_blocked_rel > 2 * ref_max_qd + 1:
+                area[d] = ref_area
+                if compute_counts:
+                    if o_start >= 0:
+                        out_counts[d] = 0
+                    elif area_cap >= landing_cap and not ref_any_own_all:
+                        out_counts[d] = ref_area if ref_area < landing_cap else landing_cap
+                    else:
+                        need_count_flood[d] = True
+                continue
+        ws[1] += 1
+        cur_tag = ws[1]
+        (
+            c_area,
+            used_any_own_sub,
+            _used_ret_sub,
+            used_any_own_all,
+            used_ret_all,
+            min_blk_rel,
+            max_qd,
+        ) = _bfs_owner_area_tracked(
+            nx, ny, gw, gh, owner_pad, slot_pad, e, owner_offset, s,
+            hp, ring, max_j0, -1, -1, lpost0, 1,
+            seen, cur_tag, qx, qy, qd, area_cap, landing_cap,
+        )  # fmt: skip
+        area[d] = c_area
+        if compute_counts:
+            if o_start >= 0:
+                out_counts[d] = 0
+            elif area_cap >= landing_cap and not used_any_own_sub:
+                out_counts[d] = c_area if c_area < landing_cap else landing_cap
+            else:
+                need_count_flood[d] = True
+        if not ref_valid and c_area > 0 and not used_ret_all:
+            ref_valid = True
+            ref_tag = cur_tag
+            ref_area = c_area
+            ref_any_own_all = used_any_own_all
+            ref_min_blocked_rel = min_blk_rel
+            ref_max_qd = max_qd
+
+    if compute_counts:
+        for d in range(3):
+            if need_count_flood[d]:
+                hd = (heading + d - 1) % 4
+                ws[1] += 1
+                out_counts[d] = _bfs_owner_slot_pad(
+                    hx + _DX[hd], hy + _DY[hd], gw, gh, owner_pad, slot_pad, e, owner_offset, s,
+                    hp, ring, True, 0, -1, -1, 0, 1, False,
+                    seen, ws[1], qx, qy, qd, landing_cap,
+                )  # fmt: skip
+
+    # ---- speed = 1 (boost move, nh = 2): area[3..5] + subsumed landing[0..2]
+    boosted, ln1, lpost1 = _post_move(n, L, bf, True, min_boost, boost_cost)
+    if not boosted:
+        for d in range(3):
+            area[3 + d] = area[d]
+            landing[d] = _LANDING_NO_BOOST
+        return
+    max_j1 = max(0, ln1 - 2)
+    for d in range(3):
+        hd = (heading + d - 1) % 4
+        dx = _DX[hd]
+        dy = _DY[hd]
+        ix = hx + dx if ln1 > 1 else -1
+        iy = hy + dy if ln1 > 1 else -1
+        nx = hx + 2 * dx
+        ny = hy + 2 * dy
+        if nx < 0 or nx >= gw or ny < 0 or ny >= gh:
+            area[3 + d] = 0
+            landing[d] = 0
+            continue
+        o_start = int(owner_pad[e, ny + owner_offset, nx + owner_offset])
+        if o_start >= 0 and o_start != s:
+            area[3 + d] = 0
+            landing[d] = 0
+            continue
+        ws[1] += 1
+        (
+            c_area,
+            _used_any_own_sub,
+            used_ret_sub,
+            _used_any_own_all,
+            _used_ret_all,
+            _min_blk_rel,
+            _max_qd,
+        ) = _bfs_owner_area_tracked(
+            nx, ny, gw, gh, owner_pad, slot_pad, e, owner_offset, s,
+            hp, ring, max_j1, ix, iy, lpost1, 2,
+            seen, ws[1], qx, qy, qd, area_cap, landing_cap,
+        )  # fmt: skip
+        area[3 + d] = c_area
+        start_blocked_land = nx == ix and ny == iy
+        if not start_blocked_land and o_start == s:
+            j0 = (hp - int(slot_pad[e, ny + owner_offset, nx + owner_offset])) % ring
+            if j0 < max_j1:
+                start_blocked_land = True
+        if start_blocked_land:
+            landing[d] = 0
+        elif area_cap >= landing_cap and not used_ret_sub:
+            landing[d] = c_area if c_area < landing_cap else landing_cap
+        else:
+            ws[1] += 1
+            landing[d] = _bfs_owner_slot_pad(
+                nx, ny, gw, gh, owner_pad, slot_pad, e, owner_offset, s,
+                hp, ring, False, max_j1, ix, iy, lpost1, 2, False,
+                seen, ws[1], qx, qy, qd, landing_cap,
+            )  # fmt: skip
+
+
+@njit(cache=True, nogil=True)
+def _v8_rows_fast(
+    bodies, head_ptr, seg_count, length, boost_frames, direction, alive,
+    envs, slots, q, mask_in, gw, gh, min_boost, boost_cost, mech_v2, headon_ratio, lam,
+    owner_pad, slot_pad, owner_pad_offset, coarse_snake, eager,
+    precomputed_counts, has_precomputed_counts,
+    ws, seen, qx, qy, qd,
+    out_action, out_base, out_v5, out_v7, out_outcome, out_reason,
+    out_counts, out_cap, out_need, out_acap, out_area, out_landing, out_risky,
+    out_waived, out_elig,
+):  # fmt: skip
+    """Fast-path v8 row evaluator using ``slot_pad``, Subsumed-BFS, and Component-Ceiling."""
+    N = envs.shape[0]
+    S = alive.shape[1]
+    ring = bodies.shape[2]
+
+    qv = np.empty(6, dtype=np.float64)
+    mask = np.empty(6, dtype=np.bool_)
+    elig = np.empty(6, dtype=np.bool_)
+    spac = np.empty(3, dtype=np.bool_)
+    land_ok = np.empty(3, dtype=np.int64)
+    cand = np.empty(6, dtype=np.int64)
+    scratch = np.empty(6, dtype=np.float64)
+    area = np.empty(6, dtype=np.int64)
+    red = np.empty(6, dtype=np.bool_)
+
+    max_threats = 7 * S
+    tx = np.empty(max_threats, dtype=np.int64)
+    ty = np.empty(max_threats, dtype=np.int64)
+    tb = np.empty(max_threats, dtype=np.int64)
+
+    inv = np.float32(INVALID_Q_VALUE)
+
+    for r in range(N):
+        e = envs[r]
+        s = slots[r]
+        hp = head_ptr[e, s]
+        n = seg_count[e, s]
+        L = length[e, s]
+        bf = boost_frames[e, s]
+        heading = direction[e, s]
+        hx = bodies[e, s, hp, 0]
+        hy = bodies[e, s, hp, 1]
+
+        anym = False
+        for a in range(6):
+            mask[a] = mask_in[r, a]
+            anym = anym or mask[a]
+        if not anym:
+            mask[0] = True
+            mask[1] = True
+            mask[2] = True
+        base = 0
+        for a in range(6):
+            v = q[r, a] if mask[a] else inv
+            qv[a] = np.float64(v)
+            if qv[a] > qv[base]:
+                base = a
+
+        covered = 0
+        for o in range(S):
+            if o == s:
+                continue
+            for cy in range(coarse_snake.shape[2]):
+                for cx in range(coarse_snake.shape[3]):
+                    covered += coarse_snake[e, o, cy, cx]
+
+        cap = min(FREE_SPACE_BFS_CAP, max(FREE_SPACE_MIN_CAP, L * 2))
+        need = min(max(1, L), cap)
+        acap = max(1, min(max(FREE_SPACE_MIN_CAP, 2 * L), AREA_CAP_LIMIT, gw * gh - covered))
+        out_cap[r] = cap
+        out_need[r] = need
+        out_acap[r] = acap
+        for a in range(6):
+            area[a] = -1
+
+        if eager:
+            if has_precomputed_counts:
+                for d in range(3):
+                    out_counts[r, d] = precomputed_counts[r, d]
+            _eager_templates_owner_fast(
+                bodies, e, s, hp, ring, n, L, bf, heading, gw, gh, min_boost, boost_cost,
+                acap, cap, owner_pad, slot_pad, owner_pad_offset, ws, seen,
+                qx, qy, qd, area, out_landing[r], out_counts[r], not has_precomputed_counts,
+            )  # fmt: skip
+            for d in range(3):
+                spac[d] = out_counts[r, d] >= need
+                lc = out_landing[r, d]
+                land_ok[d] = 1 if (lc == _LANDING_NO_BOOST or lc >= need) else 0
+        else:
+            for d in range(3):
+                if has_precomputed_counts:
+                    c = precomputed_counts[r, d]
+                else:
+                    hd = (heading + d - 1) % 4
+                    ws[1] += 1
+                    c = _bfs_owner_slot_pad(
+                        hx + _DX[hd], hy + _DY[hd], gw, gh, owner_pad, slot_pad,
+                        e, owner_pad_offset, s, hp, ring, True, 0, -1, -1, 0, 1, False,
+                        seen, ws[1], qx, qy, qd, cap,
+                    )  # fmt: skip
+                out_counts[r, d] = c
+                spac[d] = c >= need
+                land_ok[d] = -1
+                out_landing[r, d] = _LANDING_UNKNOWN
+
+        # ---- v5 boost_aware_choice (landing floods lazily, memoized)
+        for a in range(6):
+            elig[a] = mask[a] and spac[a % 3]
+        v5 = base
+        outcome = OUTCOME_KEPT
+        reason = _R_KEPT
+        need_clear = False
+        if elig[base]:
+            d0 = base % 3
+            ok = True
+            if base >= 3:
+                if land_ok[d0] < 0:
+                    hd = (heading + d0 - 1) % 4
+                    lc = _landing_count_slot_pad(
+                        bodies, e, s, hp, ring, n, L, bf, hd, gw, gh, min_boost, boost_cost,
+                        cap, owner_pad, slot_pad, owner_pad_offset, ws, seen, qx, qy, qd,
+                    )  # fmt: skip
+                    out_landing[r, d0] = lc
+                    land_ok[d0] = 1 if (lc == _LANDING_NO_BOOST or lc >= need) else 0
+                ok = land_ok[d0] == 1
+            if not ok:
+                if mask[d0]:
+                    v5 = d0
+                    outcome = OUTCOME_VETOED
+                    reason = _R_SAME_DIR
+                else:
+                    need_clear = True
+                    reason = _R_LANDING_V2
+        else:
+            v5, outcome = _veto_choice(qv, elig, base)
+            reason = _R_V2
+            if outcome == OUTCOME_VETOED and v5 >= 3:
+                d0 = v5 % 3
+                if land_ok[d0] < 0:
+                    hd = (heading + d0 - 1) % 4
+                    lc = _landing_count_slot_pad(
+                        bodies, e, s, hp, ring, n, L, bf, hd, gw, gh, min_boost, boost_cost,
+                        cap, owner_pad, slot_pad, owner_pad_offset, ws, seen, qx, qy, qd,
+                    )  # fmt: skip
+                    out_landing[r, d0] = lc
+                    land_ok[d0] = 1 if (lc == _LANDING_NO_BOOST or lc >= need) else 0
+                if land_ok[d0] == 0:
+                    need_clear = True
+        if need_clear:
+            for d in range(3):
+                a = 3 + d
+                if elig[a]:
+                    if land_ok[d] < 0:
+                        hd = (heading + d - 1) % 4
+                        lc = _landing_count_slot_pad(
+                            bodies, e, s, hp, ring, n, L, bf, hd, gw, gh, min_boost,
+                            boost_cost, cap, owner_pad, slot_pad, owner_pad_offset,
+                            ws, seen, qx, qy, qd,
+                        )  # fmt: skip
+                        out_landing[r, d] = lc
+                        land_ok[d] = 1 if (lc == _LANDING_NO_BOOST or lc >= need) else 0
+            for a in range(6):
+                red[a] = elig[a] and (a < 3 or land_ok[a - 3] == 1)
+            a2, o2 = _veto_choice(qv, red, base)
+            if reason == _R_LANDING_V2:
+                if o2 == OUTCOME_NO_SPACIOUS:
+                    v5 = base
+                    outcome = OUTCOME_NO_SPACIOUS
+                    reason = _R_LANDING_NONE
+                else:
+                    v5 = a2
+                    outcome = o2
+            else:
+                v5 = a2
+                outcome = o2
+
+        # ---- v7 re-rank
+        v7 = v5
+        v7_outcome = outcome
+        if outcome != OUTCOME_NO_SPACIOUS and lam != 0.0 and reason != _R_SAME_DIR:
+            off = 3 if v5 >= 3 else 0
+            nc = 0
+            for d in range(3):
+                a = off + d
+                if a == v5:
+                    cand[nc] = a
+                    nc += 1
+                elif mask[a] and spac[d]:
+                    if off == 0:
+                        cand[nc] = a
+                        nc += 1
+                    else:
+                        if land_ok[d] < 0:
+                            hd = (heading + d - 1) % 4
+                            lc = _landing_count_slot_pad(
+                                bodies, e, s, hp, ring, n, L, bf, hd, gw, gh, min_boost,
+                                boost_cost, cap, owner_pad, slot_pad, owner_pad_offset,
+                                ws, seen, qx, qy, qd,
+                            )  # fmt: skip
+                            out_landing[r, d] = lc
+                            land_ok[d] = 1 if (lc == _LANDING_NO_BOOST or lc >= need) else 0
+                        if land_ok[d] == 1:
+                            cand[nc] = a
+                            nc += 1
+            if nc >= 2:
+                while True:
+                    best, missing = _space_pref(qv, cand, nc, v5, lam, area, acap, scratch)
+                    if missing < 0:
+                        break
+                    area[missing] = _landing_area_slot_pad(
+                        bodies, e, s, hp, ring, n, L, bf, heading, missing, gw, gh, min_boost,
+                        boost_cost, acap, owner_pad, slot_pad, owner_pad_offset,
+                        ws, seen, qx, qy, qd,
+                    )  # fmt: skip
+                if best != v5:
+                    v7 = best
+                    v7_outcome = OUTCOME_VETOED
+
+        # ---- v6 head reach / risk
+        nt = 0
+        for o in range(S):
+            if o == s or not alive[e, o] or seg_count[e, o] <= 0:
+                continue
+            ohp = head_ptr[e, o]
+            ox = bodies[e, o, ohp, 0]
+            oy = bodies[e, o, ohp, 1]
+            bound = max(1, length[e, o]) + 1
+            tx[nt] = ox
+            ty[nt] = oy
+            tb[nt] = bound
+            nt += 1
+            can_boost = length[e, o] >= min_boost
+            for rel in range(3):
+                od = (direction[e, o] + rel - 1) % 4
+                tx[nt] = ox + _DX[od]
+                ty[nt] = oy + _DY[od]
+                tb[nt] = bound
+                nt += 1
+                if can_boost:
+                    tx[nt] = ox + 2 * _DX[od]
+                    ty[nt] = oy + 2 * _DY[od]
+                    tb[nt] = bound
+                    nt += 1
+        near = False
+        for i in range(nt):
+            if abs(tx[i] - hx) + abs(ty[i] - hy) <= 2:
+                near = True
+                break
+        for a in range(6):
+            out_risky[r, a] = False
+            out_waived[r, a] = False
+        if near:
+            for a in range(6):
+                hd = (heading + (a % 3) - 1) % 4
+                boosted, _, lpost = _post_move(n, L, bf, a >= 3, min_boost, boost_cost)
+                ntrav = 2 if boosted else 1
+                risky = False
+                waived = False
+                for t in range(ntrav):
+                    cx = hx + _DX[hd] * (t + 1)
+                    cy = hy + _DY[hd] * (t + 1)
+                    bnd = -1
+                    for i in range(nt):
+                        if tx[i] == cx and ty[i] == cy and tb[i] > bnd:
+                            bnd = tb[i]
+                    if bnd < 0:
+                        continue
+                    if mech_v2 and max(1, lpost) >= headon_ratio * max(1, bnd):
+                        waived = True
+                        continue
+                    risky = True
+                if risky:
+                    waived = False
+                out_risky[r, a] = risky
+                out_waived[r, a] = waived
+
+        # ---- v8 head layer
+        final = v7
+        final_outcome = v7_outcome
+        if v7_outcome != OUTCOME_NO_SPACIOUS and out_risky[r, v7]:
+            ne = 0
+            for a in range(6):
+                el = mask[a] and spac[a % 3] and not out_risky[r, a]
+                if el and a >= 3:
+                    d = a - 3
+                    if land_ok[d] < 0:
+                        hd = (heading + d - 1) % 4
+                        lc = _landing_count_slot_pad(
+                            bodies, e, s, hp, ring, n, L, bf, hd, gw, gh, min_boost,
+                            boost_cost, cap, owner_pad, slot_pad, owner_pad_offset,
+                            ws, seen, qx, qy, qd,
+                        )  # fmt: skip
+                        out_landing[r, d] = lc
+                        land_ok[d] = 1 if (lc == _LANDING_NO_BOOST or lc >= need) else 0
+                    el = land_ok[d] == 1
+                elig[a] = el
+                if el and a != v7:
+                    ne += 1
+            if ne > 0:
+                cb = v7 >= 3
+                anchor = -1
+                for a in range(6):
+                    if a != v7 and elig[a] and (a >= 3) == cb:
+                        if anchor < 0 or qv[a] > qv[anchor]:
+                            anchor = a
+                if anchor < 0:
+                    for a in range(6):
+                        if a != v7 and elig[a]:
+                            if anchor < 0 or qv[a] > qv[anchor]:
+                                anchor = a
+                ab = anchor >= 3
+                nc = 0
+                for a in range(6):
+                    if a != v7 and elig[a] and (a >= 3) == ab:
+                        cand[nc] = a
+                        nc += 1
+                while True:
+                    best, missing = _space_pref(qv, cand, nc, anchor, lam, area, acap, scratch)
+                    if missing < 0:
+                        break
+                    area[missing] = _landing_area_slot_pad(
+                        bodies, e, s, hp, ring, n, L, bf, heading, missing, gw, gh, min_boost,
+                        boost_cost, acap, owner_pad, slot_pad, owner_pad_offset,
+                        ws, seen, qx, qy, qd,
+                    )  # fmt: skip
+                final = best
+                final_outcome = OUTCOME_VETOED
+
+        for a in range(6):
+            out_area[r, a] = area[a]
+            out_elig[r, a] = mask[a] and spac[a % 3] and (a < 3 or land_ok[a - 3] == 1)
+        out_action[r] = final
+        out_base[r] = base
+        out_v5[r] = v5
+        out_v7[r] = v7
+        out_outcome[r] = final_outcome
+        out_reason[r] = reason
+
+
+@njit(cache=True, nogil=True, parallel=True)
+def _v8_rows_prange_fast(
+    bodies, head_ptr, seg_count, length, boost_frames, direction, alive,
+    envs, slots, q, mask_in, gw, gh, min_boost, boost_cost, mech_v2, headon_ratio, lam,
+    owner_pad, slot_pad, owner_pad_offset, coarse_snake, eager,
+    precomputed_counts, has_precomputed_counts,
+    w0, w4, w7, w8, w9,
+    out_action, out_base, out_v5, out_v7, out_outcome, out_reason,
+    out_counts, out_cap, out_need, out_acap, out_area, out_landing, out_risky,
+    out_waived, out_elig,
+):  # fmt: skip
+    parts = w0.shape[0]
+    for part in prange(parts):
+        begin = part * envs.shape[0] // parts
+        end = (part + 1) * envs.shape[0] // parts
+        tid = get_thread_id()
+        _v8_rows_fast(
+            bodies, head_ptr, seg_count, length, boost_frames, direction, alive,
+            envs[begin:end], slots[begin:end], q[begin:end], mask_in[begin:end],
+            gw, gh, min_boost, boost_cost, mech_v2, headon_ratio, lam,
+            owner_pad, slot_pad, owner_pad_offset, coarse_snake, eager,
+            precomputed_counts[begin:end] if has_precomputed_counts else precomputed_counts,
+            has_precomputed_counts,
+            w0[tid], w4[tid], w7[tid], w8[tid], w9[tid],
+            out_action[begin:end], out_base[begin:end], out_v5[begin:end], out_v7[begin:end],
+            out_outcome[begin:end], out_reason[begin:end], out_counts[begin:end],
+            out_cap[begin:end], out_need[begin:end], out_acap[begin:end], out_area[begin:end],
+            out_landing[begin:end], out_risky[begin:end], out_waived[begin:end],
+            out_elig[begin:end],
+        )  # fmt: skip
+
+
 # ----------------------------------------------------------------------------- Python API
 @dataclass
 class V8Result:
@@ -1547,13 +2324,24 @@ def _parallel_workspace(gw: int, gh: int, threads: int) -> Tuple[np.ndarray, ...
     return ws
 
 
+_STAMP_LIMIT = int(np.iinfo(np.int64).max - 100_000)
+
+
 def _prepare_workspace(ws: Tuple[np.ndarray, ...]) -> None:
     """Clear stamped scratch before an int64 stamp could wrap.
 
     Scratch remains local to the calling thread and is rebuilt per v8 invocation.  This
     is intentionally a rare full clear, keeping normal hot-path stamp semantics intact.
     """
-    if int(ws[0].max()) < np.iinfo(np.int64).max - 100_000:
+    stamps = ws[0]
+    if _V6_FAST_KERNEL and stamps.ndim == 1:
+        if (
+            int(stamps[0]) < _STAMP_LIMIT
+            and int(stamps[1]) < _STAMP_LIMIT
+            and int(stamps[2]) < _STAMP_LIMIT
+        ):
+            return
+    elif int(stamps.max()) < _STAMP_LIMIT:
         return
     for array in ws[:9]:
         array.fill(0)
@@ -1561,7 +2349,55 @@ def _prepare_workspace(ws: Tuple[np.ndarray, ...]) -> None:
 
 
 def _i64(a) -> np.ndarray:
+    if (
+        _V6_FAST_KERNEL
+        and isinstance(a, np.ndarray)
+        and a.dtype == np.int64
+        and a.flags.c_contiguous
+    ):
+        return a
     return np.ascontiguousarray(a, dtype=np.int64)
+
+
+class V8ResultBuffer:
+    """Reusable preallocated output buffers for ``v8_decide`` to eliminate per-call allocations."""
+
+    def __init__(self, n_rows: int) -> None:
+        N = int(n_rows)
+        self.N = N
+        self.result = V8Result(
+            action=np.zeros(N, dtype=np.int64),
+            base=np.zeros(N, dtype=np.int64),
+            v5_action=np.zeros(N, dtype=np.int64),
+            v7_action=np.zeros(N, dtype=np.int64),
+            outcome=np.zeros(N, dtype=np.int64),
+            v5_reason=np.zeros(N, dtype=np.int64),
+            counts=np.zeros((N, 3), dtype=np.int64),
+            cap=np.zeros(N, dtype=np.int64),
+            need=np.zeros(N, dtype=np.int64),
+            area_cap=np.zeros(N, dtype=np.int64),
+            area=np.zeros((N, 6), dtype=np.int64),
+            landing=np.zeros((N, 3), dtype=np.int64),
+            head_risky=np.zeros((N, 6), dtype=bool),
+            head_waived=np.zeros((N, 6), dtype=bool),
+            v5_eligible=np.zeros((N, 6), dtype=bool),
+        )
+
+
+def _get_result_buffer(n_rows: int) -> V8ResultBuffer:
+    buffers = getattr(_WORKSPACE, "result_buffers", None)
+    if buffers is None:
+        buffers = {}
+        _WORKSPACE.result_buffers = buffers
+    key = int(n_rows)
+    buf = buffers.get(key)
+    if buf is None:
+        buf = V8ResultBuffer(key)
+        buffers[key] = buf
+    return buf
+
+
+_DUMMY_COUNTS = np.zeros((1, 3), dtype=np.int64)
 
 
 def v8_decide(
@@ -1573,6 +2409,9 @@ def v8_decide(
     features: bool = False,
     grid_shape: Optional[Tuple[int, int]] = None,
     membership: str = "painted",
+    *,
+    precomputed_counts: Optional[np.ndarray] = None,
+    out_buffer: Optional[V8ResultBuffer] = None,
 ) -> V8Result:
     """The v8 veto (``lambda = lam``, head layer on) for ``(N, 2)`` ``(env, slot)`` rows.
 
@@ -1591,8 +2430,6 @@ def v8_decide(
             reads GridBatchSim's maintained owner map and is valid for normal
             non-overlapping worlds.
     """
-    from src.core.mechanics_constants import HEADON_SIZE_RATIO
-
     lam = float(lam)
     if not np.isfinite(lam) or lam < 0.0:
         raise ValueError(f"lambda must be finite and >= 0, got {lam!r}")
@@ -1605,30 +2442,144 @@ def v8_decide(
         raise ValueError("owner_pad membership requires GridBatchSim")
     rows = _i64(rows).reshape(-1, 2)
     N = len(rows)
-    q = np.ascontiguousarray(q, dtype=np.float32).reshape(N, 6)
-    mask = np.ascontiguousarray(mask, dtype=bool).reshape(N, 6)
+    if _V6_FAST_KERNEL:
+        if isinstance(q, np.ndarray) and q.dtype == np.float32 and q.flags.c_contiguous:
+            q = q.reshape(N, 6)
+        else:
+            q = np.ascontiguousarray(q, dtype=np.float32).reshape(N, 6)
+        if isinstance(mask, np.ndarray) and mask.dtype == bool and mask.flags.c_contiguous:
+            mask = mask.reshape(N, 6)
+        else:
+            mask = np.ascontiguousarray(mask, dtype=bool).reshape(N, 6)
+    else:
+        q = np.ascontiguousarray(q, dtype=np.float32).reshape(N, 6)
+        mask = np.ascontiguousarray(mask, dtype=bool).reshape(N, 6)
     gw, gh = grid_shape if grid_shape is not None else (int(sim.grid_w), int(sim.grid_h))
-    if N and not np.all(sim.alive[rows[:, 0], rows[:, 1]]):
-        raise ValueError("v8_decide rows must be alive")
-    out = V8Result(
-        action=np.zeros(N, dtype=np.int64),
-        base=np.zeros(N, dtype=np.int64),
-        v5_action=np.zeros(N, dtype=np.int64),
-        v7_action=np.zeros(N, dtype=np.int64),
-        outcome=np.zeros(N, dtype=np.int64),
-        v5_reason=np.zeros(N, dtype=np.int64),
-        counts=np.zeros((N, 3), dtype=np.int64),
-        cap=np.zeros(N, dtype=np.int64),
-        need=np.zeros(N, dtype=np.int64),
-        area_cap=np.zeros(N, dtype=np.int64),
-        area=np.zeros((N, 6), dtype=np.int64),
-        landing=np.zeros((N, 3), dtype=np.int64),
-        head_risky=np.zeros((N, 6), dtype=bool),
-        head_waived=np.zeros((N, 6), dtype=bool),
-        v5_eligible=np.zeros((N, 6), dtype=bool),
-    )
+    if N:
+        if _V6_FAST_KERNEL and N == 1:
+            if not sim.alive[int(rows[0, 0]), int(rows[0, 1])]:
+                raise ValueError("v8_decide rows must be alive")
+        elif not np.all(sim.alive[rows[:, 0], rows[:, 1]]):
+            raise ValueError("v8_decide rows must be alive")
+    if _V6_FAST_KERNEL and out_buffer is not None and out_buffer.N == N:
+        out = out_buffer.result
+    else:
+        out = V8Result(
+            action=np.zeros(N, dtype=np.int64),
+            base=np.zeros(N, dtype=np.int64),
+            v5_action=np.zeros(N, dtype=np.int64),
+            v7_action=np.zeros(N, dtype=np.int64),
+            outcome=np.zeros(N, dtype=np.int64),
+            v5_reason=np.zeros(N, dtype=np.int64),
+            counts=np.zeros((N, 3), dtype=np.int64),
+            cap=np.zeros(N, dtype=np.int64),
+            need=np.zeros(N, dtype=np.int64),
+            area_cap=np.zeros(N, dtype=np.int64),
+            area=np.zeros((N, 6), dtype=np.int64),
+            landing=np.zeros((N, 3), dtype=np.int64),
+            head_risky=np.zeros((N, 6), dtype=bool),
+            head_waived=np.zeros((N, 6), dtype=bool),
+            v5_eligible=np.zeros((N, 6), dtype=bool),
+        )
     if not N:
         return out
+
+    # Fast slot_pad path when opt-in flag is enabled on a standard GridBatchSim.
+    if (
+        _V6_FAST_KERNEL
+        and hasattr(sim, "_owner_pad")
+        and hasattr(sim, "_slot_pad")
+        and hasattr(sim, "_csnake")
+        and (gw, gh) == (int(sim.grid_w), int(sim.grid_h))
+    ):
+        if N <= 1 or not np.any(rows[1:, 0] < rows[:-1, 0]):
+            grouped = False
+            rows_kernel = rows
+            q_kernel = q
+            mask_kernel = mask
+        else:
+            order = np.argsort(rows[:, 0], kind="stable")
+            grouped = True
+            rows_kernel = rows[order]
+            q_kernel = q[order]
+            mask_kernel = mask[order]
+        has_pre = precomputed_counts is not None
+        if has_pre:
+            pre_c = _i64(precomputed_counts).reshape(N, 3)
+            if grouped:
+                pre_c = pre_c[order]
+        else:
+            pre_c = _DUMMY_COUNTS
+        owner_pad = (
+            sim._owner_pad
+            if sim._owner_pad.dtype == np.int16 and sim._owner_pad.flags.c_contiguous
+            else np.ascontiguousarray(sim._owner_pad, dtype=np.int16)
+        )
+        slot_pad = (
+            sim._slot_pad
+            if sim._slot_pad.dtype == np.int32 and sim._slot_pad.flags.c_contiguous
+            else np.ascontiguousarray(sim._slot_pad, dtype=np.int32)
+        )
+        coarse_snake = (
+            sim._csnake
+            if sim._csnake.dtype == np.int32 and sim._csnake.flags.c_contiguous
+            else np.ascontiguousarray(sim._csnake, dtype=np.int32)
+        )
+        alive_arr = (
+            sim.alive
+            if sim.alive.dtype == bool and sim.alive.flags.c_contiguous
+            else np.ascontiguousarray(sim.alive, bool)
+        )
+        owner_offset = int(getattr(sim, "_grid_pad", 0))
+        if N == 1:
+            envs_k = rows_kernel[:, 0]
+            slots_k = rows_kernel[:, 1]
+            threads = 1
+        else:
+            envs_k = np.ascontiguousarray(rows_kernel[:, 0], dtype=np.int64)
+            slots_k = np.ascontiguousarray(rows_kernel[:, 1], dtype=np.int64)
+            threads = int(get_num_threads())
+        if threads > 1 and N >= threads:
+            ws = _parallel_workspace(gw, gh, threads)
+            _v8_rows_prange_fast(
+                _i64(sim.bodies), _i64(sim.head_ptr), _i64(sim.seg_count), _i64(sim.length),
+                _i64(sim.boost_frames), _i64(sim.direction), alive_arr,
+                envs_k, slots_k, q_kernel, mask_kernel,
+                int(gw), int(gh),
+                int(sim.cfg.min_boost_length), int(sim.cfg.boost_length_cost_frames),
+                int(sim.cfg.mechanics_version) == 2, float(HEADON_SIZE_RATIO), lam,
+                owner_pad, slot_pad, owner_offset, coarse_snake, bool(features),
+                pre_c, has_pre,
+                ws[0], ws[4], ws[7], ws[8], ws[9],
+                out.action, out.base, out.v5_action, out.v7_action, out.outcome, out.v5_reason,
+                out.counts, out.cap, out.need, out.area_cap, out.area, out.landing, out.head_risky,
+                out.head_waived, out.v5_eligible,
+            )  # fmt: skip
+        else:
+            ws = _workspace(gw, gh)
+            _prepare_workspace(ws)
+            _v8_rows_fast(
+                _i64(sim.bodies), _i64(sim.head_ptr), _i64(sim.seg_count), _i64(sim.length),
+                _i64(sim.boost_frames), _i64(sim.direction), alive_arr,
+                envs_k, slots_k, q_kernel, mask_kernel,
+                int(gw), int(gh),
+                int(sim.cfg.min_boost_length), int(sim.cfg.boost_length_cost_frames),
+                int(sim.cfg.mechanics_version) == 2, float(HEADON_SIZE_RATIO), lam,
+                owner_pad, slot_pad, owner_offset, coarse_snake, bool(features),
+                pre_c, has_pre,
+                ws[0], ws[4], ws[7], ws[8], ws[9],
+                out.action, out.base, out.v5_action, out.v7_action, out.outcome, out.v5_reason,
+                out.counts, out.cap, out.need, out.area_cap, out.area, out.landing, out.head_risky,
+                out.head_waived, out.v5_eligible,
+            )  # fmt: skip
+        if grouped:
+            inverse = np.empty(N, dtype=np.int64)
+            inverse[order] = np.arange(N)
+            for name in V8Result.__dataclass_fields__:
+                value = getattr(out, name)
+                setattr(out, name, value[inverse])
+        return out
+
     # The kernel materializes a sparse membership map once for each consecutive world.
     # Stable grouping preserves duplicate-row order; scatter restores the caller's order.
     order = np.argsort(rows[:, 0], kind="stable")

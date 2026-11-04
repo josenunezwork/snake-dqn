@@ -165,6 +165,9 @@ class EgoGridView:
     # Enemy boosted on its last move (BatchSim.get_boosted_this_step / live
     # Snake.is_boosting); read by the ego2s-b features only.
     boosting: Optional[np.ndarray] = None  # (E, S) bool
+    # Optional ring-buffer body coordinates (E, S, cap, 2) int64 for O(1) tail_flat lookup
+    # in _region_kernel when the v6 fast kernel path is enabled.
+    bodies: Optional[np.ndarray] = None
 
     @property
     def E(self) -> int:
@@ -508,7 +511,7 @@ def build_ego_raster(
                 raise TypeError(
                     "ego2s-bv8 needs a GridBatchSim source or a v8_source (the v8 features)"
                 )
-            vs, _ = v8_scalars(v8_src, picked)
+            vs, _ = v8_scalars(v8_src, picked, reuse_buffer=True)
             scalars = np.concatenate([scalars.reshape(-1, scalars.shape[-1]), vs], axis=1).reshape(
                 scalars.shape[:-1] + (scalars.shape[-1] + vs.shape[-1],)
             )
