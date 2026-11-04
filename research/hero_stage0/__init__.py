@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+from research.hero_stage0.closeout_audit import (
+    render_closeout_report,
+    run_closeout_audit,
+    run_part_b_counterfactual_openstop_audit,
+    score_part_a_b8_head_closedloop,
+)
 from research.hero_stage0.open_stop import (
     aggregate_open_stop_dev,
     aggregate_open_stop_gate,
@@ -194,13 +200,16 @@ __all__ = [
     "format_stage1b_report",
     "load_stage1b_dataset",
     "restore_world",
+    "render_closeout_report",
     "reseed_branch_suffix",
+    "run_closeout_audit",
     "run_open_stop_arm",
     "run_open_stop_dev",
     "run_open_stop_gate",
     "run_open_stop_gate_world_worker",
     "run_open_stop_world_worker",
     "run_paired_world_worker",
+    "run_part_b_counterfactual_openstop_audit",
     "run_stage1a",
     "run_stage1a_arm",
     "run_stage1b",
@@ -208,6 +217,7 @@ __all__ = [
     "score_all_worlds_ordinary",
     "score_open_stop_override_independent_suffixes",
     "score_override_independent_suffixes",
+    "score_part_a_b8_head_closedloop",
     "score_world_ordinary_worker",
     "seed_for",
     "snapshot_world",

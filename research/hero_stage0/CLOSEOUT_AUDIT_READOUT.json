@@ -1,0 +1,1251 @@
+{
+  "design": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/argon-after-1b-advice/ADVICE.md \u00a73",
+  "elapsed_seconds": 0.46215012500761077,
+  "part_a": {
+    "arm_evaluations": {
+      "m0": {
+        "pass_boost_share_05_to_10pct": null,
+        "pass_override_rate_le_15pct": false,
+        "pass_plan_sec8_tripwires": null,
+        "pass_pooled_mass_gain_ge_40": false,
+        "pass_pooled_mass_lb90_gt_0": false,
+        "pass_scripted_no_death_gain_ge_003": false,
+        "pass_survival_band_v2": false,
+        "passes_measured_bars": false,
+        "survival_band_v2_components": {
+          "frozen_gt_neg_0075": true,
+          "mixed_gt_neg_0075": true,
+          "pooled_gt_neg_005": false,
+          "scripted_gt_neg_0075": false
+        },
+        "verdict_on_full_contract_sec2": "INCONCLUSIVE",
+        "verdict_on_measured_bars": "FAIL"
+      },
+      "m10": {
+        "pass_boost_share_05_to_10pct": null,
+        "pass_override_rate_le_15pct": false,
+        "pass_plan_sec8_tripwires": null,
+        "pass_pooled_mass_gain_ge_40": false,
+        "pass_pooled_mass_lb90_gt_0": false,
+        "pass_scripted_no_death_gain_ge_003": false,
+        "pass_survival_band_v2": false,
+        "passes_measured_bars": false,
+        "survival_band_v2_components": {
+          "frozen_gt_neg_0075": false,
+          "mixed_gt_neg_0075": false,
+          "pooled_gt_neg_005": false,
+          "scripted_gt_neg_0075": false
+        },
+        "verdict_on_full_contract_sec2": "INCONCLUSIVE",
+        "verdict_on_measured_bars": "FAIL"
+      },
+      "m25": {
+        "pass_boost_share_05_to_10pct": null,
+        "pass_override_rate_le_15pct": true,
+        "pass_plan_sec8_tripwires": null,
+        "pass_pooled_mass_gain_ge_40": false,
+        "pass_pooled_mass_lb90_gt_0": false,
+        "pass_scripted_no_death_gain_ge_003": false,
+        "pass_survival_band_v2": false,
+        "passes_measured_bars": false,
+        "survival_band_v2_components": {
+          "frozen_gt_neg_0075": false,
+          "mixed_gt_neg_0075": false,
+          "pooled_gt_neg_005": false,
+          "scripted_gt_neg_0075": false
+        },
+        "verdict_on_full_contract_sec2": "INCONCLUSIVE",
+        "verdict_on_measured_bars": "FAIL"
+      },
+      "m50": {
+        "pass_boost_share_05_to_10pct": null,
+        "pass_override_rate_le_15pct": true,
+        "pass_plan_sec8_tripwires": null,
+        "pass_pooled_mass_gain_ge_40": false,
+        "pass_pooled_mass_lb90_gt_0": false,
+        "pass_scripted_no_death_gain_ge_003": false,
+        "pass_survival_band_v2": false,
+        "passes_measured_bars": false,
+        "survival_band_v2_components": {
+          "frozen_gt_neg_0075": false,
+          "mixed_gt_neg_0075": true,
+          "pooled_gt_neg_005": false,
+          "scripted_gt_neg_0075": false
+        },
+        "verdict_on_full_contract_sec2": "INCONCLUSIVE",
+        "verdict_on_measured_bars": "FAIL"
+      }
+    },
+    "arms_summary": {
+      "b8": {
+        "all": {
+          "alive_boot_lb95": 0.0,
+          "alive_delta": 0.0,
+          "alive_fraction": 0.7293145833333332,
+          "alive_se": 0.0,
+          "alive_t_lb95": 0.0,
+          "b8_deaths": 116,
+          "b8_no_death_rate": 0.3958333333333333,
+          "b8_no_death_worlds": 76,
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "deaths": 116,
+          "decisions": 700258,
+          "lb90": 0.0,
+          "mass": 306.151796875,
+          "mass_delta": 0.0,
+          "no_death_gain": 0.0,
+          "no_death_rate": 0.3958333333333333,
+          "no_death_worlds": 76,
+          "override_rate": 0.0,
+          "overrides": 0,
+          "worlds": 192
+        },
+        "frozen": {
+          "alive_boot_lb95": 0.0,
+          "alive_delta": 0.0,
+          "alive_fraction": 0.6490843749999999,
+          "alive_se": 0.0,
+          "alive_t_lb95": 0.0,
+          "b8_deaths": 50,
+          "b8_no_death_rate": 0.21875,
+          "b8_no_death_worlds": 14,
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "deaths": 50,
+          "decisions": 207757,
+          "lb90": 0.0,
+          "mass": 226.29026249999998,
+          "mass_delta": 0.0,
+          "no_death_gain": 0.0,
+          "no_death_rate": 0.21875,
+          "no_death_worlds": 14,
+          "override_rate": 0.0,
+          "overrides": 0,
+          "worlds": 64
+        },
+        "mixed": {
+          "alive_boot_lb95": 0.0,
+          "alive_delta": 0.0,
+          "alive_fraction": 0.761625,
+          "alive_se": 0.0,
+          "alive_t_lb95": 0.0,
+          "b8_deaths": 38,
+          "b8_no_death_rate": 0.40625,
+          "b8_no_death_worlds": 26,
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "deaths": 38,
+          "decisions": 243758,
+          "lb90": 0.0,
+          "mass": 304.6955875,
+          "mass_delta": 0.0,
+          "no_death_gain": 0.0,
+          "no_death_rate": 0.40625,
+          "no_death_worlds": 26,
+          "override_rate": 0.0,
+          "overrides": 0,
+          "worlds": 64
+        },
+        "scripted": {
+          "alive_boot_lb95": 0.0,
+          "alive_delta": 0.0,
+          "alive_fraction": 0.777234375,
+          "alive_se": 0.0,
+          "alive_t_lb95": 0.0,
+          "b8_deaths": 28,
+          "b8_no_death_rate": 0.5625,
+          "b8_no_death_worlds": 36,
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "deaths": 28,
+          "decisions": 248743,
+          "lb90": 0.0,
+          "mass": 387.46954062500004,
+          "mass_delta": 0.0,
+          "no_death_gain": 0.0,
+          "no_death_rate": 0.5625,
+          "no_death_worlds": 36,
+          "override_rate": 0.0,
+          "overrides": 0,
+          "worlds": 64
+        }
+      },
+      "m0": {
+        "all": {
+          "alive_boot_lb95": -0.05345208333333332,
+          "alive_delta": 0.0008156249999999842,
+          "alive_fraction": 0.7301302083333333,
+          "alive_se": 0.03275125905262176,
+          "alive_t_lb95": -0.05332075866484594,
+          "b8_deaths": 116,
+          "b8_no_death_rate": 0.3958333333333333,
+          "b8_no_death_worlds": 76,
+          "ci95": [
+            -330.1781244010417,
+            -280.01202906250006
+          ],
+          "deaths": 88,
+          "decisions": 701013,
+          "lb90": -321.68811427083335,
+          "mass": 1.0572291666666667,
+          "mass_delta": -305.0945677083334,
+          "no_death_gain": 0.14583333333333331,
+          "no_death_rate": 0.5416666666666666,
+          "no_death_worlds": 104,
+          "override_rate": 0.6020530289737851,
+          "overrides": 422047,
+          "worlds": 192
+        },
+        "frozen": {
+          "alive_boot_lb95": 0.10637046875,
+          "alive_delta": 0.1951625,
+          "alive_fraction": 0.8442468750000001,
+          "alive_se": 0.05418858034294064,
+          "alive_t_lb95": 0.10469996358435367,
+          "b8_deaths": 50,
+          "b8_no_death_rate": 0.21875,
+          "b8_no_death_worlds": 14,
+          "ci95": [
+            -263.14035898437504,
+            -187.41791671875004
+          ],
+          "deaths": 19,
+          "decisions": 270178,
+          "lb90": -250.1996090625,
+          "mass": 1.2191968750000002,
+          "mass_delta": -225.07106562500002,
+          "no_death_gain": 0.484375,
+          "no_death_rate": 0.703125,
+          "no_death_worlds": 45,
+          "override_rate": 0.5777561459482268,
+          "overrides": 156097,
+          "worlds": 64
+        },
+        "mixed": {
+          "alive_boot_lb95": -0.06457874999999999,
+          "alive_delta": 0.02478437499999999,
+          "alive_fraction": 0.786409375,
+          "alive_se": 0.05389830192584764,
+          "alive_t_lb95": -0.06519356998123771,
+          "b8_deaths": 38,
+          "b8_no_death_rate": 0.40625,
+          "b8_no_death_worlds": 26,
+          "ci95": [
+            -344.00861218750003,
+            -263.725955078125
+          ],
+          "deaths": 26,
+          "decisions": 251677,
+          "lb90": -329.92393500000003,
+          "mass": 1.13965625,
+          "mass_delta": -303.55593125,
+          "no_death_gain": 0.1875,
+          "no_death_rate": 0.59375,
+          "no_death_worlds": 38,
+          "override_rate": 0.5830290411916862,
+          "overrides": 146735,
+          "worlds": 64
+        },
+        "scripted": {
+          "alive_boot_lb95": -0.318298125,
+          "alive_delta": -0.21750000000000003,
+          "alive_fraction": 0.559734375,
+          "alive_se": 0.06174443728559104,
+          "alive_t_lb95": -0.32057630078260624,
+          "b8_deaths": 28,
+          "b8_no_death_rate": 0.5625,
+          "b8_no_death_worlds": 36,
+          "ci95": [
+            -436.981384296875,
+            -334.52131890625003
+          ],
+          "deaths": 43,
+          "decisions": 179158,
+          "lb90": -419.17968062500006,
+          "mass": 0.812834375,
+          "mass_delta": -386.65670625,
+          "no_death_gain": -0.234375,
+          "no_death_rate": 0.328125,
+          "no_death_worlds": 21,
+          "override_rate": 0.6654182341843512,
+          "overrides": 119215,
+          "worlds": 64
+        }
+      },
+      "m10": {
+        "all": {
+          "alive_boot_lb95": -0.20787,
+          "alive_delta": -0.16074687499999998,
+          "alive_fraction": 0.5685677083333334,
+          "alive_se": 0.02943979152452643,
+          "alive_t_lb95": -0.20940954920205512,
+          "b8_deaths": 116,
+          "b8_no_death_rate": 0.3958333333333333,
+          "b8_no_death_worlds": 76,
+          "ci95": [
+            -325.32185643229167,
+            -275.4013528645834
+          ],
+          "deaths": 145,
+          "decisions": 545970,
+          "lb90": -316.952003125,
+          "mass": 5.723512500000001,
+          "mass_delta": -300.42828437500003,
+          "no_death_gain": -0.15104166666666666,
+          "no_death_rate": 0.24479166666666666,
+          "no_death_worlds": 47,
+          "override_rate": 0.36966683151088886,
+          "overrides": 201827,
+          "worlds": 192
+        },
+        "frozen": {
+          "alive_boot_lb95": -0.14274703125,
+          "alive_delta": -0.06150937499999999,
+          "alive_fraction": 0.587575,
+          "alive_se": 0.0500815020126494,
+          "alive_t_lb95": -0.14511554572633398,
+          "b8_deaths": 50,
+          "b8_no_death_rate": 0.21875,
+          "b8_no_death_worlds": 14,
+          "ci95": [
+            -259.275161640625,
+            -183.57129789062503
+          ],
+          "deaths": 49,
+          "decisions": 188073,
+          "lb90": -246.455585625,
+          "mass": 4.9837218750000005,
+          "mass_delta": -221.30654062500003,
+          "no_death_gain": 0.015625,
+          "no_death_rate": 0.234375,
+          "no_death_worlds": 15,
+          "override_rate": 0.39016233058440075,
+          "overrides": 73379,
+          "worlds": 64
+        },
+        "mixed": {
+          "alive_boot_lb95": -0.26241359375,
+          "alive_delta": -0.19296875000000002,
+          "alive_fraction": 0.56865625,
+          "alive_se": 0.041712491995411424,
+          "alive_t_lb95": -0.2626036768100699,
+          "b8_deaths": 38,
+          "b8_no_death_rate": 0.40625,
+          "b8_no_death_worlds": 26,
+          "ci95": [
+            -336.025123828125,
+            -257.0550203125
+          ],
+          "deaths": 49,
+          "decisions": 182019,
+          "lb90": -322.2236409375,
+          "mass": 8.408559375000001,
+          "mass_delta": -296.28702812500006,
+          "no_death_gain": -0.171875,
+          "no_death_rate": 0.234375,
+          "no_death_worlds": 15,
+          "override_rate": 0.28600860349743706,
+          "overrides": 52059,
+          "worlds": 64
+        },
+        "scripted": {
+          "alive_boot_lb95": -0.32434500000000005,
+          "alive_delta": -0.22776249999999998,
+          "alive_fraction": 0.549471875,
+          "alive_se": 0.05960052929931022,
+          "alive_t_lb95": -0.32725975602717383,
+          "b8_deaths": 28,
+          "b8_no_death_rate": 0.5625,
+          "b8_no_death_worlds": 36,
+          "ci95": [
+            -433.9215709375,
+            -331.472402109375
+          ],
+          "deaths": 47,
+          "decisions": 175878,
+          "lb90": -416.14225250000004,
+          "mass": 3.77825625,
+          "mass_delta": -383.691284375,
+          "no_death_gain": -0.296875,
+          "no_death_rate": 0.265625,
+          "no_death_worlds": 17,
+          "override_rate": 0.43432947838842834,
+          "overrides": 76389,
+          "worlds": 64
+        }
+      },
+      "m25": {
+        "all": {
+          "alive_boot_lb95": -0.15216036458333332,
+          "alive_delta": -0.11217604166666666,
+          "alive_fraction": 0.6171385416666667,
+          "alive_se": 0.024667588261980858,
+          "alive_t_lb95": -0.15295047479888374,
+          "b8_deaths": 116,
+          "b8_no_death_rate": 0.3958333333333333,
+          "b8_no_death_worlds": 76,
+          "ci95": [
+            -141.89954463541665,
+            -84.022117734375
+          ],
+          "deaths": 187,
+          "decisions": 592640,
+          "lb90": -132.23619072916665,
+          "mass": 193.07267708333333,
+          "mass_delta": -113.07911979166666,
+          "no_death_gain": -0.36979166666666663,
+          "no_death_rate": 0.026041666666666668,
+          "no_death_worlds": 5,
+          "override_rate": 0.03862378509719223,
+          "overrides": 22890,
+          "worlds": 192
+        },
+        "frozen": {
+          "alive_boot_lb95": -0.13022578124999998,
+          "alive_delta": -0.06174062499999998,
+          "alive_fraction": 0.58734375,
+          "alive_se": 0.041915434678403536,
+          "alive_t_lb95": -0.13171434477593602,
+          "b8_deaths": 50,
+          "b8_no_death_rate": 0.21875,
+          "b8_no_death_worlds": 14,
+          "ci95": [
+            -109.85118859375001,
+            -19.540542109375014
+          ],
+          "deaths": 63,
+          "decisions": 188013,
+          "lb90": -93.54369343750001,
+          "mass": 162.12181875,
+          "mass_delta": -64.16844375000001,
+          "no_death_gain": -0.203125,
+          "no_death_rate": 0.015625,
+          "no_death_worlds": 1,
+          "override_rate": 0.03654534526867823,
+          "overrides": 6871,
+          "worlds": 64
+        },
+        "mixed": {
+          "alive_boot_lb95": -0.16005187499999998,
+          "alive_delta": -0.09898437499999999,
+          "alive_fraction": 0.6626406250000001,
+          "alive_se": 0.03784284317879552,
+          "alive_t_lb95": -0.1621593014783859,
+          "b8_deaths": 38,
+          "b8_no_death_rate": 0.40625,
+          "b8_no_death_worlds": 26,
+          "ci95": [
+            -143.23893210937499,
+            -55.33926875
+          ],
+          "deaths": 63,
+          "decisions": 212108,
+          "lb90": -128.2187390625,
+          "mass": 205.3764625,
+          "mass_delta": -99.31912500000001,
+          "no_death_gain": -0.390625,
+          "no_death_rate": 0.015625,
+          "no_death_worlds": 1,
+          "override_rate": 0.03757991212024063,
+          "overrides": 7971,
+          "worlds": 64
+        },
+        "scripted": {
+          "alive_boot_lb95": -0.2518653125,
+          "alive_delta": -0.17580312499999998,
+          "alive_fraction": 0.6014312500000001,
+          "alive_se": 0.04782702951082282,
+          "alive_t_lb95": -0.2556456743230076,
+          "b8_deaths": 28,
+          "b8_no_death_rate": 0.5625,
+          "b8_no_death_worlds": 36,
+          "ci95": [
+            -233.85709171874998,
+            -116.51278992187498
+          ],
+          "deaths": 61,
+          "decisions": 192519,
+          "lb90": -213.7683271875,
+          "mass": 211.71975,
+          "mass_delta": -175.749790625,
+          "no_death_gain": -0.515625,
+          "no_death_rate": 0.046875,
+          "no_death_worlds": 3,
+          "override_rate": 0.04180366613165454,
+          "overrides": 8048,
+          "worlds": 64
+        }
+      },
+      "m50": {
+        "all": {
+          "alive_boot_lb95": -0.06485802083333334,
+          "alive_delta": -0.02764583333333333,
+          "alive_fraction": 0.70166875,
+          "alive_se": 0.02272416502138278,
+          "alive_t_lb95": -0.06520787374479566,
+          "b8_deaths": 116,
+          "b8_no_death_rate": 0.3958333333333333,
+          "b8_no_death_worlds": 76,
+          "ci95": [
+            -55.588285,
+            3.055883671874997
+          ],
+          "deaths": 135,
+          "decisions": 673737,
+          "lb90": -45.05700052083334,
+          "mass": 279.93554270833334,
+          "mass_delta": -26.216254166666673,
+          "no_death_gain": -0.09895833333333331,
+          "no_death_rate": 0.296875,
+          "no_death_worlds": 57,
+          "override_rate": 0.0019740640635737684,
+          "overrides": 1330,
+          "worlds": 192
+        },
+        "frozen": {
+          "alive_boot_lb95": -0.08646359375,
+          "alive_delta": -0.023621875000000007,
+          "alive_fraction": 0.6254625,
+          "alive_se": 0.038855432889411505,
+          "alive_t_lb95": -0.08848722099096576,
+          "b8_deaths": 50,
+          "b8_no_death_rate": 0.21875,
+          "b8_no_death_worlds": 14,
+          "ci95": [
+            -58.661230781250005,
+            28.029432890624978
+          ],
+          "deaths": 52,
+          "decisions": 200200,
+          "lb90": -44.32171937500001,
+          "mass": 210.35025625,
+          "mass_delta": -15.940006250000005,
+          "no_death_gain": -0.03125,
+          "no_death_rate": 0.1875,
+          "no_death_worlds": 12,
+          "override_rate": 0.0026373626373626374,
+          "overrides": 528,
+          "worlds": 64
+        },
+        "mixed": {
+          "alive_boot_lb95": -0.049673124999999985,
+          "alive_delta": 0.015159375000000006,
+          "alive_fraction": 0.7767843750000001,
+          "alive_se": 0.040368110542894166,
+          "alive_t_lb95": -0.05223123842641603,
+          "b8_deaths": 38,
+          "b8_no_death_rate": 0.40625,
+          "b8_no_death_worlds": 26,
+          "ci95": [
+            -51.41637312499999,
+            53.000745390625006
+          ],
+          "deaths": 42,
+          "decisions": 248613,
+          "lb90": -33.2202446875,
+          "mass": 305.280365625,
+          "mass_delta": 0.5847781249999997,
+          "no_death_gain": -0.0625,
+          "no_death_rate": 0.34375,
+          "no_death_worlds": 22,
+          "override_rate": 0.0021398720099109862,
+          "overrides": 532,
+          "worlds": 64
+        },
+        "scripted": {
+          "alive_boot_lb95": -0.13717203125,
+          "alive_delta": -0.074475,
+          "alive_fraction": 0.7027593750000001,
+          "alive_se": 0.038835036622159175,
+          "alive_t_lb95": -0.13930629641710018,
+          "b8_deaths": 28,
+          "b8_no_death_rate": 0.5625,
+          "b8_no_death_worlds": 36,
+          "ci95": [
+            -118.37568789062502,
+            -7.758698906250022
+          ],
+          "deaths": 41,
+          "decisions": 224924,
+          "lb90": -99.02211031250002,
+          "mass": 324.17600625000006,
+          "mass_delta": -63.293534375000014,
+          "no_death_gain": -0.203125,
+          "no_death_rate": 0.359375,
+          "no_death_worlds": 23,
+          "override_rate": 0.0012004054702921877,
+          "overrides": 270,
+          "worlds": 64
+        }
+      }
+    },
+    "cleanup_error": null,
+    "closedloop_readout_commit_check_passes": true,
+    "exported_row_schema": [
+      "alive_fraction",
+      "arm",
+      "deaths",
+      "decisions",
+      "initial_sha256",
+      "mass",
+      "mix",
+      "overrides",
+      "world_id"
+    ],
+    "manifest_commit": "591d94c3847b45aff77558da8a0ebb0acc802f33",
+    "manifest_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/b8-head-closedloop/main-01/output/manifest.json",
+    "manifest_sha256": "e8f8a984da4e82968a775f65ec553426bad4dc93b96db8dd407c6601b18bb91c",
+    "manifest_sha256_matches_receipt": true,
+    "missing_contract_sec2_fields": [
+      {
+        "bar": "boost share within [0.5%, 10%]",
+        "contract_ref": "SUCCESS_CONTRACT.md \u00a72 line 32; P7_STATISTICS.md \u00a74 line 47",
+        "reason": "neither receipt.json nor exports/closedloop/units/batch-0000..0002.json records boost action counts, boost frames, or boost_share (row schema only has: alive_fraction, arm, deaths, decisions, initial_sha256, mass, mix, overrides, world_id)"
+      },
+      {
+        "bar": "plan \u00a78 tripwires apply to every fit",
+        "contract_ref": "SUCCESS_CONTRACT.md \u00a72 line 32; P7_STATISTICS.md \u00a74 lines 45-46",
+        "reason": "neither receipt.json nor exported batch units record per-action histograms (>90% one-action collapse window check) or 32-world probe bank fit-drift metrics (length-decile disagreement <=5%, boost share <=1.5x previous student, held-out decisive agreement >=70%)"
+      },
+      {
+        "bar": "Watch6 v2 mechanics & shared-seed cross-mix survival band pairing",
+        "contract_ref": "SUCCESS_CONTRACT.md \u00a72-3; t34-sol/b8-head-closedloop/SUMMARY.md:45",
+        "reason": "closedloop.py ran PilotCTDeviceSim with mechanics_version=1 on 192 worlds partitioned into 64 disjoint worlds per mix (world_id % 3), not Watch6 v2"
+      }
+    ],
+    "n_arms_passing_measured_bars": 0,
+    "n_candidate_arms": 4,
+    "part_a_measured_bars_verdict": "KILL (0/4 arms pass measured SUCCESS_CONTRACT.md \u00a72 bars)",
+    "part_a_verdict": "INCONCLUSIVE",
+    "part_a_verdict_summary": "INCONCLUSIVE on full SUCCESS_CONTRACT.md \u00a72 schema (receipt.json is a supervisor transport receipt containing no gameplay outcomes directly, and its receipt-bound batch-0000..0002.json exports omit boost_share [0.5%, 10%], plan \u00a78 tripwires, and Watch6 v2); 0/4 arms pass the measured \u00a72 bars in the batch exports (pooled mass delta -305.095 to -26.216 vs >= +40; LB90 -321.688 to -45.057 vs > 0; scripted no-death gain -0.5156 to -0.2031 vs >= +0.03; 0/4 pass survival band v2) -> Stop Rule A triggers KILL on Claim A head.",
+    "receipt_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/b8-head-closedloop/main-01/output/receipt.json",
+    "receipt_sha256": "afd7022c114538aeba9917fddbc618d1a98fbaed5444a9983b9a1ee906c9e148",
+    "receipt_status": "PASS",
+    "receipt_top_level_commit": "591d94c3847b45aff77558da8a0ebb0acc802f33",
+    "stop_rule_a_zero_of_four_pass_measured": true,
+    "stop_verified": true,
+    "total_rows": 960,
+    "verified_units": [
+      {
+        "n_rows": 320,
+        "path": "closedloop/units/batch-0000.json",
+        "sha256": "feeb078314436cd94a0de088a7fc4be8a30db9625016c1a3accc3e0361e0b7bd",
+        "size": 94923,
+        "unit": "batch-0000"
+      },
+      {
+        "n_rows": 320,
+        "path": "closedloop/units/batch-0001.json",
+        "sha256": "f78b9784e12e26dcf5bc2a687cc8815020acb4d66b928802f3c6cf55d5ee2058",
+        "size": 95159,
+        "unit": "batch-0001"
+      },
+      {
+        "n_rows": 320,
+        "path": "closedloop/units/batch-0002.json",
+        "sha256": "eaef019db8372cc4e5985b1ed9a8d99ab4a32101bbbca8742872ab94a8795291",
+        "size": 95100,
+        "unit": "batch-0002"
+      }
+    ]
+  },
+  "part_a_measured_bars_verdict": "KILL (0/4 arms pass measured SUCCESS_CONTRACT.md \u00a72 bars)",
+  "part_a_verdict": "INCONCLUSIVE",
+  "part_b": {
+    "any_regime_passes_stop_rule_b": false,
+    "elapsed_seconds": 0.313823542004684,
+    "mechanism_diagnostics_on_310_rescues": {
+      "r1_bare_dies_within_h12_count": 9,
+      "r1_bare_enclosed_only_at_h12_count": 65,
+      "r1_bare_fails_at_h12_count": 74,
+      "r1_bare_fails_at_h12_pct": 23.870967741935484,
+      "r1_bare_still_open_at_h12_count": 236,
+      "r1_bare_still_open_at_h12_pct": 76.12903225806451,
+      "r1_unconstrained_6branch_diagnostic": {
+        "suf0_certified": {
+          "ci95_hi_pct": 5.882352941176471,
+          "ci95_lo_pct": 1.5105740181268883,
+          "lb90_pct": 2.147239263803681,
+          "n_eligible": 310,
+          "n_rescued": 11,
+          "point_pct": 3.5483870967741935,
+          "ub90_pct": 5.0
+        },
+        "suf4_7_ndiff0": {
+          "ci95_hi_pct": 9.294871794871796,
+          "ci95_lo_pct": 3.344456191357209,
+          "lb90_pct": 4.234355341847198,
+          "n_eligible": 310,
+          "n_rescued": 19,
+          "point_pct": 6.129032258064516,
+          "ub90_pct": 8.099775492090012
+        }
+      },
+      "r2_bare_still_certified_at_t_minus_3_count": 156,
+      "r2_bare_still_certified_at_t_minus_3_pct": 50.32258064516129,
+      "r2_same_life_at_t_minus_3_count": 309,
+      "r2_t_minus_3_overrode_count": 103,
+      "r2_t_minus_3_overrode_pct": 33.225806451612904,
+      "r2_t_minus_3_triggered_count": 154,
+      "r2_t_minus_3_triggered_pct": 49.67741935483871
+    },
+    "n_certified_rescue_roots": 310,
+    "n_ordinary_roots": 10080,
+    "n_override_roots_total": 350,
+    "n_raw_rescue_roots": 342,
+    "n_worlds": 48,
+    "namespace": "t34-hero-probe-20261103-v1",
+    "part_b_verdict": "CLOSE T34",
+    "regimes": {
+      "regime1_h12_2b_cert_only": {
+        "bars": {
+          "pass_ordinary_false_override_le_1pct": true,
+          "pass_rescue_retention_ge_50pct_and_lb90_ge_40pct_suf0_and_47": false,
+          "pass_rescue_retention_ge_50pct_and_lb90_ge_40pct_suf0_cert": false,
+          "pass_rescue_retention_ge_50pct_and_lb90_ge_40pct_suf47": false,
+          "passes_stop_rule_b": false
+        },
+        "certified_rescue_roots_total": 310,
+        "ordinary_false_overrides": {
+          "ci95_hi_pct": 0.07936507936507936,
+          "ci95_lo_pct": 0.00992063492063492,
+          "false_override_pct": 0.03968253968253968,
+          "lb90_pct": 0.01984126984126984,
+          "n_fails_suf0_certified_h32": 2,
+          "n_false_overrides": 4,
+          "n_lethal_certified_suf4_7": 1,
+          "n_lethal_raw_suf4_7": 0,
+          "n_ordinary_total": 10080,
+          "ub90_pct": 0.05952380952380952
+        },
+        "ordinary_roots_total": 10080,
+        "raw_342_rescue_retention_h32_suf0_certified": {
+          "ci95_hi_pct": 2.7439024390243905,
+          "ci95_lo_pct": 0.31545741324921134,
+          "lb90_pct": 0.6514657980456026,
+          "n_eligible": 342,
+          "n_rescued": 5,
+          "point_pct": 1.4619883040935673,
+          "ub90_pct": 2.2598870056497176
+        },
+        "regime_key": "r1_h12_2b_cert_only",
+        "rescue_retention_exact_teacher_match": {
+          "ci95_hi_pct": 3.0201342281879193,
+          "ci95_lo_pct": 0.34965034965034963,
+          "lb90_pct": 0.7220216606498195,
+          "n_eligible": 310,
+          "n_rescued": 5,
+          "point_pct": 1.6129032258064515,
+          "ub90_pct": 2.482269503546099
+        },
+        "rescue_retention_h32_suf0_and_suf4_7_certified": {
+          "ci95_hi_pct": 3.0201342281879193,
+          "ci95_lo_pct": 0.34965034965034963,
+          "lb90_pct": 0.7220216606498195,
+          "n_eligible": 310,
+          "n_rescued": 5,
+          "point_pct": 1.6129032258064515,
+          "ub90_pct": 2.482269503546099
+        },
+        "rescue_retention_h32_suf0_certified": {
+          "ge600": {
+            "ci95_hi_pct": 3.2710280373831777,
+            "ci95_lo_pct": 0.0,
+            "lb90_pct": 0.5073578423832233,
+            "n_eligible": 199,
+            "n_rescued": 3,
+            "point_pct": 1.5075376884422111,
+            "ub90_pct": 2.5641025641025643
+          },
+          "lt600": {
+            "ci95_hi_pct": 4.854368932038835,
+            "ci95_lo_pct": 0.0,
+            "lb90_pct": 0.0,
+            "n_eligible": 111,
+            "n_rescued": 2,
+            "point_pct": 1.8018018018018018,
+            "ub90_pct": 3.597770432302809
+          },
+          "overall": {
+            "ci95_hi_pct": 3.0201342281879193,
+            "ci95_lo_pct": 0.34965034965034963,
+            "lb90_pct": 0.7220216606498195,
+            "n_eligible": 310,
+            "n_rescued": 5,
+            "point_pct": 1.6129032258064515,
+            "ub90_pct": 2.482269503546099
+          }
+        },
+        "rescue_retention_h32_suf0_raw": {
+          "ci95_hi_pct": 3.0201342281879193,
+          "ci95_lo_pct": 0.34965034965034963,
+          "lb90_pct": 0.7220216606498195,
+          "n_eligible": 310,
+          "n_rescued": 5,
+          "point_pct": 1.6129032258064515,
+          "ub90_pct": 2.482269503546099
+        },
+        "rescue_retention_h32_suf4_7_ndiff0": {
+          "ci95_hi_pct": 3.0201342281879193,
+          "ci95_lo_pct": 0.34965034965034963,
+          "lb90_pct": 0.7220216606498195,
+          "n_eligible": 310,
+          "n_rescued": 5,
+          "point_pct": 1.6129032258064515,
+          "ub90_pct": 2.482269503546099
+        },
+        "trigger_override_on_310_rescues": {
+          "ci95_hi_pct": 3.0201342281879193,
+          "ci95_lo_pct": 0.34965034965034963,
+          "lb90_pct": 0.7220216606498195,
+          "n_eligible": 310,
+          "n_rescued": 5,
+          "point_pct": 1.6129032258064515,
+          "ub90_pct": 2.482269503546099
+        }
+      },
+      "regime1_h12_2b_exact_stop": {
+        "bars": {
+          "pass_ordinary_false_override_le_1pct": true,
+          "pass_rescue_retention_ge_50pct_and_lb90_ge_40pct_suf0_and_47": false,
+          "pass_rescue_retention_ge_50pct_and_lb90_ge_40pct_suf0_cert": false,
+          "pass_rescue_retention_ge_50pct_and_lb90_ge_40pct_suf47": false,
+          "passes_stop_rule_b": false
+        },
+        "certified_rescue_roots_total": 310,
+        "ordinary_false_overrides": {
+          "ci95_hi_pct": 0.07936507936507936,
+          "ci95_lo_pct": 0.00992063492063492,
+          "false_override_pct": 0.03968253968253968,
+          "lb90_pct": 0.01984126984126984,
+          "n_fails_suf0_certified_h32": 2,
+          "n_false_overrides": 4,
+          "n_lethal_certified_suf4_7": 1,
+          "n_lethal_raw_suf4_7": 0,
+          "n_ordinary_total": 10080,
+          "ub90_pct": 0.05952380952380952
+        },
+        "ordinary_roots_total": 10080,
+        "raw_342_rescue_retention_h32_suf0_certified": {
+          "ci95_hi_pct": 2.7439024390243905,
+          "ci95_lo_pct": 0.31545741324921134,
+          "lb90_pct": 0.6514657980456026,
+          "n_eligible": 342,
+          "n_rescued": 5,
+          "point_pct": 1.4619883040935673,
+          "ub90_pct": 2.2598870056497176
+        },
+        "regime_key": "r1_h12_2b_exact_stop",
+        "rescue_retention_exact_teacher_match": {
+          "ci95_hi_pct": 6.06106659298148,
+          "ci95_lo_pct": 1.492537313432836,
+          "lb90_pct": 2.070801877167925,
+          "n_eligible": 310,
+          "n_rescued": 11,
+          "point_pct": 3.5483870967741935,
+          "ub90_pct": 5.136986301369863
+        },
+        "rescue_retention_h32_suf0_and_suf4_7_certified": {
+          "ci95_hi_pct": 3.0201342281879193,
+          "ci95_lo_pct": 0.34965034965034963,
+          "lb90_pct": 0.7220216606498195,
+          "n_eligible": 310,
+          "n_rescued": 5,
+          "point_pct": 1.6129032258064515,
+          "ub90_pct": 2.482269503546099
+        },
+        "rescue_retention_h32_suf0_certified": {
+          "ge600": {
+            "ci95_hi_pct": 3.2710280373831777,
+            "ci95_lo_pct": 0.0,
+            "lb90_pct": 0.5073578423832233,
+            "n_eligible": 199,
+            "n_rescued": 3,
+            "point_pct": 1.5075376884422111,
+            "ub90_pct": 2.5641025641025643
+          },
+          "lt600": {
+            "ci95_hi_pct": 4.854368932038835,
+            "ci95_lo_pct": 0.0,
+            "lb90_pct": 0.0,
+            "n_eligible": 111,
+            "n_rescued": 2,
+            "point_pct": 1.8018018018018018,
+            "ub90_pct": 3.597770432302809
+          },
+          "overall": {
+            "ci95_hi_pct": 3.0201342281879193,
+            "ci95_lo_pct": 0.34965034965034963,
+            "lb90_pct": 0.7220216606498195,
+            "n_eligible": 310,
+            "n_rescued": 5,
+            "point_pct": 1.6129032258064515,
+            "ub90_pct": 2.482269503546099
+          }
+        },
+        "rescue_retention_h32_suf0_raw": {
+          "ci95_hi_pct": 3.0201342281879193,
+          "ci95_lo_pct": 0.34965034965034963,
+          "lb90_pct": 0.7220216606498195,
+          "n_eligible": 310,
+          "n_rescued": 5,
+          "point_pct": 1.6129032258064515,
+          "ub90_pct": 2.482269503546099
+        },
+        "rescue_retention_h32_suf4_7_ndiff0": {
+          "ci95_hi_pct": 6.4191602316602285,
+          "ci95_lo_pct": 1.7605633802816902,
+          "lb90_pct": 2.380952380952381,
+          "n_eligible": 310,
+          "n_rescued": 12,
+          "point_pct": 3.870967741935484,
+          "ub90_pct": 5.46898746200608
+        },
+        "trigger_override_on_310_rescues": {
+          "ci95_hi_pct": 6.4191602316602285,
+          "ci95_lo_pct": 1.7605633802816902,
+          "lb90_pct": 2.380952380952381,
+          "n_eligible": 310,
+          "n_rescued": 12,
+          "point_pct": 3.870967741935484,
+          "ub90_pct": 5.46898746200608
+        }
+      },
+      "regime2_async_d3_root_delayed": {
+        "bars": {
+          "pass_ordinary_false_override_le_1pct": true,
+          "pass_rescue_retention_ge_50pct_and_lb90_ge_40pct_suf0_and_47": false,
+          "pass_rescue_retention_ge_50pct_and_lb90_ge_40pct_suf0_cert": false,
+          "pass_rescue_retention_ge_50pct_and_lb90_ge_40pct_suf47": false,
+          "passes_stop_rule_b": false
+        },
+        "certified_rescue_roots_total": 310,
+        "ordinary_false_overrides": {
+          "ci95_hi_pct": 0.3273809523809524,
+          "ci95_lo_pct": 0.12896825396825398,
+          "false_override_pct": 0.21825396825396826,
+          "lb90_pct": 0.15873015873015872,
+          "n_fails_suf0_certified_h32": 9,
+          "n_false_overrides": 22,
+          "n_lethal_certified_suf4_7": 4,
+          "n_lethal_raw_suf4_7": 0,
+          "n_ordinary_total": 10080,
+          "ub90_pct": 0.2876984126984127
+        },
+        "ordinary_roots_total": 10080,
+        "raw_342_rescue_retention_h32_suf0_certified": {
+          "ci95_hi_pct": 16.776370981985163,
+          "ci95_lo_pct": 9.686609686609687,
+          "lb90_pct": 10.857142857142858,
+          "n_eligible": 342,
+          "n_rescued": 45,
+          "point_pct": 13.157894736842104,
+          "ub90_pct": 15.472779369627506
+        },
+        "regime_key": "r2_async_d3_root_delayed",
+        "rescue_retention_exact_teacher_match": {
+          "ci95_hi_pct": 15.714285714285714,
+          "ci95_lo_pct": 8.888706140350878,
+          "lb90_pct": 10.031252679822012,
+          "n_eligible": 310,
+          "n_rescued": 38,
+          "point_pct": 12.258064516129032,
+          "ub90_pct": 14.539112317696825
+        },
+        "rescue_retention_h32_suf0_and_suf4_7_certified": {
+          "ci95_hi_pct": 16.404138612929042,
+          "ci95_lo_pct": 8.875689157259123,
+          "lb90_pct": 10.17922050635571,
+          "n_eligible": 310,
+          "n_rescued": 39,
+          "point_pct": 12.580645161290322,
+          "ub90_pct": 15.050526845758263
+        },
+        "rescue_retention_h32_suf0_certified": {
+          "ge600": {
+            "ci95_hi_pct": 17.857142857142858,
+            "ci95_lo_pct": 8.80503144654088,
+            "lb90_pct": 10.460251046025105,
+            "n_eligible": 199,
+            "n_rescued": 27,
+            "point_pct": 13.5678391959799,
+            "ub90_pct": 16.438356164383563
+          },
+          "lt600": {
+            "ci95_hi_pct": 20.0,
+            "ci95_lo_pct": 5.982905982905983,
+            "lb90_pct": 7.6923076923076925,
+            "n_eligible": 111,
+            "n_rescued": 13,
+            "point_pct": 11.711711711711711,
+            "ub90_pct": 16.666666666666668
+          },
+          "overall": {
+            "ci95_hi_pct": 16.831683168316832,
+            "ci95_lo_pct": 9.144542772861357,
+            "lb90_pct": 10.443037974683545,
+            "n_eligible": 310,
+            "n_rescued": 40,
+            "point_pct": 12.903225806451612,
+            "ub90_pct": 15.407854984894259
+          }
+        },
+        "rescue_retention_h32_suf0_raw": {
+          "ci95_hi_pct": 25.901908579633837,
+          "ci95_lo_pct": 17.51824817518248,
+          "lb90_pct": 18.960244648318042,
+          "n_eligible": 310,
+          "n_rescued": 67,
+          "point_pct": 21.612903225806452,
+          "ub90_pct": 24.342105263157894
+        },
+        "rescue_retention_h32_suf4_7_ndiff0": {
+          "ci95_hi_pct": 28.777490665695282,
+          "ci95_lo_pct": 19.6875,
+          "lb90_pct": 21.23076923076923,
+          "n_eligible": 310,
+          "n_rescued": 75,
+          "point_pct": 24.193548387096776,
+          "ub90_pct": 27.17155154744825
+        },
+        "trigger_override_on_310_rescues": {
+          "ci95_hi_pct": 29.503232868343346,
+          "ci95_lo_pct": 20.298291152931,
+          "lb90_pct": 21.824104234527688,
+          "n_eligible": 310,
+          "n_rescued": 77,
+          "point_pct": 24.838709677419356,
+          "ub90_pct": 27.848101265822784
+        }
+      },
+      "regime2_async_d3_step_t_triggered": {
+        "bars": {
+          "pass_ordinary_false_override_le_1pct": true,
+          "pass_rescue_retention_ge_50pct_and_lb90_ge_40pct_suf0_and_47": false,
+          "pass_rescue_retention_ge_50pct_and_lb90_ge_40pct_suf0_cert": false,
+          "pass_rescue_retention_ge_50pct_and_lb90_ge_40pct_suf47": false,
+          "passes_stop_rule_b": false
+        },
+        "certified_rescue_roots_total": 310,
+        "ordinary_false_overrides": {
+          "ci95_hi_pct": 0.20833333333333334,
+          "ci95_lo_pct": 0.05952380952380952,
+          "false_override_pct": 0.12896825396825398,
+          "lb90_pct": 0.07936507936507936,
+          "n_fails_suf0_certified_h32": 6,
+          "n_false_overrides": 13,
+          "n_lethal_certified_suf4_7": 2,
+          "n_lethal_raw_suf4_7": 0,
+          "n_ordinary_total": 10080,
+          "ub90_pct": 0.17857142857142858
+        },
+        "ordinary_roots_total": 10080,
+        "raw_342_rescue_retention_h32_suf0_certified": {
+          "ci95_hi_pct": 8.904348074941804,
+          "ci95_lo_pct": 3.6826248022208117,
+          "lb90_pct": 4.464285714285714,
+          "n_eligible": 342,
+          "n_rescued": 21,
+          "point_pct": 6.140350877192983,
+          "ub90_pct": 7.868103520013315
+        },
+        "regime_key": "r2_async_d3_step_t_triggered",
+        "rescue_retention_exact_teacher_match": {
+          "ci95_hi_pct": 8.536669354296848,
+          "ci95_lo_pct": 3.3557046979865772,
+          "lb90_pct": 4.15335463258786,
+          "n_eligible": 310,
+          "n_rescued": 18,
+          "point_pct": 5.806451612903226,
+          "ub90_pct": 7.50678292233252
+        },
+        "rescue_retention_h32_suf0_and_suf4_7_certified": {
+          "ci95_hi_pct": 9.121651256519677,
+          "ci95_lo_pct": 3.9755351681957185,
+          "lb90_pct": 4.777070063694268,
+          "n_eligible": 310,
+          "n_rescued": 20,
+          "point_pct": 6.451612903225806,
+          "ub90_pct": 8.171524295210935
+        },
+        "rescue_retention_h32_suf0_certified": {
+          "ge600": {
+            "ci95_hi_pct": 10.045662100456621,
+            "ci95_lo_pct": 4.054054054054054,
+            "lb90_pct": 5.027932960893855,
+            "n_eligible": 199,
+            "n_rescued": 14,
+            "point_pct": 7.035175879396985,
+            "ub90_pct": 8.98876404494382
+          },
+          "lt600": {
+            "ci95_hi_pct": 11.224489795918368,
+            "ci95_lo_pct": 1.6666666666666667,
+            "lb90_pct": 2.73972602739726,
+            "n_eligible": 111,
+            "n_rescued": 6,
+            "point_pct": 5.405405405405405,
+            "ub90_pct": 8.88888888888889
+          },
+          "overall": {
+            "ci95_hi_pct": 9.121651256519677,
+            "ci95_lo_pct": 3.9755351681957185,
+            "lb90_pct": 4.777070063694268,
+            "n_eligible": 310,
+            "n_rescued": 20,
+            "point_pct": 6.451612903225806,
+            "ub90_pct": 8.171524295210935
+          }
+        },
+        "rescue_retention_h32_suf0_raw": {
+          "ci95_hi_pct": 13.732534986275478,
+          "ci95_lo_pct": 7.119713674510449,
+          "lb90_pct": 8.178438661710038,
+          "n_eligible": 310,
+          "n_rescued": 32,
+          "point_pct": 10.32258064516129,
+          "ub90_pct": 12.5
+        },
+        "rescue_retention_h32_suf4_7_ndiff0": {
+          "ci95_hi_pct": 15.40883080729972,
+          "ci95_lo_pct": 8.602150537634408,
+          "lb90_pct": 9.74025974025974,
+          "n_eligible": 310,
+          "n_rescued": 37,
+          "point_pct": 11.935483870967742,
+          "ub90_pct": 14.191419141914192
+        },
+        "trigger_override_on_310_rescues": {
+          "ci95_hi_pct": 15.679442508710801,
+          "ci95_lo_pct": 8.959537572254336,
+          "lb90_pct": 10.074626865671641,
+          "n_eligible": 310,
+          "n_rescued": 38,
+          "point_pct": 12.258064516129032,
+          "ub90_pct": 14.469453376205788
+        }
+      },
+      "regime2_async_d3_step_t_unconditional": {
+        "bars": {
+          "pass_ordinary_false_override_le_1pct": true,
+          "pass_rescue_retention_ge_50pct_and_lb90_ge_40pct_suf0_and_47": false,
+          "pass_rescue_retention_ge_50pct_and_lb90_ge_40pct_suf0_cert": false,
+          "pass_rescue_retention_ge_50pct_and_lb90_ge_40pct_suf47": false,
+          "passes_stop_rule_b": false
+        },
+        "certified_rescue_roots_total": 310,
+        "ordinary_false_overrides": {
+          "ci95_hi_pct": 0.8928571428571429,
+          "ci95_lo_pct": 0.5654761904761905,
+          "false_override_pct": 0.7242063492063492,
+          "lb90_pct": 0.6150793650793651,
+          "n_fails_suf0_certified_h32": 7,
+          "n_false_overrides": 73,
+          "n_lethal_certified_suf4_7": 2,
+          "n_lethal_raw_suf4_7": 0,
+          "n_ordinary_total": 10080,
+          "ub90_pct": 0.8333333333333334
+        },
+        "ordinary_roots_total": 10080,
+        "raw_342_rescue_retention_h32_suf0_certified": {
+          "ci95_hi_pct": 9.187326902874604,
+          "ci95_lo_pct": 3.9274924471299095,
+          "lb90_pct": 4.733727810650888,
+          "n_eligible": 342,
+          "n_rescued": 22,
+          "point_pct": 6.432748538011696,
+          "ub90_pct": 8.184234238334048
+        },
+        "regime_key": "r2_async_d3_step_t_unconditional",
+        "rescue_retention_exact_teacher_match": {
+          "ci95_hi_pct": 8.843687917644932,
+          "ci95_lo_pct": 3.678929765886288,
+          "lb90_pct": 4.4673539518900345,
+          "n_eligible": 310,
+          "n_rescued": 19,
+          "point_pct": 6.129032258064516,
+          "ub90_pct": 7.857142857142857
+        },
+        "rescue_retention_h32_suf0_and_suf4_7_certified": {
+          "ci95_hi_pct": 9.454668304668303,
+          "ci95_lo_pct": 4.229607250755287,
+          "lb90_pct": 5.0675675675675675,
+          "n_eligible": 310,
+          "n_rescued": 21,
+          "point_pct": 6.774193548387097,
+          "ub90_pct": 8.517350157728707
+        },
+        "rescue_retention_h32_suf0_certified": {
+          "ge600": {
+            "ci95_hi_pct": 10.045662100456621,
+            "ci95_lo_pct": 4.054054054054054,
+            "lb90_pct": 5.027932960893855,
+            "n_eligible": 199,
+            "n_rescued": 14,
+            "point_pct": 7.035175879396985,
+            "ub90_pct": 8.98876404494382
+          },
+          "lt600": {
+            "ci95_hi_pct": 12.5,
+            "ci95_lo_pct": 2.2388059701492535,
+            "lb90_pct": 3.389830508474576,
+            "n_eligible": 111,
+            "n_rescued": 7,
+            "point_pct": 6.306306306306307,
+            "ub90_pct": 10.1010101010101
+          },
+          "overall": {
+            "ci95_hi_pct": 9.454668304668303,
+            "ci95_lo_pct": 4.229607250755287,
+            "lb90_pct": 5.0675675675675675,
+            "n_eligible": 310,
+            "n_rescued": 21,
+            "point_pct": 6.774193548387097,
+            "ub90_pct": 8.517350157728707
+          }
+        },
+        "rescue_retention_h32_suf0_raw": {
+          "ci95_hi_pct": 14.440433212996389,
+          "ci95_lo_pct": 7.739849370603316,
+          "lb90_pct": 8.823529411764707,
+          "n_eligible": 310,
+          "n_rescued": 34,
+          "point_pct": 10.96774193548387,
+          "ub90_pct": 13.158719683220593
+        },
+        "rescue_retention_h32_suf4_7_ndiff0": {
+          "ci95_hi_pct": 16.08832807570978,
+          "ci95_lo_pct": 9.253601932533861,
+          "lb90_pct": 10.376411939168298,
+          "n_eligible": 310,
+          "n_rescued": 39,
+          "point_pct": 12.580645161290322,
+          "ub90_pct": 14.851485148514852
+        },
+        "trigger_override_on_310_rescues": {
+          "ci95_hi_pct": 16.31979166666666,
+          "ci95_lo_pct": 9.597523219814242,
+          "lb90_pct": 10.714285714285714,
+          "n_eligible": 310,
+          "n_rescued": 40,
+          "point_pct": 12.903225806451612,
+          "ub90_pct": 15.142045966651645
+        }
+      }
+    },
+    "sealed_gate_namespace_touched": false
+  },
+  "part_b_verdict": "CLOSE T34",
+  "registration": "/Users/josenunez/Projects/ml/snake-dqn/docs/research/final_run_20261019/CAMPAIGN_LOG.md row '2026-11-04 PT 17:40'",
+  "schema": "t34-closeout-audit/v1",
+  "single_verdict": "CLOSE T34"
+}
