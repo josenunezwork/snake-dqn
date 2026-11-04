@@ -12,7 +12,7 @@ import os
 import threading
 import time
 from dataclasses import asdict, fields, replace
-from hashlib import sha256
+from hashlib import file_digest, sha256
 from io import BytesIO
 from typing import Any, Dict, Mapping, Optional
 
@@ -125,12 +125,26 @@ def _validated_lifecycle_fields(metadata: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+_CHECKPOINT_BLOB_CACHE: dict[tuple[str, str, int], dict] = {}
+_CHECKPOINT_BLOB_CACHE_MAX = 4
+
+
 def _load_checkpoint_once(checkpoint_path: str) -> tuple[bytes, dict, str]:
     """Read, hash, and deserialize a checkpoint exactly once for serving."""
-    payload = open(checkpoint_path, "rb").read()
+    with open(checkpoint_path, "rb") as stream:
+        digest = file_digest(stream, "sha256").hexdigest()
+    cache_key = (str(checkpoint_path), digest, id(torch.load))
+    cached_blob = _CHECKPOINT_BLOB_CACHE.get(cache_key)
+    if cached_blob is not None:
+        return b"", cached_blob, digest
+    with open(checkpoint_path, "rb") as stream:
+        payload = stream.read()
     blob = torch.load(BytesIO(payload), map_location="cpu", weights_only=False)
     if not isinstance(blob, dict):
         raise ValueError("checkpoint must be a metadata mapping")
+    if len(_CHECKPOINT_BLOB_CACHE) >= _CHECKPOINT_BLOB_CACHE_MAX:
+        _CHECKPOINT_BLOB_CACHE.clear()
+    _CHECKPOINT_BLOB_CACHE[cache_key] = blob
     return payload, blob, sha256(payload).hexdigest()
 
 
@@ -684,14 +698,27 @@ class GameSession:
                 return self._mixed_fallback(
                     "mixed Watch roster refused: FRP3 opponent bytes changed after pin resolution"
                 )
-            opponent = ApexPolicy(
-                input_size=GameConfig.INPUT_SIZE,
-                hidden_size=GameConfig.HIDDEN_SIZE,
-                output_size=GameConfig.OUTPUT_SIZE,
-                training=False,
+            opp_key = (
+                choice.path,
+                opponent_hash,
+                GameConfig.INPUT_SIZE,
+                GameConfig.HIDDEN_SIZE,
+                GameConfig.OUTPUT_SIZE,
             )
-            opponent.load_state_dict(blob)
-            opponent.epsilon = 0.0
+            cached_opp = getattr(self, "_cached_watch_opponent", None)
+            if cached_opp is not None and cached_opp[0] == opp_key:
+                opponent = cached_opp[1]
+                opponent.epsilon = 0.0
+            else:
+                opponent = ApexPolicy(
+                    input_size=GameConfig.INPUT_SIZE,
+                    hidden_size=GameConfig.HIDDEN_SIZE,
+                    output_size=GameConfig.OUTPUT_SIZE,
+                    training=False,
+                )
+                opponent.load_state_dict(blob)
+                opponent.epsilon = 0.0
+                self._cached_watch_opponent = (opp_key, opponent)
         except Exception as exc:
             return self._mixed_fallback(
                 f"mixed Watch roster refused: FRP3 opponent load failed: {exc}"
@@ -858,7 +885,15 @@ class GameSession:
         elif obs_spec in EGO2S_OBS_SPECS:
             from web.backend.ego2s_policy import Ego2sServingPolicy
 
-            policy = Ego2sServingPolicy(checkpoint)
+            cached_ego2s = getattr(self, "_cached_ego2s_net", None)
+            ego2s_net = (
+                cached_ego2s[2]
+                if cached_ego2s is not None and cached_ego2s[:2] == (checkpoint, checkpoint_hash)
+                else None
+            )
+            policy = Ego2sServingPolicy(checkpoint, blob=checkpoint_blob, net=ego2s_net)
+            if checkpoint and checkpoint_hash:
+                self._cached_ego2s_net = (checkpoint, checkpoint_hash, policy.net)
         else:
             policy = ApexPolicy(
                 input_size=GameConfig.INPUT_SIZE,
@@ -1001,13 +1036,15 @@ class GameSession:
                 if self._watch_replay is not None:
                     return
             if self.mode == MODE_WATCH and getattr(self, "_watch_replay", None) is not None:
+                active_replay = self._watch_replay
                 try:
-                    if self._watch_replay.step():
+                    if active_replay.step():
                         return
                     self._select_watch_replay()
                     if self._watch_replay is not None or self._replay_pending:
                         return
                 except Exception as exc:
+                    self._close_watch_replay(active_replay)
                     self._watch_replay = None
                     self.last_error = f"Replay playback failed; using live B8: {exc}"
             if self.mode == MODE_TRAIN:
@@ -1149,9 +1186,11 @@ class GameSession:
 
         with self._lock:
             if self.mode == MODE_WATCH and getattr(self, "_watch_replay", None) is not None:
+                active_replay = self._watch_replay
                 try:
-                    return self._watch_replay.snapshot(self)
+                    return active_replay.snapshot(self)
                 except Exception as exc:
+                    self._close_watch_replay(active_replay)
                     self._watch_replay = None
                     self.last_error = f"Replay snapshot failed; using live B8: {exc}"
             try:
@@ -1162,11 +1201,17 @@ class GameSession:
                 raise
 
     # -- controls -----------------------------------------------------------
+    @staticmethod
+    def _close_watch_replay(record: Any) -> None:
+        close = getattr(record, "close", None)
+        if callable(close):
+            close()
+
     def _select_watch_replay(self) -> None:
         """Rotate on reset/end; an empty or corrupt bank leaves live Watch ready."""
         self._replay_pending = False
+        previous = getattr(self, "_watch_replay", None)
         try:
-            previous = getattr(self, "_watch_replay", None)
             self._watch_replay = self._replay_bank.pick() if self._replay_bank else None
             if self._replay_bank and self._watch_replay is None and self._replay_bank.pending:
                 self._replay_pending = True
@@ -1176,12 +1221,17 @@ class GameSession:
         except Exception as exc:
             self._watch_replay = None
             self.last_error = f"Replay bank unavailable; using live B8: {exc}"
+        finally:
+            if previous is not None and previous is not getattr(self, "_watch_replay", None):
+                self._close_watch_replay(previous)
 
     def _leave_watch_replay(self) -> None:
         """Explicit world/model controls return to the already-built live game."""
         self._replay_pending = False
-        if getattr(self, "_watch_replay", None) is not None:
+        previous = getattr(self, "_watch_replay", None)
+        if previous is not None:
             self._watch_replay = None
+            self._close_watch_replay(previous)
 
     def set_playing(self, value: bool) -> None:
         with self._lock:
@@ -1648,6 +1698,7 @@ class GameSession:
     # -- state report -------------------------------------------------------
     def close(self, wait: bool = False) -> None:
         """Release only this session's optional worker, outside the serving tick."""
+        self._leave_watch_replay()
         if getattr(self, "_replay_bank", None) is not None:
             self._replay_bank.close()
         if getattr(self, "pathb", None) is not None:

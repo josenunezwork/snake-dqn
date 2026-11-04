@@ -9,6 +9,7 @@ import io
 import json
 import logging
 import math
+import mmap
 import os
 import queue
 import random
@@ -119,14 +120,93 @@ def _decode_json_object(line: bytes) -> dict:
     return value
 
 
-def _records(payload: bytes) -> Iterator[dict]:
+class _BufferReader(io.RawIOBase):
+    """Zero-copy readable stream over bytes or an anonymous mmap buffer."""
+
+    def __init__(self, buf: bytes | bytearray | memoryview | mmap.mmap) -> None:
+        self._buf = buf
+        self._size = len(buf)
+        self._pos = 0
+
+    def readable(self) -> bool:
+        return True
+
+    def seekable(self) -> bool:
+        return True
+
+    def tell(self) -> int:
+        return self._pos
+
+    def seek(self, pos: int, whence: int = io.SEEK_SET) -> int:
+        if whence == io.SEEK_SET:
+            new_pos = pos
+        elif whence == io.SEEK_CUR:
+            new_pos = self._pos + pos
+        elif whence == io.SEEK_END:
+            new_pos = self._size + pos
+        else:
+            raise ValueError(f"invalid whence: {whence}")
+        if new_pos < 0:
+            raise ValueError("negative seek position")
+        self._pos = min(new_pos, self._size)
+        return self._pos
+
+    def readinto(self, b: Any) -> int:
+        if getattr(self._buf, "closed", False):
+            return 0
+        avail = self._size - self._pos
+        if avail <= 0:
+            return 0
+        with memoryview(b) as dest, memoryview(self._buf) as src:
+            dest_b = dest.cast("B")
+            count = min(len(dest_b), avail)
+            dest_b[:count] = src[self._pos : self._pos + count]
+            self._pos += count
+            return count
+
+
+def _records(payload: bytes | bytearray | memoryview | mmap.mmap) -> Iterator[dict]:
     total = 0
-    with gzip.GzipFile(fileobj=io.BytesIO(payload)) as stream:
+    with (
+        _BufferReader(payload) as raw,
+        io.BufferedReader(raw) as buf,
+        gzip.GzipFile(fileobj=buf, mode="rb") as stream,
+    ):
         while line := stream.readline(MAX_LINE + 1):
             total += len(line)
             if len(line) > MAX_LINE or total > MAX_DECODED:
                 raise ValueError("replay decompression limit")
             yield _decode_json_object(line)
+
+
+def _read_pinned_payload(path: Path) -> tuple[bytes | mmap.mmap, str]:
+    """Read bounded compressed replay bytes into an anonymous mmap so close() unmaps pages."""
+    size = path.stat().st_size
+    if size > MAX_COMPRESSED:
+        raise ValueError("oversized replay")
+    if size == 0:
+        with path.open("rb") as stream:
+            extra = stream.read(1)
+        if extra:
+            raise ValueError("incomplete replay")
+        return b"", hashlib.sha256(b"").hexdigest()
+    mm = mmap.mmap(-1, size)
+    try:
+        pos = 0
+        with path.open("rb") as stream, memoryview(mm) as mv:
+            while pos < size:
+                n = stream.readinto(mv[pos:])
+                if not n:
+                    break
+                pos += n
+            extra = stream.read(1)
+            if pos != size or extra:
+                raise ValueError("oversized replay" if extra else "incomplete replay")
+            digest = hashlib.sha256(mv).hexdigest()
+        return mm, digest
+    except BaseException:
+        mm.close()
+        raise
 
 
 def validate_header(header: dict, *, product: bool = True) -> None:
@@ -282,7 +362,10 @@ def validate_frame(frame: dict, index: int) -> None:
 
 
 def verify_payload(
-    payload: bytes, *, product: bool = True, stop: threading.Event | None = None
+    payload: bytes | bytearray | memoryview | mmap.mmap,
+    *,
+    product: bool = True,
+    stop: threading.Event | None = None,
 ) -> dict:
     """Validate bounded compressed bytes before a producer marks them complete."""
     if stop is not None:
@@ -290,45 +373,51 @@ def verify_payload(
     if len(payload) > MAX_COMPRESSED:
         raise ValueError("oversized replay")
     records = _records(payload)
-    _enter_gc_suppress()
     try:
-        header = next(records)
-        validate_header(header, product=product)
-    finally:
-        _exit_gc_suppress()
-    count = 0
-    slice_start = time.perf_counter() if stop is not None else 0.0
-    while True:
-        frame = None
         _enter_gc_suppress()
         try:
-            frame = next(records, None)
-            if frame is None:
-                break
-            count += 1
-            validate_frame(frame, count)
+            header = next(records)
+            validate_header(header, product=product)
         finally:
-            frame = None
             _exit_gc_suppress()
-        # Serving verification cooperatively releases the GIL at least every
-        # 64 records and whenever a single verification slice reaches 0.25 ms
-        # so heavy late-game frames cannot starve live Watch fallback ticks.
-        # Producer verification keeps its original synchronous path.
-        if stop is not None:
-            if stop.is_set():
-                raise InterruptedError("replay bank closed")
-            elapsed = time.perf_counter() - slice_start
-            if count % COOPERATIVE_YIELD_FRAMES == 0 or elapsed >= COOPERATIVE_YIELD_SLICE_SECONDS:
-                wait_s = max(
-                    COOPERATIVE_YIELD_MIN_WAIT_SECONDS,
-                    elapsed * COOPERATIVE_YIELD_DUTY_FACTOR,
-                )
-                if stop.wait(wait_s):
+        count = 0
+        slice_start = time.perf_counter() if stop is not None else 0.0
+        while True:
+            frame = None
+            _enter_gc_suppress()
+            try:
+                frame = next(records, None)
+                if frame is None:
+                    break
+                count += 1
+                validate_frame(frame, count)
+            finally:
+                frame = None
+                _exit_gc_suppress()
+            # Serving verification cooperatively releases the GIL at least every
+            # 64 records and whenever a single verification slice reaches 0.25 ms
+            # so heavy late-game frames cannot starve live Watch fallback ticks.
+            # Producer verification keeps its original synchronous path.
+            if stop is not None:
+                if stop.is_set():
                     raise InterruptedError("replay bank closed")
-                slice_start = time.perf_counter()
-    if count != header["horizon"]:
-        raise ValueError("truncated replay")
-    return header
+                elapsed = time.perf_counter() - slice_start
+                if (
+                    count % COOPERATIVE_YIELD_FRAMES == 0
+                    or elapsed >= COOPERATIVE_YIELD_SLICE_SECONDS
+                ):
+                    wait_s = max(
+                        COOPERATIVE_YIELD_MIN_WAIT_SECONDS,
+                        elapsed * COOPERATIVE_YIELD_DUTY_FACTOR,
+                    )
+                    if stop.wait(wait_s):
+                        raise InterruptedError("replay bank closed")
+                    slice_start = time.perf_counter()
+        if count != header["horizon"]:
+            raise ValueError("truncated replay")
+        return header
+    finally:
+        records.close()
 
 
 class Recording:
@@ -342,34 +431,59 @@ class Recording:
         cache: dict | None = None,
         stop: threading.Event | None = None,
     ) -> None:
+        self._records: Iterator[dict] | None = None
+        self._mmap: mmap.mmap | None = None
         if stop is not None:
             _ensure_frame_gc_thresholds()
         sha_path, _ = _check_replay_files(path)
-        with path.open("rb") as stream:
-            payload = stream.read(MAX_COMPRESSED + 1)
-        self.sha256 = hashlib.sha256(payload).hexdigest()
-        if sha_path.read_text().split() != [self.sha256, path.name]:
-            raise ValueError("replay SHA mismatch")
-        key = (self.sha256, product)
-        if cache is not None and key in cache:
-            self.header = cache[key]
-        else:
-            self.header = verify_payload(payload, product=product, stop=stop)
-            if cache is not None:
-                cache[key] = self.header
-        self._records = _records(payload)
-        _enter_gc_suppress()
+        payload, self.sha256 = _read_pinned_payload(path)
+        if isinstance(payload, mmap.mmap):
+            self._mmap = payload
         try:
-            next(self._records)
-            self.frame = next(self._records)
-        finally:
-            _exit_gc_suppress()
-        self.path = path
+            if sha_path.read_text().split() != [self.sha256, path.name]:
+                raise ValueError("replay SHA mismatch")
+            key = (self.sha256, product)
+            if cache is not None and key in cache:
+                self.header = cache[key]
+            else:
+                self.header = verify_payload(payload, product=product, stop=stop)
+                if cache is not None:
+                    cache[key] = self.header
+            self._records = _records(payload)
+            _enter_gc_suppress()
+            try:
+                next(self._records)
+                self.frame = next(self._records)
+            finally:
+                _exit_gc_suppress()
+            self.path = path
+        except BaseException:
+            self.close()
+            raise
+
+    def close(self) -> None:
+        """Close the lazy decompression cursor and unmap the pinned compressed payload."""
+        records, self._records = getattr(self, "_records", None), None
+        if records is not None:
+            close_records = getattr(records, "close", None)
+            if callable(close_records):
+                close_records()
+        mm, self._mmap = getattr(self, "_mmap", None), None
+        if mm is not None and not mm.closed:
+            mm.close()
+
+    def __del__(self) -> None:
+        self.close()
 
     def step(self) -> bool:
         """Advance one frame; false asks the caller to rotate or use live Watch."""
+        if self._records is None:
+            return False
         if self.frame["frame"] >= self.header["horizon"]:
-            return next(self._records, None) is not None
+            has_more = next(self._records, None) is not None
+            if not has_more:
+                self.close()
+            return has_more
         _enter_gc_suppress()
         prev_frame = self.frame
         try:
@@ -377,6 +491,7 @@ class Recording:
             frame = next(self._records, None)
             if frame is None:
                 self.frame = prev_frame
+                self.close()
                 return False
             self.frame = frame
             return True
@@ -507,17 +622,31 @@ class ReplayBank:
                         self.controller != REPLAY_CONTROLLER_ALL
                         and record.header["controller"] != self.controller
                     ):
+                        close_rec = getattr(record, "close", None)
+                        if callable(close_rec):
+                            close_rec()
                         raise ValueError("replaced replay controller")
                     uid = record.header["unit_id"]
                     verified.append((path, uid))
                     if uid != last and uid not in seen:
                         if not self._enqueue(record):
+                            close_rec = getattr(record, "close", None)
+                            if callable(close_rec):
+                                close_rec()
+                            record = None
                             return
                         last = uid
                         seen.add(uid)
+                    else:
+                        close_rec = getattr(record, "close", None)
+                        if callable(close_rec):
+                            close_rec()
+                    record = None
                 except InterruptedError:
+                    record = None
                     return
                 except Exception as exc:
+                    record = None
                     logger.warning("Skipping replay %s: %s", path, exc)
             while not self._closed.is_set():
                 candidates = [(p, uid) for p, uid in verified if uid != last and uid not in seen]
@@ -534,14 +663,21 @@ class ReplayBank:
                         chosen = Recording(path, cache=cache, stop=self._closed)
                         # A replaced file must retain its bank identity and controller filter.
                         if chosen.header["unit_id"] != uid:
+                            close_rec = getattr(chosen, "close", None)
+                            if callable(close_rec):
+                                close_rec()
                             raise ValueError("replaced replay identity")
                         if (
                             self.controller != REPLAY_CONTROLLER_ALL
                             and chosen.header["controller"] != self.controller
                         ):
+                            close_rec = getattr(chosen, "close", None)
+                            if callable(close_rec):
+                                close_rec()
                             raise ValueError("replaced replay controller")
                         break
                     except InterruptedError:
+                        chosen = None
                         return
                     except Exception as exc:
                         logger.warning("Skipping replay %s: %s", path, exc)
@@ -549,9 +685,15 @@ class ReplayBank:
                         chosen = None
                 if chosen is None:
                     continue
+                chosen_uid = chosen.header["unit_id"]
                 if not self._enqueue(chosen):
+                    close_rec = getattr(chosen, "close", None)
+                    if callable(close_rec):
+                        close_rec()
+                    chosen = None
                     return
-                last = chosen.header["unit_id"]
+                chosen = None
+                last = chosen_uid
                 seen.add(last)
         except Exception as exc:
             self.error = f"Replay bank unavailable; using live B8: {exc}"

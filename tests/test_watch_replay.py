@@ -1860,3 +1860,147 @@ def test_verify_payload_and_recording_step_do_not_promote_frame_containers_to_ol
             gc.enable()
         else:
             gc.disable()
+
+
+def test_mode_switches_do_not_grow_object_or_tensor_counts_and_unmap_replays(tmp_path, monkeypatch):
+    import gc
+    import mmap
+
+    import torch
+
+    from src.game.game_state import GameState
+    from src.model.apex_network import ApexNetwork
+    from src.model.ego2s_network import Ego2sNet
+    from src.training.apex_policy import ApexPolicy
+    from web.backend.ego2s_policy import Ego2sServingPolicy
+
+    for key in (
+        "SNAKE_SERVE_WATCH_ROSTER",
+        "SNAKE_SERVE_CHECKPOINT",
+        "SNAKE_SERVE_VETO_WATCH_HERO",
+        "SNAKE_SERVE_VETO_PLAY_AI",
+        "SNAKE_SERVE_VETO_VARIANT",
+        "SNAKE_WATCH_REPLAY_CONTROLLER",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    _install_local_release_fixtures(monkeypatch, tmp_path)
+
+    # Recording pins compressed bytes in an anonymous mmap and unmaps on close()/EOF.
+    rec_path = recording(tmp_path, "mmap_unit", horizon=2)
+    rec = Recording(rec_path, product=False)
+    assert isinstance(rec._mmap, mmap.mmap) and not rec._mmap.closed
+    assert rec.step() is True
+    assert rec.step() is False
+    assert rec._mmap is None
+    del rec
+
+    bank_dir = tmp_path / "bank"
+    bank_dir.mkdir()
+    for name in ("00_l1a", "01_l1b", "02_l1c"):
+        recording(bank_dir, name, controller="exact-stop-l1")
+
+    monkeypatch.setenv("SNAKE_WATCH_SOURCE", "replay")
+    monkeypatch.setenv("SNAKE_WATCH_REPLAY_DIR", str(bank_dir))
+    monkeypatch.setenv("SNAKE_WATCH_REPLAY_CONTROLLER", "exact-stop-l1")
+
+    def live_counts() -> dict[str, int]:
+        gc.collect()
+        objs = gc.get_objects()
+        tensors = [o for o in objs if type(o) is torch.Tensor]
+        storages: dict[int, int] = {}
+        for t in tensors:
+            try:
+                st = t.untyped_storage()
+                storages[st.data_ptr()] = st.nbytes()
+            except Exception:
+                pass
+        tracked_types = (
+            Recording,
+            GameState,
+            Ego2sServingPolicy,
+            Ego2sNet,
+            ApexPolicy,
+            ApexNetwork,
+            mmap.mmap,
+        )
+        by_type = {cls.__name__: 0 for cls in tracked_types}
+        for o in objs:
+            t = type(o)
+            if t in tracked_types:
+                if t is mmap.mmap and getattr(o, "closed", False):
+                    continue
+                by_type[t.__name__] += 1
+        return {
+            "gc_objects": len(objs),
+            "tensor_count": len(tensors),
+            "storage_count": len(storages),
+            "storage_bytes": sum(storages.values()),
+            **by_type,
+        }
+
+    session = GameSession()
+    try:
+        # Warm up both Watch and Play paths before taking the baseline snapshot.
+        for _ in range(2):
+            deadline = time.monotonic() + 10.0
+            while (
+                session._watch_replay is None or session._replay_bank._ready.empty()
+            ) and time.monotonic() < deadline:
+                session.step()
+                time.sleep(0.005)
+            assert session._watch_replay is not None
+            session.step()
+            _ = session.snapshot()
+            prev_replay = session._watch_replay
+            session.set_mode("play")
+            assert prev_replay._mmap is None
+            del prev_replay
+            session.human_input("up")
+            session.step()
+            _ = session.snapshot()
+            session.set_mode("watch")
+
+        deadline = time.monotonic() + 10.0
+        while (
+            session._watch_replay is None or session._replay_bank._ready.empty()
+        ) and time.monotonic() < deadline:
+            session.step()
+            time.sleep(0.005)
+        assert session._watch_replay is not None
+        hero_net_0 = session.policy.net
+        opp_pol_0 = session.watch_opponent_policy
+        baseline = live_counts()
+
+        # K = 10 full Watch->Play->Watch cycles (20 mode switches).
+        for _ in range(10):
+            session.step()
+            _ = session.snapshot()
+            session.set_mode("play")
+            session.human_input("up")
+            session.step()
+            _ = session.snapshot()
+            session.set_mode("watch")
+            deadline = time.monotonic() + 10.0
+            while (
+                session._watch_replay is None or session._replay_bank._ready.empty()
+            ) and time.monotonic() < deadline:
+                session.step()
+                time.sleep(0.005)
+            assert session._watch_replay is not None
+
+        after = live_counts()
+        assert session.policy.net is hero_net_0
+        assert session.watch_opponent_policy is opp_pol_0
+        assert after["GameState"] == baseline["GameState"] == 1
+        assert after["Ego2sServingPolicy"] == baseline["Ego2sServingPolicy"] == 1
+        assert after["Ego2sNet"] == baseline["Ego2sNet"] == 1
+        assert after["ApexPolicy"] == baseline["ApexPolicy"] == 1
+        assert after["ApexNetwork"] == baseline["ApexNetwork"] == 1
+        assert after["Recording"] <= 4
+        assert after["mmap"] <= 4
+        assert after["tensor_count"] == baseline["tensor_count"]
+        assert after["storage_count"] == baseline["storage_count"]
+        assert after["storage_bytes"] == baseline["storage_bytes"]
+        assert after["gc_objects"] - baseline["gc_objects"] < 500
+    finally:
+        session.close(wait=True)

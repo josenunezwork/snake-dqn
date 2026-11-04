@@ -29,7 +29,15 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import torch
 
-from src.model.ego2s_network import load_ego2s_checkpoint, obs_spec_of, obs_tensors
+from src.model.ego2s_network import (
+    ARCH,
+    OBS_SHAPES,
+    Ego2sNet,
+    load_ego2s_checkpoint,
+    obs_spec_of,
+    obs_tensors,
+    spec_for,
+)
 from src.simd_env.ego2s_policy import ego_config_for, forward_q
 from src.simd_env.ego_live_adapter import game_state_to_ego_view
 from src.simd_env.ego_raster import build_ego_raster
@@ -62,11 +70,32 @@ class Ego2sServingPolicy:
         device: Optional[torch.device] = None,
         *,
         forward: str = "batched",
+        blob: Optional[dict] = None,
+        net: Optional[Ego2sNet] = None,
     ) -> None:
         self.checkpoint_path = str(checkpoint_path)
-        self.obs_spec = obs_spec_of(checkpoint_path)
         self.device = torch.device(device) if device is not None else torch.device("cpu")
-        self.net = load_ego2s_checkpoint(checkpoint_path, self.device)
+        if net is not None:
+            self.net = net.to(self.device).eval()
+            self.obs_spec = (
+                blob["obs_spec"]
+                if isinstance(blob, dict) and "obs_spec" in blob
+                else spec_for(self.net)
+            )
+        elif isinstance(blob, dict):
+            if blob.get("obs_spec") not in OBS_SHAPES or blob.get("arch") != ARCH:
+                raise ValueError(f"{checkpoint_path} is not an ego2s / {ARCH} checkpoint")
+            built = Ego2sNet(**blob.get("config", {}))
+            if spec_for(built) != blob["obs_spec"]:
+                raise ValueError(
+                    f"{checkpoint_path}: config does not match obs spec {blob['obs_spec']}"
+                )
+            built.load_state_dict(blob["state_dict"])
+            self.net = built.to(self.device).eval()
+            self.obs_spec = blob["obs_spec"]
+        else:
+            self.obs_spec = obs_spec_of(checkpoint_path)
+            self.net = load_ego2s_checkpoint(checkpoint_path, self.device)
         self.ego_cfg = ego_config_for(self.net)
         self.forward = forward  # "rowwise" for evaluation (record parity with SIMD)
         self.output_size = 6
