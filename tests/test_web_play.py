@@ -380,3 +380,61 @@ class TestLeaderboardEndpoints:
         assert c.get("/api/leaderboard?limit=99999").status_code == 200
         assert c.get("/api/leaderboard?limit=-5").status_code == 200
         assert c.get("/api/scores/recent?limit=0").status_code == 200
+
+    def test_submit_records_play_roster_and_opponents_and_partitions_leaderboard(self, client):
+        c, hub = client
+        # Submit a Classic B8 run.
+        hub.session.last_run = {
+            "score": 410,
+            "length": 10,
+            "food_eaten": 6,
+            "kills": 1,
+            "frames": 250,
+            "duration_seconds": 15.0,
+            "checkpoint": "b8_s3_t7_20261016.pth",
+            "served_checkpoint": "b8-s3",
+            "mechanics_version": 2,
+            "play_roster": "all_b8",
+            "play_opponents": 5,
+        }
+        hub.session.run_over = True
+        hub.session.submitted = False
+        r1 = c.post("/api/scores", json={"name": "Ada"}).json()
+        assert r1["ok"] is True
+        assert r1["result"]["play_roster"] == "all_b8"
+        assert r1["result"]["play_opponents"] == 5
+
+        # Submit a Mixed run.
+        hub.session.last_run = {
+            "score": 680,
+            "length": 14,
+            "food_eaten": 9,
+            "kills": 2,
+            "frames": 400,
+            "duration_seconds": 24.0,
+            "checkpoint": "b8_s3_t7_20261016.pth",
+            "served_checkpoint": "b8-s3",
+            "mechanics_version": 2,
+            "play_roster": "mixed",
+            "play_opponents": 8,
+        }
+        hub.session.run_over = True
+        hub.session.submitted = False
+        r2 = c.post("/api/scores", json={"name": "Bo"}).json()
+        assert r2["ok"] is True
+        assert r2["result"]["play_roster"] == "mixed"
+        assert r2["result"]["play_opponents"] == 8
+        assert [e["player_name"] for e in r2["leaderboard"]] == ["Bo"]
+
+        classic = c.get("/api/leaderboard?mechanics_version=2&play_roster=all_b8").json()[
+            "leaderboard"
+        ]
+        mixed = c.get("/api/leaderboard?mechanics_version=2&play_roster=mixed").json()[
+            "leaderboard"
+        ]
+        assert [(e["player_name"], e["play_roster"], e["play_opponents"]) for e in classic] == [
+            ("Ada", "all_b8", 5)
+        ]
+        assert [(e["player_name"], e["play_roster"], e["play_opponents"]) for e in mixed] == [
+            ("Bo", "mixed", 8)
+        ]

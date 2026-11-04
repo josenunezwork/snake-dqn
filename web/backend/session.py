@@ -51,11 +51,16 @@ from web.backend.safety_veto_serving import (
 )
 from web.backend.served_checkpoint import (
     B8_S3_SHA256,
+    ENV_PLAY_ROSTER,
     ENV_WATCH_ROSTER,
     FRP3_S12_SHA256,
     LOG_PREFIX,
     NAME_B8_S3,
     NAME_FRP3_S12,
+    PLAY_ROSTER_ALL_B8,
+    PLAY_ROSTER_MIXED,
+    PLAY_ROSTER_RELEASED_DEFAULT,
+    PLAY_ROSTERS,
     WATCH_ROSTER_ALL_B8,
     WATCH_ROSTER_MIXED,
     WATCH_ROSTER_RELEASED_DEFAULT,
@@ -562,6 +567,11 @@ class GameSession:
         self.watch_roster_reason: Optional[str] = None
         self.watch_opponent_checkpoint: Optional[Dict[str, object]] = None
         self.watch_opponent_policy: Optional[object] = None
+        self._play_roster_choice: Optional[str] = None
+        self.play_roster: str = PLAY_ROSTER_RELEASED_DEFAULT
+        self.play_roster_reason: Optional[str] = None
+        self.play_opponent_checkpoint: Optional[Dict[str, object]] = None
+        self.play_opponent_policy: Optional[object] = None
         self._release_monitoring = False
         self._release_latency_warmup_remaining = 0
         self._replay_opted_out = False
@@ -746,6 +756,187 @@ class GameSession:
         self.watch_opponent_policy = opponent
         log_build(state)
         self._log_watch_roster(requested, None)
+        return state
+
+    def _requested_play_roster(self) -> tuple[str, Optional[str]]:
+        """Resolve the Play roster from client choice and SNAKE_SERVE_PLAY_ROSTER."""
+        raw = os.environ.get(ENV_PLAY_ROSTER)
+        env_word = raw.strip().lower() if raw and raw.strip() else None
+        if env_word == PLAY_ROSTER_ALL_B8:
+            if self._play_roster_choice == PLAY_ROSTER_MIXED:
+                return (
+                    PLAY_ROSTER_ALL_B8,
+                    f"mixed Play roster disabled by {ENV_PLAY_ROSTER}={PLAY_ROSTER_ALL_B8}",
+                )
+            return PLAY_ROSTER_ALL_B8, None
+        if env_word == PLAY_ROSTER_MIXED:
+            return (self._play_roster_choice or PLAY_ROSTER_MIXED), None
+        if env_word is not None:
+            return (
+                PLAY_ROSTER_RELEASED_DEFAULT,
+                f"unknown {ENV_PLAY_ROSTER} {raw!r}; fell back to {PLAY_ROSTER_RELEASED_DEFAULT}",
+            )
+        return (self._play_roster_choice or PLAY_ROSTER_RELEASED_DEFAULT), None
+
+    def _log_play_roster(self, requested: str, reason: Optional[str]) -> None:
+        """Emit the final Play roster decision, including the fail-closed pin state."""
+        if (
+            requested == PLAY_ROSTER_ALL_B8
+            and reason is None
+            and self._play_roster_choice is None
+            and os.environ.get(ENV_PLAY_ROSTER) is None
+        ):
+            return
+        opponent = self.play_opponent_checkpoint or {}
+        served_checkpoint_logger.info(
+            "%s play_roster=%s requested=%s hero=%s opponent=%s opponent_pins=%s reason=%s",
+            LOG_PREFIX,
+            self.play_roster,
+            requested,
+            (self.served_checkpoint or {}).get("name"),
+            opponent.get("name"),
+            opponent.get("pin_problems"),
+            reason,
+        )
+
+    def _mixed_play_fallback(
+        self, reason: str, state: Optional[ServingVetoState] = None
+    ) -> ServingVetoState:
+        """Undo every partial mixed Play assignment and report the actual all-B8 result."""
+        for snake in self.game.snakes[1:]:
+            snake.policy = self.policy
+            snake.ai = self.policy
+            snake.safety_veto = None
+        self.play_roster = PLAY_ROSTER_ALL_B8
+        self.play_roster_reason = reason
+        self.play_opponent_policy = None
+        if state is None:
+            state = ServingVetoState(
+                flags=ServingVetoFlags(watch_hero=True, play_ai=False, variant="v8"),
+                mode=MODE_PLAY,
+                obs_spec=VECTOR61,
+                checkpoint_sha256=None,
+                scope="watch_opponents",
+                variant="v8",
+            )
+        state.mode = MODE_PLAY
+        state.vetoes.clear()
+        state.wrapper = None
+        state.reason = reason
+        if self._release_monitoring:
+            mixed_roster_fallback(reason=reason)
+        log_build(state)
+        self._log_play_roster(PLAY_ROSTER_MIXED, reason)
+        return state
+
+    def _install_mixed_play_roster(
+        self, checkpoint_hash: Optional[str]
+    ) -> Optional[ServingVetoState]:
+        """Install Play mixed roster (slot 1 bare B8 + slots 2..N FRP3+v8), or fail closed."""
+        self.play_roster = PLAY_ROSTER_ALL_B8
+        self.play_roster_reason = None
+        self.play_opponent_checkpoint = None
+        self.play_opponent_policy = None
+        if self.mode != MODE_PLAY:
+            return None
+        requested, reason = self._requested_play_roster()
+        self.play_roster_reason = reason
+        if requested != PLAY_ROSTER_MIXED:
+            self._log_play_roster(requested, reason)
+            return None
+        b8_is_eligible = (
+            self.mode == MODE_PLAY
+            and (self.served_checkpoint or {}).get("name") == NAME_B8_S3
+            and (self.served_checkpoint or {}).get("path") == self.checkpoint_path
+            and checkpoint_hash == B8_S3_SHA256
+            and self.obs_spec in EGO2S_OBS_SPECS
+        )
+        if not b8_is_eligible:
+            self.play_roster_reason = (
+                "mixed Play roster requires the registry-selected released b8-s3 checkpoint"
+            )
+            self._log_play_roster(requested, self.play_roster_reason)
+            return None
+        try:
+            choice = resolve_mixed_watch_opponent()
+        except Exception as exc:
+            return self._mixed_play_fallback(
+                f"mixed Play roster refused: FRP3 pin resolution failed: {exc}"
+            )
+        self.play_opponent_checkpoint = choice.to_dict()
+        if not choice.path or choice.name != "frp3-s12" or choice.sha256 != FRP3_S12_SHA256:
+            return self._mixed_play_fallback(
+                f"mixed Play roster refused: FRP3 opponent pin/bytes failed: {choice.reason}"
+            )
+        try:
+            _, blob, opponent_hash = _load_checkpoint_once(choice.path)
+            if opponent_hash != choice.sha256 or opponent_hash != FRP3_S12_SHA256:
+                return self._mixed_play_fallback(
+                    "mixed Play roster refused: FRP3 opponent bytes changed after pin resolution"
+                )
+            opp_key = (
+                choice.path,
+                opponent_hash,
+                GameConfig.INPUT_SIZE,
+                GameConfig.HIDDEN_SIZE,
+                GameConfig.OUTPUT_SIZE,
+            )
+            cached_opp = getattr(self, "_cached_watch_opponent", None)
+            if cached_opp is not None and cached_opp[0] == opp_key:
+                opponent = cached_opp[1]
+                opponent.epsilon = 0.0
+            else:
+                opponent = ApexPolicy(
+                    input_size=GameConfig.INPUT_SIZE,
+                    hidden_size=GameConfig.HIDDEN_SIZE,
+                    output_size=GameConfig.OUTPUT_SIZE,
+                    training=False,
+                )
+                opponent.load_state_dict(blob)
+                opponent.epsilon = 0.0
+                self._cached_watch_opponent = (opp_key, opponent)
+        except Exception as exc:
+            return self._mixed_play_fallback(
+                f"mixed Play roster refused: FRP3 opponent load failed: {exc}"
+            )
+
+        if len(self.game.snakes) > 1:
+            self.game.snakes[1].policy = self.policy
+            self.game.snakes[1].ai = self.policy
+            self.game.snakes[1].safety_veto = None
+        opponents = list(self.game.snakes[2:])
+        for snake in opponents:
+            snake.policy = opponent
+            snake.ai = opponent
+        try:
+            state = install_watch_opponent_vetoes(self.game, opponent, opponent_hash)
+        except Exception as exc:
+            return self._mixed_play_fallback(
+                f"mixed Play roster refused: FRP3 opponent v8 wrapper raised: {exc}"
+            )
+        state.mode = MODE_PLAY
+        expected_ids = [int(snake.id) for snake in opponents]
+        valid_scope = (
+            state.active
+            if expected_ids
+            else (
+                state.checkpoint_match
+                and state.wrapper_sources_match is True
+                and state.reason == "no served AI snake to wrap"
+            )
+        )
+        if not valid_scope or state.wrapped_snake_ids != expected_ids:
+            return self._mixed_play_fallback(
+                "mixed Play roster refused: FRP3 opponent v8 wrapper failed: "
+                f"{state.reason or 'incomplete opponent scope'}",
+                state,
+            )
+        if not expected_ids:
+            state.reason = None
+        self.play_roster = PLAY_ROSTER_MIXED
+        self.play_opponent_policy = opponent
+        log_build(state)
+        self._log_play_roster(requested, None)
         return state
 
     def _is_clean_mixed_watch6_b8(self) -> bool:
@@ -942,7 +1133,9 @@ class GameSession:
         self.config_path = config_path
         self.obs_spec = obs_spec
         self.mode = mode
-        mixed_veto = self._install_mixed_watch_roster(checkpoint_hash)
+        mixed_watch_veto = self._install_mixed_watch_roster(checkpoint_hash)
+        mixed_play_veto = self._install_mixed_play_roster(checkpoint_hash)
+        mixed_veto = mixed_play_veto if mode == MODE_PLAY else mixed_watch_veto
         # Scheduling guard for the forward-only ego2s serving path.  This is
         # intentionally installed after the final Watch/Play roster exists,
         # and never reaches policy math or the forward path.
@@ -1467,6 +1660,8 @@ class GameSession:
                 else None
             ),
             "mechanics_version": int(GameConfig.MECHANICS_VERSION),
+            "play_roster": str(getattr(self, "play_roster", PLAY_ROSTER_ALL_B8)),
+            "play_opponents": max(0, len(self.game.snakes) - 1),
         }
         self.run_over = True
 
@@ -1510,6 +1705,22 @@ class GameSession:
                         "promotion-v2-watch-rect Play roster is pinned to checkpoint num_snakes"
                     )
             self.play_opponents = requested
+            if self.mode == MODE_PLAY:
+                self._build(self.checkpoint_path, mode=MODE_PLAY)
+
+    def set_play_roster(self, roster: str) -> None:
+        """Set the Play opponent roster ('all_b8' or 'mixed') and rebuild if in Play mode."""
+        if not isinstance(roster, str):
+            raise ValueError(f"play_roster must be one of {PLAY_ROSTERS}, got {roster!r}")
+        normalized = roster.strip().lower()
+        if normalized not in PLAY_ROSTERS:
+            raise ValueError(f"play_roster must be one of {PLAY_ROSTERS}, got {roster!r}")
+        with self._lock:
+            if self.obs_spec == RASTER31V3 and normalized != PLAY_ROSTER_ALL_B8:
+                raise ValueError(
+                    "promotion-v2-watch-rect Play roster is pinned to checkpoint policy"
+                )
+            self._play_roster_choice = normalized
             if self.mode == MODE_PLAY:
                 self._build(self.checkpoint_path, mode=MODE_PLAY)
 
@@ -1765,6 +1976,23 @@ class GameSession:
                         ),
                     }
                 )
+            if self.play_roster == PLAY_ROSTER_MIXED or self.play_roster_reason is not None:
+                state.update(
+                    {
+                        "play_roster": self.play_roster,
+                        "play_roster_reason": self.play_roster_reason,
+                        "safety_veto": (
+                            None if self.safety_veto is None else self.safety_veto.to_dict()
+                        ),
+                    }
+                )
+            elif self.mode == MODE_PLAY or self._play_roster_choice is not None:
+                state.update(
+                    {
+                        "play_roster": self.play_roster,
+                        "play_roster_reason": self.play_roster_reason,
+                    }
+                )
             if getattr(self, "pathb", None) is not None and self.pathb.active:
                 state["pathb"] = self.pathb.state()
             if getattr(self, "_replay_bank", None) is not None:
@@ -1790,6 +2018,8 @@ class GameSession:
                 "active": True,
                 "human_id": self.human_id,
                 "opponents": max(0, len(self.game.snakes) - 1),
+                "play_roster": self.play_roster,
+                "play_roster_reason": self.play_roster_reason,
                 "human_alive": alive,
                 "length": length,
                 "food_eaten": food,

@@ -25,6 +25,7 @@ from web.backend.session import MODE_PLAY, MODE_WATCH, GameSession  # noqa: E402
 def _clean_roster_env(monkeypatch):
     for key in (
         "SNAKE_SERVE_WATCH_ROSTER",
+        "SNAKE_SERVE_PLAY_ROSTER",
         "SNAKE_SERVE_CHECKPOINT",
         "SNAKE_SERVE_VETO_WATCH_HERO",
         "SNAKE_SERVE_VETO_PLAY_AI",
@@ -381,3 +382,162 @@ def test_mixed_writes_a_roster_labeled_b8_release_watch_monitor(monkeypatch):
     assert tick[0]["checkpoint"] == "b8-s3"
     assert tick[0]["roster_mode"] == "mixed"
     assert tick[0]["roster_size"] == len(session.game.snakes)
+
+
+def test_declared_play_roster_default_is_all_b8():
+    from web.backend.served_checkpoint import PLAY_ROSTER_RELEASED_DEFAULT
+
+    assert PLAY_ROSTER_RELEASED_DEFAULT == "all_b8"
+    session = GameSession()
+    session.set_mode(MODE_PLAY)
+    assert session.play_roster == "all_b8"
+    assert session.play_roster_reason is None
+    assert session.play_state()["play_roster"] == "all_b8"
+    assert session.play_state()["play_roster_reason"] is None
+    assert all(snake.policy is session.policy for snake in session.game.snakes[1:])
+    assert all(snake.safety_veto is None for snake in session.game.snakes[1:])
+
+
+def test_set_play_roster_round_trip():
+    session = GameSession()
+    session.set_mode(MODE_PLAY)
+    assert session.play_roster == "all_b8"
+
+    session.set_play_roster("mixed")
+    assert session.play_roster == "mixed"
+    assert session.play_roster_reason is None
+    assert session.play_state()["play_roster"] == "mixed"
+    assert session.play_state()["play_roster_reason"] is None
+    assert session.control_state()["play_roster"] == "mixed"
+    # Slot 0 is human; slot 1 is bare B8 rival; slots 2..N are FRP3 + v8.
+    assert session.game.snakes[1].policy is session.policy
+    assert session.game.snakes[1].safety_veto is None
+    assert session.play_opponent_policy is not None
+    assert all(snake.policy is session.play_opponent_policy for snake in session.game.snakes[2:])
+    veto = session.safety_veto_state()
+    assert veto["active"] is True
+    assert veto["scope"] == "watch_opponents"
+    assert veto["variant"] == "v8"
+    assert veto["wrapped_snake_ids"] == _ids(session)[2:]
+    assert int(session.game.snakes[1].id) not in veto["wrapped_snake_ids"]
+
+    # Round-trip back to Classic B8 (all_b8).
+    session.set_play_roster("all_b8")
+    assert session.play_roster == "all_b8"
+    assert session.play_roster_reason is None
+    assert session.play_state()["play_roster"] == "all_b8"
+    assert session.control_state()["play_roster"] == "all_b8"
+    assert all(snake.policy is session.policy for snake in session.game.snakes[1:])
+    assert all(snake.safety_veto is None for snake in session.game.snakes[1:])
+    assert session.safety_veto_state()["active"] is False
+
+
+def test_mixed_play_roster_at_single_opponent_keeps_bare_b8_rival():
+    session = GameSession()
+    session.set_mode(MODE_PLAY)
+    session.set_play_opponents(1)
+    session.set_play_roster("mixed")
+    assert len(session.game.snakes) == 2
+    assert session.play_roster == "mixed"
+    assert session.play_roster_reason is None
+    assert session.game.snakes[1].policy is session.policy
+    assert session.game.snakes[1].safety_veto is None
+    assert session.safety_veto_state()["wrapped_snake_ids"] == []
+
+
+def test_play_roster_rollback_env_forces_classic(monkeypatch):
+    monkeypatch.setenv("SNAKE_SERVE_PLAY_ROSTER", "all_b8")
+    session = GameSession()
+    session.set_mode(MODE_PLAY)
+    assert session.play_roster == "all_b8"
+    assert session.play_roster_reason is None
+
+    session.set_play_roster("mixed")
+    assert session.play_roster == "all_b8"
+    assert session.play_roster_reason == (
+        "mixed Play roster disabled by SNAKE_SERVE_PLAY_ROSTER=all_b8"
+    )
+    assert session.play_state()["play_roster"] == "all_b8"
+    assert session.play_state()["play_roster_reason"] == session.play_roster_reason
+    assert session.control_state()["play_roster"] == "all_b8"
+    assert session.control_state()["play_roster_reason"] == session.play_roster_reason
+    assert all(snake.policy is session.policy for snake in session.game.snakes[1:])
+    assert all(snake.safety_veto is None for snake in session.game.snakes[1:])
+
+
+@pytest.mark.parametrize(
+    "choice",
+    (
+        ServedCheckpointChoice(
+            requested="frp3-s12",
+            reason="pin checkpoint_sha256 is not the registry sha256",
+        ),
+        ServedCheckpointChoice(requested="frp3-s12", reason="missing strict pin"),
+        ServedCheckpointChoice(
+            requested="frp3-s12", name="champion", path="/tmp/wrong", sha256="0" * 64
+        ),
+    ),
+)
+def test_play_mixed_fails_closed_with_visible_reason_on_bad_pin(monkeypatch, choice):
+    session = GameSession()
+    session.set_mode(MODE_PLAY)
+    monkeypatch.setattr(session_module, "resolve_mixed_watch_opponent", lambda: choice)
+    session.set_play_roster("mixed")
+    assert session.play_roster == "all_b8"
+    assert "FRP3 opponent pin/bytes failed" in str(session.play_roster_reason)
+    assert session.play_state()["play_roster"] == "all_b8"
+    assert session.play_state()["play_roster_reason"] == session.play_roster_reason
+    assert all(snake.policy is session.policy for snake in session.game.snakes[1:])
+    assert all(snake.safety_veto is None for snake in session.game.snakes[1:])
+    assert session.safety_veto_state()["active"] is False
+
+
+def test_play_mixed_fails_closed_when_opponent_bytes_change_after_resolution(monkeypatch):
+    session = GameSession()
+    session.set_mode(MODE_PLAY)
+    original = session_module._load_checkpoint_once
+
+    def changed_hash(path):
+        payload, blob, digest = original(path)
+        return payload, blob, "0" * 64 if "frp3_m3" in path else digest
+
+    monkeypatch.setattr(session_module, "_load_checkpoint_once", changed_hash)
+    session.set_play_roster("mixed")
+    assert session.play_roster == "all_b8"
+    assert "bytes changed after pin resolution" in str(session.play_roster_reason)
+    assert all(snake.policy is session.policy for snake in session.game.snakes[1:])
+    assert session.safety_veto_state()["active"] is False
+
+
+@pytest.mark.parametrize("failure", ("raise", "partial"))
+def test_play_mixed_wrapper_failures_restore_policy_and_report_reason(monkeypatch, failure):
+    session = GameSession()
+    session.set_mode(MODE_PLAY)
+    if failure == "raise":
+        monkeypatch.setattr(
+            session_module,
+            "install_watch_opponent_vetoes",
+            lambda *_: (_ for _ in ()).throw(RuntimeError("source failure")),
+        )
+    else:
+
+        def partial(*_):
+            state = ServingVetoState(
+                flags=ServingVetoFlags(watch_hero=True, variant="v8"),
+                mode="play",
+                obs_spec="vector61",
+                checkpoint_sha256="x",
+                scope="watch_opponents",
+                variant="v8",
+            )
+            state.vetoes[2] = object()
+            return state
+
+        monkeypatch.setattr(session_module, "install_watch_opponent_vetoes", partial)
+    session.set_play_roster("mixed")
+    assert session.play_roster == "all_b8"
+    assert "v8 wrapper" in str(session.play_roster_reason)
+    assert all(snake.policy is session.policy for snake in session.game.snakes[1:])
+    assert all(snake.safety_veto is None for snake in session.game.snakes[1:])
+    state = session.safety_veto_state()
+    assert state["active"] is False and state["wrapped_snake_ids"] == []
