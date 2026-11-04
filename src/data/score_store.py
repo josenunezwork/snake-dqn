@@ -54,7 +54,10 @@ DEFAULT_SCORES_DB = os.environ.get("SNAKE_SCORES_DB", os.path.join(_REPO_ROOT, "
 # ``checkpoint`` remains the artifact filename for compatibility; this name
 # distinguishes a released selection (for example ``b8-s3``) from its bytes.
 # Historical runs predate the registry identity and remain NULL.
-SCHEMA_VERSION = 4
+# Schema v5: games gained ``play_roster`` (``'all_b8'`` or ``'mixed'``,
+# defaulting historical rows to ``'all_b8'``) and nullable ``play_opponents``
+# (AI opponent count; historical rows remain NULL unless known).
+SCHEMA_VERSION = 5
 
 # Opaque client ids are capped so a hostile client can't bloat rows.
 _CLIENT_ID_MAX_LEN = 64
@@ -109,6 +112,8 @@ class GameResult:
     created_at: str
     mechanics_version: int = 1
     client_id: Optional[str] = None
+    play_roster: str = "all_b8"
+    play_opponents: Optional[int] = None
 
     def to_dict(self) -> dict:
         """Return a JSON-serializable dict (used by the web API)."""
@@ -130,6 +135,8 @@ class LeaderboardEntry:
     served_checkpoint: Optional[str] = None
     mechanics_version: int = 1
     client_id: Optional[str] = None
+    play_roster: str = "all_b8"
+    play_opponents: Optional[int] = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -208,6 +215,14 @@ def _sanitize_client_id(client_id: Optional[str]) -> Optional[str]:
     return cleaned or None
 
 
+def _sanitize_play_roster(play_roster: Optional[str]) -> str:
+    """Normalize a Play roster identifier ('all_b8' or 'mixed'; defaults to 'all_b8')."""
+    if play_roster is None:
+        return "all_b8"
+    word = str(play_roster).strip().lower()
+    return "mixed" if word == "mixed" else "all_b8"
+
+
 class ScoreStore:
     """Persistent leaderboard for human play sessions.
 
@@ -268,7 +283,9 @@ class ScoreStore:
                 served_checkpoint TEXT,
                 created_at       TEXT    NOT NULL,
                 mechanics_version INTEGER NOT NULL DEFAULT 1,
-                client_id        TEXT
+                client_id        TEXT,
+                play_roster      TEXT    NOT NULL DEFAULT 'all_b8',
+                play_opponents   INTEGER
             )
             """)
         # v1 -> v2 migration: purely additive. Pre-existing databases lack the
@@ -286,11 +303,22 @@ class ScoreStore:
         # runs cannot be inferred safely, so they stay NULL.
         if "served_checkpoint" not in cols:
             cur.execute("ALTER TABLE games ADD COLUMN served_checkpoint TEXT")
+        # v4 -> v5 migration: record the Play opponent roster ('all_b8' or
+        # 'mixed'; historical runs default to 'all_b8') and AI opponent count
+        # (historical rows remain NULL unless known).
+        if "play_roster" not in cols:
+            cur.execute("ALTER TABLE games ADD COLUMN play_roster TEXT NOT NULL DEFAULT 'all_b8'")
+        if "play_opponents" not in cols:
+            cur.execute("ALTER TABLE games ADD COLUMN play_opponents INTEGER")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_games_score ON games(score DESC)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_games_player ON games(player_id)")
         cur.execute(
             "CREATE INDEX IF NOT EXISTS idx_games_mechanics "
             "ON games(mechanics_version, score DESC)"
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_games_mechanics_roster "
+            "ON games(mechanics_version, play_roster, score DESC)"
         )
         cur.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         self._conn.commit()
@@ -312,6 +340,8 @@ class ScoreStore:
         created_at: Optional[str] = None,
         mechanics_version: Optional[int] = None,
         client_id: Optional[str] = None,
+        play_roster: Optional[str] = None,
+        play_opponents: Optional[int] = None,
     ) -> GameResult:
         """Persist one completed game and update the player's aggregates.
 
@@ -335,12 +365,17 @@ class ScoreStore:
                 defaults to the active config's version (1 when no config).
             client_id: Opaque browser-generated id (trimmed, capped at 64
                 chars) used to recognize "me" across name changes; optional.
+            play_roster: Play opponent roster (``"all_b8"`` or ``"mixed"``;
+                defaults to ``"all_b8"``).
+            play_opponents: AI opponent count for the run (or ``None``).
 
         Returns:
             The stored :class:`GameResult`.
         """
         name = _sanitize_name(player_name)
         client_id = _sanitize_client_id(client_id)
+        roster = _sanitize_play_roster(play_roster)
+        opponents = max(1, min(11, int(play_opponents))) if play_opponents is not None else None
         when = created_at or _utc_now_iso()
         length = max(1, int(length))
         food_eaten = max(0, int(food_eaten))
@@ -367,7 +402,8 @@ class ScoreStore:
             cursor = cur.execute(
                 "INSERT INTO games (player_id, score, length, food_eaten, kills, frames, "
                 "duration_seconds, mode, checkpoint, served_checkpoint, created_at, "
-                "mechanics_version, client_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "mechanics_version, client_id, play_roster, play_opponents) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     player_id,
                     score,
@@ -382,6 +418,8 @@ class ScoreStore:
                     when,
                     mechanics_version,
                     client_id,
+                    roster,
+                    opponents,
                 ),
             )
             game_id = int(cursor.lastrowid)
@@ -410,24 +448,32 @@ class ScoreStore:
             created_at=when,
             mechanics_version=mechanics_version,
             client_id=client_id,
+            play_roster=roster,
+            play_opponents=opponents,
         )
 
     # -- reads --------------------------------------------------------------
     def leaderboard(
-        self, limit: int = 10, mechanics_version: Optional[int] = None
+        self,
+        limit: int = 10,
+        mechanics_version: Optional[int] = None,
+        play_roster: Optional[str] = "all_b8",
     ) -> List[LeaderboardEntry]:
-        """Return the top players by their single best game, per mechanics version.
+        """Return the top players by their single best game, per mechanics version and roster.
 
         One row per player (their best run), ranked by score descending. Ties
-        break toward the earlier achievement. The board is versioned: only games
-        played under one mechanics version are ranked together, so v2 sessions
-        get a fresh board while the v1 board stays fetchable read-only.
+        break toward the earlier achievement. The board is versioned by
+        mechanics version and partitioned by Play roster (``"all_b8"`` by
+        default; pass ``"mixed"`` for the mixed-opponent board, or ``None`` /
+        ``"all"`` for an unpartitioned view across rosters).
 
         Args:
             limit: Maximum rows to return.
             mechanics_version: Which version's board to return. Defaults to the
                 active config's version (so a v2 session shows the v2 board);
                 pass ``1`` explicitly for the historical v1 board.
+            play_roster: Which roster's board to return (``"all_b8"`` or
+                ``"mixed"``, or ``None``/``"all"`` for all rosters).
 
         Returns:
             Ranked :class:`LeaderboardEntry` list.
@@ -436,32 +482,62 @@ class ScoreStore:
         if mechanics_version is None:
             mechanics_version = _active_mechanics_version()
         mechanics_version = max(1, int(mechanics_version))
+        roster_filter: Optional[str] = None
+        if play_roster is not None and str(play_roster).strip().lower() not in ("", "all"):
+            roster_filter = _sanitize_play_roster(play_roster)
         with self._lock:
             # ROW_NUMBER picks each player's single best game deterministically —
             # highest score, and among ties the earliest achievement (then lowest
             # id). A bare GROUP BY would collapse tied best-score games and surface
             # an arbitrary row's created_at, contradicting the earlier-achievement
             # contract above.
-            rows = self._conn.execute(
-                """
-                SELECT p.name AS player_name, g.score, g.length, g.food_eaten,
-                       g.kills, g.frames, g.created_at, g.served_checkpoint,
-                       g.mechanics_version, g.client_id
-                FROM (
-                    SELECT *, ROW_NUMBER() OVER (
-                        PARTITION BY player_id
-                        ORDER BY score DESC, created_at ASC, id ASC
-                    ) AS rn
-                    FROM games
-                    WHERE mechanics_version = ?
-                ) g
-                JOIN players p ON p.id = g.player_id
-                WHERE g.rn = 1
-                ORDER BY g.score DESC, g.created_at ASC, g.id ASC
-                LIMIT ?
-                """,
-                (mechanics_version, limit),
-            ).fetchall()
+            if roster_filter is not None:
+                rows = self._conn.execute(
+                    """
+                    SELECT p.name AS player_name, g.score, g.length, g.food_eaten,
+                           g.kills, g.frames, g.created_at, g.served_checkpoint,
+                           g.mechanics_version, g.client_id,
+                           COALESCE(g.play_roster, 'all_b8') AS play_roster,
+                           g.play_opponents
+                    FROM (
+                        SELECT *, ROW_NUMBER() OVER (
+                            PARTITION BY player_id
+                            ORDER BY score DESC, created_at ASC, id ASC
+                        ) AS rn
+                        FROM games
+                        WHERE mechanics_version = ?
+                          AND COALESCE(play_roster, 'all_b8') = ?
+                    ) g
+                    JOIN players p ON p.id = g.player_id
+                    WHERE g.rn = 1
+                    ORDER BY g.score DESC, g.created_at ASC, g.id ASC
+                    LIMIT ?
+                    """,
+                    (mechanics_version, roster_filter, limit),
+                ).fetchall()
+            else:
+                rows = self._conn.execute(
+                    """
+                    SELECT p.name AS player_name, g.score, g.length, g.food_eaten,
+                           g.kills, g.frames, g.created_at, g.served_checkpoint,
+                           g.mechanics_version, g.client_id,
+                           COALESCE(g.play_roster, 'all_b8') AS play_roster,
+                           g.play_opponents
+                    FROM (
+                        SELECT *, ROW_NUMBER() OVER (
+                            PARTITION BY player_id
+                            ORDER BY score DESC, created_at ASC, id ASC
+                        ) AS rn
+                        FROM games
+                        WHERE mechanics_version = ?
+                    ) g
+                    JOIN players p ON p.id = g.player_id
+                    WHERE g.rn = 1
+                    ORDER BY g.score DESC, g.created_at ASC, g.id ASC
+                    LIMIT ?
+                    """,
+                    (mechanics_version, limit),
+                ).fetchall()
         return [
             LeaderboardEntry(
                 rank=i + 1,
@@ -475,12 +551,19 @@ class ScoreStore:
                 served_checkpoint=r["served_checkpoint"],
                 mechanics_version=int(r["mechanics_version"]),
                 client_id=r["client_id"],
+                play_roster=_sanitize_play_roster(r["play_roster"]),
+                play_opponents=(
+                    int(r["play_opponents"]) if r["play_opponents"] is not None else None
+                ),
             )
             for i, r in enumerate(rows)
         ]
 
     def recent_games(
-        self, limit: int = 20, mechanics_version: Optional[int] = None
+        self,
+        limit: int = 20,
+        mechanics_version: Optional[int] = None,
+        play_roster: Optional[str] = None,
     ) -> List[GameResult]:
         """Return the most recently recorded games, newest first.
 
@@ -488,22 +571,30 @@ class ScoreStore:
             limit: Maximum rows to return.
             mechanics_version: When given, only games played under that
                 mechanics version; ``None`` (default) returns the mixed feed.
+            play_roster: When given, only games played under that Play roster
+                (``"all_b8"`` or ``"mixed"``); ``None`` returns all rosters.
 
         Returns:
             Newest-first :class:`GameResult` list.
         """
         limit = max(1, int(limit))
-        where = ""
-        params: tuple = (limit,)
+        clauses: list[str] = []
+        args: list[object] = []
         if mechanics_version is not None:
-            where = "WHERE g.mechanics_version = ?"
-            params = (max(1, int(mechanics_version)), limit)
+            clauses.append("g.mechanics_version = ?")
+            args.append(max(1, int(mechanics_version)))
+        if play_roster is not None and str(play_roster).strip().lower() not in ("", "all"):
+            clauses.append("COALESCE(g.play_roster, 'all_b8') = ?")
+            args.append(_sanitize_play_roster(play_roster))
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        params = (*args, limit)
         with self._lock:
             rows = self._conn.execute(
                 f"""
                 SELECT g.id, p.name AS player_name, g.score, g.length, g.food_eaten,
                        g.kills, g.frames, g.duration_seconds, g.mode, g.checkpoint,
-                       g.served_checkpoint, g.created_at, g.mechanics_version, g.client_id
+                       g.served_checkpoint, g.created_at, g.mechanics_version, g.client_id,
+                       COALESCE(g.play_roster, 'all_b8') AS play_roster, g.play_opponents
                 FROM games g JOIN players p ON p.id = g.player_id
                 {where}
                 ORDER BY g.id DESC LIMIT ?
@@ -601,4 +692,6 @@ class ScoreStore:
             created_at=r["created_at"],
             mechanics_version=int(r["mechanics_version"]),
             client_id=r["client_id"],
+            play_roster=_sanitize_play_roster(r["play_roster"]),
+            play_opponents=(int(r["play_opponents"]) if r["play_opponents"] is not None else None),
         )
