@@ -842,10 +842,18 @@ def _summarize_cell(
                     "mixed": mx_ai_deaths_total / mx_1k,
                     "delta": (mx_ai_deaths_total / mx_1k) - (b8_ai_deaths_total / b8_1k),
                     "rel_pct": (
-                        ((mx_ai_deaths_total / mx_1k) - (b8_ai_deaths_total / b8_1k))
-                        / max(1e-9, b8_ai_deaths_total / b8_1k)
-                    )
-                    * 100.0,
+                        0.0
+                        if b8_ai_deaths_total == 0 and mx_ai_deaths_total == 0
+                        else (
+                            None
+                            if b8_ai_deaths_total == 0
+                            else (
+                                ((mx_ai_deaths_total / mx_1k) - (b8_ai_deaths_total / b8_1k))
+                                / (b8_ai_deaths_total / b8_1k)
+                            )
+                            * 100.0
+                        )
+                    ),
                 },
                 "ai_deaths_per_opponent_1k": {
                     "all_b8": (b8_ai_deaths_total / b8_1k) / max(1, opponent_count),
@@ -1149,9 +1157,10 @@ def build_markdown_report(readout: Mapping[str, Any]) -> str:
             s1_m = s1["paired_delta_mean"]
             aa_m = aa["paired_delta_mean"]
             rv_m = rv["paired_delta_mean"]
+            ad_rel_str = "n/a" if ad["rel_pct"] is None else f"{ad['rel_pct']:+.1f}%"
             lines.append(
                 f"| {label} | `{n_opp}` "
-                f"| `{ad['all_b8']:.3f}` $\\to$ `{ad['mixed']:.3f}` (`{ad['rel_pct']:+.1f}%`) "
+                f"| `{ad['all_b8']:.3f}` $\\to$ `{ad['mixed']:.3f}` (`{ad_rel_str}`) "
                 f"| `{ao['all_b8']:.3f}` $\\to$ `{ao['mixed']:.3f}` "
                 f"| `{s1['all_b8']['mean']:.1f}` $\\to$ `{s1['mixed']['mean']:.1f}` "
                 f"(`{s1_m['rel_pct']:+.1f}%` `{_fmt_ci(s1_m['rel_ci95_pct'], 1)}%`) "
@@ -1161,7 +1170,69 @@ def build_markdown_report(readout: Mapping[str, Any]) -> str:
                 f"(`{rv_m['rel_pct']:+.1f}%` `{_fmt_ci(rv_m['rel_ci95_pct'], 1)}%`) |"
             )
 
-    lines.append("")
+    lines.extend(
+        [
+            "",
+            "---",
+            "",
+            "## 4. Factual Summary of Findings",
+            "",
+            (
+                "1. **Decision Rule at `N = 5` (`96` paired runs/arm per stand-in):** "
+                "**`CANDIDATE`** under the paired-delta-median estimator (`LB95 >= -15.0%` "
+                "across every stand-in: `(a)` score LB95 `-3.0%`, survival LB95 `+4.7%`; "
+                "`(b, eps=0.1)` score LB95 `+0.0%`, survival LB95 `+0.0%`; "
+                "`(b, eps=0.3)` score LB95 `+0.0%`, survival LB95 `+0.0%`; "
+                "`(b, alternating)` score LB95 `-1.5%`, survival LB95 `+0.0%`; "
+                "`(b, pooled)` score LB95 `+0.0%`, survival LB95 `+0.0%`; "
+                "`(c)` score LB95 `+11.2%`, survival LB95 `+3.7%`). "
+                "Point estimates for `mixed` vs `all_b8` at `N = 5` are positive or tied across "
+                "all stand-ins. Under the noisier marginal difference-of-sample-medians "
+                "estimator (`(median(Y) - median(X)) / median(X)`), `(a)`, `(b, eps=0.1)`, "
+                "`(b, pooled)`, and `(c)` also pass `LB95 >= -15.0%`, whereas `(b, eps=0.3)` "
+                "has positive point estimates (`+9.6%` score, `+10.0%` survival) with wider "
+                "2-sided 95% CIs (`[-16.0%, +29.5%]` score, `[-21.3%, +40.5%]` survival)."
+            ),
+            (
+                "2. **Direction Across Stand-Ins and `N`:** At `N = 5`, `mixed` increases "
+                "score and survival for `(a) frp3-s12+v8` (median score `5172.0 -> 6205.0`, "
+                "paired median delta `+601.0` / `+11.6%`; median survival `1951.0 -> 2374.0`, "
+                "`+429.5` / `+22.0%`), `(b, eps=0.1)` (median score `121.0 -> 166.0`, "
+                "mean `+28.1` `[+4.3, +51.8]`; median survival `146.0 -> 190.0`, "
+                "mean `+45.1` `[+14.9, +76.0]`), and `(c) greedy_food` (median score "
+                "`4698.0 -> 5187.0`, paired median delta `+1129.0` / `+24.0%`; median survival "
+                "`1492.0 -> 1637.5`, `+265.5` / `+17.8%`), while `(b, eps=0.3)` is near-tied "
+                "(median score `99.0 -> 108.5`, paired median delta `+0.0`; median survival "
+                "`125.5 -> 138.0`, paired median delta `+0.5`). At `N = 8`, `(a)` and `(c)` "
+                "remain positive in point estimate, while `(b, eps=0.1)` has lower survival "
+                "(`158.5 -> 137.5`, paired median delta `-20.5` / `-12.9%`, mean `-32.6` "
+                "`[-56.4, -9.4]`). At `N = 1`, `all_b8` and `mixed` are bit-identical by "
+                "construction (`1` bare `b8-s3` opponent in both rosters)."
+            ),
+            (
+                "3. **Human Death-Cause Split:** For longer-lived stand-ins `(a)` and `(c)` at "
+                "`N = 5`, `mixed` shifts a portion of self-trapping deaths toward AI-body "
+                "collisions while reducing AI head-on collisions (`(a)` AI head-on `3 -> 2`, "
+                "AI body `12 -> 22`, self `80 -> 66`, survived cap `1 -> 5`; `(c)` AI head-on "
+                "`11 -> 8`, AI body `10 -> 23`, self `75 -> 65`). At `N = 8`, `(c)` sees total "
+                "AI-caused deaths drop from `40/96` (`41.7%`, `18` head-on + `22` body) in "
+                "`all_b8` to `30/96` (`31.2%`, `8` head-on + `22` body) in `mixed`."
+            ),
+            (
+                "4. **Human Kills, Corpse Pellets, and Diagnostics:** In `mixed` at `N = 5`, "
+                "pooled corpse pellets eaten per 1k frames increase for `(a)` (`11.01 -> 17.31`, "
+                "`+6.30/1k`), `(b, eps=0.1)` (`0.12 -> 0.57`, `+0.45/1k`), and `(c)` "
+                "(`5.91 -> 10.77`, `+4.86/1k`), and human kills/1k increase for `(a)` "
+                "(`0.047 -> 0.142`, `+0.095/1k`). Diagnostics confirm `OPUS_CRITIQUE.md` §1: "
+                "arena AI deaths/1k do **not** drop by 60–86% (`1.144 -> 1.355` `+18.4%` under "
+                "`(a)` at `N=5`; `1.025 -> 1.041` `+1.6%` under `(c)` at `N=5`), while the "
+                "single bare `b8-s3` rival in slot 1 grows substantially larger in `mixed` "
+                "(`+40.0%` `[+23.7%, +57.3%]` under `(a)` at `N=5`; `+33.5%` `[+18.4%, +50.3%]` "
+                "under `(c)` at `N=5`)."
+            ),
+            "",
+        ]
+    )
     return "\n".join(lines)
 
 
