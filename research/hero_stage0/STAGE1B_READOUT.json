@@ -1,0 +1,4148 @@
+{
+  "registration_ref": "docs/research/final_run_20261019/CAMPAIGN_LOG.md row '2026-11-04 PT 13:10'",
+  "namespace": "t34-hero-probe-20261103-v1",
+  "sealed_gate_namespace_touched": false,
+  "teacher_arm": "open-stop-h32-nb-k1",
+  "verdict": "STOP",
+  "verdict_detail": "STOP the bare-network open-stop distillation line (close T34 under Claim A bare b8-s3 in Live Play + Claim B exact-stop-l2-prime replay bank in Watch)",
+  "support": {
+    "n_dev_worlds": 48,
+    "n_total_search_roots_dev": 57417,
+    "n_total_overrides_dev": 350,
+    "certified_rescue_roots": {
+      "n_roots": 310,
+      "n_lt600": 111,
+      "n_ge600": 199,
+      "n_worlds": 48
+    },
+    "raw_h32_rescue_roots": {
+      "n_roots": 342,
+      "n_lt600": 119,
+      "n_ge600": 223,
+      "n_worlds": 48
+    },
+    "ordinary_sample": {
+      "n_ordinary_per_world": 210,
+      "n_ordinary_total": 10080,
+      "n_worlds": 48,
+      "runner_up_n_diff_certified_counts": {
+        "0": 9962,
+        "1": 40,
+        "2": 12,
+        "3": 23,
+        "4": 43
+      },
+      "runner_up_lethal_certified_count": 78,
+      "runner_up_lethal_certified_pct": 0.7738095238095238,
+      "runner_up_lethal_raw_count": 32,
+      "runner_up_lethal_raw_pct": 0.31746031746031744
+    },
+    "minimum_support_bars": {
+      "min_rescue_roots": 80,
+      "min_rescue_worlds": 30,
+      "support_pass": true
+    }
+  },
+  "timing_gate_l1500": {
+    "target_length": 1500,
+    "seed": 2062932752,
+    "warmup_ticks": 50,
+    "measured_ticks": 500,
+    "fixture_geometry": {
+      "construction": "parity-tested inject_serpentines; six disjoint equal-length bands",
+      "natural_history": false,
+      "frame_origin": "fixture-assigned 2500, not 2500 simulated decisions",
+      "opponent_carry_origin": "fresh evaluator carry, frozen with root",
+      "body_lengths": [
+        1500,
+        1500,
+        1500,
+        1500,
+        1500,
+        1500
+      ],
+      "box_height": 11
+    },
+    "env_threads": {
+      "OMP_NUM_THREADS": "1",
+      "MKL_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "VECLIB_MAXIMUM_THREADS": "1",
+      "NUMBA_NUM_THREADS": "1",
+      "NUMEXPR_NUM_THREADS": "1",
+      "TORCH_NUM_THREADS": "1",
+      "SNAKE_DQN_DEVICE": "cpu"
+    },
+    "bars": {
+      "overhead_p95_ms_max": 1.0,
+      "tick_p95_ms_max": 11.688
+    },
+    "kernel_only_ms": {
+      "count": 500,
+      "mean_ms": 0.019469999999999998,
+      "std_ms": 0.0014831112716178784,
+      "p50_ms": 0.019458,
+      "p90_ms": 0.019708,
+      "p95_ms": 0.020042,
+      "p99_ms": 0.02212542,
+      "max_ms": 0.046583
+    },
+    "hero_arm_a_ms": {
+      "count": 500,
+      "mean_ms": 0.617733696,
+      "std_ms": 0.02300871440206045,
+      "p50_ms": 0.6116874999999999,
+      "p90_ms": 0.6424747,
+      "p95_ms": 0.6623506,
+      "p99_ms": 0.70917575,
+      "max_ms": 0.798
+    },
+    "hero_arm_b_ms": {
+      "count": 500,
+      "mean_ms": 0.639166682,
+      "std_ms": 0.024583739097884926,
+      "p50_ms": 0.6332085000000001,
+      "p90_ms": 0.6635669,
+      "p95_ms": 0.67764585,
+      "p99_ms": 0.72155167,
+      "max_ms": 0.858959
+    },
+    "hero_paired_overhead_ms": {
+      "count": 500,
+      "mean_ms": 0.021432986,
+      "std_ms": 0.022970354630040088,
+      "p50_ms": 0.021083500000000033,
+      "p90_ms": 0.043666600000000035,
+      "p95_ms": 0.0552688,
+      "p99_ms": 0.08302416000000006,
+      "max_ms": 0.222001
+    },
+    "watch6_tick_arm_a_ms": {
+      "count": 500,
+      "mean_ms": 2.8619696020000003,
+      "std_ms": 0.29829186261451984,
+      "p50_ms": 2.8413335,
+      "p90_ms": 3.0043753,
+      "p95_ms": 3.09078925,
+      "p99_ms": 4.0298710099999955,
+      "max_ms": 6.454292
+    },
+    "watch6_tick_arm_b_ms": {
+      "count": 500,
+      "mean_ms": 2.872674168,
+      "std_ms": 0.2497664368503738,
+      "p50_ms": 2.8641875,
+      "p90_ms": 3.0260923,
+      "p95_ms": 3.09295625,
+      "p99_ms": 4.0239205899999995,
+      "max_ms": 4.728959
+    },
+    "watch6_tick_paired_overhead_ms": {
+      "count": 500,
+      "mean_ms": 0.010704565999999997,
+      "std_ms": 0.15825844367040148,
+      "p50_ms": 0.0007289999999999797,
+      "p90_ms": 0.15920750000000003,
+      "p95_ms": 0.23700590000000013,
+      "p99_ms": 0.36750099999999986,
+      "max_ms": 0.3931249999999995
+    },
+    "effective_overhead_p95_ms": 0.23700590000000013,
+    "arm_b_tick_p95_ms": 3.09295625,
+    "pass_overhead_bar": true,
+    "pass_tick_bar": true,
+    "timing_gate_pass": true
+  },
+  "cv_protocol": {
+    "n_folds": 5,
+    "fold_seed": 343013,
+    "bootstrap_seed": 343012,
+    "bootstrap_draws": 10000,
+    "margins": [
+      0.03,
+      0.0632,
+      0.1129
+    ],
+    "folds": [
+      [
+        2,
+        5,
+        6,
+        7,
+        9,
+        10,
+        16,
+        38,
+        39,
+        44
+      ],
+      [
+        0,
+        3,
+        12,
+        17,
+        24,
+        25,
+        27,
+        30,
+        35,
+        37
+      ],
+      [
+        1,
+        4,
+        15,
+        19,
+        22,
+        23,
+        28,
+        33,
+        34,
+        40
+      ],
+      [
+        14,
+        20,
+        26,
+        29,
+        31,
+        32,
+        41,
+        43,
+        47
+      ],
+      [
+        8,
+        11,
+        13,
+        18,
+        21,
+        36,
+        42,
+        45,
+        46
+      ]
+    ]
+  },
+  "bars": {
+    "ordinary_flip_pct_max": 1.0,
+    "lethal_ordinary_flips_max": 1,
+    "lethal_ordinary_n_diff_min": 2,
+    "rescue_retention_overall_pct_min": 35.0,
+    "rescue_retention_lb90_pct_min": 25.0,
+    "rescue_retention_lt600_pct_min": 35.0,
+    "arm_b_delta_pp_min": 20.0,
+    "arm_b_delta_lb90_pp_min": 0.0
+  },
+  "arm_a": {
+    "arm": "arm_a",
+    "head_kind": "equivariant_mlp",
+    "by_margin": {
+      "0.03": {
+        "margin": 0.03,
+        "unthresholded_tau_0": {
+          "margin_key": "0.03",
+          "margin": 0.03,
+          "tau": 0.0,
+          "label": "unthresholded_tau_0",
+          "n_ordinary_total": 10080,
+          "n_ordinary_flips": 162,
+          "ordinary_flip_pct": 1.6071428571428572,
+          "n_lethal_ordinary_flips_certified": 4,
+          "n_lethal_ordinary_flips_raw": 1,
+          "pass_ordinary_flip_bar": false,
+          "pass_lethal_ordinary_bar_certified": false,
+          "pass_lethal_ordinary_bar_raw": true,
+          "feasible_certified": false,
+          "feasible_raw": false,
+          "certified_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 36,
+              "n_eligible": 310,
+              "point_pct": 11.612903225806452,
+              "lb90_pct": 8.75,
+              "ci95_lo_pct": 7.3799981852277545,
+              "ci95_hi_pct": 16.475452433357784
+            },
+            "lt600": {
+              "n_rescued": 16,
+              "n_eligible": 111,
+              "point_pct": 14.414414414414415,
+              "lb90_pct": 8.974358974358974,
+              "ci95_lo_pct": 6.315789473684211,
+              "ci95_hi_pct": 21.96969696969697
+            },
+            "ge600": {
+              "n_rescued": 20,
+              "n_eligible": 199,
+              "point_pct": 10.050251256281408,
+              "lb90_pct": 6.763285024154589,
+              "ci95_lo_pct": 5.2631578947368425,
+              "ci95_hi_pct": 16.145833333333332
+            }
+          },
+          "certified_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 45,
+              "n_eligible": 310,
+              "point_pct": 14.516129032258064,
+              "lb90_pct": 11.377245508982035,
+              "ci95_lo_pct": 9.835828674310623,
+              "ci95_hi_pct": 19.578365911197235
+            },
+            "lt600": {
+              "n_rescued": 18,
+              "n_eligible": 111,
+              "point_pct": 16.216216216216218,
+              "lb90_pct": 10.185185185185185,
+              "ci95_lo_pct": 7.141053391053393,
+              "ci95_hi_pct": 23.880597014925375
+            }
+          },
+          "certified_rescue_any_flip": {
+            "overall": {
+              "n_rescued": 46,
+              "n_eligible": 310,
+              "point_pct": 14.838709677419354,
+              "lb90_pct": 11.564625850340136,
+              "ci95_lo_pct": 9.962640924751788,
+              "ci95_hi_pct": 20.066947495110576
+            },
+            "lt600": {
+              "n_rescued": 18,
+              "n_eligible": 111,
+              "point_pct": 16.216216216216218,
+              "lb90_pct": 10.185185185185185,
+              "ci95_lo_pct": 7.141053391053393,
+              "ci95_hi_pct": 23.880597014925375
+            }
+          },
+          "raw_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 38,
+              "n_eligible": 342,
+              "point_pct": 11.11111111111111,
+              "lb90_pct": 8.48046205029653,
+              "ci95_lo_pct": 7.221917450365726,
+              "ci95_hi_pct": 15.50810963449286
+            },
+            "lt600": {
+              "n_rescued": 16,
+              "n_eligible": 119,
+              "point_pct": 13.445378151260504,
+              "lb90_pct": 8.333333333333334,
+              "ci95_lo_pct": 5.796802012217032,
+              "ci95_hi_pct": 20.58823529411765
+            }
+          },
+          "raw_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 50,
+              "n_eligible": 342,
+              "point_pct": 14.619883040935672,
+              "lb90_pct": 11.585021358688165,
+              "ci95_lo_pct": 10.09167506057224,
+              "ci95_hi_pct": 19.417707624760368
+            }
+          }
+        },
+        "at_1pct_ordinary_flip_cap": {
+          "margin_key": "0.03",
+          "margin": 0.03,
+          "tau": 0.018658161163330078,
+          "label": "at_1pct_ordinary_flip_cap",
+          "n_ordinary_total": 10080,
+          "n_ordinary_flips": 100,
+          "ordinary_flip_pct": 0.9920634920634921,
+          "n_lethal_ordinary_flips_certified": 2,
+          "n_lethal_ordinary_flips_raw": 0,
+          "pass_ordinary_flip_bar": true,
+          "pass_lethal_ordinary_bar_certified": false,
+          "pass_lethal_ordinary_bar_raw": true,
+          "feasible_certified": false,
+          "feasible_raw": true,
+          "certified_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 29,
+              "n_eligible": 310,
+              "point_pct": 9.35483870967742,
+              "lb90_pct": 6.876790830945558,
+              "ci95_lo_pct": 5.775999722299362,
+              "ci95_hi_pct": 13.42756183745583
+            },
+            "lt600": {
+              "n_rescued": 13,
+              "n_eligible": 111,
+              "point_pct": 11.711711711711711,
+              "lb90_pct": 6.60377358490566,
+              "ci95_lo_pct": 4.097942455670793,
+              "ci95_hi_pct": 18.966379310344813
+            },
+            "ge600": {
+              "n_rescued": 16,
+              "n_eligible": 199,
+              "point_pct": 8.040201005025125,
+              "lb90_pct": 5.208333333333333,
+              "ci95_lo_pct": 3.9603960396039604,
+              "ci95_hi_pct": 13.157894736842104
+            }
+          },
+          "certified_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 37,
+              "n_eligible": 310,
+              "point_pct": 11.935483870967742,
+              "lb90_pct": 9.21985815602837,
+              "ci95_lo_pct": 7.8369613531090625,
+              "ci95_hi_pct": 16.2882053291536
+            },
+            "lt600": {
+              "n_rescued": 14,
+              "n_eligible": 111,
+              "point_pct": 12.612612612612613,
+              "lb90_pct": 7.207207207207207,
+              "ci95_lo_pct": 4.444444444444445,
+              "ci95_hi_pct": 19.82019209291936
+            }
+          },
+          "certified_rescue_any_flip": {
+            "overall": {
+              "n_rescued": 37,
+              "n_eligible": 310,
+              "point_pct": 11.935483870967742,
+              "lb90_pct": 9.21985815602837,
+              "ci95_lo_pct": 7.8369613531090625,
+              "ci95_hi_pct": 16.2882053291536
+            },
+            "lt600": {
+              "n_rescued": 14,
+              "n_eligible": 111,
+              "point_pct": 12.612612612612613,
+              "lb90_pct": 7.207207207207207,
+              "ci95_lo_pct": 4.444444444444445,
+              "ci95_hi_pct": 19.82019209291936
+            }
+          },
+          "raw_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 30,
+              "n_eligible": 342,
+              "point_pct": 8.771929824561404,
+              "lb90_pct": 6.5625,
+              "ci95_lo_pct": 5.5262794416981675,
+              "ci95_hi_pct": 12.458037346761381
+            },
+            "lt600": {
+              "n_rescued": 13,
+              "n_eligible": 119,
+              "point_pct": 10.92436974789916,
+              "lb90_pct": 6.086956521739131,
+              "ci95_lo_pct": 3.7735849056603774,
+              "ci95_hi_pct": 17.96875
+            }
+          },
+          "raw_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 39,
+              "n_eligible": 342,
+              "point_pct": 11.403508771929825,
+              "lb90_pct": 8.970888594745746,
+              "ci95_lo_pct": 7.792207792207792,
+              "ci95_hi_pct": 15.306205544106891
+            }
+          }
+        },
+        "constrained_feasible_certified": {
+          "margin_key": "0.03",
+          "margin": 0.03,
+          "tau": 0.028673648834228516,
+          "label": "constrained_max_retention_certified",
+          "n_ordinary_total": 10080,
+          "n_ordinary_flips": 77,
+          "ordinary_flip_pct": 0.7638888888888888,
+          "n_lethal_ordinary_flips_certified": 1,
+          "n_lethal_ordinary_flips_raw": 0,
+          "pass_ordinary_flip_bar": true,
+          "pass_lethal_ordinary_bar_certified": true,
+          "pass_lethal_ordinary_bar_raw": true,
+          "feasible_certified": true,
+          "feasible_raw": true,
+          "certified_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 25,
+              "n_eligible": 310,
+              "point_pct": 8.064516129032258,
+              "lb90_pct": 5.9375,
+              "ci95_lo_pct": 4.941669216646267,
+              "ci95_hi_pct": 11.524163568773234
+            },
+            "lt600": {
+              "n_rescued": 11,
+              "n_eligible": 111,
+              "point_pct": 9.90990990990991,
+              "lb90_pct": 5.825242718446602,
+              "ci95_lo_pct": 3.7374524056767053,
+              "ci95_hi_pct": 15.789473684210526
+            },
+            "ge600": {
+              "n_rescued": 14,
+              "n_eligible": 199,
+              "point_pct": 7.035175879396985,
+              "lb90_pct": 4.455445544554456,
+              "ci95_lo_pct": 3.3175355450236967,
+              "ci95_hi_pct": 11.764705882352942
+            }
+          },
+          "certified_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 33,
+              "n_eligible": 310,
+              "point_pct": 10.64516129032258,
+              "lb90_pct": 8.214285714285714,
+              "ci95_lo_pct": 6.999927113702624,
+              "ci95_hi_pct": 14.534883720930232
+            },
+            "lt600": {
+              "n_rescued": 12,
+              "n_eligible": 111,
+              "point_pct": 10.81081081081081,
+              "lb90_pct": 6.315789473684211,
+              "ci95_lo_pct": 4.039393939393941,
+              "ci95_hi_pct": 16.883116883116884
+            }
+          },
+          "certified_rescue_any_flip": {
+            "overall": {
+              "n_rescued": 33,
+              "n_eligible": 310,
+              "point_pct": 10.64516129032258,
+              "lb90_pct": 8.214285714285714,
+              "ci95_lo_pct": 6.999927113702624,
+              "ci95_hi_pct": 14.534883720930232
+            },
+            "lt600": {
+              "n_rescued": 12,
+              "n_eligible": 111,
+              "point_pct": 10.81081081081081,
+              "lb90_pct": 6.315789473684211,
+              "ci95_lo_pct": 4.039393939393941,
+              "ci95_hi_pct": 16.883116883116884
+            }
+          },
+          "raw_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 25,
+              "n_eligible": 342,
+              "point_pct": 7.309941520467836,
+              "lb90_pct": 5.361867801546086,
+              "ci95_lo_pct": 4.452029389049225,
+              "ci95_hi_pct": 10.47910552832013
+            },
+            "lt600": {
+              "n_rescued": 11,
+              "n_eligible": 119,
+              "point_pct": 9.243697478991596,
+              "lb90_pct": 5.405405405405405,
+              "ci95_lo_pct": 3.409090909090909,
+              "ci95_hi_pct": 14.814814814814815
+            }
+          },
+          "raw_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 33,
+              "n_eligible": 342,
+              "point_pct": 9.649122807017545,
+              "lb90_pct": 7.43016364440513,
+              "ci95_lo_pct": 6.315552394499763,
+              "ci95_hi_pct": 13.213528044173202
+            }
+          }
+        },
+        "constrained_feasible_raw": {
+          "margin_key": "0.03",
+          "margin": 0.03,
+          "tau": 0.018658161163330078,
+          "label": "constrained_max_retention_raw",
+          "n_ordinary_total": 10080,
+          "n_ordinary_flips": 100,
+          "ordinary_flip_pct": 0.9920634920634921,
+          "n_lethal_ordinary_flips_certified": 2,
+          "n_lethal_ordinary_flips_raw": 0,
+          "pass_ordinary_flip_bar": true,
+          "pass_lethal_ordinary_bar_certified": false,
+          "pass_lethal_ordinary_bar_raw": true,
+          "feasible_certified": false,
+          "feasible_raw": true,
+          "certified_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 29,
+              "n_eligible": 310,
+              "point_pct": 9.35483870967742,
+              "lb90_pct": 6.876790830945558,
+              "ci95_lo_pct": 5.775999722299362,
+              "ci95_hi_pct": 13.42756183745583
+            },
+            "lt600": {
+              "n_rescued": 13,
+              "n_eligible": 111,
+              "point_pct": 11.711711711711711,
+              "lb90_pct": 6.60377358490566,
+              "ci95_lo_pct": 4.097942455670793,
+              "ci95_hi_pct": 18.966379310344813
+            },
+            "ge600": {
+              "n_rescued": 16,
+              "n_eligible": 199,
+              "point_pct": 8.040201005025125,
+              "lb90_pct": 5.208333333333333,
+              "ci95_lo_pct": 3.9603960396039604,
+              "ci95_hi_pct": 13.157894736842104
+            }
+          },
+          "certified_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 37,
+              "n_eligible": 310,
+              "point_pct": 11.935483870967742,
+              "lb90_pct": 9.21985815602837,
+              "ci95_lo_pct": 7.8369613531090625,
+              "ci95_hi_pct": 16.2882053291536
+            },
+            "lt600": {
+              "n_rescued": 14,
+              "n_eligible": 111,
+              "point_pct": 12.612612612612613,
+              "lb90_pct": 7.207207207207207,
+              "ci95_lo_pct": 4.444444444444445,
+              "ci95_hi_pct": 19.82019209291936
+            }
+          },
+          "certified_rescue_any_flip": {
+            "overall": {
+              "n_rescued": 37,
+              "n_eligible": 310,
+              "point_pct": 11.935483870967742,
+              "lb90_pct": 9.21985815602837,
+              "ci95_lo_pct": 7.8369613531090625,
+              "ci95_hi_pct": 16.2882053291536
+            },
+            "lt600": {
+              "n_rescued": 14,
+              "n_eligible": 111,
+              "point_pct": 12.612612612612613,
+              "lb90_pct": 7.207207207207207,
+              "ci95_lo_pct": 4.444444444444445,
+              "ci95_hi_pct": 19.82019209291936
+            }
+          },
+          "raw_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 30,
+              "n_eligible": 342,
+              "point_pct": 8.771929824561404,
+              "lb90_pct": 6.5625,
+              "ci95_lo_pct": 5.5262794416981675,
+              "ci95_hi_pct": 12.458037346761381
+            },
+            "lt600": {
+              "n_rescued": 13,
+              "n_eligible": 119,
+              "point_pct": 10.92436974789916,
+              "lb90_pct": 6.086956521739131,
+              "ci95_lo_pct": 3.7735849056603774,
+              "ci95_hi_pct": 17.96875
+            }
+          },
+          "raw_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 39,
+              "n_eligible": 342,
+              "point_pct": 11.403508771929825,
+              "lb90_pct": 8.970888594745746,
+              "ci95_lo_pct": 7.792207792207792,
+              "ci95_hi_pct": 15.306205544106891
+            }
+          }
+        }
+      },
+      "0.0632": {
+        "margin": 0.0632,
+        "unthresholded_tau_0": {
+          "margin_key": "0.0632",
+          "margin": 0.0632,
+          "tau": 0.0,
+          "label": "unthresholded_tau_0",
+          "n_ordinary_total": 10080,
+          "n_ordinary_flips": 154,
+          "ordinary_flip_pct": 1.5277777777777777,
+          "n_lethal_ordinary_flips_certified": 6,
+          "n_lethal_ordinary_flips_raw": 1,
+          "pass_ordinary_flip_bar": false,
+          "pass_lethal_ordinary_bar_certified": false,
+          "pass_lethal_ordinary_bar_raw": true,
+          "feasible_certified": false,
+          "feasible_raw": false,
+          "certified_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 37,
+              "n_eligible": 310,
+              "point_pct": 11.935483870967742,
+              "lb90_pct": 9.565217391304348,
+              "ci95_lo_pct": 8.391608391608392,
+              "ci95_hi_pct": 15.807893522080317
+            },
+            "lt600": {
+              "n_rescued": 15,
+              "n_eligible": 111,
+              "point_pct": 13.513513513513514,
+              "lb90_pct": 8.473272490221644,
+              "ci95_lo_pct": 5.882352941176471,
+              "ci95_hi_pct": 20.689655172413794
+            },
+            "ge600": {
+              "n_rescued": 22,
+              "n_eligible": 199,
+              "point_pct": 11.055276381909549,
+              "lb90_pct": 8.16326530612245,
+              "ci95_lo_pct": 6.751054852320675,
+              "ci95_hi_pct": 16.055679775021886
+            }
+          },
+          "certified_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 48,
+              "n_eligible": 310,
+              "point_pct": 15.483870967741936,
+              "lb90_pct": 12.5,
+              "ci95_lo_pct": 10.9375,
+              "ci95_hi_pct": 20.118343195266274
+            },
+            "lt600": {
+              "n_rescued": 18,
+              "n_eligible": 111,
+              "point_pct": 16.216216216216218,
+              "lb90_pct": 10.714285714285714,
+              "ci95_lo_pct": 7.6923076923076925,
+              "ci95_hi_pct": 23.48497559487492
+            }
+          },
+          "certified_rescue_any_flip": {
+            "overall": {
+              "n_rescued": 50,
+              "n_eligible": 310,
+              "point_pct": 16.129032258064516,
+              "lb90_pct": 13.157894736842104,
+              "ci95_lo_pct": 11.673121064453964,
+              "ci95_hi_pct": 20.727485557920335
+            },
+            "lt600": {
+              "n_rescued": 19,
+              "n_eligible": 111,
+              "point_pct": 17.117117117117118,
+              "lb90_pct": 11.764705882352942,
+              "ci95_lo_pct": 8.791208791208792,
+              "ci95_hi_pct": 24.21875
+            }
+          },
+          "raw_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 38,
+              "n_eligible": 342,
+              "point_pct": 11.11111111111111,
+              "lb90_pct": 8.913649025069638,
+              "ci95_lo_pct": 7.836990595611285,
+              "ci95_hi_pct": 14.724100175533115
+            },
+            "lt600": {
+              "n_rescued": 15,
+              "n_eligible": 119,
+              "point_pct": 12.605042016806722,
+              "lb90_pct": 7.777777777777778,
+              "ci95_lo_pct": 5.434048178613397,
+              "ci95_hi_pct": 19.463087248322147
+            }
+          },
+          "raw_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 53,
+              "n_eligible": 342,
+              "point_pct": 15.497076023391813,
+              "lb90_pct": 12.820512820512821,
+              "ci95_lo_pct": 11.497249369967424,
+              "ci95_hi_pct": 19.701520279642676
+            }
+          }
+        },
+        "at_1pct_ordinary_flip_cap": {
+          "margin_key": "0.0632",
+          "margin": 0.0632,
+          "tau": 0.025300592184066772,
+          "label": "at_1pct_ordinary_flip_cap",
+          "n_ordinary_total": 10080,
+          "n_ordinary_flips": 100,
+          "ordinary_flip_pct": 0.9920634920634921,
+          "n_lethal_ordinary_flips_certified": 4,
+          "n_lethal_ordinary_flips_raw": 0,
+          "pass_ordinary_flip_bar": true,
+          "pass_lethal_ordinary_bar_certified": false,
+          "pass_lethal_ordinary_bar_raw": true,
+          "feasible_certified": false,
+          "feasible_raw": true,
+          "certified_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 33,
+              "n_eligible": 310,
+              "point_pct": 10.64516129032258,
+              "lb90_pct": 8.256880733944953,
+              "ci95_lo_pct": 7.115797875606312,
+              "ci95_hi_pct": 14.643027752502272
+            },
+            "lt600": {
+              "n_rescued": 13,
+              "n_eligible": 111,
+              "point_pct": 11.711711711711711,
+              "lb90_pct": 6.521739130434782,
+              "ci95_lo_pct": 4.081632653061225,
+              "ci95_hi_pct": 19.27710843373494
+            },
+            "ge600": {
+              "n_rescued": 20,
+              "n_eligible": 199,
+              "point_pct": 10.050251256281408,
+              "lb90_pct": 7.291666666666667,
+              "ci95_lo_pct": 6.008583690987124,
+              "ci95_hi_pct": 15.000722543352591
+            }
+          },
+          "certified_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 42,
+              "n_eligible": 310,
+              "point_pct": 13.548387096774194,
+              "lb90_pct": 10.509554140127388,
+              "ci95_lo_pct": 9.029911735861393,
+              "ci95_hi_pct": 18.24109736772603
+            },
+            "lt600": {
+              "n_rescued": 15,
+              "n_eligible": 111,
+              "point_pct": 13.513513513513514,
+              "lb90_pct": 7.526881720430108,
+              "ci95_lo_pct": 4.597701149425287,
+              "ci95_hi_pct": 21.31202185792349
+            }
+          },
+          "certified_rescue_any_flip": {
+            "overall": {
+              "n_rescued": 43,
+              "n_eligible": 310,
+              "point_pct": 13.870967741935484,
+              "lb90_pct": 10.862500149573417,
+              "ci95_lo_pct": 9.333333333333334,
+              "ci95_hi_pct": 18.571428571428573
+            },
+            "lt600": {
+              "n_rescued": 16,
+              "n_eligible": 111,
+              "point_pct": 14.414414414414415,
+              "lb90_pct": 8.571428571428571,
+              "ci95_lo_pct": 5.746305418719213,
+              "ci95_hi_pct": 22.093023255813954
+            }
+          },
+          "raw_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 33,
+              "n_eligible": 342,
+              "point_pct": 9.649122807017545,
+              "lb90_pct": 7.467445887445887,
+              "ci95_lo_pct": 6.39725745830397,
+              "ci95_hi_pct": 13.377926421404682
+            },
+            "lt600": {
+              "n_rescued": 13,
+              "n_eligible": 119,
+              "point_pct": 10.92436974789916,
+              "lb90_pct": 6.0344827586206895,
+              "ci95_lo_pct": 3.7374524056767053,
+              "ci95_hi_pct": 18.11023622047244
+            }
+          },
+          "raw_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 45,
+              "n_eligible": 342,
+              "point_pct": 13.157894736842104,
+              "lb90_pct": 10.416666666666666,
+              "ci95_lo_pct": 9.041016015016575,
+              "ci95_hi_pct": 17.54400487974904
+            }
+          }
+        },
+        "constrained_feasible_certified": {
+          "margin_key": "0.0632",
+          "margin": 0.0632,
+          "tau": 0.07509136199951172,
+          "label": "constrained_max_retention_certified",
+          "n_ordinary_total": 10080,
+          "n_ordinary_flips": 47,
+          "ordinary_flip_pct": 0.4662698412698413,
+          "n_lethal_ordinary_flips_certified": 1,
+          "n_lethal_ordinary_flips_raw": 0,
+          "pass_ordinary_flip_bar": true,
+          "pass_lethal_ordinary_bar_certified": true,
+          "pass_lethal_ordinary_bar_raw": true,
+          "feasible_certified": true,
+          "feasible_raw": true,
+          "certified_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 22,
+              "n_eligible": 310,
+              "point_pct": 7.096774193548387,
+              "lb90_pct": 5.095541401273885,
+              "ci95_lo_pct": 4.153294351678824,
+              "ci95_hi_pct": 10.443037974683545
+            },
+            "lt600": {
+              "n_rescued": 10,
+              "n_eligible": 111,
+              "point_pct": 9.00900900900901,
+              "lb90_pct": 5.084745762711864,
+              "ci95_lo_pct": 3.191067207024654,
+              "ci95_hi_pct": 14.44477911646586
+            },
+            "ge600": {
+              "n_rescued": 12,
+              "n_eligible": 199,
+              "point_pct": 6.030150753768845,
+              "lb90_pct": 3.657979730482237,
+              "ci95_lo_pct": 2.6546331413588056,
+              "ci95_hi_pct": 10.457858536084586
+            }
+          },
+          "certified_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 29,
+              "n_eligible": 310,
+              "point_pct": 9.35483870967742,
+              "lb90_pct": 7.142857142857143,
+              "ci95_lo_pct": 5.980066445182724,
+              "ci95_hi_pct": 13.013698630136986
+            },
+            "lt600": {
+              "n_rescued": 11,
+              "n_eligible": 111,
+              "point_pct": 9.90990990990991,
+              "lb90_pct": 5.882352941176471,
+              "ci95_lo_pct": 3.7383177570093458,
+              "ci95_hi_pct": 15.217391304347826
+            }
+          },
+          "certified_rescue_any_flip": {
+            "overall": {
+              "n_rescued": 30,
+              "n_eligible": 310,
+              "point_pct": 9.67741935483871,
+              "lb90_pct": 7.453416149068323,
+              "ci95_lo_pct": 6.291338664667416,
+              "ci95_hi_pct": 13.373860182370821
+            },
+            "lt600": {
+              "n_rescued": 12,
+              "n_eligible": 111,
+              "point_pct": 10.81081081081081,
+              "lb90_pct": 6.796116504854369,
+              "ci95_lo_pct": 4.651162790697675,
+              "ci95_hi_pct": 16.216216216216218
+            }
+          },
+          "raw_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 22,
+              "n_eligible": 342,
+              "point_pct": 6.432748538011696,
+              "lb90_pct": 4.594594594594595,
+              "ci95_lo_pct": 3.7382506176818135,
+              "ci95_hi_pct": 9.535505321028307
+            },
+            "lt600": {
+              "n_rescued": 10,
+              "n_eligible": 119,
+              "point_pct": 8.403361344537815,
+              "lb90_pct": 4.716981132075472,
+              "ci95_lo_pct": 2.9411764705882355,
+              "ci95_hi_pct": 13.548387096774194
+            }
+          },
+          "raw_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 31,
+              "n_eligible": 342,
+              "point_pct": 9.064327485380117,
+              "lb90_pct": 7.033400229357798,
+              "ci95_lo_pct": 5.978175417008477,
+              "ci95_hi_pct": 12.468344155844145
+            }
+          }
+        },
+        "constrained_feasible_raw": {
+          "margin_key": "0.0632",
+          "margin": 0.0632,
+          "tau": 0.025300592184066772,
+          "label": "constrained_max_retention_raw",
+          "n_ordinary_total": 10080,
+          "n_ordinary_flips": 100,
+          "ordinary_flip_pct": 0.9920634920634921,
+          "n_lethal_ordinary_flips_certified": 4,
+          "n_lethal_ordinary_flips_raw": 0,
+          "pass_ordinary_flip_bar": true,
+          "pass_lethal_ordinary_bar_certified": false,
+          "pass_lethal_ordinary_bar_raw": true,
+          "feasible_certified": false,
+          "feasible_raw": true,
+          "certified_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 33,
+              "n_eligible": 310,
+              "point_pct": 10.64516129032258,
+              "lb90_pct": 8.256880733944953,
+              "ci95_lo_pct": 7.115797875606312,
+              "ci95_hi_pct": 14.643027752502272
+            },
+            "lt600": {
+              "n_rescued": 13,
+              "n_eligible": 111,
+              "point_pct": 11.711711711711711,
+              "lb90_pct": 6.521739130434782,
+              "ci95_lo_pct": 4.081632653061225,
+              "ci95_hi_pct": 19.27710843373494
+            },
+            "ge600": {
+              "n_rescued": 20,
+              "n_eligible": 199,
+              "point_pct": 10.050251256281408,
+              "lb90_pct": 7.291666666666667,
+              "ci95_lo_pct": 6.008583690987124,
+              "ci95_hi_pct": 15.000722543352591
+            }
+          },
+          "certified_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 42,
+              "n_eligible": 310,
+              "point_pct": 13.548387096774194,
+              "lb90_pct": 10.509554140127388,
+              "ci95_lo_pct": 9.029911735861393,
+              "ci95_hi_pct": 18.24109736772603
+            },
+            "lt600": {
+              "n_rescued": 15,
+              "n_eligible": 111,
+              "point_pct": 13.513513513513514,
+              "lb90_pct": 7.526881720430108,
+              "ci95_lo_pct": 4.597701149425287,
+              "ci95_hi_pct": 21.31202185792349
+            }
+          },
+          "certified_rescue_any_flip": {
+            "overall": {
+              "n_rescued": 43,
+              "n_eligible": 310,
+              "point_pct": 13.870967741935484,
+              "lb90_pct": 10.862500149573417,
+              "ci95_lo_pct": 9.333333333333334,
+              "ci95_hi_pct": 18.571428571428573
+            },
+            "lt600": {
+              "n_rescued": 16,
+              "n_eligible": 111,
+              "point_pct": 14.414414414414415,
+              "lb90_pct": 8.571428571428571,
+              "ci95_lo_pct": 5.746305418719213,
+              "ci95_hi_pct": 22.093023255813954
+            }
+          },
+          "raw_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 33,
+              "n_eligible": 342,
+              "point_pct": 9.649122807017545,
+              "lb90_pct": 7.467445887445887,
+              "ci95_lo_pct": 6.39725745830397,
+              "ci95_hi_pct": 13.377926421404682
+            },
+            "lt600": {
+              "n_rescued": 13,
+              "n_eligible": 119,
+              "point_pct": 10.92436974789916,
+              "lb90_pct": 6.0344827586206895,
+              "ci95_lo_pct": 3.7374524056767053,
+              "ci95_hi_pct": 18.11023622047244
+            }
+          },
+          "raw_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 45,
+              "n_eligible": 342,
+              "point_pct": 13.157894736842104,
+              "lb90_pct": 10.416666666666666,
+              "ci95_lo_pct": 9.041016015016575,
+              "ci95_hi_pct": 17.54400487974904
+            }
+          }
+        }
+      },
+      "0.1129": {
+        "margin": 0.1129,
+        "unthresholded_tau_0": {
+          "margin_key": "0.1129",
+          "margin": 0.1129,
+          "tau": 0.0,
+          "label": "unthresholded_tau_0",
+          "n_ordinary_total": 10080,
+          "n_ordinary_flips": 143,
+          "ordinary_flip_pct": 1.4186507936507937,
+          "n_lethal_ordinary_flips_certified": 5,
+          "n_lethal_ordinary_flips_raw": 5,
+          "pass_ordinary_flip_bar": false,
+          "pass_lethal_ordinary_bar_certified": false,
+          "pass_lethal_ordinary_bar_raw": false,
+          "feasible_certified": false,
+          "feasible_raw": false,
+          "certified_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 37,
+              "n_eligible": 310,
+              "point_pct": 11.935483870967742,
+              "lb90_pct": 9.337349397590362,
+              "ci95_lo_pct": 8.038585209003216,
+              "ci95_hi_pct": 16.11842105263158
+            },
+            "lt600": {
+              "n_rescued": 14,
+              "n_eligible": 111,
+              "point_pct": 12.612612612612613,
+              "lb90_pct": 7.6923076923076925,
+              "ci95_lo_pct": 5.172413793103448,
+              "ci95_hi_pct": 18.96583186508935
+            },
+            "ge600": {
+              "n_rescued": 23,
+              "n_eligible": 199,
+              "point_pct": 11.557788944723619,
+              "lb90_pct": 8.234549516008935,
+              "ci95_lo_pct": 6.698564593301436,
+              "ci95_hi_pct": 17.341040462427745
+            }
+          },
+          "certified_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 47,
+              "n_eligible": 310,
+              "point_pct": 15.161290322580646,
+              "lb90_pct": 12.37458193979933,
+              "ci95_lo_pct": 10.99290780141844,
+              "ci95_hi_pct": 19.435736677115987
+            },
+            "lt600": {
+              "n_rescued": 16,
+              "n_eligible": 111,
+              "point_pct": 14.414414414414415,
+              "lb90_pct": 9.375,
+              "ci95_lo_pct": 6.349206349206349,
+              "ci95_hi_pct": 20.382320202832226
+            }
+          },
+          "certified_rescue_any_flip": {
+            "overall": {
+              "n_rescued": 48,
+              "n_eligible": 310,
+              "point_pct": 15.483870967741936,
+              "lb90_pct": 12.585034013605442,
+              "ci95_lo_pct": 11.151047802872684,
+              "ci95_hi_pct": 20.0
+            },
+            "lt600": {
+              "n_rescued": 17,
+              "n_eligible": 111,
+              "point_pct": 15.315315315315315,
+              "lb90_pct": 10.280373831775702,
+              "ci95_lo_pct": 7.5,
+              "ci95_hi_pct": 21.374177415109237
+            }
+          },
+          "raw_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 38,
+              "n_eligible": 342,
+              "point_pct": 11.11111111111111,
+              "lb90_pct": 8.695652173913043,
+              "ci95_lo_pct": 7.567523115220483,
+              "ci95_hi_pct": 14.935064935064934
+            },
+            "lt600": {
+              "n_rescued": 14,
+              "n_eligible": 119,
+              "point_pct": 11.764705882352942,
+              "lb90_pct": 7.142857142857143,
+              "ci95_lo_pct": 4.854368932038835,
+              "ci95_hi_pct": 17.74217407902271
+            }
+          },
+          "raw_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 51,
+              "n_eligible": 342,
+              "point_pct": 14.912280701754385,
+              "lb90_pct": 12.138728323699421,
+              "ci95_lo_pct": 10.810602268935602,
+              "ci95_hi_pct": 19.2073973042362
+            }
+          }
+        },
+        "at_1pct_ordinary_flip_cap": {
+          "margin_key": "0.1129",
+          "margin": 0.1129,
+          "tau": 0.049950361251831055,
+          "label": "at_1pct_ordinary_flip_cap",
+          "n_ordinary_total": 10080,
+          "n_ordinary_flips": 100,
+          "ordinary_flip_pct": 0.9920634920634921,
+          "n_lethal_ordinary_flips_certified": 3,
+          "n_lethal_ordinary_flips_raw": 2,
+          "pass_ordinary_flip_bar": true,
+          "pass_lethal_ordinary_bar_certified": false,
+          "pass_lethal_ordinary_bar_raw": false,
+          "feasible_certified": false,
+          "feasible_raw": false,
+          "certified_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 27,
+              "n_eligible": 310,
+              "point_pct": 8.709677419354838,
+              "lb90_pct": 6.354515050167224,
+              "ci95_lo_pct": 5.214723926380368,
+              "ci95_hi_pct": 12.61845373465944
+            },
+            "lt600": {
+              "n_rescued": 9,
+              "n_eligible": 111,
+              "point_pct": 8.108108108108109,
+              "lb90_pct": 4.201680672268908,
+              "ci95_lo_pct": 2.2988505747126435,
+              "ci95_hi_pct": 13.333333333333334
+            },
+            "ge600": {
+              "n_rescued": 18,
+              "n_eligible": 199,
+              "point_pct": 9.045226130653266,
+              "lb90_pct": 5.813953488372093,
+              "ci95_lo_pct": 4.395604395604396,
+              "ci95_hi_pct": 14.935399651894492
+            }
+          },
+          "certified_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 35,
+              "n_eligible": 310,
+              "point_pct": 11.290322580645162,
+              "lb90_pct": 8.682634730538922,
+              "ci95_lo_pct": 7.440337891662241,
+              "ci95_hi_pct": 15.359502735263385
+            },
+            "lt600": {
+              "n_rescued": 11,
+              "n_eligible": 111,
+              "point_pct": 9.90990990990991,
+              "lb90_pct": 5.4945054945054945,
+              "ci95_lo_pct": 3.0927835051546393,
+              "ci95_hi_pct": 15.384615384615385
+            }
+          },
+          "certified_rescue_any_flip": {
+            "overall": {
+              "n_rescued": 35,
+              "n_eligible": 310,
+              "point_pct": 11.290322580645162,
+              "lb90_pct": 8.682634730538922,
+              "ci95_lo_pct": 7.440337891662241,
+              "ci95_hi_pct": 15.359502735263385
+            },
+            "lt600": {
+              "n_rescued": 11,
+              "n_eligible": 111,
+              "point_pct": 9.90990990990991,
+              "lb90_pct": 5.4945054945054945,
+              "ci95_lo_pct": 3.0927835051546393,
+              "ci95_hi_pct": 15.384615384615385
+            }
+          },
+          "raw_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 28,
+              "n_eligible": 342,
+              "point_pct": 8.187134502923977,
+              "lb90_pct": 6.0344827586206895,
+              "ci95_lo_pct": 5.027932960893855,
+              "ci95_hi_pct": 11.711711711711711
+            },
+            "lt600": {
+              "n_rescued": 9,
+              "n_eligible": 119,
+              "point_pct": 7.563025210084033,
+              "lb90_pct": 3.883495145631068,
+              "ci95_lo_pct": 2.1052631578947367,
+              "ci95_hi_pct": 12.5
+            }
+          },
+          "raw_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 36,
+              "n_eligible": 342,
+              "point_pct": 10.526315789473685,
+              "lb90_pct": 8.123249299719888,
+              "ci95_lo_pct": 6.933192771084338,
+              "ci95_hi_pct": 14.245829188030918
+            }
+          }
+        },
+        "constrained_feasible_certified": {
+          "margin_key": "0.1129",
+          "margin": 0.1129,
+          "tau": 0.08023738861083984,
+          "label": "constrained_max_retention_certified",
+          "n_ordinary_total": 10080,
+          "n_ordinary_flips": 76,
+          "ordinary_flip_pct": 0.753968253968254,
+          "n_lethal_ordinary_flips_certified": 1,
+          "n_lethal_ordinary_flips_raw": 1,
+          "pass_ordinary_flip_bar": true,
+          "pass_lethal_ordinary_bar_certified": true,
+          "pass_lethal_ordinary_bar_raw": true,
+          "feasible_certified": true,
+          "feasible_raw": true,
+          "certified_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 24,
+              "n_eligible": 310,
+              "point_pct": 7.741935483870968,
+              "lb90_pct": 5.41956502597517,
+              "ci95_lo_pct": 4.301075268817204,
+              "ci95_hi_pct": 11.643835616438356
+            },
+            "lt600": {
+              "n_rescued": 9,
+              "n_eligible": 111,
+              "point_pct": 8.108108108108109,
+              "lb90_pct": 4.201680672268908,
+              "ci95_lo_pct": 2.2988505747126435,
+              "ci95_hi_pct": 13.333333333333334
+            },
+            "ge600": {
+              "n_rescued": 15,
+              "n_eligible": 199,
+              "point_pct": 7.5376884422110555,
+              "lb90_pct": 4.484304932735426,
+              "ci95_lo_pct": 3.1578947368421053,
+              "ci95_hi_pct": 13.089005235602095
+            }
+          },
+          "certified_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 32,
+              "n_eligible": 310,
+              "point_pct": 10.32258064516129,
+              "lb90_pct": 7.831325301204819,
+              "ci95_lo_pct": 6.622458868864943,
+              "ci95_hi_pct": 14.232307272159797
+            },
+            "lt600": {
+              "n_rescued": 11,
+              "n_eligible": 111,
+              "point_pct": 9.90990990990991,
+              "lb90_pct": 5.4945054945054945,
+              "ci95_lo_pct": 3.0927835051546393,
+              "ci95_hi_pct": 15.384615384615385
+            }
+          },
+          "certified_rescue_any_flip": {
+            "overall": {
+              "n_rescued": 32,
+              "n_eligible": 310,
+              "point_pct": 10.32258064516129,
+              "lb90_pct": 7.831325301204819,
+              "ci95_lo_pct": 6.622458868864943,
+              "ci95_hi_pct": 14.232307272159797
+            },
+            "lt600": {
+              "n_rescued": 11,
+              "n_eligible": 111,
+              "point_pct": 9.90990990990991,
+              "lb90_pct": 5.4945054945054945,
+              "ci95_lo_pct": 3.0927835051546393,
+              "ci95_hi_pct": 15.384615384615385
+            }
+          },
+          "raw_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 24,
+              "n_eligible": 342,
+              "point_pct": 7.017543859649122,
+              "lb90_pct": 4.885057471264368,
+              "ci95_lo_pct": 3.869047619047619,
+              "ci95_hi_pct": 10.54340495839901
+            },
+            "lt600": {
+              "n_rescued": 9,
+              "n_eligible": 119,
+              "point_pct": 7.563025210084033,
+              "lb90_pct": 3.883495145631068,
+              "ci95_lo_pct": 2.1052631578947367,
+              "ci95_hi_pct": 12.5
+            }
+          },
+          "raw_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 32,
+              "n_eligible": 342,
+              "point_pct": 9.35672514619883,
+              "lb90_pct": 7.0588235294117645,
+              "ci95_lo_pct": 5.949008498583569,
+              "ci95_hi_pct": 12.933860229408111
+            }
+          }
+        },
+        "constrained_feasible_raw": {
+          "margin_key": "0.1129",
+          "margin": 0.1129,
+          "tau": 0.06568717956542969,
+          "label": "constrained_max_retention_raw",
+          "n_ordinary_total": 10080,
+          "n_ordinary_flips": 86,
+          "ordinary_flip_pct": 0.8531746031746031,
+          "n_lethal_ordinary_flips_certified": 2,
+          "n_lethal_ordinary_flips_raw": 1,
+          "pass_ordinary_flip_bar": true,
+          "pass_lethal_ordinary_bar_certified": false,
+          "pass_lethal_ordinary_bar_raw": true,
+          "feasible_certified": false,
+          "feasible_raw": true,
+          "certified_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 24,
+              "n_eligible": 310,
+              "point_pct": 7.741935483870968,
+              "lb90_pct": 5.41956502597517,
+              "ci95_lo_pct": 4.301075268817204,
+              "ci95_hi_pct": 11.643835616438356
+            },
+            "lt600": {
+              "n_rescued": 9,
+              "n_eligible": 111,
+              "point_pct": 8.108108108108109,
+              "lb90_pct": 4.201680672268908,
+              "ci95_lo_pct": 2.2988505747126435,
+              "ci95_hi_pct": 13.333333333333334
+            },
+            "ge600": {
+              "n_rescued": 15,
+              "n_eligible": 199,
+              "point_pct": 7.5376884422110555,
+              "lb90_pct": 4.484304932735426,
+              "ci95_lo_pct": 3.1578947368421053,
+              "ci95_hi_pct": 13.089005235602095
+            }
+          },
+          "certified_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 32,
+              "n_eligible": 310,
+              "point_pct": 10.32258064516129,
+              "lb90_pct": 7.831325301204819,
+              "ci95_lo_pct": 6.622458868864943,
+              "ci95_hi_pct": 14.232307272159797
+            },
+            "lt600": {
+              "n_rescued": 11,
+              "n_eligible": 111,
+              "point_pct": 9.90990990990991,
+              "lb90_pct": 5.4945054945054945,
+              "ci95_lo_pct": 3.0927835051546393,
+              "ci95_hi_pct": 15.384615384615385
+            }
+          },
+          "certified_rescue_any_flip": {
+            "overall": {
+              "n_rescued": 32,
+              "n_eligible": 310,
+              "point_pct": 10.32258064516129,
+              "lb90_pct": 7.831325301204819,
+              "ci95_lo_pct": 6.622458868864943,
+              "ci95_hi_pct": 14.232307272159797
+            },
+            "lt600": {
+              "n_rescued": 11,
+              "n_eligible": 111,
+              "point_pct": 9.90990990990991,
+              "lb90_pct": 5.4945054945054945,
+              "ci95_lo_pct": 3.0927835051546393,
+              "ci95_hi_pct": 15.384615384615385
+            }
+          },
+          "raw_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 24,
+              "n_eligible": 342,
+              "point_pct": 7.017543859649122,
+              "lb90_pct": 4.885057471264368,
+              "ci95_lo_pct": 3.869047619047619,
+              "ci95_hi_pct": 10.54340495839901
+            },
+            "lt600": {
+              "n_rescued": 9,
+              "n_eligible": 119,
+              "point_pct": 7.563025210084033,
+              "lb90_pct": 3.883495145631068,
+              "ci95_lo_pct": 2.1052631578947367,
+              "ci95_hi_pct": 12.5
+            }
+          },
+          "raw_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 32,
+              "n_eligible": 342,
+              "point_pct": 9.35672514619883,
+              "lb90_pct": 7.0588235294117645,
+              "ci95_lo_pct": 5.949008498583569,
+              "ci95_hi_pct": 12.933860229408111
+            }
+          }
+        }
+      }
+    },
+    "selected_operating_point": {
+      "margin_key": "0.03",
+      "margin": 0.03,
+      "tau": 0.028673648834228516,
+      "label": "constrained_max_retention_certified",
+      "n_ordinary_total": 10080,
+      "n_ordinary_flips": 77,
+      "ordinary_flip_pct": 0.7638888888888888,
+      "n_lethal_ordinary_flips_certified": 1,
+      "n_lethal_ordinary_flips_raw": 0,
+      "pass_ordinary_flip_bar": true,
+      "pass_lethal_ordinary_bar_certified": true,
+      "pass_lethal_ordinary_bar_raw": true,
+      "feasible_certified": true,
+      "feasible_raw": true,
+      "certified_rescue_exact_match": {
+        "overall": {
+          "n_rescued": 25,
+          "n_eligible": 310,
+          "point_pct": 8.064516129032258,
+          "lb90_pct": 5.9375,
+          "ci95_lo_pct": 4.941669216646267,
+          "ci95_hi_pct": 11.524163568773234
+        },
+        "lt600": {
+          "n_rescued": 11,
+          "n_eligible": 111,
+          "point_pct": 9.90990990990991,
+          "lb90_pct": 5.825242718446602,
+          "ci95_lo_pct": 3.7374524056767053,
+          "ci95_hi_pct": 15.789473684210526
+        },
+        "ge600": {
+          "n_rescued": 14,
+          "n_eligible": 199,
+          "point_pct": 7.035175879396985,
+          "lb90_pct": 4.455445544554456,
+          "ci95_lo_pct": 3.3175355450236967,
+          "ci95_hi_pct": 11.764705882352942
+        }
+      },
+      "certified_rescue_survival_match": {
+        "overall": {
+          "n_rescued": 33,
+          "n_eligible": 310,
+          "point_pct": 10.64516129032258,
+          "lb90_pct": 8.214285714285714,
+          "ci95_lo_pct": 6.999927113702624,
+          "ci95_hi_pct": 14.534883720930232
+        },
+        "lt600": {
+          "n_rescued": 12,
+          "n_eligible": 111,
+          "point_pct": 10.81081081081081,
+          "lb90_pct": 6.315789473684211,
+          "ci95_lo_pct": 4.039393939393941,
+          "ci95_hi_pct": 16.883116883116884
+        }
+      },
+      "certified_rescue_any_flip": {
+        "overall": {
+          "n_rescued": 33,
+          "n_eligible": 310,
+          "point_pct": 10.64516129032258,
+          "lb90_pct": 8.214285714285714,
+          "ci95_lo_pct": 6.999927113702624,
+          "ci95_hi_pct": 14.534883720930232
+        },
+        "lt600": {
+          "n_rescued": 12,
+          "n_eligible": 111,
+          "point_pct": 10.81081081081081,
+          "lb90_pct": 6.315789473684211,
+          "ci95_lo_pct": 4.039393939393941,
+          "ci95_hi_pct": 16.883116883116884
+        }
+      },
+      "raw_rescue_exact_match": {
+        "overall": {
+          "n_rescued": 25,
+          "n_eligible": 342,
+          "point_pct": 7.309941520467836,
+          "lb90_pct": 5.361867801546086,
+          "ci95_lo_pct": 4.452029389049225,
+          "ci95_hi_pct": 10.47910552832013
+        },
+        "lt600": {
+          "n_rescued": 11,
+          "n_eligible": 119,
+          "point_pct": 9.243697478991596,
+          "lb90_pct": 5.405405405405405,
+          "ci95_lo_pct": 3.409090909090909,
+          "ci95_hi_pct": 14.814814814814815
+        }
+      },
+      "raw_rescue_survival_match": {
+        "overall": {
+          "n_rescued": 33,
+          "n_eligible": 342,
+          "point_pct": 9.649122807017545,
+          "lb90_pct": 7.43016364440513,
+          "ci95_lo_pct": 6.315552394499763,
+          "ci95_hi_pct": 13.213528044173202
+        }
+      }
+    },
+    "best_1pct_only_operating_point": {
+      "margin_key": "0.0632",
+      "margin": 0.0632,
+      "tau": 0.025300592184066772,
+      "label": "at_1pct_ordinary_flip_cap",
+      "n_ordinary_total": 10080,
+      "n_ordinary_flips": 100,
+      "ordinary_flip_pct": 0.9920634920634921,
+      "n_lethal_ordinary_flips_certified": 4,
+      "n_lethal_ordinary_flips_raw": 0,
+      "pass_ordinary_flip_bar": true,
+      "pass_lethal_ordinary_bar_certified": false,
+      "pass_lethal_ordinary_bar_raw": true,
+      "feasible_certified": false,
+      "feasible_raw": true,
+      "certified_rescue_exact_match": {
+        "overall": {
+          "n_rescued": 33,
+          "n_eligible": 310,
+          "point_pct": 10.64516129032258,
+          "lb90_pct": 8.256880733944953,
+          "ci95_lo_pct": 7.115797875606312,
+          "ci95_hi_pct": 14.643027752502272
+        },
+        "lt600": {
+          "n_rescued": 13,
+          "n_eligible": 111,
+          "point_pct": 11.711711711711711,
+          "lb90_pct": 6.521739130434782,
+          "ci95_lo_pct": 4.081632653061225,
+          "ci95_hi_pct": 19.27710843373494
+        },
+        "ge600": {
+          "n_rescued": 20,
+          "n_eligible": 199,
+          "point_pct": 10.050251256281408,
+          "lb90_pct": 7.291666666666667,
+          "ci95_lo_pct": 6.008583690987124,
+          "ci95_hi_pct": 15.000722543352591
+        }
+      },
+      "certified_rescue_survival_match": {
+        "overall": {
+          "n_rescued": 42,
+          "n_eligible": 310,
+          "point_pct": 13.548387096774194,
+          "lb90_pct": 10.509554140127388,
+          "ci95_lo_pct": 9.029911735861393,
+          "ci95_hi_pct": 18.24109736772603
+        },
+        "lt600": {
+          "n_rescued": 15,
+          "n_eligible": 111,
+          "point_pct": 13.513513513513514,
+          "lb90_pct": 7.526881720430108,
+          "ci95_lo_pct": 4.597701149425287,
+          "ci95_hi_pct": 21.31202185792349
+        }
+      },
+      "certified_rescue_any_flip": {
+        "overall": {
+          "n_rescued": 43,
+          "n_eligible": 310,
+          "point_pct": 13.870967741935484,
+          "lb90_pct": 10.862500149573417,
+          "ci95_lo_pct": 9.333333333333334,
+          "ci95_hi_pct": 18.571428571428573
+        },
+        "lt600": {
+          "n_rescued": 16,
+          "n_eligible": 111,
+          "point_pct": 14.414414414414415,
+          "lb90_pct": 8.571428571428571,
+          "ci95_lo_pct": 5.746305418719213,
+          "ci95_hi_pct": 22.093023255813954
+        }
+      },
+      "raw_rescue_exact_match": {
+        "overall": {
+          "n_rescued": 33,
+          "n_eligible": 342,
+          "point_pct": 9.649122807017545,
+          "lb90_pct": 7.467445887445887,
+          "ci95_lo_pct": 6.39725745830397,
+          "ci95_hi_pct": 13.377926421404682
+        },
+        "lt600": {
+          "n_rescued": 13,
+          "n_eligible": 119,
+          "point_pct": 10.92436974789916,
+          "lb90_pct": 6.0344827586206895,
+          "ci95_lo_pct": 3.7374524056767053,
+          "ci95_hi_pct": 18.11023622047244
+        }
+      },
+      "raw_rescue_survival_match": {
+        "overall": {
+          "n_rescued": 45,
+          "n_eligible": 342,
+          "point_pct": 13.157894736842104,
+          "lb90_pct": 10.416666666666666,
+          "ci95_lo_pct": 9.041016015016575,
+          "ci95_hi_pct": 17.54400487974904
+        }
+      }
+    }
+  },
+  "arm_b": {
+    "arm": "arm_b",
+    "head_kind": "equivariant_mlp",
+    "by_margin": {
+      "0.03": {
+        "margin": 0.03,
+        "unthresholded_tau_0": {
+          "margin_key": "0.03",
+          "margin": 0.03,
+          "tau": 0.0,
+          "label": "unthresholded_tau_0",
+          "n_ordinary_total": 10080,
+          "n_ordinary_flips": 175,
+          "ordinary_flip_pct": 1.7361111111111112,
+          "n_lethal_ordinary_flips_certified": 7,
+          "n_lethal_ordinary_flips_raw": 3,
+          "pass_ordinary_flip_bar": false,
+          "pass_lethal_ordinary_bar_certified": false,
+          "pass_lethal_ordinary_bar_raw": false,
+          "feasible_certified": false,
+          "feasible_raw": false,
+          "certified_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 34,
+              "n_eligible": 310,
+              "point_pct": 10.96774193548387,
+              "lb90_pct": 8.705976826889986,
+              "ci95_lo_pct": 7.598688007387172,
+              "ci95_hi_pct": 14.736918162458167
+            },
+            "lt600": {
+              "n_rescued": 14,
+              "n_eligible": 111,
+              "point_pct": 12.612612612612613,
+              "lb90_pct": 8.19672131147541,
+              "ci95_lo_pct": 6.0606060606060606,
+              "ci95_hi_pct": 19.417650345742818
+            },
+            "ge600": {
+              "n_rescued": 20,
+              "n_eligible": 199,
+              "point_pct": 10.050251256281408,
+              "lb90_pct": 7.462686567164179,
+              "ci95_lo_pct": 6.25,
+              "ci95_hi_pct": 14.659860383944151
+            }
+          },
+          "certified_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 53,
+              "n_eligible": 310,
+              "point_pct": 17.096774193548388,
+              "lb90_pct": 14.461538461538462,
+              "ci95_lo_pct": 13.015818656229616,
+              "ci95_hi_pct": 21.316732092594158
+            },
+            "lt600": {
+              "n_rescued": 19,
+              "n_eligible": 111,
+              "point_pct": 17.117117117117118,
+              "lb90_pct": 12.264150943396226,
+              "ci95_lo_pct": 9.722222222222221,
+              "ci95_hi_pct": 24.299065420560748
+            }
+          },
+          "certified_rescue_any_flip": {
+            "overall": {
+              "n_rescued": 59,
+              "n_eligible": 310,
+              "point_pct": 19.032258064516128,
+              "lb90_pct": 16.075807707279097,
+              "ci95_lo_pct": 14.52970297029703,
+              "ci95_hi_pct": 23.674911660777386
+            },
+            "lt600": {
+              "n_rescued": 21,
+              "n_eligible": 111,
+              "point_pct": 18.91891891891892,
+              "lb90_pct": 13.829787234042554,
+              "ci95_lo_pct": 11.0,
+              "ci95_hi_pct": 26.470588235294116
+            }
+          },
+          "raw_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 35,
+              "n_eligible": 342,
+              "point_pct": 10.23391812865497,
+              "lb90_pct": 8.169014084507042,
+              "ci95_lo_pct": 7.164179104477612,
+              "ci95_hi_pct": 13.707165109034268
+            },
+            "lt600": {
+              "n_rescued": 15,
+              "n_eligible": 119,
+              "point_pct": 12.605042016806722,
+              "lb90_pct": 8.496115427302998,
+              "ci95_lo_pct": 6.521739130434782,
+              "ci95_hi_pct": 18.978102189781023
+            }
+          },
+          "raw_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 60,
+              "n_eligible": 342,
+              "point_pct": 17.54385964912281,
+              "lb90_pct": 14.814814814814815,
+              "ci95_lo_pct": 13.351464320276735,
+              "ci95_hi_pct": 21.88367755895899
+            }
+          }
+        },
+        "at_1pct_ordinary_flip_cap": {
+          "margin_key": "0.03",
+          "margin": 0.03,
+          "tau": 0.021754145622253418,
+          "label": "at_1pct_ordinary_flip_cap",
+          "n_ordinary_total": 10080,
+          "n_ordinary_flips": 100,
+          "ordinary_flip_pct": 0.9920634920634921,
+          "n_lethal_ordinary_flips_certified": 5,
+          "n_lethal_ordinary_flips_raw": 3,
+          "pass_ordinary_flip_bar": true,
+          "pass_lethal_ordinary_bar_certified": false,
+          "pass_lethal_ordinary_bar_raw": false,
+          "feasible_certified": false,
+          "feasible_raw": false,
+          "certified_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 27,
+              "n_eligible": 310,
+              "point_pct": 8.709677419354838,
+              "lb90_pct": 6.442491106872197,
+              "ci95_lo_pct": 5.376344086021505,
+              "ci95_hi_pct": 12.580698568681905
+            },
+            "lt600": {
+              "n_rescued": 13,
+              "n_eligible": 111,
+              "point_pct": 11.711711711711711,
+              "lb90_pct": 7.142857142857143,
+              "ci95_lo_pct": 4.958677685950414,
+              "ci95_hi_pct": 18.868448637316554
+            },
+            "ge600": {
+              "n_rescued": 14,
+              "n_eligible": 199,
+              "point_pct": 7.035175879396985,
+              "lb90_pct": 4.782608695652174,
+              "ci95_lo_pct": 3.7266254790537863,
+              "ci95_hi_pct": 11.229946524064172
+            }
+          },
+          "certified_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 38,
+              "n_eligible": 310,
+              "point_pct": 12.258064516129032,
+              "lb90_pct": 9.63855421686747,
+              "ci95_lo_pct": 8.358187448922534,
+              "ci95_hi_pct": 16.508010680907876
+            },
+            "lt600": {
+              "n_rescued": 16,
+              "n_eligible": 111,
+              "point_pct": 14.414414414414415,
+              "lb90_pct": 9.565217391304348,
+              "ci95_lo_pct": 6.862409347300564,
+              "ci95_hi_pct": 21.666666666666668
+            }
+          },
+          "certified_rescue_any_flip": {
+            "overall": {
+              "n_rescued": 40,
+              "n_eligible": 310,
+              "point_pct": 12.903225806451612,
+              "lb90_pct": 10.06711409395973,
+              "ci95_lo_pct": 8.709632113084451,
+              "ci95_hi_pct": 17.507443375395894
+            },
+            "lt600": {
+              "n_rescued": 16,
+              "n_eligible": 111,
+              "point_pct": 14.414414414414415,
+              "lb90_pct": 9.565217391304348,
+              "ci95_lo_pct": 6.862409347300564,
+              "ci95_hi_pct": 21.666666666666668
+            }
+          },
+          "raw_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 28,
+              "n_eligible": 342,
+              "point_pct": 8.187134502923977,
+              "lb90_pct": 6.104355538037052,
+              "ci95_lo_pct": 5.154639175257732,
+              "ci95_hi_pct": 11.784511784511784
+            },
+            "lt600": {
+              "n_rescued": 14,
+              "n_eligible": 119,
+              "point_pct": 11.764705882352942,
+              "lb90_pct": 7.43801652892562,
+              "ci95_lo_pct": 5.318913575597816,
+              "ci95_hi_pct": 18.65696517412935
+            }
+          },
+          "raw_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 41,
+              "n_eligible": 342,
+              "point_pct": 11.988304093567251,
+              "lb90_pct": 9.395973154362416,
+              "ci95_lo_pct": 8.114835310491086,
+              "ci95_hi_pct": 16.23931623931624
+            }
+          }
+        },
+        "constrained_feasible_certified": {
+          "margin_key": "0.03",
+          "margin": 0.03,
+          "tau": 0.05805371701717377,
+          "label": "constrained_max_retention_certified",
+          "n_ordinary_total": 10080,
+          "n_ordinary_flips": 39,
+          "ordinary_flip_pct": 0.3869047619047619,
+          "n_lethal_ordinary_flips_certified": 1,
+          "n_lethal_ordinary_flips_raw": 1,
+          "pass_ordinary_flip_bar": true,
+          "pass_lethal_ordinary_bar_certified": true,
+          "pass_lethal_ordinary_bar_raw": true,
+          "feasible_certified": true,
+          "feasible_raw": true,
+          "certified_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 19,
+              "n_eligible": 310,
+              "point_pct": 6.129032258064516,
+              "lb90_pct": 4.451038575667655,
+              "ci95_lo_pct": 3.731280040475588,
+              "ci95_hi_pct": 8.945686900958467
+            },
+            "lt600": {
+              "n_rescued": 7,
+              "n_eligible": 111,
+              "point_pct": 6.306306306306307,
+              "lb90_pct": 3.125,
+              "ci95_lo_pct": 1.7857142857142858,
+              "ci95_hi_pct": 11.72515212981743
+            },
+            "ge600": {
+              "n_rescued": 12,
+              "n_eligible": 199,
+              "point_pct": 6.030150753768845,
+              "lb90_pct": 4.040404040404041,
+              "ci95_lo_pct": 3.1110535405872195,
+              "ci95_hi_pct": 9.547809271074472
+            }
+          },
+          "certified_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 26,
+              "n_eligible": 310,
+              "point_pct": 8.387096774193548,
+              "lb90_pct": 6.229508196721311,
+              "ci95_lo_pct": 5.151403743315508,
+              "ci95_hi_pct": 11.805619618696186
+            },
+            "lt600": {
+              "n_rescued": 9,
+              "n_eligible": 111,
+              "point_pct": 8.108108108108109,
+              "lb90_pct": 4.032258064516129,
+              "ci95_lo_pct": 2.150537634408602,
+              "ci95_hi_pct": 14.285714285714286
+            }
+          },
+          "certified_rescue_any_flip": {
+            "overall": {
+              "n_rescued": 26,
+              "n_eligible": 310,
+              "point_pct": 8.387096774193548,
+              "lb90_pct": 6.229508196721311,
+              "ci95_lo_pct": 5.151403743315508,
+              "ci95_hi_pct": 11.805619618696186
+            },
+            "lt600": {
+              "n_rescued": 9,
+              "n_eligible": 111,
+              "point_pct": 8.108108108108109,
+              "lb90_pct": 4.032258064516129,
+              "ci95_lo_pct": 2.150537634408602,
+              "ci95_hi_pct": 14.285714285714286
+            }
+          },
+          "raw_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 19,
+              "n_eligible": 342,
+              "point_pct": 5.555555555555555,
+              "lb90_pct": 4.012257242916268,
+              "ci95_lo_pct": 3.3536585365853657,
+              "ci95_hi_pct": 8.143391099074039
+            },
+            "lt600": {
+              "n_rescued": 7,
+              "n_eligible": 119,
+              "point_pct": 5.882352941176471,
+              "lb90_pct": 2.8846153846153846,
+              "ci95_lo_pct": 1.639344262295082,
+              "ci95_hi_pct": 10.95890410958904
+            }
+          },
+          "raw_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 26,
+              "n_eligible": 342,
+              "point_pct": 7.60233918128655,
+              "lb90_pct": 5.625,
+              "ci95_lo_pct": 4.620439625484288,
+              "ci95_hi_pct": 10.81081081081081
+            }
+          }
+        },
+        "constrained_feasible_raw": {
+          "margin_key": "0.03",
+          "margin": 0.03,
+          "tau": 0.05805371701717377,
+          "label": "constrained_max_retention_raw",
+          "n_ordinary_total": 10080,
+          "n_ordinary_flips": 39,
+          "ordinary_flip_pct": 0.3869047619047619,
+          "n_lethal_ordinary_flips_certified": 1,
+          "n_lethal_ordinary_flips_raw": 1,
+          "pass_ordinary_flip_bar": true,
+          "pass_lethal_ordinary_bar_certified": true,
+          "pass_lethal_ordinary_bar_raw": true,
+          "feasible_certified": true,
+          "feasible_raw": true,
+          "certified_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 19,
+              "n_eligible": 310,
+              "point_pct": 6.129032258064516,
+              "lb90_pct": 4.451038575667655,
+              "ci95_lo_pct": 3.731280040475588,
+              "ci95_hi_pct": 8.945686900958467
+            },
+            "lt600": {
+              "n_rescued": 7,
+              "n_eligible": 111,
+              "point_pct": 6.306306306306307,
+              "lb90_pct": 3.125,
+              "ci95_lo_pct": 1.7857142857142858,
+              "ci95_hi_pct": 11.72515212981743
+            },
+            "ge600": {
+              "n_rescued": 12,
+              "n_eligible": 199,
+              "point_pct": 6.030150753768845,
+              "lb90_pct": 4.040404040404041,
+              "ci95_lo_pct": 3.1110535405872195,
+              "ci95_hi_pct": 9.547809271074472
+            }
+          },
+          "certified_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 26,
+              "n_eligible": 310,
+              "point_pct": 8.387096774193548,
+              "lb90_pct": 6.229508196721311,
+              "ci95_lo_pct": 5.151403743315508,
+              "ci95_hi_pct": 11.805619618696186
+            },
+            "lt600": {
+              "n_rescued": 9,
+              "n_eligible": 111,
+              "point_pct": 8.108108108108109,
+              "lb90_pct": 4.032258064516129,
+              "ci95_lo_pct": 2.150537634408602,
+              "ci95_hi_pct": 14.285714285714286
+            }
+          },
+          "certified_rescue_any_flip": {
+            "overall": {
+              "n_rescued": 26,
+              "n_eligible": 310,
+              "point_pct": 8.387096774193548,
+              "lb90_pct": 6.229508196721311,
+              "ci95_lo_pct": 5.151403743315508,
+              "ci95_hi_pct": 11.805619618696186
+            },
+            "lt600": {
+              "n_rescued": 9,
+              "n_eligible": 111,
+              "point_pct": 8.108108108108109,
+              "lb90_pct": 4.032258064516129,
+              "ci95_lo_pct": 2.150537634408602,
+              "ci95_hi_pct": 14.285714285714286
+            }
+          },
+          "raw_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 19,
+              "n_eligible": 342,
+              "point_pct": 5.555555555555555,
+              "lb90_pct": 4.012257242916268,
+              "ci95_lo_pct": 3.3536585365853657,
+              "ci95_hi_pct": 8.143391099074039
+            },
+            "lt600": {
+              "n_rescued": 7,
+              "n_eligible": 119,
+              "point_pct": 5.882352941176471,
+              "lb90_pct": 2.8846153846153846,
+              "ci95_lo_pct": 1.639344262295082,
+              "ci95_hi_pct": 10.95890410958904
+            }
+          },
+          "raw_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 26,
+              "n_eligible": 342,
+              "point_pct": 7.60233918128655,
+              "lb90_pct": 5.625,
+              "ci95_lo_pct": 4.620439625484288,
+              "ci95_hi_pct": 10.81081081081081
+            }
+          }
+        }
+      },
+      "0.0632": {
+        "margin": 0.0632,
+        "unthresholded_tau_0": {
+          "margin_key": "0.0632",
+          "margin": 0.0632,
+          "tau": 0.0,
+          "label": "unthresholded_tau_0",
+          "n_ordinary_total": 10080,
+          "n_ordinary_flips": 183,
+          "ordinary_flip_pct": 1.8154761904761905,
+          "n_lethal_ordinary_flips_certified": 10,
+          "n_lethal_ordinary_flips_raw": 2,
+          "pass_ordinary_flip_bar": false,
+          "pass_lethal_ordinary_bar_certified": false,
+          "pass_lethal_ordinary_bar_raw": false,
+          "feasible_certified": false,
+          "feasible_raw": false,
+          "certified_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 37,
+              "n_eligible": 310,
+              "point_pct": 11.935483870967742,
+              "lb90_pct": 9.476780185758514,
+              "ci95_lo_pct": 8.250825082508252,
+              "ci95_hi_pct": 16.077449359449012
+            },
+            "lt600": {
+              "n_rescued": 15,
+              "n_eligible": 111,
+              "point_pct": 13.513513513513514,
+              "lb90_pct": 8.403361344537815,
+              "ci95_lo_pct": 6.059952978056427,
+              "ci95_hi_pct": 21.428571428571427
+            },
+            "ge600": {
+              "n_rescued": 22,
+              "n_eligible": 199,
+              "point_pct": 11.055276381909549,
+              "lb90_pct": 8.16326530612245,
+              "ci95_lo_pct": 6.779440324858757,
+              "ci95_hi_pct": 15.92356687898089
+            }
+          },
+          "certified_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 55,
+              "n_eligible": 310,
+              "point_pct": 17.741935483870968,
+              "lb90_pct": 14.582725947521867,
+              "ci95_lo_pct": 12.92517006802721,
+              "ci95_hi_pct": 22.33676975945017
+            },
+            "lt600": {
+              "n_rescued": 21,
+              "n_eligible": 111,
+              "point_pct": 18.91891891891892,
+              "lb90_pct": 13.333333333333334,
+              "ci95_lo_pct": 10.184792843691149,
+              "ci95_hi_pct": 26.363636363636363
+            }
+          },
+          "certified_rescue_any_flip": {
+            "overall": {
+              "n_rescued": 56,
+              "n_eligible": 310,
+              "point_pct": 18.06451612903226,
+              "lb90_pct": 14.864864864864865,
+              "ci95_lo_pct": 13.157667091604443,
+              "ci95_hi_pct": 22.812610035211264
+            },
+            "lt600": {
+              "n_rescued": 21,
+              "n_eligible": 111,
+              "point_pct": 18.91891891891892,
+              "lb90_pct": 13.333333333333334,
+              "ci95_lo_pct": 10.184792843691149,
+              "ci95_hi_pct": 26.363636363636363
+            }
+          },
+          "raw_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 39,
+              "n_eligible": 342,
+              "point_pct": 11.403508771929825,
+              "lb90_pct": 9.034267912772586,
+              "ci95_lo_pct": 7.861635220125786,
+              "ci95_hi_pct": 15.297450424929178
+            },
+            "lt600": {
+              "n_rescued": 15,
+              "n_eligible": 119,
+              "point_pct": 12.605042016806722,
+              "lb90_pct": 7.864365971107545,
+              "ci95_lo_pct": 5.681818181818182,
+              "ci95_hi_pct": 19.801980198019802
+            }
+          },
+          "raw_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 59,
+              "n_eligible": 342,
+              "point_pct": 17.251461988304094,
+              "lb90_pct": 14.242330424992964,
+              "ci95_lo_pct": 12.650513819985825,
+              "ci95_hi_pct": 21.654582536398763
+            }
+          }
+        },
+        "at_1pct_ordinary_flip_cap": {
+          "margin_key": "0.0632",
+          "margin": 0.0632,
+          "tau": 0.03971588611602783,
+          "label": "at_1pct_ordinary_flip_cap",
+          "n_ordinary_total": 10080,
+          "n_ordinary_flips": 100,
+          "ordinary_flip_pct": 0.9920634920634921,
+          "n_lethal_ordinary_flips_certified": 5,
+          "n_lethal_ordinary_flips_raw": 1,
+          "pass_ordinary_flip_bar": true,
+          "pass_lethal_ordinary_bar_certified": false,
+          "pass_lethal_ordinary_bar_raw": true,
+          "feasible_certified": false,
+          "feasible_raw": true,
+          "certified_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 27,
+              "n_eligible": 310,
+              "point_pct": 8.709677419354838,
+              "lb90_pct": 6.230529595015576,
+              "ci95_lo_pct": 5.136960435376402,
+              "ci95_hi_pct": 12.944983818770227
+            },
+            "lt600": {
+              "n_rescued": 12,
+              "n_eligible": 111,
+              "point_pct": 10.81081081081081,
+              "lb90_pct": 5.9405940594059405,
+              "ci95_lo_pct": 3.6144578313253013,
+              "ci95_hi_pct": 18.58407079646018
+            },
+            "ge600": {
+              "n_rescued": 15,
+              "n_eligible": 199,
+              "point_pct": 7.5376884422110555,
+              "lb90_pct": 4.716981132075472,
+              "ci95_lo_pct": 3.48822746731459,
+              "ci95_hi_pct": 12.77823854660347
+            }
+          },
+          "certified_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 38,
+              "n_eligible": 310,
+              "point_pct": 12.258064516129032,
+              "lb90_pct": 9.541849863782268,
+              "ci95_lo_pct": 8.239590218109717,
+              "ci95_hi_pct": 16.541551943238375
+            },
+            "lt600": {
+              "n_rescued": 15,
+              "n_eligible": 111,
+              "point_pct": 13.513513513513514,
+              "lb90_pct": 8.264462809917354,
+              "ci95_lo_pct": 5.49412915851272,
+              "ci95_hi_pct": 21.290471923536437
+            }
+          },
+          "certified_rescue_any_flip": {
+            "overall": {
+              "n_rescued": 38,
+              "n_eligible": 310,
+              "point_pct": 12.258064516129032,
+              "lb90_pct": 9.541849863782268,
+              "ci95_lo_pct": 8.239590218109717,
+              "ci95_hi_pct": 16.541551943238375
+            },
+            "lt600": {
+              "n_rescued": 15,
+              "n_eligible": 111,
+              "point_pct": 13.513513513513514,
+              "lb90_pct": 8.264462809917354,
+              "ci95_lo_pct": 5.49412915851272,
+              "ci95_hi_pct": 21.290471923536437
+            }
+          },
+          "raw_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 28,
+              "n_eligible": 342,
+              "point_pct": 8.187134502923977,
+              "lb90_pct": 5.9375,
+              "ci95_lo_pct": 4.956200525322911,
+              "ci95_hi_pct": 12.063492063492063
+            },
+            "lt600": {
+              "n_rescued": 12,
+              "n_eligible": 119,
+              "point_pct": 10.084033613445378,
+              "lb90_pct": 5.555555555555555,
+              "ci95_lo_pct": 3.3333333333333335,
+              "ci95_hi_pct": 17.322834645669293
+            }
+          },
+          "raw_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 39,
+              "n_eligible": 342,
+              "point_pct": 11.403508771929825,
+              "lb90_pct": 8.877284595300262,
+              "ci95_lo_pct": 7.647058823529412,
+              "ci95_hi_pct": 15.432098765432098
+            }
+          }
+        },
+        "constrained_feasible_certified": {
+          "margin_key": "0.0632",
+          "margin": 0.0632,
+          "tau": 0.06099018454551697,
+          "label": "constrained_max_retention_certified",
+          "n_ordinary_total": 10080,
+          "n_ordinary_flips": 69,
+          "ordinary_flip_pct": 0.6845238095238095,
+          "n_lethal_ordinary_flips_certified": 1,
+          "n_lethal_ordinary_flips_raw": 0,
+          "pass_ordinary_flip_bar": true,
+          "pass_lethal_ordinary_bar_certified": true,
+          "pass_lethal_ordinary_bar_raw": true,
+          "feasible_certified": true,
+          "feasible_raw": true,
+          "certified_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 26,
+              "n_eligible": 310,
+              "point_pct": 8.387096774193548,
+              "lb90_pct": 5.9375,
+              "ci95_lo_pct": 4.833680591728305,
+              "ci95_hi_pct": 12.585034013605442
+            },
+            "lt600": {
+              "n_rescued": 11,
+              "n_eligible": 111,
+              "point_pct": 9.90990990990991,
+              "lb90_pct": 5.0359712230215825,
+              "ci95_lo_pct": 2.7027027027027026,
+              "ci95_hi_pct": 17.482517482517483
+            },
+            "ge600": {
+              "n_rescued": 15,
+              "n_eligible": 199,
+              "point_pct": 7.5376884422110555,
+              "lb90_pct": 4.716981132075472,
+              "ci95_lo_pct": 3.48822746731459,
+              "ci95_hi_pct": 12.77823854660347
+            }
+          },
+          "certified_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 36,
+              "n_eligible": 310,
+              "point_pct": 11.612903225806452,
+              "lb90_pct": 8.945686900958467,
+              "ci95_lo_pct": 7.666637630662021,
+              "ci95_hi_pct": 15.80651091081594
+            },
+            "lt600": {
+              "n_rescued": 13,
+              "n_eligible": 111,
+              "point_pct": 11.711711711711711,
+              "lb90_pct": 6.755238384451869,
+              "ci95_lo_pct": 4.25531914893617,
+              "ci95_hi_pct": 19.327731092436974
+            }
+          },
+          "certified_rescue_any_flip": {
+            "overall": {
+              "n_rescued": 36,
+              "n_eligible": 310,
+              "point_pct": 11.612903225806452,
+              "lb90_pct": 8.945686900958467,
+              "ci95_lo_pct": 7.666637630662021,
+              "ci95_hi_pct": 15.80651091081594
+            },
+            "lt600": {
+              "n_rescued": 13,
+              "n_eligible": 111,
+              "point_pct": 11.711711711711711,
+              "lb90_pct": 6.755238384451869,
+              "ci95_lo_pct": 4.25531914893617,
+              "ci95_hi_pct": 19.327731092436974
+            }
+          },
+          "raw_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 27,
+              "n_eligible": 342,
+              "point_pct": 7.894736842105263,
+              "lb90_pct": 5.660377358490566,
+              "ci95_lo_pct": 4.63768115942029,
+              "ci95_hi_pct": 11.696301564722612
+            },
+            "lt600": {
+              "n_rescued": 11,
+              "n_eligible": 119,
+              "point_pct": 9.243697478991596,
+              "lb90_pct": 4.672897196261682,
+              "ci95_lo_pct": 2.5,
+              "ci95_hi_pct": 16.374395039322444
+            }
+          },
+          "raw_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 37,
+              "n_eligible": 342,
+              "point_pct": 10.818713450292398,
+              "lb90_pct": 8.362369337979095,
+              "ci95_lo_pct": 7.142857142857143,
+              "ci95_hi_pct": 14.706082705561785
+            }
+          }
+        },
+        "constrained_feasible_raw": {
+          "margin_key": "0.0632",
+          "margin": 0.0632,
+          "tau": 0.03971588611602783,
+          "label": "constrained_max_retention_raw",
+          "n_ordinary_total": 10080,
+          "n_ordinary_flips": 100,
+          "ordinary_flip_pct": 0.9920634920634921,
+          "n_lethal_ordinary_flips_certified": 5,
+          "n_lethal_ordinary_flips_raw": 1,
+          "pass_ordinary_flip_bar": true,
+          "pass_lethal_ordinary_bar_certified": false,
+          "pass_lethal_ordinary_bar_raw": true,
+          "feasible_certified": false,
+          "feasible_raw": true,
+          "certified_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 27,
+              "n_eligible": 310,
+              "point_pct": 8.709677419354838,
+              "lb90_pct": 6.230529595015576,
+              "ci95_lo_pct": 5.136960435376402,
+              "ci95_hi_pct": 12.944983818770227
+            },
+            "lt600": {
+              "n_rescued": 12,
+              "n_eligible": 111,
+              "point_pct": 10.81081081081081,
+              "lb90_pct": 5.9405940594059405,
+              "ci95_lo_pct": 3.6144578313253013,
+              "ci95_hi_pct": 18.58407079646018
+            },
+            "ge600": {
+              "n_rescued": 15,
+              "n_eligible": 199,
+              "point_pct": 7.5376884422110555,
+              "lb90_pct": 4.716981132075472,
+              "ci95_lo_pct": 3.48822746731459,
+              "ci95_hi_pct": 12.77823854660347
+            }
+          },
+          "certified_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 38,
+              "n_eligible": 310,
+              "point_pct": 12.258064516129032,
+              "lb90_pct": 9.541849863782268,
+              "ci95_lo_pct": 8.239590218109717,
+              "ci95_hi_pct": 16.541551943238375
+            },
+            "lt600": {
+              "n_rescued": 15,
+              "n_eligible": 111,
+              "point_pct": 13.513513513513514,
+              "lb90_pct": 8.264462809917354,
+              "ci95_lo_pct": 5.49412915851272,
+              "ci95_hi_pct": 21.290471923536437
+            }
+          },
+          "certified_rescue_any_flip": {
+            "overall": {
+              "n_rescued": 38,
+              "n_eligible": 310,
+              "point_pct": 12.258064516129032,
+              "lb90_pct": 9.541849863782268,
+              "ci95_lo_pct": 8.239590218109717,
+              "ci95_hi_pct": 16.541551943238375
+            },
+            "lt600": {
+              "n_rescued": 15,
+              "n_eligible": 111,
+              "point_pct": 13.513513513513514,
+              "lb90_pct": 8.264462809917354,
+              "ci95_lo_pct": 5.49412915851272,
+              "ci95_hi_pct": 21.290471923536437
+            }
+          },
+          "raw_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 28,
+              "n_eligible": 342,
+              "point_pct": 8.187134502923977,
+              "lb90_pct": 5.9375,
+              "ci95_lo_pct": 4.956200525322911,
+              "ci95_hi_pct": 12.063492063492063
+            },
+            "lt600": {
+              "n_rescued": 12,
+              "n_eligible": 119,
+              "point_pct": 10.084033613445378,
+              "lb90_pct": 5.555555555555555,
+              "ci95_lo_pct": 3.3333333333333335,
+              "ci95_hi_pct": 17.322834645669293
+            }
+          },
+          "raw_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 39,
+              "n_eligible": 342,
+              "point_pct": 11.403508771929825,
+              "lb90_pct": 8.877284595300262,
+              "ci95_lo_pct": 7.647058823529412,
+              "ci95_hi_pct": 15.432098765432098
+            }
+          }
+        }
+      },
+      "0.1129": {
+        "margin": 0.1129,
+        "unthresholded_tau_0": {
+          "margin_key": "0.1129",
+          "margin": 0.1129,
+          "tau": 0.0,
+          "label": "unthresholded_tau_0",
+          "n_ordinary_total": 10080,
+          "n_ordinary_flips": 136,
+          "ordinary_flip_pct": 1.3492063492063493,
+          "n_lethal_ordinary_flips_certified": 2,
+          "n_lethal_ordinary_flips_raw": 0,
+          "pass_ordinary_flip_bar": false,
+          "pass_lethal_ordinary_bar_certified": false,
+          "pass_lethal_ordinary_bar_raw": true,
+          "feasible_certified": false,
+          "feasible_raw": false,
+          "certified_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 31,
+              "n_eligible": 310,
+              "point_pct": 10.0,
+              "lb90_pct": 7.339449541284404,
+              "ci95_lo_pct": 6.0197418958365345,
+              "ci95_hi_pct": 14.478114478114477
+            },
+            "lt600": {
+              "n_rescued": 11,
+              "n_eligible": 111,
+              "point_pct": 9.90990990990991,
+              "lb90_pct": 5.376344086021505,
+              "ci95_lo_pct": 3.0303030303030303,
+              "ci95_hi_pct": 16.10792379302879
+            },
+            "ge600": {
+              "n_rescued": 20,
+              "n_eligible": 199,
+              "point_pct": 10.050251256281408,
+              "lb90_pct": 6.763285024154589,
+              "ci95_lo_pct": 5.213146721958926,
+              "ci95_hi_pct": 15.882352941176471
+            }
+          },
+          "certified_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 41,
+              "n_eligible": 310,
+              "point_pct": 13.225806451612904,
+              "lb90_pct": 10.367689044783424,
+              "ci95_lo_pct": 8.91358007667062,
+              "ci95_hi_pct": 17.78523489932886
+            },
+            "lt600": {
+              "n_rescued": 14,
+              "n_eligible": 111,
+              "point_pct": 12.612612612612613,
+              "lb90_pct": 7.865168539325842,
+              "ci95_lo_pct": 5.084209397125081,
+              "ci95_hi_pct": 18.39080459770115
+            }
+          },
+          "certified_rescue_any_flip": {
+            "overall": {
+              "n_rescued": 42,
+              "n_eligible": 310,
+              "point_pct": 13.548387096774194,
+              "lb90_pct": 10.59190031152648,
+              "ci95_lo_pct": 9.15032679738562,
+              "ci95_hi_pct": 18.151463262764622
+            },
+            "lt600": {
+              "n_rescued": 14,
+              "n_eligible": 111,
+              "point_pct": 12.612612612612613,
+              "lb90_pct": 7.865168539325842,
+              "ci95_lo_pct": 5.084209397125081,
+              "ci95_hi_pct": 18.39080459770115
+            }
+          },
+          "raw_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 31,
+              "n_eligible": 342,
+              "point_pct": 9.064327485380117,
+              "lb90_pct": 6.628242074927954,
+              "ci95_lo_pct": 5.44956944735555,
+              "ci95_hi_pct": 13.099105602159538
+            },
+            "lt600": {
+              "n_rescued": 11,
+              "n_eligible": 119,
+              "point_pct": 9.243697478991596,
+              "lb90_pct": 4.9964539007092235,
+              "ci95_lo_pct": 2.803089304257529,
+              "ci95_hi_pct": 15.079365079365079
+            }
+          },
+          "raw_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 44,
+              "n_eligible": 342,
+              "point_pct": 12.865497076023392,
+              "lb90_pct": 10.068993506493507,
+              "ci95_lo_pct": 8.707865168539326,
+              "ci95_hi_pct": 17.232601062393083
+            }
+          }
+        },
+        "at_1pct_ordinary_flip_cap": {
+          "margin_key": "0.1129",
+          "margin": 0.1129,
+          "tau": 0.03522735834121704,
+          "label": "at_1pct_ordinary_flip_cap",
+          "n_ordinary_total": 10080,
+          "n_ordinary_flips": 100,
+          "ordinary_flip_pct": 0.9920634920634921,
+          "n_lethal_ordinary_flips_certified": 1,
+          "n_lethal_ordinary_flips_raw": 0,
+          "pass_ordinary_flip_bar": true,
+          "pass_lethal_ordinary_bar_certified": true,
+          "pass_lethal_ordinary_bar_raw": true,
+          "feasible_certified": true,
+          "feasible_raw": true,
+          "certified_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 28,
+              "n_eligible": 310,
+              "point_pct": 9.03225806451613,
+              "lb90_pct": 6.498092965387832,
+              "ci95_lo_pct": 5.329153605015674,
+              "ci95_hi_pct": 13.383218103278551
+            },
+            "lt600": {
+              "n_rescued": 11,
+              "n_eligible": 111,
+              "point_pct": 9.90990990990991,
+              "lb90_pct": 5.376344086021505,
+              "ci95_lo_pct": 3.0303030303030303,
+              "ci95_hi_pct": 16.10792379302879
+            },
+            "ge600": {
+              "n_rescued": 17,
+              "n_eligible": 199,
+              "point_pct": 8.542713567839195,
+              "lb90_pct": 5.641025641025641,
+              "ci95_lo_pct": 4.405044294912136,
+              "ci95_hi_pct": 13.829954502877023
+            }
+          },
+          "certified_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 36,
+              "n_eligible": 310,
+              "point_pct": 11.612903225806452,
+              "lb90_pct": 8.894279724468404,
+              "ci95_lo_pct": 7.530120481927711,
+              "ci95_hi_pct": 15.957533439600804
+            },
+            "lt600": {
+              "n_rescued": 13,
+              "n_eligible": 111,
+              "point_pct": 11.711711711711711,
+              "lb90_pct": 6.779661016949152,
+              "ci95_lo_pct": 3.75,
+              "ci95_hi_pct": 17.834593123133438
+            }
+          },
+          "certified_rescue_any_flip": {
+            "overall": {
+              "n_rescued": 37,
+              "n_eligible": 310,
+              "point_pct": 11.935483870967742,
+              "lb90_pct": 9.12280701754386,
+              "ci95_lo_pct": 7.7205559855521155,
+              "ci95_hi_pct": 16.352318159500594
+            },
+            "lt600": {
+              "n_rescued": 13,
+              "n_eligible": 111,
+              "point_pct": 11.711711711711711,
+              "lb90_pct": 6.779661016949152,
+              "ci95_lo_pct": 3.75,
+              "ci95_hi_pct": 17.834593123133438
+            }
+          },
+          "raw_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 28,
+              "n_eligible": 342,
+              "point_pct": 8.187134502923977,
+              "lb90_pct": 5.882352941176471,
+              "ci95_lo_pct": 4.804804804804805,
+              "ci95_hi_pct": 12.094395280235988
+            },
+            "lt600": {
+              "n_rescued": 11,
+              "n_eligible": 119,
+              "point_pct": 9.243697478991596,
+              "lb90_pct": 4.9964539007092235,
+              "ci95_lo_pct": 2.803089304257529,
+              "ci95_hi_pct": 15.079365079365079
+            }
+          },
+          "raw_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 39,
+              "n_eligible": 342,
+              "point_pct": 11.403508771929825,
+              "lb90_pct": 8.78186968838527,
+              "ci95_lo_pct": 7.506534852546917,
+              "ci95_hi_pct": 15.479876160990711
+            }
+          }
+        },
+        "constrained_feasible_certified": {
+          "margin_key": "0.1129",
+          "margin": 0.1129,
+          "tau": 0.03522735834121704,
+          "label": "constrained_max_retention_certified",
+          "n_ordinary_total": 10080,
+          "n_ordinary_flips": 100,
+          "ordinary_flip_pct": 0.9920634920634921,
+          "n_lethal_ordinary_flips_certified": 1,
+          "n_lethal_ordinary_flips_raw": 0,
+          "pass_ordinary_flip_bar": true,
+          "pass_lethal_ordinary_bar_certified": true,
+          "pass_lethal_ordinary_bar_raw": true,
+          "feasible_certified": true,
+          "feasible_raw": true,
+          "certified_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 28,
+              "n_eligible": 310,
+              "point_pct": 9.03225806451613,
+              "lb90_pct": 6.498092965387832,
+              "ci95_lo_pct": 5.329153605015674,
+              "ci95_hi_pct": 13.383218103278551
+            },
+            "lt600": {
+              "n_rescued": 11,
+              "n_eligible": 111,
+              "point_pct": 9.90990990990991,
+              "lb90_pct": 5.376344086021505,
+              "ci95_lo_pct": 3.0303030303030303,
+              "ci95_hi_pct": 16.10792379302879
+            },
+            "ge600": {
+              "n_rescued": 17,
+              "n_eligible": 199,
+              "point_pct": 8.542713567839195,
+              "lb90_pct": 5.641025641025641,
+              "ci95_lo_pct": 4.405044294912136,
+              "ci95_hi_pct": 13.829954502877023
+            }
+          },
+          "certified_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 36,
+              "n_eligible": 310,
+              "point_pct": 11.612903225806452,
+              "lb90_pct": 8.894279724468404,
+              "ci95_lo_pct": 7.530120481927711,
+              "ci95_hi_pct": 15.957533439600804
+            },
+            "lt600": {
+              "n_rescued": 13,
+              "n_eligible": 111,
+              "point_pct": 11.711711711711711,
+              "lb90_pct": 6.779661016949152,
+              "ci95_lo_pct": 3.75,
+              "ci95_hi_pct": 17.834593123133438
+            }
+          },
+          "certified_rescue_any_flip": {
+            "overall": {
+              "n_rescued": 37,
+              "n_eligible": 310,
+              "point_pct": 11.935483870967742,
+              "lb90_pct": 9.12280701754386,
+              "ci95_lo_pct": 7.7205559855521155,
+              "ci95_hi_pct": 16.352318159500594
+            },
+            "lt600": {
+              "n_rescued": 13,
+              "n_eligible": 111,
+              "point_pct": 11.711711711711711,
+              "lb90_pct": 6.779661016949152,
+              "ci95_lo_pct": 3.75,
+              "ci95_hi_pct": 17.834593123133438
+            }
+          },
+          "raw_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 28,
+              "n_eligible": 342,
+              "point_pct": 8.187134502923977,
+              "lb90_pct": 5.882352941176471,
+              "ci95_lo_pct": 4.804804804804805,
+              "ci95_hi_pct": 12.094395280235988
+            },
+            "lt600": {
+              "n_rescued": 11,
+              "n_eligible": 119,
+              "point_pct": 9.243697478991596,
+              "lb90_pct": 4.9964539007092235,
+              "ci95_lo_pct": 2.803089304257529,
+              "ci95_hi_pct": 15.079365079365079
+            }
+          },
+          "raw_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 39,
+              "n_eligible": 342,
+              "point_pct": 11.403508771929825,
+              "lb90_pct": 8.78186968838527,
+              "ci95_lo_pct": 7.506534852546917,
+              "ci95_hi_pct": 15.479876160990711
+            }
+          }
+        },
+        "constrained_feasible_raw": {
+          "margin_key": "0.1129",
+          "margin": 0.1129,
+          "tau": 0.03522735834121704,
+          "label": "constrained_max_retention_raw",
+          "n_ordinary_total": 10080,
+          "n_ordinary_flips": 100,
+          "ordinary_flip_pct": 0.9920634920634921,
+          "n_lethal_ordinary_flips_certified": 1,
+          "n_lethal_ordinary_flips_raw": 0,
+          "pass_ordinary_flip_bar": true,
+          "pass_lethal_ordinary_bar_certified": true,
+          "pass_lethal_ordinary_bar_raw": true,
+          "feasible_certified": true,
+          "feasible_raw": true,
+          "certified_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 28,
+              "n_eligible": 310,
+              "point_pct": 9.03225806451613,
+              "lb90_pct": 6.498092965387832,
+              "ci95_lo_pct": 5.329153605015674,
+              "ci95_hi_pct": 13.383218103278551
+            },
+            "lt600": {
+              "n_rescued": 11,
+              "n_eligible": 111,
+              "point_pct": 9.90990990990991,
+              "lb90_pct": 5.376344086021505,
+              "ci95_lo_pct": 3.0303030303030303,
+              "ci95_hi_pct": 16.10792379302879
+            },
+            "ge600": {
+              "n_rescued": 17,
+              "n_eligible": 199,
+              "point_pct": 8.542713567839195,
+              "lb90_pct": 5.641025641025641,
+              "ci95_lo_pct": 4.405044294912136,
+              "ci95_hi_pct": 13.829954502877023
+            }
+          },
+          "certified_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 36,
+              "n_eligible": 310,
+              "point_pct": 11.612903225806452,
+              "lb90_pct": 8.894279724468404,
+              "ci95_lo_pct": 7.530120481927711,
+              "ci95_hi_pct": 15.957533439600804
+            },
+            "lt600": {
+              "n_rescued": 13,
+              "n_eligible": 111,
+              "point_pct": 11.711711711711711,
+              "lb90_pct": 6.779661016949152,
+              "ci95_lo_pct": 3.75,
+              "ci95_hi_pct": 17.834593123133438
+            }
+          },
+          "certified_rescue_any_flip": {
+            "overall": {
+              "n_rescued": 37,
+              "n_eligible": 310,
+              "point_pct": 11.935483870967742,
+              "lb90_pct": 9.12280701754386,
+              "ci95_lo_pct": 7.7205559855521155,
+              "ci95_hi_pct": 16.352318159500594
+            },
+            "lt600": {
+              "n_rescued": 13,
+              "n_eligible": 111,
+              "point_pct": 11.711711711711711,
+              "lb90_pct": 6.779661016949152,
+              "ci95_lo_pct": 3.75,
+              "ci95_hi_pct": 17.834593123133438
+            }
+          },
+          "raw_rescue_exact_match": {
+            "overall": {
+              "n_rescued": 28,
+              "n_eligible": 342,
+              "point_pct": 8.187134502923977,
+              "lb90_pct": 5.882352941176471,
+              "ci95_lo_pct": 4.804804804804805,
+              "ci95_hi_pct": 12.094395280235988
+            },
+            "lt600": {
+              "n_rescued": 11,
+              "n_eligible": 119,
+              "point_pct": 9.243697478991596,
+              "lb90_pct": 4.9964539007092235,
+              "ci95_lo_pct": 2.803089304257529,
+              "ci95_hi_pct": 15.079365079365079
+            }
+          },
+          "raw_rescue_survival_match": {
+            "overall": {
+              "n_rescued": 39,
+              "n_eligible": 342,
+              "point_pct": 11.403508771929825,
+              "lb90_pct": 8.78186968838527,
+              "ci95_lo_pct": 7.506534852546917,
+              "ci95_hi_pct": 15.479876160990711
+            }
+          }
+        }
+      }
+    },
+    "selected_operating_point": {
+      "margin_key": "0.1129",
+      "margin": 0.1129,
+      "tau": 0.03522735834121704,
+      "label": "constrained_max_retention_certified",
+      "n_ordinary_total": 10080,
+      "n_ordinary_flips": 100,
+      "ordinary_flip_pct": 0.9920634920634921,
+      "n_lethal_ordinary_flips_certified": 1,
+      "n_lethal_ordinary_flips_raw": 0,
+      "pass_ordinary_flip_bar": true,
+      "pass_lethal_ordinary_bar_certified": true,
+      "pass_lethal_ordinary_bar_raw": true,
+      "feasible_certified": true,
+      "feasible_raw": true,
+      "certified_rescue_exact_match": {
+        "overall": {
+          "n_rescued": 28,
+          "n_eligible": 310,
+          "point_pct": 9.03225806451613,
+          "lb90_pct": 6.498092965387832,
+          "ci95_lo_pct": 5.329153605015674,
+          "ci95_hi_pct": 13.383218103278551
+        },
+        "lt600": {
+          "n_rescued": 11,
+          "n_eligible": 111,
+          "point_pct": 9.90990990990991,
+          "lb90_pct": 5.376344086021505,
+          "ci95_lo_pct": 3.0303030303030303,
+          "ci95_hi_pct": 16.10792379302879
+        },
+        "ge600": {
+          "n_rescued": 17,
+          "n_eligible": 199,
+          "point_pct": 8.542713567839195,
+          "lb90_pct": 5.641025641025641,
+          "ci95_lo_pct": 4.405044294912136,
+          "ci95_hi_pct": 13.829954502877023
+        }
+      },
+      "certified_rescue_survival_match": {
+        "overall": {
+          "n_rescued": 36,
+          "n_eligible": 310,
+          "point_pct": 11.612903225806452,
+          "lb90_pct": 8.894279724468404,
+          "ci95_lo_pct": 7.530120481927711,
+          "ci95_hi_pct": 15.957533439600804
+        },
+        "lt600": {
+          "n_rescued": 13,
+          "n_eligible": 111,
+          "point_pct": 11.711711711711711,
+          "lb90_pct": 6.779661016949152,
+          "ci95_lo_pct": 3.75,
+          "ci95_hi_pct": 17.834593123133438
+        }
+      },
+      "certified_rescue_any_flip": {
+        "overall": {
+          "n_rescued": 37,
+          "n_eligible": 310,
+          "point_pct": 11.935483870967742,
+          "lb90_pct": 9.12280701754386,
+          "ci95_lo_pct": 7.7205559855521155,
+          "ci95_hi_pct": 16.352318159500594
+        },
+        "lt600": {
+          "n_rescued": 13,
+          "n_eligible": 111,
+          "point_pct": 11.711711711711711,
+          "lb90_pct": 6.779661016949152,
+          "ci95_lo_pct": 3.75,
+          "ci95_hi_pct": 17.834593123133438
+        }
+      },
+      "raw_rescue_exact_match": {
+        "overall": {
+          "n_rescued": 28,
+          "n_eligible": 342,
+          "point_pct": 8.187134502923977,
+          "lb90_pct": 5.882352941176471,
+          "ci95_lo_pct": 4.804804804804805,
+          "ci95_hi_pct": 12.094395280235988
+        },
+        "lt600": {
+          "n_rescued": 11,
+          "n_eligible": 119,
+          "point_pct": 9.243697478991596,
+          "lb90_pct": 4.9964539007092235,
+          "ci95_lo_pct": 2.803089304257529,
+          "ci95_hi_pct": 15.079365079365079
+        }
+      },
+      "raw_rescue_survival_match": {
+        "overall": {
+          "n_rescued": 39,
+          "n_eligible": 342,
+          "point_pct": 11.403508771929825,
+          "lb90_pct": 8.78186968838527,
+          "ci95_lo_pct": 7.506534852546917,
+          "ci95_hi_pct": 15.479876160990711
+        }
+      }
+    },
+    "best_1pct_only_operating_point": {
+      "margin_key": "0.1129",
+      "margin": 0.1129,
+      "tau": 0.03522735834121704,
+      "label": "at_1pct_ordinary_flip_cap",
+      "n_ordinary_total": 10080,
+      "n_ordinary_flips": 100,
+      "ordinary_flip_pct": 0.9920634920634921,
+      "n_lethal_ordinary_flips_certified": 1,
+      "n_lethal_ordinary_flips_raw": 0,
+      "pass_ordinary_flip_bar": true,
+      "pass_lethal_ordinary_bar_certified": true,
+      "pass_lethal_ordinary_bar_raw": true,
+      "feasible_certified": true,
+      "feasible_raw": true,
+      "certified_rescue_exact_match": {
+        "overall": {
+          "n_rescued": 28,
+          "n_eligible": 310,
+          "point_pct": 9.03225806451613,
+          "lb90_pct": 6.498092965387832,
+          "ci95_lo_pct": 5.329153605015674,
+          "ci95_hi_pct": 13.383218103278551
+        },
+        "lt600": {
+          "n_rescued": 11,
+          "n_eligible": 111,
+          "point_pct": 9.90990990990991,
+          "lb90_pct": 5.376344086021505,
+          "ci95_lo_pct": 3.0303030303030303,
+          "ci95_hi_pct": 16.10792379302879
+        },
+        "ge600": {
+          "n_rescued": 17,
+          "n_eligible": 199,
+          "point_pct": 8.542713567839195,
+          "lb90_pct": 5.641025641025641,
+          "ci95_lo_pct": 4.405044294912136,
+          "ci95_hi_pct": 13.829954502877023
+        }
+      },
+      "certified_rescue_survival_match": {
+        "overall": {
+          "n_rescued": 36,
+          "n_eligible": 310,
+          "point_pct": 11.612903225806452,
+          "lb90_pct": 8.894279724468404,
+          "ci95_lo_pct": 7.530120481927711,
+          "ci95_hi_pct": 15.957533439600804
+        },
+        "lt600": {
+          "n_rescued": 13,
+          "n_eligible": 111,
+          "point_pct": 11.711711711711711,
+          "lb90_pct": 6.779661016949152,
+          "ci95_lo_pct": 3.75,
+          "ci95_hi_pct": 17.834593123133438
+        }
+      },
+      "certified_rescue_any_flip": {
+        "overall": {
+          "n_rescued": 37,
+          "n_eligible": 310,
+          "point_pct": 11.935483870967742,
+          "lb90_pct": 9.12280701754386,
+          "ci95_lo_pct": 7.7205559855521155,
+          "ci95_hi_pct": 16.352318159500594
+        },
+        "lt600": {
+          "n_rescued": 13,
+          "n_eligible": 111,
+          "point_pct": 11.711711711711711,
+          "lb90_pct": 6.779661016949152,
+          "ci95_lo_pct": 3.75,
+          "ci95_hi_pct": 17.834593123133438
+        }
+      },
+      "raw_rescue_exact_match": {
+        "overall": {
+          "n_rescued": 28,
+          "n_eligible": 342,
+          "point_pct": 8.187134502923977,
+          "lb90_pct": 5.882352941176471,
+          "ci95_lo_pct": 4.804804804804805,
+          "ci95_hi_pct": 12.094395280235988
+        },
+        "lt600": {
+          "n_rescued": 11,
+          "n_eligible": 119,
+          "point_pct": 9.243697478991596,
+          "lb90_pct": 4.9964539007092235,
+          "ci95_lo_pct": 2.803089304257529,
+          "ci95_hi_pct": 15.079365079365079
+        }
+      },
+      "raw_rescue_survival_match": {
+        "overall": {
+          "n_rescued": 39,
+          "n_eligible": 342,
+          "point_pct": 11.403508771929825,
+          "lb90_pct": 8.78186968838527,
+          "ci95_lo_pct": 7.506534852546917,
+          "ci95_hi_pct": 15.479876160990711
+        }
+      }
+    }
+  },
+  "paired_arm_b_minus_arm_a": {
+    "certified_rescue_exact_match": {
+      "arm_a_pct": 8.064516129032258,
+      "arm_b_pct": 9.03225806451613,
+      "delta_pp": 0.9677419354838719,
+      "lb90_delta_pp": -0.625,
+      "ci95_lo_delta_pp": -1.3560475037472615,
+      "ci95_hi_delta_pp": 3.4966705269253016
+    },
+    "certified_rescue_survival_match": {
+      "arm_a_pct": 10.64516129032258,
+      "arm_b_pct": 11.612903225806452,
+      "delta_pp": 0.9677419354838719,
+      "lb90_delta_pp": -0.6410256410256415,
+      "ci95_lo_delta_pp": -1.408450704225352,
+      "ci95_hi_delta_pp": 3.378378378378379
+    }
+  },
+  "secondary_head_families": {
+    "flat_mlp": {
+      "arm_a_selected": {
+        "margin_key": "0.0632",
+        "margin": 0.0632,
+        "tau": 0.05127239227294922,
+        "label": "constrained_max_retention_certified",
+        "n_ordinary_total": 10080,
+        "n_ordinary_flips": 68,
+        "ordinary_flip_pct": 0.6746031746031746,
+        "n_lethal_ordinary_flips_certified": 1,
+        "n_lethal_ordinary_flips_raw": 1,
+        "pass_ordinary_flip_bar": true,
+        "pass_lethal_ordinary_bar_certified": true,
+        "pass_lethal_ordinary_bar_raw": true,
+        "feasible_certified": true,
+        "feasible_raw": true,
+        "certified_rescue_exact_match": {
+          "overall": {
+            "n_rescued": 27,
+            "n_eligible": 310,
+            "point_pct": 8.709677419354838,
+            "lb90_pct": 6.617647058823529,
+            "ci95_lo_pct": 5.666666666666667,
+            "ci95_hi_pct": 12.187690548780486
+          },
+          "lt600": {
+            "n_rescued": 13,
+            "n_eligible": 111,
+            "point_pct": 11.711711711711711,
+            "lb90_pct": 7.446808510638298,
+            "ci95_lo_pct": 5.063291139240507,
+            "ci95_hi_pct": 17.392005610098167
+          },
+          "ge600": {
+            "n_rescued": 14,
+            "n_eligible": 199,
+            "point_pct": 7.035175879396985,
+            "lb90_pct": 4.802848901851465,
+            "ci95_lo_pct": 3.7037037037037037,
+            "ci95_hi_pct": 11.11111111111111
+          }
+        },
+        "certified_rescue_survival_match": {
+          "overall": {
+            "n_rescued": 32,
+            "n_eligible": 310,
+            "point_pct": 10.32258064516129,
+            "lb90_pct": 8.108108108108109,
+            "ci95_lo_pct": 7.017543859649122,
+            "ci95_hi_pct": 13.864473308592633
+          },
+          "lt600": {
+            "n_rescued": 14,
+            "n_eligible": 111,
+            "point_pct": 12.612612612612613,
+            "lb90_pct": 8.080808080808081,
+            "ci95_lo_pct": 5.434782608695652,
+            "ci95_hi_pct": 18.446601941747574
+          }
+        },
+        "certified_rescue_any_flip": {
+          "overall": {
+            "n_rescued": 33,
+            "n_eligible": 310,
+            "point_pct": 10.64516129032258,
+            "lb90_pct": 8.389261744966444,
+            "ci95_lo_pct": 7.255401374288792,
+            "ci95_hi_pct": 14.195583596214512
+          },
+          "lt600": {
+            "n_rescued": 14,
+            "n_eligible": 111,
+            "point_pct": 12.612612612612613,
+            "lb90_pct": 8.080808080808081,
+            "ci95_lo_pct": 5.434782608695652,
+            "ci95_hi_pct": 18.446601941747574
+          }
+        },
+        "raw_rescue_exact_match": {
+          "overall": {
+            "n_rescued": 28,
+            "n_eligible": 342,
+            "point_pct": 8.187134502923977,
+            "lb90_pct": 6.269592476489028,
+            "ci95_lo_pct": 5.3977272727272725,
+            "ci95_hi_pct": 11.363636363636363
+          },
+          "lt600": {
+            "n_rescued": 13,
+            "n_eligible": 119,
+            "point_pct": 10.92436974789916,
+            "lb90_pct": 6.8493150684931505,
+            "ci95_lo_pct": 4.651162790697675,
+            "ci95_hi_pct": 16.483799705449183
+          }
+        },
+        "raw_rescue_survival_match": {
+          "overall": {
+            "n_rescued": 34,
+            "n_eligible": 342,
+            "point_pct": 9.941520467836257,
+            "lb90_pct": 7.7611940298507465,
+            "ci95_lo_pct": 6.666666666666667,
+            "ci95_hi_pct": 13.383084972304301
+          }
+        }
+      },
+      "arm_a_at_1pct": {
+        "margin_key": "0.0632",
+        "margin": 0.0632,
+        "tau": 0.034215450286865234,
+        "label": "at_1pct_ordinary_flip_cap",
+        "n_ordinary_total": 10080,
+        "n_ordinary_flips": 100,
+        "ordinary_flip_pct": 0.9920634920634921,
+        "n_lethal_ordinary_flips_certified": 2,
+        "n_lethal_ordinary_flips_raw": 1,
+        "pass_ordinary_flip_bar": true,
+        "pass_lethal_ordinary_bar_certified": false,
+        "pass_lethal_ordinary_bar_raw": true,
+        "feasible_certified": false,
+        "feasible_raw": true,
+        "certified_rescue_exact_match": {
+          "overall": {
+            "n_rescued": 30,
+            "n_eligible": 310,
+            "point_pct": 9.67741935483871,
+            "lb90_pct": 7.590759075907591,
+            "ci95_lo_pct": 6.57439446366782,
+            "ci95_hi_pct": 13.150048285852243
+          },
+          "lt600": {
+            "n_rescued": 13,
+            "n_eligible": 111,
+            "point_pct": 11.711711711711711,
+            "lb90_pct": 7.446808510638298,
+            "ci95_lo_pct": 5.063291139240507,
+            "ci95_hi_pct": 17.392005610098167
+          },
+          "ge600": {
+            "n_rescued": 17,
+            "n_eligible": 199,
+            "point_pct": 8.542713567839195,
+            "lb90_pct": 6.074766355140187,
+            "ci95_lo_pct": 4.901960784313726,
+            "ci95_hi_pct": 13.095725995316151
+          }
+        },
+        "certified_rescue_survival_match": {
+          "overall": {
+            "n_rescued": 37,
+            "n_eligible": 310,
+            "point_pct": 11.935483870967742,
+            "lb90_pct": 9.345794392523365,
+            "ci95_lo_pct": 8.070033955857387,
+            "ci95_hi_pct": 16.09596993087069
+          },
+          "lt600": {
+            "n_rescued": 15,
+            "n_eligible": 111,
+            "point_pct": 13.513513513513514,
+            "lb90_pct": 8.421052631578947,
+            "ci95_lo_pct": 5.633802816901408,
+            "ci95_hi_pct": 19.841269841269842
+          }
+        },
+        "certified_rescue_any_flip": {
+          "overall": {
+            "n_rescued": 38,
+            "n_eligible": 310,
+            "point_pct": 12.258064516129032,
+            "lb90_pct": 9.642857142857142,
+            "ci95_lo_pct": 8.333333333333334,
+            "ci95_hi_pct": 16.43368617683686
+          },
+          "lt600": {
+            "n_rescued": 15,
+            "n_eligible": 111,
+            "point_pct": 13.513513513513514,
+            "lb90_pct": 8.421052631578947,
+            "ci95_lo_pct": 5.633802816901408,
+            "ci95_hi_pct": 19.841269841269842
+          }
+        },
+        "raw_rescue_exact_match": {
+          "overall": {
+            "n_rescued": 31,
+            "n_eligible": 342,
+            "point_pct": 9.064327485380117,
+            "lb90_pct": 7.165109034267913,
+            "ci95_lo_pct": 6.210887144029064,
+            "ci95_hi_pct": 12.28583399840383
+          },
+          "lt600": {
+            "n_rescued": 13,
+            "n_eligible": 119,
+            "point_pct": 10.92436974789916,
+            "lb90_pct": 6.8493150684931505,
+            "ci95_lo_pct": 4.651162790697675,
+            "ci95_hi_pct": 16.483799705449183
+          }
+        },
+        "raw_rescue_survival_match": {
+          "overall": {
+            "n_rescued": 39,
+            "n_eligible": 342,
+            "point_pct": 11.403508771929825,
+            "lb90_pct": 8.901921792222723,
+            "ci95_lo_pct": 7.6923076923076925,
+            "ci95_hi_pct": 15.384615384615385
+          }
+        }
+      },
+      "arm_b_selected": {
+        "margin_key": "0.03",
+        "margin": 0.03,
+        "tau": 0.04509997367858887,
+        "label": "constrained_max_retention_certified",
+        "n_ordinary_total": 10080,
+        "n_ordinary_flips": 88,
+        "ordinary_flip_pct": 0.873015873015873,
+        "n_lethal_ordinary_flips_certified": 1,
+        "n_lethal_ordinary_flips_raw": 0,
+        "pass_ordinary_flip_bar": true,
+        "pass_lethal_ordinary_bar_certified": true,
+        "pass_lethal_ordinary_bar_raw": true,
+        "feasible_certified": true,
+        "feasible_raw": true,
+        "certified_rescue_exact_match": {
+          "overall": {
+            "n_rescued": 34,
+            "n_eligible": 310,
+            "point_pct": 10.96774193548387,
+            "lb90_pct": 8.333333333333334,
+            "ci95_lo_pct": 7.094594594594595,
+            "ci95_hi_pct": 15.31818277709801
+          },
+          "lt600": {
+            "n_rescued": 12,
+            "n_eligible": 111,
+            "point_pct": 10.81081081081081,
+            "lb90_pct": 5.504587155963303,
+            "ci95_lo_pct": 2.985074626865672,
+            "ci95_hi_pct": 18.605052125100237
+          },
+          "ge600": {
+            "n_rescued": 22,
+            "n_eligible": 199,
+            "point_pct": 11.055276381909549,
+            "lb90_pct": 8.064516129032258,
+            "ci95_lo_pct": 6.666666666666667,
+            "ci95_hi_pct": 16.292134831460675
+          }
+        },
+        "certified_rescue_survival_match": {
+          "overall": {
+            "n_rescued": 43,
+            "n_eligible": 310,
+            "point_pct": 13.870967741935484,
+            "lb90_pct": 11.036558643755047,
+            "ci95_lo_pct": 9.67741935483871,
+            "ci95_hi_pct": 18.387096774193548
+          },
+          "lt600": {
+            "n_rescued": 15,
+            "n_eligible": 111,
+            "point_pct": 13.513513513513514,
+            "lb90_pct": 8.333333333333334,
+            "ci95_lo_pct": 5.796802012217032,
+            "ci95_hi_pct": 21.260604521209032
+          }
+        },
+        "certified_rescue_any_flip": {
+          "overall": {
+            "n_rescued": 43,
+            "n_eligible": 310,
+            "point_pct": 13.870967741935484,
+            "lb90_pct": 11.036558643755047,
+            "ci95_lo_pct": 9.67741935483871,
+            "ci95_hi_pct": 18.387096774193548
+          },
+          "lt600": {
+            "n_rescued": 15,
+            "n_eligible": 111,
+            "point_pct": 13.513513513513514,
+            "lb90_pct": 8.333333333333334,
+            "ci95_lo_pct": 5.796802012217032,
+            "ci95_hi_pct": 21.260604521209032
+          }
+        },
+        "raw_rescue_exact_match": {
+          "overall": {
+            "n_rescued": 34,
+            "n_eligible": 342,
+            "point_pct": 9.941520467836257,
+            "lb90_pct": 7.547169811320755,
+            "ci95_lo_pct": 6.371191135734072,
+            "ci95_hi_pct": 13.975320470463855
+          },
+          "lt600": {
+            "n_rescued": 12,
+            "n_eligible": 119,
+            "point_pct": 10.084033613445378,
+            "lb90_pct": 5.126333520494106,
+            "ci95_lo_pct": 2.7522935779816513,
+            "ci95_hi_pct": 17.449930755299878
+          }
+        },
+        "raw_rescue_survival_match": {
+          "overall": {
+            "n_rescued": 43,
+            "n_eligible": 342,
+            "point_pct": 12.573099415204679,
+            "lb90_pct": 9.971426423039327,
+            "ci95_lo_pct": 8.695652173913043,
+            "ci95_hi_pct": 16.71648853524177
+          }
+        }
+      },
+      "arm_b_at_1pct": {
+        "margin_key": "0.03",
+        "margin": 0.03,
+        "tau": 0.036843955516815186,
+        "label": "at_1pct_ordinary_flip_cap",
+        "n_ordinary_total": 10080,
+        "n_ordinary_flips": 100,
+        "ordinary_flip_pct": 0.9920634920634921,
+        "n_lethal_ordinary_flips_certified": 2,
+        "n_lethal_ordinary_flips_raw": 1,
+        "pass_ordinary_flip_bar": true,
+        "pass_lethal_ordinary_bar_certified": false,
+        "pass_lethal_ordinary_bar_raw": true,
+        "feasible_certified": false,
+        "feasible_raw": true,
+        "certified_rescue_exact_match": {
+          "overall": {
+            "n_rescued": 38,
+            "n_eligible": 310,
+            "point_pct": 12.258064516129032,
+            "lb90_pct": 9.556313993174061,
+            "ci95_lo_pct": 8.239590218109717,
+            "ci95_hi_pct": 16.558441558441558
+          },
+          "lt600": {
+            "n_rescued": 14,
+            "n_eligible": 111,
+            "point_pct": 12.612612612612613,
+            "lb90_pct": 7.142857142857143,
+            "ci95_lo_pct": 4.0,
+            "ci95_hi_pct": 19.858390869381424
+          },
+          "ge600": {
+            "n_rescued": 24,
+            "n_eligible": 199,
+            "point_pct": 12.06030150753769,
+            "lb90_pct": 8.967975294018107,
+            "ci95_lo_pct": 7.5,
+            "ci95_hi_pct": 17.277792728874097
+          }
+        },
+        "certified_rescue_survival_match": {
+          "overall": {
+            "n_rescued": 48,
+            "n_eligible": 310,
+            "point_pct": 15.483870967741936,
+            "lb90_pct": 12.461059190031152,
+            "ci95_lo_pct": 10.9717868338558,
+            "ci95_hi_pct": 20.12388768814378
+          },
+          "lt600": {
+            "n_rescued": 18,
+            "n_eligible": 111,
+            "point_pct": 16.216216216216218,
+            "lb90_pct": 10.112359550561798,
+            "ci95_lo_pct": 6.896551724137931,
+            "ci95_hi_pct": 24.074074074074073
+          }
+        },
+        "certified_rescue_any_flip": {
+          "overall": {
+            "n_rescued": 48,
+            "n_eligible": 310,
+            "point_pct": 15.483870967741936,
+            "lb90_pct": 12.461059190031152,
+            "ci95_lo_pct": 10.9717868338558,
+            "ci95_hi_pct": 20.12388768814378
+          },
+          "lt600": {
+            "n_rescued": 18,
+            "n_eligible": 111,
+            "point_pct": 16.216216216216218,
+            "lb90_pct": 10.112359550561798,
+            "ci95_lo_pct": 6.896551724137931,
+            "ci95_hi_pct": 24.074074074074073
+          }
+        },
+        "raw_rescue_exact_match": {
+          "overall": {
+            "n_rescued": 38,
+            "n_eligible": 342,
+            "point_pct": 11.11111111111111,
+            "lb90_pct": 8.620689655172415,
+            "ci95_lo_pct": 7.38782531782202,
+            "ci95_hi_pct": 15.032679738562091
+          },
+          "lt600": {
+            "n_rescued": 14,
+            "n_eligible": 119,
+            "point_pct": 11.764705882352942,
+            "lb90_pct": 6.593406593406593,
+            "ci95_lo_pct": 3.7037037037037037,
+            "ci95_hi_pct": 18.710685483870954
+          }
+        },
+        "raw_rescue_survival_match": {
+          "overall": {
+            "n_rescued": 48,
+            "n_eligible": 342,
+            "point_pct": 14.035087719298245,
+            "lb90_pct": 11.242262503623621,
+            "ci95_lo_pct": 9.872549425097196,
+            "ci95_hi_pct": 18.3562998219952
+          }
+        }
+      }
+    },
+    "linear": {
+      "arm_a_selected": {
+        "margin_key": "0.03",
+        "margin": 0.03,
+        "tau": 0.4090656042098999,
+        "label": "constrained_max_retention_certified",
+        "n_ordinary_total": 10080,
+        "n_ordinary_flips": 19,
+        "ordinary_flip_pct": 0.1884920634920635,
+        "n_lethal_ordinary_flips_certified": 1,
+        "n_lethal_ordinary_flips_raw": 2,
+        "pass_ordinary_flip_bar": true,
+        "pass_lethal_ordinary_bar_certified": true,
+        "pass_lethal_ordinary_bar_raw": false,
+        "feasible_certified": true,
+        "feasible_raw": false,
+        "certified_rescue_exact_match": {
+          "overall": {
+            "n_rescued": 10,
+            "n_eligible": 310,
+            "point_pct": 3.225806451612903,
+            "lb90_pct": 1.8461538461538463,
+            "ci95_lo_pct": 1.2422360248447204,
+            "ci95_hi_pct": 5.521472392638037
+          },
+          "lt600": {
+            "n_rescued": 5,
+            "n_eligible": 111,
+            "point_pct": 4.504504504504505,
+            "lb90_pct": 1.694915254237288,
+            "ci95_lo_pct": 0.0,
+            "ci95_hi_pct": 8.333333333333334
+          },
+          "ge600": {
+            "n_rescued": 5,
+            "n_eligible": 199,
+            "point_pct": 2.512562814070352,
+            "lb90_pct": 1.1299435028248588,
+            "ci95_lo_pct": 0.5319148936170213,
+            "ci95_hi_pct": 5.0
+          }
+        },
+        "certified_rescue_survival_match": {
+          "overall": {
+            "n_rescued": 14,
+            "n_eligible": 310,
+            "point_pct": 4.516129032258065,
+            "lb90_pct": 2.8687055643692343,
+            "ci95_lo_pct": 2.0761245674740483,
+            "ci95_hi_pct": 7.09225848188614
+          },
+          "lt600": {
+            "n_rescued": 6,
+            "n_eligible": 111,
+            "point_pct": 5.405405405405405,
+            "lb90_pct": 2.1052631578947367,
+            "ci95_lo_pct": 0.0,
+            "ci95_hi_pct": 9.448818897637794
+          }
+        },
+        "certified_rescue_any_flip": {
+          "overall": {
+            "n_rescued": 14,
+            "n_eligible": 310,
+            "point_pct": 4.516129032258065,
+            "lb90_pct": 2.8687055643692343,
+            "ci95_lo_pct": 2.0761245674740483,
+            "ci95_hi_pct": 7.09225848188614
+          },
+          "lt600": {
+            "n_rescued": 6,
+            "n_eligible": 111,
+            "point_pct": 5.405405405405405,
+            "lb90_pct": 2.1052631578947367,
+            "ci95_lo_pct": 0.0,
+            "ci95_hi_pct": 9.448818897637794
+          }
+        },
+        "raw_rescue_exact_match": {
+          "overall": {
+            "n_rescued": 10,
+            "n_eligible": 342,
+            "point_pct": 2.9239766081871346,
+            "lb90_pct": 1.6666666666666667,
+            "ci95_lo_pct": 1.1204481792717087,
+            "ci95_hi_pct": 5.047318611987381
+          },
+          "lt600": {
+            "n_rescued": 5,
+            "n_eligible": 119,
+            "point_pct": 4.201680672268908,
+            "lb90_pct": 1.550387596899225,
+            "ci95_lo_pct": 0.0,
+            "ci95_hi_pct": 8.0
+          }
+        },
+        "raw_rescue_survival_match": {
+          "overall": {
+            "n_rescued": 14,
+            "n_eligible": 342,
+            "point_pct": 4.093567251461988,
+            "lb90_pct": 2.588996763754045,
+            "ci95_lo_pct": 1.864765669113495,
+            "ci95_hi_pct": 6.501610913941955
+          }
+        }
+      },
+      "arm_a_at_1pct": {
+        "margin_key": "0.1129",
+        "margin": 0.1129,
+        "tau": 0.210565447807312,
+        "label": "at_1pct_ordinary_flip_cap",
+        "n_ordinary_total": 10080,
+        "n_ordinary_flips": 100,
+        "ordinary_flip_pct": 0.9920634920634921,
+        "n_lethal_ordinary_flips_certified": 8,
+        "n_lethal_ordinary_flips_raw": 4,
+        "pass_ordinary_flip_bar": true,
+        "pass_lethal_ordinary_bar_certified": false,
+        "pass_lethal_ordinary_bar_raw": false,
+        "feasible_certified": false,
+        "feasible_raw": false,
+        "certified_rescue_exact_match": {
+          "overall": {
+            "n_rescued": 23,
+            "n_eligible": 310,
+            "point_pct": 7.419354838709677,
+            "lb90_pct": 4.98220640569395,
+            "ci95_lo_pct": 3.9285444540353907,
+            "ci95_hi_pct": 11.58317139277404
+          },
+          "lt600": {
+            "n_rescued": 11,
+            "n_eligible": 111,
+            "point_pct": 9.90990990990991,
+            "lb90_pct": 4.504504504504505,
+            "ci95_lo_pct": 2.1052631578947367,
+            "ci95_hi_pct": 17.647058823529413
+          },
+          "ge600": {
+            "n_rescued": 12,
+            "n_eligible": 199,
+            "point_pct": 6.030150753768845,
+            "lb90_pct": 3.7209302325581395,
+            "ci95_lo_pct": 2.7027027027027026,
+            "ci95_hi_pct": 10.439765458422173
+          }
+        },
+        "certified_rescue_survival_match": {
+          "overall": {
+            "n_rescued": 31,
+            "n_eligible": 310,
+            "point_pct": 10.0,
+            "lb90_pct": 7.395385172772972,
+            "ci95_lo_pct": 6.153721682847897,
+            "ci95_hi_pct": 14.191419141914192
+          },
+          "lt600": {
+            "n_rescued": 13,
+            "n_eligible": 111,
+            "point_pct": 11.711711711711711,
+            "lb90_pct": 6.097560975609756,
+            "ci95_lo_pct": 3.2967032967032965,
+            "ci95_hi_pct": 19.35483870967742
+          }
+        },
+        "certified_rescue_any_flip": {
+          "overall": {
+            "n_rescued": 31,
+            "n_eligible": 310,
+            "point_pct": 10.0,
+            "lb90_pct": 7.395385172772972,
+            "ci95_lo_pct": 6.153721682847897,
+            "ci95_hi_pct": 14.191419141914192
+          },
+          "lt600": {
+            "n_rescued": 13,
+            "n_eligible": 111,
+            "point_pct": 11.711711711711711,
+            "lb90_pct": 6.097560975609756,
+            "ci95_lo_pct": 3.2967032967032965,
+            "ci95_hi_pct": 19.35483870967742
+          }
+        },
+        "raw_rescue_exact_match": {
+          "overall": {
+            "n_rescued": 23,
+            "n_eligible": 342,
+            "point_pct": 6.7251461988304095,
+            "lb90_pct": 4.485488126649076,
+            "ci95_lo_pct": 3.514236870130598,
+            "ci95_hi_pct": 10.584958217270195
+          },
+          "lt600": {
+            "n_rescued": 11,
+            "n_eligible": 119,
+            "point_pct": 9.243697478991596,
+            "lb90_pct": 4.132231404958677,
+            "ci95_lo_pct": 1.9230769230769231,
+            "ci95_hi_pct": 16.666666666666668
+          }
+        },
+        "raw_rescue_survival_match": {
+          "overall": {
+            "n_rescued": 32,
+            "n_eligible": 342,
+            "point_pct": 9.35672514619883,
+            "lb90_pct": 6.944444444444445,
+            "ci95_lo_pct": 5.7635359357261375,
+            "ci95_hi_pct": 13.311688311688311
+          }
+        }
+      },
+      "arm_b_selected": {
+        "margin_key": "0.03",
+        "margin": 0.03,
+        "tau": 0.6236667633056641,
+        "label": "constrained_max_retention_certified",
+        "n_ordinary_total": 10080,
+        "n_ordinary_flips": 13,
+        "ordinary_flip_pct": 0.12896825396825398,
+        "n_lethal_ordinary_flips_certified": 1,
+        "n_lethal_ordinary_flips_raw": 1,
+        "pass_ordinary_flip_bar": true,
+        "pass_lethal_ordinary_bar_certified": true,
+        "pass_lethal_ordinary_bar_raw": true,
+        "feasible_certified": true,
+        "feasible_raw": true,
+        "certified_rescue_exact_match": {
+          "overall": {
+            "n_rescued": 8,
+            "n_eligible": 310,
+            "point_pct": 2.5806451612903225,
+            "lb90_pct": 1.4043958210132073,
+            "ci95_lo_pct": 0.9374269859813085,
+            "ci95_hi_pct": 4.545454545454546
+          },
+          "lt600": {
+            "n_rescued": 3,
+            "n_eligible": 111,
+            "point_pct": 2.7027027027027026,
+            "lb90_pct": 0.0,
+            "ci95_lo_pct": 0.0,
+            "ci95_hi_pct": 6.164383561643835
+          },
+          "ge600": {
+            "n_rescued": 5,
+            "n_eligible": 199,
+            "point_pct": 2.512562814070352,
+            "lb90_pct": 1.1428571428571428,
+            "ci95_lo_pct": 0.5347593582887701,
+            "ci95_hi_pct": 5.027932960893855
+          }
+        },
+        "certified_rescue_survival_match": {
+          "overall": {
+            "n_rescued": 13,
+            "n_eligible": 310,
+            "point_pct": 4.193548387096774,
+            "lb90_pct": 2.7605246456526342,
+            "ci95_lo_pct": 2.121185351750723,
+            "ci95_hi_pct": 6.451612903225806
+          },
+          "lt600": {
+            "n_rescued": 4,
+            "n_eligible": 111,
+            "point_pct": 3.6036036036036037,
+            "lb90_pct": 1.1235955056179776,
+            "ci95_lo_pct": 0.0,
+            "ci95_hi_pct": 6.818181818181818
+          }
+        },
+        "certified_rescue_any_flip": {
+          "overall": {
+            "n_rescued": 13,
+            "n_eligible": 310,
+            "point_pct": 4.193548387096774,
+            "lb90_pct": 2.7605246456526342,
+            "ci95_lo_pct": 2.121185351750723,
+            "ci95_hi_pct": 6.451612903225806
+          },
+          "lt600": {
+            "n_rescued": 4,
+            "n_eligible": 111,
+            "point_pct": 3.6036036036036037,
+            "lb90_pct": 1.1235955056179776,
+            "ci95_lo_pct": 0.0,
+            "ci95_hi_pct": 6.818181818181818
+          }
+        },
+        "raw_rescue_exact_match": {
+          "overall": {
+            "n_rescued": 8,
+            "n_eligible": 342,
+            "point_pct": 2.3391812865497075,
+            "lb90_pct": 1.2698412698412698,
+            "ci95_lo_pct": 0.8426966292134831,
+            "ci95_hi_pct": 4.143912815384359
+          },
+          "lt600": {
+            "n_rescued": 3,
+            "n_eligible": 119,
+            "point_pct": 2.5210084033613445,
+            "lb90_pct": 0.0,
+            "ci95_lo_pct": 0.0,
+            "ci95_hi_pct": 5.797335203366056
+          }
+        },
+        "raw_rescue_survival_match": {
+          "overall": {
+            "n_rescued": 13,
+            "n_eligible": 342,
+            "point_pct": 3.801169590643275,
+            "lb90_pct": 2.4930747922437675,
+            "ci95_lo_pct": 1.917808219178082,
+            "ci95_hi_pct": 5.8659730095204266
+          }
+        }
+      },
+      "arm_b_at_1pct": {
+        "margin_key": "0.0632",
+        "margin": 0.0632,
+        "tau": 0.19037628173828125,
+        "label": "at_1pct_ordinary_flip_cap",
+        "n_ordinary_total": 10080,
+        "n_ordinary_flips": 100,
+        "ordinary_flip_pct": 0.9920634920634921,
+        "n_lethal_ordinary_flips_certified": 7,
+        "n_lethal_ordinary_flips_raw": 4,
+        "pass_ordinary_flip_bar": true,
+        "pass_lethal_ordinary_bar_certified": false,
+        "pass_lethal_ordinary_bar_raw": false,
+        "feasible_certified": false,
+        "feasible_raw": false,
+        "certified_rescue_exact_match": {
+          "overall": {
+            "n_rescued": 27,
+            "n_eligible": 310,
+            "point_pct": 8.709677419354838,
+            "lb90_pct": 6.0693193920030994,
+            "ci95_lo_pct": 4.854368932038835,
+            "ci95_hi_pct": 13.214285714285714
+          },
+          "lt600": {
+            "n_rescued": 13,
+            "n_eligible": 111,
+            "point_pct": 11.711711711711711,
+            "lb90_pct": 6.492303992303993,
+            "ci95_lo_pct": 3.8461538461538463,
+            "ci95_hi_pct": 19.403347340965073
+          },
+          "ge600": {
+            "n_rescued": 14,
+            "n_eligible": 199,
+            "point_pct": 7.035175879396985,
+            "lb90_pct": 4.3478260869565215,
+            "ci95_lo_pct": 3.1445717672626694,
+            "ci95_hi_pct": 12.087912087912088
+          }
+        },
+        "certified_rescue_survival_match": {
+          "overall": {
+            "n_rescued": 38,
+            "n_eligible": 310,
+            "point_pct": 12.258064516129032,
+            "lb90_pct": 9.31899641577061,
+            "ci95_lo_pct": 7.8569352159468435,
+            "ci95_hi_pct": 17.064846416382252
+          },
+          "lt600": {
+            "n_rescued": 18,
+            "n_eligible": 111,
+            "point_pct": 16.216216216216218,
+            "lb90_pct": 10.909090909090908,
+            "ci95_lo_pct": 7.954545454545454,
+            "ci95_hi_pct": 23.404734521755792
+          }
+        },
+        "certified_rescue_any_flip": {
+          "overall": {
+            "n_rescued": 38,
+            "n_eligible": 310,
+            "point_pct": 12.258064516129032,
+            "lb90_pct": 9.31899641577061,
+            "ci95_lo_pct": 7.8569352159468435,
+            "ci95_hi_pct": 17.064846416382252
+          },
+          "lt600": {
+            "n_rescued": 18,
+            "n_eligible": 111,
+            "point_pct": 16.216216216216218,
+            "lb90_pct": 10.909090909090908,
+            "ci95_lo_pct": 7.954545454545454,
+            "ci95_hi_pct": 23.404734521755792
+          }
+        },
+        "raw_rescue_exact_match": {
+          "overall": {
+            "n_rescued": 27,
+            "n_eligible": 342,
+            "point_pct": 7.894736842105263,
+            "lb90_pct": 5.47112462006079,
+            "ci95_lo_pct": 4.383561643835616,
+            "ci95_hi_pct": 12.011218530073279
+          },
+          "lt600": {
+            "n_rescued": 13,
+            "n_eligible": 119,
+            "point_pct": 10.92436974789916,
+            "lb90_pct": 6.0344827586206895,
+            "ci95_lo_pct": 3.6144578313253013,
+            "ci95_hi_pct": 18.183477106834747
+          }
+        },
+        "raw_rescue_survival_match": {
+          "overall": {
+            "n_rescued": 38,
+            "n_eligible": 342,
+            "point_pct": 11.11111111111111,
+            "lb90_pct": 8.408408408408409,
+            "ci95_lo_pct": 7.0738076800053875,
+            "ci95_hi_pct": 15.527950310559007
+          }
+        }
+      }
+    }
+  },
+  "decision_checks": {
+    "support_pass": true,
+    "arm_a_go_checks": {
+      "ordinary_flip_pct_le_1": true,
+      "lethal_ordinary_flips_le_1": true,
+      "rescue_retention_overall_ge_35": false,
+      "rescue_retention_lb90_ge_25": false,
+      "rescue_retention_lt600_ge_35": false
+    },
+    "arm_a_passes_go": false,
+    "arm_b_go_checks": {
+      "timing_gate_passes": true,
+      "ordinary_flip_pct_le_1": true,
+      "lethal_ordinary_flips_le_1": true,
+      "rescue_retention_overall_ge_35": false,
+      "rescue_retention_lb90_ge_25": false,
+      "rescue_retention_lt600_ge_35": false,
+      "delta_over_arm_a_ge_20pp": false,
+      "delta_over_arm_a_lb90_gt_0pp": false
+    },
+    "arm_b_passes_go": false
+  },
+  "diagnostics": {
+    "certified_rescue_q_gap_quantiles": {
+      "p10": 0.07437915802001954,
+      "p25": 0.15311360359191895,
+      "p50": 0.24268054962158203,
+      "p75": 0.4893229603767395,
+      "p90": 1.100617098808289,
+      "max": 6.257835865020752
+    },
+    "certified_rescue_teacher_q_rank_counts": {
+      "1": 0,
+      "2": 151,
+      "3": 64,
+      "4": 49,
+      "5": 19,
+      "6": 27
+    }
+  },
+  "elapsed_seconds": 818.7723810420139
+}

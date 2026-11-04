@@ -50,6 +50,22 @@ from research.hero_stage0.protocol import (
     STAGE1A_MIN_LENGTH,
     STAGE1A_SCORING_SUFFIXES,
     STAGE1A_SELECTION_SUFFIXES,
+    STAGE1B_BAR_ARM_B_DELTA_PP_MIN,
+    STAGE1B_BAR_LETHAL_ORDINARY_FLIPS_MAX,
+    STAGE1B_BAR_LETHAL_ORDINARY_N_DIFF_MIN,
+    STAGE1B_BAR_MIN_RESCUE_ROOTS,
+    STAGE1B_BAR_MIN_RESCUE_WORLDS,
+    STAGE1B_BAR_ORDINARY_FLIP_PCT_MAX,
+    STAGE1B_BAR_RESCUE_RETENTION_LB90_PCT_MIN,
+    STAGE1B_BAR_RESCUE_RETENTION_LT600_PCT_MIN,
+    STAGE1B_BAR_RESCUE_RETENTION_PCT_MIN,
+    STAGE1B_CV_FOLDS,
+    STAGE1B_FOLD_SEED,
+    STAGE1B_MARGIN_GRID,
+    STAGE1B_ORDINARY_PER_WORLD,
+    STAGE1B_REACH_HORIZONS,
+    STAGE1B_TIMING_BAR_OVERHEAD_P95_MS,
+    STAGE1B_TIMING_BAR_TICK_P95_MS,
     allocation,
     seed_for,
     training_exclusions,
@@ -65,6 +81,13 @@ from research.hero_stage0.stage1a import (
     aggregate_stage1a,
     branch_suffix_seed,
     evaluation_order_nb,
+)
+from research.hero_stage0.stage1b import (
+    ReachChokeWorkspace,
+    build_arm_features,
+    folds_for,
+    world_cluster_bootstrap_paired_delta,
+    world_cluster_bootstrap_retention,
 )
 from src.simd_env.batch_sim import BatchSimConfig
 from src.simd_env.ego_raster import EgoRasterConfig, build_ego_raster
@@ -1106,3 +1129,101 @@ def test_committed_openstop_gate_readout_receipt() -> None:
     assert data["bars"]["harmful_overrides_pct"]["total_overrides_scored"] == 799
     assert data["bars"]["harmful_overrides_pct"]["observed_conditional_majority_count"] == 7
     assert len(data["per_world_summary"]) == 96
+
+
+def test_stage1b_protocol_and_world_disjoint_folds() -> None:
+    assert STAGE1B_CV_FOLDS == 5
+    assert STAGE1B_FOLD_SEED == 343013
+    assert STAGE1B_MARGIN_GRID == (0.03, 0.0632, 0.1129)
+    assert STAGE1B_ORDINARY_PER_WORLD == 210
+    assert STAGE1B_REACH_HORIZONS == (8, 16, 24)
+    assert STAGE1B_TIMING_BAR_OVERHEAD_P95_MS == 1.0
+    assert STAGE1B_TIMING_BAR_TICK_P95_MS == 11.688
+    assert STAGE1B_BAR_MIN_RESCUE_ROOTS == 80
+    assert STAGE1B_BAR_MIN_RESCUE_WORLDS == 30
+    assert STAGE1B_BAR_ORDINARY_FLIP_PCT_MAX == 1.0
+    assert STAGE1B_BAR_LETHAL_ORDINARY_FLIPS_MAX == 1
+    assert STAGE1B_BAR_LETHAL_ORDINARY_N_DIFF_MIN == 2
+    assert STAGE1B_BAR_RESCUE_RETENTION_PCT_MIN == 35.0
+    assert STAGE1B_BAR_RESCUE_RETENTION_LB90_PCT_MIN == 25.0
+    assert STAGE1B_BAR_RESCUE_RETENTION_LT600_PCT_MIN == 35.0
+    assert STAGE1B_BAR_ARM_B_DELTA_PP_MIN == 20.0
+
+    folds = folds_for(COUNT, STAGE1B_CV_FOLDS, seed=STAGE1B_FOLD_SEED)
+    assert len(folds) == 5
+    all_worlds: list[int] = []
+    for i, f_i in enumerate(folds):
+        for j, f_j in enumerate(folds):
+            if i != j:
+                assert len(set(f_i.tolist()) & set(f_j.tolist())) == 0
+        all_worlds.extend(int(w) for w in f_i.tolist())
+    assert sorted(all_worlds) == list(range(COUNT))
+
+
+def test_stage1b_reach_choke_workspace_and_bootstrap() -> None:
+    sim = GridBatchSim(BatchSimConfig(num_envs=1, num_snakes=6), seeds=[12345])
+    actions = np.zeros((1, 6), dtype=np.int32)
+    for _ in range(15):
+        sim.step(actions)
+
+    ws = ReachChokeWorkspace(int(sim.grid_w), int(sim.grid_h))
+    feats = ws.compute(sim, 0, 0)
+    assert feats.shape == (66,)
+    assert feats.dtype == np.float32
+    assert np.all(np.isfinite(feats))
+    assert np.all(feats >= 0.0) and np.all(feats <= 1.0 + 1e-6)
+
+    # Check build_arm_features shapes for arm_a and arm_b
+    phi = np.zeros((4, 256), dtype=np.float32)
+    sbv8 = np.zeros((4, 60), dtype=np.float32)
+    sreach = np.tile(feats[None, :], (4, 1))
+    q = np.zeros((4, 6), dtype=np.float32)
+    legal = np.ones((4, 6), dtype=bool)
+    bare = np.array([1, 1, 1, 1], dtype=np.int64)
+
+    xg_a, xa_a = build_arm_features(phi, sbv8, sreach, q, legal, bare, "arm_a")
+    xg_b, xa_b = build_arm_features(phi, sbv8, sreach, q, legal, bare, "arm_b")
+    assert xg_a.shape == (4, 322)
+    assert xg_b.shape == (4, 388)
+    assert xa_a.shape[0] == 4 and xa_a.shape[1] == 6
+    assert xa_b.shape[0] == 4 and xa_b.shape[1] == 6
+    assert xa_b.shape[2] == xa_a.shape[2] + 33
+
+    # Check world-cluster bootstrap helper
+    worlds = np.repeat(np.arange(48, dtype=np.int64), 2)
+    eligible = np.ones(96, dtype=bool)
+    rescued_a = np.zeros(96, dtype=bool)
+    rescued_a[:24] = True
+    rescued_b = np.zeros(96, dtype=bool)
+    rescued_b[:48] = True
+    ret_a = world_cluster_bootstrap_retention(worlds, rescued_a, eligible, draws=500)
+    assert ret_a["n_rescued"] == 24
+    assert ret_a["n_eligible"] == 96
+    assert abs(ret_a["point_pct"] - 25.0) < 1e-9
+    assert ret_a["ci95_lo_pct"] <= ret_a["lb90_pct"] <= ret_a["point_pct"]
+
+    p_delta = world_cluster_bootstrap_paired_delta(
+        worlds, rescued_a, rescued_b, eligible, draws=500
+    )
+    assert abs(p_delta["delta_pp"] - 25.0) < 1e-9
+    assert p_delta["lb90_delta_pp"] > 0.0
+
+
+def test_committed_stage1b_readout_receipt() -> None:
+    readout_path = REPO_ROOT / "research" / "hero_stage0" / "STAGE1B_READOUT.json"
+    assert readout_path.is_file()
+    data = json.loads(readout_path.read_text(encoding="utf-8"))
+    assert data["namespace"] == NAMESPACE
+    assert data["sealed_gate_namespace_touched"] is False
+    assert data["teacher_arm"] == OPENSTOP_K1_ARM
+    assert data["verdict"] == "STOP"
+    assert data["support"]["n_dev_worlds"] == 48
+    assert data["support"]["certified_rescue_roots"]["n_roots"] == 310
+    assert data["support"]["certified_rescue_roots"]["n_lt600"] == 111
+    assert data["support"]["certified_rescue_roots"]["n_ge600"] == 199
+    assert data["support"]["certified_rescue_roots"]["n_worlds"] == 48
+    assert data["support"]["ordinary_sample"]["n_ordinary_total"] == 10080
+    assert data["support"]["minimum_support_bars"]["support_pass"] is True
+    assert data["timing_gate_l1500"]["timing_gate_pass"] is True
+    assert data["decision_checks"]["arm_a_passes_go"] is False
+    assert data["decision_checks"]["arm_b_passes_go"] is False
