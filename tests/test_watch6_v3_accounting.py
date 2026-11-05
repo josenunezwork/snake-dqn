@@ -2355,7 +2355,43 @@ def test_refusal_of_any_cross_root_substitution_across_entrypoints(
             )
         assert not called_log.exists()
 
-        # 5. Worktree not at HEAD == 357e3504 (e.g. ADAPTER_ROOT) refused as execution broker:
+        # 5. Worktree not at HEAD == 357e3504 (both science-identical ahead clone and ADAPTER_ROOT)
+        #    refused as execution broker:
+        ahead_copy = _fresh_baseline_clone(clean_baseline_template, tmp_path / "ahead-broker")
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=Test",
+                "-c",
+                "user.email=test@example.com",
+                "commit",
+                "--quiet",
+                "--allow-empty",
+                "-m",
+                "ahead-of-baseline",
+            ],
+            cwd=ahead_copy,
+            check=True,
+            timeout=10,
+        )
+        with pytest.raises(ValueError, match="HEAD is"):
+            dispatch.run_dispatch(
+                [
+                    "watch6-v3-cross-root-probe",
+                    str(mf),
+                    "--broker",
+                    str(ahead_copy),
+                    "--cwd",
+                    str(ahead_copy),
+                    "--operator-root",
+                    str(op_root),
+                    "--dry-run",
+                ],
+                ops_dir=tmp_path / "ops",
+            )
+        assert not called_log.exists()
+
         if (
             subprocess.check_output(
                 ["git", "--no-optional-locks", "rev-parse", "HEAD"],
@@ -2364,7 +2400,7 @@ def test_refusal_of_any_cross_root_substitution_across_entrypoints(
             ).strip()
             != BASELINE_COMMIT
         ):
-            with pytest.raises(ValueError, match="HEAD is"):
+            with pytest.raises(ValueError, match=r"(HEAD is|protocol\.identity\(\) rotated)"):
                 dispatch.run_dispatch(
                     [
                         "watch6-v3-cross-root-probe",

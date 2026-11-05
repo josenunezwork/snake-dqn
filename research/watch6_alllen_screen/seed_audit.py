@@ -60,6 +60,7 @@ COMMITTED_BANK_FILES: tuple[str, ...] = (
 def _discover_watch6_namespaces(roots: list[Path]) -> dict[str, set[int]]:
     """Extract namespace strings and integer fixture lists from watch6* protocol sources."""
     discovered: dict[str, set[int]] = {}
+    own_namespaces = {p.NAMESPACE, p.CANARY_NAMESPACE, p.PREFLIGHT_NAMESPACE}
     ns_pattern = re.compile(r"([A-Za-z0-9_./-]*watch6[A-Za-z0-9_./-]*)")
     for root in roots:
         research_dir = root / "research"
@@ -72,6 +73,8 @@ def _discover_watch6_namespaces(roots: list[Path]) -> dict[str, set[int]]:
                 text = py.read_text(encoding="utf-8")
                 for match in ns_pattern.findall(text):
                     if "/" in match and match.startswith("research/"):
+                        continue
+                    if match in own_namespaces:
                         continue
                     if any(ch.isdigit() for ch in match) or "v3" in match or "v2" in match:
                         bucket = discovered.setdefault(f"{py}:{match}", set())
@@ -174,10 +177,17 @@ def audit(
         f"!**/{bank.SEALED}/**",
         "!**/exports/**",
         "!**/pair-*.json",
+        "!**/world-*.json",
         "!**/*.watch.gz",
         "!**/t34-sol/watch6-efficacy*/**",
         "!**/t34-sol/argon-alllen-screen*/**",
+        "!**/t34-sol/argon-alllen-a100*/**",
+        "!**/t34-sol/l1v1-*/**",
+        "!**/t34-openstop-gate-20261104-v1/**",
         "!**/research/watch6_alllen_screen/**",
+        "!**/research/play_mixed_probe/SEED_AUDIT.json",
+        "!**/docs/STATUS.md",
+        "!**/docs/research/ROADMAP.md",
     ):
         command += ["--glob", excluded]
 

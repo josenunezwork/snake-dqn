@@ -202,6 +202,8 @@ def test_prepared_seam_and_illegal_rows_are_explicitly_enforced(
     timing_rows: dict[str, dict[str, Any]],
 ) -> None:
     """The merge contract rejects raw worlds and records inactive illegal rows."""
+    if not B8_CHECKPOINT.is_file():
+        pytest.skip("the hash-pinned local B8 checkpoint inventory is unavailable")
     raw = fixture(timing_rows["scripted"], B8_CHECKPOINT, 800)
     with pytest.raises(ValueError, match="prepared Watch boundary"):
         merge_worlds([raw], rollouts=1)
