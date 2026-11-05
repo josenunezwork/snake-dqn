@@ -587,6 +587,7 @@ def test_run7_l4_heartbeat_stall_then_exec_timeout_has_bounded_idle_recovery(
     def observe(observer: acceptance.AcceptanceObserver, stage: str, context: dict) -> None:
         if stage == "ready" and context["manifest"]["requirements"]["gpu"] == "L4":
             cli = context["cli"]
+            cli.exec_poll_recovery_seconds = policy.TELEMETRY_SECONDS
             assert context["manifest"]["lease_seconds"] == 180
             monkeypatch.setenv(
                 "FAKE_COLAB_FAULT_PLAN",
