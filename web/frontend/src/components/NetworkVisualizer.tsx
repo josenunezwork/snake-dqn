@@ -109,7 +109,9 @@ function NetworkVisualizer({ netviz, obsSpec, executedAction = null }: Props) {
   // 26-D scalar slice of a much larger raster observation. Infer from the band
   // length when obs_spec has not been wired through by the caller.
   const isRaster = obsSpec === "raster31v2" || (obsSpec === undefined && netviz.input.length === 26);
-  const inputLabel = isRaster ? "Scalar band — part of the raster input" : "Input (state)";
+  const inputLabel =
+    netviz.input_label ||
+    (isRaster ? "Scalar band — part of the raster input" : "Input (state)");
 
   return (
     <div className="panel netviz">

@@ -233,18 +233,36 @@ function EgoRasterViewer({ raster, obsSpec, labels = false }: Props) {
     ctx.fill();
   }, [raster, mode]);
 
+  const isEgo2s = Boolean(obsSpec && obsSpec.startsWith("ego2s"));
+
   if (!isRaster) {
     return (
       <div className="panel">
         <div className="empty-state">
           <div className="empty-glyph">▦</div>
-          <div className="empty-title">No ego-raster for this model</div>
+          <div className="empty-title">
+            {isEgo2s ? "Raster view unavailable" : "No ego-raster for this model"}
+          </div>
           <div className="muted" style={{ fontSize: 12 }}>
-            The served policy is <span className="mono">{obsSpec ?? "vector61"}</span> — a
-            hand-crafted feature vector, not a spatial raster. Load a{" "}
-            <span className="mono">raster31v2</span> checkpoint (Controls → Model — raster
-            training outputs appear there as <span className="mono">runs/…/latest_pqn.pth</span>)
-            to watch what the snake sees.
+            {isEgo2s ? (
+              <>
+                The served policy is <span className="mono">{obsSpec}</span> (dual-scale ego
+                raster CNN), and the live raster view is unavailable for the served ego2s model
+                and recorded replays. Inspect its scalar and v8 safety features in the{" "}
+                <span className="mono">Inspector</span> and <span className="mono">Network</span>{" "}
+                tabs, or load a <span className="mono">raster31v2</span> checkpoint to use this
+                viewer.
+              </>
+            ) : (
+              <>
+                The served policy is <span className="mono">{obsSpec ?? "vector61"}</span> — a
+                hand-crafted feature vector, not a spatial raster. Load a{" "}
+                <span className="mono">raster31v2</span> checkpoint (Controls → Model — raster
+                training outputs appear there as{" "}
+                <span className="mono">runs/…/latest_pqn.pth</span>) to watch what the snake
+                sees.
+              </>
+            )}
           </div>
         </div>
       </div>

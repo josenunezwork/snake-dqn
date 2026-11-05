@@ -1,7 +1,8 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import Inspector from "./Inspector";
-import type { InspectorDTO } from "../types";
+import NetworkVisualizer from "./NetworkVisualizer";
+import type { InspectorDTO, NetvizDTO } from "../types";
 import recordedOverride from "./fixtures/watch-search-override.json";
 
 const inspector: InspectorDTO = {
@@ -130,5 +131,42 @@ describe("Recorded search inspector", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Move from search: right");
     expect(screen.getByRole("status")).toHaveTextContent("bare action: straight");
     expect(screen.queryByText(/exploration or masking overrode/)).not.toBeInTheDocument();
+  });
+});
+
+describe("NetworkVisualizer input_label", () => {
+  const sampleNetviz: NetvizDTO = {
+    input: Array(60).fill(0.1),
+    input_label: "Scalars (60 of ego2s-bv8 input)",
+    hidden_sample: Array(16).fill(0.2),
+    hidden_count: 256,
+    output: [0.1, 0.5, 0.2, -0.1, -0.2, -0.3],
+    value: 0.25,
+    advantages: [-0.15, 0.25, -0.05, -0.35, -0.45, -0.55],
+    summary: {
+      status: "READY",
+      top_action: "straight",
+      top_index: 1,
+      top_q: 0.5,
+      margin: 0.3,
+      input_count: 60,
+      hidden_count: 256,
+      output_count: 6,
+      input_activity: 0.1,
+      hidden_activity: 0.2,
+      architecture: "Ego2s Dueling CNN (ego2s-bv8)",
+    },
+  };
+
+  it("uses netviz.input_label from the server when present", () => {
+    render(<NetworkVisualizer netviz={sampleNetviz} obsSpec="ego2s-bv8" />);
+    expect(screen.getByText("Scalars (60 of ego2s-bv8 input)")).toBeInTheDocument();
+    expect(screen.queryByText("Input (state)")).not.toBeInTheDocument();
+  });
+
+  it("falls back to the local label when netviz.input_label is absent", () => {
+    const { input_label: _unused, ...withoutLabel } = sampleNetviz;
+    render(<NetworkVisualizer netviz={withoutLabel} obsSpec="vector61" />);
+    expect(screen.getByText("Input (state)")).toBeInTheDocument();
   });
 });

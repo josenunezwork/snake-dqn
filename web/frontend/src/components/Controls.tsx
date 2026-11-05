@@ -25,6 +25,10 @@ function inputLabel(obsSpec: string | undefined, inputSize: number): string {
   if (obsSpec === "raster31v2" || obsSpec === "raster31v3") {
     return "raster 31×31 + 25×25 + 26 scalars";
   }
+  if (obsSpec && obsSpec.startsWith("ego2s")) {
+    const scalars = inputSize > 0 ? inputSize : 60;
+    return `dual-scale ego raster CNN: local 7×31×31 + global 4×31×31 + ${scalars} scalars`;
+  }
   return `${inputSize}-D vector`;
 }
 
@@ -100,6 +104,12 @@ export default function Controls({
   const loadedName = session.checkpoint ?? "";
   const canLoad = !!selected && selected !== loadedName;
   const offline = connected === false;
+  const canSaveWeights =
+    session.can_save_weights ??
+    (session.watch_source !== "replay" &&
+      obsSpec !== "raster31v2" &&
+      obsSpec !== "raster31v3" &&
+      !(obsSpec ?? "").startsWith("ego2s"));
   // Legacy serving permits 120fps server-side, but this established control
   // surface has always topped out at 60fps.  An ego2s roster can lower it.
   const uiSpeedCeiling = Math.min(60, session.speed_ceiling ?? 60);
@@ -137,8 +147,12 @@ export default function Controls({
         <button
           className="btn"
           aria-label="Save weights"
-          title="Save the current policy weights to saved_snakes/ (train-mode progress lives only in memory until saved)"
-          disabled={offline}
+          title={
+            canSaveWeights
+              ? "Save the current policy weights to saved_snakes/ (train-mode progress lives only in memory until saved)"
+              : "Served policy is forward-only or playing a recorded replay — weights cannot be exported"
+          }
+          disabled={offline || !canSaveWeights}
           onClick={() => send("save_weights")}
         >
           💾 Save weights

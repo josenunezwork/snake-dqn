@@ -1547,6 +1547,8 @@ class GameSession:
             RuntimeError: If the served policy is forward-only (raster serving).
         """
         with self._lock:
+            if self.mode == MODE_WATCH and getattr(self, "_watch_replay", None) is not None:
+                raise RuntimeError("the served policy is forward-only and cannot be saved")
             get_state_dict = getattr(self.policy, "get_state_dict", None)
             if not callable(get_state_dict):
                 raise RuntimeError("the served policy is forward-only and cannot be saved")
@@ -1932,6 +1934,7 @@ class GameSession:
                     playing=self.playing,
                     speed=self.speed,
                     speed_ceiling=self.speed_ceiling,
+                    can_save_weights=False,
                     error=self.last_error,
                     watch_source="replay",
                     replay=replay.info(),
@@ -1943,6 +1946,7 @@ class GameSession:
                 "speed_ceiling": self.speed_ceiling,
                 "mode": self.mode,
                 "training": bool(getattr(self.policy, "training", False)),
+                "can_save_weights": callable(getattr(self.policy, "get_state_dict", None)),
                 "hero_id": self.hero_id,
                 "checkpoint": (
                     os.path.basename(self.checkpoint_path) if self.checkpoint_path else None
