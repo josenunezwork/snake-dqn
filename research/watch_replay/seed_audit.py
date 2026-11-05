@@ -53,6 +53,29 @@ KNOWN_NAMESPACE_PREFIXES: tuple[tuple[str, int], ...] = (
     ("bl-plan-v3-c1-served-watch6-20261022/v1", 128),
 )
 
+# Later studies a NEW namespace must also avoid (kept out of KNOWN_NAMESPACE_PREFIXES so
+# audit() of the served L1 banks themselves is unchanged).
+LATER_STUDY_NAMESPACES: tuple[tuple[str, int], ...] = (
+    # Served L1 banks 14-16 (DEFAULT_NAMESPACES above)
+    *((ns, 128) for ns in DEFAULT_NAMESPACES),
+    # Hero Stage 0 probe + open-stop decisive gate (branch argon-hero-stage0-1103,
+    # research/hero_stage0/protocol.py); seeds derived only, worlds never opened.
+    ("t34-hero-probe-20261103-v1", 128),
+    ("t34-openstop-gate-20261104-v1", 128),
+)
+
+# Bank-v2 (exact-stop-l1-os) namespaces, registered before any world is run.  DEV is the
+# Mac canary namespace (excluded from the screen); SCREEN is the proposed 48-world
+# paired dev screen.  Both are dev-only: never training, tuning, or release evidence.
+BANK_V2_DEV_NAMESPACE = "t34-bank-v2-dev-20261105-v1"
+BANK_V2_SCREEN_NAMESPACE = "t34-bank-v2-screen-20261105-v1"
+BANK_V2_DEV_COUNT = 8
+BANK_V2_SCREEN_COUNT = 48
+BANK_V2_NAMESPACES: tuple[tuple[str, int], ...] = (
+    (BANK_V2_DEV_NAMESPACE, BANK_V2_DEV_COUNT),
+    (BANK_V2_SCREEN_NAMESPACE, BANK_V2_SCREEN_COUNT),
+)
+
 KNOWN_FIXTURE_SEEDS: frozenset[int] = frozenset(
     {
         34890123,
@@ -81,6 +104,58 @@ COMMITTED_BANK_FILES: tuple[str, ...] = (
 def seed_for(namespace: str, index: int) -> int:
     """Standard uint32 SHA256 seed derivation shared by Watch6 and Watch replay."""
     return int.from_bytes(hashlib.sha256(f"{namespace}/{index}".encode()).digest()[:4], "big")
+
+
+def bank_v2_disjointness(repo: Path = ROOT) -> dict[str, Any]:
+    """Outcome-blind, file-scan-free disjointness of the Bank-v2 namespaces.
+
+    Checks the Bank-v2 dev/screen seeds against each other, every registered prior
+    namespace prefix plus LATER_STUDY_NAMESPACES (served L1 banks, open-stop gate, hero
+    probe), known fixture seeds,
+    the excluded full-size canary seed and the committed bank files.  Never opens
+    exports/, pair-*.json, *.watch.gz or any sealed directory.
+    """
+    seeds: dict[str, set[int]] = {}
+    for ns, count in BANK_V2_NAMESPACES:
+        values = {seed_for(ns, idx) for idx in range(count)}
+        if len(values) != count:
+            raise ValueError(f"internal seed collision in {ns}")
+        seeds[ns] = values
+    dev, screen = (seeds[ns] for ns, _ in BANK_V2_NAMESPACES)
+    collisions: list[dict[str, Any]] = []
+    if dev & screen:
+        collisions.append({"source": "bank-v2 dev vs screen", "seeds": sorted(dev & screen)})
+    candidate = dev | screen
+    prior = (*KNOWN_NAMESPACE_PREFIXES, *LATER_STUDY_NAMESPACES)
+    for ns, limit in prior:
+        if ns in {name for name, _ in BANK_V2_NAMESPACES}:
+            raise ValueError(f"Bank-v2 namespace reuses a prior namespace: {ns}")
+        overlap = candidate & {seed_for(ns, idx) for idx in range(limit)}
+        if overlap:
+            collisions.append({"source": f"namespace:{ns}", "seeds": sorted(overlap)})
+    if candidate & KNOWN_FIXTURE_SEEDS:
+        collisions.append(
+            {"source": "known_fixture_seeds", "seeds": sorted(candidate & KNOWN_FIXTURE_SEEDS)}
+        )
+    canary_seed = seed_for("t34-watch-replay-full-size-fixture-v1", 0)
+    if canary_seed in candidate:
+        collisions.append({"source": "full-size canary fixture", "seeds": [canary_seed]})
+    for rel in COMMITTED_BANK_FILES:
+        text = (repo / rel).read_text(encoding="utf-8")
+        values = {int(x) for x in re.findall(r'"(?:world_seed|seed)"\s*:\s*(\d+)', text)}
+        if not values:
+            raise ValueError(f"committed bank parsed zero seeds: {rel}")
+        if candidate & values:
+            collisions.append({"source": rel, "seeds": sorted(candidate & values)})
+    if collisions:
+        raise ValueError(f"Bank-v2 seed disjointness failed: {collisions}")
+    return {
+        "status": "CLEAR",
+        "namespaces": {ns: sorted(seeds[ns]) for ns, _ in BANK_V2_NAMESPACES},
+        "checked_namespaces": len(prior),
+        "fixture_seeds": len(KNOWN_FIXTURE_SEEDS),
+        "committed_bank_files": list(COMMITTED_BANK_FILES),
+    }
 
 
 def _discover_watch6_sources(roots: list[Path]) -> dict[str, set[int]]:
