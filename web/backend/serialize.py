@@ -319,7 +319,7 @@ def _ego2s_hero_raster(obs: Mapping[str, object], obs_spec: str, policy: object 
         "global_shape": [int(d) for d in glob.shape],
         "global_b64": base64.b64encode(glob.tobytes()).decode("ascii"),
         "global_channels": EGO2S_GLOBAL_CHANNELS[: int(glob.shape[0])],
-        "scalars": [float(v) for v in scalars],
+        "scalars": [round(float(v), 6) for v in scalars],
         "scalar_groups": _inspector_groups(int(scalars.size), obs_spec),
     }
 
