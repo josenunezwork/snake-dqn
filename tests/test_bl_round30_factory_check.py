@@ -194,6 +194,7 @@ def test_busy_shared_slot_never_spawns(tmp_path, monkeypatch):
         raise check.launcher.InterimLaunchError("factory serial test slot is busy")
         yield
 
+    monkeypatch.setattr(check.os, "getpriority", lambda *a: 15)
     monkeypatch.setattr(check.launcher, "serial_test_slot", busy)
     monkeypatch.setattr(check.subprocess, "Popen", lambda *a, **k: pytest.fail("must not spawn"))
     with pytest.raises(check.launcher.InterimLaunchError, match="slot is busy"):
