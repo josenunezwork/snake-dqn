@@ -87,9 +87,12 @@ def test_a2_preflight_failure_prevents_pack_publication(tmp_path, monkeypatch):
         raise ValueError("isolated import failed")
 
     monkeypatch.setattr(import_preflight, "check", fail)
+    inputs = tmp_path / "inputs"
+    inputs.mkdir()
+    (inputs / "control.json").write_text('{"allocation": "test", "input_hashes": {}}\n')
     output = tmp_path / "pack"
     with pytest.raises(ValueError, match="isolated import failed"):
-        make_pack.make_pack(tmp_path / "inputs", output, commit)
+        make_pack.make_pack(inputs, output, commit)
     assert not output.exists()
     assert calls[0][1:] == (
         commit,
