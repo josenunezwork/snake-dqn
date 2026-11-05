@@ -383,10 +383,12 @@ def isolated_broker_execution(
         sys.pycache_prefix = str(pycache_prefix_dir)
         os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
         os.environ["PYTHONPYCACHEPREFIX"] = str(pycache_prefix_dir)
-        os.environ["NUMBA_CACHE_DIR"] = str(numba_cache_dir)
+        os.environ["NUMBA_CACHE_DIR"] = str(_BOOTSTRAP_NUMBA_CACHE_DIR)
         os.environ["NUMBA_CACHE_LOCATOR_CLASSES"] = "UserProvidedCacheLocator"
-        os.environ["SNAKE_DQN_PYTHON"] = str(python_wrapper)
         _sync_loaded_numba_cache_config(rebind_dispatchers=True)
+        os.environ["NUMBA_CACHE_DIR"] = str(numba_cache_dir)
+        os.environ["SNAKE_DQN_PYTHON"] = str(python_wrapper)
+        _sync_loaded_numba_cache_config(rebind_dispatchers=False)
         _ISOLATION_TLS.active = iso
         yield iso
     finally:
