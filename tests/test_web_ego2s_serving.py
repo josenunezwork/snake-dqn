@@ -260,3 +260,180 @@ def test_bv8_served_rows_are_the_driven_snakes_with_live_v8_features(bv8_ckpt):
         )
     for i, s in enumerate(driven):
         np.testing.assert_allclose(pol.q_for(snakes[s].id), q[i].numpy(), rtol=1e-5)
+
+
+def test_ego2s_hero_raster_identity_and_subscription_gate(bv8_ckpt):
+    """Subscribed live Watch exports exact cached uint8 planes and 60 scalars."""
+    import json
+
+    from web.backend.serialize import (
+        EGO2S_GLOBAL_CHANNELS,
+        EGO2S_LOCAL_CHANNELS,
+        decode_ego2s_raster,
+    )
+
+    sess = GameSession(checkpoint=bv8_ckpt)
+    sess.step()
+
+    # Unsubscribed by default -> hero_raster is None
+    frame_unsub = sess.snapshot()
+    assert frame_unsub["hero_raster"] is None
+
+    # Direct policy.hero_observation returns the exact cached slices for hero_id
+    pol = sess.policy
+    row_slot = pol._id_to_row[int(sess.hero_id)]
+    hero_row = int(np.flatnonzero(pol._obs["rows"] == row_slot)[0])
+    raw_obs = pol.hero_observation(sess.hero_id)
+    assert raw_obs is not None
+    assert np.array_equal(raw_obs["local"], pol._obs["local"][hero_row])
+    assert np.array_equal(raw_obs["global"], pol._obs["global"][hero_row])
+    assert np.array_equal(raw_obs["scalars"], pol._obs["scalars"][hero_row])
+
+    # Subscribe a client -> hero_raster is populated and matches policy._obs bit-for-bit
+    sess.set_raster_stream("conn-1", True)
+    frame_sub = sess.snapshot()
+    hr = frame_sub["hero_raster"]
+    assert hr is not None
+    assert hr["encoding"] == "u8_b64"
+    assert hr["local_shape"] == [7, 31, 31]
+    assert hr["local_channels"] == list(EGO2S_LOCAL_CHANNELS)
+    assert hr["global_shape"] == [4, 37, 37]
+    assert hr["global_channels"] == list(EGO2S_GLOBAL_CHANNELS)
+    assert hr["scalar_groups"] == [
+        {"name": "ego2s-b scalars", "start": 0, "end": 30},
+        {"name": "v8 veto features (5 per action)", "start": 30, "end": 60},
+    ]
+
+    decoded = decode_ego2s_raster(hr)
+    assert decoded["local"].dtype == np.uint8
+    assert decoded["global"].dtype == np.uint8
+    assert np.array_equal(decoded["local"], pol._obs["local"][hero_row])
+    assert np.array_equal(decoded["global"], pol._obs["global"][hero_row])
+    np.testing.assert_allclose(decoded["scalars"], pol._obs["scalars"][hero_row], rtol=0, atol=1e-6)
+
+    # Compact payload target: full frame <= 32 KiB
+    encoded_bytes = len(json.dumps(frame_sub, separators=(",", ":")).encode("utf-8"))
+    assert encoded_bytes <= 32 * 1024
+
+    # Unsubscribing restores hero_raster=None
+    sess.set_raster_stream("conn-1", False)
+    assert sess.snapshot()["hero_raster"] is None
+
+
+def test_ego2s_hero_raster_zero_extra_forwards_or_flood_calls(bv8_ckpt, monkeypatch):
+    """Exporting hero_raster uses cached obs with zero extra forwards or flood calls."""
+    import src.simd_env.ego_live_bv8 as ego_live_bv8
+    import src.simd_env.ego_raster_bv8 as ego_bv8
+    import src.simd_env.ego_raster_nb as ego_nb
+    import web.backend.ego2s_policy as pol_mod
+
+    sess = GameSession(checkpoint=bv8_ckpt)
+    sess.step()
+    pol = sess.policy
+
+    counts = {"forward": 0, "raster": 0, "v8": 0, "planes_nb": 0, "region_nb": 0, "v8_kernel": 0}
+
+    orig_forward = pol.net.forward
+    orig_raster = pol_mod.build_ego_raster
+    orig_v8 = ego_live_bv8.game_state_to_v8_source
+    orig_planes_nb = ego_nb.build_planes_numba
+    orig_region_nb = ego_nb.region_sizes_numba
+    orig_v8_kernel = ego_bv8.v8_scalars
+
+    def wrapped_forward(*args, **kwargs):
+        counts["forward"] += 1
+        return orig_forward(*args, **kwargs)
+
+    def wrapped_raster(*args, **kwargs):
+        counts["raster"] += 1
+        return orig_raster(*args, **kwargs)
+
+    def wrapped_v8(*args, **kwargs):
+        counts["v8"] += 1
+        return orig_v8(*args, **kwargs)
+
+    def wrapped_planes_nb(*args, **kwargs):
+        counts["planes_nb"] += 1
+        return orig_planes_nb(*args, **kwargs)
+
+    def wrapped_region_nb(*args, **kwargs):
+        counts["region_nb"] += 1
+        return orig_region_nb(*args, **kwargs)
+
+    def wrapped_v8_kernel(*args, **kwargs):
+        counts["v8_kernel"] += 1
+        return orig_v8_kernel(*args, **kwargs)
+
+    monkeypatch.setattr(pol.net, "forward", wrapped_forward)
+    monkeypatch.setattr(pol_mod, "build_ego_raster", wrapped_raster)
+    monkeypatch.setattr(ego_live_bv8, "game_state_to_v8_source", wrapped_v8)
+    monkeypatch.setattr(ego_nb, "build_planes_numba", wrapped_planes_nb)
+    monkeypatch.setattr(ego_nb, "region_sizes_numba", wrapped_region_nb)
+    monkeypatch.setattr(ego_bv8, "v8_scalars", wrapped_v8_kernel)
+
+    # Calling hero_observation and snapshot (subscribed or unsubscribed) on an already-stepped frame
+    # performs ZERO forwards and ZERO raster/flood calls.
+    sess.set_raster_stream("conn-1", True)
+    assert pol.hero_observation(sess.hero_id) is not None
+    frame = sess.snapshot()
+    assert frame["hero_raster"] is not None
+    assert counts == {
+        "forward": 0,
+        "raster": 0,
+        "v8": 0,
+        "planes_nb": 0,
+        "region_nb": 0,
+        "v8_kernel": 0,
+    }
+
+    # Stepping N live frames with raster subscribed performs exactly 1 forward/featurize per tick.
+    for _ in range(5):
+        sess.step()
+        f = sess.snapshot()
+        assert f["hero_raster"] is not None
+    assert counts == {
+        "forward": 5,
+        "raster": 5,
+        "v8": 5,
+        "planes_nb": 5,
+        "region_nb": 5,
+        "v8_kernel": 5,
+    }
+
+
+def test_ego2s_hero_raster_none_in_play_and_replay(bv8_ckpt):
+    """Play mode and recorded Watch replays always keep hero_raster=None even when subscribed."""
+    from types import SimpleNamespace
+
+    from web.backend.serialize import build_frame
+
+    sess = GameSession(checkpoint=bv8_ckpt)
+    sess.set_raster_stream("conn-1", True)
+    sess.step()
+    assert sess.snapshot()["hero_raster"] is not None
+
+    # Play mode -> hero_raster is None even with raster_subscribers > 0
+    sess.set_mode(MODE_PLAY)
+    sess.step()
+    assert sess.raster_subscribers == 1
+    assert sess.snapshot()["hero_raster"] is None
+
+    # Return to live Watch -> hero_raster is present again
+    sess.set_mode(MODE_WATCH)
+    sess.step()
+    live_frame = sess.snapshot()
+    assert live_frame["hero_raster"] is not None
+
+    # Recorded Watch replay active -> hero_raster is None even with raster_subscribers > 0
+    fake_replay_frame = dict(live_frame)
+    fake_replay_frame["hero_raster"] = None
+    sess._watch_replay = SimpleNamespace(
+        frame=fake_replay_frame,
+        info=lambda: {"label": "Replay", "controller": "exact-stop-l1"},
+        snapshot=lambda _sess: dict(fake_replay_frame),
+    )
+    try:
+        assert sess.snapshot()["hero_raster"] is None
+        assert build_frame(sess)["hero_raster"] is None
+    finally:
+        sess._watch_replay = None

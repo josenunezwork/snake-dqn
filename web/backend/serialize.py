@@ -7,14 +7,17 @@ PyQt-free on purpose (the server must run without a display).
 
 from __future__ import annotations
 
+import base64
 import os
-from typing import Dict, List, Optional
+from typing import Dict, List, Mapping, Optional
 
 import numpy as np
 import torch
 
 from src.core.game_config import GameConfig
 from src.model.obs_spec import EGO2S_BV8, EGO2S_OBS_SPECS
+from src.simd_env.ego_raster import GLOBAL_CHANNELS, LOCAL_CHANNELS
+from src.simd_env.ego_raster_b import B_LOCAL_EXTRA
 from web.backend.state_labels import ACTION_LABELS, state_groups
 
 # Bump when the frame shape changes incompatibly; the client warns on unknown
@@ -37,6 +40,8 @@ def _architecture_label(obs_spec: str) -> str:
 
 
 _EGO2S_SPECS = set(EGO2S_OBS_SPECS)
+EGO2S_LOCAL_CHANNELS: List[str] = list(LOCAL_CHANNELS) + list(B_LOCAL_EXTRA)
+EGO2S_GLOBAL_CHANNELS: List[str] = list(GLOBAL_CHANNELS)
 
 
 # Inspector grouping for the ``raster31v2`` scalar band. Mirrors the per-index
@@ -296,16 +301,55 @@ def _build_inspector_and_netviz(session) -> tuple[Optional[dict], Optional[dict]
     return inspector, netviz
 
 
+def _ego2s_hero_raster(obs: Mapping[str, object], obs_spec: str, policy: object = None) -> dict:
+    """Compact base64-encoded ego2s observation payload for the live Watch viewer."""
+    local = np.ascontiguousarray(obs["local"], dtype=np.uint8)
+    glob = np.ascontiguousarray(obs["global"], dtype=np.uint8)
+    scalars = np.asarray(obs["scalars"], dtype=np.float32).reshape(-1)
+    ego_cfg = getattr(policy, "ego_cfg", None)
+    return {
+        "encoding": "u8_b64",
+        "local_size": int(local.shape[-1]),
+        "local_head_row": int(getattr(ego_cfg, "local_head_row", 23)),
+        "local_head_col": int(getattr(ego_cfg, "local_head_col", 15)),
+        "local_shape": [int(d) for d in local.shape],
+        "local_b64": base64.b64encode(local.tobytes()).decode("ascii"),
+        "local_channels": EGO2S_LOCAL_CHANNELS[: int(local.shape[0])],
+        "global_size": int(glob.shape[-1]),
+        "global_shape": [int(d) for d in glob.shape],
+        "global_b64": base64.b64encode(glob.tobytes()).decode("ascii"),
+        "global_channels": EGO2S_GLOBAL_CHANNELS[: int(glob.shape[0])],
+        "scalars": [float(v) for v in scalars],
+        "scalar_groups": _inspector_groups(int(scalars.size), obs_spec),
+    }
+
+
+def decode_ego2s_raster(payload: Mapping[str, object]) -> Dict[str, np.ndarray]:
+    """Decode a base64 ego2s ``hero_raster`` payload back into NumPy arrays."""
+    local_shape = tuple(int(d) for d in payload["local_shape"])  # type: ignore[index]
+    global_shape = tuple(int(d) for d in payload["global_shape"])  # type: ignore[index]
+    local = np.frombuffer(base64.b64decode(str(payload["local_b64"])), dtype=np.uint8).reshape(
+        local_shape
+    )
+    glob = np.frombuffer(base64.b64decode(str(payload["global_b64"])), dtype=np.uint8).reshape(
+        global_shape
+    )
+    scalars = np.asarray(payload["scalars"], dtype=np.float32)
+    return {"local": local.copy(), "global": glob.copy(), "scalars": scalars}
+
+
 def _hero_raster(session, hero_id) -> Optional[dict]:
     """Compact ego-raster payload for the hero, for the frontend raster viewer.
 
     Emits the two tactical uint8 planes (type-code + value byte, 31x31 each),
     the three strategic density planes (25x25 uint8), the scalar vector, the
     6-bit action mask, and channel legends so the frontend can expand/label the
-    planes without re-deriving the featurizer contract. Returns ``None`` for the
-    vector serving path (no raster policy) or when no observation is available.
+    planes without re-deriving the featurizer contract. For ``ego2s`` policies
+    in live Watch, emits the cached uint8 ``local`` and ``global`` planes as
+    compact base64 strings plus channel and scalar group labels. Returns ``None``
+    for the vector serving path or when no observation is available.
 
-    Shapes (all row-major nested int/float lists):
+    Shapes (all row-major nested int/float lists for raster31v2/v3):
         - ``tactical_code``   ``(31, 31)`` uint8 type codes (see ``tactical_codes``)
         - ``tactical_value``  ``(31, 31)`` uint8 value byte
         - ``strategic``       ``(3, 25, 25)`` uint8 density planes
@@ -313,12 +357,20 @@ def _hero_raster(session, hero_id) -> Optional[dict]:
         - ``mask``            ``(6,)`` bool
     """
     hero = next((snake for snake in session.game.snakes if snake.id == hero_id), None)
-    hero_observation = getattr(getattr(hero, "policy", session.policy), "hero_observation", None)
+    policy = getattr(hero, "policy", session.policy)
+    hero_observation = getattr(policy, "hero_observation", None)
     if not callable(hero_observation):
         return None
     obs = hero_observation(hero_id)
     if obs is None:
         return None
+    if "local" in obs and "global" in obs:
+        obs_spec = (
+            str(getattr(session, "obs_spec", "vector61"))
+            if policy is session.policy
+            else str(getattr(policy, "obs_spec", "vector61"))
+        )
+        return _ego2s_hero_raster(obs, obs_spec, policy)
 
     from src.simd_env.featurizer import STRATEGIC_CHANNEL_NAMES, TACTICAL_CHANNEL_NAMES
 
@@ -391,14 +443,22 @@ def build_frame(session) -> dict:
     inspector, netviz = _build_inspector_and_netviz(session)
     obs_spec = str(getattr(session, "obs_spec", "vector61"))
     # The raster planes (~15-25KB/frame) are only built and shipped while at
-    # least one connected client has the Raster tab open. Default 1 so a
-    # session without the subscriber counter degrades to always-on.
-    raster_subscribers = int(getattr(session, "raster_subscribers", 1) or 0)
-    hero_raster = (
-        _hero_raster(session, session.hero_id)
-        if obs_spec in {"raster31v2", "raster31v3"} and raster_subscribers > 0
-        else None
-    )
+    # least one connected client has the Raster tab open. Default 1 for
+    # raster31v2/v3 so standalone sessions without the subscriber counter
+    # degrade to always-on; ego2s requires an active raster subscription during
+    # live Watch only (never recorded replays or Play).
+    if obs_spec in {"raster31v2", "raster31v3"}:
+        raster_subscribers = int(getattr(session, "raster_subscribers", 1) or 0)
+        hero_raster = _hero_raster(session, session.hero_id) if raster_subscribers > 0 else None
+    elif (
+        obs_spec in _EGO2S_SPECS
+        and getattr(session, "mode", "watch") == "watch"
+        and getattr(session, "_watch_replay", None) is None
+        and int(getattr(session, "raster_subscribers", 0) or 0) > 0
+    ):
+        hero_raster = _hero_raster(session, session.hero_id)
+    else:
+        hero_raster = None
     checkpoint_path = getattr(session, "checkpoint_path", None)
 
     return {
