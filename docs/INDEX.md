@@ -1,6 +1,6 @@
 # snake-dqn Project & Documentation Index
 
-Snapshot: **2026-11-01 PT**. For binding operating rules, monitoring thresholds, and release history,
+Snapshot: **2026-11-04 PT (T34 CLOSED)**. For binding operating rules, monitoring thresholds, and release history,
 see [STATUS.md](STATUS.md).
 
 ---
@@ -30,39 +30,46 @@ approval ([STATUS.md](STATUS.md)).
 
 | Mode | What runs today | Hero & roster | Configuration / launch |
 | --- | --- | --- | --- |
-| **Watch** | **132-session confirmed `exact-stop-l2-prime` replay bank** (6,000 frames/session), visibly labelled **"Recorded assisted hero"** | `b8-s3` hero + `exact-stop-l2-prime` (`L >= 600`, interval 5, `H = 300`) vs `5× frp3-s12 + v8` | `.claude/launch.json` (`snake-web`): `SNAKE_WATCH_SOURCE=replay`, `SNAKE_WATCH_REPLAY_DIR=.../watch-replay-bank-live-132`, and `SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l2-prime` (banks `01–08, 10–12`; released `f5912f44`). Live bare `b8-s3` is the automatic fallback; `watch-replay-bank-live-168` (`+36` `exact-stop-l1` sessions) remains staged on disk. |
-| **Play** | **Live bare `b8-s3`** (no veto, no replay) | `1` human vs `N` (default `5`, adjustable `1–11`) live bare `b8-s3` AI opponents (SHA prefix `3e649783`; the `mixed` `frp3-s12 + v8` opponent roster is Watch-only) | Always runs live server simulation and inference ([`web/backend/served_checkpoint.py`](../web/backend/served_checkpoint.py)). |
+| **Watch** | **132-session confirmed `exact-stop-l1` replay bank** (`watch-replay-bank-live-132-l1`, 6,000 frames/session), visibly labelled **"Recorded assisted hero"** | `b8-s3` hero + `exact-stop-l1` (`L >= 1`, interval 5, `H = 300`) vs `5× frp3-s12 + v8` | `SNAKE_WATCH_SOURCE=replay`, `SNAKE_WATCH_REPLAY_DIR=.../watch-replay-bank-live-132-l1`, and `SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l1` (banks `14l1–24l1`: `36` A100 + `96` G4 sessions; confirmed by `Watch6-L1-V1` `GO_L1_SUPERIOR`, Mac-qualified `24 fps` runs 2+3). Live bare `b8-s3` is the automatic fallback; `watch-replay-bank-live-36-l1` (`exact-stop-l1`) and `watch-replay-bank-live-132` (`exact-stop-l2-prime`) remain as rollback banks. |
+| **Play** | **Live bare `b8-s3`** (no veto, no replay) | `1` human vs `N` (default `5`, adjustable `1–11`) AI opponents: **Classic B8** default (`b8-s3`, SHA prefix `3e649783`), with opt-in **"Field: Classic B8 / Mixed"** (`Mixed` = `frp3-s12 + v8` opponents; leaderboard partitioned by field) | Always runs live server simulation and inference ([`web/backend/served_checkpoint.py`](../web/backend/served_checkpoint.py)); force Classic B8 with `SNAKE_SERVE_PLAY_ROSTER=all_b8`. |
 
 **Rollbacks** (restart [`web/serve.py`](../web/serve.py) with explicit env vars; `GameSession` gates replay on `_is_clean_mixed_watch6_b8()`, so non-default `SNAKE_SERVE_CHECKPOINT` / `SNAKE_SERVE_WATCH_ROSTER` automatically run live, and `SNAKE_WATCH_SOURCE=live` forces live bare `b8-s3` mixed Watch6):
 
+- **Previous Watch replay banks:** `SNAKE_WATCH_REPLAY_DIR=.../watch-replay-bank-live-36-l1` (`SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l1`) or `SNAKE_WATCH_REPLAY_DIR=.../watch-replay-bank-live-132` (`SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l2-prime`).
 - **Watch back to live bare `b8-s3`:** unset `SNAKE_WATCH_SOURCE` (or `SNAKE_WATCH_SOURCE=live`).
+- **Force Classic B8 in Play:** `SNAKE_SERVE_PLAY_ROSTER=all_b8`.
 - **All-B8 Watch roster (live):** `SNAKE_WATCH_SOURCE=live SNAKE_SERVE_WATCH_ROSTER=all_b8`.
 - **Previous released checkpoints (live):** `SNAKE_WATCH_SOURCE=live SNAKE_SERVE_CHECKPOINT=frp3-s12` (`frp3-s12 + v8`, SHA prefix `eec144bf`) or `SNAKE_WATCH_SOURCE=live SNAKE_SERVE_CHECKPOINT=champion` (`champion_a5 + v8`, SHA prefix `43d4e2c5`).
 
 ---
 
-## 3. Current campaign state (T34 ExIt-B8 — 2026-11-01)
+## 3. Campaign state — T34 CLOSED (2026-11-04 PT)
 
-Active campaign authority: [SUCCESS_CONTRACT.md](research/final_run_20261019/SUCCESS_CONTRACT.md) ·
+Campaign authority: [SUCCESS_CONTRACT.md](research/final_run_20261019/SUCCESS_CONTRACT.md) ·
 [DESIGN_V2_SHADOW.md](research/final_run_20261019/DESIGN_V2_SHADOW.md) ·
 [P7_STATISTICS.md](research/final_run_20261019/P7_STATISTICS.md) ·
 [FINAL_PLAN.md](research/final_run_20261019/FINAL_PLAN.md) ·
 [CAMPAIGN_LOG.md](research/final_run_20261019/CAMPAIGN_LOG.md).
-Under the owner's standing [Fast-process rule](STATUS.md#fast-process-rule-owner-2026-10-30-standing--overrides-older-ceremony-rules),
-work runs in two lanes: **Confirmation** (full pre-data rigor, fresh worlds, paired statistics) and
-**Exploration** (fast screens/probes without pre-registration ceremony). Current-round and later-round
-research plans (**advice, not decisions**) are synthesized in **[research/ROADMAP.md](research/ROADMAP.md)**.
+**T34 ExIt-B8 is CLOSED** by its pre-registered closeout audit (campaign log 2026-11-04 17:40 row; readout `t34-sol/argon-closeout-audit/REPORT.md`; see [STATUS.md](STATUS.md#t34-closed-2026-11-04-pt--final-state) and [research/ROADMAP.md](research/ROADMAP.md)).
 
-### Live serving, running `Watch6-L1-V1` (`6/6` Colab slots active) & pending readouts
+### Final shipped state & closeout verdicts
 
-- **Watch `live-132` replay serving (`f5912f44`) & running `Watch6-L1-V1` (`l1v1-main-01`, `a3135483`):** [`research/watch_replay/`](../research/watch_replay/) & [`web/backend/watch_replay.py`](../web/backend/watch_replay.py) — serves the `132` confirmed `exact-stop-l2-prime` sessions (`watch-replay-bank-live-132`, `SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l2-prime`) after Watch6 V3 `GO_EFFICACY_ONLY` (`52135312`) and Mac `24 fps` qualification (`qualify.py`, `update p95 = 8.78 ms`, `0/120` overruns, `fec81656`). The `36` `exact-stop-l1` sessions (`14l1–16l1`, `~61.5 A100 u`) remain staged in `watch-replay-bank-live-168` while prospective `H = 14,400` confirmation runs via ratified [`research/watch6_l1_confirm/`](../research/watch6_l1_confirm/) ([`REGISTRATION_L1_V1.md`](../research/watch6_l1_confirm/REGISTRATION_L1_V1.md), initial `cf07791b` / `ac250f05` Fable ruling `t34-sol/argon-l1v1-pkg/RULING_L1_V1.md` and `43,200/43,200` Mac mirrors `fix1/mac-mirror.json` (`1.272×`) + R2 `fix2/mac-mirror.json` (`1.573×`, `e89cc8c2…`), Fable R2 `APPROVE-WITH-CONDITIONS` `RULING_L1_V1_R2.md` on `1873b902` / `93c77f43` (`COLAB_OUTPUT_DIR` + `--fixture-horizon 6`, science identity `57ec544fe45f7a8a876dbc9363048468b63358e224b2ee8e11dff41401dcfbd3`), `t34-sol/l1v1-packet-02` canaries `PASS` (`0.70 u` observed), and all `18` shards = `12×6 A100 W = 6` + `6×4 L4 W = 4` running in `t34-sol/l1v1-main-01` (`~636.8 u` central / `~637.5 u` incl. canaries, `598.1–739.5 u` range, `~27.7 h` across `6/6` Colab slots = `3 A100` shards `00, 02, 04` at `6,720–6,840 s` / `poll-000178.json` + `3 L4` shards `12, 13, 14` at `6,360–6,480 s` / `poll-000163.json` in their **3rd/final arm**), alongside the `0 u` Mac `M0b` live-ops patch in [research/ROADMAP.md](research/ROADMAP.md) §1.3 & §2.1–§2.3).
-- **Completed Oct 30 Claim-A & ruler receipts awaiting Mac readout:** `b8-head-closedloop` (`origin/astra-doom-auc-smoke`, 192-world v1 H5000 margin screen without `boost_decisions`; **sole remaining Claim-A gameplay screen**, A100 receipt `PASS` in `2,666.1 s` / `4.51 A100 u` attributable / `4.98 u` elapsed, `batch-0000..0002.json` verified) awaits `< 90 s` Mac `M0a` `closedloop_readout.py` readout, and `spatial-qbytes-01` (`origin/astra-spatial-student-pilot`; **GPU Q-byte / `.so` cache throughput & parity ruler only**, A100 receipt `PASS`) awaits Mac parity/timing audit; the `40–48 A100 u` `spatial-student-pilot` GPU fit is canceled (`0 u`, retaining `.so` caches; `t34-sol/student-direction/{astra,fable}.md`, T4 Gate-1 `KILL_T4`).
+- **Watch `live-132-l1` replay serving (`exact-stop-l1`, 2026-11-03):** [`research/watch_replay/`](../research/watch_replay/) & [`web/backend/watch_replay.py`](../web/backend/watch_replay.py) — serves the **132 confirmed `exact-stop-l1` sessions** (`watch-replay-bank-live-132-l1`, banks `14l1–24l1`: `36` A100 + `96` G4 sessions; `SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l1`) after `Watch6-L1-V1` `GO_L1_SUPERIOR` (`deaths −72%`, `mass +95%` vs bare at `H = 14,400`) and consecutive Mac `24 fps` qualification runs 2+3 (`qualify.py`). Serving fixes also landed for gen-2 GC tick stall (`5b4353c6`) and Watch↔Play RSS growth (`7ecec2a0`).
+- **Play Field option (`b3789463`, 2026-11-04):** Play defaults to live bare `b8-s3` (**Classic B8**) and offers opt-in **"Field: Classic B8 / Mixed"** (`Mixed` = `frp3-s12 + v8` opponents, probe `CANDIDATE` `t34-sol/argon-play-mixed-probe/REPORT.md`), with field-partitioned leaderboards.
+- **Closing evidence (Mac-only, `0` Colab units):**
+  - **`open-stop-h32-nb`** (alive + un-enclosed `H = 32` certificate) **PASSED** its pre-registered 96-fresh-world gate (`deaths −70%`, `mass +51%`, harmful overrides `0.88%`) — valid offline controller (`~60 ms/root`), not `24 fps`-live.
+  - **Search→bare distillation CLOSED:** Stage 1B frozen-feature heads keep only `8–9%` of open-stop rescues at `≤ 1%` ordinary flips (same selectivity wall as Sandbox B).
+  - **Live search CLOSED:** closeout Part B showed neither a one-tick `H = 12` budget nor a 3-tick-delayed async open-stop keeps `≥ 50%` of rescues within `≤ 1%` false overrides.
+  - **Claim A `b8-head-closedloop` (`KILL`):** all 4 arms lose mass (`−305 … −26`, `LB90 < 0`; reported `INCONCLUSIVE`-on-schema, `FAIL` on every measured bar).
+  - **Earlier stops this round:** hero `M4-B2 Stage 1A` `FAIL`; `v6` fast kernel parked (`full step ≈ 1.65 ms`). Reopening any hero-improvement line needs a new idea that clears the selectivity wall or the `24 fps` budget, decided by the advisors (owner rule 2026-11-04).
 
-### Oct 29 – Nov 1 confirmation, exploration & parity verdicts
+### T34 confirmation, exploration & parity verdicts
 
 | Study | Package / artifact | Lane | Verdict | Summary |
 | --- | --- | --- | --- | --- |
-| **`Watch6-L1-V1` 3-arm confirmation** | [`research/watch6_l1_confirm/`](../research/watch6_l1_confirm/) (`l1v1-main-01`) | Confirmation | **RUNNING (`6/6` slots)** | `N = 96` fresh paired `H = 14,400` 3-arm `{bare, l2_prime, l1}` Watch6-v2 sessions (`1873b902` R2 ratified, `science = 57ec544f…`, `l1v1-packet-02` canaries `0.70 u` `PASS`, `18` shards `~637.5 u`, `~27.7 h` across `3 A100 + 3 L4`); fixed-sequence Gate 1 (`l1` vs `bare`) $\to$ Gate 2 (`l1` vs `l2_prime`). |
+| **`Watch6-L1-V1` 3-arm confirmation** | [`research/watch6_l1_confirm/`](../research/watch6_l1_confirm/) (`l1v1-main-01`) | Confirmation | **`GO_L1_SUPERIOR` (RELEASED)** | `N = 96` fresh paired `H = 14,400` 3-arm `{bare, l2_prime, l1}` Watch6-v2 sessions (`1873b902` R2 ratified, `science = 57ec544f…`, ledger `2eff534c…`): `exact-stop-l1` cut deaths **`−72%`** and raised mass **`+95%`** vs `bare`; expanded to 132 sessions (`watch-replay-bank-live-132-l1`, banks `14l1–24l1`) and Mac-qualified at `24 fps`. |
+| **`open-stop-h32-nb` 96-world gate** | `t34-sol/argon-closeout-audit/REPORT.md` | Confirmation | **PASS (offline)** | Alive + un-enclosed `H = 32` certificate on 96 fresh worlds: deaths `−70%`, mass `+51%`, harmful overrides `0.88%` (`~60 ms/root`, offline controller; not `24 fps`-live). |
+| **T34 closeout audit (Stage 1B / Part B / Claim A)** | `t34-sol/argon-closeout-audit/REPORT.md` | Exploration / Closeout | **CLOSED / KILL** | Search→bare distillation Stage 1B keeps `8–9%` rescues at `≤ 1%` flips (`CLOSED`); live search Part B 1-tick `H = 12` & 3-tick async fail `≥ 50%` rescue / `≤ 1%` false override bar (`CLOSED`); Claim A `b8-head-closedloop` loses mass on all 4 arms (`−305 … −26`, `KILL`). |
 | **Watch6 V3 search efficacy** | [`research/watch6_search_efficacy_v3/`](../research/watch6_search_efficacy_v3/) (`final-look-v3`) | Confirmation | **`GO_EFFICACY_ONLY`** | `N = 96` fresh paired `H = 14,400` Watch6-v2 sessions (`0` reserves, `24/24` L4 shards PASS): `exact-stop-l2-prime` vs `bare` **`Δdeaths/1k = -0.125`** (`CI95 [-0.153, -0.097] < 0`) and **Fieller mass `+63.7%`** (`CI95 [+49.8%, +78.5%] >= -5%`) $\Rightarrow$ `ELIGIBLE_FOR_REPLAY_QUALIFICATION` (followed by Mac qual & `live-132` release). |
 | **Watch6 all-length screen** | [`research/watch6_alllen_screen/`](../research/watch6_alllen_screen/) (`argon-alllen-a100`) | Exploration | **ADOPT** (new banks) | `N = 48` paired `H = 6,000` Watch6-v2 sessions: `exact_stop` at `L >= 1` reaches **`559.4`** mass (`+98.3` vs `L >= 600`, `+208.4` vs `bare`) and **`0.052/1k`** deaths (`-67.4%` vs `L >= 600`, `-81.9%` vs `bare`; `15` deaths, `13/15` at `L >= 800`, `2.82×` branches). |
 | **GPU `DeviceSim` v2 parity** | [`research/devicesim_v2_parity/`](../research/devicesim_v2_parity/) (`argon-devicesim-v2`) | Parity | **PASS** | A100 `E = 256 × 1,000` Watch6-v2 ticks (`1,536,000` snake-ticks): **`0` mismatches** across GPU `DeviceSim`, `CTDeviceSim`, and `GridBatchSim` (within `<= 1e-4` CUDA FP32 near-tie re-decision checks), plus `553 passed` local parity tests. |
@@ -82,7 +89,7 @@ research plans (**advice, not decisions**) are synthesized in **[research/ROADMA
 | Document | Purpose |
 | --- | --- |
 | [STATUS.md](STATUS.md) | **Single source of truth** for current served state, standing owner rules, release pins, monitoring thresholds, and historical milestones. |
-| [research/ROADMAP.md](research/ROADMAP.md) | **Synthesized research roadmap (Round-27 advice, not decisions):** `0 u` Mac `M0a` `b8-head-closedloop` Claim-A readout (`>= +40` v1 bar) & `0 u` Mac `M0b` / `M0_process_v27` live-ops patch before L4 Wave 1 finishes at **`~01:55 AM PT`** (`~12.6 min` before A100 Wave 1) and Wave 2 at **`~08:38 AM PT`** for running **`Watch6-L1-V1`** (`l1v1-main-01`, `18` shards on `1873b902`, `science = 57ec544f…`, `~637.5 u` across `6/6` Colab slots = `3 A100 + 3 L4` in their 3rd/final arm at `26.01 u/h` / `2,106.84 u` balance — pinning `1873b902:web/backend/session.py` (`da7b4971…`) in operational validators while keeping `protocol.py` + live `session.py` (`fec81656`) untouched; `ACCOUNT_GPU_SUBCAPS = {"L4": 3, "A100": 3, "H100": 3}` in `ready_queue.py:682`; pre-compute forbid-list in `admission.py:474-490`, ignoring `{"workload-started.json", "performance.json"}` for Tier-0 `0`-`world-*.json` drops (`prestart_attempt <= 6`, bypassing `if attempt >= maximum` on `retry_limit = 1`), and negative-fault transport classification in `admission.py:682-706`; linear `RETRY.json`/`unalloc_ref`/`prior_receipts` DAG + 4-site canary filter in `final_look.py` under `pre_outcome_open_guard()`; and Tier-0 `cb72db0f…` reuse vs. Tier-1 `recover.py --commit 1873b902`); and later-round **`CTS-ZWRHS-L1-v6` (`RH-DAG-1`)** (Subsumed-BFS + Component-Ceiling Theorem + stack-local `tail_flat[6]` + `V8ResultBuffer` + `_i64` zero-copy + `step_prepared(hero_policies=[])` cutting `1.892 -> ~0.15 ms/step`, **Receding-Horizon Multi-Deviation DAG (`RH-DAG-1`)** with Suffix Grafting $h = 96 \to 64 \to 1$ + `RolloutBacktrack-16` + Future-Rooted 2-Tick Stage B from $\hat{w}_{t+1}$ keeping single-process Mac live serving `p99 <= 12.0 ms < 33.0 ms` (`0` workers), Phase-Free Danger Interrupt + Every-Tick $\pi_{\text{shield}}$ (`v8_tail_redecide` + `0`-flood `DesperateOppHeadOnShield`) + `res_opp.head_risky` `OppPinchProbe`, `Watch6-RHDAG1-V6-Screen96` `~7.4 u` / `~14.8 u` 2× cap -> `~56 u` / `~112 u` 2× confirm) + spawned **`P1+3W` `ShadowSpine`**. |
+| [research/ROADMAP.md](research/ROADMAP.md) | **T34 closeout summary (2026-11-04 PT) & archived Round-27 research roadmap:** final shipped state (`watch-replay-bank-live-132-l1` with `exact-stop-l1` on Watch; `b8-s3` default + opt-in `Field: Classic B8 / Mixed` on Play), closing Mac-only evidence (`open-stop-h32-nb` gate `PASS`, search→bare distillation Stage 1B `CLOSED`, live search Part B `CLOSED`, Claim A `b8-head-closedloop` `KILL`), and archived Round-27 advisor synthesis. |
 | [README.md](README.md) | Per-document status guide (`Current`, `Historical`, `Superseded`) and reconciled historical discrepancies. |
 | [MAP.md](MAP.md) | Directory-by-directory layout of `docs/`. |
 | [TIMELINE.md](TIMELINE.md) | Chronological project milestones from 2026-06-16 through 2026-11-01. |
@@ -139,10 +146,10 @@ make install-dev        # dev tools + pre-commit hooks
 # Build frontend & start live server at http://localhost:8000 (live b8-s3 Watch + Play)
 make web
 
-# Serve Watch from the confirmed 132-session exact-stop-l2-prime replay bank (matches .claude/launch.json)
+# Serve Watch from the confirmed 132-session exact-stop-l1 replay bank
 SNAKE_WATCH_SOURCE=replay \
-SNAKE_WATCH_REPLAY_DIR=/Users/josenunez/Projects/ml/snake-dqn-artifacts/watch-replay-bank-live-132 \
-SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l2-prime \
+SNAKE_WATCH_REPLAY_DIR=/Users/josenunez/Projects/ml/snake-dqn-artifacts/watch-replay-bank-live-132-l1 \
+SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l1 \
 ./venv/bin/python web/serve.py
 
 # Frontend hot-reload dev server (proxies API/WS to :8000)

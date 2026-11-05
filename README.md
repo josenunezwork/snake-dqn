@@ -8,35 +8,39 @@ silently. Releases are explicit and need the owner's OK.
 
 ![architecture](docs/architecture.svg)
 
-## Served Watch & Play setup (as of 2026-11-01)
+## Served Watch & Play setup (as of 2026-11-04, T34 CLOSED)
 
 Start with **[docs/INDEX.md](docs/INDEX.md)** for the full project map and
 **[docs/STATUS.md](docs/STATUS.md)** for binding release pins, monitoring
 thresholds, and standing operating rules.
 
-- **Watch:** plays the **132-session confirmed `exact-stop-l2-prime` replay bank**
-  (`snake-dqn-artifacts/watch-replay-bank-live-132`: `132` `exact-stop-l2-prime`
-  6,000-frame Watch6-v2 sessions from banks `01–08` and `10–12`, `b8-s3` hero at
-  `L >= 600` vs `5× frp3-s12 + v8`, confirmed `GO_EFFICACY_ONLY` in Watch6 V3
-  `52135312`, qualified on Mac `24 fps` in `fec81656`, and released in `f5912f44`),
+- **Watch:** plays the **132-session confirmed `exact-stop-l1` replay bank**
+  (`snake-dqn-artifacts/watch-replay-bank-live-132-l1`: `132` `exact-stop-l1`
+  6,000-frame Watch6-v2 sessions from banks `14l1–24l1` — `36` A100 + `96` G4
+  sessions, `b8-s3` hero at `L >= 1` vs `5× frp3-s12 + v8`, confirmed
+  `GO_L1_SUPERIOR` in `Watch6-L1-V1` with deaths `−72%` and mass `+95%` vs bare
+  at `H = 14,400`, and qualified on Mac `24 fps` in runs 2+3 consecutively),
   visibly labelled **"Recorded assisted hero"** (`SNAKE_WATCH_SOURCE=replay`,
-  `SNAKE_WATCH_REPLAY_DIR`, and `SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l2-prime`
-  in `.claude/launch.json`). The `168`-session mixed bank (`watch-replay-bank-live-168`,
-  adding `36` `exact-stop-l1` sessions from `14l1–16l1`) remains on disk while
-  ratified `Watch6-L1-V1` `H = 14,400` confirmation runs (`l1v1-main-01`, `18` shards across `6/6` Colab slots; [`research/watch6_l1_confirm/REGISTRATION_L1_V1.md`](research/watch6_l1_confirm/REGISTRATION_L1_V1.md)). Live bare `b8-s3` is the automatic fallback during cold
-  prefetch or if the bank is unset, empty, or invalid.
+  `SNAKE_WATCH_REPLAY_DIR=.../watch-replay-bank-live-132-l1`, and
+  `SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l1`). Rollback banks (`watch-replay-bank-live-36-l1`
+  with `exact-stop-l1`, or `watch-replay-bank-live-132` with
+  `SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l2-prime`) remain on disk. Live bare
+  `b8-s3` is the automatic fallback during cold prefetch or if the bank is unset,
+  empty, or invalid.
 - **Play (and live Watch fallback):** runs **live bare B8 seed 3 (`b8-s3`), served
   without a veto** (checkpoint SHA prefix `3e649783`). In **Play**, `1` human steers
-  against `N` (default `5`, adjustable `1–11`) live bare `b8-s3` AI opponents; in
-  **live Watch fallback** (`SNAKE_WATCH_SOURCE=live`), the bare `b8-s3` hero faces
-  the Watch-only **mixed** `5× frp3-s12 + v8` opponent roster. Its release claim
-  (2026-10-17) is **more mass at equal survival against the previously served agent,
-  with no veto** (not a safety claim; T7 Phase R `STRICT_PASS` + Tier 2 PASS, then
-  T12/T15 serving checks). See the
-  [release record](docs/research/b8_s3_release_2026-10-17.md) and the
-  [mixed-Watch erratum](docs/research/b8_s3_release_erratum_mixed_watch_2026-10-17.md).
+  against `N` (default `5`, adjustable `1–11`) AI opponents with **Classic B8** as
+  the default field and an opt-in **"Field: Classic B8 / Mixed"** toggle in the Play
+  panel (`Mixed` = `frp3-s12 + v8` opponents; leaderboard partitioned by field;
+  force Classic with `SNAKE_SERVE_PLAY_ROSTER=all_b8`, `b3789463`). In **live Watch
+  fallback** (`SNAKE_WATCH_SOURCE=live`), the bare `b8-s3` hero faces the
+  `5× frp3-s12 + v8` mixed opponent roster. Its release claim (2026-10-17) is
+  **more mass at equal survival against the previously served agent, with no veto**
+  (not a safety claim; T7 Phase R `STRICT_PASS` + Tier 2 PASS, then T12/T15 serving
+  checks). See the [release record](docs/research/b8_s3_release_2026-10-17.md) and
+  the [mixed-Watch erratum](docs/research/b8_s3_release_erratum_mixed_watch_2026-10-17.md).
 
-Rollback means restarting the server with an explicit live selection (Watch replay is
+Rollback means restarting the server with an explicit selection (Watch replay is
 automatically bypassed whenever `SNAKE_SERVE_CHECKPOINT` or `SNAKE_SERVE_WATCH_ROSTER`
 departs from mixed-Watch6 `b8-s3`, and `SNAKE_WATCH_SOURCE=live` forces live bare `b8-s3`
 Watch directly):
@@ -44,19 +48,24 @@ Watch directly):
 ```bash
 SNAKE_WATCH_SOURCE=live ./venv/bin/python web/serve.py                                     # live bare b8-s3 Watch (mixed roster)
 SNAKE_WATCH_SOURCE=live SNAKE_SERVE_WATCH_ROSTER=all_b8 ./venv/bin/python web/serve.py     # all-B8 live Watch roster
+SNAKE_SERVE_PLAY_ROSTER=all_b8 ./venv/bin/python web/serve.py                              # force Classic B8 in Play
 SNAKE_WATCH_SOURCE=live SNAKE_SERVE_CHECKPOINT=frp3-s12 ./venv/bin/python web/serve.py     # frp3-s12 + v8
 SNAKE_WATCH_SOURCE=live SNAKE_SERVE_CHECKPOINT=champion ./venv/bin/python web/serve.py     # champion + v8
 ```
 
-## Current campaign
+## Campaign status (T34 CLOSED — 2026-11-04 PT)
 
-The active campaign is **T34 ExIt-B8** (Watch6 V3 `GO_EFFICACY_ONLY` confirmed and
-`132`-session Watch replay bank released; next plans & recent exploration verdicts in
-[docs/INDEX.md](docs/INDEX.md) and [docs/STATUS.md](docs/STATUS.md)). Start here:
+Campaign **T34 ExIt-B8** is **closed** by its pre-registered closeout audit
+(`t34-sol/argon-closeout-audit/REPORT.md`; `Watch6-L1-V1` `GO_L1_SUPERIOR` confirmed
+and 132-session `exact-stop-l1` Watch replay bank `watch-replay-bank-live-132-l1`
+released; Play default bare `b8-s3` with opt-in `Field: Classic B8 / Mixed`;
+`open-stop-h32-nb` offline gate `PASS`, search→bare distillation and live search
+closed, Claim A `b8-head-closedloop` `KILL`; see [docs/INDEX.md](docs/INDEX.md) and
+[docs/STATUS.md](docs/STATUS.md)). Start here:
 
-1. [docs/INDEX.md](docs/INDEX.md): project overview, served Watch/Play setup, active studies, and commands
-2. [docs/STATUS.md](docs/STATUS.md): standing owner rules, release pins, and binding contract documents
-3. [docs/research/ROADMAP.md](docs/research/ROADMAP.md): synthesized current-round and later-round research roadmap (*advice, not decisions*)
+1. [docs/INDEX.md](docs/INDEX.md): project overview, served Watch/Play setup, T34 closeout summary, and commands
+2. [docs/STATUS.md](docs/STATUS.md): T34 final state, standing owner rules, release pins, and binding contract documents
+3. [docs/research/ROADMAP.md](docs/research/ROADMAP.md): T34 closeout summary and archived Round-27 research roadmap (*advice, not decisions*)
 4. [CAMPAIGN_LOG.md](docs/research/final_run_20261019/CAMPAIGN_LOG.md) and
    [HANDOFF_2026-10-20.md](docs/research/final_run_20261019/HANDOFF_2026-10-20.md): chronological T34 decisions and results
 

@@ -1,4 +1,4 @@
-# Current state — snapshot updated 2026-11-01; Watch bank updated 2026-11-01; live checkpoint released 2026-10-17
+# Current state — snapshot updated 2026-11-04 (T34 CLOSED); Watch bank updated 2026-11-03; live checkpoint released 2026-10-17
 
 Start: [project index](INDEX.md) · [research roadmap (advice)](research/ROADMAP.md) · [documentation map](README.md) · [study packages](../research/INDEX.md) · [research record](research/INDEX.md) · [lineage history](research/history/INDEX.md) · [glossary](research/GLOSSARY.md).
 
@@ -33,6 +33,9 @@ file is updated when they change.
 Watch plays **confirmed Colab-precomputed replays** (`exact-stop-l2-prime` search hero at `L >= 600` over
 product Watch6 v2, `5× frp3-s12 + v8` opponents, 6,000-frame sessions; pipeline in
 [`research/watch_replay/`](../research/watch_replay/)) visibly labelled **"Recorded assisted hero"**:
+
+> [!NOTE]
+> **Historical snapshot (2026-11-01 PT) — superseded by [`watch-replay-bank-live-132-l1`](#watch-132-session-confirmed-exact-stop-l1-replay-bank-expanded-2026-11-03-1130-pt-first-released-with-36) and [T34 CLOSED (2026-11-04 PT) — final state](#t34-closed-2026-11-04-pt--final-state).** Preserved for rollback and qualification provenance; `Watch6-L1-V1` subsequently completed (`GO_L1_SUPERIOR`) and Watch now serves the 132-session `exact-stop-l1` replay bank `watch-replay-bank-live-132-l1` (`SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l1`).
 
 - **Active bank & controller filter (`f5912f44`):** `snake-dqn-artifacts/watch-replay-bank-live-132`
   (**132 confirmed `exact-stop-l2-prime` sessions** from banks `01–08` and `10–12`), served with
@@ -142,7 +145,10 @@ Closing evidence (all Mac-only, 0 Colab units):
 Reopening any hero-improvement line needs a new idea that clears the selectivity wall or the 24 fps
 budget, decided by the advisors (owner rule 2026-11-04).
 
-## Active campaign state & Oct 31 / Nov 1 results (T34 ExIt-B8 — 2026-11-01)
+## Active campaign state & Oct 31 / Nov 1 results (T34 ExIt-B8 — 2026-11-01 historical snapshot)
+
+> [!NOTE]
+> **Historical snapshot (2026-11-01 PT) — superseded by [T34 CLOSED (2026-11-04 PT) — final state](#t34-closed-2026-11-04-pt--final-state) above.** T34 is closed; no Colab runtimes are running and Watch serves the 132-session confirmed `exact-stop-l1` bank (`watch-replay-bank-live-132-l1`). The Oct 31 / Nov 1 items below are preserved for campaign provenance.
 
 For synthesized current-round and later-round research plans (**advice, not decisions**), see
 [research/ROADMAP.md](research/ROADMAP.md).
@@ -260,7 +266,7 @@ Active campaign: **T34 ExIt-B8**. Binding documents on `main`, in order:
 These rules replace older conflicting text (e.g. the 5× RunPod rule, "always serverless", or
 `champion + v8` / `frp3-s12 + v8` as the served agent).
 
-- **Served defaults:** Watch = 132-session confirmed `exact-stop-l2-prime` replay bank (`watch-replay-bank-live-132`, `SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l2-prime`, banks `01–08, 10–12`; released 2026-11-01 at `f5912f44`) with live `b8-s3` fallback; Play = live bare `b8-s3` (`3e649783`) without a veto. Rollbacks and monitoring thresholds are at the top of this file.
+- **Served defaults:** Watch = 132-session confirmed `exact-stop-l1` replay bank (`watch-replay-bank-live-132-l1`, `SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l1`, banks `14l1–24l1`; expanded 2026-11-03 after `Watch6-L1-V1` `GO_L1_SUPERIOR`) with live `b8-s3` fallback; Play = live bare `b8-s3` (`3e649783`) without a veto (`Classic B8` default, with opt-in `Field: Classic B8 / Mixed` against `frp3-s12 + v8` opponents; leaderboard partitioned by field). Rollbacks and monitoring thresholds are at the top of this file.
 - **Implementers (owner, 2026-10-27, standing):** project code is implemented and reviewed only by **Argon** (Gemini 4 Argon via Antigravity CLI, own git worktree, local commits) and **Astra** (Codex). The reviewer is always the other one; authors never review their own builds. Do not use the Sol implementer persona (`AGENTS.md`, commit `1ad5dc95`).
 - **Standing scope decisions (2026-10-17):**
   - *October redesign goal met and closed:* `b8-s3` beat `frp3-s12 + v8` without a veto.
