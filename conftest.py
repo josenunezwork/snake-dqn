@@ -8,6 +8,13 @@ from pathlib import Path
 
 import pytest
 
+# Pin Numba's pool size for every test process (main, OpenMP re-exec child, xdist
+# workers). Tests that set NUMBA_NUM_THREADS=1 and launch Numba threads restore the
+# environment by deleting the variable; a later numba.config.reload_config() in the
+# same worker then reads the 18-core default and Numba refuses to resize a launched
+# pool. A session-wide default of 1 matches the project's single-thread policy.
+os.environ.setdefault("NUMBA_NUM_THREADS", "1")
+
 
 def pytest_sessionstart(session: pytest.Session) -> None:
     """Route both torch and sklearn to torch's libomp, only in pytest children.
