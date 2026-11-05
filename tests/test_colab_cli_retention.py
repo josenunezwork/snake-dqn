@@ -9,7 +9,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from research.colab_cli import cache_environment, extension_cache, retention, supervisor
+from research.colab_cli import supervisor
+
+cache_environment = pytest.importorskip(
+    "research.colab_cli.cache_environment",
+    reason="A100 retention candidate modules removed in f94cf34c (not active on main)",
+)
+extension_cache = pytest.importorskip("research.colab_cli.extension_cache")
+retention = pytest.importorskip("research.colab_cli.retention")
 
 
 @pytest.fixture

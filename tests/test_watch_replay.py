@@ -1872,8 +1872,14 @@ def test_mode_switches_do_not_grow_object_or_tensor_counts_and_unmap_replays(tmp
     from src.model.apex_network import ApexNetwork
     from src.model.ego2s_network import Ego2sNet
     from src.training.apex_policy import ApexPolicy
+    from web.backend import app as app_mod
+    from web.backend import session as session_module
     from web.backend.ego2s_policy import Ego2sServingPolicy
 
+    if app_mod.hub.session is not None:
+        app_mod.hub.session.close(wait=True)
+        app_mod.hub.session = None
+    session_module._CHECKPOINT_BLOB_CACHE.clear()
     for key in (
         "SNAKE_SERVE_WATCH_ROSTER",
         "SNAKE_SERVE_CHECKPOINT",

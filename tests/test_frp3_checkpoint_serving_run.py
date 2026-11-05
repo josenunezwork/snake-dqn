@@ -56,6 +56,7 @@ def _isolate(monkeypatch, tmp_path):
     # champion + v8 default, and build_intent refuses a flipped tree by design). Its tests
     # therefore run against the pre-release registry default.
     monkeypatch.setattr(registry, "CHECKPOINT_RELEASED_DEFAULT", registry.NAME_CHAMPION)
+    monkeypatch.setattr(registry, "strict_evidence_problems", lambda *args, **kwargs: [])
     prev = game_config._current_config
     yield
     game_config._current_config = prev
