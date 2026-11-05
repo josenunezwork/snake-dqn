@@ -24,7 +24,7 @@ import sys
 import time
 import types
 from pathlib import Path
-from typing import Callable, Dict, List, Tuple
+from typing import Callable, Dict, Tuple
 
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
@@ -83,40 +83,46 @@ def _load_main_build_frame() -> Callable:
     return mod.build_frame
 
 
-def _run_arm(
+def _run_episode_window(
     sess,
     build_fn: Callable,
     *,
     subscribed: bool,
-    ticks: int,
-    reset_every: int,
+    window_ticks: int,
     seed: int,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Run one deterministic arm of ``ticks`` live Watch steps + build_frame."""
+    """Run one deterministic episode window of ``window_ticks`` live Watch steps + build_frame."""
     _seed_everything(seed)
     sess.reset_game()
     sess.set_raster_stream("bench", subscribed)
+
+    step_ms = np.empty(window_ticks, dtype=np.float64)
+    bf_ms = np.empty(window_ticks, dtype=np.float64)
+    full_ms = np.empty(window_ticks, dtype=np.float64)
+    frames = [None] * window_ticks
+
     gc.collect()
+    gc_was_enabled = gc.isenabled()
+    gc.disable()
+    try:
+        for t in range(window_ticks):
+            t0 = time.perf_counter()
+            sess.step()
+            t1 = time.perf_counter()
+            frame = build_fn(sess)
+            t2 = time.perf_counter()
 
-    step_ms = np.empty(ticks, dtype=np.float64)
-    bf_ms = np.empty(ticks, dtype=np.float64)
-    full_ms = np.empty(ticks, dtype=np.float64)
-    frame_bytes = np.empty(ticks, dtype=np.float64)
-    raster_bytes = np.empty(ticks, dtype=np.float64)
+            step_ms[t] = (t1 - t0) * 1000.0
+            bf_ms[t] = (t2 - t1) * 1000.0
+            full_ms[t] = (t2 - t0) * 1000.0
+            frames[t] = frame
+    finally:
+        if gc_was_enabled:
+            gc.enable()
 
-    for t in range(ticks):
-        if reset_every > 0 and t > 0 and (t % reset_every) == 0:
-            sess.reset_game()
-        t0 = time.perf_counter()
-        sess.step()
-        t1 = time.perf_counter()
-        frame = build_fn(sess)
-        t2 = time.perf_counter()
-
-        step_ms[t] = (t1 - t0) * 1000.0
-        bf_ms[t] = (t2 - t1) * 1000.0
-        full_ms[t] = (t2 - t0) * 1000.0
-
+    frame_bytes = np.empty(window_ticks, dtype=np.float64)
+    raster_bytes = np.empty(window_ticks, dtype=np.float64)
+    for t, frame in enumerate(frames):
         hr = frame.get("hero_raster")
         if subscribed:
             assert hr is not None
@@ -156,29 +162,60 @@ def run_benchmark(
         sess.set_raster_stream("bench", True)
         build_frame(sess)
 
-    main_step, main_bf, main_full, main_fbytes, _ = _run_arm(
-        sess,
-        main_build_frame,
-        subscribed=False,
-        ticks=ticks,
-        reset_every=reset_every,
-        seed=seed,
+    window = reset_every if reset_every > 0 else ticks
+    n_windows = max(1, ticks // window)
+    total_ticks = n_windows * window
+
+    arms = {
+        "main": {"fn": main_build_frame, "sub": False},
+        "unsub": {"fn": build_frame, "sub": False},
+        "sub": {"fn": build_frame, "sub": True},
+    }
+    arm_names = ["main", "unsub", "sub"]
+    data = {
+        k: {
+            "step": np.empty(total_ticks, dtype=np.float64),
+            "bf": np.empty(total_ticks, dtype=np.float64),
+            "full": np.empty(total_ticks, dtype=np.float64),
+            "fbytes": np.empty(total_ticks, dtype=np.float64),
+            "rbytes": np.empty(total_ticks, dtype=np.float64),
+        }
+        for k in arm_names
+    }
+
+    # Rotate execution order across windows so each arm experiences identical thermal/OS conditions
+    for w in range(n_windows):
+        w_seed = seed + w * 101
+        lo, hi = w * window, (w + 1) * window
+        order = [arm_names[(w + i) % 3] for i in range(3)]
+        for name in order:
+            spec = arms[name]
+            s_ms, bf_ms, full_ms, fb, rb = _run_episode_window(
+                sess,
+                spec["fn"],
+                subscribed=spec["sub"],
+                window_ticks=window,
+                seed=w_seed,
+            )
+            data[name]["step"][lo:hi] = s_ms
+            data[name]["bf"][lo:hi] = bf_ms
+            data[name]["full"][lo:hi] = full_ms
+            data[name]["fbytes"][lo:hi] = fb
+            data[name]["rbytes"][lo:hi] = rb
+
+    main_step, main_bf, main_full = data["main"]["step"], data["main"]["bf"], data["main"]["full"]
+    unsub_step, unsub_bf, unsub_full, unsub_fbytes = (
+        data["unsub"]["step"],
+        data["unsub"]["bf"],
+        data["unsub"]["full"],
+        data["unsub"]["fbytes"],
     )
-    unsub_step, unsub_bf, unsub_full, unsub_fbytes, _ = _run_arm(
-        sess,
-        build_frame,
-        subscribed=False,
-        ticks=ticks,
-        reset_every=reset_every,
-        seed=seed,
-    )
-    sub_step, sub_bf, sub_full, sub_fbytes, raster_bytes = _run_arm(
-        sess,
-        build_frame,
-        subscribed=True,
-        ticks=ticks,
-        reset_every=reset_every,
-        seed=seed,
+    sub_step, sub_bf, sub_full, sub_fbytes, raster_bytes = (
+        data["sub"]["step"],
+        data["sub"]["bf"],
+        data["sub"]["full"],
+        data["sub"]["fbytes"],
+        data["sub"]["rbytes"],
     )
 
     overhead_bf = sub_bf - unsub_bf
@@ -193,9 +230,10 @@ def run_benchmark(
 
     result = {
         "config": {
-            "ticks": ticks,
+            "ticks": total_ticks,
             "warmup": warmup,
-            "reset_every": reset_every,
+            "reset_every": window,
+            "num_windows": n_windows,
             "num_snakes": 6,
             "seed": seed,
             "checkpoint": os.path.basename(b8_path),
