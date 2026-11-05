@@ -91,7 +91,8 @@ product Watch6 v2, `5× frp3-s12 + v8` opponents, 6,000-frame sessions; pipeline
 - **Play Field option (2026-11-04 PT 17:00, main `b3789463`):** opt-in "Field: Classic B8 / Mixed" in
   the Play panel. **Classic B8 stays the default.** Mixed = frp3-s12+v8 opponents (probe CANDIDATE,
   `t34-sol/argon-play-mixed-probe/REPORT.md`). Leaderboard is partitioned by field. Force Classic with
-  `SNAKE_SERVE_PLAY_ROSTER=all_b8`. Default flip waits on the owner's blinded playtest.
+  `SNAKE_SERVE_PLAY_ROSTER=all_b8` (or `=mixed` to make Mixed the default for all sessions). Judge ruling
+  2026-11-05: KEEP_OPT_IN; revisit after ≥30 real human runs per field at 5 opponents (campaign log).
 
 - **Released checkpoint:** **`b8-s3` hero without a veto** (2026-10-17), checkpoint SHA prefix `3e649783`.
   Evidence: T7 fresh-bank Phase R `STRICT_PASS` and Tier 2 PASS (margin `0.034` at SE `0.023`), followed
