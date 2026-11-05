@@ -195,4 +195,89 @@ describe("EgoRasterViewer", () => {
     );
     expect(noLabels.container.querySelector(".raster-axis")).toBeNull();
   });
+
+  it("renders ego2s local (7 channels), global (4 channels), and 60 grouped scalars from base64 payload", () => {
+    const localS = 4;
+    const globalS = 3;
+    const localBytes = new Uint8Array(7 * localS * localS);
+    localBytes[0] = 255; // own_ttl cell
+    localBytes[2 * localS * localS + 1] = 200; // enemy_head cell
+    const globalBytes = new Uint8Array(4 * globalS * globalS);
+    globalBytes[0] = 180; // own_mass cell
+    globalBytes[3 * globalS * globalS + 2] = 255; // outside cell
+
+    const toB64 = (arr: Uint8Array) =>
+      btoa(Array.from(arr, (b) => String.fromCharCode(b)).join(""));
+
+    const ego2sRaster: HeroRasterDTO = {
+      encoding: "u8_b64",
+      obs_spec: "ego2s-bv8",
+      local_size: localS,
+      local_head_row: 2,
+      local_head_col: 2,
+      local_shape: [7, localS, localS],
+      local_b64: toB64(localBytes),
+      local_channels: [
+        "own_ttl",
+        "enemy_ttl",
+        "enemy_head",
+        "food",
+        "wall",
+        "reach_time",
+        "enemy_next",
+      ],
+      global_size: globalS,
+      global_shape: [4, globalS, globalS],
+      global_b64: toB64(globalBytes),
+      global_channels: ["own_mass", "enemy_mass", "food_mass", "outside"],
+      scalars: Array.from({ length: 60 }, (_, i) => i * 0.1),
+      scalar_groups: [
+        { name: "ego2s-b scalars", start: 0, end: 30 },
+        { name: "v8 veto features (5 per action)", start: 30, end: 60 },
+      ],
+    };
+
+    fillRectCalls = 0;
+    const { getByText, getByRole, getByLabelText } = render(
+      <EgoRasterViewer raster={ego2sRaster} obsSpec="ego2s-bv8" />
+    );
+
+    // 7 local channels (tabs + plane canvases + raw channel labels)
+    for (const [raw, pretty] of [
+      ["own_ttl", "Own Ttl"],
+      ["enemy_ttl", "Enemy Ttl"],
+      ["enemy_head", "Enemy Head"],
+      ["food", "Food"],
+      ["wall", "Wall"],
+      ["reach_time", "Reach Time"],
+      ["enemy_next", "Enemy Next"],
+    ]) {
+      expect(getByRole("tab", { name: pretty })).toBeTruthy();
+      expect(getByLabelText(`Local plane ${pretty}`)).toBeTruthy();
+      expect(getByText(raw)).toBeTruthy();
+    }
+
+    // 4 global channels (plane canvases + pretty and raw labels)
+    for (const [raw, pretty] of [
+      ["own_mass", "Own Mass"],
+      ["enemy_mass", "Enemy Mass"],
+      ["food_mass", "Food Mass"],
+      ["outside", "Outside"],
+    ]) {
+      expect(getByLabelText(`Global plane ${pretty}`)).toBeTruthy();
+      expect(getByText(pretty)).toBeTruthy();
+      expect(getByText(raw)).toBeTruthy();
+    }
+
+    // Switching local channel tabs works
+    const reachTab = getByRole("tab", { name: "Reach Time" });
+    fireEvent.click(reachTab);
+    expect(reachTab.getAttribute("aria-selected")).toBe("true");
+
+    // 60 scalars grouped as server labels them
+    expect(getByText("Scalars (60-D)")).toBeTruthy();
+    expect(getByText("ego2s-b scalars")).toBeTruthy();
+    expect(getByText("v8 veto features (5 per action)")).toBeTruthy();
+    expect(fillRectCalls).toBeGreaterThan(3);
+  });
 });
