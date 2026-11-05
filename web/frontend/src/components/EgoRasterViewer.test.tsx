@@ -116,6 +116,18 @@ describe("EgoRasterViewer", () => {
     expect(queryByRole("tab")).toBeNull();
   });
 
+  it("explains that the raster view is unavailable for ego2s models and recorded replays without calling ego2s a feature vector", () => {
+    const { queryByRole, queryByText, getByText } = render(
+      <EgoRasterViewer raster={null} obsSpec="ego2s-bv8" />
+    );
+    expect(getByText("Raster view unavailable")).toBeTruthy();
+    expect(
+      getByText(/unavailable for the served ego2s model and recorded replays/i)
+    ).toBeTruthy();
+    expect(queryByText(/hand-crafted feature vector/i)).toBeNull();
+    expect(queryByRole("tab")).toBeNull();
+  });
+
   it("shows a waiting placeholder when raster31v2 has no observation yet", () => {
     const { getByText, queryByRole } = render(
       <EgoRasterViewer raster={null} obsSpec="raster31v2" />

@@ -6,6 +6,7 @@ import json
 import os
 import signal
 import subprocess
+import sys
 import time
 
 import pytest
@@ -150,7 +151,7 @@ with timing.silence():
         sys.exit(1)
 """
     child = subprocess.Popen(
-        [str(timing.ROOT / "venv/bin/python"), "-c", script, str(tmp_path)],
+        [sys.executable, "-c", script, str(tmp_path)],
         cwd=timing.ROOT,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,

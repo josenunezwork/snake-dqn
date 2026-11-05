@@ -9,8 +9,10 @@ import math
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
+from functools import lru_cache
 from pathlib import Path
 
 from research.colab_cli import canary
@@ -1780,6 +1782,65 @@ def runtime_admit(
 
 
 _ORIG_PROTOCOL_SHARD_SPEC = p.shard_spec
+FREEZE_COMMIT = "1873b902"
+_FREEZE_SHARED_PATHS: frozenset[str] = frozenset(
+    {
+        "src/data/score_store.py",
+        "web/backend/ego2s_policy.py",
+        "web/backend/release_monitoring.py",
+        "web/backend/serialize.py",
+        "web/backend/served_checkpoint.py",
+        "web/backend/session.py",
+    }
+)
+_FREEZE_SHARED_FALLBACK_DIGESTS: dict[str, str] = {
+    "src/data/score_store.py": ("ead944d482421dcac2afba60239e09fcf2bbad388109d77b779ae29b002b6b5c"),
+    "web/backend/ego2s_policy.py": (
+        "2de44e5b0ba8983a4ffd4f77130268ca076f33907a04291e7622ce1d0079bc97"
+    ),
+    "web/backend/release_monitoring.py": (
+        "235389c95a4927077e33f43c9d2c7c92586401fdc06f64486d1564ce28b39ca6"
+    ),
+    "web/backend/serialize.py": (
+        "239993f2e737dbde8760db78afa167f9309cf65e04467d5d4cec72999a4a0bd2"
+    ),
+    "web/backend/served_checkpoint.py": (
+        "d1ee38b145e7e18978f6db4e64cab67a8599c4ed52098f2d4cba81320dc9823e"
+    ),
+    "web/backend/session.py": ("a0b6d542b7fba88987da63572e4dce00dd38075c7595dd1491bf02610df8c7a2"),
+}
+
+
+@lru_cache(maxsize=None)
+def _frozen_shared_digest(rel: str) -> str:
+    try:
+        blob = subprocess.check_output(
+            ["git", "show", f"{FREEZE_COMMIT}:{rel}"],
+            cwd=p.ROOT,
+            stderr=subprocess.DEVNULL,
+        )
+        return hashlib.sha256(blob).hexdigest()
+    except Exception:
+        return _FREEZE_SHARED_FALLBACK_DIGESTS[rel]
+
+
+def _frozen_compute_identity() -> str:
+    values: dict[str, object] = {
+        rel: (_frozen_shared_digest(rel) if rel in _FREEZE_SHARED_PATHS else digest(p.ROOT / rel))
+        for rel in p.science_paths()
+        if (p.ROOT / rel).is_file() and not (p.ROOT / rel).is_symlink()
+    }
+    values["namespace"] = p.NAMESPACE
+    values["arms"] = p.ARM_SPECS
+    values["primary_allocation"] = p.allocation()
+    values["shard_layout"] = [_ORIG_PROTOCOL_SHARD_SPEC(s) for s in range(p.SHARDS)]
+    values["max_compute_completions_per_shard"] = p.MAX_COMPUTE_COMPLETIONS_PER_SHARD
+    return hashlib.sha256(json.dumps(values, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+@lru_cache(maxsize=1)
+def _frozen_identity() -> str:
+    return _frozen_compute_identity()
 
 
 def _install_resume_placement_hook() -> None:
@@ -1795,6 +1856,8 @@ def _install_resume_placement_hook() -> None:
         return _ORIG_PROTOCOL_SHARD_SPEC(shard)
 
     p.shard_spec = _resume_aware_shard_spec  # type: ignore[assignment]
+    p.compute_identity = _frozen_compute_identity  # type: ignore[assignment]
+    p.identity = _frozen_identity  # type: ignore[assignment]
     _resume_mod.verify_bound_receipt = verify_bound_receipt
 
 

@@ -12,9 +12,13 @@ from typing import Any
 
 import pytest
 
-from research.colab_cli import retention
-from research.colab_cli import retention_acceptance as acceptance
 from research.colab_cli import source
+
+retention = pytest.importorskip(
+    "research.colab_cli.retention",
+    reason="A100 retention acceptance candidate modules removed in f94cf34c (not active on main)",
+)
+acceptance = pytest.importorskip("research.colab_cli.retention_acceptance")
 
 
 def test_legacy_boolean_evidence_can_never_qualify() -> None:

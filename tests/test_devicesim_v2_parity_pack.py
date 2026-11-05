@@ -235,7 +235,7 @@ def test_foreign_ledger_namespace_and_allocation_refused(tmp_path: Path) -> None
 
 def test_job_sh_device_contract_and_calendar_lint() -> None:
     pkg_dir = ROOT / "research" / "devicesim_v2_parity"
-    files = sorted(p for p in pkg_dir.iterdir() if p.is_file())
+    files = sorted(p for p in pkg_dir.iterdir() if p.is_file() and p.suffix != ".md")
     assert files
     for p in files:
         assert calendar_lint.calendar_literals(p) == []

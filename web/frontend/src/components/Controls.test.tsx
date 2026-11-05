@@ -197,6 +197,28 @@ describe("Controls", () => {
     expect(send).toHaveBeenCalledWith("save_weights");
   });
 
+  it("disables Save weights when the served policy or replay cannot export weights", async () => {
+    render(
+      <Controls
+        {...baseProps}
+        session={sessionState({
+          obs_spec: "ego2s-bv8",
+          input_size: 60,
+          can_save_weights: false,
+        })}
+        send={vi.fn()}
+      />,
+    );
+    await screen.findByText(/latest_pqn\.pth/);
+    expect(screen.getByRole("button", { name: /save weights/i })).toBeDisabled();
+    expect(
+      screen.getByText(
+        /dual-scale ego raster CNN: local 7×31×31 \+ global 4×31×31 \+ 60 scalars/,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/60-D vector/)).not.toBeInTheDocument();
+  });
+
   it("uses the server ceiling for ego2s speed controls", async () => {
     render(
       <Controls

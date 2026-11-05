@@ -850,7 +850,10 @@ def test_output_root_policy_and_cli_defaults(monkeypatch):
 
 
 @pytest.mark.slow
-@pytest.mark.skipif(not HAVE_CHECKPOINTS, reason="champion checkpoints not available")
+@pytest.mark.skipif(
+    not (HAVE_CHECKPOINTS and HAVE_PILOT and sr.DEFAULT_SUPERVISOR_SOURCE.is_file()),
+    reason="champion checkpoints or external supervisor source not available",
+)
 def test_smoke_dry_run_end_to_end(tmp_path):
     """prepare -> run (2 workers, slot locks, 2 x 40-frame episodes) -> self-check -> closeout."""
     intent = sr.build_intent(

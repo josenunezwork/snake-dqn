@@ -8,6 +8,7 @@ import os
 import re
 from pathlib import Path
 
+from research.watch6_l1_confirm import admission as _admission  # noqa: F401
 from research.watch6_l1_confirm import protocol as p
 from tools.ops.package_spec import digest, publish_json
 

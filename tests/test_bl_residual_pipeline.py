@@ -161,7 +161,10 @@ def test_all_scientific_controls_are_allocation_bound() -> None:
     assert original != allocation_hash(control)
 
 
-def test_d4096_staging_refuses_without_prior_fits_and_receipts(tmp_path: Path) -> None:
+def test_d4096_staging_refuses_without_prior_fits_and_receipts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(job, "D4096_DISCARD_SEAL", tmp_path / "synthetic-discard.json")
     control = {
         "synthetic": False,
         "namespace": "f4-series",

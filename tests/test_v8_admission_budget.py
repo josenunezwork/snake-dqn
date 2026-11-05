@@ -125,6 +125,16 @@ def test_exact_freeze_and_second_freeze_are_create_only(
     record, _ = boundary
     path = tmp_path / "new-frozen-boundary.json"
     monkeypatch.setattr(budget, "RECONSTRUCTION", path)
+    # The shared fixture pins its clock; freeze the module clock to the same instant
+    # so the 15-minute freshness window is measured against the fixture boundary.
+    as_of = datetime.fromisoformat(record["accounting_as_of_utc"].replace("Z", "+00:00"))
+
+    class _FixtureClock(datetime):
+        @classmethod
+        def now(cls, tz=None):  # type: ignore[override]
+            return as_of + timedelta(minutes=1)
+
+    monkeypatch.setattr(budget, "datetime", _FixtureClock)
     input_path = tmp_path / "reconstruction-input.json"
     input_path.write_text(json.dumps(record))
     budget.freeze_reconstruction(input_path, path)

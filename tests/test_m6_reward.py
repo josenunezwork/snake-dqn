@@ -578,7 +578,12 @@ DEMO = Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2b-20261
 
 @pytest.mark.slow
 @pytest.mark.skipif(
-    not (HAVE_CKPT and (DEMO / "round-12").is_dir()), reason="needs the M2b data + checkpoints"
+    not (
+        HAVE_CKPT
+        and (DEMO / "round-12").is_dir()
+        and any((DEMO / "round-12").glob("chunk-*-part-*.npz"))
+    ),
+    reason="needs the M2b data + checkpoints",
 )
 def test_trainer_records_m6_flags_and_totals(tmp_path):
     """A tiny multi-actor bv8 run with both levers on: the learner sums the actor counters

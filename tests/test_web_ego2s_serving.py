@@ -51,11 +51,13 @@ def test_watch_session_serves_the_student(ego_ckpt):
     assert [tuple(s.segments[0]) for s in sess.game.snakes] != heads0
     frame = sess.snapshot()
     assert frame["obs_spec"] == EGO2S_B
+    assert frame["session"]["can_save_weights"] is False
     assert frame["architecture"] == "Ego2s Dueling CNN (ego2s-b)"
     assert frame["hero_raster"] is None
     insp, nv = frame["inspector"], frame["netviz"]
     if insp is not None:  # the hero may be dead on this frame
         assert insp["input_size"] == 30 and len(insp["q_values"]) == 6
+        assert insp["free_space"] is None
         assert nv["input_label"] == "Scalars (30 of ego2s-b input)"
         assert len(nv["advantages"]) == 6
 
@@ -128,6 +130,8 @@ def test_default_session_serves_released_b8_with_mixed_watch_opponents(monkeypat
     assert not isinstance(rollback.policy, Ego2sServingPolicy)
     assert rollback.served_checkpoint["name"] == registry.NAME_FRP3_S12
     assert rollback.obs_spec == "vector61"
+    assert rollback.control_state()["can_save_weights"] is True
+    assert sess.control_state()["can_save_weights"] is False
 
 
 def test_ego2s_speed_ceiling_counts_the_driven_roster_and_clamps(ego_ckpt):
@@ -197,8 +201,18 @@ def test_bv8_watch_and_play_serve_the_student(bv8_ckpt):
         sess.step()
     frame = sess.snapshot()
     assert frame["obs_spec"] == EGO2S_BV8
+    assert frame["session"]["can_save_weights"] is False
+    with pytest.raises(RuntimeError, match="forward-only"):
+        sess.save_weights()
     if frame["inspector"] is not None:  # the hero may be dead on this frame
         assert frame["inspector"]["input_size"] == 60
+        state_vals = frame["inspector"]["state"]
+        assert frame["inspector"]["free_space"] == [
+            state_vals[30],
+            state_vals[35],
+            state_vals[40],
+        ]
+        assert frame["netviz"]["input_label"] == "Scalars (60 of ego2s-bv8 input)"
     sess.set_mode(MODE_PLAY)
     assert sess.mode == MODE_PLAY and isinstance(sess.policy, Ego2sServingPolicy)
     for _ in range(20):

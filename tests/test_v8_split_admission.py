@@ -96,6 +96,12 @@ def test_stale_calendar_and_missing_boolean_refuse() -> None:
         admission.validate_live(body)
 
 
+HAVE_V8_WORKTREE = (admission.BASE / "snake-dqn-gpu-v8").is_dir()
+
+
+@pytest.mark.skipif(
+    not HAVE_V8_WORKTREE, reason="historical snake-dqn-gpu-v8 worktree not present on this machine"
+)
 def test_historical_rows_preserve_failed_attempt_and_packet_provisionally_fits() -> None:
     draft = admission.draft_record()
     assert any(
@@ -219,6 +225,9 @@ def complete_body(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict:
     return body
 
 
+@pytest.mark.skipif(
+    not HAVE_V8_WORKTREE, reason="historical snake-dqn-gpu-v8 worktree not present on this machine"
+)
 @pytest.mark.parametrize(
     "mode", ["accepted", "wrong_live_review", "missing_static_review", "changed_draft"]
 )
@@ -282,6 +291,9 @@ def test_finalize_real_saved_acceptance_path_in_inert_output(
         assert not (output / "OPERATOR_ADMISSION.json").exists()
 
 
+@pytest.mark.skipif(
+    not HAVE_V8_WORKTREE, reason="historical snake-dqn-gpu-v8 worktree not present on this machine"
+)
 def test_complete_live_body_with_real_historical_receipt_floors(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -289,6 +301,9 @@ def test_complete_live_body_with_real_historical_receipt_floors(
     assert admission.validate_live(body) == admission.body_digest(body)
 
 
+@pytest.mark.skipif(
+    not HAVE_V8_WORKTREE, reason="historical snake-dqn-gpu-v8 worktree not present on this machine"
+)
 @pytest.mark.parametrize(
     "field", ["reserved_main", "packet_cap", "historical_canary_charge_ceiling"]
 )

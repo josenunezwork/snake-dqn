@@ -6,15 +6,19 @@ vector or raster policy) is the
 single source of truth; the React frontend is a pure view that renders frames streamed
 over a WebSocket. No game logic or model inference runs in the browser.
 
-**Served setup:** Play runs `1` human against live bare **B8 seed 3** (`b8-s3`, no veto)
-AI opponents (default `5`, adjustable `1–11`; released 2026-10-17), while live Watch fallback
-(`SNAKE_WATCH_SOURCE=live`) runs a bare `b8-s3` hero against the Watch-only `mixed`
-`5× frp3-s12 + v8` roster. In `.claude/launch.json`, Watch plays the
-**132-session confirmed `exact-stop-l2-prime` replay bank** (`SNAKE_WATCH_SOURCE=replay`,
-`SNAKE_WATCH_REPLAY_DIR=.../watch-replay-bank-live-132`,
-`SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l2-prime`: `.watch.gz` gzipped canonical JSONL
-recordings visibly labelled `"Recorded assisted hero"`, released 2026-11-01 at `f5912f44`),
-with live bare `b8-s3` as automatic fallback (`SNAKE_WATCH_SOURCE=live`). Replay is gated on
+**Served setup (T34 CLOSED, 2026-11-04 PT):** Play runs `1` human against live AI opponents
+(default `5`, adjustable `1–11`), defaulting to bare **B8 seed 3** (`b8-s3`, no veto; **Classic B8**,
+released 2026-10-17) with an opt-in **"Field: Classic B8 / Mixed"** selector (`Mixed` = `frp3-s12 + v8`
+opponents; leaderboard partitioned by field; force Classic with `SNAKE_SERVE_PLAY_ROSTER=all_b8`,
+`b3789463`), while live Watch fallback (`SNAKE_WATCH_SOURCE=live`) runs a bare `b8-s3` hero against
+the `mixed` `5× frp3-s12 + v8` roster. Watch plays the **132-session confirmed `exact-stop-l1`
+replay bank** (`SNAKE_WATCH_SOURCE=replay`,
+`SNAKE_WATCH_REPLAY_DIR=.../watch-replay-bank-live-132-l1`,
+`SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l1`: `.watch.gz` gzipped canonical JSONL recordings from
+banks `14l1–24l1` visibly labelled `"Recorded assisted hero"`, confirmed by `Watch6-L1-V1`
+`GO_L1_SUPERIOR` and Mac `24 fps` qualification runs 2+3), with live bare `b8-s3` as automatic
+fallback (`SNAKE_WATCH_SOURCE=live`; rollback banks `watch-replay-bank-live-36-l1` and
+`watch-replay-bank-live-132` remain on disk). Replay is gated on
 clean mixed-Watch6 `b8-s3` (`_is_clean_mixed_watch6_b8()`), so env-var checkpoint or roster
 rollbacks (`SNAKE_SERVE_CHECKPOINT=frp3-s12|champion` or `SNAKE_SERVE_WATCH_ROSTER=all_b8`)
 automatically run live. Full map of modules, the WebSocket

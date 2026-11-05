@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -287,7 +288,7 @@ def test_final_cli_refuses_relocation_and_repeat(tmp_path: Path, marker: str | N
     env = dict(os.environ, PYTHONPATH=str(ROOT))
     run_ = subprocess.run(
         [
-            str(ROOT / "venv/bin/python"),
+            sys.executable,
             "-m",
             "tools.i0s_reduce",
             "final",
@@ -406,7 +407,7 @@ def test_frozen_validators_reduce_rc2_tree_in_qualified_checkout(tmp_path: Path)
     )
     run_ = subprocess.run(
         [
-            str(ROOT / "venv/bin/python"),
+            sys.executable,
             str(ROOT / "tests/i0s_synthetic_tree.py"),
             str(tmp_path),
         ],

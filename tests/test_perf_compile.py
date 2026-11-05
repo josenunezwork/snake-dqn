@@ -39,11 +39,15 @@ Q_ATOL = 1e-4  # hero forward, |q| ~ 1
 
 
 @pytest.fixture(autouse=True)
-def _fresh_dynamo(monkeypatch):
+def _fresh_dynamo(monkeypatch, tmp_path_factory):
     """Isolated dynamo caches / counters; in-process inductor compile (no worker pool)."""
     import torch._inductor.config as icfg
     from torch._dynamo.utils import counters
 
+    monkeypatch.delenv("CONDA_PREFIX", raising=False)
+    monkeypatch.setenv(
+        "TORCHINDUCTOR_CACHE_DIR", str(tmp_path_factory.getbasetemp() / "inductor_cache")
+    )
     monkeypatch.setattr(icfg, "compile_threads", 1)
     torch._dynamo.reset()
     counters.clear()

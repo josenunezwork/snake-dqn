@@ -100,6 +100,7 @@ export interface NetvizSummary {
 
 export interface NetvizDTO {
   input: number[];
+  input_label?: string;
   hidden_sample: number[];
   hidden_count: number;
   output: number[];
@@ -157,6 +158,7 @@ export interface SessionState {
   speed_ceiling?: number;
   mode: string;
   training: boolean;
+  can_save_weights?: boolean;
   hero_id: number;
   checkpoint: string | null;
   config: string;

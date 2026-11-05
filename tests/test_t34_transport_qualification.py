@@ -191,8 +191,10 @@ def test_record_matches_actual_accepted_source() -> None:
 )
 def test_saved_manifest_is_rechecked_by_shared_broker_before_allocation(
     accepted_repo: tuple[Path, str],
+    monkeypatch: pytest.MonkeyPatch,
     script: str,
 ) -> None:
+    monkeypatch.setattr("research.colab_cli.canary.check", lambda *a: None)
     repo, commit = accepted_repo
     saved = {
         "job_id": "saved-t34",

@@ -32,7 +32,9 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures" / "apex_veto_v8_strict"
 # Use the interpreter running pytest so the isolated CLI checks are portable to CI.
 PYTHON = Path(sys.executable)
 ARTIFACTS_AVAILABLE = (
-    S.V7_STRICT_RECEIPT.is_file() and (S.CHECKPOINT_DIR / S.CHAMPION_NAME).is_file()
+    S.V7_STRICT_RECEIPT.is_file()
+    and (S.CHECKPOINT_DIR / S.CHAMPION_NAME).is_file()
+    and Path(dev_screen.DEFAULT_PILOT_OUTPUT).is_dir()
 )
 needs_artifacts = pytest.mark.skipif(
     not ARTIFACTS_AVAILABLE, reason="needs the local artifacts and checkpoints"

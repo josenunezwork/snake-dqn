@@ -8,7 +8,10 @@ from pathlib import Path
 
 import pytest
 
-from research.colab_cli import bundle
+bundle = pytest.importorskip(
+    "research.colab_cli.bundle",
+    reason="research.colab_cli.bundle removed in f94cf34c (candidate-tree O1 module not on main)",
+)
 
 
 def plan() -> dict:

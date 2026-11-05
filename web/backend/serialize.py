@@ -218,7 +218,15 @@ def _build_inspector_and_netviz(session) -> tuple[Optional[dict], Optional[dict]
 
     input_size = int(inp.size)
     state_list = [float(v) for v in inp]
-    free_space = state_list[58:61] if input_size >= 61 else None
+    if obs_spec == EGO2S_BV8 and input_size >= 60:
+        # ego2s-bv8 packs 5 v8 diagnostics per action at 30:60 (action-major:
+        # L, S, R, B-L, B-S, B-R); feature 0 of each 5-tuple is the capped
+        # landing-area (free-space) score in [0, 1] for Left, Straight, Right.
+        free_space = [state_list[30], state_list[35], state_list[40]]
+    elif obs_spec not in ({"raster31v2", "raster31v3"} | _EGO2S_SPECS) and input_size >= 61:
+        free_space = state_list[58:61]
+    else:
+        free_space = None
 
     # The action the hero ACTUALLY took last step (post-masking, post-
     # exploration) — set by AISnake.compute_reward_and_train for the same

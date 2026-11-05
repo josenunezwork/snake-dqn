@@ -5,6 +5,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
+from research.play_mixed_probe import run_probe
 from research.play_mixed_probe.protocol import (
     HORIZON,
     NAMESPACE,
@@ -24,6 +27,12 @@ from web.backend.safety_veto_serving import V8_STRICT_RECEIPT_METHOD
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PROBE_DIR = REPO_ROOT / "research" / "play_mixed_probe"
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _cleanup_probe_worker_cache():
+    yield
+    run_probe._WORKER_CACHE.clear()
 
 
 def test_seed_allocation_and_audit_contract() -> None:

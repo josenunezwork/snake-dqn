@@ -6,6 +6,7 @@ import copy
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -282,7 +283,7 @@ def test_cli_real_synthetic_workload_and_only_timing_export(tmp_path: Path) -> N
     export_json(inputs / "timing-config.json", config())
     result = subprocess.run(
         [
-            str(timing.ROOT / "venv/bin/python"),
+            sys.executable,
             "-m",
             "research.bl_round30.timing",
             "--input-dir",

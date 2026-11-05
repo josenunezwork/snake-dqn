@@ -1872,8 +1872,14 @@ def test_mode_switches_do_not_grow_object_or_tensor_counts_and_unmap_replays(tmp
     from src.model.apex_network import ApexNetwork
     from src.model.ego2s_network import Ego2sNet
     from src.training.apex_policy import ApexPolicy
+    from web.backend import app as app_mod
+    from web.backend import session as session_module
     from web.backend.ego2s_policy import Ego2sServingPolicy
 
+    if app_mod.hub.session is not None:
+        app_mod.hub.session.close(wait=True)
+        app_mod.hub.session = None
+    session_module._CHECKPOINT_BLOB_CACHE.clear()
     for key in (
         "SNAKE_SERVE_WATCH_ROSTER",
         "SNAKE_SERVE_CHECKPOINT",
@@ -1938,6 +1944,7 @@ def test_mode_switches_do_not_grow_object_or_tensor_counts_and_unmap_replays(tmp
             **by_type,
         }
 
+    pre_session = live_counts()
     session = GameSession()
     try:
         # Warm up both Watch and Play paths before taking the baseline snapshot.
@@ -1991,13 +1998,17 @@ def test_mode_switches_do_not_grow_object_or_tensor_counts_and_unmap_replays(tmp
         after = live_counts()
         assert session.policy.net is hero_net_0
         assert session.watch_opponent_policy is opp_pol_0
-        assert after["GameState"] == baseline["GameState"] == 1
-        assert after["Ego2sServingPolicy"] == baseline["Ego2sServingPolicy"] == 1
-        assert after["Ego2sNet"] == baseline["Ego2sNet"] == 1
-        assert after["ApexPolicy"] == baseline["ApexPolicy"] == 1
-        assert after["ApexNetwork"] == baseline["ApexNetwork"] == 1
-        assert after["Recording"] <= 4
-        assert after["mmap"] <= 4
+        for cls_name in (
+            "GameState",
+            "Ego2sServingPolicy",
+            "Ego2sNet",
+            "ApexPolicy",
+            "ApexNetwork",
+        ):
+            assert baseline[cls_name] - pre_session[cls_name] == 1
+            assert after[cls_name] == baseline[cls_name]
+        assert after["Recording"] - pre_session["Recording"] <= 4
+        assert after["mmap"] - pre_session["mmap"] <= 4
         assert after["tensor_count"] == baseline["tensor_count"]
         assert after["storage_count"] == baseline["storage_count"]
         assert after["storage_bytes"] == baseline["storage_bytes"]
