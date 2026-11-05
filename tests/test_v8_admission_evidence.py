@@ -32,7 +32,7 @@ def bind(path: Path, value: object, pointer: str = "", *, text: bool = False) ->
 
 @pytest.fixture
 def accepted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple:
-    now = datetime.now(timezone.utc)
+    now = datetime.fromisoformat("2026-10-24T02:00:00+00:00")
     original_t0 = datetime.fromisoformat("2026-10-24T01:00:00+00:00")
     original = bind(
         tmp_path / "original.json",

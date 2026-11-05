@@ -65,6 +65,8 @@ class _PreparedBoundary(Exception):
 
 def _prepared_world(row: dict[str, Any], length: int) -> Any:
     """Build and freeze a real fixture at the next prepared Watch boundary."""
+    if not B8_CHECKPOINT.is_file():
+        pytest.skip("the hash-pinned local B8 checkpoint inventory is unavailable")
     world = fixture(row, B8_CHECKPOINT, length)
 
     def capture(prepared: Any) -> np.ndarray:

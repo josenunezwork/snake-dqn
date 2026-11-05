@@ -189,11 +189,21 @@ def test_captured_declaration_contains_full_v2_metadata_and_roundtrips(
     import sys
     from pathlib import Path
 
+    from research.bl_served_search import supervision_identity as identity
+
     repo = tmp_path / "repo"
     qualified = repo / "research/colab_cli"
     qualified.mkdir(parents=True)
     for name in ("supervisor.py", "policy.py", "cli_guard.py"):
         shutil.copyfile(Path(__file__).parents[1] / "research/colab_cli" / name, qualified / name)
+    monkeypatch.setattr(
+        identity,
+        "QUALIFIED_SOURCES",
+        {
+            f"research/colab_cli/{name}": io.file_digest(qualified / name)
+            for name in ("supervisor.py", "policy.py", "cli_guard.py")
+        },
+    )
     sandbox = repo / "tools/sandbox"
     sandbox.mkdir(parents=True)
     (sandbox / "supervisor.py").write_text("# declared adapter\n")

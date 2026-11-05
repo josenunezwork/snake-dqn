@@ -32,6 +32,11 @@ RESERVE = "a" * 64
 SERIES = "synthetic-i3-series"
 
 
+@pytest.fixture(autouse=True)
+def _isolate_discard_seal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(job, "D4096_DISCARD_SEAL", tmp_path / "synthetic-discard.json")
+
+
 def sealed(path: Path, value: dict) -> Path:
     export_json(path, value)
     return path

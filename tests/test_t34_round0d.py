@@ -663,6 +663,7 @@ def test_chunk_manifests_build_end_to_end_from_a_rescoped_plan(
     )
     monkeypatch.setattr(make_manifest, "require_qualified_transport", lambda *a: None)
     monkeypatch.setattr(make_manifest, "qualify_source", lambda manifest: None)
+    monkeypatch.setattr("research.colab_cli.canary.check", lambda *a: None)
     result = make_manifest.make_chunk_manifests(
         ratification=ratification,
         a5d=a5d,

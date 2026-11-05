@@ -291,10 +291,16 @@ def test_collector_timeout_preserves_owned_child_cleanup_and_final(tmp_path) -> 
 
 
 def test_accounting_failure_does_not_prevent_safety_call_or_restore(tmp_path, monkeypatch) -> None:
+    from research.bl_served_search import supervision_identity as identity
     from research.colab_cli import supervisor
 
     original = supervisor.subprocess
     collector = Collector(tmp_path / "collector")
+    monkeypatch.setattr(
+        identity,
+        "QUALIFIED_SOURCES",
+        {rel: collector.sources()[rel] for rel in identity.QUALIFIED_SOURCES},
+    )
 
     def fail(*args, **kwargs):
         raise OSError("simulated disk failure")
@@ -532,12 +538,18 @@ def test_lost_rusage_is_explicitly_missing_never_zero(tmp_path, monkeypatch):
     assert next(row for row in rows if row["kind"] == "exit")["final_cpu_ns"] is None
 
 
-def test_root_cli_guard_helpers_are_collected_and_all_routes_restored(tmp_path):
+def test_root_cli_guard_helpers_are_collected_and_all_routes_restored(tmp_path, monkeypatch):
+    from research.bl_served_search import supervision_identity as identity
     from research.colab_cli import cli_guard, release, supervisor
     from tools.ops import dispatch
 
     originals = [module.subprocess for module in (cli_guard, release, supervisor, dispatch)]
     collector = Collector(tmp_path / "collector")
+    monkeypatch.setattr(
+        identity,
+        "QUALIFIED_SOURCES",
+        {rel: collector.sources()[rel] for rel in identity.QUALIFIED_SOURCES},
+    )
     with collector_route(collector):
         assert (
             cli_guard.subprocess

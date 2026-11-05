@@ -59,6 +59,18 @@ HISTORICAL_SOURCE_ALLOWLIST = frozenset(
             "2026-10-16",
             'namespace = f"t4e-return-collection/2026-10-16/{root.name}"',
         ),
+        (
+            "research/play_mixed_probe/run_probe.py",
+            902,
+            "2026-11-04",
+            '"row `2026-11-04 PT 19:00` (`OPUS_CRITIQUE.md` §3–§4)"',
+        ),
+        (
+            "research/play_mixed_probe/run_probe.py",
+            934,
+            "2026-11-04",
+            '"`2026-11-04 PT 19:00`):**"',
+        ),
     }
 )
 

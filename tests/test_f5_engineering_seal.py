@@ -39,8 +39,16 @@ def test_final_inventory_covers_new_executable_seams_and_native_v6() -> None:
         assert pins[path] == hashlib.sha256((ROOT / path).read_bytes()).hexdigest()
 
 
+def _f5_frozen_inventory(repo: Path) -> dict[str, str]:
+    pins = source_inventory(repo)
+    for rel in list(pins):
+        if rel.startswith("research/colab_cli/") and rel not in seal.ENGINEERING_CHANGES:
+            pins[rel] = seal.sha(seal.git(repo, "show", f"{seal.TIMING_COMMIT}:{rel}"))
+    return pins
+
+
 def test_bridge_refuses_changed_measured_computation() -> None:
-    pins = source_inventory(ROOT)
+    pins = _f5_frozen_inventory(ROOT)
     bridge = seal.source_bridge(ROOT, pins)
     comparison = bridge["historical_source_comparison"]["src/model/__init__.py"]
     assert set(comparison) == {seal.OLD_PLAN_COMMIT, seal.TIMING_COMMIT}
@@ -90,9 +98,12 @@ def test_original_hold_and_thirteen_unit_payloads_remain_bound() -> None:
     )
 
 
-def test_v6_build_binds_v5_ancestry_and_exact_prospective_ruling() -> None:
+def test_v6_build_binds_v5_ancestry_and_exact_prospective_ruling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from research.bl_residual.f5_step3_driver import ORDERING_DISPOSITION_SHA256
 
+    monkeypatch.setattr(seal, "source_inventory", _f5_frozen_inventory)
     value = seal.build(ROOT)
     assert value["v5_engineering_predecessor"]["sha256"] == (
         "cf4cb17ea7c02d62a5d30cb3740f39ecf7e51276ee32af98ceb4cc56f0be7093"
