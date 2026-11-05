@@ -603,7 +603,12 @@ class ScoreStore:
             ).fetchall()
         return [self._row_to_result(r) for r in rows]
 
-    def player_stats(self, name: str, client_id: Optional[str] = None) -> Optional[PlayerStats]:
+    def player_stats(
+        self,
+        name: str,
+        client_id: Optional[str] = None,
+        play_roster: Optional[str] = None,
+    ) -> Optional[PlayerStats]:
         """Return aggregates for one player, or ``None`` if unknown.
 
         Args:
@@ -611,35 +616,86 @@ class ScoreStore:
             client_id: When given, the player who most recently submitted a
                 game with this opaque id is preferred over the name match, so
                 personal stats survive a rename.
+            play_roster: When given (``"all_b8"`` or ``"mixed"``), compute
+                aggregates over games played under that roster only. ``None``
+                (default) returns overall aggregates across all rosters.
         """
         clean = _sanitize_name(name)
         client_id = _sanitize_client_id(client_id)
+        roster_filter: Optional[str] = None
+        if play_roster is not None and str(play_roster).strip().lower() not in ("", "all"):
+            roster_filter = _sanitize_play_roster(play_roster)
         with self._lock:
-            row = None
+            if roster_filter is None:
+                row = None
+                if client_id is not None:
+                    row = self._conn.execute(
+                        "SELECT p.name, p.games_played, p.best_score, p.total_score, "
+                        "p.created_at, p.last_played_at "
+                        "FROM games g JOIN players p ON p.id = g.player_id "
+                        "WHERE g.client_id = ? ORDER BY g.id DESC LIMIT 1",
+                        (client_id,),
+                    ).fetchone()
+                if row is None:
+                    row = self._conn.execute(
+                        "SELECT name, games_played, best_score, total_score, created_at, "
+                        "last_played_at FROM players WHERE name = ?",
+                        (clean,),
+                    ).fetchone()
+                if row is None:
+                    return None
+                return PlayerStats(
+                    name=row["name"],
+                    games_played=int(row["games_played"]),
+                    best_score=int(row["best_score"]),
+                    total_score=int(row["total_score"]),
+                    created_at=row["created_at"],
+                    last_played_at=row["last_played_at"],
+                )
+
+            player_row = None
             if client_id is not None:
-                row = self._conn.execute(
-                    "SELECT p.name, p.games_played, p.best_score, p.total_score, "
-                    "p.created_at, p.last_played_at "
+                player_row = self._conn.execute(
+                    "SELECT p.id, p.name "
                     "FROM games g JOIN players p ON p.id = g.player_id "
-                    "WHERE g.client_id = ? ORDER BY g.id DESC LIMIT 1",
-                    (client_id,),
+                    "WHERE g.client_id = ? AND COALESCE(g.play_roster, 'all_b8') = ? "
+                    "ORDER BY g.id DESC LIMIT 1",
+                    (client_id, roster_filter),
                 ).fetchone()
-            if row is None:
-                row = self._conn.execute(
-                    "SELECT name, games_played, best_score, total_score, created_at, "
-                    "last_played_at FROM players WHERE name = ?",
+                if player_row is None:
+                    player_row = self._conn.execute(
+                        "SELECT p.id, p.name "
+                        "FROM games g JOIN players p ON p.id = g.player_id "
+                        "WHERE g.client_id = ? ORDER BY g.id DESC LIMIT 1",
+                        (client_id,),
+                    ).fetchone()
+            if player_row is None:
+                player_row = self._conn.execute(
+                    "SELECT id, name FROM players WHERE name = ?",
                     (clean,),
                 ).fetchone()
-        if row is None:
-            return None
-        return PlayerStats(
-            name=row["name"],
-            games_played=int(row["games_played"]),
-            best_score=int(row["best_score"]),
-            total_score=int(row["total_score"]),
-            created_at=row["created_at"],
-            last_played_at=row["last_played_at"],
-        )
+            if player_row is None:
+                return None
+            agg = self._conn.execute(
+                "SELECT COUNT(*) AS games_played, "
+                "COALESCE(MAX(score), 0) AS best_score, "
+                "COALESCE(SUM(score), 0) AS total_score, "
+                "MIN(created_at) AS created_at, "
+                "MAX(created_at) AS last_played_at "
+                "FROM games "
+                "WHERE player_id = ? AND COALESCE(play_roster, 'all_b8') = ?",
+                (int(player_row["id"]), roster_filter),
+            ).fetchone()
+            if agg is None or int(agg["games_played"]) == 0:
+                return None
+            return PlayerStats(
+                name=player_row["name"],
+                games_played=int(agg["games_played"]),
+                best_score=int(agg["best_score"]),
+                total_score=int(agg["total_score"]),
+                created_at=agg["created_at"],
+                last_played_at=agg["last_played_at"],
+            )
 
     def global_stats(self) -> GlobalStats:
         """Return a whole-leaderboard summary."""

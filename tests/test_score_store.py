@@ -463,3 +463,53 @@ class TestV3ToV5MigrationAndRosterPartition:
         mixed_recent = store.recent_games(mechanics_version=2, play_roster="mixed")
         assert [g.player_name for g in mixed_recent] == ["Bo", "Ada"]
         assert all(g.play_roster == "mixed" for g in mixed_recent)
+
+    def test_player_stats_partitions_by_play_roster(self, store):
+        store.record_game(
+            "Ada",
+            length=8,
+            score=420,
+            mechanics_version=2,
+            client_id="cid-ada",
+            play_roster="all_b8",
+            play_opponents=5,
+        )
+        store.record_game(
+            "Ada",
+            length=14,
+            score=780,
+            mechanics_version=2,
+            client_id="cid-ada",
+            play_roster="mixed",
+            play_opponents=8,
+        )
+        store.record_game(
+            "Bo",
+            length=6,
+            score=300,
+            mechanics_version=2,
+            client_id="cid-bo",
+            play_roster="all_b8",
+            play_opponents=3,
+        )
+
+        overall = store.player_stats("Ada")
+        assert overall is not None
+        assert overall.games_played == 2
+        assert overall.best_score == 780
+        assert overall.total_score == 1200
+
+        ada_classic = store.player_stats("Ada", play_roster="all_b8")
+        assert ada_classic is not None
+        assert ada_classic.games_played == 1
+        assert ada_classic.best_score == 420
+        assert ada_classic.total_score == 420
+
+        ada_mixed = store.player_stats("Ada", client_id="cid-ada", play_roster="mixed")
+        assert ada_mixed is not None
+        assert ada_mixed.games_played == 1
+        assert ada_mixed.best_score == 780
+        assert ada_mixed.total_score == 780
+
+        assert store.player_stats("Bo", client_id="cid-bo", play_roster="all_b8").best_score == 300
+        assert store.player_stats("Bo", client_id="cid-bo", play_roster="mixed") is None

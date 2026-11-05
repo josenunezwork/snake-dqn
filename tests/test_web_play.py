@@ -438,3 +438,61 @@ class TestLeaderboardEndpoints:
         assert [(e["player_name"], e["play_roster"], e["play_opponents"]) for e in mixed] == [
             ("Bo", "mixed", 8)
         ]
+
+    def test_end_to_end_real_mixed_run_records_play_roster_and_splits_player_stats(self, client):
+        """Drive a real Mixed Play run (N=3) to death, verify reset/mode switches, and submit."""
+        c, hub = client
+        sess = hub.session
+        sess.set_mode(MODE_PLAY)
+        sess.set_play_opponents(3)
+        sess.set_play_roster("mixed")
+
+        def assert_mixed_n3():
+            assert sess.play_roster == "mixed"
+            assert sess.play_roster_reason is None
+            assert len(sess.game.snakes) == 4
+            assert sess.game.snakes[1].policy is sess.policy
+            assert sess.game.snakes[1].safety_veto is None
+            assert sess.play_opponent_policy is not None
+            assert all(
+                s.policy is sess.play_opponent_policy and s.safety_veto is not None
+                for s in sess.game.snakes[2:]
+            )
+
+        assert_mixed_n3()
+        sess.reset_game()
+        assert_mixed_n3()
+        sess.set_mode(MODE_WATCH)
+        sess.set_mode(MODE_PLAY)
+        assert_mixed_n3()
+
+        human = sess._find_human()
+        sess.human_input("up")
+        frames = 0
+        while human.is_alive and frames < 3000:
+            sess.human_input("up")
+            sess.step()
+            frames += 1
+        assert not human.is_alive
+        assert sess.run_over is True
+
+        pending = sess.pending_submission()
+        assert pending is not None
+        assert pending["play_roster"] == "mixed"
+        assert pending["play_opponents"] == 3
+
+        resp = c.post("/api/scores", json={"name": "MixedE2E"})
+        body = resp.json()
+        assert body["ok"] is True
+        assert body["result"]["play_roster"] == "mixed"
+        assert body["result"]["play_opponents"] == 3
+        assert body["result"]["score"] == pending["score"]
+
+        mixed_player = c.get("/api/players/MixedE2E?play_roster=mixed").json()
+        assert mixed_player["found"] is True
+        assert mixed_player["player"]["best_score"] == pending["score"]
+        assert mixed_player["player"]["games_played"] == 1
+
+        classic_player = c.get("/api/players/MixedE2E?play_roster=all_b8").json()
+        assert classic_player["found"] is False
+        assert classic_player["player"] is None

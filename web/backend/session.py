@@ -38,6 +38,7 @@ from web.backend.checkpoints import resolve_checkpoint_name
 from web.backend.release_monitoring import (
     ego2s_exception,
     mixed_roster_fallback,
+    play_mixed_roster_fallback,
     play_tick,
     served_resolution,
     watch_tick,
@@ -824,7 +825,7 @@ class GameSession:
         state.wrapper = None
         state.reason = reason
         if self._release_monitoring:
-            mixed_roster_fallback(reason=reason)
+            play_mixed_roster_fallback(reason=reason)
         log_build(state)
         self._log_play_roster(PLAY_ROSTER_MIXED, reason)
         return state

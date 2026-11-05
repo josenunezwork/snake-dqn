@@ -541,3 +541,111 @@ def test_play_mixed_wrapper_failures_restore_policy_and_report_reason(monkeypatc
     assert all(snake.safety_veto is None for snake in session.game.snakes[1:])
     state = session.safety_veto_state()
     assert state["active"] is False and state["wrapped_snake_ids"] == []
+
+
+def test_play_mixed_fallback_emits_play_specific_event_not_watch_event(monkeypatch):
+    from scripts import monitor_b8_release as monitor
+    from web.backend import release_monitoring
+
+    watch_events = []
+    play_events = []
+    emitted = []
+    monkeypatch.setattr(
+        session_module,
+        "mixed_roster_fallback",
+        lambda **kwargs: watch_events.append({"event": "mixed_roster_fallback", **kwargs}),
+    )
+    monkeypatch.setattr(
+        release_monitoring,
+        "emit",
+        lambda event, **fields: emitted.append({"event": event, **fields}),
+    )
+
+    def record_play_fallback(**kwargs):
+        play_events.append({"event": "play_mixed_roster_fallback", **kwargs})
+        release_monitoring.play_mixed_roster_fallback(**kwargs)
+
+    monkeypatch.setattr(session_module, "play_mixed_roster_fallback", record_play_fallback)
+    session = GameSession()
+    session.set_mode(MODE_PLAY)
+    emitted.clear()
+    monkeypatch.setattr(
+        session_module,
+        "resolve_mixed_watch_opponent",
+        lambda: ServedCheckpointChoice(requested="frp3-s12", reason="bad pin"),
+    )
+    session.set_play_roster("mixed")
+
+    assert session.play_roster == "all_b8"
+    assert watch_events == []
+    assert play_events == [
+        {
+            "event": "play_mixed_roster_fallback",
+            "reason": session.play_roster_reason,
+        }
+    ]
+    assert emitted == play_events
+
+    healthy_watch_records = [
+        {
+            "event": "resolution",
+            "requested": None,
+            "name": "b8-s3",
+            "fallback_reason": None,
+        },
+        {
+            "event": "watch_tick",
+            "checkpoint": "b8-s3",
+            "roster_mode": "mixed",
+            "roster_size": 6,
+            "speed": 12.0,
+            "decisions": 1,
+            "deaths": 0,
+            "update_ms": 7.0,
+            "timestamp": 0.0,
+            "latency_eligible": True,
+        },
+    ]
+    healthy, messages, metrics = monitor.assess(healthy_watch_records + emitted, [])
+    assert healthy is True and messages == []
+    assert metrics["fallback_records"] == 0
+
+
+def test_play_mixed_survives_reset_new_game_and_watch_switch():
+    session = GameSession()
+    session.set_mode(MODE_PLAY)
+    session.set_play_opponents(3)
+    session.set_play_roster("mixed")
+
+    def assert_mixed_n3():
+        assert session.mode == MODE_PLAY
+        assert session.play_roster == "mixed"
+        assert session.play_roster_reason is None
+        assert len(session.game.snakes) == 4
+        assert session.game.snakes[1].policy is session.policy
+        assert session.game.snakes[1].safety_veto is None
+        assert session.play_opponent_policy is not None
+        assert all(
+            snake.policy is session.play_opponent_policy and snake.safety_veto is not None
+            for snake in session.game.snakes[2:]
+        )
+        assert session.safety_veto_state()["wrapped_snake_ids"] == _ids(session)[2:]
+
+    assert_mixed_n3()
+    session.reset_game()
+    assert_mixed_n3()
+    session.new_game()
+    assert_mixed_n3()
+    session.set_mode(MODE_WATCH)
+    assert session.mode == MODE_WATCH
+    session.set_mode(MODE_PLAY)
+    assert_mixed_n3()
+
+    human = session._find_human()
+    session.run_started = True
+    human.is_alive = False
+    session._step_play()
+    pending = session.pending_submission()
+    assert pending is not None
+    assert pending["play_roster"] == "mixed"
+    assert pending["play_opponents"] == 3

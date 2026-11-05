@@ -240,15 +240,22 @@ async def recent_scores(limit: int = 8, play_roster: str | None = None) -> dict:
 
 
 @app.get("/api/players/{name}")
-async def player(name: str, client_id: Optional[str] = None) -> dict:
+async def player(
+    name: str,
+    client_id: Optional[str] = None,
+    play_roster: Optional[str] = None,
+) -> dict:
     """Aggregate stats for one player (or ``found: False``).
 
     When ``client_id`` is given, the lookup prefers the player who last
     submitted with that id (renames keep working), falling back to name match.
+    When ``play_roster`` is given, stats are computed for that Play roster only.
     """
     if hub.store is None:
         return {"found": False}
-    stats = await asyncio.to_thread(hub.store.player_stats, name, _clean_client_id(client_id))
+    stats = await asyncio.to_thread(
+        hub.store.player_stats, name, _clean_client_id(client_id), play_roster
+    )
     return {"found": stats is not None, "player": stats.to_dict() if stats else None}
 
 
