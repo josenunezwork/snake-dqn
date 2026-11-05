@@ -164,7 +164,13 @@ export default function Play({
 }: Props) {
   const [board, setBoard] = useState<LeaderboardData | null>(null);
   const [recent, setRecent] = useState<RecentData | null>(null);
-  const [player, setPlayer] = useState<PlayerStats | null>(null);
+  const [playerState, setPlayerState] = useState<{
+    roster: string;
+    stats: PlayerStats | null;
+  }>({
+    roster: play?.play_roster === "mixed" ? "mixed" : "all_b8",
+    stats: null,
+  });
   const [playerStale, setPlayerStale] = useState(false);
   const [boardError, setBoardError] = useState(false);
   const [name, setName] = useState<string>(getStoredPlayerName);
@@ -184,6 +190,7 @@ export default function Play({
   const [touch] = useState(hasCoarsePointer);
   const activeRoster = play?.play_roster === "mixed" ? "mixed" : "all_b8";
   const [boardRoster, setBoardRoster] = useState<string>(activeRoster);
+  const player = playerState.roster === activeRoster ? playerState.stats : null;
   const bestBeforeRun = useRef(0); // known personal best snapshotted at run start
   const prevScoreRef = useRef(0);
 
@@ -193,7 +200,7 @@ export default function Play({
     if (play?.play_roster === "mixed" || play?.play_roster === "all_b8") {
       setBoardRoster(play.play_roster);
     }
-  }, [play?.play_roster]);
+  }, [play?.play_roster, play?.play_roster_reason]);
 
   // Prefer the opaque per-browser id for "is this row mine?" when the server
   // ships one; fall back to display-name match for older rows.
@@ -223,20 +230,30 @@ export default function Play({
       if (nm) {
         try {
           // api.ts appends the persisted client_id itself (withClientId).
-          const p = await fetchPlayer(nm);
-          setPlayer(p.found ? p.player : null);
+          const p = await fetchPlayer(nm, activeRoster);
+          setPlayerState({
+            roster: activeRoster,
+            stats: p.found ? p.player : null,
+          });
           setPlayerStale(false);
         } catch {
           setPlayerStale(true); // keep prior stats but mark them as possibly stale
         }
       }
     },
-    [clientId, boardRoster],
+    [clientId, boardRoster, activeRoster],
   );
 
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  const myActiveBoardEntry =
+    boardRoster === activeRoster
+      ? board?.leaderboard.find(
+          (e) => isMe(e) && (e.play_roster ?? activeRoster) === activeRoster,
+        )
+      : undefined;
 
   // Clear last-run feedback when a fresh run is underway, and snapshot the known
   // personal best so we can detect a new PB when this run ends.
@@ -247,9 +264,9 @@ export default function Play({
       setError(null);
       setDidSubmit(false);
       bestBeforeRun.current =
-        player?.best_score ?? board?.leaderboard.find(isMe)?.score ?? 0;
+        player?.best_score ?? myActiveBoardEntry?.score ?? 0;
     }
-  }, [play?.human_alive, play?.run_over, player, board, isMe]);
+  }, [play?.human_alive, play?.run_over, player, myActiveBoardEntry]);
 
   // Reset the "starting…" latch once the mode switch lands (or fails).
   useEffect(() => {
@@ -394,7 +411,7 @@ export default function Play({
     );
   }
 
-  const myBest = board?.leaderboard.find(isMe)?.score ?? null;
+  const myBest = myActiveBoardEntry?.score ?? null;
   const preRun = !play.run_started && !play.run_over;
   const timeAlive = fmtDuration(play.frames / Math.max(1, speed));
   const finalScore = play.pending?.score ?? play.score;
@@ -499,7 +516,6 @@ export default function Play({
                       disabled={fixedProfile}
                       onClick={() => {
                         if (!fixedProfile) {
-                          setBoardRoster(opt.value);
                           send("set_play_roster", opt.value);
                         }
                       }}

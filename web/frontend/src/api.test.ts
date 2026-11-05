@@ -84,6 +84,8 @@ describe("api getJson error handling", () => {
     vi.stubGlobal("fetch", f);
     await fetchPlayer("Ada");
     expect(f.mock.calls[0][0]).toBe("/api/players/Ada?client_id=cid-test-1234");
+    await fetchPlayer("Ada", "mixed");
+    expect(f.mock.calls[1][0]).toBe("/api/players/Ada?play_roster=mixed&client_id=cid-test-1234");
   });
 
   it("fetchLeaderboard appends the client id after the limit", async () => {
