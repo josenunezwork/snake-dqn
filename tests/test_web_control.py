@@ -53,6 +53,7 @@ VALID_VALUES = {
     "human_input": "up",
     "human_boost": True,
     "set_play_opponents": 3,
+    "set_play_roster": "mixed",
     "save_weights": None,
     "set_raster_stream": {"on": True},
 }
@@ -67,6 +68,9 @@ MALFORMED_VALUES = [
     ("set_hero", None),
     ("set_epsilon", "x"),
     ("set_play_opponents", "many"),
+    ("set_play_roster", None),
+    ("set_play_roster", "invalid"),
+    ("set_play_roster", 123),
     ("load_checkpoint", None),
 ]
 

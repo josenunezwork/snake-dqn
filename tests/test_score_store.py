@@ -337,3 +337,179 @@ class TestV1ToV2Migration:
             assert [e.player_name for e in v1] == ["Ada"]
             v2 = store.leaderboard(mechanics_version=2)
             assert [e.player_name for e in v2] == ["Bo"]
+
+
+_V3_GAMES_DDL = """
+CREATE TABLE games (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    player_id         INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+    score             INTEGER NOT NULL,
+    length            INTEGER NOT NULL,
+    food_eaten        INTEGER NOT NULL DEFAULT 0,
+    kills             INTEGER NOT NULL DEFAULT 0,
+    frames            INTEGER NOT NULL DEFAULT 0,
+    duration_seconds  REAL    NOT NULL DEFAULT 0.0,
+    mode              TEXT    NOT NULL DEFAULT 'play',
+    checkpoint        TEXT,
+    created_at        TEXT    NOT NULL,
+    mechanics_version INTEGER NOT NULL DEFAULT 1,
+    client_id         TEXT
+)
+"""
+
+
+def _make_v3_fixture_db(path: str) -> None:
+    """Create a scores.db exactly as schema v3 wrote it, with two v2 games."""
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute(_V1_PLAYERS_DDL)
+        conn.execute(_V3_GAMES_DDL)
+        conn.execute(
+            "INSERT INTO players (id, name, created_at, games_played, best_score, total_score) "
+            "VALUES (1, 'Ada', '2026-10-01T00:00:00+00:00', 2, 610, 950)"
+        )
+        conn.execute(
+            "INSERT INTO games (player_id, score, length, food_eaten, kills, frames, "
+            "duration_seconds, mode, checkpoint, created_at, mechanics_version, client_id) VALUES "
+            "(1, 610, 15, 11, 2, 500, 41.0, 'play', 'b8_s3_t7_20261016.pth', "
+            "'2026-10-01T00:00:00+00:00', 2, 'cid-ada')"
+        )
+        conn.execute(
+            "INSERT INTO games (player_id, score, length, food_eaten, kills, frames, "
+            "duration_seconds, mode, checkpoint, created_at, mechanics_version, client_id) VALUES "
+            "(1, 340, 9, 5, 1, 200, 16.0, 'play', 'b8_s3_t7_20261016.pth', "
+            "'2026-10-02T00:00:00+00:00', 2, 'cid-ada')"
+        )
+        conn.execute("PRAGMA user_version = 3")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+class TestV3ToV5MigrationAndRosterPartition:
+    """Schema v3 -> v5 migration on a copy of a v3 DB and roster leaderboard partitioning."""
+
+    def test_v3_copy_migrates_existing_rows_to_all_b8_and_null_opponents(self, tmp_path):
+        import shutil
+
+        src_db = str(tmp_path / "v3_source.db")
+        _make_v3_fixture_db(src_db)
+        copied_db = str(tmp_path / "v3_copy.db")
+        shutil.copy2(src_db, copied_db)
+
+        with ScoreStore(copied_db) as store:
+            recent = store.recent_games(mechanics_version=2)
+            assert len(recent) == 2
+            assert all(g.play_roster == "all_b8" for g in recent)
+            assert all(g.play_opponents is None for g in recent)
+            assert all(g.served_checkpoint is None for g in recent)
+            assert all(g.client_id == "cid-ada" for g in recent)
+            board = store.leaderboard(mechanics_version=2, play_roster="all_b8")
+            assert len(board) == 1
+            assert board[0].player_name == "Ada"
+            assert board[0].score == 610
+            assert board[0].play_roster == "all_b8"
+            assert board[0].play_opponents is None
+            assert store.leaderboard(mechanics_version=2, play_roster="mixed") == []
+
+        conn = sqlite3.connect(copied_db)
+        try:
+            assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 5
+        finally:
+            conn.close()
+
+    def test_leaderboard_partitions_by_play_roster(self, store):
+        r_classic = store.record_game(
+            "Ada",
+            length=8,
+            score=420,
+            mechanics_version=2,
+            play_roster="all_b8",
+            play_opponents=5,
+        )
+        r_mixed = store.record_game(
+            "Ada",
+            length=14,
+            score=780,
+            mechanics_version=2,
+            play_roster="mixed",
+            play_opponents=8,
+        )
+        store.record_game(
+            "Bo",
+            length=10,
+            score=510,
+            mechanics_version=2,
+            play_roster="mixed",
+            play_opponents=3,
+        )
+
+        assert r_classic.play_roster == "all_b8"
+        assert r_classic.play_opponents == 5
+        assert r_mixed.play_roster == "mixed"
+        assert r_mixed.play_opponents == 8
+
+        classic_board = store.leaderboard(mechanics_version=2, play_roster="all_b8")
+        assert [
+            (e.player_name, e.score, e.play_roster, e.play_opponents) for e in classic_board
+        ] == [("Ada", 420, "all_b8", 5)]
+
+        mixed_board = store.leaderboard(mechanics_version=2, play_roster="mixed")
+        assert [(e.player_name, e.score, e.play_roster, e.play_opponents) for e in mixed_board] == [
+            ("Ada", 780, "mixed", 8),
+            ("Bo", 510, "mixed", 3),
+        ]
+
+        mixed_recent = store.recent_games(mechanics_version=2, play_roster="mixed")
+        assert [g.player_name for g in mixed_recent] == ["Bo", "Ada"]
+        assert all(g.play_roster == "mixed" for g in mixed_recent)
+
+    def test_player_stats_partitions_by_play_roster(self, store):
+        store.record_game(
+            "Ada",
+            length=8,
+            score=420,
+            mechanics_version=2,
+            client_id="cid-ada",
+            play_roster="all_b8",
+            play_opponents=5,
+        )
+        store.record_game(
+            "Ada",
+            length=14,
+            score=780,
+            mechanics_version=2,
+            client_id="cid-ada",
+            play_roster="mixed",
+            play_opponents=8,
+        )
+        store.record_game(
+            "Bo",
+            length=6,
+            score=300,
+            mechanics_version=2,
+            client_id="cid-bo",
+            play_roster="all_b8",
+            play_opponents=3,
+        )
+
+        overall = store.player_stats("Ada")
+        assert overall is not None
+        assert overall.games_played == 2
+        assert overall.best_score == 780
+        assert overall.total_score == 1200
+
+        ada_classic = store.player_stats("Ada", play_roster="all_b8")
+        assert ada_classic is not None
+        assert ada_classic.games_played == 1
+        assert ada_classic.best_score == 420
+        assert ada_classic.total_score == 420
+
+        ada_mixed = store.player_stats("Ada", client_id="cid-ada", play_roster="mixed")
+        assert ada_mixed is not None
+        assert ada_mixed.games_played == 1
+        assert ada_mixed.best_score == 780
+        assert ada_mixed.total_score == 780
+
+        assert store.player_stats("Bo", client_id="cid-bo", play_roster="all_b8").best_score == 300
+        assert store.player_stats("Bo", client_id="cid-bo", play_roster="mixed") is None

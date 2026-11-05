@@ -68,6 +68,7 @@ PINS_SCHEMA = "served-checkpoint-strict-pins/v1"
 
 ENV_CHECKPOINT = "SNAKE_SERVE_CHECKPOINT"
 ENV_WATCH_ROSTER = "SNAKE_SERVE_WATCH_ROSTER"
+ENV_PLAY_ROSTER = "SNAKE_SERVE_PLAY_ROSTER"
 NAME_CHAMPION = "champion"
 NAME_FRP3_S12 = "frp3-s12"
 NAME_B8_S3 = "b8-s3"
@@ -83,6 +84,13 @@ WATCH_ROSTERS = (WATCH_ROSTER_ALL_B8, WATCH_ROSTER_MIXED)
 # Owner-approved 2026-10-17 after T15 SERVING_PASS. Roll back with
 # SNAKE_SERVE_WATCH_ROSTER=all_b8 and restart the serving instance.
 WATCH_ROSTER_RELEASED_DEFAULT = WATCH_ROSTER_MIXED
+
+# Play roster selection is opt-in per session; Classic all-B8 remains the default.
+# Force Classic across the serving instance with SNAKE_SERVE_PLAY_ROSTER=all_b8.
+PLAY_ROSTER_ALL_B8 = "all_b8"
+PLAY_ROSTER_MIXED = "mixed"
+PLAY_ROSTERS = (PLAY_ROSTER_ALL_B8, PLAY_ROSTER_MIXED)
+PLAY_ROSTER_RELEASED_DEFAULT = PLAY_ROSTER_ALL_B8
 
 # The veto-variant env key (read here only to keep the pre-swap veto rollbacks meaningful;
 # web/backend/safety_veto_serving.py owns the variant itself). The previous frp3-s12 default

@@ -55,6 +55,11 @@ def mixed_roster_fallback(*, reason: str) -> None:
     emit("mixed_roster_fallback", reason=reason)
 
 
+def play_mixed_roster_fallback(*, reason: str) -> None:
+    """Record an opt-in mixed Play refusal before all-B8 fallback."""
+    emit("play_mixed_roster_fallback", reason=reason)
+
+
 def watch_tick(
     *,
     checkpoint: str,

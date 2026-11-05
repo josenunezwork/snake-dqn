@@ -48,10 +48,22 @@ interface Props {
 
 const MEDALS = ["🥇", "🥈", "🥉"];
 const OPPONENT_PRESETS = [3, 5, 8];
+const PLAY_ROSTER_OPTIONS = [
+  { value: "all_b8", label: "Classic B8" },
+  { value: "mixed", label: "Mixed" },
+] as const;
 const MIN_BOOST_LEN = 5; // boost requires length >= this (see game mechanics)
 // Boost's price, surfaced in the HUD so players don't discover it by shrinking
 // (game_config.py: boost_length_cost_frames = 3).
 const BOOST_COST = "burns 1 segment / 3 frames";
+
+function formatRosterLabel(
+  roster?: string | null,
+  opponents?: number | null,
+): string {
+  const base = roster === "mixed" ? "Mixed" : "Classic B8";
+  return opponents != null ? `${base} (${opponents})` : base;
+}
 
 // True for touch-first devices (phones/tablets), where the keyboard steering
 // keys don't exist — they get an on-screen pad instead.
@@ -152,7 +164,13 @@ export default function Play({
 }: Props) {
   const [board, setBoard] = useState<LeaderboardData | null>(null);
   const [recent, setRecent] = useState<RecentData | null>(null);
-  const [player, setPlayer] = useState<PlayerStats | null>(null);
+  const [playerState, setPlayerState] = useState<{
+    roster: string;
+    stats: PlayerStats | null;
+  }>({
+    roster: play?.play_roster === "mixed" ? "mixed" : "all_b8",
+    stats: null,
+  });
   const [playerStale, setPlayerStale] = useState(false);
   const [boardError, setBoardError] = useState(false);
   const [name, setName] = useState<string>(getStoredPlayerName);
@@ -170,10 +188,19 @@ export default function Play({
   const [starting, setStarting] = useState(false);
   const [clientId] = useState(getClientId);
   const [touch] = useState(hasCoarsePointer);
+  const activeRoster = play?.play_roster === "mixed" ? "mixed" : "all_b8";
+  const [boardRoster, setBoardRoster] = useState<string>(activeRoster);
+  const player = playerState.roster === activeRoster ? playerState.stats : null;
   const bestBeforeRun = useRef(0); // known personal best snapshotted at run start
   const prevScoreRef = useRef(0);
 
   const myName = normalizePlayerName(name);
+
+  useEffect(() => {
+    if (play?.play_roster === "mixed" || play?.play_roster === "all_b8") {
+      setBoardRoster(play.play_roster);
+    }
+  }, [play?.play_roster, play?.play_roster_reason]);
 
   // Prefer the opaque per-browser id for "is this row mine?" when the server
   // ships one; fall back to display-name match for older rows.
@@ -184,31 +211,49 @@ export default function Play({
     [clientId, myName],
   );
 
-  const refresh = useCallback(async () => {
-    try {
-      const [b, r] = await Promise.all([fetchLeaderboard(10), fetchRecent(8)]);
-      setBoard(b);
-      setRecent(r);
-      setBoardError(false);
-    } catch {
-      setBoardError(true);
-    }
-    const nm = normalizePlayerName(getStoredPlayerName());
-    if (nm) {
+  const refresh = useCallback(
+    async (rosterOverride?: string) => {
+      const targetRoster =
+        typeof rosterOverride === "string" ? rosterOverride : boardRoster;
       try {
-        // api.ts appends the persisted client_id itself (withClientId).
-        const p = await fetchPlayer(nm);
-        setPlayer(p.found ? p.player : null);
-        setPlayerStale(false);
+        const [b, r] = await Promise.all([
+          fetchLeaderboard(10, targetRoster),
+          fetchRecent(8),
+        ]);
+        setBoard(b);
+        setRecent(r);
+        setBoardError(false);
       } catch {
-        setPlayerStale(true); // keep prior stats but mark them as possibly stale
+        setBoardError(true);
       }
-    }
-  }, [clientId]);
+      const nm = normalizePlayerName(getStoredPlayerName());
+      if (nm) {
+        try {
+          // api.ts appends the persisted client_id itself (withClientId).
+          const p = await fetchPlayer(nm, activeRoster);
+          setPlayerState({
+            roster: activeRoster,
+            stats: p.found ? p.player : null,
+          });
+          setPlayerStale(false);
+        } catch {
+          setPlayerStale(true); // keep prior stats but mark them as possibly stale
+        }
+      }
+    },
+    [clientId, boardRoster, activeRoster],
+  );
 
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  const myActiveBoardEntry =
+    boardRoster === activeRoster
+      ? board?.leaderboard.find(
+          (e) => isMe(e) && (e.play_roster ?? activeRoster) === activeRoster,
+        )
+      : undefined;
 
   // Clear last-run feedback when a fresh run is underway, and snapshot the known
   // personal best so we can detect a new PB when this run ends.
@@ -219,9 +264,9 @@ export default function Play({
       setError(null);
       setDidSubmit(false);
       bestBeforeRun.current =
-        player?.best_score ?? board?.leaderboard.find(isMe)?.score ?? 0;
+        player?.best_score ?? myActiveBoardEntry?.score ?? 0;
     }
-  }, [play?.human_alive, play?.run_over, player, board, isMe]);
+  }, [play?.human_alive, play?.run_over, player, myActiveBoardEntry]);
 
   // Reset the "starting…" latch once the mode switch lands (or fails).
   useEffect(() => {
@@ -366,7 +411,7 @@ export default function Play({
     );
   }
 
-  const myBest = board?.leaderboard.find(isMe)?.score ?? null;
+  const myBest = myActiveBoardEntry?.score ?? null;
   const preRun = !play.run_started && !play.run_over;
   const timeAlive = fmtDuration(play.frames / Math.max(1, speed));
   const finalScore = play.pending?.score ?? play.score;
@@ -455,7 +500,41 @@ export default function Play({
                   ))}
                 </div>
               </div>
+              <div className="row" style={{ marginTop: 8, marginBottom: 0 }}>
+                <label style={{ width: "auto" }}>
+                  {fixedProfile ? "Field fixed" : "Field"}
+                </label>
+                <div className="seg" role="group" aria-label="Field">
+                  {PLAY_ROSTER_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      className={
+                        "btn" + (activeRoster === opt.value ? " active" : "")
+                      }
+                      aria-label={`Field: ${opt.label}`}
+                      aria-pressed={activeRoster === opt.value}
+                      disabled={fixedProfile}
+                      onClick={() => {
+                        if (!fixedProfile) {
+                          send("set_play_roster", opt.value);
+                        }
+                      }}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </>
+          )}
+          {play.play_roster_reason && (
+            <div
+              className="muted"
+              role="status"
+              style={{ fontSize: 11, marginTop: 6, color: "var(--amber)" }}
+            >
+              {play.play_roster_reason}
+            </div>
           )}
           <div
             className="row"
@@ -526,7 +605,11 @@ export default function Play({
                 play.frames / Math.max(1, speed),
             )}{" "}
             · {play.pending?.food_eaten ?? play.food_eaten} food ·{" "}
-            {play.pending?.kills ?? play.kills} kills
+            {play.pending?.kills ?? play.kills} kills ·{" "}
+            {formatRosterLabel(
+              play.pending?.play_roster ?? play.play_roster,
+              play.pending?.play_opponents ?? play.opponents,
+            )}
           </div>
 
           {canSubmit ? (
@@ -607,11 +690,39 @@ export default function Play({
       </div>
 
       <div className="card">
-        <div className="section-title">🏆 Leaderboard</div>
+        <div
+          className="row"
+          style={{
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: 8,
+          }}
+        >
+          <div className="section-title" style={{ marginBottom: 0 }}>
+            🏆 Leaderboard
+          </div>
+          <div className="seg" role="group" aria-label="Leaderboard field">
+            {PLAY_ROSTER_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                className={"btn" + (boardRoster === opt.value ? " active" : "")}
+                aria-label={`${opt.label} leaderboard`}
+                aria-pressed={boardRoster === opt.value}
+                onClick={() => setBoardRoster(opt.value)}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
         {boardError ? (
           <div>
             <div className="error">Leaderboard unavailable.</div>
-            <button className="btn" style={{ marginTop: 6 }} onClick={refresh}>
+            <button
+              className="btn"
+              style={{ marginTop: 6 }}
+              onClick={() => refresh()}
+            >
               Retry
             </button>
           </div>
@@ -623,6 +734,7 @@ export default function Play({
                 <th>Player</th>
                 <th className="num">Score</th>
                 <th className="num">Length</th>
+                <th>Field</th>
                 <th>Served model</th>
               </tr>
             </thead>
@@ -633,6 +745,9 @@ export default function Play({
                   <td>{e.player_name}</td>
                   <td className="num">{e.score}</td>
                   <td className="num">{e.length}</td>
+                  <td className="mono">
+                    {formatRosterLabel(e.play_roster, e.play_opponents)}
+                  </td>
                   <td className="mono">{e.served_checkpoint ?? "unlabeled"}</td>
                 </tr>
               ))}
@@ -663,7 +778,8 @@ export default function Play({
               >
                 <span className="muted">{g.player_name}</span>
                 <span>
-                  {g.score} · len {g.length}
+                  {g.score} · len {g.length} ·{" "}
+                  {formatRosterLabel(g.play_roster, g.play_opponents)}
                   {g.served_checkpoint ? ` · ${g.served_checkpoint}` : ""}
                 </span>
               </div>

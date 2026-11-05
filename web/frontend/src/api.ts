@@ -61,16 +61,32 @@ export async function fetchMetrics(): Promise<DashboardData> {
   return getJson<DashboardData>("/api/metrics");
 }
 
-export async function fetchLeaderboard(limit = 10): Promise<LeaderboardData> {
-  return getJson<LeaderboardData>(withClientId(`/api/leaderboard?limit=${limit}`));
+export async function fetchLeaderboard(
+  limit = 10,
+  playRoster?: string,
+): Promise<LeaderboardData> {
+  const rosterParam = playRoster
+    ? `&play_roster=${encodeURIComponent(playRoster)}`
+    : "";
+  return getJson<LeaderboardData>(
+    withClientId(`/api/leaderboard?limit=${limit}${rosterParam}`),
+  );
 }
 
 export async function fetchRecent(limit = 8): Promise<RecentData> {
   return getJson<RecentData>(`/api/scores/recent?limit=${limit}`);
 }
 
-export async function fetchPlayer(name: string): Promise<PlayerResponse> {
-  return getJson<PlayerResponse>(withClientId(`/api/players/${encodeURIComponent(name)}`));
+export async function fetchPlayer(
+  name: string,
+  playRoster?: string,
+): Promise<PlayerResponse> {
+  const rosterParam = playRoster
+    ? `?play_roster=${encodeURIComponent(playRoster)}`
+    : "";
+  return getJson<PlayerResponse>(
+    withClientId(`/api/players/${encodeURIComponent(name)}${rosterParam}`),
+  );
 }
 
 // Server-authoritative: only the name (+ opaque client id) is sent; the score

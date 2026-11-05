@@ -12,7 +12,7 @@ vi.mock("../api", () => ({
   submitScore: vi.fn(),
 }));
 
-import { fetchLeaderboard, submitScore } from "../api";
+import { fetchLeaderboard, fetchPlayer, submitScore } from "../api";
 import Play from "./Play";
 
 function playState(over: Partial<PlayState> = {}): PlayState {
@@ -412,5 +412,218 @@ describe("Play component", () => {
     expect(other.closest("tr")).not.toHaveClass("me");
     const mine = screen.getByText("alex the second");
     expect(mine.closest("tr")).toHaveClass("me");
+  });
+
+  it("defaults Field to Classic B8, follows server-confirmed play_roster, and handles refusal", async () => {
+    const user = userEvent.setup();
+    const send = vi.fn();
+    const { rerender } = render(
+      <Play
+        play={playState({ run_started: false, play_roster: "all_b8" })}
+        send={send}
+        speed={12}
+      />,
+    );
+    const classicBtn = screen.getByRole("button", { name: /field: classic b8/i });
+    const mixedBtn = screen.getByRole("button", { name: /field: mixed/i });
+    const classicBoardBtn = screen.getByRole("button", {
+      name: /classic b8 leaderboard/i,
+    });
+    const mixedBoardBtn = screen.getByRole("button", {
+      name: /mixed leaderboard/i,
+    });
+    expect(classicBtn).toHaveAttribute("aria-pressed", "true");
+    expect(mixedBtn).toHaveAttribute("aria-pressed", "false");
+    expect(classicBoardBtn).toHaveAttribute("aria-pressed", "true");
+
+    // Clicking Field: Mixed sends the control without optimistically flipping the board tab.
+    await user.click(mixedBtn);
+    expect(send).toHaveBeenCalledWith("set_play_roster", "mixed");
+    expect(classicBoardBtn).toHaveAttribute("aria-pressed", "true");
+    expect(mixedBoardBtn).toHaveAttribute("aria-pressed", "false");
+
+    // Server refuses Mixed and stays on all_b8 with a reason: both Field and board tab stay Classic B8.
+    await user.click(mixedBoardBtn);
+    expect(mixedBoardBtn).toHaveAttribute("aria-pressed", "true");
+    rerender(
+      <Play
+        play={playState({
+          run_started: false,
+          play_roster: "all_b8",
+          play_roster_reason:
+            "mixed Play roster refused: FRP3 opponent pin/bytes failed",
+        })}
+        send={send}
+        speed={12}
+      />,
+    );
+    expect(classicBtn).toHaveAttribute("aria-pressed", "true");
+    expect(classicBoardBtn).toHaveAttribute("aria-pressed", "true");
+    expect(mixedBoardBtn).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("status")).toHaveTextContent(
+      /FRP3 opponent pin\/bytes failed/i,
+    );
+
+    // Server confirms Mixed: both Field and board tab switch to Mixed.
+    rerender(
+      <Play
+        play={playState({ run_started: false, play_roster: "mixed" })}
+        send={send}
+        speed={12}
+      />,
+    );
+    expect(screen.getByRole("button", { name: /field: mixed/i })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(mixedBoardBtn).toHaveAttribute("aria-pressed", "true");
+    await user.click(screen.getByRole("button", { name: /field: classic b8/i }));
+    expect(send).toHaveBeenCalledWith("set_play_roster", "all_b8");
+  });
+
+  it("splits personal best by roster so a Classic PB does not suppress a Mixed PB", async () => {
+    localStorage.setItem("snake_player", "Ada");
+    vi.mocked(fetchPlayer).mockImplementation(async (_name, roster) =>
+      roster === "mixed"
+        ? { found: false, player: null }
+        : {
+            found: true,
+            player: {
+              name: "Ada",
+              games_played: 3,
+              best_score: 500,
+              total_score: 1000,
+              average_score: 333.3,
+              created_at: "t",
+              last_played_at: "t",
+            },
+          },
+    );
+
+    const { rerender } = render(
+      <Play
+        play={playState({
+          human_alive: true,
+          run_over: false,
+          play_roster: "all_b8",
+          score: 40,
+        })}
+        send={noop}
+        speed={12}
+      />,
+    );
+    await waitFor(() =>
+      expect(fetchPlayer).toHaveBeenCalledWith("Ada", "all_b8"),
+    );
+    expect(await screen.findByText(/your best: 500/i)).toBeInTheDocument();
+
+    // Switch to Mixed while alive: Mixed has no prior score, so a 120-point Mixed run is a new PB.
+    rerender(
+      <Play
+        play={playState({
+          human_alive: true,
+          run_over: false,
+          play_roster: "mixed",
+          score: 40,
+        })}
+        send={noop}
+        speed={12}
+      />,
+    );
+    await waitFor(() =>
+      expect(fetchPlayer).toHaveBeenCalledWith("Ada", "mixed"),
+    );
+
+    rerender(
+      <Play
+        play={playState({
+          human_alive: false,
+          run_over: true,
+          play_roster: "mixed",
+          score: 120,
+          pending: {
+            score: 120,
+            length: 6,
+            food_eaten: 4,
+            kills: 0,
+            frames: 200,
+            duration_seconds: 16,
+            checkpoint: null,
+            play_roster: "mixed",
+            play_opponents: 5,
+          },
+        })}
+        send={noop}
+        speed={12}
+      />,
+    );
+    expect(screen.getByText(/personal best/i)).toBeInTheDocument();
+  });
+
+  it("surfaces a visible play_roster_reason when Mixed falls back to Classic B8", () => {
+    render(
+      <Play
+        play={playState({
+          run_started: false,
+          play_roster: "all_b8",
+          play_roster_reason:
+            "mixed Play roster refused: FRP3 opponent pin/bytes failed: missing strict pin",
+        })}
+        send={noop}
+        speed={12}
+      />,
+    );
+    expect(
+      screen.getByRole("status"),
+    ).toHaveTextContent(/FRP3 opponent pin\/bytes failed/i);
+  });
+
+  it("partitions the leaderboard by roster and renders Field + opponent count", async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetchLeaderboard).mockImplementation(async (_limit, roster) => ({
+      leaderboard:
+        roster === "mixed"
+          ? [
+              {
+                rank: 1,
+                player_name: "MixedHero",
+                score: 640,
+                length: 12,
+                food_eaten: 8,
+                kills: 2,
+                frames: 300,
+                created_at: "t",
+                served_checkpoint: "b8-s3",
+                play_roster: "mixed",
+                play_opponents: 8,
+              },
+            ]
+          : [
+              {
+                rank: 1,
+                player_name: "ClassicHero",
+                score: 410,
+                length: 9,
+                food_eaten: 5,
+                kills: 1,
+                frames: 200,
+                created_at: "t",
+                served_checkpoint: "b8-s3",
+                play_roster: "all_b8",
+                play_opponents: 5,
+              },
+            ],
+      stats: null,
+    }));
+
+    render(<Play play={playState()} send={noop} speed={12} />);
+    expect(await screen.findByText("ClassicHero")).toBeInTheDocument();
+    expect(screen.getByText("Classic B8 (5)")).toBeInTheDocument();
+    expect(fetchLeaderboard).toHaveBeenCalledWith(10, "all_b8");
+
+    await user.click(screen.getByRole("button", { name: /mixed leaderboard/i }));
+    expect(await screen.findByText("MixedHero")).toBeInTheDocument();
+    expect(screen.getByText("Mixed (8)")).toBeInTheDocument();
+    expect(fetchLeaderboard).toHaveBeenCalledWith(10, "mixed");
   });
 });

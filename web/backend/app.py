@@ -206,17 +206,22 @@ def _clamp_limit(limit: int, default: int = 10, hi: int = 100) -> int:
 
 
 @app.get("/api/leaderboard")
-async def leaderboard(limit: int = 10, mechanics_version: int | None = None) -> dict:
+async def leaderboard(
+    limit: int = 10,
+    mechanics_version: int | None = None,
+    play_roster: str | None = "all_b8",
+) -> dict:
     """Top players by best game, plus a whole-board summary.
 
-    The board is versioned by game mechanics: it defaults to the active
-    mechanics version's board; pass ``?mechanics_version=1`` for the read-only
-    historical v1 board.
+    The board is versioned by game mechanics and partitioned by Play roster:
+    it defaults to the active mechanics version's ``all_b8`` board; pass
+    ``?mechanics_version=1`` for the read-only historical v1 board or
+    ``?play_roster=mixed`` for the mixed-opponent board.
     """
     if hub.store is None:
         return {"leaderboard": [], "stats": None}
     limit = _clamp_limit(limit)
-    board = await asyncio.to_thread(hub.store.leaderboard, limit, mechanics_version)
+    board = await asyncio.to_thread(hub.store.leaderboard, limit, mechanics_version, play_roster)
     stats = await asyncio.to_thread(hub.store.global_stats)
     return {
         "leaderboard": [e.to_dict() for e in board],
@@ -225,25 +230,32 @@ async def leaderboard(limit: int = 10, mechanics_version: int | None = None) -> 
 
 
 @app.get("/api/scores/recent")
-async def recent_scores(limit: int = 8) -> dict:
+async def recent_scores(limit: int = 8, play_roster: str | None = None) -> dict:
     """The most recently recorded games, newest first."""
     if hub.store is None:
         return {"recent": []}
     limit = _clamp_limit(limit, default=8)
-    games = await asyncio.to_thread(hub.store.recent_games, limit)
+    games = await asyncio.to_thread(hub.store.recent_games, limit, None, play_roster)
     return {"recent": [g.to_dict() for g in games]}
 
 
 @app.get("/api/players/{name}")
-async def player(name: str, client_id: Optional[str] = None) -> dict:
+async def player(
+    name: str,
+    client_id: Optional[str] = None,
+    play_roster: Optional[str] = None,
+) -> dict:
     """Aggregate stats for one player (or ``found: False``).
 
     When ``client_id`` is given, the lookup prefers the player who last
     submitted with that id (renames keep working), falling back to name match.
+    When ``play_roster`` is given, stats are computed for that Play roster only.
     """
     if hub.store is None:
         return {"found": False}
-    stats = await asyncio.to_thread(hub.store.player_stats, name, _clean_client_id(client_id))
+    stats = await asyncio.to_thread(
+        hub.store.player_stats, name, _clean_client_id(client_id), play_roster
+    )
     return {"found": stats is not None, "player": stats.to_dict() if stats else None}
 
 
@@ -288,6 +300,8 @@ async def submit_score(payload: dict = Body(...)) -> dict:
             served_checkpoint=pending.get("served_checkpoint"),
             mechanics_version=pending.get("mechanics_version"),
             client_id=client_id,
+            play_roster=pending.get("play_roster"),
+            play_opponents=pending.get("play_opponents"),
         )
     except Exception as exc:
         # The write failed: un-claim the run so it stays submittable, and give
@@ -295,7 +309,9 @@ async def submit_score(payload: dict = Body(...)) -> dict:
         hub.session.release_submission()
         logger.exception("score submission failed")
         raise HTTPException(status_code=500, detail=f"Could not save the score: {exc}")
-    board = await asyncio.to_thread(hub.store.leaderboard, 10)
+    board = await asyncio.to_thread(
+        hub.store.leaderboard, 10, pending.get("mechanics_version"), result.play_roster
+    )
     return {
         "ok": True,
         "result": result.to_dict(),
@@ -332,6 +348,7 @@ _CONTROL_HANDLERS = {
     "human_input": lambda s, v, c: s.human_input(v),
     "human_boost": lambda s, v, c: s.human_boost(v),
     "set_play_opponents": lambda s, v, c: s.set_play_opponents(v),
+    "set_play_roster": lambda s, v, c: s.set_play_roster(v),
     "save_weights": lambda s, v, c: s.save_weights(),
     "set_raster_stream": lambda s, v, c: s.set_raster_stream(c, v),
 }
