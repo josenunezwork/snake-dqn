@@ -21,7 +21,7 @@ from typing import Any, Iterator
 SCHEMA = "snake-watch-replay/v1"
 B8_SHA = "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
 FRP3_SHA = "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
-ASSISTED_CONTROLLERS = frozenset({"exact-stop-l2-prime", "exact-stop-l1"})
+ASSISTED_CONTROLLERS = frozenset({"exact-stop-l2-prime", "exact-stop-l1", "exact-stop-l1-os"})
 CONTROLLERS = ASSISTED_CONTROLLERS | {"bare-b8"}
 ENV_REPLAY_CONTROLLER = "SNAKE_WATCH_REPLAY_CONTROLLER"
 REPLAY_CONTROLLER_ALL = "all"

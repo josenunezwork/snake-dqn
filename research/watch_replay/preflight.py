@@ -18,6 +18,7 @@ CANARY_HORIZON_BY_CONTROLLER: dict[str, int] = {
     "exact-stop-l2-prime": 3000,
     "bare-b8": 3000,
     "exact-stop-l1": 300,
+    "exact-stop-l1-os": 300,
 }
 
 
@@ -39,7 +40,7 @@ def segment_proof(path: Path) -> dict:
         stats["max_hero_length"] < 600 or stats["search_roots"] < 1
     ):
         raise ValueError("canary segment did not exercise long-body search")
-    if contract["controller"] == "exact-stop-l1" and (
+    if contract["controller"] in ("exact-stop-l1", "exact-stop-l1-os") and (
         stats["search_roots"] < max(1, expected_horizon // 10)
     ):
         raise ValueError("canary segment did not exercise all-length search")

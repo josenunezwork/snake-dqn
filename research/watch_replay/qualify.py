@@ -59,13 +59,14 @@ DEFAULT_BANK_132 = Path(
 WARMUP_TICKS = 200
 UNPACED_TICKS = 1500
 PACED_TICKS = 120
-SUPPORTED_CONTROLLERS = ("exact-stop-l2-prime", "exact-stop-l1")
+SUPPORTED_CONTROLLERS = ("exact-stop-l2-prime", "exact-stop-l1", "exact-stop-l1-os")
 TARGET_CONTROLLER = "exact-stop-l2-prime"
 EXPECTED_CONFIRMED_COUNT = 132
 EXPECTED_UNCONFIRMED_L1_COUNT = 36
 EXPECTED_DEFAULT_COUNTS = {
     "exact-stop-l2-prime": EXPECTED_CONFIRMED_COUNT,
     "exact-stop-l1": EXPECTED_UNCONFIRMED_L1_COUNT,
+    "exact-stop-l1-os": 0,  # the frozen default 168 bank predates exact-stop-l1-os
 }
 
 BAR_COLD_READY_SECONDS = 1.0
