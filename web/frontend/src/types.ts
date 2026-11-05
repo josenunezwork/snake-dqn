@@ -60,20 +60,36 @@ export interface InspectorDTO {
   free_space: number[] | null;
 }
 
-// Compact ego-raster payload for the raster31v2 serving path (mirrors
-// web/backend/serialize.py::_hero_raster). Absent (null) on the vector61 path.
-// The tactical planes are heading-rotated so the snake faces "up" in the grid.
+// Compact ego-raster payload for the raster31v2 and live-Watch ego2s serving
+// paths (mirrors web/backend/serialize.py::_hero_raster). Absent (null) on
+// vector61, Play mode, recorded replays, and unsubscribed ego2s streams.
+// The local/tactical planes are heading-rotated so the snake faces "up" in the grid.
 export interface HeroRasterDTO {
-  tactical_size: number; // 31
-  tactical_code: number[][]; // (S, S) type code per cell (see tactical_codes)
-  tactical_value: number[][]; // (S, S) uint8 value byte per cell
-  tactical_channels: string[]; // (9,) channel names, index = expanded plane
-  tactical_codes: Record<string, number>; // name -> type code, e.g. own_head: 8
-  strategic_size: number; // 25
-  strategic: number[][][]; // (3, S, S) density planes
-  strategic_channels: string[]; // (3,) names
-  scalars: number[]; // (26,)
-  mask: boolean[]; // (6,) legal-action mask
+  tactical_size?: number; // 31 (raster31v2)
+  tactical_code?: number[][]; // (S, S) type code per cell (see tactical_codes)
+  tactical_value?: number[][]; // (S, S) uint8 value byte per cell
+  tactical_channels?: string[]; // (9,) channel names, index = expanded plane
+  tactical_codes?: Record<string, number>; // name -> type code, e.g. own_head: 8
+  strategic_size?: number; // 25 (raster31v2)
+  strategic?: number[][][]; // (3, S, S) density planes
+  strategic_channels?: string[]; // (3,) names
+  // ego2s live-Watch payload fields (base64-encoded uint8 planes or nested arrays)
+  encoding?: "u8_b64";
+  obs_spec?: string;
+  local_size?: number; // 31
+  local_head_row?: number; // 23
+  local_head_col?: number; // 15
+  local_shape?: [number, number, number]; // [7, 31, 31]
+  local_b64?: string;
+  local?: number[][][]; // optional decoded (7, S, S) planes
+  local_channels?: string[]; // (7,) channel names
+  global_size?: number; // 37
+  global_shape?: [number, number, number]; // [4, 37, 37]
+  global_b64?: string;
+  global?: number[][][]; // optional decoded (4, G, G) planes
+  global_channels?: string[]; // (4,) channel names
+  scalars: number[]; // (26,) on raster31v2, (60,) on ego2s-bv8
+  mask?: boolean[]; // (6,) legal-action mask
   // V3 keeps the domain/action-advice distinction visible. `mask` remains the
   // resolved display value for older consumers.
   legal_mask?: boolean[];

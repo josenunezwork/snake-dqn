@@ -208,9 +208,25 @@ class Ego2sServingPolicy:
         return int(np.argmax(q))
 
     # -- inspector helpers (serializer) -------------------------------------
-    def hero_observation(self, snake_id: int):
-        """``None``: the raster viewer's planes are raster31-specific (not shown)."""
-        return None
+    def hero_observation(self, snake_id: int) -> Optional[Dict[str, np.ndarray]]:
+        """Cached ego2s observation (``local``, ``global``, ``scalars``) for ``snake_id``."""
+        if self._obs is None:
+            self._ensure_frame()
+        elif self._game is not None and self._frame is not None:
+            if int(getattr(self._game, "frame", 0)) != self._frame:
+                self._ensure_frame()
+        if self._obs is None or int(snake_id) not in self._id_to_row:
+            return None
+        row = self._id_to_row[int(snake_id)]
+        pos = np.flatnonzero(self._obs["rows"] == row)
+        if not len(pos):
+            return None
+        i = int(pos[0])
+        return {
+            "local": self._obs["local"][i],
+            "global": self._obs["global"][i],
+            "scalars": self._obs["scalars"][i],
+        }
 
     def q_for(self, snake_id: int) -> Optional[np.ndarray]:
         self._ensure_frame()

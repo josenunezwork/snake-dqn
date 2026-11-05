@@ -42,14 +42,47 @@ const rgba = ([r, g, b]: [number, number, number], a: number) => `rgba(${r},${g}
 // Canvas backing size (device-independent CSS px); grid is drawn to fill it.
 const CANVAS = 248;
 
-// Strategic density plane colours, keyed by the channel names the backend
-// serves (src/simd_env/featurizer.py STRATEGIC_CHANNEL_NAMES).
+// Strategic / ego2s plane colours, keyed by the channel names the backend serves.
 const STRATEGIC_COLORS: Record<string, [number, number, number]> = {
   enemy_mass_density: [248, 113, 113],
   food_mass_density: [74, 222, 128],
   own_body_density: [56, 189, 248],
+  // ego2s local (7 channels)
+  own_ttl: [56, 189, 248],
+  enemy_ttl: [153, 60, 60],
+  enemy_head: [248, 113, 113],
+  food: [74, 222, 128],
+  wall: [100, 116, 139],
+  reach_time: [129, 140, 248],
+  enemy_next: [251, 146, 60],
+  // ego2s global (4 channels)
+  own_mass: [56, 189, 248],
+  enemy_mass: [248, 113, 113],
+  food_mass: [74, 222, 128],
+  outside: [100, 116, 139],
 };
 const STRATEGIC_FALLBACK: [number, number, number] = [148, 163, 184];
+
+const EGO2S_LOCAL_CHANNELS_FALLBACK = [
+  "own_ttl",
+  "enemy_ttl",
+  "enemy_head",
+  "food",
+  "wall",
+  "reach_time",
+  "enemy_next",
+];
+
+const EGO2S_GLOBAL_CHANNELS_FALLBACK = [
+  "own_mass",
+  "enemy_mass",
+  "food_mass",
+  "outside",
+];
+
+// Composite draw order for ego2s local channels (bottom to top so bodies/heads/food
+// sit clearly above reach_time).
+const EGO2S_COMPOSITE_ORDER = [5, 4, 3, 6, 1, 0, 2];
 
 // Scalar-band grouping fallback. Mirrors web/backend/serialize.py
 // RASTER31V2_SCALAR_GROUPS (the per-index contract of
@@ -70,22 +103,33 @@ const SCALAR_GROUPS_FALLBACK: { name: string; start: number; end: number }[] = [
   { name: "Arena type", start: 25, end: 26 },
 ];
 
+const EGO2S_SCALAR_GROUPS_FALLBACK: { name: string; start: number; end: number }[] = [
+  { name: "ego2s-b scalars", start: 0, end: 30 },
+  { name: "v8 veto features (5 per action)", start: 30, end: 60 },
+];
+
 // Action labels for the 6-bit legality mask (0 L, 1 S, 2 R, 3-5 boost variants).
 const MASK_LABELS = ["L", "S", "R", "B-L", "B-S", "B-R"];
 
-// One 25x25 strategic density plane, painted to a small canvas: brightness =
-// density byte, tinted per channel.
+// One density/channel plane, painted to a small canvas: brightness =
+// value byte, tinted per channel.
 function StrategicPlane({
   plane,
   name,
   size,
+  kind = "Strategic",
+  showPrettyLabel = true,
+  showRawLabel = false,
 }: {
   plane: number[][];
   name: string;
   size: number;
+  kind?: "Strategic" | "Local" | "Global";
+  showPrettyLabel?: boolean;
+  showRawLabel?: boolean;
 }) {
   const ref = useRef<HTMLCanvasElement | null>(null);
-  const PX = 76;
+  const PX = kind === "Local" ? 64 : 76;
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
@@ -110,7 +154,8 @@ function StrategicPlane({
         ctx.fillRect(x * cell, y * cell, Math.ceil(cell), Math.ceil(cell));
       }
     }
-  }, [plane, name, size]);
+  }, [plane, name, size, PX]);
+  const color = STRATEGIC_COLORS[name] ?? STRATEGIC_FALLBACK;
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
       <canvas
@@ -118,11 +163,25 @@ function StrategicPlane({
         className="raster-canvas"
         style={{ width: PX, height: PX }}
         role="img"
-        aria-label={`Strategic plane ${prettyChannel(name)}`}
+        aria-label={`${kind} plane ${prettyChannel(name)}`}
       />
-      <span className="muted" style={{ fontSize: 10, textAlign: "center" }}>
-        {prettyChannel(name)}
-      </span>
+      {showPrettyLabel && (
+        <span className="muted" style={{ fontSize: 10, textAlign: "center" }}>
+          {prettyChannel(name)}
+        </span>
+      )}
+      {showRawLabel && (
+        <span
+          className="muted mono"
+          style={{ fontSize: 9, textAlign: "center", display: "inline-flex", alignItems: "center", gap: 4 }}
+        >
+          <span
+            className="raster-swatch"
+            style={{ background: rgb(color), width: 7, height: 7, display: "inline-block" }}
+          />
+          {name}
+        </span>
+      )}
     </div>
   );
 }
@@ -135,14 +194,42 @@ interface Props {
 
 function EgoRasterViewer({ raster, obsSpec, labels = false }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  // "composite" or a channel index (0-based into tactical_channels).
+  // "composite" or a channel index (0-based into tactical_channels or local_channels).
   const [mode, setMode] = useState<"composite" | number>("composite");
 
-  const isRaster = obsSpec === "raster31v2";
+  const isRaster = obsSpec === "raster31v2" || obsSpec === "raster31v3";
+  const isEgo2s = Boolean(
+    (obsSpec && obsSpec.startsWith("ego2s")) ||
+      raster?.local_b64 ||
+      raster?.local ||
+      raster?.local_channels
+  );
 
-  // Which type codes actually appear this frame (for a compact, live legend).
+  const ego2sLocalPlanes = useMemo(() => {
+    if (!isEgo2s || !raster) return null;
+    const chCount = (raster.local_channels ?? EGO2S_LOCAL_CHANNELS_FALLBACK).length;
+    const S = raster.local_size || raster.local_shape?.[1] || 31;
+    return decodePlanes(
+      raster.local_b64,
+      raster.local,
+      raster.local_shape ?? [chCount, S, S]
+    );
+  }, [isEgo2s, raster]);
+
+  const ego2sGlobalPlanes = useMemo(() => {
+    if (!isEgo2s || !raster) return null;
+    const chCount = (raster.global_channels ?? EGO2S_GLOBAL_CHANNELS_FALLBACK).length;
+    const G = raster.global_size || raster.global_shape?.[1] || 37;
+    return decodePlanes(
+      raster.global_b64,
+      raster.global,
+      raster.global_shape ?? [chCount, G, G]
+    );
+  }, [isEgo2s, raster]);
+
+  // Which type codes actually appear this frame (for a compact, live legend on raster31v2).
   const presentCodes = useMemo(() => {
-    if (!raster) return new Set<number>();
+    if (!raster || !raster.tactical_code) return new Set<number>();
     const seen = new Set<number>();
     for (const row of raster.tactical_code) for (const c of row) if (c) seen.add(c);
     return seen;
@@ -154,20 +241,94 @@ function EgoRasterViewer({ raster, obsSpec, labels = false }: Props) {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const S = raster.tactical_size || raster.tactical_code.length || 31;
     const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
     canvas.width = CANVAS * dpr;
     canvas.height = CANVAS * dpr;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, CANVAS, CANVAS);
 
-    const cell = CANVAS / S;
-    const code = raster.tactical_code;
-    const val = raster.tactical_value;
-
     // backdrop
     ctx.fillStyle = "rgba(0,0,0,0.28)";
     ctx.fillRect(0, 0, CANVAS, CANVAS);
+
+    if (isEgo2s && ego2sLocalPlanes) {
+      const localChannels = raster.local_channels ?? EGO2S_LOCAL_CHANNELS_FALLBACK;
+      const S =
+        raster.local_size ||
+        ego2sLocalPlanes[0]?.length ||
+        raster.local_shape?.[1] ||
+        31;
+      const cell = CANVAS / S;
+
+      if (mode === "composite") {
+        for (const chIdx of EGO2S_COMPOSITE_ORDER) {
+          const plane = ego2sLocalPlanes[chIdx];
+          if (!plane) continue;
+          const chName = localChannels[chIdx] ?? `ch_${chIdx}`;
+          const color = STRATEGIC_COLORS[chName] ?? STRATEGIC_FALLBACK;
+          const isReach = chName === "reach_time";
+          for (let y = 0; y < S; y++) {
+            const row = plane[y] || [];
+            for (let x = 0; x < S; x++) {
+              const v = (row[x] ?? 0) / 255;
+              if (v <= 0) continue;
+              const alpha = isReach ? 0.08 + 0.22 * v : 0.45 + 0.55 * v;
+              ctx.fillStyle = rgba(color, alpha);
+              ctx.fillRect(x * cell, y * cell, Math.ceil(cell), Math.ceil(cell));
+            }
+          }
+        }
+      } else {
+        const chIdx = typeof mode === "number" ? mode : 0;
+        const plane = ego2sLocalPlanes[chIdx] || [];
+        const chName = localChannels[chIdx] ?? `ch_${chIdx}`;
+        const color = STRATEGIC_COLORS[chName] ?? STRATEGIC_FALLBACK;
+        for (let y = 0; y < S; y++) {
+          const row = plane[y] || [];
+          for (let x = 0; x < S; x++) {
+            const v = (row[x] ?? 0) / 255;
+            if (v <= 0) continue;
+            ctx.fillStyle = rgba(color, 0.2 + 0.8 * v);
+            ctx.fillRect(x * cell, y * cell, Math.ceil(cell), Math.ceil(cell));
+          }
+        }
+      }
+
+      ctx.strokeStyle = "rgba(255,255,255,0.05)";
+      ctx.lineWidth = 1;
+      for (let i = 1; i < S; i++) {
+        const p = Math.round(i * cell) + 0.5;
+        ctx.beginPath();
+        ctx.moveTo(p, 0);
+        ctx.lineTo(p, CANVAS);
+        ctx.moveTo(0, p);
+        ctx.lineTo(CANVAS, p);
+        ctx.stroke();
+      }
+      const defaultRow = S > 23 ? 23 : Math.floor(S / 2);
+      const defaultCol = S > 15 ? 15 : Math.floor(S / 2);
+      const headRow = Math.min(S - 1, Math.max(0, raster.local_head_row ?? defaultRow));
+      const headCol = Math.min(S - 1, Math.max(0, raster.local_head_col ?? defaultCol));
+      ctx.strokeStyle = "rgba(230,237,246,0.8)";
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(headCol * cell + 1, headRow * cell + 1, cell - 2, cell - 2);
+      ctx.fillStyle = "rgba(230,237,246,0.85)";
+      const cx = headCol * cell + cell / 2;
+      const ay = headRow * cell - cell * 0.4;
+      ctx.beginPath();
+      ctx.moveTo(cx, ay - cell * 0.8);
+      ctx.lineTo(cx - cell * 0.45, ay);
+      ctx.lineTo(cx + cell * 0.45, ay);
+      ctx.closePath();
+      ctx.fill();
+      return;
+    }
+
+    if (!raster.tactical_code || !raster.tactical_value) return;
+    const S = raster.tactical_size || raster.tactical_code.length || 31;
+    const cell = CANVAS / S;
+    const code = raster.tactical_code;
+    const val = raster.tactical_value;
 
     const styleByCode = new Map(CODE_STYLES.map((s) => [s.code, s]));
 
@@ -189,7 +350,8 @@ function EgoRasterViewer({ raster, obsSpec, labels = false }: Props) {
     } else {
       // single channel: paint that channel's cells by value-byte brightness.
       const chStyle = CODE_STYLES.find(
-        (s) => raster.tactical_codes[s.key] !== undefined && channelOf(raster, s.key) === mode
+        (s) =>
+          raster.tactical_codes?.[s.key] !== undefined && channelOf(raster, s.key) === mode
       );
       const color = chStyle ? chStyle.color : ([56, 189, 248] as [number, number, number]);
       const wantCode = codeForChannel(raster, mode);
@@ -231,11 +393,9 @@ function EgoRasterViewer({ raster, obsSpec, labels = false }: Props) {
     ctx.lineTo(cx + cell * 0.45, ay);
     ctx.closePath();
     ctx.fill();
-  }, [raster, mode]);
+  }, [raster, mode, isEgo2s, ego2sLocalPlanes]);
 
-  const isEgo2s = Boolean(obsSpec && obsSpec.startsWith("ego2s"));
-
-  if (!isRaster) {
+  if ((!isRaster && !isEgo2s) || (isEgo2s && !raster)) {
     return (
       <div className="panel">
         <div className="empty-state">
@@ -283,8 +443,158 @@ function EgoRasterViewer({ raster, obsSpec, labels = false }: Props) {
     );
   }
 
-  const S = raster.tactical_size;
-  const channels = raster.tactical_channels;
+  if (isEgo2s) {
+    const localChannels = raster.local_channels ?? EGO2S_LOCAL_CHANNELS_FALLBACK;
+    const globalChannels = raster.global_channels ?? EGO2S_GLOBAL_CHANNELS_FALLBACK;
+    const localS =
+      raster.local_size ||
+      ego2sLocalPlanes?.[0]?.length ||
+      raster.local_shape?.[1] ||
+      31;
+    const globalS =
+      raster.global_size ||
+      ego2sGlobalPlanes?.[0]?.length ||
+      raster.global_shape?.[1] ||
+      37;
+
+    return (
+      <div className="panel">
+        <div className="panel-intro">
+          The snake's live ego2s observation — heading-rotated local and global spatial planes plus
+          scalar and v8 safety features.
+        </div>
+
+        <div className="card">
+          <div className="section-title">
+            Local · {localS}×{localS} ego planes ({localChannels.length} channels)
+          </div>
+
+          <div className="raster-modes" role="tablist" aria-label="Raster channel">
+            <button
+              role="tab"
+              aria-selected={mode === "composite"}
+              className={"raster-chip" + (mode === "composite" ? " on" : "")}
+              onClick={() => setMode("composite")}
+            >
+              Composite
+            </button>
+            {localChannels.map((name, i) => (
+              <button
+                key={name}
+                role="tab"
+                aria-selected={mode === i}
+                className={"raster-chip" + (mode === i ? " on" : "")}
+                onClick={() => setMode(i)}
+              >
+                {prettyChannel(name)}
+              </button>
+            ))}
+          </div>
+
+          <div className="raster-stage">
+            <canvas
+              ref={canvasRef}
+              className="raster-canvas"
+              style={{ width: CANVAS, height: CANVAS }}
+              role="img"
+              aria-label={
+                mode === "composite"
+                  ? `Ego raster composite, ${localS} by ${localS}`
+                  : `Ego raster channel ${prettyChannel(localChannels[mode as number] ?? "")}`
+              }
+            />
+            {labels && (
+              <div className="raster-axis muted mono" aria-hidden="true">
+                ▲ ahead
+              </div>
+            )}
+          </div>
+
+          {ego2sLocalPlanes && ego2sLocalPlanes.length > 0 && (
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                flexWrap: "wrap",
+                justifyContent: "space-between",
+                marginTop: 10,
+              }}
+            >
+              {localChannels.map((name, i) => (
+                <StrategicPlane
+                  key={name}
+                  plane={ego2sLocalPlanes[i] ?? []}
+                  name={name}
+                  size={localS}
+                  kind="Local"
+                  showPrettyLabel={false}
+                  showRawLabel
+                />
+              ))}
+            </div>
+          )}
+
+          <div className="muted" style={{ fontSize: 11, marginTop: 8, lineHeight: 1.6 }}>
+            Ringed cell (row {raster.local_head_row ?? 23}, col {raster.local_head_col ?? 15}) is
+            the snake's head; the arrow points straight ahead.
+          </div>
+        </div>
+
+        {ego2sGlobalPlanes && ego2sGlobalPlanes.length > 0 && (
+          <div className="card">
+            <div className="section-title">
+              Global · {globalS}×{globalS} coarse planes ({globalChannels.length} channels)
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "space-between", flexWrap: "wrap" }}>
+              {globalChannels.map((name, i) => (
+                <StrategicPlane
+                  key={name}
+                  plane={ego2sGlobalPlanes[i] ?? []}
+                  name={name}
+                  size={globalS}
+                  kind="Global"
+                  showPrettyLabel
+                  showRawLabel
+                />
+              ))}
+            </div>
+            <div className="muted" style={{ fontSize: 10, marginTop: 6 }}>
+              Coarse full-board ego-rotated density and boundary planes ({globalS}×{globalS}).
+            </div>
+          </div>
+        )}
+
+        {raster.scalars && raster.scalars.length > 0 && (
+          <details className="state-details" open>
+            <summary>
+              <span className="section-title" style={{ margin: 0, display: "inline" }}>
+                Scalars ({raster.scalars.length}-D)
+              </span>
+            </summary>
+            {scalarGroupsFor(raster, true).map((grp) => (
+              <div className="card" key={grp.name} style={{ padding: "8px 12px" }}>
+                <div className="muted" style={{ fontSize: 11, marginBottom: 4 }}>
+                  {grp.name}{" "}
+                  <span className="mono">
+                    [{grp.start}–{grp.end - 1}]
+                  </span>
+                </div>
+                <div className="mono" style={{ fontSize: 12 }}>
+                  {raster.scalars
+                    .slice(grp.start, grp.end)
+                    .map((v) => v.toFixed(2))
+                    .join("  ")}
+                </div>
+              </div>
+            ))}
+          </details>
+        )}
+      </div>
+    );
+  }
+
+  const S = raster.tactical_size ?? 31;
+  const channels = raster.tactical_channels ?? [];
 
   return (
     <div className="panel">
@@ -413,15 +723,15 @@ function EgoRasterViewer({ raster, obsSpec, labels = false }: Props) {
       {raster.strategic && raster.strategic.length > 0 && (
         <div className="card">
           <div className="section-title">
-            Strategic · {raster.strategic_size}×{raster.strategic_size} density planes
+            Strategic · {raster.strategic_size ?? 25}×{raster.strategic_size ?? 25} density planes
           </div>
           <div style={{ display: "flex", gap: 10, justifyContent: "space-between" }}>
             {raster.strategic.map((plane, i) => (
               <StrategicPlane
-                key={raster.strategic_channels[i] ?? i}
+                key={raster.strategic_channels?.[i] ?? i}
                 plane={plane}
-                name={raster.strategic_channels[i] ?? `plane_${i}`}
-                size={raster.strategic_size}
+                name={raster.strategic_channels?.[i] ?? `plane_${i}`}
+                size={raster.strategic_size ?? 25}
               />
             ))}
           </div>
@@ -439,7 +749,7 @@ function EgoRasterViewer({ raster, obsSpec, labels = false }: Props) {
               Scalars ({raster.scalars.length}-D)
             </span>
           </summary>
-          {scalarGroupsFor(raster).map((grp) => (
+          {scalarGroupsFor(raster, false).map((grp) => (
             <div className="card" key={grp.name} style={{ padding: "8px 12px" }}>
               <div className="muted" style={{ fontSize: 11, marginBottom: 4 }}>
                 {grp.name}{" "}
@@ -463,19 +773,56 @@ function EgoRasterViewer({ raster, obsSpec, labels = false }: Props) {
 
 // ---- helpers -------------------------------------------------------------
 
+function decodePlanes(
+  b64: string | undefined,
+  nested: number[][][] | undefined,
+  shape: [number, number, number]
+): number[][][] | null {
+  if (nested && nested.length > 0) return nested;
+  if (!b64) return null;
+  let bytes: Uint8Array;
+  try {
+    const bin = atob(b64);
+    bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) {
+      bytes[i] = bin.charCodeAt(i);
+    }
+  } catch {
+    return null;
+  }
+  const [C, H, W] = shape;
+  if (C <= 0 || H <= 0 || W <= 0 || bytes.length < C * H * W) return null;
+  const planes: number[][][] = new Array(C);
+  let idx = 0;
+  for (let c = 0; c < C; c++) {
+    const rows: number[][] = new Array(H);
+    for (let y = 0; y < H; y++) {
+      const row: number[] = new Array(W);
+      for (let x = 0; x < W; x++) {
+        row[x] = bytes[idx++];
+      }
+      rows[y] = row;
+    }
+    planes[c] = rows;
+  }
+  return planes;
+}
+
 // The tactical channel index a given code expands into. tactical_codes maps
 // name -> code; tactical_channels lists names by plane index. We invert.
 function channelOf(raster: HeroRasterDTO, key: string): number | null {
-  const i = raster.tactical_channels.indexOf(key);
+  const chs = raster.tactical_channels;
+  if (!chs) return null;
+  const i = chs.indexOf(key);
   return i >= 0 ? i : null;
 }
 
 // For a channel plane index, the type code whose cells belong to it (or null if
 // the plane has no direct code, e.g. the reserved ablation slot).
 function codeForChannel(raster: HeroRasterDTO, channel: number): number | null {
-  const name = raster.tactical_channels[channel];
+  const name = raster.tactical_channels?.[channel];
   if (name === undefined) return null;
-  const code = raster.tactical_codes[name];
+  const code = raster.tactical_codes?.[name];
   return code === undefined ? null : code;
 }
 
@@ -488,10 +835,14 @@ function prettyChannel(name: string): string {
 
 // Scalar-band labels: prefer names served in the payload (state_labels-style
 // group dicts under `scalar_groups`, when the backend ships them), falling back
-// to the local mirror of serialize.py's RASTER31V2_SCALAR_GROUPS.
-function scalarGroupsFor(raster: HeroRasterDTO): { name: string; start: number; end: number }[] {
+// to the local mirror of serialize.py's scalar groups.
+function scalarGroupsFor(
+  raster: HeroRasterDTO,
+  isEgo2s = false
+): { name: string; start: number; end: number }[] {
   const served = raster.scalar_groups;
-  const groups = served && served.length > 0 ? served : SCALAR_GROUPS_FALLBACK;
+  const fallback = isEgo2s ? EGO2S_SCALAR_GROUPS_FALLBACK : SCALAR_GROUPS_FALLBACK;
+  const groups = served && served.length > 0 ? served : fallback;
   return groups.filter((g) => g.end <= raster.scalars.length);
 }
 
