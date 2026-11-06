@@ -237,7 +237,7 @@ def resolve_replay_controller(controller: str | None = None) -> tuple[str | None
     if normalized not in VALID_REPLAY_CONTROLLERS:
         return None, (
             f"Invalid {ENV_REPLAY_CONTROLLER}={raw!r}; expected all, "
-            "exact-stop-l2-prime, or exact-stop-l1. Using live B8."
+            "exact-stop-l2-prime, exact-stop-l1, or exact-stop-l1-os. Using live B8."
         )
     return normalized, None
 
