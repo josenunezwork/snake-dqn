@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# Fresh L1-OS product replay bank on a Colab CPU host (G4); never changes serving.
+# Same staging as research/watch_replay/job.sh; resume by default (verified ledger skip
+# + per-unit action-log checkpoints from checkpoints-resume.tar.gz when uploaded).
+set -euo pipefail
+: "${COLAB_CLI_ROOT:?qualified runtime required}"
+: "${COLAB_INPUT_DIR:?uploaded inputs required}"
+: "${COLAB_OUTPUT_DIR:?output root required}"
+cd "$COLAB_CLI_ROOT/repo"
+export SNAKE_DQN_DEVICE=cpu SNAKE_WATCH_SOURCE=live
+export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1
+export VECLIB_MAXIMUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1
+export SNAKE_CKPT_DIR="$COLAB_INPUT_DIR/checkpoints"
+export WATCH6_RELEASE_EVIDENCE="$COLAB_INPUT_DIR/release-evidence"
+PY="$COLAB_CLI_ROOT/.venv/bin/python"
+"$PY" -c 'from pathlib import Path; import os; from research.watch_replay.uploads import stage_metadata; stage_metadata(Path(os.environ["COLAB_INPUT_DIR"]), os.environ["WATCH_REPLAY_METADATA_SHA256"])'
+"$PY" -c 'from pathlib import Path; import os; from research.watch_replay.product import stage_release_evidence; stage_release_evidence(Path(os.environ["COLAB_INPUT_DIR"]))'
+LABEL=main
+FOREIGN=refuse
+if [[ "${SNAKE_COLAB_CANARY:-0}" == 1 ]]; then LABEL=canary; FOREIGN=skip; fi
+CKPT_ARGS=()
+if [[ -f "$COLAB_INPUT_DIR/checkpoints-resume.tar.gz" ]]; then
+  "$PY" -c 'from pathlib import Path; import os; from research.watch_replay.screen_l1_os import stage_checkpoint_resume; stage_checkpoint_resume(Path(os.environ["COLAB_INPUT_DIR"]))'
+  CKPT_ARGS+=(--checkpoint-in "$COLAB_INPUT_DIR/checkpoints-resume")
+fi
+"$PY" -m research.watch_replay.run_l1_os \
+  --contract "$COLAB_INPUT_DIR/$LABEL-contract.json" \
+  --ledger "$COLAB_INPUT_DIR/$LABEL-ledger.json" \
+  --out "$COLAB_OUTPUT_DIR/sessions" \
+  --workers "$WATCH_REPLAY_WORKERS" \
+  --checkpoint-seconds "${WATCH_REPLAY_CHECKPOINT_SECONDS:-1200}" \
+  --foreign-checkpoints "$FOREIGN" \
+  ${WATCH_REPLAY_SESSION_SECONDS:+--session-seconds "$WATCH_REPLAY_SESSION_SECONDS"} \
+  ${CKPT_ARGS[@]+"${CKPT_ARGS[@]}"}

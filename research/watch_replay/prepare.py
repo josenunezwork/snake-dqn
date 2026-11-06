@@ -26,11 +26,15 @@ SCREEN_MEAN_ROOTS_BY_CONTROLLER: dict[str, float] = {
     "bare-b8": 0.0,
     "exact-stop-l2-prime": 403.7291666666667,
     "exact-stop-l1": 1200.125,
+    # Exact-search roots only (same clock as l1); open-stop roots and scaled-H branch
+    # frames are NOT in this calibration -- size l1-os from the Bank-v2 build canary.
+    "exact-stop-l1-os": 1200.125,
 }
 SCREEN_MEAN_BRANCHES_BY_CONTROLLER: dict[str, float] = {
     "bare-b8": 0.0,
     "exact-stop-l2-prime": 449.6041666666667,
     "exact-stop-l1": 1268.5208333333333,
+    "exact-stop-l1-os": 1268.5208333333333,
 }
 BRANCH_TAIL_MARGIN = 1.35
 CLOUD_SLOWDOWN_PROJECTION = 3.5
