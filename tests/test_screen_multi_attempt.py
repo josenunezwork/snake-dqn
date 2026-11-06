@@ -328,3 +328,115 @@ def test_ledger_cli_writes_a_prepare_compatible_ledger(tmp_path):
     )
     assert [r["index"] for r in rows] == [0]
     assert json.loads((tmp_path / "ledger.json").read_text())["units"][0]["size"] > 0
+
+
+# --- attempt-2 deadlock fix: canary foreign skip + predecessor-commit admission ----------
+
+PRED = "f52d2827096784a993bc40c226efdd863eaacd9e"
+
+
+def test_canary_skips_foreign_checkpoints_main_refuses(tmp_path):
+    canary = screen.allocation(BANK_V2_DEV_NAMESPACE, 1, 120)
+    confirm = {**screen.allocation(**screen.STUDIES["confirm"]), "commit": PRED}
+    root = tmp_path / "checkpoints-resume"
+    for index in (0, 1):
+        publish_json(
+            root / f"{index:06d}" / "frame-008300.json", _ckpt(confirm, index, 8300, "e" * 64)
+        )
+    assert screen.checkpoint_candidates([root], 0, canary, foreign="skip") == []
+    pending, _ = screen.pending_units(canary, tmp_path / "out", None, [root], foreign="skip")
+    assert [u["index"] for u in pending] == [1, 0]
+    with pytest.raises(PackageRefused, match="foreign checkpoint"):
+        screen.checkpoint_candidates([root], 0, canary)
+    with pytest.raises(ValueError):
+        screen.checkpoint_candidates([root], 0, canary, foreign="accept")
+
+
+def test_main_admits_only_allowlisted_predecessor_commit(tmp_path):
+    base = screen.allocation("t34-bank-v2-unit-test", 1, 10)
+    new = {**base, "commit": "1" * 40}
+    assert screen.PREDECESSOR_COMMITS == (PRED,)
+    root = tmp_path / "ck"
+    publish_json(
+        root / "000000" / "frame-000005.json", _ckpt({**base, "commit": PRED}, 0, 5, "a" * 64)
+    )
+    assert [c["frame"] for c in screen.checkpoint_candidates([root], 0, new)] == [5]
+    other = tmp_path / "other"
+    publish_json(
+        other / "000000" / "frame-000006.json", _ckpt({**base, "commit": "2" * 40}, 0, 6, "b" * 64)
+    )
+    with pytest.raises(PackageRefused, match="foreign checkpoint"):
+        screen.checkpoint_candidates([other], 0, new)
+    # Only the commit may differ: any other contract change stays foreign.
+    changed = {**screen.allocation("t34-bank-v2-unit-test", 1, 11), "commit": PRED}
+    publish_json(other / "000000" / "frame-000007.json", _ckpt(changed, 0, 7, "c" * 64))
+    with pytest.raises(PackageRefused, match="foreign checkpoint"):
+        screen.checkpoint_candidates([tmp_path / "other"], 0, new)
+
+
+def test_checkpoint_archive_is_byte_deterministic(tmp_path):
+    contract = screen.allocation("t34-bank-v2-unit-test", 2, 10)
+    root = tmp_path / "ck"
+    for index in range(4):
+        publish_json(
+            root / f"{index:06d}" / "frame-000003.json", _ckpt(contract, index, 3, "a" * 64)
+        )
+    a, b = tmp_path / "a.tar.gz", tmp_path / "b.tar.gz"
+    assert screen.pack_checkpoint_resume([root], a, set()) == 4
+    assert screen.pack_checkpoint_resume([root], b, set()) == 4
+    assert a.read_bytes() == b.read_bytes()
+
+
+@pytest.fixture
+def real_env(monkeypatch):
+    from research.t1_commitment_20261015.replay import configure_cpu
+    from research.watch6_alllen_screen.protocol import ROOT
+
+    saved = ROOT.parent / "snake-dqn/saved_snakes"
+    if not (saved / "b8_s3_t7_20261016.pth").is_file():
+        pytest.skip("product checkpoints unavailable")
+    monkeypatch.setenv("SNAKE_CKPT_DIR", str(saved))
+    monkeypatch.setenv("SNAKE_DQN_DEVICE", "cpu")
+    configure_cpu()
+
+
+def test_predecessor_checkpoint_resumes_with_frame_hash_check(tmp_path, monkeypatch, real_env):
+    base = screen.allocation(BANK_V2_DEV_NAMESPACE, 1, 20)
+    old, new = {**base, "commit": PRED}, {**base, "commit": "1" * 40}
+    unit = base["units"][1]
+    whole = screen.run_unit(new, unit, tmp_path / "whole", lambda: None)
+    frames = {"n": 0}
+    original = screen._normalize
+
+    def counting(snapshot):
+        frames["n"] += 1
+        return original(snapshot)
+
+    def stop():
+        if frames["n"] >= 12:
+            raise InterruptedError("preempted")
+
+    monkeypatch.setattr(screen, "_normalize", counting)
+    attempt1 = tmp_path / "attempt1"
+    with pytest.raises(InterruptedError):
+        screen.run_unit(old, unit, attempt1, stop)
+    monkeypatch.setattr(screen, "_normalize", original)
+    ck = attempt1 / "checkpoints"
+    good = json.loads((ck / "000001" / "frame-000012.json").read_text())
+    assert good["allocation"] == screen.identity(old) != screen.identity(new)
+    resumed = screen.run_unit(new, unit, tmp_path / "attempt2", lambda: None, checkpoint_dirs=[ck])
+    assert resumed["resumed_from_frame"] == 12 and resumed["checkpoints_rejected"] == 0
+    assert resumed["allocation"] == screen.identity(new)
+    volatile = ("compute_seconds", "replay_seconds", "resumed_from_frame", "checkpoints_rejected")
+    assert {k: v for k, v in resumed.items() if k not in volatile} == {
+        k: v for k, v in whole.items() if k not in volatile
+    }
+    # A tampered (validly sealed but non-reproducing) predecessor checkpoint is rejected
+    # by the replay frame-hash check and the unit restarts from frame 1.
+    tampered = tmp_path / "tampered"
+    publish_json(tampered / "000001" / "frame-000015.json", {**good, "frame": 15})
+    out = tmp_path / "attempt2b"
+    redo = screen.run_unit(new, unit, out, lambda: None, checkpoint_dirs=[tampered])
+    assert redo["checkpoints_rejected"] == 1 and redo["resumed_from_frame"] is None
+    assert redo["frames_sha256"] == whole["frames_sha256"]
+    assert list((out / "checkpoints" / "000001").glob("rejected-*.json"))

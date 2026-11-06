@@ -194,8 +194,38 @@ def _rejected_keys(dirs: list[Path], index: int) -> set[tuple[int, str]]:
     return keys
 
 
-def checkpoint_candidates(dirs: list[Path], index: int, contract: dict) -> list[dict]:
-    """Verified, non-rejected checkpoints for ``index``: same hardware first, then newest."""
+# Frozen allowlist of predecessor executable commits whose checkpoints a contract may
+# resume (Bank-v2 confirmation: attempt 1 ran at f52d2827; attempt 2 needs a new commit
+# for canary checkpoint handling).  Only the "commit" field may differ; every other
+# contract field must be identical, and the rolling frame-hash replay check still runs.
+PREDECESSOR_COMMITS: tuple[str, ...] = ("f52d2827096784a993bc40c226efdd863eaacd9e",)
+
+
+def admitted_identities(contract: dict) -> list[dict[str, str]]:
+    """identity(contract) plus identities of the same contract at allowlisted predecessors."""
+    identities = [identity(contract)]
+    if "commit" in contract:
+        identities += [
+            identity({**contract, "commit": commit})
+            for commit in PREDECESSOR_COMMITS
+            if commit != contract["commit"]
+        ]
+    return identities
+
+
+def checkpoint_candidates(
+    dirs: list[Path], index: int, contract: dict, *, foreign: str = "refuse"
+) -> list[dict]:
+    """Verified, non-rejected checkpoints for ``index``: same hardware first, then newest.
+
+    A checkpoint bound to another contract is refused (``foreign="refuse"``, main runs)
+    or skipped and counted (``foreign="skip"``, family canaries that upload the main's
+    checkpoint archive only to cover its input bytes).
+    """
+    if foreign not in ("refuse", "skip"):
+        raise ValueError("foreign must be 'refuse' or 'skip'")
+    admitted = admitted_identities(contract)
+    skipped = 0
     rejected = _rejected_keys(dirs, index)
     here = hardware_fingerprint()
     found: dict[tuple[int, str], dict] = {}
@@ -209,13 +239,18 @@ def checkpoint_candidates(dirs: list[Path], index: int, contract: dict) -> list[
             value = json.loads(path.read_text())
             if (
                 value.get("schema") != CHECKPOINT_SCHEMA
-                or value.get("allocation") != identity(contract)
+                or value.get("allocation") not in admitted
                 or value.get("index") != index
             ):
+                if foreign == "skip":
+                    skipped += 1
+                    continue
                 raise PackageRefused(f"foreign checkpoint: {path}")
             key = (int(value["frame"]), str(value["frames_sha256"]))
             if key not in rejected:
                 found.setdefault(key, value)
+    if skipped:
+        print(f"screen unit={index}: skipped {skipped} foreign checkpoint(s)", flush=True)
     return sorted(
         found.values(), key=lambda v: (v.get("hardware") == here, v["frame"]), reverse=True
     )
@@ -307,6 +342,7 @@ def run_unit(
     stall_seconds: float = STALL_SECONDS,
     heartbeat: Path | None = None,
     hard_watchdog: bool = False,
+    foreign: str = "refuse",
 ) -> dict:
     """Run (or resume) one arm of one world and publish its immutable result.
 
@@ -319,7 +355,7 @@ def run_unit(
 
     index, arm = unit["index"], unit["arm"]
     dirs = [out / "checkpoints", *(checkpoint_dirs or [])]
-    candidates = checkpoint_candidates(dirs, index, contract)[:MAX_RESUME_TRIES]
+    candidates = checkpoint_candidates(dirs, index, contract, foreign=foreign)[:MAX_RESUME_TRIES]
     rejected = 0
     while True:
         resumed = candidates.pop(0) if candidates else None
@@ -541,6 +577,7 @@ def work(task: dict) -> dict:
         stall_seconds=task.get("stall_seconds", STALL_SECONDS),
         heartbeat=out / "heartbeats" / f"{task['unit']['index']:06d}",
         hard_watchdog=bool(task.get("isolated")),
+        foreign=task.get("foreign", "refuse"),
     )
 
 
@@ -562,6 +599,7 @@ def pending_units(
     out: Path,
     ledger: Path | None,
     checkpoint_dirs: list[Path] | None = None,
+    foreign: str = "refuse",
 ) -> tuple[list[dict], list[int]]:
     """Units to run and indices skipped as verified.
 
@@ -585,7 +623,11 @@ def pending_units(
             skip.add(unit["index"])
     dirs = [out / "checkpoints", *(checkpoint_dirs or [])]
     pending = [u for u in contract["units"] if u["index"] not in skip]
-    resumable = {u["index"] for u in pending if checkpoint_candidates(dirs, u["index"], contract)}
+    resumable = {
+        u["index"]
+        for u in pending
+        if checkpoint_candidates(dirs, u["index"], contract, foreign=foreign)
+    }
     pending.sort(
         key=lambda u: (u["index"] not in resumable, u["arm"] != "exact-stop-l1-os", u["index"])
     )
@@ -607,6 +649,7 @@ def run(
     hang_seconds: float = HANG_SECONDS,
     poll_seconds: float = 1.0,
     shard: tuple[int, int] | None = None,
+    foreign: str = "refuse",
 ) -> dict:
     """Resume by default: skip verified units, continue checkpointed ones.
 
@@ -629,7 +672,7 @@ def run(
     else:
         publish_json(contract_path, contract)
     started = time.monotonic()
-    pending, skipped = pending_units(contract, out, ledger, checkpoint_dirs)
+    pending, skipped = pending_units(contract, out, ledger, checkpoint_dirs, foreign)
     if shard is not None:
         k, n = shard
         if not 0 <= k < n:
@@ -645,6 +688,7 @@ def run(
             "stall_seconds": stall_seconds,
             "runner": runner,
             "isolated": isolate,
+            "foreign": foreign,
         }
         for u in pending
     ]
@@ -856,6 +900,12 @@ def main() -> None:
     parser.add_argument("--checkpoint-seconds", type=float, default=DEFAULT_CHECKPOINT_SECONDS)
     parser.add_argument("--shard", help="k/n: only worlds with world %% n == k")
     parser.add_argument(
+        "--foreign-checkpoints",
+        choices=("refuse", "skip"),
+        default="refuse",
+        help="skip: family canary carrying the main's checkpoint archive for input coverage",
+    )
+    parser.add_argument(
         "--session-seconds",
         type=float,
         help="host-session budget: afterwards running units checkpoint and stop",
@@ -892,6 +942,7 @@ def main() -> None:
         checkpoint_seconds=args.checkpoint_seconds,
         session_seconds=args.session_seconds,
         shard=tuple(int(x) for x in args.shard.split("/")) if args.shard else None,
+        foreign=args.foreign_checkpoints,
     )
     print(
         json.dumps(

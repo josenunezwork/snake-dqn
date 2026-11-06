@@ -28,6 +28,7 @@ from research.watch_replay.run import ROOT
 from research.watch_replay.screen_l1_os import (
     ALLOCATION,
     STUDIES,
+    admitted_identities,
     allocation,
     identity,
     pack_checkpoint_resume,
@@ -147,19 +148,34 @@ def prepare(
         "canary": {**allocation(BANK_V2_DEV_NAMESPACE, 1, canary_horizon), "commit": commit},
     }
     done: set[int] = set()
+    main_ledger = None
     if ledger is not None:
         main = contracts["main"]
-        done = {
-            r["index"] for r in read_ledger(ledger, main["namespace"], ALLOCATION, identity(main))
-        }
+        value = json.loads(ledger.read_text())
+        if value.get("identity") != identity(main) and value.get("identity") in (
+            admitted_identities(main)
+        ):
+            # Ledger from an allowlisted predecessor commit: completed units carry that
+            # commit's identity and cannot be mixed in without an analysis amendment, so
+            # only an EMPTY predecessor ledger is carried over (re-bound to this contract).
+            read_ledger(ledger, main["namespace"], ALLOCATION, value["identity"])
+            if value["units"]:
+                raise ValueError("predecessor-commit ledger with completed units: amend first")
+            main_ledger = empty_ledger(main["namespace"], ALLOCATION, identity(main))
+        else:
+            done = {
+                r["index"]
+                for r in read_ledger(ledger, main["namespace"], ALLOCATION, identity(main))
+            }
+            main_ledger = value
     inputs: list[Input] = []
     for label, contract in contracts.items():
         publish_json(out / f"{label}-contract.json", contract)
         publish_json(
             out / f"{label}-ledger.json",
             (
-                json.loads(ledger.read_text())
-                if label == "main" and ledger
+                main_ledger
+                if label == "main" and main_ledger is not None
                 else empty_ledger(contract["namespace"], ALLOCATION, identity(contract))
             ),
         )
@@ -194,6 +210,11 @@ def prepare(
                 resume_rows[label] = stage_inputs(
                     out / f"staged-resume-{label}", [Input(archive, "checkpoints-resume.tar.gz")]
                 )
+    if attempt >= 2 and resume_rows["main"] and not canary_checkpoint_sources:
+        # canary.py's coverage check needs the canary to upload byte-identical inputs
+        # (dest + sha256) to the main: reuse the main's archive (the canary runs with
+        # --foreign-checkpoints skip, so these confirm-contract checkpoints are ignored).
+        resume_rows["canary"] = resume_rows["main"]
     shards = shard[1] if shard else 1
     plan = {sc: forecast(study, sc, shards, workers) for sc in ("central", "high")}
     publish_json(out / "forecast.json", plan)
