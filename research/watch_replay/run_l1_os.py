@@ -404,7 +404,7 @@ def _schedule(
             reason.update(why=why, at=time.monotonic())
 
     previous = {
-        sig: signal.signal(sig, lambda s, f: request_stop("signal"))
+        sig: signal.signal(sig, lambda s, f: request_stop(f"signal {signal.Signals(s).name}"))
         for sig in (signal.SIGUSR1, signal.SIGTERM)
     }
     queue = list(tasks)
@@ -440,6 +440,8 @@ def _schedule(
                 hung = now - last > hang_seconds
                 late = stop_event.is_set() and now - reason["at"] > STOP_GRACE_SECONDS
                 if hung or late:
+                    if late and "stop grace exceeded" not in reason["why"]:
+                        reason["why"] += "; stop grace exceeded"
                     proc.terminate()
                     proc.join(10)
                     if proc.is_alive():
@@ -606,6 +608,9 @@ def main() -> None:
         foreign=args.foreign_checkpoints,
     )
     print(json.dumps(result, sort_keys=True))
+    if result["stopped"]:
+        # The supervisor retains only the last log line in CHILD_NONZERO_EXIT errors.
+        print(f"INTERRUPT: {result['stopped']}", flush=True)
     if result["completed"] + len(result["skipped"]) != result["total"]:
         raise SystemExit(3)
 

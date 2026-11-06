@@ -248,7 +248,7 @@ def prepare(
     metadata_sha = next(row["sha256"] for row in staged if row["dest"] == METADATA)
     if roots:
         archive = out / "checkpoints-resume.tar.gz"
-        if pack_checkpoint_resume(roots, archive, done):
+        if pack_checkpoint_resume(roots, archive, done, keep_per_unit=2):
             if archive.stat().st_size > MAX_CHECKPOINT_BYTES:
                 raise ValueError("resume checkpoint archive exceeds export reserve")
             staged += stage_inputs(out / "staged-resume", [Input(archive, archive.name)])

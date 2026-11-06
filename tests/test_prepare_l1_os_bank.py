@@ -128,6 +128,22 @@ def test_retry_ledger_exact_union(tmp_path):
         prepare._lineage(value, empty, [prior])
 
 
+@pytest.mark.parametrize(
+    "reason", ["session budget", "signal SIGTERM", "signal SIGTERM; stop grace exceeded"]
+)
+def test_retry_accepts_supervisor_child_nonzero_interrupt(tmp_path, reason):
+    value = contract()
+    ledger = tmp_path / "ledger.json"
+    publish_json(ledger, empty_ledger(value["namespace"], "sessions", identity(value)))
+    prior = receipt(
+        tmp_path,
+        value,
+        failure_class="CHILD_NONZERO_EXIT",
+        error=f"remote child exited 3: INTERRUPT: {reason}",
+    )
+    assert prepare._lineage(value, ledger, [prior]) == set()
+
+
 def test_checkpoint_source_rejects_foreign_contract(tmp_path):
     publish_json(tmp_path / "contract.json", {**contract(), "commit": "b" * 40})
     with pytest.raises(ValueError, match="foreign checkpoint source"):

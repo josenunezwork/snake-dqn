@@ -858,9 +858,13 @@ def stage_checkpoint_resume(
     return target
 
 
-def pack_checkpoint_resume(sources: list[Path], archive: Path, exclude: set[int]) -> int:
-    """Pack the newest verified checkpoint per unfinished unit (with sidecars)."""
-    chosen: dict[int, Path] = {}
+def pack_checkpoint_resume(
+    sources: list[Path], archive: Path, exclude: set[int], *, keep_per_unit: int = 1
+) -> int:
+    """Pack the newest verified checkpoints per unfinished unit; return the unit count."""
+    if type(keep_per_unit) is not int or keep_per_unit < 1:
+        raise ValueError("keep_per_unit must be a positive integer")
+    chosen: dict[int, dict[str, Path]] = {}
     for root in sources:
         for unit_dir in sorted(p for p in root.glob("[0-9]" * 6) if p.is_dir()):
             index = int(unit_dir.name)
@@ -873,20 +877,21 @@ def pack_checkpoint_resume(sources: list[Path], archive: Path, exclude: set[int]
                 value = json.loads(path.read_text())
                 if (int(value["frame"]), str(value["frames_sha256"])) in rejected:
                     continue
-                if index not in chosen or path.name > chosen[index].name:
-                    chosen[index] = path
+                chosen.setdefault(index, {}).setdefault(path.name, path)
     with (
         archive.open("xb") as raw,
         gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as compressed,
         tarfile.open(fileobj=compressed, mode="w") as tar,
     ):
-        for index, path in sorted(chosen.items()):
-            for suffix in ("", ".sha256", ".complete"):
-                item = Path(f"{path}{suffix}")
-                data = item.read_bytes()
-                info = tarfile.TarInfo(f"{index:06d}/{item.name}")
-                info.size, info.mtime, info.mode = len(data), 0, 0o444
-                tar.addfile(info, io.BytesIO(data))
+        for index, candidates in sorted(chosen.items()):
+            for name in sorted(candidates, reverse=True)[:keep_per_unit]:
+                path = candidates[name]
+                for suffix in ("", ".sha256", ".complete"):
+                    item = Path(f"{path}{suffix}")
+                    data = item.read_bytes()
+                    info = tarfile.TarInfo(f"{index:06d}/{item.name}")
+                    info.size, info.mtime, info.mode = len(data), 0, 0o444
+                    tar.addfile(info, io.BytesIO(data))
     return len(chosen)
 
 

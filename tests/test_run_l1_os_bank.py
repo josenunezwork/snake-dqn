@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 
 import pytest
@@ -86,6 +87,33 @@ def test_resumed_gzip_equals_uninterrupted_and_raw_controller(tmp_path, monkeypa
     ).read_bytes()
     with pytest.raises(FileExistsError):
         bank.run_unit(value, row, out, lambda: None)
+
+    # Packing two checkpoints preserves a real fallback when the newest valid
+    # triple fails reconstruction. Exclude completed units and duplicate roots.
+    from research.watch_replay.screen_l1_os import pack_checkpoint_resume, stage_checkpoint_resume
+    from tools.ops.package_spec import publish_immutable
+
+    rejected = json.loads((out / "checkpoints/000000/frame-000015.json").read_text())
+    rejected.update(frame=16, frames_sha256="f" * 64)
+    publish_json(out / "checkpoints/000000/frame-000016.json", rejected)
+    archive = tmp_path / "checkpoints-resume.tar.gz"
+    assert (
+        pack_checkpoint_resume([out / "checkpoints"] * 2, archive, exclude=set(), keep_per_unit=2)
+        == 1
+    )
+    staged = tmp_path / "staged"
+    publish_immutable(staged / archive.name, archive.read_bytes())
+    checkpoints = stage_checkpoint_resume(staged)
+    assert sorted(p.name for p in checkpoints.glob("000000/*.json")) == [
+        "frame-000015.json",
+        "frame-000016.json",
+    ]
+    fallback = bank.run_unit(
+        value, row, tmp_path / "fallback", lambda: None, checkpoint_dirs=[checkpoints]
+    )
+    assert fallback["resumed_from_frame"] == 15
+    assert fallback["checkpoints_rejected"] == 1
+    assert fallback["sha256"] == whole["sha256"]
 
 
 def test_foreign_checkpoint_refused_but_canary_skips(tmp_path):
@@ -218,3 +246,40 @@ def test_session_deadline_reaps_owned_workers(tmp_path):
     assert result["completed"] == 0
     assert not list((tmp_path / "stopped").glob("*.watch.gz.complete"))
     assert {child.pid for child in multiprocessing.active_children()} <= before
+
+
+@pytest.mark.parametrize(
+    "reason", ["session budget", "signal SIGTERM", "signal SIGTERM; stop grace exceeded"]
+)
+def test_main_final_line_preserves_interrupt_for_supervisor(tmp_path, monkeypatch, capsys, reason):
+    import sys
+
+    cp = tmp_path / "contract.json"
+    cp.write_text("{}")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_l1_os",
+            "--contract",
+            str(cp),
+            "--ledger",
+            str(tmp_path / "ledger.json"),
+            "--out",
+            str(tmp_path / "out"),
+        ],
+    )
+    monkeypatch.setattr(
+        bank,
+        "run",
+        lambda *a, **kw: {
+            "stopped": reason,
+            "completed": 0,
+            "skipped": [],
+            "total": 44,
+        },
+    )
+    with pytest.raises(SystemExit) as exc:
+        bank.main()
+    assert exc.value.code == 3
+    assert capsys.readouterr().out.splitlines()[-1] == f"INTERRUPT: {reason}"
