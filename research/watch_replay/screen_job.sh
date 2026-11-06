@@ -28,4 +28,6 @@ fi
   --out "$COLAB_OUTPUT_DIR/screen" \
   --workers "$SCREEN_WORKERS" \
   --checkpoint-seconds "${SCREEN_CHECKPOINT_SECONDS:-1200}" \
+  ${SCREEN_SESSION_SECONDS:+--session-seconds "$SCREEN_SESSION_SECONDS"} \
+  ${SCREEN_SHARD:+--shard "$SCREEN_SHARD"} \
   ${CKPT_ARGS[@]+"${CKPT_ARGS[@]}"}

@@ -153,6 +153,7 @@ def test_checkpoint_archive_roundtrip_and_unsafe_member_refusal(tmp_path):
                 "allocation": screen.identity(contract),
                 "index": 1,
                 "frame": frame,
+                "frames_sha256": f"{frame:064d}",
             },
         )
     publish_json(src / "000000" / "frame-000003.json", {"index": 0})
@@ -171,7 +172,13 @@ def test_checkpoint_archive_roundtrip_and_unsafe_member_refusal(tmp_path):
     # Foreign checkpoint (other allocation) is refused.
     publish_json(
         tmp_path / "f" / "000001" / "frame-000020.json",
-        {"schema": screen.CHECKPOINT_SCHEMA, "allocation": {"x": "y"}, "index": 1, "frame": 20},
+        {
+            "schema": screen.CHECKPOINT_SCHEMA,
+            "allocation": {"x": "y"},
+            "index": 1,
+            "frame": 20,
+            "frames_sha256": "0" * 64,
+        },
     )
     with pytest.raises(PackageRefused, match="foreign checkpoint"):
         screen.latest_checkpoint([tmp_path / "f"], 1, contract)
@@ -269,6 +276,18 @@ def test_mismatched_checkpoint_is_rejected_and_unit_restarts(tmp_path, real_env)
     result = screen.run_unit(contract, unit, out, lambda: None)
     assert result["checkpoints_rejected"] == 1 and result["resumed_from_frame"] is None
     assert _stable(result) == _stable(whole)
+    markers = list((out / "checkpoints" / "000001").glob("rejected-*.json"))
+    assert len(markers) == 1
+    assert all(
+        c["frames_sha256"] != "f" * 64
+        for c in screen.checkpoint_candidates([out / "checkpoints"], 1, contract)
+    )
+
+
+def test_stalled_unit_raises_unit_stalled(tmp_path, real_env):
+    contract = screen.allocation(BANK_V2_DEV_NAMESPACE, 1, 16)
+    with pytest.raises(screen.UnitStalled):
+        screen.run_unit(contract, contract["units"][0], tmp_path, lambda: None, stall_seconds=0.0)
 
 
 # --- pre-registered analysis rule ---------------------------------------------------------
