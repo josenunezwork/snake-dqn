@@ -10,6 +10,10 @@ file is updated when they change.
 
 ## Current served setup (Watch & Play)
 
+### Watch: 132-session `exact-stop-l1-os` replay bank (released 2026-11-06 PT)
+
+- Bank `watch-replay-bank-live-132-l1os-installed` (controller `exact-stop-l1-os`: exact-stop-l1 + open-stop on unchecked ticks + length-scaled exact horizon). Evidence: Bank-v2 screen ADOPT, prospective confirmation CONFIRM (96 fresh worlds, H=14,400: +258.7 hero mass/world, 95% CI [+190, +327]; deaths −56%), Mac 24 fps qualification runs 3+4 QUALIFIED. Rollback: `watch-replay-bank-live-132-l1` + `exact-stop-l1` (previous release, below).
+
 ### Watch: 132-session confirmed `exact-stop-l1` replay bank (expanded 2026-11-03 ~11:30 PT; first released with 36)
 
 - **Active (11:30 PT):** `watch-replay-bank-live-132-l1` (36 A100 + 96 G4 sessions, banks 14l1–24l1), pure bank direct, controller `exact-stop-l1`; Mac qual runs 2+3 QUALIFIED consecutively (run 1 one 53.9 ms overrun). Rollback: `.../watch-replay-bank-live-36-l1` (same controller) or the l2-prime lines below. Records: campaign log 2026-11-03 11:30 row.
