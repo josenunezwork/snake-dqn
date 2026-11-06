@@ -62,6 +62,9 @@ LATER_STUDY_NAMESPACES: tuple[tuple[str, int], ...] = (
     # research/hero_stage0/protocol.py); seeds derived only, worlds never opened.
     ("t34-hero-probe-20261103-v1", 128),
     ("t34-openstop-gate-20261104-v1", 128),
+    # Served G4 L1 banks 17-24 and their canary (watch-replay-g4-20261103).
+    *((f"t34-watch-replay-20261103-g4-bank{i}l1", 128) for i in range(17, 25)),
+    ("t34-watch-replay-20261103-g4-canary-l1-v1", 32),
 )
 
 # Bank-v2 (exact-stop-l1-os) namespaces, registered before any world is run.  DEV is the
@@ -69,11 +72,15 @@ LATER_STUDY_NAMESPACES: tuple[tuple[str, int], ...] = (
 # paired dev screen.  Both are dev-only: never training, tuning, or release evidence.
 BANK_V2_DEV_NAMESPACE = "t34-bank-v2-dev-20261105-v1"
 BANK_V2_SCREEN_NAMESPACE = "t34-bank-v2-screen-20261105-v1"
+BANK_V2_CONFIRM_NAMESPACE = "t34-bank-v2-confirm-20261105-v1"
 BANK_V2_DEV_COUNT = 8
 BANK_V2_SCREEN_COUNT = 48
+BANK_V2_CONFIRM_COUNT = 96
 BANK_V2_NAMESPACES: tuple[tuple[str, int], ...] = (
     (BANK_V2_DEV_NAMESPACE, BANK_V2_DEV_COUNT),
     (BANK_V2_SCREEN_NAMESPACE, BANK_V2_SCREEN_COUNT),
+    # Prospective confirmation (registered 2026-11-05 after the screen ADOPT).
+    (BANK_V2_CONFIRM_NAMESPACE, BANK_V2_CONFIRM_COUNT),
 )
 
 KNOWN_FIXTURE_SEEDS: frozenset[int] = frozenset(
@@ -121,11 +128,15 @@ def bank_v2_disjointness(repo: Path = ROOT) -> dict[str, Any]:
         if len(values) != count:
             raise ValueError(f"internal seed collision in {ns}")
         seeds[ns] = values
-    dev, screen = (seeds[ns] for ns, _ in BANK_V2_NAMESPACES)
     collisions: list[dict[str, Any]] = []
-    if dev & screen:
-        collisions.append({"source": "bank-v2 dev vs screen", "seeds": sorted(dev & screen)})
-    candidate = dev | screen
+    names = [ns for ns, _ in BANK_V2_NAMESPACES]
+    for i, a in enumerate(names):
+        for b in names[i + 1 :]:
+            if seeds[a] & seeds[b]:
+                collisions.append(
+                    {"source": f"bank-v2 {a} vs {b}", "seeds": sorted(seeds[a] & seeds[b])}
+                )
+    candidate = set().union(*seeds.values())
     prior = (*KNOWN_NAMESPACE_PREFIXES, *LATER_STUDY_NAMESPACES)
     for ns, limit in prior:
         if ns in {name for name, _ in BANK_V2_NAMESPACES}:
