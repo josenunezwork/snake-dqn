@@ -83,6 +83,23 @@ BANK_V2_NAMESPACES: tuple[tuple[str, int], ...] = (
     (BANK_V2_CONFIRM_NAMESPACE, BANK_V2_CONFIRM_COUNT),
 )
 
+# Product replay generation only: distinct from every screen/confirmation and from
+# each packet's excluded canary. These are never training or release-gate worlds.
+L1_OS_BANK_COUNT = 44
+L1_OS_BANK_NAMESPACES = tuple(
+    f"t34-watch-replay-l1-os-20261106-bank{i:02d}-v1" for i in range(1, 4)
+)
+L1_OS_CANARY_NAMESPACES = tuple(
+    f"t34-watch-replay-l1-os-20261106-canary{i:02d}-v1" for i in range(1, 4)
+)
+L1_OS_SMOKE_NAMESPACE = "t34-watch-replay-l1-os-20261106-smoke-v1"
+L1_OS_NAMESPACES = (
+    *((ns, L1_OS_BANK_COUNT) for ns in L1_OS_BANK_NAMESPACES),
+    *((ns, 1) for ns in L1_OS_CANARY_NAMESPACES),
+    (L1_OS_SMOKE_NAMESPACE, 8),
+)
+
+
 KNOWN_FIXTURE_SEEDS: frozenset[int] = frozenset(
     {
         34890123,
@@ -166,6 +183,45 @@ def bank_v2_disjointness(repo: Path = ROOT) -> dict[str, Any]:
         "checked_namespaces": len(prior),
         "fixture_seeds": len(KNOWN_FIXTURE_SEEDS),
         "committed_bank_files": list(COMMITTED_BANK_FILES),
+    }
+
+
+def l1_os_bank_disjointness(repo: Path = ROOT) -> dict[str, Any]:
+    """Audit only code-declared namespaces and the fixed committed seed-file allowlist.
+
+    No glob, dynamic source discovery, artifact inventory, replay header, outcome,
+    screen output, or sealed confirmation data is opened. Keep the older Bank-v2
+    audit unchanged; this is a separate prospective product-bank registration.
+    """
+    prior = (*KNOWN_NAMESPACE_PREFIXES, *LATER_STUDY_NAMESPACES, *BANK_V2_NAMESPACES)
+    prior_names = {ns for ns, _ in prior}
+    candidates: dict[str, set[int]] = {}
+    seen: set[int] = set()
+    for ns, count in L1_OS_NAMESPACES:
+        values = {seed_for(ns, i) for i in range(count)}
+        if ns in prior_names or ns in candidates or len(values) != count or seen & values:
+            raise ValueError(f"L1-OS namespace reuse or internal seed collision: {ns}")
+        candidates[ns] = values
+        seen |= values
+    controls = {f"namespace:{ns}": {seed_for(ns, i) for i in range(n)} for ns, n in prior}
+    controls["known_fixture_seeds"] = set(KNOWN_FIXTURE_SEEDS)
+    for rel in COMMITTED_BANK_FILES:
+        text = (repo / rel).read_text(encoding="utf-8")
+        values = {int(x) for x in re.findall(r'"(?:world_seed|seed)"\s*:\s*(\d+)', text)}
+        if not values:
+            raise ValueError(f"committed bank parsed zero seeds: {rel}")
+        controls[rel] = values
+    collisions = {label: sorted(seen & seeds) for label, seeds in controls.items() if seen & seeds}
+    if collisions:
+        raise ValueError(f"L1-OS seed disjointness failed: {collisions}")
+    return {
+        "status": "CLEAR",
+        "namespaces": {ns: sorted(seeds) for ns, seeds in candidates.items()},
+        "total_seeds": len(seen),
+        "checked_namespaces": len(prior),
+        "fixture_seeds": len(KNOWN_FIXTURE_SEEDS),
+        "committed_bank_files": list(COMMITTED_BANK_FILES),
+        "scope": "code metadata and committed seed allowlist only; no outcomes or artifacts",
     }
 
 
