@@ -101,14 +101,20 @@ def test_l1_os_horizon_bounds_and_storage_budget():
     assert L1_OS_SCALE_MIN_LENGTH == 800
     assert L1_OS_MAX_HORIZON == 1200
     # product.open_watch reserves 14,704 body cells = 14,400 frames + H300 (+4 slack).
-    assert L1_OS_MAX_SESSION_FRAMES + L1_OS_MAX_HORIZON == 14400 + 300
-    assert L1_OS_MAX_SESSION_FRAMES >= 6000
+    # Confirmation amendment: full 14,400-frame sessions; scaled roots are clamped
+    # to L + H <= capacity - 4 instead (product.open_watch capacity is 14,704).
+    assert L1_OS_MAX_SESSION_FRAMES == 14400
+    assert exact_horizon_for(L1_OS_CONTROLLER, 1200, 14704) == 1200
+    assert exact_horizon_for(L1_OS_CONTROLLER, 13500, 14704) == 1200
+    assert exact_horizon_for(L1_OS_CONTROLLER, 13900, 14704) == 800
+    assert exact_horizon_for(L1_OS_CONTROLLER, 14500, 14704) == 300
+    assert exact_horizon_for("exact-stop-l1", 14500, 14704) == 300
     legal = np.ones(6, dtype=bool)
     q = np.zeros(6, dtype=np.float32)
     for bad in (300, L1_OS_MAX_HORIZON + 1):
         with pytest.raises(ValueError, match="scaled exact horizon"):
             dense_batch_h(None, 0, q, legal, bad)
-    with pytest.raises(ValueError, match="body storage"):
+    with pytest.raises(ValueError, match="14,400 frames"):
         engine_l1_os.run_arm(1, lambda: None, horizon=L1_OS_MAX_SESSION_FRAMES + 1)
 
 
@@ -133,11 +139,14 @@ def test_l1_os_routes_check_ticks_to_scaled_exact_and_others_to_open_stop(monkey
 
     def fake_run_arm(seed, controller, check, horizon=6000, record=None):
         assert controller == "exact-stop-l1"
+        from types import SimpleNamespace
+
+        world = SimpleNamespace(sim=SimpleNamespace(cap=14704))
         trigger = engine.DenseTrigger(min_length=1, interval=5)
         batches = []
         for decision, length in enumerate(lengths):
             if trigger.fires(decision, length, True):
-                batch = engine.dense_batch(None, decision, q, legal)
+                batch = engine.dense_batch(world, decision, q, legal)
                 batches.append({"frame": decision + 1, "bare": 1, **batch})
         return {"batches": batches, "frames": [], "decisions": []}
 
