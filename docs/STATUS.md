@@ -13,6 +13,7 @@ file is updated when they change.
 ### Watch: 132-session `exact-stop-l1-os` replay bank (released 2026-11-06 PT)
 
 - Bank `watch-replay-bank-live-132-l1os-installed` (controller `exact-stop-l1-os`: exact-stop-l1 + open-stop on unchecked ticks + length-scaled exact horizon). Evidence: Bank-v2 screen ADOPT, prospective confirmation CONFIRM (96 fresh worlds, H=14,400: +258.7 hero mass/world, 95% CI [+190, +327]; deaths −56%), Mac 24 fps qualification runs 3+4 QUALIFIED. Rollback: `watch-replay-bank-live-132-l1` + `exact-stop-l1` (previous release, below).
+- **How it runs (since 2026-11-07 PT):** persistent tmux session `snake-web` running `tools/ops/watch_server.sh`, which reads the `snake-web` entry of `.claude/launch.json` on every start and restarts the server if it exits (the Claude app had been stopping its preview server when sessions ended). Logs: `../snake-dqn-artifacts/ops/watch-server/server.log` (rotated, 3 × 100 MB). To apply a rollback: edit `launch.json`, then `tmux kill-session -t snake-web` and `tmux new-session -d -s snake-web -c <repo> "bash tools/ops/watch_server.sh"`. Do not also `preview_start snake-web` (port 8000 conflict).
 
 ### Watch: 132-session confirmed `exact-stop-l1` replay bank (expanded 2026-11-03 ~11:30 PT; first released with 36)
 
