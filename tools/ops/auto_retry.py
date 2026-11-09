@@ -245,7 +245,17 @@ _TRANSIENT_COLAB_EXEC_HTTP_RE = re.compile(
     r"^(?:[\w.]+\.)?(?:HTTPError|HTTPStatusError|ColabRequestError)\b"
 )
 
-_NON_RETRYABLE_HTTP_4XX_RE = re.compile(r"\b(?:40[0-79]|41\d|42[0-8]|43\d|45\d)\b")
+_RETRYABLE_HTTP_STATUS_RE = re.compile(r"\b(?:408|429|5\d\d)\b")
+
+_NON_RETRYABLE_HTTP_4XX_RE = re.compile(r"\b(?:40[0-79]|41\d|42[0-8]|4[3-9]\d)\b")
+
+_EXCEPTION_CLASS_PREFIX_RE = re.compile(r"^(?:[\w.]+\.)?[A-Za-z_]\w*:")
+
+_STUDY_OR_REPO_FRAME_RE = re.compile(
+    r'(?:File "[^"]*(?:/|^)|(?:/|^|\s))'
+    r"(?:src/|web/|scripts/|tests/|tools/ops/|job\.(?:sh|py)\b|research/(?!colab_cli/))",
+    re.M,
+)
 
 _TRANSIENT_COLAB_EXEC_DETAIL_RE = re.compile(
     r"connection (?:is )?already closed"
@@ -306,6 +316,30 @@ def is_kernel_creation_guard_error(error: Any) -> bool:
     )
 
 
+def _normalize_traceback_frames(body: str) -> tuple[str, str]:
+    """Unwrap Rich box frame headers and strip box borders for frame path matching."""
+    unwrapped_parts: list[str] = []
+    stripped_lines: list[str] = []
+    for raw_line in body.splitlines():
+        s = raw_line.strip()
+        if not s or re.match(r"^[╭╮╰╯├┤┬┴┼─╴╶\s]+$", s) or re.match(r"^[╭╰├].*─", s):
+            unwrapped_parts.append("\n")
+            continue
+        if s.startswith("│") or s.endswith("│"):
+            inner = re.sub(r"^│\s*|\s*│$", "", s).strip()
+            stripped_lines.append(inner)
+            if re.match(r"^(?:❱\s*)?\d+\s*│", inner):
+                unwrapped_parts.append("\n" + inner + "\n")
+            elif re.search(r":\d+\s+in\s+\S+$", inner):
+                unwrapped_parts.append(inner + "\n")
+            else:
+                unwrapped_parts.append(inner)
+        else:
+            stripped_lines.append(s)
+            unwrapped_parts.append("\n" + s + "\n")
+    return "".join(unwrapped_parts), "\n".join(stripped_lines)
+
+
 def is_transient_colab_exec_error(error: Any) -> bool:
     """Match a transient colab exec transport/WebSocket failure, never a child/study error."""
     if not isinstance(error, str):
@@ -317,32 +351,46 @@ def is_transient_colab_exec_error(error: Any) -> bool:
     if match is None:
         return False
     body = match.group(1)
-    if re.search(
-        r'File "[^"]*(?:/|^)(?:src/|web/|job\.sh\b|research/(?!colab_cli/))',
-        body,
+    unwrapped_body, stripped_body = _normalize_traceback_frames(body)
+    if any(
+        _STUDY_OR_REPO_FRAME_RE.search(candidate)
+        for candidate in (body, unwrapped_body, stripped_body)
     ):
         return False
     raw_lines = [line.strip() for line in body.splitlines() if line.strip()]
     if not raw_lines:
         return False
     border_indices = [
-        idx for idx, line in enumerate(raw_lines) if re.match(r"^╰[─╰╭│┼┤├┬┴╴╶\s]*$", line)
+        idx for idx, line in enumerate(raw_lines) if re.match(r"^╰[─╰╯╭╮│┼┤├┬┴╴╶\s]*$", line)
     ]
-    if border_indices and border_indices[-1] + 1 < len(raw_lines):
-        terminal = " ".join(raw_lines[border_indices[-1] + 1 :])
-    else:
-        non_border = [
-            line for line in raw_lines if not re.match(r"^[╭╰│─┼┤├┬┴╴╶\s]+$", line)
-        ]
-        if not non_border:
+    if border_indices:
+        if border_indices[-1] + 1 >= len(raw_lines):
             return False
-        terminal = non_border[-1]
+        terminal = " ".join(raw_lines[border_indices[-1] + 1 :])
+    elif any(line.strip() == "Traceback (most recent call last):" for line in body.splitlines()):
+        non_empty = [line for line in body.splitlines() if line.strip()]
+        last_frame_idx = -1
+        for idx, line in enumerate(non_empty):
+            if line.strip() == "Traceback (most recent call last):" or line.startswith((" ", "\t")):
+                last_frame_idx = idx
+        if last_frame_idx + 1 >= len(non_empty):
+            return False
+        terminal = " ".join(line.strip() for line in non_empty[last_frame_idx + 1 :])
+    else:
+        if any(re.match(r"^[╭╮╰╯│─┼┤├┬┴╴╶]", line) for line in raw_lines):
+            return False
+        terminal = " ".join(raw_lines)
+    if _NON_RETRYABLE_HTTP_4XX_RE.search(terminal):
+        return False
     if _TRANSIENT_COLAB_EXEC_EXCEPTION_RE.search(terminal):
         return True
-    if _TRANSIENT_COLAB_EXEC_HTTP_RE.search(terminal) and not _NON_RETRYABLE_HTTP_4XX_RE.search(
-        terminal
-    ):
-        return True
+    if _TRANSIENT_COLAB_EXEC_HTTP_RE.search(terminal):
+        return (
+            _RETRYABLE_HTTP_STATUS_RE.search(terminal) is not None
+            or _TRANSIENT_COLAB_EXEC_DETAIL_RE.search(terminal) is not None
+        )
+    if _EXCEPTION_CLASS_PREFIX_RE.search(terminal):
+        return False
     return _TRANSIENT_COLAB_EXEC_DETAIL_RE.search(terminal) is not None
 
 

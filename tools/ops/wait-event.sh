@@ -90,30 +90,54 @@ if watch_logs.is_file():
         line = raw.strip()
         if line:
             p = Path(line)
-            names[p.stem[:-4] if p.name.endswith(".log") else p.stem] = p
+            if " " in line and not p.exists():
+                raw_path, candidate_name = line.rsplit(" ", 1)
+                if candidate_name and (Path(raw_path).exists() or raw_path.endswith(".log")):
+                    names[candidate_name] = Path(raw_path)
+                    continue
+            names[p.stem] = p
 
 manifests_dir = ops / "manifests"
 if manifests_dir.is_dir():
     for mf in sorted(manifests_dir.glob("*.json")):
-        if mf.name.endswith(".live.json"):
-            continue
-        names.setdefault(mf.stem, None)
+        mf_name = mf.name[:-10] if mf.name.endswith(".live.json") else mf.stem
+        if mf_name:
+            names.setdefault(mf_name, None)
 
 for name, watched_log in names.items():
     if (ops / "state" / f"{name}.done").is_file():
         continue
     log_path = watched_log if watched_log is not None else (ops / "logs" / f"{name}.log")
-    mf_path = manifests_dir / f"{name}.json"
-    if not mf_path.is_file():
-        mf_path = manifests_dir / f"{name}.live.json"
+    static_mf_path = manifests_dir / f"{name}.json"
+    live_mf_path = manifests_dir / f"{name}.live.json"
+    if watched_log is None and not log_path.is_file() and not live_mf_path.is_file():
+        continue
     timeout_s = 0.0
-    job_start = 0.0
-    if mf_path.is_file():
+    for mf_candidate in (live_mf_path, static_mf_path):
+        if mf_candidate.is_file():
+            try:
+                data = json.loads(mf_candidate.read_text(errors="replace"))
+                if isinstance(data, dict):
+                    timeout_s = max(timeout_s, manifest_timeout_seconds(data))
+            except Exception:
+                pass
+    exec_starts: list[float] = []
+    if log_path.is_file():
         try:
-            job_start = file_start_ts(mf_path)
-            data = json.loads(mf_path.read_text(errors="replace"))
-            if isinstance(data, dict):
-                timeout_s = manifest_timeout_seconds(data)
+            exec_starts.append(file_start_ts(log_path))
+        except Exception:
+            pass
+    if live_mf_path.is_file():
+        try:
+            exec_starts.append(file_start_ts(live_mf_path))
+        except Exception:
+            pass
+    job_start = 0.0
+    if exec_starts:
+        job_start = min(exec_starts)
+    elif static_mf_path.is_file():
+        try:
+            job_start = file_start_ts(static_mf_path)
         except Exception:
             pass
     log_has_exit = False
@@ -121,8 +145,6 @@ for name, watched_log in names.items():
     if log_path.is_file():
         try:
             log_mtime = float(log_path.stat().st_mtime)
-            if job_start <= 0.0:
-                job_start = file_start_ts(log_path)
             text = log_path.read_text(errors="replace")
             log_has_exit = re.search(r"^EXIT=\d+$", text, re.MULTILINE) is not None
         except Exception:
@@ -131,8 +153,9 @@ for name, watched_log in names.items():
         if watched_log is not None and now <= log_mtime + grace_s:
             deadline = max(deadline, log_mtime + grace_s)
         continue
-    if timeout_s > 0.0 and job_start > 0.0 and now <= job_start + timeout_s + grace_s:
-        deadline = max(deadline, max(job_start, start_ts) + timeout_s + grace_s)
+    job_end = job_start + timeout_s + grace_s
+    if timeout_s > 0.0 and job_start > 0.0 and now <= job_end:
+        deadline = max(deadline, job_end)
 
 watch_pids = ops / "watch-pids.txt"
 if watch_pids.is_file():

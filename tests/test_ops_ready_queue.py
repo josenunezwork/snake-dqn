@@ -1040,6 +1040,12 @@ def test_supervisor_kernel_creation_guard_rejects_partial_unstopped_or_other_err
         "line 118, in map_httpcore_exceptions\\n"
         "httpx.ReadTimeout: The read operation timed out\\n')",
         "colab exec failed (1): TimeoutError: [Errno 60] Operation timed out",
+        "Refused('colab exec failed (1): Traceback (most recent call last):\\n"
+        '  File "/Users/josenunez/.local/share/uv/tools/colab-cli/core/client.py", line 55\\n'
+        "ColabRequestError: 503 Service Unavailable\\n')",
+        "Refused('colab exec failed (1): Traceback (most recent call last):\\n"
+        '  File "/Users/josenunez/.local/share/uv/tools/colab-cli/core/client.py", line 55\\n'
+        "HTTPError: 429 Too Many Requests\\n')",
     ],
 )
 def test_supervisor_transient_colab_exec_failed_is_retryable(packet, tmp_path, error_shape):
@@ -1080,11 +1086,73 @@ def test_supervisor_transient_colab_exec_failed_is_retryable(packet, tmp_path, e
             '  File "/Users/josenunez/.local/share/uv/tools/colab-cli/core/client.py", line 55\\n'
             "ValueError: invalid execution payload\\n')"
         },
+        {
+            "error": "Refused('colab exec failed (1): "
+            "╭───────────────────── Traceback (most recent call last) ──────────────────────╮\\n"
+            "│ /content/repo/research/watch_replay/run_l1_os.py:90 in main                  │\\n"
+            "│ ❱ 90 │   step()                                                              │\\n"
+            "╰──────────────────────────────────────────────────────────────────────────────╯\\n"
+            "WebSocketConnectionClosedException: Connection is already closed.\\n')"
+        },
+        {
+            "error": "Refused('colab exec failed (1): "
+            "╭───────────────────── Traceback (most recent call last) ──────────────────────╮\\n"
+            "│ /Users/josenunez/Projects/ml/snake-dqn-argon-ops-tooling-1109/resea          │\\n"
+            "│ rch/watch_replay/run_l1_os.py:90 in main                                     │\\n"
+            "│ ❱ 90 │   step()                                                              │\\n"
+            "╰──────────────────────────────────────────────────────────────────────────────╯\\n"
+            "WebSocketConnectionClosedException: Connection is already closed.\\n')"
+        },
+        {
+            "error": "Refused('colab exec failed (1): "
+            "╭───────────────────── Traceback (most recent call last) ──────────────────────╮\\n"
+            "│ /content/repo/src/model/ego2s_network.py:42 in forward                       │\\n"
+            "╰──────────────────────────────────────────────────────────────────────────────╯\\n"
+            "TimeoutError: [Errno 60] Operation timed out\\n')"
+        },
+        {
+            "error": "Refused('colab exec failed (1): "
+            "╭───────────────────── Traceback (most recent call last) ──────────────────────╮\\n"
+            "│ scripts/train_pqn.py:18 in main                                              │\\n"
+            "╰──────────────────────────────────────────────────────────────────────────────╯\\n"
+            "TimeoutError: [Errno 60] Operation timed out\\n')"
+        },
+        {
+            "error": "Refused('colab exec failed (1): Traceback (most recent call last):\\n"
+            '  File "/Users/josenunez/.local/share/uv/tools/colab-cli/core/client.py", line 55\\n'
+            "RuntimeError: child step failed: operation timed out\\n')"
+        },
+        {
+            "error": "Refused('colab exec failed (1): Traceback (most recent call last):\\n"
+            '  File "/Users/josenunez/.local/share/uv/tools/colab-cli/core/client.py", line 55\\n'
+            "ValueError: unexpected eof in checkpoint\\n')"
+        },
+        {
+            "error": "Refused('colab exec failed (1): Traceback (most recent call last):\\n"
+            '  File "/Users/josenunez/.local/share/uv/tools/colab-cli/core/client.py", line 55\\n'
+            "AssertionError: connection closed\\n')"
+        },
+        {
+            "error": "Refused('colab exec failed (1): Traceback (most recent call last):\\n"
+            '  File "/Users/josenunez/.local/share/uv/tools/colab-cli/core/client.py", line 55\\n'
+            "ColabRequestError: Unauthorized\\n')"
+        },
+        {
+            "error": "Refused('colab exec failed (1): Traceback (most recent call last):\\n"
+            '  File "/Users/josenunez/.local/share/uv/tools/colab-cli/core/client.py", line 55\\n'
+            "ColabRequestError: Invalid request\\n')"
+        },
+        {
+            "error": "Refused('colab exec failed (1): Traceback (most recent call last):\\n"
+            '  File "/Users/josenunez/.local/share/uv/tools/colab-cli/core/client.py", line 55\\n'
+            "ColabRequestError: 444 No Response\\n')"
+        },
     ],
 )
 def test_supervisor_transient_colab_exec_failed_rejects_study_or_non_transient_errors(
     packet, tmp_path, reject_case
 ):
+    assert ar.is_transient_colab_exec_error(reject_case["error"]) is False
     log = tmp_path / "job.log"
     finish(
         packet,
