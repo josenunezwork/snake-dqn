@@ -198,6 +198,92 @@ def blocked_before_allocation(manifest: dict[str, Any], output: Path, log: Path)
     )
 
 
+_TRANSIENT_COLAB_EXEC_EXCEPTION_RE = re.compile(
+    r"^(?:[\w.]+\.)?(?:"
+    r"WebSocket\w*(?:Error|Exception)"
+    r"|ConnectionClosed\w*"
+    r"|TimeoutError"
+    r"|TimeoutExpired"
+    r"|ConnectTimeout"
+    r"|ReadTimeout"
+    r"|WriteTimeout"
+    r"|PoolTimeout"
+    r"|TimeoutException"
+    r"|RpcTimeoutError"
+    r"|ConnectionError"
+    r"|ConnectionResetError"
+    r"|ConnectionAbortedError"
+    r"|ConnectionRefusedError"
+    r"|BrokenPipeError"
+    r"|EOFError"
+    r"|RemoteDisconnected"
+    r"|IncompleteRead"
+    r"|SSLError"
+    r"|SSLEOFError"
+    r"|gaierror"
+    r"|NetworkError"
+    r"|ConnectError"
+    r"|ReadError"
+    r"|WriteError"
+    r"|RemoteProtocolError"
+    r"|LocalProtocolError"
+    r"|ProtocolError"
+    r"|TransportError"
+    r"|ChunkedEncodingError"
+    r"|SessionLostError"
+    r"|URLError"
+    r"|ProxyError"
+    r"|RetryError"
+    r"|MaxRetryError"
+    r"|NewConnectionError"
+    r"|ClosedResourceError"
+    r"|BrokenResourceError"
+    r")\b"
+)
+
+_TRANSIENT_COLAB_EXEC_HTTP_RE = re.compile(
+    r"^(?:[\w.]+\.)?(?:HTTPError|HTTPStatusError|ColabRequestError)\b"
+)
+
+_NON_RETRYABLE_HTTP_4XX_RE = re.compile(r"\b(?:40[0-79]|41\d|42[0-8]|43\d|45\d)\b")
+
+_TRANSIENT_COLAB_EXEC_DETAIL_RE = re.compile(
+    r"connection (?:is )?already closed"
+    r"|socket (?:is )?already closed"
+    r"|websocket[^\n]*(?:closed|reset|timed? out|disconnect|eof|broken)"
+    r"|connection (?:reset|refused|aborted|closed|timed? out|lost|broken)"
+    r"|broken pipe"
+    r"|unexpected eof"
+    r"|eof occurred in violation of protocol"
+    r"|remote end closed connection"
+    r"|read timed? out"
+    r"|connect timed? out"
+    r"|operation timed? out"
+    r"|transport[^\n]*(?:timed? out|timeout|closed|reset|lost|disconnect)"
+    r"|502 bad gateway"
+    r"|503 service unavailable"
+    r"|504 gateway timeout",
+    re.I,
+)
+
+
+def _extract_refused_detail(error: str) -> str | None:
+    try:
+        call = ast.parse(error, mode="eval").body
+        if (
+            not isinstance(call, ast.Call)
+            or not isinstance(call.func, ast.Name)
+            or call.func.id != "Refused"
+            or len(call.args) != 1
+            or call.keywords
+        ):
+            return None
+        detail = ast.literal_eval(call.args[0])
+    except (ValueError, SyntaxError):
+        return None
+    return detail if isinstance(detail, str) else None
+
+
 def is_kernel_creation_guard_error(error: Any) -> bool:
     """Match the shared cli_guard kernel-creation refusal, never a Rich source excerpt."""
     if not isinstance(error, str):
@@ -208,25 +294,69 @@ def is_kernel_creation_guard_error(error: Any) -> bool:
         f"Refused({KERNEL_CREATION_GUARD_ERROR!r})",
     }:
         return True
-    try:
-        call = ast.parse(error, mode="eval").body
-        if (
-            not isinstance(call, ast.Call)
-            or not isinstance(call.func, ast.Name)
-            or call.func.id != "Refused"
-            or len(call.args) != 1
-            or call.keywords
-        ):
-            return False
-        detail = ast.literal_eval(call.args[0])
-    except (ValueError, SyntaxError):
-        return False
+    detail = _extract_refused_detail(error)
     return (
         isinstance(detail, str)
         and detail.startswith("colab exec failed (1): ")
         and re.search(
             r"(?:\n|: )GuardError: " + re.escape(KERNEL_CREATION_GUARD_ERROR) + r"\s*\Z",
             detail,
+        )
+        is not None
+    )
+
+
+def is_transient_colab_exec_error(error: Any) -> bool:
+    """Match a transient colab exec transport/WebSocket failure, never a child/study error."""
+    if not isinstance(error, str):
+        return False
+    detail = _extract_refused_detail(error)
+    if detail is None:
+        detail = error
+    match = re.match(r"^colab exec failed \(\d+\):\s*(.*)\Z", detail, re.S)
+    if match is None:
+        return False
+    body = match.group(1)
+    if re.search(
+        r'File "[^"]*(?:/|^)(?:src/|web/|job\.sh\b|research/(?!colab_cli/))',
+        body,
+    ):
+        return False
+    raw_lines = [line.strip() for line in body.splitlines() if line.strip()]
+    if not raw_lines:
+        return False
+    border_indices = [
+        idx for idx, line in enumerate(raw_lines) if re.match(r"^╰[─╰╭│┼┤├┬┴╴╶\s]*$", line)
+    ]
+    if border_indices and border_indices[-1] + 1 < len(raw_lines):
+        terminal = " ".join(raw_lines[border_indices[-1] + 1 :])
+    else:
+        non_border = [
+            line for line in raw_lines if not re.match(r"^[╭╰│─┼┤├┬┴╴╶\s]+$", line)
+        ]
+        if not non_border:
+            return False
+        terminal = non_border[-1]
+    if _TRANSIENT_COLAB_EXEC_EXCEPTION_RE.search(terminal):
+        return True
+    if _TRANSIENT_COLAB_EXEC_HTTP_RE.search(terminal) and not _NON_RETRYABLE_HTTP_4XX_RE.search(
+        terminal
+    ):
+        return True
+    return _TRANSIENT_COLAB_EXEC_DETAIL_RE.search(terminal) is not None
+
+
+def is_transient_colab_read_budget_error(error: Any) -> bool:
+    """Match a transient colab usage/sessions read operation budget exhaustion or timeout."""
+    if not isinstance(error, str):
+        return False
+    detail = _extract_refused_detail(error)
+    if detail is None:
+        detail = error
+    return (
+        re.match(
+            r"^colab (?:usage|sessions) (?:operation budget exhausted|timed out after \d+s)\Z",
+            detail.strip(),
         )
         is not None
     )
@@ -289,8 +419,13 @@ def eligible(
         raise ValueError("scientific/integrity failure is never retryable")
     category = receipt.get("failure_class")
     if category == "SUPERVISOR":
-        # Kernel-creation guard: pre-start refusal; stop_verified + zero exports are checked above.
-        if not is_kernel_creation_guard_error(error):
+        # Kernel-creation guard or transient colab exec/read transport drop;
+        # stop_verified + zero exports are checked above.
+        if not (
+            is_kernel_creation_guard_error(error)
+            or is_transient_colab_exec_error(error)
+            or is_transient_colab_read_budget_error(error)
+        ):
             raise ValueError("unknown or ambiguous mechanical failure")
         return receipt
     if category == "ACCOUNTING":
@@ -301,8 +436,10 @@ def eligible(
             raise ValueError("unknown or ambiguous mechanical failure")
         return receipt
     patterns = {
-        "RPC_EXEC_POLL_TIMEOUT": r"telemetry|kernel|rpc|colab.*exec|transport|poll timed out",
-        "TRANSPORT_TIMEOUT": r"transport|rpc|colab.*exec|telemetry",
+        "RPC_EXEC_POLL_TIMEOUT": (
+            r"telemetry|kernel|rpc|colab.*(?:exec|usage|sessions)|transport|poll timed out"
+        ),
+        "TRANSPORT_TIMEOUT": r"transport|rpc|colab.*(?:exec|usage|sessions)|telemetry",
         "UPLOAD_CAP": r"upload|transfer.*cap",
         "ALLOCATION_REFUSED": r"allocation|assign|capacity|unavailable|503",
         "ALLOCATION_UNAVAILABLE": r"allocation|assign|capacity|unavailable|503",
