@@ -115,3 +115,73 @@ def ego2s_exception(*, checkpoint: str, mode: str, error: BaseException) -> None
         error_type=type(error).__name__,
         error=str(error),
     )
+
+
+def watch_replay_summary(
+    *,
+    checkpoint: str,
+    roster_mode: str,
+    roster_size: int,
+    controller: str,
+    speed: float,
+    frames: int,
+    update_p95_ms: float,
+    max_update_ms: float,
+    mean_update_ms: float = 0.0,
+    first_timestamp: float | None = None,
+) -> None:
+    """Record aggregated Watch replay playback telemetry without per-frame logging."""
+    fields: dict[str, Any] = {
+        "checkpoint": str(checkpoint),
+        "roster_mode": str(roster_mode),
+        "roster_size": int(roster_size),
+        "controller": str(controller),
+        "speed": float(speed),
+        "frames": int(frames),
+        "update_p95_ms": round(float(update_p95_ms), 4),
+        "max_update_ms": round(float(max_update_ms), 4),
+        "mean_update_ms": round(float(mean_update_ms), 4),
+    }
+    if first_timestamp is not None:
+        fields["first_timestamp"] = float(first_timestamp)
+    emit("watch_replay_summary", **fields)
+
+
+def watch_replay_failure(
+    *,
+    checkpoint: str,
+    roster_mode: str,
+    roster_size: int,
+    controller: str | None,
+    stage: str,
+    error: BaseException | str,
+) -> None:
+    """Record a Watch replay step/snapshot failure that fell back to live B8."""
+    error_type = type(error).__name__ if isinstance(error, BaseException) else "ReplayError"
+    emit(
+        "replay_step_failure",
+        checkpoint=str(checkpoint),
+        roster_mode=str(roster_mode),
+        roster_size=int(roster_size),
+        controller=None if controller is None else str(controller),
+        stage=str(stage),
+        error_type=error_type,
+        reason=str(error),
+    )
+
+
+def watch_replay_bank_exhausted(
+    *,
+    checkpoint: str,
+    roster_mode: str,
+    roster_size: int,
+    reason: str,
+) -> None:
+    """Record Watch replay bank exhaustion or unavailability falling back to live B8."""
+    emit(
+        "replay_bank_exhausted",
+        checkpoint=str(checkpoint),
+        roster_mode=str(roster_mode),
+        roster_size=int(roster_size),
+        reason=str(reason),
+    )

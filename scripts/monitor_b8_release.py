@@ -54,6 +54,16 @@ WATCH_UPDATE_P95_BASELINE_MS = {
 }
 DEFAULT_SPEED = 12.0
 QUALIFICATION_UPDATE_BOUND_MS = 66.667
+REPLAY_WINDOW_DAYS = 7.0
+REPLAY_WINDOW_FRAMES = 50_000
+REPLAY_UPDATE_P95_TRIGGER_MS = 41.67
+REPLAY_SUMMARY_EVENTS = ("watch_replay_summary", "replay_summary", "watch_replay_tick")
+REPLAY_FAILURE_EVENTS = ("replay_step_failure", "watch_replay_failure", "replay_failure")
+REPLAY_BANK_EXHAUSTED_EVENTS = (
+    "replay_bank_exhausted",
+    "watch_replay_bank_exhausted",
+    "bank_exhausted",
+)
 
 
 def watch_label(roster_mode: str, roster_size: int) -> str:
@@ -108,10 +118,19 @@ def assess(
     fallback = [item for item in resolutions if item.get("fallback_reason")]
     fallback.extend(item for item in items if item["event"] == "ego2s_fallback")
     fallback.extend(item for item in items if item["event"] == "mixed_roster_fallback")
+    fallback.extend(
+        item for item in items if item["event"] in ("replay_fallback", "watch_replay_fallback")
+    )
     exceptions = [item for item in items if item["event"] == "ego2s_exception"]
+    replay_summaries = [item for item in items if item["event"] in REPLAY_SUMMARY_EVENTS]
+    replay_failures = [item for item in items if item["event"] in REPLAY_FAILURE_EVENTS]
+    replay_bank_exhausted = [
+        item for item in items if item["event"] in REPLAY_BANK_EXHAUSTED_EVENTS
+    ]
+    replay_mode = bool(replay_summaries or replay_failures or replay_bank_exhausted)
     watch_ticks = [item for item in items if item["event"] == "watch_tick"]
     latency_ticks = [item for item in items if item["event"] in ("watch_tick", "play_tick")]
-    if not watch_ticks:
+    if not watch_ticks and not replay_mode:
         faults.append("missing B8 Watch tick telemetry")
 
     decisions = deaths = 0
@@ -119,6 +138,59 @@ def assess(
     default_update_ms: dict[tuple[str, str, int], list[float]] = {}
     watch_timestamps: dict[tuple[str, int], list[float]] = {}
     timestamps: list[float] = []
+    replay_frames = 0
+    replay_summary_p95s: list[float] = []
+    replay_raw_updates: list[float] = []
+    replay_timestamps: list[float] = []
+    replay_step_failures = len(replay_failures)
+    replay_bank_exhaustions = len(replay_bank_exhausted)
+    for item in replay_summaries:
+        try:
+            if item.get("checkpoint", "b8-s3") != "b8-s3":
+                faults.append("Watch replay telemetry checkpoint is not b8-s3")
+                continue
+            frames = int(item.get("frames", 1))
+            roster_size = int(item.get("roster_size", 6))
+            roster_mode = item.get("roster_mode", WATCH_ROSTER_MIXED)
+            speed = float(item.get("speed", 24.0))
+            timestamp = float(item["timestamp"])
+            first_ts = float(item.get("first_timestamp", timestamp))
+            p95_raw = item.get("update_p95_ms")
+            update_raw = item.get("update_ms")
+            if p95_raw is None and update_raw is None:
+                raise ValueError("missing replay update latency")
+            p95_val = None if p95_raw is None else float(p95_raw)
+            update_val = None if update_raw is None else float(update_raw)
+            if (
+                frames <= 0
+                or roster_size <= 0
+                or roster_mode not in WATCH_ROSTERS
+                or not all(math.isfinite(val) for val in (speed, timestamp, first_ts))
+                or (p95_val is not None and (not math.isfinite(p95_val) or p95_val < 0))
+                or (update_val is not None and (not math.isfinite(update_val) or update_val < 0))
+            ):
+                raise ValueError("invalid Watch replay telemetry values")
+            replay_frames += frames
+            replay_timestamps.extend((first_ts, timestamp))
+            timestamps.extend((first_ts, timestamp))
+            if p95_val is not None:
+                replay_summary_p95s.append(p95_val)
+            if update_val is not None:
+                replay_raw_updates.append(update_val)
+            if int(item.get("step_failures", 0) or 0) > 0:
+                replay_step_failures += int(item["step_failures"])
+            if (
+                bool(item.get("bank_exhausted", False))
+                or int(item.get("bank_exhaustions", 0) or 0) > 0
+            ):
+                replay_bank_exhaustions += max(1, int(item.get("bank_exhaustions", 0) or 0))
+        except (KeyError, TypeError, ValueError, OverflowError):
+            faults.append("incomplete Watch replay telemetry")
+    for item in [*replay_failures, *replay_bank_exhausted]:
+        ts = item.get("timestamp")
+        if isinstance(ts, (int, float)) and math.isfinite(ts):
+            replay_timestamps.append(float(ts))
+            timestamps.append(float(ts))
     for item in watch_ticks:
         try:
             if item.get("checkpoint") != "b8-s3":
@@ -156,7 +228,7 @@ def assess(
                 default_update_ms.setdefault(("watch", roster_mode, roster_size), []).append(update)
         except (KeyError, TypeError, ValueError, OverflowError):
             faults.append("incomplete Watch tick telemetry")
-    if decisions <= 0:
+    if decisions <= 0 and not replay_mode:
         faults.append("no actual Watch hero decisions")
     if not timestamps:
         faults.append("missing valid Watch telemetry timestamp")
@@ -221,21 +293,48 @@ def assess(
                 "T12B" if mode == "watch" and roster_mode == WATCH_ROSTER_ALL_B8 else "T15"
             )
             faults.append(f"no {qualification}-qualified update baseline for {label}")
-    for roster_mode, roster_size in watch_deaths:
-        latency_key = ("watch", roster_mode, roster_size)
-        if (
-            roster_mode,
-            roster_size,
-        ) in WATCH_UPDATE_P95_BASELINE_MS and latency_key not in default_update_ms:
-            faults.append(
-                "missing default-speed eligible Watch update telemetry for "
-                f"{watch_label(roster_mode, roster_size)}"
-            )
-    if not latency:
-        faults.append("missing default-speed 12 fps Watch update telemetry")
+    if not replay_mode:
+        for roster_mode, roster_size in watch_deaths:
+            latency_key = ("watch", roster_mode, roster_size)
+            if (
+                roster_mode,
+                roster_size,
+            ) in WATCH_UPDATE_P95_BASELINE_MS and latency_key not in default_update_ms:
+                faults.append(
+                    "missing default-speed eligible Watch update telemetry for "
+                    f"{watch_label(roster_mode, roster_size)}"
+                )
+        if not latency:
+            faults.append("missing default-speed 12 fps Watch update telemetry")
 
     current = time.time() if now is None else now
     elapsed_days = None if not timestamps else max(0.0, (current - min(timestamps)) / 86400.0)
+    replay_p95_candidates: list[float] = []
+    if replay_summary_p95s:
+        replay_p95_candidates.append(max(replay_summary_p95s))
+    if replay_raw_updates:
+        replay_p95_candidates.append(percentile95(replay_raw_updates))
+    replay_update_p95_ms = max(replay_p95_candidates) if replay_p95_candidates else None
+    replay_elapsed_days = (
+        None if not replay_timestamps else max(0.0, (current - min(replay_timestamps)) / 86400.0)
+    )
+    replay_window_complete = bool(
+        replay_mode
+        and replay_elapsed_days is not None
+        and replay_elapsed_days >= REPLAY_WINDOW_DAYS
+        and replay_frames >= REPLAY_WINDOW_FRAMES
+    )
+    if replay_mode and not replay_window_complete:
+        faults.append(
+            "incomplete Watch replay observation window: "
+            "%.3f/%.1f days, %d/%d replay frames"
+            % (
+                replay_elapsed_days if replay_elapsed_days is not None else 0.0,
+                REPLAY_WINDOW_DAYS,
+                replay_frames,
+                REPLAY_WINDOW_FRAMES,
+            )
+        )
     windows_by_roster: dict[str, dict[str, float | int | bool]] = {}
     for roster_key, values in sorted(watch_deaths.items()):
         roster_mode, roster_size = roster_key
@@ -249,9 +348,12 @@ def assess(
         }
     # A mode/size group must independently satisfy the fixed seven-day and
     # 100k-decision observation window; traffic is never pooled across groups.
-    window_complete = bool(windows_by_roster) and all(
-        values["window_complete"] for values in windows_by_roster.values()
-    )
+    if replay_mode:
+        window_complete = replay_window_complete
+    else:
+        window_complete = bool(windows_by_roster) and all(
+            values["window_complete"] for values in windows_by_roster.values()
+        )
     metrics = {
         "decisions": decisions,
         "deaths": deaths,
@@ -263,12 +365,29 @@ def assess(
         "ego2s_exceptions": len(exceptions),
         "elapsed_days": elapsed_days,
         "window_complete": window_complete,
+        "replay_mode": replay_mode,
+        "replay_frames": replay_frames,
+        "replay_update_p95_ms": replay_update_p95_ms,
+        "replay_update_trigger_ms": REPLAY_UPDATE_P95_TRIGGER_MS,
+        "replay_step_failures": replay_step_failures,
+        "replay_bank_exhaustions": replay_bank_exhaustions,
+        "replay_elapsed_days": replay_elapsed_days,
+        "replay_window_complete": replay_window_complete,
     }
     triggers: list[str] = []
     if fallback:
         triggers.append("ROLLBACK: recorded served-checkpoint or ego2s fallback reason")
+    if replay_step_failures > 0:
+        triggers.append("ROLLBACK: recorded Watch replay step failure")
     if exceptions:
         triggers.append("ROLLBACK: recorded ego2s-path exception")
+    if replay_update_p95_ms is not None and replay_update_p95_ms > REPLAY_UPDATE_P95_TRIGGER_MS:
+        triggers.append(
+            "ROLLBACK: Watch replay update p95 %.6f ms exceeds %.2f ms"
+            % (replay_update_p95_ms, REPLAY_UPDATE_P95_TRIGGER_MS)
+        )
+    if replay_bank_exhaustions > 0:
+        triggers.append("ROLLBACK: Watch replay bank exhausted")
     for label, values in deaths_by_roster.items():
         observed_death_rate = values["deaths_per_1000"]
         death_trigger = values["trigger_per_1000"]
@@ -361,6 +480,30 @@ def main(argv: list[str] | None = None) -> int:
                 values["elapsed_days"],
                 values["decisions"],
                 "complete" if values["window_complete"] else "active",
+            )
+        )
+    if metrics["replay_mode"]:
+        print(
+            "Watch replay observation window: %.3f/%.1f days, %d/%d frames, "
+            "update p95=%s ms (trigger: > %.2f ms), step failures=%d, bank exhaustions=%d; %s"
+            % (
+                (
+                    metrics["replay_elapsed_days"]
+                    if metrics["replay_elapsed_days"] is not None
+                    else 0.0
+                ),
+                REPLAY_WINDOW_DAYS,
+                metrics["replay_frames"],
+                REPLAY_WINDOW_FRAMES,
+                (
+                    f"{metrics['replay_update_p95_ms']:.4f}"
+                    if metrics["replay_update_p95_ms"] is not None
+                    else "missing"
+                ),
+                metrics["replay_update_trigger_ms"],
+                metrics["replay_step_failures"],
+                metrics["replay_bank_exhaustions"],
+                "complete" if metrics["replay_window_complete"] else "incomplete",
             )
         )
     for message in messages:

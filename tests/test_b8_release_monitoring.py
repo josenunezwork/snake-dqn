@@ -619,3 +619,250 @@ def test_window_completes_only_after_both_time_and_decision_conditions() -> None
     records = [records[0]] + [tick] * 100000
     healthy, _messages, metrics = monitor.assess(records, [], now=8 * 86400)
     assert healthy and metrics["window_complete"] is True
+
+
+def _healthy_replay_records(
+    *,
+    frames: int = 50_000,
+    update_p95_ms: float = 0.05,
+    first_timestamp: float = 0.0,
+    timestamp: float = 0.0,
+) -> list[dict]:
+    return [
+        {
+            "event": "resolution",
+            "requested": None,
+            "name": "b8-s3",
+            "fallback_reason": None,
+        },
+        {
+            "event": "watch_replay_summary",
+            "checkpoint": "b8-s3",
+            "roster_mode": "mixed",
+            "roster_size": 6,
+            "controller": "exact-stop-l1-os",
+            "speed": 24.0,
+            "frames": frames,
+            "update_p95_ms": update_p95_ms,
+            "max_update_ms": update_p95_ms,
+            "mean_update_ms": update_p95_ms,
+            "first_timestamp": first_timestamp,
+            "timestamp": timestamp,
+        },
+    ]
+
+
+def test_replay_window_reports_incomplete_rather_than_healthy_below_bars(
+    tmp_path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    below_frames = _healthy_replay_records(frames=49_999)
+    healthy, messages, metrics = monitor.assess(below_frames, [], now=8 * 86400)
+    assert not healthy
+    assert metrics["replay_mode"] is True
+    assert metrics["replay_frames"] == 49_999
+    assert metrics["window_complete"] is False
+    assert metrics["replay_window_complete"] is False
+    assert any("incomplete Watch replay observation window" in msg for msg in messages)
+
+    below_days = _healthy_replay_records(frames=50_000)
+    healthy, messages, metrics = monitor.assess(below_days, [], now=6 * 86400)
+    assert not healthy
+    assert metrics["window_complete"] is False
+    assert any("incomplete Watch replay observation window" in msg for msg in messages)
+
+    complete = _healthy_replay_records(frames=50_000)
+    healthy, messages, metrics = monitor.assess(complete, [], now=7 * 86400)
+    assert healthy and messages == []
+    assert metrics["window_complete"] is True
+    assert metrics["replay_window_complete"] is True
+
+    incomplete_log = tmp_path / "incomplete.log"
+    incomplete_log.write_text(
+        "\n".join(f"b8-release-monitor: {__import__('json').dumps(r)}" for r in below_frames)
+        + "\n",
+        encoding="utf-8",
+    )
+    assert monitor.main([str(incomplete_log)]) == 2
+    out = capsys.readouterr().out
+    assert "incomplete Watch replay observation window" in out
+    assert out.strip().endswith("NOT_HEALTHY")
+
+    complete_log = tmp_path / "complete.log"
+    complete_log.write_text(
+        "\n".join(f"b8-release-monitor: {__import__('json').dumps(r)}" for r in complete) + "\n",
+        encoding="utf-8",
+    )
+    assert monitor.main([str(complete_log)]) == 0
+    assert capsys.readouterr().out.strip().endswith("HEALTHY")
+
+
+def test_replay_monitor_flags_each_rollback_trigger() -> None:
+    # 1. Fallback reason (resolution, ego2s, mixed Watch, or replay fallback)
+    for fb_event in (
+        {"event": "ego2s_fallback", "reason": "empty queue"},
+        {"event": "mixed_roster_fallback", "reason": "bad opponent pin"},
+        {"event": "replay_fallback", "reason": "replay fallback"},
+    ):
+        records = _healthy_replay_records() + [fb_event]
+        healthy, messages, metrics = monitor.assess(records, [], now=8 * 86400)
+        assert not healthy and metrics["fallback_records"] == 1
+        assert any("ROLLBACK: recorded served-checkpoint or ego2s fallback" in m for m in messages)
+
+    # 2. Replay step failure
+    records = _healthy_replay_records() + [
+        {
+            "event": "replay_step_failure",
+            "checkpoint": "b8-s3",
+            "roster_mode": "mixed",
+            "roster_size": 6,
+            "controller": "exact-stop-l1-os",
+            "stage": "step",
+            "error_type": "ValueError",
+            "reason": "corrupt frame",
+            "timestamp": 1.0,
+        }
+    ]
+    healthy, messages, metrics = monitor.assess(records, [], now=8 * 86400)
+    assert not healthy and metrics["replay_step_failures"] == 1
+    assert any("ROLLBACK: recorded Watch replay step failure" in m for m in messages)
+
+    # 3. ego2s exception
+    records = _healthy_replay_records() + [
+        {"event": "ego2s_exception", "checkpoint": "b8-s3", "error_type": "RuntimeError"}
+    ]
+    healthy, messages, metrics = monitor.assess(records, [], now=8 * 86400)
+    assert not healthy and metrics["ego2s_exceptions"] == 1
+    assert any("ROLLBACK: recorded ego2s-path exception" in m for m in messages)
+
+    # 4. Replay update p95 > 41.67 ms (strictly greater)
+    at_bound = _healthy_replay_records(update_p95_ms=41.67)
+    healthy, messages, _ = monitor.assess(at_bound, [], now=8 * 86400)
+    assert healthy and messages == []
+
+    over_bound = _healthy_replay_records(update_p95_ms=41.68)
+    healthy, messages, metrics = monitor.assess(over_bound, [], now=8 * 86400)
+    assert not healthy and metrics["replay_update_p95_ms"] == 41.68
+    assert any("ROLLBACK: Watch replay update p95" in m and "41.67" in m for m in messages)
+
+    # 5. Bank exhaustion
+    records = _healthy_replay_records() + [
+        {
+            "event": "replay_bank_exhausted",
+            "checkpoint": "b8-s3",
+            "roster_mode": "mixed",
+            "roster_size": 6,
+            "reason": "No verified replay without an immediate repeat; using live B8.",
+            "timestamp": 1.0,
+        }
+    ]
+    healthy, messages, metrics = monitor.assess(records, [], now=8 * 86400)
+    assert not healthy and metrics["replay_bank_exhaustions"] == 1
+    assert any("ROLLBACK: Watch replay bank exhausted" in m for m in messages)
+
+
+def test_replay_monitor_evaluates_live_bars_on_live_fallback_frames_only() -> None:
+    # Cold-startup 24 fps live-fallback ticks without 12 fps latency samples or 100k decisions
+    # remain healthy when the replay window is complete and live-fallback bars are not breached.
+    cold_tick = {
+        "event": "watch_tick",
+        "checkpoint": "b8-s3",
+        "roster_mode": "mixed",
+        "roster_size": 6,
+        "speed": 24.0,
+        "decisions": 1,
+        "deaths": 0,
+        "update_ms": 8.5,
+        "timestamp": 0.0,
+        "latency_eligible": False,
+    }
+    records = _healthy_replay_records() + [cold_tick] * 5
+    healthy, messages, metrics = monitor.assess(records, [], now=8 * 86400)
+    assert healthy and messages == []
+    assert metrics["window_complete"] is True
+    assert metrics["deaths_by_roster"]["mixed_watch6"]["deaths_per_1000"] == 0.0
+
+    # Breaching the live death bar on live-fallback frames triggers rollback.
+    lethal_fallback = dict(cold_tick, deaths=1)
+    healthy, messages, _ = monitor.assess(
+        _healthy_replay_records() + [lethal_fallback], [], now=8 * 86400
+    )
+    assert not healthy
+    assert any("ROLLBACK: mixed_watch6 deaths/1k" in m for m in messages)
+
+    # Breaching the live 12 fps latency bar on eligible live-fallback frames triggers rollback.
+    slow_live_fallback = dict(cold_tick, speed=12.0, latency_eligible=True, update_ms=15.0)
+    healthy, messages, _ = monitor.assess(
+        _healthy_replay_records() + [slow_live_fallback], [], now=8 * 86400
+    )
+    assert not healthy
+    assert any("ROLLBACK: mixed_watch6 update p95" in m for m in messages)
+
+
+def test_session_replay_telemetry_aggregates_periodically_and_emits_faults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    summaries: list[dict] = []
+    failures: list[dict] = []
+    exhaustions: list[dict] = []
+    monkeypatch.setattr(session_mod, "roster_ai_count", lambda *_args: 6)
+    monkeypatch.setattr(
+        session_mod, "watch_replay_summary", lambda **kwargs: summaries.append(kwargs)
+    )
+    monkeypatch.setattr(
+        session_mod, "watch_replay_failure", lambda **kwargs: failures.append(kwargs)
+    )
+    monkeypatch.setattr(
+        session_mod, "watch_replay_bank_exhausted", lambda **kwargs: exhaustions.append(kwargs)
+    )
+    monkeypatch.setattr(session_mod, "watch_tick", lambda **_kwargs: None)
+
+    session = _b8_session(
+        SimpleNamespace(snakes=[], frame_death_causes={}, update=lambda **_kw: None)
+    )
+    session.watch_roster = "mixed"
+    session.speed = 24.0
+    session._watch_replay = SimpleNamespace(
+        header={"controller": "exact-stop-l1-os"},
+        step=lambda: True,
+        snapshot=lambda _s: {"frame": 1},
+        close=lambda: None,
+    )
+    session._replay_bank = None
+
+    for _ in range(session.REPLAY_TELEMETRY_SUMMARY_FRAMES - 1):
+        session.step()
+    assert summaries == []
+
+    session.step()
+    assert len(summaries) == 1
+    assert summaries[0]["frames"] == session.REPLAY_TELEMETRY_SUMMARY_FRAMES
+    assert summaries[0]["controller"] == "exact-stop-l1-os"
+    assert summaries[0]["roster_mode"] == "mixed"
+
+    # Partial batch flushes on leaving replay or failure.
+    session.step()
+    session.step()
+    assert len(summaries) == 1
+    session._watch_replay.step = lambda: (_ for _ in ()).throw(ValueError("bad replay frame"))
+    session.step()
+    assert len(summaries) == 2 and summaries[1]["frames"] == 2
+    assert len(failures) == 1 and failures[0]["stage"] == "step"
+
+    # Snapshot failure and bank exhaustion are recorded.
+    session._watch_replay = SimpleNamespace(
+        header={"controller": "exact-stop-l1-os"},
+        step=lambda: False,
+        snapshot=lambda _s: (_ for _ in ()).throw(RuntimeError("bad snapshot")),
+        close=lambda: None,
+    )
+    monkeypatch.setattr("web.backend.serialize.build_frame", lambda _s: {"frame": 0})
+    session.snapshot()
+    assert len(failures) == 2 and failures[1]["stage"] == "snapshot"
+
+    session._watch_replay = SimpleNamespace(
+        header={"controller": "exact-stop-l1-os"},
+        step=lambda: False,
+        close=lambda: None,
+    )
+    session.step()
+    assert len(exhaustions) == 1
