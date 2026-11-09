@@ -35,6 +35,7 @@ ENV_REPLAY_HORIZON = "SNAKE_WATCH_REPLAY_HORIZON"
 ENV_REPLAY_LONG_DIR = "SNAKE_WATCH_REPLAY_LONG_DIR"
 MAX_COMPRESSED = 128 * 1024**2
 MAX_DECODED = 512 * 1024**2
+MAX_LONG_DECODED = (MAX_DECODED * LONG_HORIZON) // DEFAULT_HORIZON
 MAX_LINE = 2 * 1024**2
 COOPERATIVE_YIELD_FRAMES = 64
 COOPERATIVE_YIELD_SLICE_SECONDS = 0.00025
@@ -172,8 +173,26 @@ class _BufferReader(io.RawIOBase):
             return count
 
 
-def _records(payload: bytes | bytearray | memoryview | mmap.mmap) -> Iterator[dict]:
+def max_decoded_bytes(*, allow_long: bool = False, horizon: Any = None) -> int:
+    """Return the cumulative decoded-byte limit for a replay stream.
+
+    Default H=6,000 sessions always enforce MAX_DECODED (512 MiB). Only when
+    long sessions are enabled and the recording header declares H=14,400 is the
+    bound scaled proportionally by LONG_HORIZON / DEFAULT_HORIZON (2.4x = 1228.8 MiB).
+    """
+    if allow_long and type(horizon) is int and horizon == LONG_HORIZON:
+        return (MAX_DECODED * LONG_HORIZON) // DEFAULT_HORIZON
+    return MAX_DECODED
+
+
+def _records(
+    payload: bytes | bytearray | memoryview | mmap.mmap,
+    *,
+    allow_long: bool = False,
+) -> Iterator[dict]:
     total = 0
+    decoded_limit = MAX_DECODED
+    first_record = True
     with (
         _BufferReader(payload) as raw,
         io.BufferedReader(raw) as buf,
@@ -181,9 +200,14 @@ def _records(payload: bytes | bytearray | memoryview | mmap.mmap) -> Iterator[di
     ):
         while line := stream.readline(MAX_LINE + 1):
             total += len(line)
-            if len(line) > MAX_LINE or total > MAX_DECODED:
+            if len(line) > MAX_LINE or total > decoded_limit:
                 raise ValueError("replay decompression limit")
-            yield _decode_json_object(line)
+            obj = _decode_json_object(line)
+            if first_record:
+                first_record = False
+                if allow_long:
+                    decoded_limit = max_decoded_bytes(allow_long=True, horizon=obj.get("horizon"))
+            yield obj
 
 
 def _read_pinned_payload(path: Path) -> tuple[bytes | mmap.mmap, str]:
@@ -364,7 +388,9 @@ def resolve_replay_horizons(
                     "Using live B8."
                 ),
             )
-        if env_long is False and LONG_HORIZON in h_set:
+        if (env_long is False and LONG_HORIZON in h_set) or (
+            env_long is True and LONG_HORIZON not in h_set
+        ):
             return (
                 None,
                 False,
@@ -373,7 +399,7 @@ def resolve_replay_horizons(
                     f"{ENV_REPLAY_HORIZON}={raw_horizon!r}. Using live B8."
                 ),
             )
-        return h_set, (LONG_HORIZON in h_set or bool(env_long)), None
+        return h_set, (LONG_HORIZON in h_set), None
 
     assert env_long is not None
     return (PRODUCT_HORIZONS if env_long else DEFAULT_HORIZONS), env_long, None
@@ -591,7 +617,15 @@ def verify_payload(
         _ensure_frame_gc_thresholds()
     if len(payload) > MAX_COMPRESSED:
         raise ValueError("oversized replay")
-    records = _records(payload)
+    effective_long = False
+    if horizons is not None:
+        _, effective_long, _ = resolve_replay_horizons(
+            allow_long=True if not product else allow_long,
+            horizons=horizons,
+        )
+    elif type(allow_long) is bool:
+        effective_long = allow_long
+    records = _records(payload, allow_long=True) if effective_long else _records(payload)
     try:
         _enter_gc_suppress()
         try:
@@ -688,7 +722,12 @@ class Recording:
                     self.header = verify_payload(payload, product=product, stop=stop)
                 if cache is not None:
                     cache[key] = self.header
-            self._records = _records(payload)
+            effective_long = (allow_long is not None or horizons is not None) and self.header.get(
+                "horizon"
+            ) == LONG_HORIZON
+            self._records = (
+                _records(payload, allow_long=True) if effective_long else _records(payload)
+            )
             _enter_gc_suppress()
             try:
                 next(self._records)
@@ -868,15 +907,19 @@ class ReplayBank:
             return sorted(self.root.glob("*.watch.gz"))[:1024]
         paths: list[Path] = []
         seen: set[Path] = set()
-        roots: list[Path] = [self.root]
-        if self.allow_long and self.long_root is not None and self.long_root != self.root:
+        roots: list[Path] = []
+        horizons = self.horizons or DEFAULT_HORIZONS
+        if DEFAULT_HORIZON in horizons or self.long_root is None:
+            roots.append(self.root)
+        if LONG_HORIZON in horizons and self.long_root is not None:
             roots.append(self.long_root)
         for root_dir in roots:
             if not root_dir.is_dir():
                 continue
             for path in sorted(root_dir.glob("*.watch.gz")):
-                if path not in seen:
-                    seen.add(path)
+                resolved = path.resolve()
+                if resolved not in seen:
+                    seen.add(resolved)
                     paths.append(path)
                     if len(paths) >= 1024:
                         return paths

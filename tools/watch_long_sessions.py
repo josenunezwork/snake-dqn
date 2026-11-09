@@ -8,14 +8,15 @@ This module implements:
    ``watch-replay-bank-live-132-l1os-v1``) and the 12-session ``H=14,400`` G4 pilot
    (``watch-replay-bank-long-12-l1os-h14400-pilot-v1``).
 3. The 0-unit Mac engineering gate (``python -m tools.watch_long_sessions gate``):
-   - Generates two short local sessions (``H=20``) through the existing
+   - Generates two short local sessions (``H=6``) through the existing
      ``research/watch_replay/run_l1_os.py::run_unit`` writer and verifies
      mid-session checkpointing + bit-identical deterministic resume.
    - Builds a synthetic ``H=14,400`` product bank through the exact canonical
      gzip writer (``canonical``, ``gzip.GzipFile(mtime=0, compresslevel=6)``,
      ``publish_immutable``) at realistic late-game frame sizes and measures:
      * Compressed, decoded, and max-line byte sizes against ``MAX_COMPRESSED``
-       (128 MiB), ``MAX_DECODED`` (512 MiB), and ``MAX_LINE`` (2 MiB).
+       (128 MiB), ``MAX_LONG_DECODED`` (1,228.8 MiB; ``MAX_DECODED`` remains
+       512 MiB for default ``H=6,000``), and ``MAX_LINE`` (2 MiB).
      * Peak heap delta (``tracemalloc``), pinned anonymous ``mmap`` bytes, and
        process RSS (``ru_maxrss``) across active + prefetched ``ReplayBank`` slots.
      * Synchronous ``verify_payload`` time, cooperative background prefetch
@@ -41,7 +42,6 @@ import resource
 import shutil
 import sys
 import tempfile
-import threading
 import time
 import tracemalloc
 from pathlib import Path
@@ -60,11 +60,13 @@ from web.backend.watch_replay import (
     MAX_COMPRESSED,
     MAX_DECODED,
     MAX_LINE,
+    MAX_LONG_DECODED,
     PRODUCT_HORIZONS,
     SCHEMA,
     Recording,
     ReplayBank,
     canonical,
+    max_decoded_bytes,
     peek_header,
     resolve_replay_horizons,
     validate_frame,
@@ -133,18 +135,20 @@ def build_synthetic_frame(
     tick: int,
     *,
     seed: int = 1770658101,
-    snake_lengths: tuple[int, ...] = (180, 110, 95, 80, 70, 60),
+    snake_lengths: tuple[int, ...] = (380, 210, 150, 120, 90, 80),
 ) -> dict[str, Any]:
     """Build a protocol-valid Watch v2 frame with configurable snake body lengths."""
     snakes = []
     for s_idx, length in enumerate(snake_lengths):
-        # Model realistic frame-to-frame snake motion: snakes 0..1 shift along their trajectory
-        # with tick while snakes 2..5 move every 8 ticks, matching real Watch gzip locality.
-        phase = tick if s_idx < 2 else (tick // 8)
+        # Model realistic frame-to-frame snake motion: trajectories shift every 12 ticks,
+        # matching real Watch gzip locality (~45-55 MiB compressed for H=14,400) while
+        # producing ~37.3 KiB late-game lines (matching installed bank 31-42 KiB/frame).
+        phase = tick // 12
         segments = [
             [
-                round(100.0 + ((phase + s_idx * 19 + j * 3) % 120) * 10.25, 2),
-                round(80.0 + ((phase * 3 + s_idx * 13 + j * 5) % 65) * 10.25, 2),
+                100.0 + ((phase + s_idx * 19 + j * 3) % 120) * (10.0 + ((j + s_idx) % 11) / 7.0),
+                80.0
+                + ((phase * 3 + s_idx * 13 + j * 5) % 65) * (10.0 + ((j * 3 + s_idx) % 13) / 9.0),
             ]
             for j in range(length)
         ]
@@ -161,12 +165,14 @@ def build_synthetic_frame(
                 "name": f"Snake {s_idx}",
             }
         )
+    food_count = 100 if sum(snake_lengths) >= 400 else 30
+    food_phase = tick // 8
     food = [
         [
-            round(50.0 + ((tick * 7 + k * 11) % 130) * 10.0, 2),
-            round(50.0 + ((tick * 5 + k * 17) % 70) * 10.0, 2),
+            50.0 + ((food_phase * 7 + k * 11) % 130) * (10.0 + (k % 7) / 3.0),
+            50.0 + ((food_phase * 5 + k * 17) % 70) * (10.0 + (k % 5) / 7.0),
         ]
-        for k in range(30)
+        for k in range(food_count)
     ]
     action = tick % 6
     return {
@@ -250,10 +256,11 @@ def write_synthetic_session(
     controller: str = PRODUCT_CONTROLLER,
     commit: str = "a" * 40,
     fixture: bool | None = None,
-    snake_lengths: tuple[int, ...] = (180, 110, 95, 80, 70, 60),
+    snake_lengths: tuple[int, ...] = (380, 210, 150, 120, 90, 80),
     unique_frames: int = 64,
 ) -> dict[str, Any]:
     """Write a canonical `.watch.gz` session through the exact product writer."""
+    decoded_limit = max_decoded_bytes(allow_long=(horizon == LONG_HORIZON), horizon=horizon)
     contract = {
         **long_allocation(namespace, count, controller, horizon),
         "commit": commit,
@@ -322,7 +329,7 @@ def write_synthetic_session(
                 frames_decoded += len(line)
                 if len(line) > frames_peak_line:
                     frames_peak_line = len(line)
-                if len(line) > MAX_LINE or frames_decoded > MAX_DECODED:
+                if len(line) > MAX_LINE or frames_decoded > decoded_limit:
                     raise ValueError("synthetic replay exceeds decoded/line limit")
                 chunk.append(line)
                 if len(chunk) == 256:
@@ -339,7 +346,7 @@ def write_synthetic_session(
 
     decoded_bytes = len(header_bytes) + frames_decoded
     peak_line_bytes = max(len(header_bytes), frames_peak_line)
-    if peak_line_bytes > MAX_LINE or decoded_bytes > MAX_DECODED:
+    if peak_line_bytes > MAX_LINE or decoded_bytes > decoded_limit:
         raise ValueError("synthetic replay exceeds decoded/line limit")
 
     started = time.perf_counter()
@@ -399,12 +406,20 @@ def verify_bank_directory(
         complete_path = Path(str(path) + ".complete")
         if not sha_path.is_file() or not complete_path.is_file():
             raise ValueError(f"missing sidecar for {path.name}")
+        sha_tokens = sha_path.read_text(encoding="utf-8").split()
+        if (
+            len(sha_tokens) != 2
+            or sha_tokens[1] != path.name
+            or len(sha_tokens[0]) != 64
+            or any(ch not in "0123456789abcdef" for ch in sha_tokens[0])
+        ):
+            raise ValueError(f"invalid .sha256 sidecar format for {path.name}")
         size = path.stat().st_size
         compressed_sizes.append(size)
         if full_payload:
             data = path.read_bytes()
             digest = hashlib.sha256(data).hexdigest()
-            if sha_path.read_text().split() != [digest, path.name]:
+            if sha_tokens != [digest, path.name]:
                 raise ValueError(f"SHA mismatch on {path.name}")
             header = verify_payload(
                 data,
@@ -461,6 +476,7 @@ def verify_bank_directory(
         "mean_compressed_bytes": sum(sorted_sizes) / n,
         "p95_compressed_bytes": sorted_sizes[min(n - 1, int(n * 0.95))],
         "max_compressed_bytes": sorted_sizes[-1],
+        "verified_files": [row["name"] for row in verified_rows],
         "full_payload_verified": full_payload,
         "elapsed_seconds": elapsed,
     }
@@ -493,12 +509,16 @@ def install_long_bank(
         shutil.rmtree(staging)
     staging.mkdir(parents=True, exist_ok=True)
     try:
-        for item in sorted(src_sessions.glob("*.watch.gz*")):
-            target = staging / item.name
-            try:
-                os.link(item, target)
-            except OSError:
-                shutil.copy2(item, target)
+        for name in summary["verified_files"]:
+            gz_path = src_sessions / name
+            sha_path = Path(str(gz_path) + ".sha256")
+            complete_path = Path(str(gz_path) + ".complete")
+            for item in (gz_path, sha_path, complete_path):
+                target = staging / item.name
+                try:
+                    os.link(item, target)
+                except OSError:
+                    shutil.copy2(item, target)
         contract_src = source_dir / "contract.json"
         if contract_src.is_file():
             shutil.copy2(contract_src, staging / "contract.json")
@@ -630,7 +650,8 @@ def build_pilot_package_spec() -> dict[str, Any]:
         "size_caps": {
             "max_session_compressed_bytes": PILOT_MAX_SESSION_BYTES,
             "max_reader_compressed_bytes": MAX_COMPRESSED,
-            "max_reader_decoded_bytes": MAX_DECODED,
+            "max_reader_default_decoded_bytes": MAX_DECODED,
+            "max_reader_decoded_bytes": MAX_LONG_DECODED,
             "max_reader_line_bytes": MAX_LINE,
         },
         "inputs": [
@@ -702,14 +723,6 @@ def build_pilot_package_spec() -> dict[str, Any]:
                 "effective_reserve_units_2x_rule": 32.2,
                 "base_timeout_minutes": 480,
                 "effective_timeout_minutes_2x_rule": 960,
-                "three_hour_session_guard_option": {
-                    "per_session_compute_hours": 3.0,
-                    "per_session_base_wall_minutes": 205,
-                    "per_session_effective_timeout_minutes_2x": 410,
-                    "per_session_base_units": 34.3,
-                    "per_session_effective_unit_cap_2x": 68.7,
-                    "resumed_attempts_to_complete_h14400": 3,
-                },
             },
         },
     }
@@ -756,11 +769,13 @@ def extrapolate_from_installed_bank(
     median_decoded = _measure_decoded(median_path)
     max_decoded = _measure_decoded(max_path)
 
-    step = max(1, len(size_pairs) // sample_sessions_for_frame_curve)
-    sampled = [
-        size_pairs[min(len(size_pairs) - 1, i * step)][1]
-        for i in range(sample_sessions_for_frame_curve)
-    ]
+    if sample_sessions_for_frame_curve <= 1 or len(size_pairs) <= 1:
+        sampled = [size_pairs[-1][1]]
+    else:
+        sampled = [
+            size_pairs[round(i * (len(size_pairs) - 1) / (sample_sessions_for_frame_curve - 1))][1]
+            for i in range(sample_sessions_for_frame_curve)
+        ]
     early_bytes = 0
     mid_bytes = 0
     late_bytes = 0
@@ -832,11 +847,22 @@ def extrapolate_from_installed_bank(
                 "median": round(median_decoded["decoded_bytes"] * superlinear_scale / 1024**2, 2),
                 "max": round(max_decoded["decoded_bytes"] * superlinear_scale / 1024**2, 2),
             },
+            "max_reader_default_decoded_cap_mib": round(MAX_DECODED / 1024**2, 1),
+            "max_reader_long_decoded_cap_mib": round(MAX_LONG_DECODED / 1024**2, 1),
+            "decoded_headroom_below_long_cap_mib": {
+                "linear_max": round(
+                    (MAX_LONG_DECODED - max_decoded["decoded_bytes"] * linear_scale) / 1024**2, 2
+                ),
+                "superlinear_max": round(
+                    (MAX_LONG_DECODED - max_decoded["decoded_bytes"] * superlinear_scale) / 1024**2,
+                    2,
+                ),
+            },
             "fits_reader_max_compressed_128_mib": (
                 summary["max_compressed_bytes"] * superlinear_scale < MAX_COMPRESSED
             ),
-            "fits_reader_max_decoded_512_mib": (
-                max_decoded["decoded_bytes"] * superlinear_scale < MAX_DECODED
+            "fits_reader_max_long_decoded_1228_8_mib": (
+                max_decoded["decoded_bytes"] * superlinear_scale < MAX_LONG_DECODED
             ),
             "exceeds_legacy_prepare_40_mib_cap": (
                 summary["p95_compressed_bytes"] * linear_scale > 40 * 1024**2
@@ -975,7 +1001,7 @@ def run_h14400_scale_synthetic_gate() -> dict[str, Any]:
             count=2,
             index=0,
             horizon=DEFAULT_HORIZON,
-            snake_lengths=(140, 90, 80, 70, 60, 50),
+            snake_lengths=(260, 150, 110, 90, 70, 60),
         )
         h6000_s1 = write_synthetic_session(
             default_dir,
@@ -983,12 +1009,12 @@ def run_h14400_scale_synthetic_gate() -> dict[str, Any]:
             count=2,
             index=1,
             horizon=DEFAULT_HORIZON,
-            snake_lengths=(140, 90, 80, 70, 60, 50),
+            snake_lengths=(260, 150, 110, 90, 70, 60),
         )
 
-        # 2. Build 3 full H=14,400 product sessions in long_dir.
-        # All 3 use late-game body lengths (210, 140, 120, 100, 90, 80), sharing the
-        # cached 14,400-frame compressed stream while each has its own canonical header/SHA.
+        # 2. Build 3 full H=14,400 product sessions in long_dir with realistic late-game
+        # line sizes (~36.8 KiB/frame, matching installed H=6,000 bank 31-42 KiB/frame).
+        late_game_lengths = (380, 210, 150, 120, 90, 80)
         rss_before = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         h14400_s0 = write_synthetic_session(
             long_dir,
@@ -996,7 +1022,7 @@ def run_h14400_scale_synthetic_gate() -> dict[str, Any]:
             count=3,
             index=0,
             horizon=LONG_HORIZON,
-            snake_lengths=(210, 140, 120, 100, 90, 80),
+            snake_lengths=late_game_lengths,
         )
         h14400_s1 = write_synthetic_session(
             long_dir,
@@ -1004,7 +1030,7 @@ def run_h14400_scale_synthetic_gate() -> dict[str, Any]:
             count=3,
             index=1,
             horizon=LONG_HORIZON,
-            snake_lengths=(210, 140, 120, 100, 90, 80),
+            snake_lengths=late_game_lengths,
         )
         h14400_s2 = write_synthetic_session(
             long_dir,
@@ -1012,12 +1038,12 @@ def run_h14400_scale_synthetic_gate() -> dict[str, Any]:
             count=3,
             index=2,
             horizon=LONG_HORIZON,
-            snake_lengths=(210, 140, 120, 100, 90, 80),
+            snake_lengths=late_game_lengths,
         )
 
         p_long_0 = long_dir / "000000.watch.gz"
 
-        # 3. Verify synchronous verify_payload time on the full H=14,400 recording
+        # 3. Verify synchronous (unthrottled) verify_payload time on the full H=14,400 recording
         # without tracemalloc overhead so timing reflects true production speed.
         raw_bytes_0 = p_long_0.read_bytes()
         t0 = time.perf_counter()
@@ -1025,27 +1051,19 @@ def run_h14400_scale_synthetic_gate() -> dict[str, Any]:
         sync_verify_s0 = time.perf_counter() - t0
         del raw_bytes_0
 
-        # 4. Measure cooperative background verification rate (with <=20% GIL duty cycle yield)
-        # on a 288-frame (1/50 scale) recording with identical frame geometry and extrapolate 50x.
-        coop_sample_frames = 288
-        coop_dir = root / "coop_scale"
-        write_synthetic_session(
-            coop_dir,
-            namespace="watch-gate-coop-sample-v1",
-            count=1,
-            index=0,
-            horizon=coop_sample_frames,
-            fixture=True,
-            snake_lengths=(210, 140, 120, 100, 90, 80),
-        )
-        coop_bytes = (coop_dir / "000000.watch.gz").read_bytes()
-        t_coop = time.perf_counter()
-        verify_payload(coop_bytes, product=False, stop=threading.Event())
-        coop_sample_seconds = time.perf_counter() - t_coop
-        del coop_bytes
-        coop_14400_extrapolated_seconds = coop_sample_seconds * (
-            LONG_HORIZON / float(coop_sample_frames)
-        )
+        # 4. Measure production cold first-pick time on ReplayBank(long_dir, allow_long=True)
+        # with the exact default COOPERATIVE_YIELD_* settings (no overriding of
+        # COOPERATIVE_YIELD_* and no tracemalloc active).
+        t_prod_cold = time.perf_counter()
+        prod_bank = ReplayBank(long_dir, shuffle_discovery=False, allow_long=True)
+        try:
+            prod_rec = _pick_ready(prod_bank, timeout_s=180.0)
+            cold_pick_production_seconds = time.perf_counter() - t_prod_cold
+            assert prod_rec is not None and prod_rec.header["horizon"] == LONG_HORIZON
+            prod_rec.close()
+        finally:
+            prod_bank.close()
+
         playback_window_seconds = LONG_HORIZON / 24.0  # 600.0 s at 24 fps
 
         # 5. Verify that default validate_header / verify_payload / Recording / ReplayBank
@@ -1080,9 +1098,9 @@ def run_h14400_scale_synthetic_gate() -> dict[str, Any]:
         orig_wait = watch_replay.COOPERATIVE_YIELD_MIN_WAIT_SECONDS
         orig_duty = watch_replay.COOPERATIVE_YIELD_DUTY_FACTOR
         try:
-            # We already measured the exact cooperative yield sleep rate in step 4 above.
-            # Lower the sleep wait multiplier during bank functional/memory checks so
-            # full 14,400-frame verification of all 3 recordings completes in ~2 s instead of ~50 s.
+            # Production cold-first-pick with default COOPERATIVE_YIELD_* was already measured
+            # in step 4 above. Use minimal yield sleep during the full 3-slot tracemalloc
+            # verification run so tracemalloc's ~3x CPU overhead does not multiply sleep time.
             watch_replay.COOPERATIVE_YIELD_MIN_WAIT_SECONDS = 0.00005
             watch_replay.COOPERATIVE_YIELD_DUTY_FACTOR = 0.05
 
@@ -1115,46 +1133,35 @@ def run_h14400_scale_synthetic_gate() -> dict[str, Any]:
             # skipped on line 1 without calling verify_payload.
             mixed_skipped_without_verify = len(verify_calls_mixed) == 1
 
-            # 7. Opt-in ReplayBank(long_dir, allow_long=True) across all 3 full H=14,400 sessions.
-            # Session 000000 runs full 14,400-frame verify_payload in the worker (measuring
-            # cold_pick_seconds); sessions 000001 and 000002 share the already-verified
-            # 14,400-frame gzip member and validate their distinct headers so all 3 full
-            # H=14,400 mmap buffers are pinned simultaneously in ReplayBank.
+            # 7. Full verify_payload + 3-slot Recording lifecycle under tracemalloc:
+            # Start tracemalloc BEFORE constructing ReplayBank, and run the real verify_payload
+            # on all 3 H=14,400 slots (000000, 000001, 000002) without skipping slots 2 and 3.
             long_full_verifies = 0
 
-            def _long_bank_verify(payload: Any, *args: Any, **kwargs: Any) -> dict:
+            def _counting_long_verify(payload: Any, *args: Any, **kwargs: Any) -> dict:
                 nonlocal long_full_verifies
                 long_full_verifies += 1
-                if long_full_verifies == 1:
-                    return orig_verify(payload, *args, **kwargs)
-                recs = watch_replay._records(payload)
-                try:
-                    hdr = next(recs)
-                    watch_replay.validate_header(
-                        hdr,
-                        product=kwargs.get("product", True),
-                        allow_long=kwargs.get("allow_long"),
-                        horizons=kwargs.get("horizons"),
-                    )
-                    return hdr
-                finally:
-                    recs.close()
+                return orig_verify(payload, *args, **kwargs)
 
-            watch_replay.verify_payload = _long_bank_verify  # type: ignore[assignment]
+            watch_replay.verify_payload = _counting_long_verify  # type: ignore[assignment]
             try:
-                t_cold_pick = time.perf_counter()
-                long_bank = ReplayBank(long_dir, shuffle_discovery=False, allow_long=True)
-                active_rec = _pick_ready(long_bank)
-                cold_pick_seconds = time.perf_counter() - t_cold_pick
                 tracemalloc.start()
+                active_rec: Recording | None = None
+                long_bank: ReplayBank | None = None
                 try:
+                    t_cold_pick = time.perf_counter()
+                    long_bank = ReplayBank(long_dir, shuffle_discovery=False, allow_long=True)
+                    active_rec = _pick_ready(long_bank, timeout_s=180.0)
+                    cold_pick_unthrottled_seconds = time.perf_counter() - t_cold_pick
                     assert active_rec is not None
                     first_horizon = active_rec.header["horizon"]
-                    # Wait for the background worker to fill both prefetch queue slots (maxsize=2)
-                    # with 000001 and 000002 so all 3 H=14,400 recordings are pinned in mmap.
-                    deadline = time.perf_counter() + 30.0
+                    # Wait for the background worker to finish full 14,400-frame verify_payload
+                    # on both prefetch queue slots (000001 and 000002, maxsize=2) so all 3
+                    # H=14,400 recordings are verified and pinned simultaneously in ReplayBank.
+                    deadline = time.perf_counter() + 180.0
                     while time.perf_counter() < deadline and not long_bank._ready.full():
                         time.sleep(0.01)
+                    assert long_full_verifies == 3
                     queued_recs = list(long_bank._ready.queue)
                     ready_count = len(queued_recs)
                     pinned_mmap_bytes = (
@@ -1177,30 +1184,31 @@ def run_h14400_scale_synthetic_gate() -> dict[str, Any]:
                     finally:
                         rot1.close()
                 finally:
-                    tracemalloc.stop()
                     if active_rec is not None:
                         active_rec.close()
-                    long_bank.close()
+                    if long_bank is not None:
+                        long_bank.close()
+                    tracemalloc.stop()
                 rss_after = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-
-                # 8. Separate long_root test (default bank in default_dir + long bank in long_dir).
-                dual_bank = ReplayBank(
-                    default_dir,
-                    shuffle_discovery=False,
-                    long_root=long_dir,
-                    horizons=frozenset({LONG_HORIZON}),
-                )
-                try:
-                    dual_rec = _pick_ready(dual_bank)
-                    assert dual_rec is not None
-                    try:
-                        dual_horizon_only_long = dual_rec.header["horizon"]
-                    finally:
-                        dual_rec.close()
-                finally:
-                    dual_bank.close()
             finally:
                 watch_replay.verify_payload = orig_verify  # type: ignore[assignment]
+
+            # 8. Separate long_root test (default bank in default_dir + long bank in long_dir).
+            dual_bank = ReplayBank(
+                default_dir,
+                shuffle_discovery=False,
+                long_root=long_dir,
+                horizons=frozenset({LONG_HORIZON}),
+            )
+            try:
+                dual_rec = _pick_ready(dual_bank, timeout_s=120.0)
+                assert dual_rec is not None
+                try:
+                    dual_horizon_only_long = dual_rec.header["horizon"]
+                finally:
+                    dual_rec.close()
+            finally:
+                dual_bank.close()
         finally:
             watch_replay.COOPERATIVE_YIELD_MIN_WAIT_SECONDS = orig_wait
             watch_replay.COOPERATIVE_YIELD_DUTY_FACTOR = orig_duty
@@ -1212,22 +1220,23 @@ def run_h14400_scale_synthetic_gate() -> dict[str, Any]:
             "peak_line_kib": round(h14400_s0["peak_line_bytes"] / 1024, 2),
             "write_seconds": round(h14400_s0["write_seconds"], 3),
             "within_max_compressed_128_mib": h14400_s0["compressed_bytes"] <= MAX_COMPRESSED,
-            "within_max_decoded_512_mib": h14400_s0["decoded_bytes"] <= MAX_DECODED,
+            "within_max_long_decoded_1228_8_mib": h14400_s0["decoded_bytes"] <= MAX_LONG_DECODED,
             "within_max_line_2048_kib": h14400_s0["peak_line_bytes"] <= MAX_LINE,
         },
         "verification_and_prefetch_timing": {
             "sync_verify_h14400_seconds": round(sync_verify_s0, 3),
             "sync_verify_per_frame_ms": round(sync_verify_s0 * 1000.0 / LONG_HORIZON, 4),
-            "coop_verify_sample_frames": coop_sample_frames,
-            "coop_verify_sample_measured_seconds": round(coop_sample_seconds, 3),
-            "coop_verify_h14400_extrapolated_seconds": round(coop_14400_extrapolated_seconds, 2),
+            "cold_first_pick_production_seconds": round(cold_pick_production_seconds, 3),
+            "cold_first_pick_tracemalloc_unthrottled_seconds": round(
+                cold_pick_unthrottled_seconds, 3
+            ),
             "playback_duration_24fps_seconds": playback_window_seconds,
             "prefetch_headroom_ratio": round(
-                playback_window_seconds / max(0.001, coop_14400_extrapolated_seconds), 2
+                playback_window_seconds / max(0.001, cold_pick_production_seconds), 2
             ),
-            "cold_first_pick_unthrottled_seconds": round(cold_pick_seconds, 3),
             "warm_rotation_ms": round(rot1_ms, 4),
             "ready_queue_depth_reached": ready_count,
+            "full_verify_payload_slots_verified": long_full_verifies,
         },
         "memory": {
             "pinned_mmap_3_slots_mib": round(pinned_mmap_bytes / 1024**2, 3),
@@ -1280,13 +1289,14 @@ def run_mac_engineering_gate(
         ),
         "synthetic_h14400_within_reader_bounds": (
             s0["within_max_compressed_128_mib"]
-            and s0["within_max_decoded_512_mib"]
+            and s0["within_max_long_decoded_1228_8_mib"]
             and s0["within_max_line_2048_kib"]
+            and 31.0 <= s0["peak_line_kib"] <= 42.5
         ),
         "prefetch_faster_than_playback_window": (
-            timing["coop_verify_h14400_extrapolated_seconds"]
-            < timing["playback_duration_24fps_seconds"]
+            timing["cold_first_pick_production_seconds"] < timing["playback_duration_24fps_seconds"]
             and timing["prefetch_headroom_ratio"] >= 2.0
+            and timing["full_verify_payload_slots_verified"] == 3
         ),
         "memory_bounded_and_streaming": (
             mem["peak_python_heap_delta_mib"] < 32.0
@@ -1311,7 +1321,7 @@ def run_mac_engineering_gate(
         ext = extrapolation["extrapolated_h14400"]
         checks["extrapolated_installed_bank_within_reader_bounds"] = (
             ext["fits_reader_max_compressed_128_mib"] is True
-            and ext["fits_reader_max_decoded_512_mib"] is True
+            and ext["fits_reader_max_long_decoded_1228_8_mib"] is True
         )
 
     passed = all(checks.values())
