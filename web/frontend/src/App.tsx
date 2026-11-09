@@ -936,7 +936,10 @@ export default function App() {
         </button>
       </div>
 
-      <TelemetryBand history={history} />
+      <TelemetryBand
+        history={history}
+        paused={Boolean(frame?.paused || (session && !session.playing))}
+      />
 
       <div className="main">
         <GameCanvas
@@ -1049,7 +1052,11 @@ export default function App() {
                 labels={view.labels}
               />
             ) : tab === "network" ? (
-              <NetworkVisualizer netviz={frame.netviz} />
+              <NetworkVisualizer
+                netviz={frame.netviz}
+                obsSpec={frame.obs_spec}
+                executedAction={frame.inspector?.executed_action ?? null}
+              />
             ) : (
               <Dashboard checkpoint={session?.checkpoint ?? null} />
             )}

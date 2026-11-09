@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Frame } from "./types";
 
 const socket = vi.fn();
+const netvizProps = vi.fn();
+const telemetryProps = vi.fn();
 
 vi.mock("./hooks/useGameSocket", () => ({ useGameSocket: () => socket() }));
 vi.mock("./hooks/useViewSettings", () => ({
@@ -12,11 +14,21 @@ vi.mock("./api", () => ({ fetchCheckpoints: vi.fn().mockResolvedValue([]) }));
 vi.mock("./components/GameCanvas", () => ({ default: () => null }));
 vi.mock("./components/Inspector", () => ({ default: () => null }));
 vi.mock("./components/EgoRasterViewer", () => ({ default: () => null }));
-vi.mock("./components/NetworkVisualizer", () => ({ default: () => null }));
+vi.mock("./components/NetworkVisualizer", () => ({
+  default: (props: unknown) => {
+    netvizProps(props);
+    return null;
+  },
+}));
 vi.mock("./components/Dashboard", () => ({ default: () => null }));
 vi.mock("./components/Controls", () => ({ default: () => null }));
 vi.mock("./components/Play", () => ({ default: () => null }));
-vi.mock("./components/TelemetryBand", () => ({ default: () => null }));
+vi.mock("./components/TelemetryBand", () => ({
+  default: (props: unknown) => {
+    telemetryProps(props);
+    return null;
+  },
+}));
 vi.mock("./components/HelpOverlay", () => ({ default: () => null }));
 vi.mock("./components/CommandPalette", () => ({ default: () => null }));
 vi.mock("./components/WelcomeTour", () => ({ default: () => null }));
@@ -127,5 +139,47 @@ describe("Path B assisted-hero identity", () => {
     socket.mockReturnValue({ frame: frame(), connected: true, link: "live", history: [], send: vi.fn() });
     render(<App />);
     expect(screen.queryByText("assisted hero")).not.toBeInTheDocument();
+  });
+});
+
+describe("NetworkVisualizer and TelemetryBand prop wiring", () => {
+  it("forwards obsSpec and executedAction to NetworkVisualizer and paused to TelemetryBand", () => {
+    window.location.hash = "#network";
+    const f = frame();
+    f.obs_spec = "ego2s-bv8";
+    f.session.playing = false;
+    f.inspector = {
+      id: 0,
+      name: "Hero",
+      color: [0, 255, 0],
+      length: 12,
+      alive: true,
+      boosting: false,
+      heading: [1, 0],
+      food_eaten: 2,
+      kills: 0,
+      input_size: 60,
+      state: [],
+      groups: [],
+      q_values: [1, 2, 0, -1, -2, -3],
+      value: 1,
+      advantages: [0, 1, -1, -2, -3, -4],
+      chosen: 1,
+      executed_action: 0,
+      veto_overrode: true,
+      action_source: "search",
+    };
+    socket.mockReturnValue({ frame: f, connected: true, link: "live", history: [], send: vi.fn() });
+    render(<App />);
+    expect(telemetryProps).toHaveBeenCalledWith(
+      expect.objectContaining({ paused: true }),
+    );
+    expect(netvizProps).toHaveBeenCalledWith(
+      expect.objectContaining({
+        obsSpec: "ego2s-bv8",
+        executedAction: 0,
+      }),
+    );
+    window.location.hash = "";
   });
 });
