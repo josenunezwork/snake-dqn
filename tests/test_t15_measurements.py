@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
 import pytest
 
 from research.t15_mixed_roster_20261017 import episodes, measurements
+from tests.checkpoint_paths import has_saved_checkpoints
 
-HAS_B8 = Path("saved_snakes/b8_s3_t7_20261016.pth").is_file()
+HAS_B8 = has_saved_checkpoints("b8_s3_t7_20261016.pth")
 
 
 def test_mixed_environment_is_opt_in_and_restores(monkeypatch):

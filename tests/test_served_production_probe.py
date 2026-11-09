@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from research.bl_served_search import production_probe as probe
+from tests.checkpoint_paths import has_saved_checkpoints
 
 
 def test_settings_only_allows_frozen_or_smaller_smoke() -> None:
@@ -129,10 +129,7 @@ def test_client_receive_timeout_fails_without_reconnect(monkeypatch: pytest.Monk
 
 @pytest.mark.integration
 @pytest.mark.skipif(
-    not all(
-        Path("saved_snakes", name).is_file()
-        for name in ("b8_s3_t7_20261016.pth", "frp3_m3_s12_u60000_20261005.pth")
-    ),
+    not has_saved_checkpoints("b8_s3_t7_20261016.pth", "frp3_m3_s12_u60000_20261005.pth"),
     reason="actual Hub smoke requires the local released checkpoint artifacts",
 )
 def test_smoke_runs_actual_hub_and_loopback_websocket() -> None:

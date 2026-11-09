@@ -33,9 +33,10 @@ from src.model.obs_spec import (
 from src.model.raster_network import RasterDuelingNetwork
 from src.simd_env.featurizer import SCALARS_DIM, STRATEGIC_SIZE, TACTICAL_SIZE
 from src.training.checkpoint_contract import validate_checkpoint_contract
+from tests.checkpoint_paths import saved_checkpoint_path
 
 CPU = torch.device("cpu")
-CHAMPION = "saved_snakes/champion_a5_freespace_20260621.pth"
+CHAMPION = str(saved_checkpoint_path("champion_a5_freespace_20260621.pth"))
 
 
 @pytest.fixture(autouse=True)

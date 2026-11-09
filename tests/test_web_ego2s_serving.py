@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import numpy as np
 import pytest
 import torch
@@ -109,10 +107,11 @@ def test_train_refused_and_play_works(ego_ckpt):
 
 
 def test_default_session_serves_released_b8_with_mixed_watch_opponents(monkeypatch):
+    from tests.checkpoint_paths import has_saved_checkpoints
     from web.backend import served_checkpoint as registry
 
     required = (registry.B8_S3_FILENAME, registry.FRP3_S12_FILENAME)
-    if any(not (Path(registry.SAVED_DIR) / name).is_file() for name in required):
+    if not has_saved_checkpoints(*required):
         pytest.skip("released b8-s3 and frp3-s12 checkpoint bytes are not available")
 
     sess = GameSession()

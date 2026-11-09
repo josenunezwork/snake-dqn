@@ -22,6 +22,7 @@ from src.evaluation.safety_veto import FreeSpaceVeto  # noqa: E402
 from src.evaluation.safety_veto_v5 import BoostAwareFreeSpaceVeto  # noqa: E402
 from src.evaluation.safety_veto_v7 import SpacePreferenceVeto  # noqa: E402
 from src.training.apex_policy import ApexPolicy  # noqa: E402
+from tests.checkpoint_paths import saved_checkpoint_path  # noqa: E402
 from web.backend import safety_veto_serving as serving  # noqa: E402
 from web.backend.safety_veto_serving import (  # noqa: E402
     ENV_PLAY_AI,
@@ -32,7 +33,7 @@ from web.backend.safety_veto_serving import (  # noqa: E402
 from web.backend.session import MODE_PLAY, GameSession  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
-CHAMPION = REPO / "saved_snakes" / "champion_a5_freespace_20260621.pth"
+CHAMPION = saved_checkpoint_path("champion_a5_freespace_20260621.pth")
 V7_STRICT = Path(
     "/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-v7-strict-20261002/run-v1"
 )

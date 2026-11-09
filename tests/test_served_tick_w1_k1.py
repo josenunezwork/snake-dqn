@@ -19,6 +19,7 @@ import pytest
 from research.bl_served_search import contention_worker as cw
 from research.bl_served_search import isolated_game
 from research.bl_served_search import served_tick_probe as probe
+from tests.checkpoint_paths import has_saved_checkpoints
 
 
 def _w1_manifest() -> dict:
@@ -328,10 +329,7 @@ def test_no_action_application_leaves_live_session_and_snakes_untouched() -> Non
 
 
 @pytest.mark.skipif(
-    not all(
-        Path("saved_snakes", name).is_file()
-        for name in ("b8_s3_t7_20261016.pth", "frp3_m3_s12_u60000_20261005.pth")
-    ),
+    not has_saved_checkpoints("b8_s3_t7_20261016.pth", "frp3_m3_s12_u60000_20261005.pth"),
     reason="requires local released checkpoint artifacts",
 )
 def test_game_loop_parity_with_worker_idle_and_active_real_exact_stop() -> None:

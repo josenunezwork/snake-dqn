@@ -17,6 +17,7 @@ import pytest
 
 from research.bl_served_search import dto_split as split
 from research.bl_served_search import served_tick_probe as probe
+from tests.checkpoint_paths import has_saved_checkpoints
 
 
 def manifest() -> dict:
@@ -119,10 +120,7 @@ def _history(remote: bool) -> list:
         session.close(wait=True)
 
 
-CHECKPOINTS = all(
-    Path("saved_snakes", name).is_file()
-    for name in ("b8_s3_t7_20261016.pth", "frp3_m3_s12_u60000_20261005.pth")
-)
+CHECKPOINTS = has_saved_checkpoints("b8_s3_t7_20261016.pth", "frp3_m3_s12_u60000_20261005.pth")
 
 
 @pytest.mark.skipif(not CHECKPOINTS, reason="requires local frozen released artifacts")
