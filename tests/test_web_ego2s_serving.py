@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import numpy as np
 import pytest
 import torch
@@ -13,6 +11,7 @@ pytest.importorskip("fastapi")
 from src.model.ego2s_network import Ego2sNet, save_ego2s_checkpoint  # noqa: E402
 from src.model.inference_agent import InferenceAgent  # noqa: E402
 from src.model.obs_spec import EGO2S_B, EGO2S_BV8, KNOWN_OBS_SPECS  # noqa: E402
+from tests.checkpoint_paths import has_saved_checkpoints  # noqa: E402
 from web.backend.ego2s_policy import Ego2sServingPolicy  # noqa: E402
 from web.backend.serving_speed import speed_ceiling  # noqa: E402
 from web.backend.session import MODE_PLAY, MODE_TRAIN, MODE_WATCH, GameSession  # noqa: E402
@@ -112,7 +111,7 @@ def test_default_session_serves_released_b8_with_mixed_watch_opponents(monkeypat
     from web.backend import served_checkpoint as registry
 
     required = (registry.B8_S3_FILENAME, registry.FRP3_S12_FILENAME)
-    if any(not (Path(registry.SAVED_DIR) / name).is_file() for name in required):
+    if not has_saved_checkpoints(*required):
         pytest.skip("released b8-s3 and frp3-s12 checkpoint bytes are not available")
 
     sess = GameSession()

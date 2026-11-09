@@ -5,12 +5,12 @@ from __future__ import annotations
 import contextlib
 import io
 from dataclasses import replace
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 from research.t13_product_roster_20261017 import episodes
+from tests.checkpoint_paths import has_saved_checkpoints
 
 
 @contextlib.contextmanager
@@ -67,7 +67,7 @@ def test_invalid_roster_is_rejected_before_session_construction():
 
 
 @pytest.mark.skipif(
-    not Path("saved_snakes/b8_s3_t7_20261016.pth").is_file(),
+    not has_saved_checkpoints("b8_s3_t7_20261016.pth"),
     reason="checkout lacks the locally pinned B8 serving artifact",
 )
 def test_mixed_watch_keeps_default_b8_hero_and_wraps_only_harness_opponents(monkeypatch):
@@ -84,7 +84,7 @@ def test_mixed_watch_keeps_default_b8_hero_and_wraps_only_harness_opponents(monk
 
 
 @pytest.mark.skipif(
-    not Path("saved_snakes/b8_s3_t7_20261016.pth").is_file(),
+    not has_saved_checkpoints("b8_s3_t7_20261016.pth"),
     reason="checkout lacks the locally pinned B8 serving artifact",
 )
 def test_all_b8_trace_matches_original_t12_watch12_at_h100():

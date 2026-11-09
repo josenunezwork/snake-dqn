@@ -112,3 +112,26 @@ def _single_openmp_runtime() -> "Iterator[None]":
     assert_single_libomp()
     yield
     assert_single_libomp()
+
+
+@pytest.fixture(autouse=True)
+def _bind_saved_snakes_dir(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bind SNAKE_CKPT_DIR to the resolved saved_snakes directory for checkpoint-gated tests."""
+    from tests.checkpoint_paths import (
+        ENV_CKPT_DIR,
+        REPO_ROOT,
+        resolve_saved_snakes_dir,
+        use_saved_checkpoints,
+    )
+
+    module = getattr(request.node, "module", None)
+    if module is not None and (
+        hasattr(module, "has_saved_checkpoints") or hasattr(module, "saved_checkpoint_path")
+    ):
+        use_saved_checkpoints(monkeypatch)
+        return
+    if not os.environ.get(ENV_CKPT_DIR, "").strip():
+        worktree_saved = REPO_ROOT / "saved_snakes"
+        resolved = resolve_saved_snakes_dir()
+        if resolved != worktree_saved and resolved.is_dir():
+            monkeypatch.setenv(ENV_CKPT_DIR, str(resolved))

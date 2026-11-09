@@ -2,6 +2,8 @@
 PY ?= ./venv/bin/python
 PYTEST_WORKERS ?= 2
 SRC := src web/backend
+BOUND_BLACK_EXCLUDE := ^/(research/|docs/research/|docs/experiments/|tests/fixtures/|saved_snakes/|src/evaluation/safety_veto.*\.py$$|src/evaluation/strict_promotion\.py$$|src/scripts/tournament_eval\.py$$)
+BOUND_ISORT_SKIP_GLOBS := --skip-glob 'src/evaluation/safety_veto*.py' --skip-glob 'src/evaluation/strict_promotion.py' --skip-glob 'src/scripts/tournament_eval.py' --skip-glob 'research/*' --skip-glob 'tests/fixtures/*'
 
 .PHONY: help install install-dev test test-fast test-web lint format web build-web clean
 
@@ -34,13 +36,13 @@ test-web:
 	cd web/frontend && npm ci && npm test
 
 lint:
-	$(PY) -m black --check --line-length 100 $(SRC)
-	$(PY) -m isort --profile black --check-only $(SRC)
+	$(PY) -m black --check --line-length 100 --extend-exclude '$(BOUND_BLACK_EXCLUDE)' $(SRC)
+	$(PY) -m isort --profile black --check-only $(BOUND_ISORT_SKIP_GLOBS) $(SRC)
 	$(PY) -m flake8 $(SRC) web/serve.py conftest.py scripts tools/ops tests
 
 format:
-	$(PY) -m isort --profile black $(SRC)
-	$(PY) -m black --line-length 100 $(SRC)
+	$(PY) -m isort --profile black $(BOUND_ISORT_SKIP_GLOBS) $(SRC)
+	$(PY) -m black --line-length 100 --extend-exclude '$(BOUND_BLACK_EXCLUDE)' $(SRC)
 
 build-web:
 	cd web/frontend && npm install && npm run build

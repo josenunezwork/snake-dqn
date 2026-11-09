@@ -18,6 +18,7 @@ import json
 import random
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -592,17 +593,12 @@ def test_banks_are_the_template_recipe_and_prefix_invariant():
             assert full[(mix, i)]["world_seed"] == seed
 
 
-@functools.lru_cache(maxsize=1)
-def _light_exclusions():
-    return P.excluded_seeds(scan=False)
-
-
-def test_banks_are_disjoint_from_every_enumerable_namespace(monkeypatch, tmp_path):
-    install_v8_seed_history(monkeypatch, tmp_path / "seed-history")
+def _install_hermetic_exclusions(monkeypatch, root: Path) -> None:
+    install_v8_seed_history(monkeypatch, root / "seed-history")
     directories = {}
     for name, seed in (("frp-v2", 4_000_001), ("frp-v3", 4_000_002)):
-        directory = tmp_path / name
-        directory.mkdir()
+        directory = root / name
+        directory.mkdir(parents=True, exist_ok=True)
         exclusions = directory / "training_exclusions.json"
         exclusions.write_text(json.dumps([seed]))
         directory.joinpath("namespace_report.json").write_text(
@@ -620,7 +616,34 @@ def test_banks_are_disjoint_from_every_enumerable_namespace(monkeypatch, tmp_pat
     # test's hermetic namespace directories.
     written_exclusions = P.frp_written_exclusions
     monkeypatch.setattr(P, "frp_written_exclusions", lambda: written_exclusions(directories))
-    _light_exclusions.cache_clear()
+    real_run = P.subprocess.run
+
+    def single_branch_for_each_ref(cmd, *args, **kwargs):
+        if "for-each-ref" in cmd:
+            return subprocess.CompletedProcess(cmd, 0, stdout="refs/heads/main\n", stderr="")
+        return real_run(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(P.subprocess, "run", single_branch_for_each_ref)
+
+
+_PROD_FRP_NAMESPACE_DIRS = P.FRP_NAMESPACE_DIRS
+
+
+@functools.lru_cache(maxsize=1)
+def _hermetic_light_exclusions():
+    with tempfile.TemporaryDirectory() as tmp, pytest.MonkeyPatch.context() as mp:
+        _install_hermetic_exclusions(mp, Path(tmp))
+        return P.excluded_seeds(scan=False)
+
+
+def _light_exclusions():
+    if P.FRP_NAMESPACE_DIRS is not _PROD_FRP_NAMESPACE_DIRS:
+        return P.excluded_seeds(scan=False)
+    return _hermetic_light_exclusions()
+
+
+def test_banks_are_disjoint_from_every_enumerable_namespace(monkeypatch, tmp_path):
+    _install_hermetic_exclusions(monkeypatch, tmp_path)
     report = P.report(scan=False)
     assert report["disjoint"], report["problems"]
     excluded = _light_exclusions()

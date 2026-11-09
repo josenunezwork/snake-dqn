@@ -2,9 +2,9 @@
 # Uses the locally-installed tools (from requirements-dev.txt) so pre-commit,
 # CI, and your editor all run the exact same versions — no formatter drift.
 #
-# Immutable research/evidence trees and SHA-256-pinned safety_veto modules are
+# Immutable research/evidence trees and SHA-256-pinned modules/tests are
 # excluded so formatting hooks can never rewrite hash-bound files.
-exclude: ^(research/|docs/research/|docs/experiments/|tests/fixtures/|saved_snakes/|src/evaluation/safety_veto.*\.py$|tools/ops/.*\.md$|tools/small_bench_evidence_20261024/)
+exclude: ^(research/|docs/research/|docs/experiments/|tests/fixtures/|saved_snakes/|src/evaluation/safety_veto.*\.py$|src/evaluation/strict_promotion\.py$|src/scripts/tournament_eval\.py$|tests/__init__\.py$|tests/test_relative_actions\.py$|tests/test_s18_kl_contrast_audit_outer_v1\.py$|tests/test_s18_kl_contrast_outer_v1\.py$|tests/test_v8_admission_evidence\.py$|tools/ops/.*\.md$|tools/small_bench_evidence_20261024/)
 
 repos:
   - repo: local

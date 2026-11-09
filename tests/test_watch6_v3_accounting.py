@@ -2400,7 +2400,10 @@ def test_refusal_of_any_cross_root_substitution_across_entrypoints(
             ).strip()
             != BASELINE_COMMIT
         ):
-            with pytest.raises(ValueError, match=r"(HEAD is|protocol\.identity\(\) rotated)"):
+            with pytest.raises(
+                ValueError,
+                match=r"(HEAD is|protocol\.identity\(\) rotated|main checkout .* is forbidden)",
+            ):
                 dispatch.run_dispatch(
                     [
                         "watch6-v3-cross-root-probe",
