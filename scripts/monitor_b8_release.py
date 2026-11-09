@@ -56,7 +56,15 @@ DEFAULT_SPEED = 12.0
 QUALIFICATION_UPDATE_BOUND_MS = 66.667
 REPLAY_WINDOW_DAYS = 7.0
 REPLAY_WINDOW_FRAMES = 50_000
+REPLAY_SUMMARY_FULL_FRAMES = 600
+REPLAY_SUMMARY_MIN_P95_FRAMES = 20
 REPLAY_UPDATE_P95_TRIGGER_MS = 41.67
+REPLAY_ACTIVE_EVENTS = (
+    "watch_replay_active",
+    "replay_active",
+    "watch_replay_selected",
+    "replay_selected",
+)
 REPLAY_SUMMARY_EVENTS = ("watch_replay_summary", "replay_summary", "watch_replay_tick")
 REPLAY_FAILURE_EVENTS = ("replay_step_failure", "watch_replay_failure", "replay_failure")
 REPLAY_BANK_EXHAUSTED_EVENTS = (
@@ -82,6 +90,36 @@ def percentile95(values: list[float]) -> float:
     lower = math.floor(position)
     upper = math.ceil(position)
     return ordered[lower] + (ordered[upper] - ordered[lower]) * (position - lower)
+
+
+def replay_window_p95(
+    summary_batches: list[tuple[int, float]], raw_updates: list[float]
+) -> float | None:
+    """Aggregate replay update p95 without letting tiny partial flushes dominate."""
+    if not summary_batches and not raw_updates:
+        return None
+    if not summary_batches:
+        return percentile95(raw_updates)
+    all_batches = [*summary_batches, *((1, val) for val in raw_updates)]
+    full_batches = [
+        (frames, p95) for frames, p95 in all_batches if frames >= REPLAY_SUMMARY_FULL_FRAMES
+    ]
+    if not full_batches:
+        full_batches = [
+            (frames, p95) for frames, p95 in all_batches if frames >= REPLAY_SUMMARY_MIN_P95_FRAMES
+        ]
+    eligible = full_batches if full_batches else all_batches
+    ordered = sorted(eligible, key=lambda item: item[1])
+    total_frames = sum(frames for frames, _ in ordered)
+    if total_frames <= 1 or len(ordered) == 1:
+        return ordered[-1][1]
+    target = 0.95 * (total_frames - 1)
+    cumulative = 0
+    for frames, p95 in ordered:
+        if cumulative + frames > target:
+            return p95
+        cumulative += frames
+    return ordered[-1][1]
 
 
 def records(lines: Iterable[str]) -> tuple[list[dict[str, Any]], list[str]]:
@@ -122,12 +160,15 @@ def assess(
         item for item in items if item["event"] in ("replay_fallback", "watch_replay_fallback")
     )
     exceptions = [item for item in items if item["event"] == "ego2s_exception"]
+    replay_active = [item for item in items if item["event"] in REPLAY_ACTIVE_EVENTS]
     replay_summaries = [item for item in items if item["event"] in REPLAY_SUMMARY_EVENTS]
     replay_failures = [item for item in items if item["event"] in REPLAY_FAILURE_EVENTS]
     replay_bank_exhausted = [
         item for item in items if item["event"] in REPLAY_BANK_EXHAUSTED_EVENTS
     ]
-    replay_mode = bool(replay_summaries or replay_failures or replay_bank_exhausted)
+    replay_mode = bool(
+        replay_active or replay_summaries or replay_failures or replay_bank_exhausted
+    )
     watch_ticks = [item for item in items if item["event"] == "watch_tick"]
     latency_ticks = [item for item in items if item["event"] in ("watch_tick", "play_tick")]
     if not watch_ticks and not replay_mode:
@@ -139,11 +180,30 @@ def assess(
     watch_timestamps: dict[tuple[str, int], list[float]] = {}
     timestamps: list[float] = []
     replay_frames = 0
-    replay_summary_p95s: list[float] = []
+    replay_summary_batches: list[tuple[int, float]] = []
     replay_raw_updates: list[float] = []
     replay_timestamps: list[float] = []
     replay_step_failures = len(replay_failures)
     replay_bank_exhaustions = len(replay_bank_exhausted)
+    for item in replay_active:
+        try:
+            if item.get("checkpoint", "b8-s3") != "b8-s3":
+                faults.append("Watch replay telemetry checkpoint is not b8-s3")
+                continue
+            roster_size = int(item.get("roster_size", 6))
+            roster_mode = item.get("roster_mode", WATCH_ROSTER_MIXED)
+            speed = float(item.get("speed", 24.0))
+            timestamp = float(item["timestamp"])
+            if (
+                roster_size <= 0
+                or roster_mode not in WATCH_ROSTERS
+                or not all(math.isfinite(val) for val in (speed, timestamp))
+            ):
+                raise ValueError("invalid Watch replay active telemetry")
+            replay_timestamps.append(timestamp)
+            timestamps.append(timestamp)
+        except (KeyError, TypeError, ValueError, OverflowError):
+            faults.append("incomplete Watch replay telemetry")
     for item in replay_summaries:
         try:
             if item.get("checkpoint", "b8-s3") != "b8-s3":
@@ -174,7 +234,7 @@ def assess(
             replay_timestamps.extend((first_ts, timestamp))
             timestamps.extend((first_ts, timestamp))
             if p95_val is not None:
-                replay_summary_p95s.append(p95_val)
+                replay_summary_batches.append((frames, p95_val))
             if update_val is not None:
                 replay_raw_updates.append(update_val)
             if int(item.get("step_failures", 0) or 0) > 0:
@@ -309,12 +369,7 @@ def assess(
 
     current = time.time() if now is None else now
     elapsed_days = None if not timestamps else max(0.0, (current - min(timestamps)) / 86400.0)
-    replay_p95_candidates: list[float] = []
-    if replay_summary_p95s:
-        replay_p95_candidates.append(max(replay_summary_p95s))
-    if replay_raw_updates:
-        replay_p95_candidates.append(percentile95(replay_raw_updates))
-    replay_update_p95_ms = max(replay_p95_candidates) if replay_p95_candidates else None
+    replay_update_p95_ms = replay_window_p95(replay_summary_batches, replay_raw_updates)
     replay_elapsed_days = (
         None if not replay_timestamps else max(0.0, (current - min(replay_timestamps)) / 86400.0)
     )
