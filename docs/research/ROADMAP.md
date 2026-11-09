@@ -9,15 +9,21 @@ T34 is **closed** by its pre-registered closeout audit (campaign log 2026-11-04 
 
 - **Final shipped product:**
   - **Watch (`:8000`):** serves **132 confirmed `exact-stop-l1` replays** (`watch-replay-bank-live-132-l1`, banks `14l1–24l1`: `36` A100 + `96` G4 sessions; `SNAKE_WATCH_SOURCE=replay`, `SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l1`; `Watch6-L1-V1` `GO_L1_SUPERIOR`: deaths `−72%`, mass `+95%` vs bare at `H = 14,400`; Mac `24 fps` runs 2+3 `QUALIFIED` consecutively) with **live bare `b8-s3` fallback**.
-  - **Play (`:8000`):** serves **live bare `b8-s3`** (**Classic B8** default) with opt-in **"Field: Classic B8 / Mixed"** (`Mixed` = `frp3-s12 + v8` opponents; leaderboard partitioned by field, `b3789463`).
+  - **Play (`:8000`):** serves **live bare `b8-s3`** (**Classic B8** default) with opt-in **"Field: Classic B8 / Mixed"** (`Mixed` = `frp3-s12 + v8` opponents; leaderboard partitioned by field, `b3789463`; `KEEP_OPT_IN` — revisit at `>= 30` completed runs per field, uptake reported not gating per [`CAMPAIGN_LOG.md`](final_run_20261019/CAMPAIGN_LOG.md) `2026-11-09 PT 11:21` row, item 4).
   - **Serving fixes:** gen-2 GC tick stall (`5b4353c6`), Watch↔Play RSS growth (`7ecec2a0`).
 - **Closing evidence (all Mac-only, `0` Colab units):**
   - **`open-stop-h32-nb`** (alive + un-enclosed `H = 32` certificate) **PASSED** a pre-registered 96-fresh-world gate (`deaths −70%`, `mass +51%`, harmful overrides `0.88%`) — valid offline controller (`~60 ms/root`), not `24 fps`-live.
   - **Search→bare distillation CLOSED** (Stage 1B: frozen-feature heads keep only `8–9%` of open-stop rescues at `≤ 1%` ordinary flips; same selectivity wall as Sandbox B).
   - **Live search CLOSED** (closeout Part B: neither a one-tick `H = 12` budget nor a 3-tick-delayed async open-stop keeps `≥ 50%` of rescues within `≤ 1%` false overrides).
   - **Claim A `b8-head` closed-loop:** all 4 arms lose mass (`−305 … −26`, `LB90 < 0`) → **KILL** (contract schema partly missing in the receipt; reported `INCONCLUSIVE`-on-schema, `FAIL` on every measured bar).
-  - **Earlier stops this round:** hero `M4-B2 Stage 1A` `FAIL`; `v6` fast kernel parked (`full step ≈ 1.65 ms`).
-- **Standing rule (owner, 2026-11-04):** reopening any hero-improvement line needs a new idea that clears the selectivity wall or the `24 fps` budget, decided by the advisors.
+  - **Earlier stops this round:** hero `M4-B2 Stage 1A` `FAIL`; `v6` fast kernel parked (`full step ≈ 1.65 ms`; the v6 M0 `0.22 ms` bar is retired prospectively on false premise and the `24 fps` / `11.688 ms` budget governs per [`CAMPAIGN_LOG.md`](final_run_20261019/CAMPAIGN_LOG.md) `2026-11-09 PT 11:21` row, item 6).
+- **Standing & prospective stop rules ([`CAMPAIGN_LOG.md`](final_run_20261019/CAMPAIGN_LOG.md) `2026-11-09 PT 11:21` row; past verdicts, one-look results, and held-out data stay as they are):**
+  - **(1) Offline Watch controller ideas:** the Bank-v2 census rule (`STOP_AND_MAINTAIN` if `deaths/1k <= 0.03`) was a one-shot rule for the `l1` bank, not a standing ceiling on `l1-os`. An offline Watch controller idea gets one Mac-only 48-paired-world `H = 6,000` dev screen; Colab confirmation runs only if paired `Δmass >= +15` with `LB95 > 0` and `deaths/1k <= incumbent`; `deaths/1k` alone never closes the line.
+  - **(2) Watch replay release monitor:** in replay mode, the observation window is `7` days and `>= 50,000` replay frames served; roll back on any fallback, replay step failure, `ego2s` exception, replay update `p95 > 41.67 ms`, or bank exhaustion, with live death/latency bars evaluated only on live-fallback frames.
+  - **(3) Long Watch sessions:** replacing the unsatisfiable `N = 200` viewer gate for opt-in, long sessions become an exploration-lane opt-in Watch setting after a `0 u` Mac engineering gate and a 12-session `H = 14,400` pilot; changing the default still needs a viewer test.
+  - **(4) Play Mixed trigger:** keep `KEEP_OPT_IN`; revisit at `>= 30` completed runs per field, with uptake reported rather than gating.
+  - **(5) Served-live hero reopening (owner, 2026-11-04, scoped 2026-11-09):** reopening a served-live hero-policy line needs a new idea that clears the selectivity wall or the `24 fps` (`11.688 ms`) budget, decided by the advisors (scoped to served-live hero policy only).
+  - **(6) v6 M0 latency bar retired:** the v6 M0 `0.22 ms` step-time bar is retired (false premise); the `24 fps` / `11.688 ms` budget governs.
 
 ---
 

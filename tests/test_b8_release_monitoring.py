@@ -619,3 +619,585 @@ def test_window_completes_only_after_both_time_and_decision_conditions() -> None
     records = [records[0]] + [tick] * 100000
     healthy, _messages, metrics = monitor.assess(records, [], now=8 * 86400)
     assert healthy and metrics["window_complete"] is True
+
+
+def _healthy_replay_records(
+    *,
+    frames: int = 50_000,
+    update_p95_ms: float = 0.05,
+    first_timestamp: float = 0.0,
+    timestamp: float = 0.0,
+) -> list[dict]:
+    return [
+        {
+            "event": "resolution",
+            "requested": None,
+            "name": "b8-s3",
+            "fallback_reason": None,
+        },
+        {
+            "event": "watch_replay_summary",
+            "checkpoint": "b8-s3",
+            "roster_mode": "mixed",
+            "roster_size": 6,
+            "controller": "exact-stop-l1-os",
+            "speed": 24.0,
+            "frames": frames,
+            "update_p95_ms": update_p95_ms,
+            "max_update_ms": update_p95_ms,
+            "mean_update_ms": update_p95_ms,
+            "first_timestamp": first_timestamp,
+            "timestamp": timestamp,
+        },
+    ]
+
+
+def test_replay_window_reports_incomplete_rather_than_healthy_below_bars(
+    tmp_path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    below_frames = _healthy_replay_records(frames=49_999)
+    healthy, messages, metrics = monitor.assess(below_frames, [], now=8 * 86400)
+    assert not healthy
+    assert metrics["replay_mode"] is True
+    assert metrics["replay_frames"] == 49_999
+    assert metrics["window_complete"] is False
+    assert metrics["replay_window_complete"] is False
+    assert any("incomplete Watch replay observation window" in msg for msg in messages)
+
+    below_days = _healthy_replay_records(frames=50_000)
+    healthy, messages, metrics = monitor.assess(below_days, [], now=6 * 86400)
+    assert not healthy
+    assert metrics["window_complete"] is False
+    assert any("incomplete Watch replay observation window" in msg for msg in messages)
+
+    complete = _healthy_replay_records(frames=50_000)
+    healthy, messages, metrics = monitor.assess(complete, [], now=7 * 86400)
+    assert healthy and messages == []
+    assert metrics["window_complete"] is True
+    assert metrics["replay_window_complete"] is True
+
+    incomplete_log = tmp_path / "incomplete.log"
+    incomplete_log.write_text(
+        "\n".join(f"b8-release-monitor: {__import__('json').dumps(r)}" for r in below_frames)
+        + "\n",
+        encoding="utf-8",
+    )
+    assert monitor.main([str(incomplete_log)]) == 2
+    out = capsys.readouterr().out
+    assert "incomplete Watch replay observation window" in out
+    assert out.strip().endswith("NOT_HEALTHY")
+
+    complete_log = tmp_path / "complete.log"
+    complete_log.write_text(
+        "\n".join(f"b8-release-monitor: {__import__('json').dumps(r)}" for r in complete) + "\n",
+        encoding="utf-8",
+    )
+    assert monitor.main([str(complete_log)]) == 0
+    assert capsys.readouterr().out.strip().endswith("HEALTHY")
+
+
+def test_replay_monitor_flags_each_rollback_trigger() -> None:
+    # 1. Fallback reason (resolution, ego2s, mixed Watch, or replay fallback)
+    for fb_event in (
+        {"event": "ego2s_fallback", "reason": "empty queue"},
+        {"event": "mixed_roster_fallback", "reason": "bad opponent pin"},
+        {"event": "replay_fallback", "reason": "replay fallback"},
+    ):
+        records = _healthy_replay_records() + [fb_event]
+        healthy, messages, metrics = monitor.assess(records, [], now=8 * 86400)
+        assert not healthy and metrics["fallback_records"] == 1
+        assert any("ROLLBACK: recorded served-checkpoint or ego2s fallback" in m for m in messages)
+
+    # 2. Replay step failure
+    records = _healthy_replay_records() + [
+        {
+            "event": "replay_step_failure",
+            "checkpoint": "b8-s3",
+            "roster_mode": "mixed",
+            "roster_size": 6,
+            "controller": "exact-stop-l1-os",
+            "stage": "step",
+            "error_type": "ValueError",
+            "reason": "corrupt frame",
+            "timestamp": 1.0,
+        }
+    ]
+    healthy, messages, metrics = monitor.assess(records, [], now=8 * 86400)
+    assert not healthy and metrics["replay_step_failures"] == 1
+    assert any("ROLLBACK: recorded Watch replay step failure" in m for m in messages)
+
+    # 3. ego2s exception
+    records = _healthy_replay_records() + [
+        {"event": "ego2s_exception", "checkpoint": "b8-s3", "error_type": "RuntimeError"}
+    ]
+    healthy, messages, metrics = monitor.assess(records, [], now=8 * 86400)
+    assert not healthy and metrics["ego2s_exceptions"] == 1
+    assert any("ROLLBACK: recorded ego2s-path exception" in m for m in messages)
+
+    # 4. Replay update p95 > 41.67 ms (strictly greater)
+    at_bound = _healthy_replay_records(update_p95_ms=41.67)
+    healthy, messages, _ = monitor.assess(at_bound, [], now=8 * 86400)
+    assert healthy and messages == []
+
+    over_bound = _healthy_replay_records(update_p95_ms=41.68)
+    healthy, messages, metrics = monitor.assess(over_bound, [], now=8 * 86400)
+    assert not healthy and metrics["replay_update_p95_ms"] == 41.68
+    assert any("ROLLBACK: Watch replay update p95" in m and "41.67" in m for m in messages)
+
+    # 5. Bank exhaustion
+    records = _healthy_replay_records() + [
+        {
+            "event": "replay_bank_exhausted",
+            "checkpoint": "b8-s3",
+            "roster_mode": "mixed",
+            "roster_size": 6,
+            "reason": "No verified replay without an immediate repeat; using live B8.",
+            "timestamp": 1.0,
+        }
+    ]
+    healthy, messages, metrics = monitor.assess(records, [], now=8 * 86400)
+    assert not healthy and metrics["replay_bank_exhaustions"] == 1
+    assert any("ROLLBACK: Watch replay bank exhausted" in m for m in messages)
+
+
+def test_replay_monitor_evaluates_live_bars_on_live_fallback_frames_only() -> None:
+    # Cold-startup 24 fps live-fallback ticks without 12 fps latency samples or 100k decisions
+    # remain healthy when the replay window is complete and live-fallback bars are not breached.
+    cold_tick = {
+        "event": "watch_tick",
+        "checkpoint": "b8-s3",
+        "roster_mode": "mixed",
+        "roster_size": 6,
+        "speed": 24.0,
+        "decisions": 1,
+        "deaths": 0,
+        "update_ms": 8.5,
+        "timestamp": 0.0,
+        "latency_eligible": False,
+    }
+    records = _healthy_replay_records() + [cold_tick] * 5
+    healthy, messages, metrics = monitor.assess(records, [], now=8 * 86400)
+    assert healthy and messages == []
+    assert metrics["window_complete"] is True
+    assert metrics["deaths_by_roster"]["mixed_watch6"]["deaths_per_1000"] == 0.0
+
+    # Breaching the live death bar on live-fallback frames triggers rollback.
+    lethal_fallback = dict(cold_tick, deaths=1)
+    healthy, messages, _ = monitor.assess(
+        _healthy_replay_records() + [lethal_fallback], [], now=8 * 86400
+    )
+    assert not healthy
+    assert any("ROLLBACK: mixed_watch6 deaths/1k" in m for m in messages)
+
+    # Breaching the live 12 fps latency bar on eligible live-fallback frames triggers rollback.
+    slow_live_fallback = dict(cold_tick, speed=12.0, latency_eligible=True, update_ms=15.0)
+    healthy, messages, _ = monitor.assess(
+        _healthy_replay_records() + [slow_live_fallback], [], now=8 * 86400
+    )
+    assert not healthy
+    assert any("ROLLBACK: mixed_watch6 update p95" in m for m in messages)
+
+
+def test_session_replay_telemetry_aggregates_periodically_and_emits_faults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    summaries: list[dict] = []
+    failures: list[dict] = []
+    exhaustions: list[dict] = []
+    monkeypatch.setattr(session_mod, "roster_ai_count", lambda *_args: 6)
+    monkeypatch.setattr(
+        session_mod, "watch_replay_summary", lambda **kwargs: summaries.append(kwargs)
+    )
+    monkeypatch.setattr(
+        session_mod, "watch_replay_failure", lambda **kwargs: failures.append(kwargs)
+    )
+    monkeypatch.setattr(
+        session_mod, "watch_replay_bank_exhausted", lambda **kwargs: exhaustions.append(kwargs)
+    )
+    monkeypatch.setattr(session_mod, "watch_tick", lambda **_kwargs: None)
+
+    session = _b8_session(
+        SimpleNamespace(snakes=[], frame_death_causes={}, update=lambda **_kw: None)
+    )
+    session.watch_roster = "mixed"
+    session.speed = 24.0
+    session._watch_replay = SimpleNamespace(
+        header={"controller": "exact-stop-l1-os"},
+        step=lambda: True,
+        snapshot=lambda _s: {"frame": 1},
+        close=lambda: None,
+    )
+    session._replay_bank = None
+
+    for _ in range(session.REPLAY_TELEMETRY_SUMMARY_FRAMES - 1):
+        session.step()
+    assert summaries == []
+
+    session.step()
+    assert len(summaries) == 1
+    assert summaries[0]["frames"] == session.REPLAY_TELEMETRY_SUMMARY_FRAMES
+    assert summaries[0]["controller"] == "exact-stop-l1-os"
+    assert summaries[0]["roster_mode"] == "mixed"
+
+    # Partial batch flushes on leaving replay or failure.
+    session.step()
+    session.step()
+    assert len(summaries) == 1
+    session._watch_replay.step = lambda: (_ for _ in ()).throw(ValueError("bad replay frame"))
+    session.step()
+    assert len(summaries) == 2 and summaries[1]["frames"] == 2
+    assert len(failures) == 1 and failures[0]["stage"] == "step"
+
+    # Snapshot failure and bank exhaustion are recorded.
+    session._watch_replay = SimpleNamespace(
+        header={"controller": "exact-stop-l1-os"},
+        step=lambda: False,
+        snapshot=lambda _s: (_ for _ in ()).throw(RuntimeError("bad snapshot")),
+        close=lambda: None,
+    )
+    monkeypatch.setattr("web.backend.serialize.build_frame", lambda _s: {"frame": 0})
+    session.snapshot()
+    assert len(failures) == 2 and failures[1]["stage"] == "snapshot"
+
+    session._watch_replay = SimpleNamespace(
+        header={"controller": "exact-stop-l1-os"},
+        step=lambda: False,
+        close=lambda: None,
+    )
+    session.step()
+    assert len(exhaustions) == 1
+
+
+def test_every_telemetry_hook_raising_produces_identical_served_frames(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from web.backend import release_monitoring
+
+    def _make_replay(name: str, total_steps: int) -> SimpleNamespace:
+        state = {"frame": 0, "closed": False}
+
+        def _step() -> bool:
+            if state["frame"] >= total_steps:
+                return False
+            state["frame"] += 1
+            return True
+
+        def _snapshot(_s: object) -> dict:
+            return {"source": "replay", "name": name, "frame": state["frame"]}
+
+        def _close() -> None:
+            state["closed"] = True
+
+        return SimpleNamespace(
+            header={"controller": "exact-stop-l1-os"},
+            state=state,
+            step=_step,
+            snapshot=_snapshot,
+            close=_close,
+        )
+
+    def _build_pair(total_steps: int = 602):
+        pairs = []
+        for monitored in (False, True):
+            live_state = {"frame": 0}
+            hero = SimpleNamespace(id=0, is_alive=True, update=lambda *_a: None)
+
+            def _update(_ls=live_state, _h=hero, **_kw) -> None:
+                _ls["frame"] += 1
+                _h.update([], [])
+
+            game = SimpleNamespace(snakes=[hero], frame_death_causes={}, update=_update)
+            sess = _b8_session(game)
+            sess._release_monitoring = monitored
+            sess.watch_roster = "mixed"
+            sess.speed = 24.0
+            sess.live_state = live_state
+            r1 = _make_replay("r1", total_steps)
+            r2 = _make_replay("r2", 2)
+            queue = [r2]
+            sess._watch_replay = r1
+            sess._replay_bank = SimpleNamespace(
+                pick=lambda _q=queue: _q.pop(0) if _q else None,
+                pending=False,
+                error=None,
+            )
+            pairs.append((sess, r1, r2))
+        return pairs[0], pairs[1]
+
+    monkeypatch.setattr(
+        "web.backend.serialize.build_frame",
+        lambda s: {"source": "live", "frame": s.live_state["frame"]},
+    )
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError("telemetry hook boom")
+
+    for hook in (
+        "served_resolution",
+        "mixed_roster_fallback",
+        "play_mixed_roster_fallback",
+        "watch_tick",
+        "play_tick",
+        "ego2s_exception",
+        "watch_replay_active",
+        "watch_replay_summary",
+        "watch_replay_failure",
+        "watch_replay_bank_exhausted",
+    ):
+        monkeypatch.setattr(session_mod, hook, _boom)
+        monkeypatch.setattr(release_monitoring, hook, _boom)
+    monkeypatch.setattr(release_monitoring, "emit", _boom)
+
+    (base, base_r1, base_r2), (mon, mon_r1, mon_r2) = _build_pair(total_steps=602)
+
+    base_frames = []
+    mon_frames = []
+    # Step across the 600-frame summary flush boundary, replay rotation (r1 -> r2),
+    # and bank exhaustion fallback to live B8.
+    for _ in range(606):
+        base.step()
+        mon.step()
+        base_frames.append(base.snapshot())
+        mon_frames.append(mon.snapshot())
+
+    assert mon_frames == base_frames
+    assert mon_r1.state["closed"] is True and base_r1.state["closed"] is True
+    assert mon_r2.state["closed"] is True and base_r2.state["closed"] is True
+    assert mon._watch_replay is None and base._watch_replay is None
+
+    # Verify step/snapshot failures and _leave_watch_replay still close/clear _watch_replay
+    # even when _flush_watch_replay_telemetry and _record_watch_replay_failure raise directly.
+    monkeypatch.setattr(mon, "_flush_watch_replay_telemetry", _boom)
+    monkeypatch.setattr(mon, "_record_watch_replay_failure", _boom)
+    monkeypatch.setattr(mon, "_record_watch_replay_step", _boom)
+
+    failing_step_replay = _make_replay("fail_step", 5)
+    failing_step_replay.step = lambda: (_ for _ in ()).throw(ValueError("corrupt step"))
+    mon._watch_replay = failing_step_replay
+    base_fail_step = _make_replay("fail_step", 5)
+    base_fail_step.step = lambda: (_ for _ in ()).throw(ValueError("corrupt step"))
+    base._watch_replay = base_fail_step
+
+    base.step()
+    mon.step()
+    assert mon.snapshot() == base.snapshot()
+    assert failing_step_replay.state["closed"] is True
+    assert mon._watch_replay is None
+    assert mon.last_error == base.last_error
+
+    failing_snap_replay = _make_replay("fail_snap", 5)
+    failing_snap_replay.snapshot = lambda _s: (_ for _ in ()).throw(RuntimeError("corrupt snap"))
+    mon._watch_replay = failing_snap_replay
+    base_fail_snap = _make_replay("fail_snap", 5)
+    base_fail_snap.snapshot = lambda _s: (_ for _ in ()).throw(RuntimeError("corrupt snap"))
+    base._watch_replay = base_fail_snap
+
+    assert mon.snapshot() == base.snapshot()
+    assert failing_snap_replay.state["closed"] is True
+    assert mon._watch_replay is None
+    assert mon.last_error == base.last_error
+
+    leave_replay = _make_replay("leave", 5)
+    mon._watch_replay = leave_replay
+    mon._leave_watch_replay()
+    assert leave_replay.state["closed"] is True
+    assert mon._watch_replay is None
+
+
+def test_small_partial_replay_flushes_cannot_set_window_p95() -> None:
+    resolution = _healthy_replay_records()[0]
+    full_batches = [
+        {
+            "event": "watch_replay_summary",
+            "checkpoint": "b8-s3",
+            "roster_mode": "mixed",
+            "roster_size": 6,
+            "controller": "exact-stop-l1-os",
+            "speed": 24.0,
+            "frames": 600,
+            "update_p95_ms": 0.05,
+            "max_update_ms": 0.1,
+            "mean_update_ms": 0.04,
+            "first_timestamp": float(i * 600),
+            "timestamp": float((i + 1) * 600),
+        }
+        for i in range(84)
+    ]
+    partial_one_frame = {
+        "event": "watch_replay_summary",
+        "checkpoint": "b8-s3",
+        "roster_mode": "mixed",
+        "roster_size": 6,
+        "controller": "exact-stop-l1-os",
+        "speed": 24.0,
+        "frames": 1,
+        "update_p95_ms": 85.0,
+        "max_update_ms": 85.0,
+        "mean_update_ms": 85.0,
+        "first_timestamp": 60_000.0,
+        "timestamp": 60_001.0,
+    }
+    partial_fifteen_frames = {
+        **partial_one_frame,
+        "frames": 15,
+        "update_p95_ms": 60.0,
+        "max_update_ms": 60.0,
+    }
+
+    healthy, messages, metrics = monitor.assess(
+        [resolution, *full_batches, partial_one_frame, partial_fifteen_frames],
+        [],
+        now=8 * 86400,
+    )
+    assert healthy and messages == []
+    assert metrics["replay_frames"] == 84 * 600 + 16
+    assert metrics["replay_update_p95_ms"] == 0.05
+
+    # If >= 5% of full-window frames breach the 41.67 ms trigger, rollback triggers.
+    slow_batches = [
+        {**full_batches[0], "update_p95_ms": 50.0, "max_update_ms": 55.0} for _ in range(5)
+    ]
+    healthy, messages, metrics = monitor.assess(
+        [resolution, *full_batches[:79], *slow_batches],
+        [],
+        now=8 * 86400,
+    )
+    assert not healthy
+    assert metrics["replay_update_p95_ms"] == 50.0
+    assert any("ROLLBACK: Watch replay update p95" in m for m in messages)
+
+
+def test_replay_selection_emits_presence_and_prevents_premature_healthy_before_first_summary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    emitted: list[dict] = []
+    monkeypatch.setattr(session_mod, "roster_ai_count", lambda *_args: 6)
+    monkeypatch.setattr(
+        session_mod,
+        "watch_replay_active",
+        lambda **kwargs: emitted.append(
+            {"event": "watch_replay_active", "timestamp": 1.0, **kwargs}
+        ),
+    )
+    monkeypatch.setattr(
+        session_mod,
+        "watch_replay_summary",
+        lambda **kwargs: emitted.append(
+            {"event": "watch_replay_summary", "timestamp": 2.0, **kwargs}
+        ),
+    )
+    monkeypatch.setattr(
+        session_mod,
+        "watch_tick",
+        lambda **kwargs: emitted.append({"event": "watch_tick", "timestamp": 1.5, **kwargs}),
+    )
+
+    hero = SimpleNamespace(id=0, is_alive=True, update=lambda *_a: None)
+    game = SimpleNamespace(
+        snakes=[hero], frame_death_causes={}, update=lambda **_kw: hero.update([], [])
+    )
+    session = _b8_session(game)
+    session.watch_roster = "mixed"
+    session.speed = 12.0
+
+    # 1. Cold replay-bank verification (_replay_pending=True) ticking live B8.
+    session._replay_bank = SimpleNamespace(pick=lambda: None, pending=True, error=None)
+    session._select_watch_replay()
+    session.step()
+    assert any(e["event"] == "watch_replay_active" and e["status"] == "pending" for e in emitted)
+
+    healthy, messages, metrics = monitor.assess(
+        [_healthy_replay_records()[0], *emitted], [], now=8 * 86400
+    )
+    assert not healthy
+    assert metrics["replay_mode"] is True
+    assert metrics["window_complete"] is False
+    assert any("incomplete Watch replay observation window" in m for m in messages)
+
+    # 2. Replay selected and stepped for < 600 frames (before any watch_replay_summary flush).
+    emitted.clear()
+    replay = SimpleNamespace(
+        header={"controller": "exact-stop-l1-os"},
+        step=lambda: True,
+        snapshot=lambda _s: {"frame": 1},
+        close=lambda: None,
+    )
+    session._replay_bank = SimpleNamespace(pick=lambda: replay, pending=False, error=None)
+    session._select_watch_replay()
+    for _ in range(10):
+        session.step()
+    assert [e["event"] for e in emitted] == ["watch_replay_active"]
+    assert emitted[0]["controller"] == "exact-stop-l1-os"
+    assert emitted[0]["status"] == "active"
+
+    healthy, messages, metrics = monitor.assess(
+        [_healthy_replay_records()[0], *emitted], [], now=8 * 86400
+    )
+    assert not healthy
+    assert metrics["replay_mode"] is True
+    assert metrics["replay_frames"] == 0
+    assert metrics["window_complete"] is False
+    assert any("incomplete Watch replay observation window" in m for m in messages)
+
+
+def test_replay_telemetry_snapshots_batch_attributes_at_batch_open(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    summaries: list[dict] = []
+    monkeypatch.setattr(session_mod, "roster_ai_count", lambda snakes: len(snakes))
+    monkeypatch.setattr(
+        session_mod, "watch_replay_summary", lambda **kwargs: summaries.append(kwargs)
+    )
+    monkeypatch.setattr(session_mod, "watch_replay_active", lambda **_kwargs: None)
+
+    session = _b8_session(
+        SimpleNamespace(
+            snakes=[SimpleNamespace()] * 6, frame_death_causes={}, update=lambda **_kw: None
+        )
+    )
+    session.watch_roster = "mixed"
+    session.speed = 24.0
+    session._watch_replay = SimpleNamespace(
+        header={"controller": "exact-stop-l1-os"},
+        step=lambda: True,
+        snapshot=lambda _s: {"frame": 1},
+        close=lambda: None,
+    )
+    session._replay_bank = None
+
+    session.step()
+    session.step()
+    session.step()
+    assert summaries == []
+
+    # Mutate session attributes before flushing; buffered batch must retain step-time metadata.
+    session.speed = 12.0
+    session.watch_roster = "all_b8"
+    session.game.snakes = [SimpleNamespace()] * 12
+    session._watch_replay = SimpleNamespace(
+        header={"controller": "mutated-controller"},
+        step=lambda: True,
+        close=lambda: None,
+    )
+
+    # Stepping with changed attributes flushes the prior batch with its snapshotted values
+    # and opens a new batch with the updated values.
+    session.step()
+    assert len(summaries) == 1
+    assert summaries[0]["frames"] == 3
+    assert summaries[0]["roster_mode"] == "mixed"
+    assert summaries[0]["roster_size"] == 6
+    assert summaries[0]["controller"] == "exact-stop-l1-os"
+    assert summaries[0]["speed"] == 24.0
+
+    # Mutate again before _leave_watch_replay() flush.
+    session.speed = 6.0
+    session.watch_roster = "mixed"
+    session.game.snakes = [SimpleNamespace()] * 8
+    session._leave_watch_replay()
+    assert len(summaries) == 2
+    assert summaries[1]["frames"] == 1
+    assert summaries[1]["roster_mode"] == "all_b8"
+    assert summaries[1]["roster_size"] == 12
+    assert summaries[1]["controller"] == "mutated-controller"
+    assert summaries[1]["speed"] == 12.0
