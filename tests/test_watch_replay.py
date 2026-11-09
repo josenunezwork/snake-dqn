@@ -2182,4 +2182,3 @@ def test_replay_bank_and_session_close_release_queued_recordings(tmp_path):
     assert session._replay_bank is None
     assert bank._ready.empty()
     assert all(rec._mmap is None for rec in queued)
-

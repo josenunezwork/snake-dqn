@@ -6,7 +6,6 @@ import copy
 import json
 import shutil
 from pathlib import Path
-from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -77,7 +76,9 @@ def _write_demo_fixture(root: Path) -> None:
     data = root / "round-12"
     data.mkdir(parents=True)
     n = 512
-    world_seed = np.concatenate([np.zeros(n // 2, dtype=np.int64), np.ones(n // 2, dtype=np.int64)])
+    world_seed = np.concatenate(
+        [np.zeros(n // 2, dtype=np.int64), np.ones(n // 2, dtype=np.int64)]
+    )
     np.savez(
         data / "chunk-000-part-000.npz",
         world_seed=world_seed,

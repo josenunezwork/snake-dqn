@@ -18,3 +18,9 @@ exclude =
 per-file-ignores =
     # main.py sets PYTORCH_ENABLE_MPS_FALLBACK before importing torch by design.
     src/main.py: E402
+    # Historical SHA-256-pinned test files whose bytes must remain unchanged.
+    tests/__init__.py: W391
+    tests/test_relative_actions.py: F401
+    tests/test_s18_kl_contrast_audit_outer_v1.py: E501
+    tests/test_s18_kl_contrast_outer_v1.py: E501
+    tests/test_v8_admission_evidence.py: F401

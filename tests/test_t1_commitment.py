@@ -16,7 +16,6 @@ from research.t1_commitment_20261015.replay import (
     assert_same_world,
     build_replay,
     configure_cpu,
-    load_inputs,
 )
 from research.t1_commitment_20261015.study import coarse_decisions, rollout
 from tests.t14_fixtures import evaluator_context

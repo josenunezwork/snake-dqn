@@ -36,7 +36,7 @@ test-web:
 lint:
 	$(PY) -m black --check --line-length 100 $(SRC)
 	$(PY) -m isort --profile black --check-only $(SRC)
-	$(PY) -m flake8 $(SRC)
+	$(PY) -m flake8 $(SRC) web/serve.py conftest.py scripts tools/ops tests
 
 format:
 	$(PY) -m isort --profile black $(SRC)

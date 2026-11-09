@@ -35,7 +35,7 @@ jobs:
         run: |
           black --check --line-length 100 src web/backend
           isort --profile black --check-only src web/backend
-          flake8 src web/backend
+          flake8 src web/backend web/serve.py conftest.py scripts tools/ops tests
       - name: Verify pinned numerical plans
         run: |
           python -c "import platform, torch; print(platform.platform(), platform.machine(), torch.__version__); print(torch.__config__.show())"

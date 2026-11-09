@@ -6,7 +6,6 @@ import json
 import queue
 import threading
 from pathlib import Path
-from types import SimpleNamespace
 
 import numpy as np
 import pytest
