@@ -32,7 +32,7 @@ const TIPS = [
   "The caption under the arena narrates the AI's live decision.",
   "The Inspector's steering dial + radar show what it senses and how it moves.",
   "The telemetry strip up top plots the run live.",
-  "The Raster tab shows what the new conv model literally sees — load a raster31v2 checkpoint from Controls › Model to light it up.",
+  "The Raster tab shows what the conv model literally sees in live Watch (ego2s or raster31v2).",
   "Switch to the Play tab to race the AI for the leaderboard.",
 ];
 

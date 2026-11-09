@@ -407,11 +407,11 @@ function EgoRasterViewer({ raster, obsSpec, labels = false }: Props) {
             {isEgo2s ? (
               <>
                 The served policy is <span className="mono">{obsSpec}</span> (dual-scale ego
-                raster CNN), and the live raster view is unavailable for the served ego2s model
-                and recorded replays. Inspect its scalar and v8 safety features in the{" "}
+                raster CNN). Live Watch streams its 7×31×31 local and 4×37×37 global planes when
+                this tab is open, while recorded Watch replays and Play mode omit per-frame raster
+                payloads. Inspect its scalar and v8 safety features in the{" "}
                 <span className="mono">Inspector</span> and <span className="mono">Network</span>{" "}
-                tabs, or load a <span className="mono">raster31v2</span> checkpoint to use this
-                viewer.
+                tabs, or switch Watch to live simulation to stream the ego-raster planes.
               </>
             ) : (
               <>
