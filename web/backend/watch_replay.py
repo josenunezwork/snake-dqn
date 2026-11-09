@@ -26,8 +26,16 @@ CONTROLLERS = ASSISTED_CONTROLLERS | {"bare-b8"}
 ENV_REPLAY_CONTROLLER = "SNAKE_WATCH_REPLAY_CONTROLLER"
 REPLAY_CONTROLLER_ALL = "all"
 VALID_REPLAY_CONTROLLERS = frozenset({REPLAY_CONTROLLER_ALL, *ASSISTED_CONTROLLERS})
+DEFAULT_HORIZON = 6000
+LONG_HORIZON = 14400
+DEFAULT_HORIZONS = frozenset({DEFAULT_HORIZON})
+PRODUCT_HORIZONS = frozenset({DEFAULT_HORIZON, LONG_HORIZON})
+ENV_REPLAY_LONG_SESSIONS = "SNAKE_WATCH_LONG_SESSIONS"
+ENV_REPLAY_HORIZON = "SNAKE_WATCH_REPLAY_HORIZON"
+ENV_REPLAY_LONG_DIR = "SNAKE_WATCH_REPLAY_LONG_DIR"
 MAX_COMPRESSED = 128 * 1024**2
 MAX_DECODED = 512 * 1024**2
+MAX_LONG_DECODED = (MAX_DECODED * LONG_HORIZON) // DEFAULT_HORIZON
 MAX_LINE = 2 * 1024**2
 COOPERATIVE_YIELD_FRAMES = 64
 COOPERATIVE_YIELD_SLICE_SECONDS = 0.00025
@@ -165,8 +173,26 @@ class _BufferReader(io.RawIOBase):
             return count
 
 
-def _records(payload: bytes | bytearray | memoryview | mmap.mmap) -> Iterator[dict]:
+def max_decoded_bytes(*, allow_long: bool = False, horizon: Any = None) -> int:
+    """Return the cumulative decoded-byte limit for a replay stream.
+
+    Default H=6,000 sessions always enforce MAX_DECODED (512 MiB). Only when
+    long sessions are enabled and the recording header declares H=14,400 is the
+    bound scaled proportionally by LONG_HORIZON / DEFAULT_HORIZON (2.4x = 1228.8 MiB).
+    """
+    if allow_long and type(horizon) is int and horizon == LONG_HORIZON:
+        return (MAX_DECODED * LONG_HORIZON) // DEFAULT_HORIZON
+    return MAX_DECODED
+
+
+def _records(
+    payload: bytes | bytearray | memoryview | mmap.mmap,
+    *,
+    allow_long: bool = False,
+) -> Iterator[dict]:
     total = 0
+    decoded_limit = MAX_DECODED
+    first_record = True
     with (
         _BufferReader(payload) as raw,
         io.BufferedReader(raw) as buf,
@@ -174,9 +200,14 @@ def _records(payload: bytes | bytearray | memoryview | mmap.mmap) -> Iterator[di
     ):
         while line := stream.readline(MAX_LINE + 1):
             total += len(line)
-            if len(line) > MAX_LINE or total > MAX_DECODED:
+            if len(line) > MAX_LINE or total > decoded_limit:
                 raise ValueError("replay decompression limit")
-            yield _decode_json_object(line)
+            obj = _decode_json_object(line)
+            if first_record:
+                first_record = False
+                if allow_long:
+                    decoded_limit = max_decoded_bytes(allow_long=True, horizon=obj.get("horizon"))
+            yield obj
 
 
 def _read_pinned_payload(path: Path) -> tuple[bytes | mmap.mmap, str]:
@@ -209,8 +240,192 @@ def _read_pinned_payload(path: Path) -> tuple[bytes | mmap.mmap, str]:
         raise
 
 
-def validate_header(header: dict, *, product: bool = True) -> None:
+def resolve_replay_horizons(
+    *,
+    allow_long: bool | None = None,
+    horizons: Any = None,
+) -> tuple[frozenset[int] | None, bool, str | None]:
+    """Resolve opt-in Watch replay horizon settings, failing closed on invalid values.
+
+    Default behaviour is strictly H=6,000 (allow_long=False, horizons={6000}).
+    Opt-in long sessions (H=14,400 alongside or instead of H=6,000) can be enabled via:
+    - allow_long=True or explicit horizons={14400} / {6000, 14400}
+    - SNAKE_WATCH_LONG_SESSIONS=1|true|yes|on|long
+    - SNAKE_WATCH_REPLAY_HORIZON=14400|long|all|both|6000,14400
+    """
+    if horizons is not None:
+        if type(horizons) is int:
+            items: list[Any] = [horizons]
+        elif isinstance(horizons, str):
+            norm_str = horizons.strip().lower()
+            if norm_str in {"6000", "default", "short"}:
+                items = [DEFAULT_HORIZON]
+            elif norm_str in {"14400", "long"}:
+                items = [LONG_HORIZON]
+            elif norm_str in {"all", "both", "6000,14400", "14400,6000"}:
+                items = [DEFAULT_HORIZON, LONG_HORIZON]
+            else:
+                return (
+                    None,
+                    False,
+                    (
+                        f"Invalid replay horizons={horizons!r}; expected 6000, 14400, or all. "
+                        "Using live B8."
+                    ),
+                )
+        elif isinstance(horizons, bytes):
+            return (
+                None,
+                False,
+                (
+                    f"Invalid replay horizons={horizons!r}; expected collection of int. "
+                    "Using live B8."
+                ),
+            )
+        else:
+            try:
+                items = list(horizons)
+            except TypeError:
+                return (
+                    None,
+                    False,
+                    (
+                        f"Invalid replay horizons={horizons!r}; expected collection of int. "
+                        "Using live B8."
+                    ),
+                )
+        if not items or any(type(h) is not int or h not in PRODUCT_HORIZONS for h in items):
+            return (
+                None,
+                False,
+                (
+                    f"Invalid replay horizons={horizons!r}; expected subset of "
+                    f"{sorted(PRODUCT_HORIZONS)}. Using live B8."
+                ),
+            )
+        resolved = frozenset(items)
+        if allow_long is not None and type(allow_long) is not bool:
+            return (
+                None,
+                False,
+                f"Invalid allow_long={allow_long!r}; expected bool. Using live B8.",
+            )
+        if LONG_HORIZON in resolved and allow_long is False:
+            return (
+                None,
+                False,
+                "Long replay horizon 14400 requires allow_long=True. Using live B8.",
+            )
+        effective_long = bool(allow_long) if allow_long is not None else (LONG_HORIZON in resolved)
+        return resolved, effective_long, None
+
+    if allow_long is not None:
+        if type(allow_long) is not bool:
+            return (
+                None,
+                False,
+                f"Invalid allow_long={allow_long!r}; expected bool. Using live B8.",
+            )
+        if not allow_long:
+            return DEFAULT_HORIZONS, False, None
+        raw_h = os.environ.get(ENV_REPLAY_HORIZON)
+        if raw_h is not None and str(raw_h).strip():
+            norm_h = str(raw_h).strip().lower()
+            if norm_h in {"14400", "long"}:
+                return frozenset({LONG_HORIZON}), True, None
+            if norm_h in {"6000", "default", "short"}:
+                return DEFAULT_HORIZONS, True, None
+            if norm_h in {"all", "both", "6000,14400", "14400,6000"}:
+                return PRODUCT_HORIZONS, True, None
+            return (
+                None,
+                False,
+                (
+                    f"Invalid {ENV_REPLAY_HORIZON}={raw_h!r}; expected 6000, 14400, or all. "
+                    "Using live B8."
+                ),
+            )
+        return PRODUCT_HORIZONS, True, None
+
+    raw_long = os.environ.get(ENV_REPLAY_LONG_SESSIONS)
+    raw_horizon = os.environ.get(ENV_REPLAY_HORIZON)
+    has_long = raw_long is not None and bool(str(raw_long).strip())
+    has_horizon = raw_horizon is not None and bool(str(raw_horizon).strip())
+    if not has_long and not has_horizon:
+        return DEFAULT_HORIZONS, False, None
+
+    env_long: bool | None = None
+    if has_long:
+        norm_long = str(raw_long).strip().lower()
+        if norm_long in {"0", "false", "no", "off", "default", "6000"}:
+            env_long = False
+        elif norm_long in {"1", "true", "yes", "on", "long", "14400"}:
+            env_long = True
+        else:
+            return (
+                None,
+                False,
+                (
+                    f"Invalid {ENV_REPLAY_LONG_SESSIONS}={raw_long!r}; expected 0/1/false/true. "
+                    "Using live B8."
+                ),
+            )
+
+    if has_horizon:
+        norm_h = str(raw_horizon).strip().lower()
+        if norm_h in {"6000", "default", "short"}:
+            h_set = DEFAULT_HORIZONS
+        elif norm_h in {"14400", "long"}:
+            h_set = frozenset({LONG_HORIZON})
+        elif norm_h in {"all", "both", "6000,14400", "14400,6000"}:
+            h_set = PRODUCT_HORIZONS
+        else:
+            return (
+                None,
+                False,
+                (
+                    f"Invalid {ENV_REPLAY_HORIZON}={raw_horizon!r}; expected 6000, 14400, or all. "
+                    "Using live B8."
+                ),
+            )
+        if (env_long is False and LONG_HORIZON in h_set) or (
+            env_long is True and LONG_HORIZON not in h_set
+        ):
+            return (
+                None,
+                False,
+                (
+                    f"Conflicting {ENV_REPLAY_LONG_SESSIONS}={raw_long!r} and "
+                    f"{ENV_REPLAY_HORIZON}={raw_horizon!r}. Using live B8."
+                ),
+            )
+        return h_set, (LONG_HORIZON in h_set), None
+
+    assert env_long is not None
+    return (PRODUCT_HORIZONS if env_long else DEFAULT_HORIZONS), env_long, None
+
+
+def validate_header(
+    header: dict,
+    *,
+    product: bool = True,
+    allow_long: bool | None = None,
+    horizons: Any = None,
+) -> None:
     """Reject wrong controllers, checkpoints, horizon and world contracts."""
+    if horizons is not None:
+        allowed_horizons, effective_long, err = resolve_replay_horizons(
+            allow_long=True if not product else allow_long,
+            horizons=horizons,
+        )
+        if err is not None or allowed_horizons is None:
+            raise ValueError("foreign replay metadata")
+    else:
+        if allow_long is not None and type(allow_long) is not bool:
+            raise ValueError("foreign replay metadata")
+        effective_long = bool(allow_long)
+        allowed_horizons = PRODUCT_HORIZONS if effective_long else DEFAULT_HORIZONS
+    max_non_product_horizon = LONG_HORIZON if effective_long else DEFAULT_HORIZON
     if (
         header.get("schema") != SCHEMA
         or header.get("controller") not in CONTROLLERS
@@ -218,8 +433,12 @@ def validate_header(header: dict, *, product: bool = True) -> None:
         or header.get("world") != "watch6-mechanics-v2-continuous-respawn"
         or header.get("protocol_version") != 2
         or type(header.get("horizon")) is not int
-        or not 1 <= header["horizon"] <= 6000
-        or (product and (header["horizon"] != 6000 or header.get("fixture") is not False))
+        or not 1 <= header["horizon"] <= max_non_product_horizon
+        or (not product and horizons is not None and header["horizon"] not in allowed_horizons)
+        or (
+            product
+            and (header["horizon"] not in allowed_horizons or header.get("fixture") is not False)
+        )
         or type(header.get("seed")) is not int
         or not isinstance(header.get("unit_id"), str)
         or not header["unit_id"]
@@ -255,7 +474,13 @@ def _check_replay_files(path: Path) -> tuple[Path, Path]:
     return sha_path, complete_path
 
 
-def peek_header(path: Path, *, product: bool = True) -> dict:
+def peek_header(
+    path: Path,
+    *,
+    product: bool = True,
+    allow_long: bool | None = None,
+    horizons: Any = None,
+) -> dict:
     """Read and validate only line 1 of a completed .watch.gz recording."""
     _check_replay_files(path)
     with path.open("rb") as raw_stream, gzip.GzipFile(fileobj=raw_stream) as stream:
@@ -265,8 +490,26 @@ def peek_header(path: Path, *, product: bool = True) -> dict:
     if len(line) > MAX_LINE:
         raise ValueError("replay decompression limit")
     header = _decode_json_object(line)
-    validate_header(header, product=product)
+    if allow_long is not None or horizons is not None:
+        validate_header(header, product=product, allow_long=allow_long, horizons=horizons)
+    else:
+        validate_header(header, product=product)
     return header
+
+
+def _is_unselected_long_header(path: Path) -> bool:
+    """True when path is a completed product H=14,400 recording and long sessions are off."""
+    try:
+        _check_replay_files(path)
+        with path.open("rb") as raw_stream, gzip.GzipFile(fileobj=raw_stream) as stream:
+            line = stream.readline(MAX_LINE + 1)
+        if not line or len(line) > MAX_LINE:
+            return False
+        header = _decode_json_object(line)
+        validate_header(header, product=True, allow_long=True, horizons=(LONG_HORIZON,))
+        return True
+    except Exception:
+        return False
 
 
 def _number(value: Any) -> bool:
@@ -366,18 +609,31 @@ def verify_payload(
     *,
     product: bool = True,
     stop: threading.Event | None = None,
+    allow_long: bool | None = None,
+    horizons: Any = None,
 ) -> dict:
     """Validate bounded compressed bytes before a producer marks them complete."""
     if stop is not None:
         _ensure_frame_gc_thresholds()
     if len(payload) > MAX_COMPRESSED:
         raise ValueError("oversized replay")
-    records = _records(payload)
+    effective_long = False
+    if horizons is not None:
+        _, effective_long, _ = resolve_replay_horizons(
+            allow_long=True if not product else allow_long,
+            horizons=horizons,
+        )
+    elif type(allow_long) is bool:
+        effective_long = allow_long
+    records = _records(payload, allow_long=True) if effective_long else _records(payload)
     try:
         _enter_gc_suppress()
         try:
             header = next(records)
-            validate_header(header, product=product)
+            if allow_long is not None or horizons is not None:
+                validate_header(header, product=product, allow_long=allow_long, horizons=horizons)
+            else:
+                validate_header(header, product=product)
         finally:
             _exit_gc_suppress()
         count = 0
@@ -430,6 +686,8 @@ class Recording:
         product: bool = True,
         cache: dict | None = None,
         stop: threading.Event | None = None,
+        allow_long: bool | None = None,
+        horizons: Any = None,
     ) -> None:
         self._records: Iterator[dict] | None = None
         self._mmap: mmap.mmap | None = None
@@ -445,11 +703,31 @@ class Recording:
             key = (self.sha256, product)
             if cache is not None and key in cache:
                 self.header = cache[key]
+                if allow_long is not None or horizons is not None:
+                    validate_header(
+                        self.header, product=product, allow_long=allow_long, horizons=horizons
+                    )
+                else:
+                    validate_header(self.header, product=product)
             else:
-                self.header = verify_payload(payload, product=product, stop=stop)
+                if allow_long is not None or horizons is not None:
+                    self.header = verify_payload(
+                        payload,
+                        product=product,
+                        stop=stop,
+                        allow_long=allow_long,
+                        horizons=horizons,
+                    )
+                else:
+                    self.header = verify_payload(payload, product=product, stop=stop)
                 if cache is not None:
                     cache[key] = self.header
-            self._records = _records(payload)
+            effective_long = (allow_long is not None or horizons is not None) and self.header.get(
+                "horizon"
+            ) == LONG_HORIZON
+            self._records = (
+                _records(payload, allow_long=True) if effective_long else _records(payload)
+            )
             _enter_gc_suppress()
             try:
                 next(self._records)
@@ -552,10 +830,25 @@ class ReplayBank:
         *,
         controller: str | None = None,
         shuffle_discovery: bool = True,
+        allow_long: bool | None = None,
+        horizons: Any = None,
+        long_root: Path | None = None,
     ) -> None:
         _ensure_frame_gc_thresholds()
         self.root = root
         self.controller, self.error = resolve_replay_controller(controller)
+        resolved_horizons, resolved_long, horizon_error = resolve_replay_horizons(
+            allow_long=allow_long,
+            horizons=horizons,
+        )
+        self.horizons: frozenset[int] | None = resolved_horizons
+        self.allow_long: bool = resolved_long
+        if horizon_error is not None and self.error is None:
+            self.error = horizon_error
+        raw_long_dir = os.environ.get(ENV_REPLAY_LONG_DIR, "").strip()
+        self.long_root: Path | None = (
+            long_root if long_root is not None else (Path(raw_long_dir) if raw_long_dir else None)
+        )
         self._shuffle_discovery = bool(shuffle_discovery)
         self._ready: queue.Queue = queue.Queue(maxsize=2)
         self._closed = threading.Event()
@@ -609,13 +902,37 @@ class ReplayBank:
                 pass
         return False
 
+    def _discover_paths(self, *, opt_in_horizon: bool) -> list[Path]:
+        if not opt_in_horizon:
+            return sorted(self.root.glob("*.watch.gz"))[:1024]
+        paths: list[Path] = []
+        seen: set[Path] = set()
+        roots: list[Path] = []
+        horizons = self.horizons or DEFAULT_HORIZONS
+        if DEFAULT_HORIZON in horizons or self.long_root is None:
+            roots.append(self.root)
+        if LONG_HORIZON in horizons and self.long_root is not None:
+            roots.append(self.long_root)
+        for root_dir in roots:
+            if not root_dir.is_dir():
+                continue
+            for path in sorted(root_dir.glob("*.watch.gz")):
+                resolved = path.resolve()
+                if resolved not in seen:
+                    seen.add(resolved)
+                    paths.append(path)
+                    if len(paths) >= 1024:
+                        return paths
+        return paths
+
     def _prefetch(self) -> None:
         cache: dict = {}
         logger = logging.getLogger(__name__)
         try:
-            if self.controller is None:
+            if self.controller is None or self.horizons is None:
                 return
-            paths = sorted(self.root.glob("*.watch.gz"))[:1024]
+            opt_in_horizon = self.allow_long or self.horizons != DEFAULT_HORIZONS
+            paths = self._discover_paths(opt_in_horizon=opt_in_horizon)
             if self._shuffle_discovery:
                 random.SystemRandom().shuffle(paths)
             verified = []
@@ -625,11 +942,33 @@ class ReplayBank:
                 if self._closed.is_set():
                     return
                 try:
+                    if not opt_in_horizon and _is_unselected_long_header(path):
+                        continue
                     if self.controller != REPLAY_CONTROLLER_ALL:
-                        header = peek_header(path)
+                        header = (
+                            peek_header(path, allow_long=True)
+                            if opt_in_horizon
+                            else peek_header(path)
+                        )
                         if header["controller"] != self.controller:
                             continue
-                    record = Recording(path, cache=cache, stop=self._closed)
+                        if opt_in_horizon and header.get("horizon") not in self.horizons:
+                            continue
+                    elif opt_in_horizon:
+                        header = peek_header(path, allow_long=True)
+                        if header.get("horizon") not in self.horizons:
+                            continue
+                    record = (
+                        Recording(
+                            path,
+                            cache=cache,
+                            stop=self._closed,
+                            allow_long=self.allow_long,
+                            horizons=self.horizons,
+                        )
+                        if opt_in_horizon
+                        else Recording(path, cache=cache, stop=self._closed)
+                    )
                     if (
                         self.controller != REPLAY_CONTROLLER_ALL
                         and record.header["controller"] != self.controller
@@ -638,6 +977,15 @@ class ReplayBank:
                         if callable(close_rec):
                             close_rec()
                         raise ValueError("replaced replay controller")
+                    if (
+                        opt_in_horizon
+                        and "horizon" in getattr(record, "header", {})
+                        and record.header["horizon"] not in self.horizons
+                    ):
+                        close_rec = getattr(record, "close", None)
+                        if callable(close_rec):
+                            close_rec()
+                        raise ValueError("replaced replay horizon")
                     uid = record.header["unit_id"]
                     verified.append((path, uid))
                     if uid != last and uid not in seen:
@@ -672,7 +1020,17 @@ class ReplayBank:
                 chosen = None
                 for path, uid in candidates:
                     try:
-                        chosen = Recording(path, cache=cache, stop=self._closed)
+                        chosen = (
+                            Recording(
+                                path,
+                                cache=cache,
+                                stop=self._closed,
+                                allow_long=self.allow_long,
+                                horizons=self.horizons,
+                            )
+                            if opt_in_horizon
+                            else Recording(path, cache=cache, stop=self._closed)
+                        )
                         # A replaced file must retain its bank identity and controller filter.
                         if chosen.header["unit_id"] != uid:
                             close_rec = getattr(chosen, "close", None)
@@ -687,6 +1045,15 @@ class ReplayBank:
                             if callable(close_rec):
                                 close_rec()
                             raise ValueError("replaced replay controller")
+                        if (
+                            opt_in_horizon
+                            and "horizon" in getattr(chosen, "header", {})
+                            and chosen.header["horizon"] not in self.horizons
+                        ):
+                            close_rec = getattr(chosen, "close", None)
+                            if callable(close_rec):
+                                close_rec()
+                            raise ValueError("replaced replay horizon")
                         break
                     except InterruptedError:
                         chosen = None
