@@ -569,10 +569,22 @@ class ReplayBank:
     def pending(self) -> bool:
         return not self._done.is_set() or not self._ready.empty()
 
+    def _drain_ready(self) -> None:
+        while True:
+            try:
+                record = self._ready.get_nowait()
+            except queue.Empty:
+                break
+            close_rec = getattr(record, "close", None)
+            if callable(close_rec):
+                close_rec()
+
     def close(self) -> None:
-        """Cancel verification/queue waits and reap the worker within two seconds."""
+        """Cancel verification/queue waits, reap the worker, and release queued recordings."""
         self._closed.set()
+        self._drain_ready()
         self._worker.join(timeout=2)
+        self._drain_ready()
         if self._worker.is_alive():
             logging.getLogger(__name__).warning("Replay worker close timed out")
 

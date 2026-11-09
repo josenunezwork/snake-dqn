@@ -1915,8 +1915,10 @@ class GameSession:
         """Release only this session's optional worker, outside the serving tick."""
         with self._lock:
             self._leave_watch_replay()
-        if getattr(self, "_replay_bank", None) is not None:
-            self._replay_bank.close()
+            bank = getattr(self, "_replay_bank", None)
+            self._replay_bank = None
+        if bank is not None:
+            bank.close()
         if getattr(self, "pathb", None) is not None:
             self.pathb.close(wait=wait)
 

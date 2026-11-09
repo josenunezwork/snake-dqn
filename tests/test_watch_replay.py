@@ -2156,3 +2156,30 @@ def test_checkpoint_rewrite_invalidates_blob_and_session_caches_and_keys_deseria
         assert session_module._CHECKPOINT_BLOB_CACHE.get(key_b8_a) is reverted_blob
     finally:
         session.close(wait=True)
+
+
+def test_replay_bank_and_session_close_release_queued_recordings(tmp_path):
+    recording(tmp_path, "queued_a", seed=101)
+    recording(tmp_path, "queued_b", seed=102)
+    bank = ReplayBank(tmp_path, shuffle_discovery=False)
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        if bank._ready.qsize() == 2:
+            queued = list(bank._ready.queue)
+            break
+        time.sleep(0.005)
+    else:
+        raise AssertionError("prefetch did not queue both recordings")
+
+    assert all(rec._mmap is not None for rec in queued)
+
+    session = shell_session()
+    session._replay_bank = bank
+    session._cached_ego2s_net = None
+    session._cached_watch_opponent = None
+    session.close(wait=True)
+
+    assert session._replay_bank is None
+    assert bank._ready.empty()
+    assert all(rec._mmap is None for rec in queued)
+
