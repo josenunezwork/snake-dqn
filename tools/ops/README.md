@@ -350,6 +350,10 @@ errors are suppressed until the state changes. `OPS_REPO` selects the checkout t
 inspect. Tests can set `OPS_WATCH_ONCE=1 OPS_WATCH_FETCH=0`.
 
 Register other jobs with `printf '%s %s\n' "$PID" name >> "$OPS_DIR/watch-pids.txt"`.
+`wait-event.sh` uses a 3-hour base window (`WAIT_EVENT_SECONDS=10800`) and automatically
+extends its expiry deadline to outlast any active (unfinished) job's manifest timeout plus
+`WAIT_EVENT_GRACE_SECONDS` (default 600 s, exceeding `watchd.sh`'s 300 s overrun grace and
+60 s poll interval).
 An approved idle gap can suppress underuse until the epoch in
 `ops/colab-idle-ok-until`; record the reason in `ops/idle-ok.log`.
 
@@ -452,8 +456,10 @@ dispatched command (with an existing log) without submitting it again. For a
 completion it requires a manifest-bound terminal receipt, `INCOMPLETE`, shell
 exit, `stop_verified: true`, no cleanup error, no terminal child result, and no
 exports, including partial files. Known classes are `RPC_EXEC_POLL_TIMEOUT`,
-`TRANSPORT_TIMEOUT`, `UPLOAD_CAP`, `ALLOCATION_REFUSED` and
-`ALLOCATION_UNAVAILABLE`; positive transport/error evidence is required and
+`TRANSPORT_TIMEOUT`, `UPLOAD_CAP`, `ALLOCATION_REFUSED`,
+`ALLOCATION_UNAVAILABLE`, `ACCOUNTING` polling-cap lag, and `SUPERVISOR`
+kernel-creation guard or transient `colab exec failed` / `colab usage` / `colab sessions`
+transport drops; positive transport/error evidence is required and
 science, numerical, integrity and ambiguous timeout failures refuse. Historical
 pre-allocation `stop_verified: false` receipts require the exact no-assignment
 proof described below; the flag alone never authorizes retry. Standalone

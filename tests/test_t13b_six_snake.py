@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import contextlib
 import io
-from pathlib import Path
 
 import pytest
 
 from research.t12_b8_serving_20261017 import episodes as t12
 from research.t13b_six_snake_20261017 import episodes
+from tests.checkpoint_paths import has_saved_checkpoints
 
-HAS_B8 = Path("saved_snakes/b8_s3_t7_20261016.pth").is_file()
+HAS_B8 = has_saved_checkpoints("b8_s3_t7_20261016.pth")
 
 
 @pytest.fixture(autouse=True)

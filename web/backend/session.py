@@ -37,11 +37,16 @@ from src.model.obs_spec import DEFAULT_OBS_SPEC, EGO2S_OBS_SPECS, RASTER31V2, RA
 from src.training.apex_policy import ApexPolicy
 from web.backend.checkpoints import resolve_checkpoint_name
 from web.backend.release_monitoring import (
+    _log_telemetry_error,
     ego2s_exception,
     mixed_roster_fallback,
     play_mixed_roster_fallback,
     play_tick,
     served_resolution,
+    watch_replay_active,
+    watch_replay_bank_exhausted,
+    watch_replay_failure,
+    watch_replay_summary,
     watch_tick,
 )
 from web.backend.safety_veto_serving import (
@@ -580,6 +585,13 @@ class GameSession:
         self._replay_pending = False
         self._watch_replay = None
         self._replay_bank = None
+        self._replay_update_ms_batch: list[float] = []
+        self._replay_batch_first_ts: Optional[float] = None
+        self._replay_batch_controller: str = "replay"
+        self._replay_batch_meta: Optional[tuple[str, int, str, float]] = None
+        self._replay_active_logged: bool = False
+        self._replay_pending_logged: bool = False
+        self._replay_bank_exhausted_logged: bool = False
         ckpt = checkpoint
         if not ckpt:
             choice = resolve_served_checkpoint(champion_path=DEFAULT_CHECKPOINT)
@@ -588,7 +600,7 @@ class GameSession:
             # B8 serving path. Explicit rollback sessions remain visible as a
             # resolution record but do not contribute B8 Watch samples.
             self._release_monitoring = choice.requested in (None, "b8-s3")
-            served_resolution(self.served_checkpoint)
+            self._safe_telemetry(served_resolution, self.served_checkpoint)
             ckpt = choice.path
         self._build(ckpt, mode=MODE_WATCH)
         # Always construct the released live fallback first. Replay is opt-in,
@@ -664,7 +676,7 @@ class GameSession:
         state.wrapper = None
         state.reason = reason
         if self._release_monitoring:
-            mixed_roster_fallback(reason=reason)
+            self._safe_telemetry(mixed_roster_fallback, reason=reason)
         log_build(state)
         self._log_watch_roster(WATCH_ROSTER_MIXED, reason)
         return state
@@ -826,7 +838,7 @@ class GameSession:
         state.wrapper = None
         state.reason = reason
         if self._release_monitoring:
-            play_mixed_roster_fallback(reason=reason)
+            self._safe_telemetry(play_mixed_roster_fallback, reason=reason)
         log_build(state)
         self._log_play_roster(PLAY_ROSTER_MIXED, reason)
         return state
@@ -1001,7 +1013,7 @@ class GameSession:
             # persist that startup/build exception before preserving config and
             # re-raising it to the server lifecycle.
             if self._release_monitoring and (self.served_checkpoint or {}).get("name") == "b8-s3":
-                ego2s_exception(checkpoint="b8-s3", mode=mode, error=exc)
+                self._safe_telemetry(ego2s_exception, checkpoint="b8-s3", mode=mode, error=exc)
             initialize_config(previous_config)
             raise
         finally:
@@ -1221,28 +1233,71 @@ class GameSession:
         )
 
     # -- stepping -----------------------------------------------------------
+    REPLAY_TELEMETRY_SUMMARY_FRAMES = 600
+
+    @staticmethod
+    def _safe_telemetry(fn: Any, *args: Any, **kwargs: Any) -> None:
+        """Invoke a telemetry callback without ever raising into the serving path."""
+        try:
+            fn(*args, **kwargs)
+        except Exception as exc:
+            _log_telemetry_error(exc)
+
     def step(self) -> None:
         with self._lock:
             if not self.playing:
                 return
             if self.mode == MODE_WATCH and getattr(self, "_replay_pending", False):
+                prev_replay = getattr(self, "_watch_replay", None)
+                started = time.perf_counter()
                 self._select_watch_replay()
                 # Cold verification must leave live B8 ticking. Hold a frame
                 # only when a previous recording is awaiting its successor.
                 if self._watch_replay is not None:
+                    if not self._replay_pending and self._watch_replay is not prev_replay:
+                        self._safe_telemetry(
+                            self._record_watch_replay_step,
+                            self._watch_replay,
+                            (time.perf_counter() - started) * 1000.0,
+                        )
                     return
             if self.mode == MODE_WATCH and getattr(self, "_watch_replay", None) is not None:
                 active_replay = self._watch_replay
+                started = time.perf_counter()
+                stepped_record = None
+                hold_frame = False
                 try:
                     if active_replay.step():
-                        return
-                    self._select_watch_replay()
-                    if self._watch_replay is not None or self._replay_pending:
-                        return
+                        stepped_record = active_replay
+                        hold_frame = True
+                    else:
+                        self._select_watch_replay()
+                        if self._watch_replay is not None or self._replay_pending:
+                            if self._watch_replay is not None and not self._replay_pending:
+                                stepped_record = self._watch_replay
+                            hold_frame = True
                 except Exception as exc:
-                    self._close_watch_replay(active_replay)
-                    self._watch_replay = None
-                    self.last_error = f"Replay playback failed; using live B8: {exc}"
+                    try:
+                        self._close_watch_replay(active_replay)
+                    finally:
+                        self._watch_replay = None
+                        self.last_error = f"Replay playback failed; using live B8: {exc}"
+                        self._safe_telemetry(self._flush_watch_replay_telemetry)
+                        self._safe_telemetry(
+                            self._record_watch_replay_failure,
+                            active_replay,
+                            stage="step",
+                            exc=exc,
+                        )
+                else:
+                    if stepped_record is not None:
+                        self._safe_telemetry(
+                            self._record_watch_replay_step,
+                            stepped_record,
+                            (time.perf_counter() - started) * 1000.0,
+                        )
+                    if hold_frame:
+                        return
             if self.mode == MODE_TRAIN:
                 # Reset on wipeout, or (mechanics v2) when the training population
                 # floor is hit — otherwise lone-survivor frames skew replay
@@ -1284,7 +1339,7 @@ class GameSession:
                     self.game.update(train_mode=False, learn=False, allow_respawn=True)
                 except Exception as exc:
                     if monitor_b8:
-                        self._record_ego2s_exception(exc)
+                        self._safe_telemetry(self._record_ego2s_exception, exc)
                     raise
                 finally:
                     if hero is not None and original_update is not None:
@@ -1293,7 +1348,8 @@ class GameSession:
                     update_ms = (time.perf_counter() - started) * 1000.0
                     latency_eligible = self._release_latency_warmup_remaining <= 0
                     self._release_latency_warmup_remaining -= 1
-                    watch_tick(
+                    self._safe_telemetry(
+                        watch_tick,
                         checkpoint="b8-s3",
                         roster_mode=getattr(self, "watch_roster", WATCH_ROSTER_ALL_B8),
                         roster_size=roster_ai_count(self.game.snakes),
@@ -1309,26 +1365,171 @@ class GameSession:
 
     def _is_b8_release_monitoring(self) -> bool:
         """Whether this is the released B8 path, not an unrelated checkpoint."""
-        released_b8 = bool(
-            self._release_monitoring
-            and (self.served_checkpoint or {}).get("name") == "b8-s3"
-            and self.obs_spec in EGO2S_OBS_SPECS
-        )
-        if self.mode != MODE_WATCH:
-            return released_b8
-        return released_b8 and getattr(self, "watch_roster", WATCH_ROSTER_ALL_B8) in (
-            WATCH_ROSTER_ALL_B8,
-            WATCH_ROSTER_MIXED,
-        )
+        try:
+            released_b8 = bool(
+                getattr(self, "_release_monitoring", False)
+                and (getattr(self, "served_checkpoint", None) or {}).get("name") == "b8-s3"
+                and getattr(self, "obs_spec", None) in EGO2S_OBS_SPECS
+            )
+            if getattr(self, "mode", None) != MODE_WATCH:
+                return released_b8
+            return released_b8 and getattr(self, "watch_roster", WATCH_ROSTER_ALL_B8) in (
+                WATCH_ROSTER_ALL_B8,
+                WATCH_ROSTER_MIXED,
+            )
+        except Exception as exc:
+            _log_telemetry_error(exc)
+            return False
+
+    def _replay_controller_name(self, record: Any = None) -> str:
+        target = record if record is not None else getattr(self, "_watch_replay", None)
+        header = getattr(target, "header", None)
+        if isinstance(header, Mapping) and header.get("controller"):
+            return str(header["controller"])
+        return str(getattr(self, "_replay_batch_controller", None) or "replay")
+
+    def _current_replay_batch_meta(self, record: Any = None) -> tuple[str, int, str, float]:
+        snakes = getattr(getattr(self, "game", None), "snakes", None) or []
+        roster_mode = str(getattr(self, "watch_roster", WATCH_ROSTER_MIXED))
+        roster_size = int(roster_ai_count(snakes) or 6)
+        controller = self._replay_controller_name(record)
+        speed = float(getattr(self, "speed", 24.0))
+        return (roster_mode, roster_size, controller, speed)
+
+    def _record_watch_replay_active(self, record: Any = None, *, status: str = "active") -> None:
+        """Persist Watch replay-mode presence at selection before the 600-frame flush."""
+        try:
+            if not self._is_b8_release_monitoring():
+                return
+            self._replay_active_logged = True
+            roster_mode, roster_size, controller, speed = self._current_replay_batch_meta(record)
+            self._safe_telemetry(
+                watch_replay_active,
+                checkpoint="b8-s3",
+                roster_mode=roster_mode,
+                roster_size=roster_size,
+                controller=controller if record is not None else None,
+                speed=speed,
+                status=status,
+            )
+        except Exception as exc:
+            _log_telemetry_error(exc)
+
+    def _record_watch_replay_step(self, record: Any, update_ms: float) -> None:
+        """Aggregate replay step latency in memory and emit periodically."""
+        try:
+            if not self._is_b8_release_monitoring():
+                return
+            if not getattr(self, "_replay_active_logged", False):
+                self._record_watch_replay_active(record, status="active")
+            meta = self._current_replay_batch_meta(record)
+            batch = getattr(self, "_replay_update_ms_batch", None)
+            if batch and meta != getattr(self, "_replay_batch_meta", meta):
+                self._flush_watch_replay_telemetry()
+                batch = getattr(self, "_replay_update_ms_batch", None)
+            if batch is None:
+                batch = []
+                self._replay_update_ms_batch = batch
+            if not batch:
+                self._replay_batch_first_ts = time.time()
+                self._replay_batch_meta = meta
+                self._replay_batch_controller = meta[2]
+            batch.append(max(0.0, float(update_ms)))
+            if len(batch) >= self.REPLAY_TELEMETRY_SUMMARY_FRAMES:
+                self._flush_watch_replay_telemetry()
+        except Exception as exc:
+            _log_telemetry_error(exc)
+
+    def _flush_watch_replay_telemetry(self) -> None:
+        """Emit aggregated Watch replay telemetry for any buffered frames."""
+        try:
+            batch = getattr(self, "_replay_update_ms_batch", None)
+            if not batch:
+                return
+            samples = list(batch)
+            batch.clear()
+            first_ts = getattr(self, "_replay_batch_first_ts", None)
+            self._replay_batch_first_ts = None
+            meta = getattr(self, "_replay_batch_meta", None)
+            self._replay_batch_meta = None
+            if meta is None and not self._is_b8_release_monitoring():
+                return
+            if meta is not None:
+                roster_mode, roster_size, controller, speed = meta
+            else:
+                roster_mode, roster_size, controller, speed = self._current_replay_batch_meta()
+            ordered = sorted(samples)
+            pos = 0.95 * (len(ordered) - 1)
+            lower = math.floor(pos)
+            upper = math.ceil(pos)
+            p95_ms = ordered[lower] + (ordered[upper] - ordered[lower]) * (pos - lower)
+            self._safe_telemetry(
+                watch_replay_summary,
+                checkpoint="b8-s3",
+                roster_mode=roster_mode,
+                roster_size=roster_size,
+                controller=controller,
+                speed=speed,
+                frames=len(ordered),
+                update_p95_ms=p95_ms,
+                max_update_ms=ordered[-1],
+                mean_update_ms=sum(ordered) / len(ordered),
+                first_timestamp=first_ts,
+            )
+        except Exception as exc:
+            _log_telemetry_error(exc)
+
+    def _record_watch_replay_failure(self, record: Any, *, stage: str, exc: BaseException) -> None:
+        """Persist a Watch replay step or snapshot failure before live fallback."""
+        try:
+            if not self._is_b8_release_monitoring():
+                return
+            roster_mode, roster_size, controller, _ = self._current_replay_batch_meta(record)
+            self._safe_telemetry(
+                watch_replay_failure,
+                checkpoint="b8-s3",
+                roster_mode=roster_mode,
+                roster_size=roster_size,
+                controller=controller,
+                stage=stage,
+                error=exc,
+            )
+        except Exception as err:
+            _log_telemetry_error(err)
+
+    def _record_watch_replay_bank_exhausted(self, reason: str) -> None:
+        """Persist Watch replay bank exhaustion/unavailability falling back to live B8."""
+        try:
+            if getattr(self, "_replay_bank_exhausted_logged", False):
+                return
+            self._replay_bank_exhausted_logged = True
+            if not self._is_b8_release_monitoring():
+                return
+            roster_mode, roster_size, _, _ = self._current_replay_batch_meta()
+            self._safe_telemetry(
+                watch_replay_bank_exhausted,
+                checkpoint="b8-s3",
+                roster_mode=roster_mode,
+                roster_size=roster_size,
+                reason=reason,
+            )
+        except Exception as exc:
+            _log_telemetry_error(exc)
 
     def _record_ego2s_exception(self, exc: BaseException) -> None:
         """Persist an exception from a live ego2s serving operation before re-raising."""
-        if self._is_b8_release_monitoring():
-            ego2s_exception(
-                checkpoint=str((self.served_checkpoint or {}).get("name") or self.checkpoint_path),
-                mode=self.mode,
-                error=exc,
-            )
+        try:
+            if self._is_b8_release_monitoring():
+                self._safe_telemetry(
+                    ego2s_exception,
+                    checkpoint=str(
+                        (self.served_checkpoint or {}).get("name") or self.checkpoint_path
+                    ),
+                    mode=self.mode,
+                    error=exc,
+                )
+        except Exception as err:
+            _log_telemetry_error(err)
 
     def _enforce_food_target(self) -> None:
         """Trim food back to the live target.
@@ -1358,13 +1559,14 @@ class GameSession:
             self.game.update(train_mode=False, learn=False, allow_respawn=True)
         except Exception as exc:
             if monitor_b8:
-                self._record_ego2s_exception(exc)
+                self._safe_telemetry(self._record_ego2s_exception, exc)
             raise
         if monitor_b8:
             update_ms = (time.perf_counter() - started) * 1000.0
             latency_eligible = self._release_latency_warmup_remaining <= 0
             self._release_latency_warmup_remaining -= 1
-            play_tick(
+            self._safe_telemetry(
+                play_tick,
                 checkpoint="b8-s3",
                 driven_ai=driven_ai_count(self.game.snakes, self.policy),
                 speed=self.speed,
@@ -1386,14 +1588,23 @@ class GameSession:
                 try:
                     return active_replay.snapshot(self)
                 except Exception as exc:
-                    self._close_watch_replay(active_replay)
-                    self._watch_replay = None
-                    self.last_error = f"Replay snapshot failed; using live B8: {exc}"
+                    try:
+                        self._close_watch_replay(active_replay)
+                    finally:
+                        self._watch_replay = None
+                        self.last_error = f"Replay snapshot failed; using live B8: {exc}"
+                        self._safe_telemetry(self._flush_watch_replay_telemetry)
+                        self._safe_telemetry(
+                            self._record_watch_replay_failure,
+                            active_replay,
+                            stage="snapshot",
+                            exc=exc,
+                        )
             try:
                 return build_frame(self)
             except Exception as exc:
                 if self._is_b8_release_monitoring():
-                    self._record_ego2s_exception(exc)
+                    self._safe_telemetry(self._record_ego2s_exception, exc)
                 raise
 
     # -- controls -----------------------------------------------------------
@@ -1407,27 +1618,51 @@ class GameSession:
         """Rotate on reset/end; an empty or corrupt bank leaves live Watch ready."""
         self._replay_pending = False
         previous = getattr(self, "_watch_replay", None)
+        bank = getattr(self, "_replay_bank", None)
         try:
-            self._watch_replay = self._replay_bank.pick() if self._replay_bank else None
-            if self._replay_bank and self._watch_replay is None and self._replay_bank.pending:
+            self._watch_replay = bank.pick() if bank else None
+            if bank and self._watch_replay is None and bank.pending:
                 self._replay_pending = True
                 self._watch_replay = previous
-            if self._replay_bank:
-                self.last_error = self._replay_bank.error
+            if bank:
+                self.last_error = bank.error
         except Exception as exc:
             self._watch_replay = None
             self.last_error = f"Replay bank unavailable; using live B8: {exc}"
         finally:
             if previous is not None and previous is not getattr(self, "_watch_replay", None):
-                self._close_watch_replay(previous)
+                try:
+                    self._close_watch_replay(previous)
+                finally:
+                    if getattr(self, "_watch_replay", None) is None:
+                        self._safe_telemetry(self._flush_watch_replay_telemetry)
+        current = getattr(self, "_watch_replay", None)
+        if current is not None:
+            self._replay_bank_exhausted_logged = False
+            self._replay_pending_logged = False
+            if current is not previous or not getattr(self, "_replay_active_logged", False):
+                self._safe_telemetry(self._record_watch_replay_active, current, status="active")
+        elif self._replay_pending:
+            if not getattr(self, "_replay_pending_logged", False):
+                self._replay_pending_logged = True
+                self._safe_telemetry(self._record_watch_replay_active, None, status="pending")
+        elif bank is not None or previous is not None:
+            self._safe_telemetry(
+                self._record_watch_replay_bank_exhausted,
+                self.last_error or "Watch replay bank exhausted; using live B8.",
+            )
 
     def _leave_watch_replay(self) -> None:
         """Explicit world/model controls return to the already-built live game."""
         self._replay_pending = False
+        self._replay_pending_logged = False
         previous = getattr(self, "_watch_replay", None)
-        if previous is not None:
-            self._watch_replay = None
-            self._close_watch_replay(previous)
+        try:
+            if previous is not None:
+                self._watch_replay = None
+                self._close_watch_replay(previous)
+        finally:
+            self._safe_telemetry(self._flush_watch_replay_telemetry)
 
     def set_playing(self, value: bool) -> None:
         with self._lock:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import io
 import json
 import logging
@@ -47,13 +48,92 @@ from research.world_checkpoint import (
     verify_session_parity,
 )
 from research.world_checkpoint.checkpoint import _PrimitiveUnpickler
-from tools.ops.package_spec import empty_ledger, publish_json
+from tools.ops.package_spec import digest, empty_ledger, publish_json
+
+
+def _local_smoke_science_identity() -> str:
+    """Compute the unpatched protocol.py science identity expected by --local-smoke subprocesses."""
+    shard_spec_fn = getattr(p, "_ORIG_PROTOCOL_SHARD_SPEC", None)
+    if shard_spec_fn is None and "research.watch6_l1_confirm.admission" in sys.modules:
+        shard_spec_fn = sys.modules[
+            "research.watch6_l1_confirm.admission"
+        ]._ORIG_PROTOCOL_SHARD_SPEC
+    if shard_spec_fn is None:
+        shard_spec_fn = p.shard_spec
+    values: dict[str, object] = {
+        rel: digest(p.ROOT / rel)
+        for rel in p.science_paths()
+        if (p.ROOT / rel).is_file() and not (p.ROOT / rel).is_symlink()
+    }
+    values["namespace"] = p.NAMESPACE
+    values["arms"] = p.ARM_SPECS
+    values["primary_allocation"] = p.allocation()
+    values["shard_layout"] = [shard_spec_fn(s) for s in range(p.SHARDS)]
+    values["max_compute_completions_per_shard"] = p.MAX_COMPUTE_COMPLETIONS_PER_SHARD
+    return hashlib.sha256(json.dumps(values, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+_AMX_SIGNAL_GUARD_SITE = """\
+import signal
+import sys
+
+if sys.platform == "darwin" and hasattr(signal, "pthread_sigmask"):
+    try:
+        from src.model.apex_network import ApexNetwork
+        from src.model.ego2s_network import Ego2sNet
+
+        _SIGS = (signal.SIGUSR1, signal.SIGTERM)
+
+        def _guard(fn):
+            if getattr(fn, "_amx_sigmask_guarded", False):
+                return fn
+
+            def _wrapped(self, *args, **kwargs):
+                signal.pthread_sigmask(signal.SIG_BLOCK, _SIGS)
+                try:
+                    return fn(self, *args, **kwargs)
+                finally:
+                    signal.pthread_sigmask(signal.SIG_UNBLOCK, _SIGS)
+
+            _wrapped._amx_sigmask_guarded = True
+            return _wrapped
+
+        Ego2sNet.forward = _guard(Ego2sNet.forward)
+        ApexNetwork.forward = _guard(ApexNetwork.forward)
+    except Exception:
+        pass
+"""
+
+
+def _wrap_amx_signal_guard(fn: Any) -> Any:
+    """Block SIGUSR1/SIGTERM across a forward pass on macOS to avoid Accelerate AMX abort."""
+    if getattr(fn, "_amx_sigmask_guarded", False):
+        return fn
+    sigs = (signal.SIGUSR1, signal.SIGTERM)
+
+    def _wrapped(self: Any, *args: Any, **kwargs: Any) -> Any:
+        signal.pthread_sigmask(signal.SIG_BLOCK, sigs)
+        try:
+            return fn(self, *args, **kwargs)
+        finally:
+            signal.pthread_sigmask(signal.SIG_UNBLOCK, sigs)
+
+    _wrapped._amx_sigmask_guarded = True  # type: ignore[attr-defined]
+    return _wrapped
 
 
 @pytest.fixture(autouse=True)
 def _checkpoint_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Configure single-thread CPU execution and stage Watch6 checkpoints."""
     configure_cpu()
+    if sys.platform == "darwin" and hasattr(signal, "pthread_sigmask"):
+        from src.model.apex_network import ApexNetwork
+        from src.model.ego2s_network import Ego2sNet
+
+        monkeypatch.setattr(Ego2sNet, "forward", _wrap_amx_signal_guard(Ego2sNet.forward))
+        monkeypatch.setattr(ApexNetwork, "forward", _wrap_amx_signal_guard(ApexNetwork.forward))
+    monkeypatch.setattr(p, "compute_identity", _local_smoke_science_identity)
+    monkeypatch.setattr(p, "identity", _local_smoke_science_identity)
     if "SNAKE_CKPT_DIR" not in os.environ and DEFAULT_LOCAL_SAVED_DIR.is_dir():
         monkeypatch.setenv("SNAKE_CKPT_DIR", str(DEFAULT_LOCAL_SAVED_DIR))
     monkeypatch.setenv("SNAKE_WATCH_SOURCE", "live")
@@ -955,6 +1035,10 @@ def test_multi_worker_sigterm_grace_latency_and_resume_determinism(tmp_path: Pat
         empty_ledger(p.NAMESPACE, "watch6-fixture", {"science": p.identity()}),
     )
 
+    site_dir = tmp_path / "sitecustomize_dir"
+    site_dir.mkdir(parents=True, exist_ok=True)
+    (site_dir / "sitecustomize.py").write_text(_AMX_SIGNAL_GUARD_SITE, encoding="utf-8")
+
     env1 = dict(os.environ)
     env1.update(
         {
@@ -968,66 +1052,77 @@ def test_multi_worker_sigterm_grace_latency_and_resume_determinism(tmp_path: Pat
             "WATCH6_WORKERS": str(workers),
             "WATCH6_SHARDS": "1",
             "WATCH6_SHARD": "0",
-            "PYTHONPATH": str(repo_root),
+            "PYTHONPATH": f"{site_dir}{os.pathsep}{repo_root}",
             "PATH": f"{Path(sys.executable).parent}:{env1.get('PATH', '')}",
         }
     )
 
-    proc1 = subprocess.Popen(
-        [
-            sys.executable,
-            "-B",
-            "-m",
-            "research.world_checkpoint.job",
-            "--out",
-            str(attempt1_out / "efficacy"),
-            "--ledger",
-            str(attempt1_in / "verified-ledger.json"),
-            "--input-checkpoint-dir",
-            str(attempt1_in / "world-checkpoints"),
-            "--checkpoint-interval",
-            "10",
-            "--workers",
-            str(workers),
-            "--shards",
-            "1",
-            "--shard",
-            "0",
-            "--fixture",
-            "--fixture-count",
-            str(fixture_count),
-            "--fixture-horizon",
-            str(horizon),
-            "--local-smoke",
-        ],
-        cwd=str(repo_root),
-        env=env1,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
+    proc1_stdout_path = tmp_path / "proc1_stdout.log"
+    proc1_stderr_path = tmp_path / "proc1_stderr.log"
+    with (
+        proc1_stdout_path.open("w", encoding="utf-8") as proc1_stdout,
+        proc1_stderr_path.open("w", encoding="utf-8") as proc1_stderr,
+    ):
+        proc1 = subprocess.Popen(
+            [
+                sys.executable,
+                "-B",
+                "-m",
+                "research.world_checkpoint.job",
+                "--out",
+                str(attempt1_out / "efficacy"),
+                "--ledger",
+                str(attempt1_in / "verified-ledger.json"),
+                "--input-checkpoint-dir",
+                str(attempt1_in / "world-checkpoints"),
+                "--checkpoint-interval",
+                "10",
+                "--workers",
+                str(workers),
+                "--shards",
+                "1",
+                "--shard",
+                "0",
+                "--fixture",
+                "--fixture-count",
+                str(fixture_count),
+                "--fixture-horizon",
+                str(horizon),
+                "--local-smoke",
+            ],
+            cwd=str(repo_root),
+            env=env1,
+            stdout=proc1_stdout,
+            stderr=proc1_stderr,
+            text=True,
+        )
 
-    # Wait until both workers have started worlds 0 and 1 and written at least one checkpoint each
-    w0_ckpt_dir = attempt1_out / "efficacy" / "checkpoints" / "fixture-world-00"
-    w1_ckpt_dir = attempt1_out / "efficacy" / "checkpoints" / "fixture-world-01"
-    w2_ckpt_dir = attempt1_out / "efficacy" / "checkpoints" / "fixture-world-02"
-    wait_deadline = time.monotonic() + 45.0
-    while time.monotonic() < wait_deadline:
-        if proc1.poll() is not None:
-            break
-        if list(w0_ckpt_dir.glob("*.ckpt.complete")) and list(w1_ckpt_dir.glob("*.ckpt.complete")):
-            break
-        time.sleep(0.05)
+        # Wait until both workers have started worlds 0 and 1 and written >= 1 checkpoint each
+        w0_ckpt_dir = attempt1_out / "efficacy" / "checkpoints" / "fixture-world-00"
+        w1_ckpt_dir = attempt1_out / "efficacy" / "checkpoints" / "fixture-world-01"
+        w2_ckpt_dir = attempt1_out / "efficacy" / "checkpoints" / "fixture-world-02"
+        wait_deadline = time.monotonic() + 45.0
+        while time.monotonic() < wait_deadline:
+            if proc1.poll() is not None:
+                break
+            if list(w0_ckpt_dir.glob("*.ckpt.complete")) and list(
+                w1_ckpt_dir.glob("*.ckpt.complete")
+            ):
+                break
+            time.sleep(0.05)
 
-    assert (
-        proc1.poll() is None
-    ), "Expected multi-worker job to still be running when sending SIGTERM"
+        assert proc1.poll() is None, (
+            f"Expected multi-worker job to still be running when sending SIGTERM "
+            f"(returncode={proc1.returncode}): "
+            f"{proc1_stderr_path.read_text(encoding='utf-8', errors='replace')}"
+        )
 
-    # Send SIGTERM and measure exit latency (< 15.0s; queued world 2 must not run to completion)
-    t_sig = time.monotonic()
-    proc1.send_signal(signal.SIGTERM)
-    _stdout1, stderr1 = proc1.communicate(timeout=15.0)
-    exit_latency_s = time.monotonic() - t_sig
+        # Send SIGTERM and measure exit latency (< 15.0s; queued world 2 must not run to completion)
+        t_sig = time.monotonic()
+        proc1.send_signal(signal.SIGTERM)
+        proc1.wait(timeout=15.0)
+        exit_latency_s = time.monotonic() - t_sig
+    stderr1 = proc1_stderr_path.read_text(encoding="utf-8", errors="replace")
     print(f"MULTI_WORKER_SIGTERM_EXIT_LATENCY_S={exit_latency_s:.4f}", flush=True)
 
     assert exit_latency_s < 15.0, f"SIGTERM exit latency {exit_latency_s:.2f}s exceeded 15s grace"
