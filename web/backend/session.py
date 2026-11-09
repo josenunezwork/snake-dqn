@@ -1956,7 +1956,15 @@ class GameSession:
                 "config": os.path.basename(self.config_path),
                 "mechanics_version": int(GameConfig.MECHANICS_VERSION),
                 "obs_spec": str(self.obs_spec),
-                "input_size": int(GameConfig.INPUT_SIZE),
+                "input_size": int(
+                    getattr(
+                        self.policy,
+                        "input_size",
+                        getattr(getattr(self.policy, "net", None), "config", {}).get(
+                            "n_scalars", GameConfig.INPUT_SIZE
+                        ),
+                    )
+                ),
                 "num_snakes": int(len(self.game.snakes)),
                 "epsilon": float(getattr(self.policy, "epsilon", 0.0)),
                 "food_target": int(self.game.food_manager.max_food),

@@ -213,7 +213,7 @@ describe("Controls", () => {
     expect(screen.getByRole("button", { name: /save weights/i })).toBeDisabled();
     expect(
       screen.getByText(
-        /dual-scale ego raster CNN: local 7×31×31 \+ global 4×31×31 \+ 60 scalars/,
+        /dual-scale ego raster CNN: local 7×31×31 \+ global 4×37×37 \+ 60 scalars/,
       ),
     ).toBeInTheDocument();
     expect(screen.queryByText(/60-D vector/)).not.toBeInTheDocument();

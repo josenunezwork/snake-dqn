@@ -51,6 +51,8 @@ def test_watch_session_serves_the_student(ego_ckpt):
     assert [tuple(s.segments[0]) for s in sess.game.snakes] != heads0
     frame = sess.snapshot()
     assert frame["obs_spec"] == EGO2S_B
+    assert sess.control_state()["input_size"] == 30
+    assert frame["session"]["input_size"] == 30
     assert frame["session"]["can_save_weights"] is False
     assert frame["architecture"] == "Ego2s Dueling CNN (ego2s-b)"
     assert frame["hero_raster"] is None
@@ -201,6 +203,8 @@ def test_bv8_watch_and_play_serve_the_student(bv8_ckpt):
         sess.step()
     frame = sess.snapshot()
     assert frame["obs_spec"] == EGO2S_BV8
+    assert sess.control_state()["input_size"] == 60
+    assert frame["session"]["input_size"] == 60
     assert frame["session"]["can_save_weights"] is False
     with pytest.raises(RuntimeError, match="forward-only"):
         sess.save_weights()

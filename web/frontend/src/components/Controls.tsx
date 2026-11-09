@@ -27,7 +27,7 @@ function inputLabel(obsSpec: string | undefined, inputSize: number): string {
   }
   if (obsSpec && obsSpec.startsWith("ego2s")) {
     const scalars = inputSize > 0 ? inputSize : 60;
-    return `dual-scale ego raster CNN: local 7×31×31 + global 4×31×31 + ${scalars} scalars`;
+    return `dual-scale ego raster CNN: local 7×31×31 + global 4×37×37 + ${scalars} scalars`;
   }
   return `${inputSize}-D vector`;
 }
