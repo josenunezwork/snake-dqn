@@ -14,15 +14,18 @@ Start with **[docs/INDEX.md](docs/INDEX.md)** for the full project map and
 **[docs/STATUS.md](docs/STATUS.md)** for binding release pins, monitoring
 thresholds, and standing operating rules.
 
-- **Watch:** plays the **132-session confirmed `exact-stop-l1` replay bank**
-  (`snake-dqn-artifacts/watch-replay-bank-live-132-l1`: `132` `exact-stop-l1`
-  6,000-frame Watch6-v2 sessions from banks `14l1–24l1` — `36` A100 + `96` G4
-  sessions, `b8-s3` hero at `L >= 1` vs `5× frp3-s12 + v8`, confirmed
-  `GO_L1_SUPERIOR` in `Watch6-L1-V1` with deaths `−72%` and mass `+95%` vs bare
-  at `H = 14,400`, and qualified on Mac `24 fps` in runs 2+3 consecutively),
-  visibly labelled **"Recorded assisted hero"** (`SNAKE_WATCH_SOURCE=replay`,
-  `SNAKE_WATCH_REPLAY_DIR=.../watch-replay-bank-live-132-l1`, and
-  `SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l1`). Rollback banks (`watch-replay-bank-live-36-l1`
+- **Watch:** plays the **132-session confirmed `exact-stop-l1-os` replay bank**
+  (`snake-dqn-artifacts/watch-replay-bank-live-132-l1os-installed`: `132`
+  `exact-stop-l1-os` 6,000-frame Watch6-v2 sessions from `bank25l1os..bank35l1os`
+  — `36` A100 + `96` G4 sessions, `b8-s3` hero at `L >= 1` with opposite-safe lookahead
+  vs `5× frp3-s12 + v8`, confirmed in `Bank-v2` with `+258.7` hero mass/world and
+  `deaths −56%` at `H = 14,400`, `4/4` blocks won, and qualified on Mac `24 fps`
+  in runs 3+4 consecutively), visibly labelled **"Recorded assisted hero"**
+  (`SNAKE_WATCH_SOURCE=replay`,
+  `SNAKE_WATCH_REPLAY_DIR=.../watch-replay-bank-live-132-l1os-installed`, and
+  `SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l1-os`; launched via
+  `tools/ops/watch_server.sh`). Rollback banks (`watch-replay-bank-live-132-l1`
+  with `SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l1`, `watch-replay-bank-live-36-l1`
   with `exact-stop-l1`, or `watch-replay-bank-live-132` with
   `SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l2-prime`) remain on disk. Live bare
   `b8-s3` is the automatic fallback during cold prefetch or if the bank is unset,
@@ -57,8 +60,8 @@ SNAKE_WATCH_SOURCE=live SNAKE_SERVE_CHECKPOINT=champion ./venv/bin/python web/se
 
 Campaign **T34 ExIt-B8** is **closed** by its pre-registered closeout audit
 (`t34-sol/argon-closeout-audit/REPORT.md`; `Watch6-L1-V1` `GO_L1_SUPERIOR` confirmed
-and 132-session `exact-stop-l1` Watch replay bank `watch-replay-bank-live-132-l1`
-released; Play default bare `b8-s3` with opt-in `Field: Classic B8 / Mixed`;
+and 132-session `exact-stop-l1-os` Watch replay bank `watch-replay-bank-live-132-l1os-installed`
+released 2026-11-06 PT; Play default bare `b8-s3` with opt-in `Field: Classic B8 / Mixed`;
 `open-stop-h32-nb` offline gate `PASS`, search→bare distillation and live search
 closed, Claim A `b8-head-closedloop` `KILL`; see [docs/INDEX.md](docs/INDEX.md) and
 [docs/STATUS.md](docs/STATUS.md)). Start here:

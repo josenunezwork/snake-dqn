@@ -30,12 +30,12 @@ approval ([STATUS.md](STATUS.md)).
 
 | Mode | What runs today | Hero & roster | Configuration / launch |
 | --- | --- | --- | --- |
-| **Watch** | **132-session confirmed `exact-stop-l1` replay bank** (`watch-replay-bank-live-132-l1`, 6,000 frames/session), visibly labelled **"Recorded assisted hero"** | `b8-s3` hero + `exact-stop-l1` (`L >= 1`, interval 5, `H = 300`) vs `5× frp3-s12 + v8` | `SNAKE_WATCH_SOURCE=replay`, `SNAKE_WATCH_REPLAY_DIR=.../watch-replay-bank-live-132-l1`, and `SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l1` (banks `14l1–24l1`: `36` A100 + `96` G4 sessions; confirmed by `Watch6-L1-V1` `GO_L1_SUPERIOR`, Mac-qualified `24 fps` runs 2+3). Live bare `b8-s3` is the automatic fallback; `watch-replay-bank-live-36-l1` (`exact-stop-l1`) and `watch-replay-bank-live-132` (`exact-stop-l2-prime`) remain as rollback banks. |
+| **Watch** | **132-session confirmed `exact-stop-l1-os` replay bank** (`watch-replay-bank-live-132-l1os-installed`, 6,000 frames/session), visibly labelled **"Recorded assisted hero"** | `b8-s3` hero + `exact-stop-l1-os` (`L >= 1`, interval 5, `H = 300`, opposite-safe lookahead) vs `5× frp3-s12 + v8` | `SNAKE_WATCH_SOURCE=replay`, `SNAKE_WATCH_REPLAY_DIR=.../watch-replay-bank-live-132-l1os-installed`, and `SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l1-os` (launched via `tools/ops/watch_server.sh`; banks `25l1os–35l1os`: `36` A100 + `96` G4 sessions; confirmed in `Bank-v2` with `+258.7` mass/world and `deaths −56%` at `H = 14,400`, Mac-qualified `24 fps` runs 3+4). Live bare `b8-s3` is the automatic fallback; `watch-replay-bank-live-132-l1` (`exact-stop-l1`), `watch-replay-bank-live-36-l1` (`exact-stop-l1`), and `watch-replay-bank-live-132` (`exact-stop-l2-prime`) remain as rollback banks. |
 | **Play** | **Live bare `b8-s3`** (no veto, no replay) | `1` human vs `N` (default `5`, adjustable `1–11`) AI opponents: **Classic B8** default (`b8-s3`, SHA prefix `3e649783`), with opt-in **"Field: Classic B8 / Mixed"** (`Mixed` = `frp3-s12 + v8` opponents; leaderboard partitioned by field) | Always runs live server simulation and inference ([`web/backend/served_checkpoint.py`](../web/backend/served_checkpoint.py)); force Classic B8 with `SNAKE_SERVE_PLAY_ROSTER=all_b8`. |
 
 **Rollbacks** (restart [`web/serve.py`](../web/serve.py) with explicit env vars; `GameSession` gates replay on `_is_clean_mixed_watch6_b8()`, so non-default `SNAKE_SERVE_CHECKPOINT` / `SNAKE_SERVE_WATCH_ROSTER` automatically run live, and `SNAKE_WATCH_SOURCE=live` forces live bare `b8-s3` mixed Watch6):
 
-- **Previous Watch replay banks:** `SNAKE_WATCH_REPLAY_DIR=.../watch-replay-bank-live-36-l1` (`SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l1`) or `SNAKE_WATCH_REPLAY_DIR=.../watch-replay-bank-live-132` (`SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l2-prime`).
+- **Previous Watch replay banks:** `SNAKE_WATCH_REPLAY_DIR=.../watch-replay-bank-live-132-l1` (`SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l1`), `SNAKE_WATCH_REPLAY_DIR=.../watch-replay-bank-live-36-l1` (`SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l1`), or `SNAKE_WATCH_REPLAY_DIR=.../watch-replay-bank-live-132` (`SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l2-prime`).
 - **Watch back to live bare `b8-s3`:** unset `SNAKE_WATCH_SOURCE` (or `SNAKE_WATCH_SOURCE=live`).
 - **Force Classic B8 in Play:** `SNAKE_SERVE_PLAY_ROSTER=all_b8`.
 - **All-B8 Watch roster (live):** `SNAKE_WATCH_SOURCE=live SNAKE_SERVE_WATCH_ROSTER=all_b8`.
@@ -54,7 +54,7 @@ Campaign authority: [SUCCESS_CONTRACT.md](research/final_run_20261019/SUCCESS_CO
 
 ### Final shipped state & closeout verdicts
 
-- **Watch `live-132-l1` replay serving (`exact-stop-l1`, 2026-11-03):** [`research/watch_replay/`](../research/watch_replay/) & [`web/backend/watch_replay.py`](../web/backend/watch_replay.py) — serves the **132 confirmed `exact-stop-l1` sessions** (`watch-replay-bank-live-132-l1`, banks `14l1–24l1`: `36` A100 + `96` G4 sessions; `SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l1`) after `Watch6-L1-V1` `GO_L1_SUPERIOR` (`deaths −72%`, `mass +95%` vs bare at `H = 14,400`) and consecutive Mac `24 fps` qualification runs 2+3 (`qualify.py`). Serving fixes also landed for gen-2 GC tick stall (`5b4353c6`) and Watch↔Play RSS growth (`7ecec2a0`).
+- **Watch `live-132-l1os-installed` replay serving (`exact-stop-l1-os`, 2026-11-06):** [`research/watch_replay/`](../research/watch_replay/) & [`web/backend/watch_replay.py`](../web/backend/watch_replay.py) — serves the **132 confirmed `exact-stop-l1-os` sessions** (`watch-replay-bank-live-132-l1os-installed`, banks `25l1os–35l1os`: `36` A100 + `96` G4 sessions; `SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l1-os`) after `Bank-v2` confirmation (`+258.7` mass/world, `deaths −56%` at `H = 14,400`, `4/4` blocks won) and consecutive Mac `24 fps` qualification runs 3+4 (`qualify.py`), upgrading the 2026-11-03 `watch-replay-bank-live-132-l1` (`exact-stop-l1`, `Watch6-L1-V1` `GO_L1_SUPERIOR`) bank. Serving fixes also landed for gen-2 GC tick stall (`5b4353c6`) and Watch↔Play RSS growth (`7ecec2a0`).
 - **Play Field option (`b3789463`, 2026-11-04):** Play defaults to live bare `b8-s3` (**Classic B8**) and offers opt-in **"Field: Classic B8 / Mixed"** (`Mixed` = `frp3-s12 + v8` opponents, probe `CANDIDATE` `t34-sol/argon-play-mixed-probe/REPORT.md`), with field-partitioned leaderboards.
 - **Closing evidence (Mac-only, `0` Colab units):**
   - **`open-stop-h32-nb`** (alive + un-enclosed `H = 32` certificate) **PASSED** its pre-registered 96-fresh-world gate (`deaths −70%`, `mass +51%`, harmful overrides `0.88%`) — valid offline controller (`~60 ms/root`), not `24 fps`-live.
@@ -89,7 +89,7 @@ Campaign authority: [SUCCESS_CONTRACT.md](research/final_run_20261019/SUCCESS_CO
 | Document | Purpose |
 | --- | --- |
 | [STATUS.md](STATUS.md) | **Single source of truth** for current served state, standing owner rules, release pins, monitoring thresholds, and historical milestones. |
-| [research/ROADMAP.md](research/ROADMAP.md) | **T34 closeout summary (2026-11-04 PT) & archived Round-27 research roadmap:** final shipped state (`watch-replay-bank-live-132-l1` with `exact-stop-l1` on Watch; `b8-s3` default + opt-in `Field: Classic B8 / Mixed` on Play), closing Mac-only evidence (`open-stop-h32-nb` gate `PASS`, search→bare distillation Stage 1B `CLOSED`, live search Part B `CLOSED`, Claim A `b8-head-closedloop` `KILL`), and archived Round-27 advisor synthesis. |
+| [research/ROADMAP.md](research/ROADMAP.md) | **T34 closeout summary (2026-11-04 PT) & archived Round-27 research roadmap:** final shipped state (`watch-replay-bank-live-132-l1os-installed` with `exact-stop-l1-os` on Watch since 2026-11-06, upgrading `watch-replay-bank-live-132-l1`; `b8-s3` default + opt-in `Field: Classic B8 / Mixed` on Play), closing Mac-only evidence (`open-stop-h32-nb` gate `PASS`, search→bare distillation Stage 1B `CLOSED`, live search Part B `CLOSED`, Claim A `b8-head-closedloop` `KILL`), and archived Round-27 advisor synthesis. |
 | [README.md](README.md) | Per-document status guide (`Current`, `Historical`, `Superseded`) and reconciled historical discrepancies. |
 | [MAP.md](MAP.md) | Directory-by-directory layout of `docs/`. |
 | [TIMELINE.md](TIMELINE.md) | Chronological project milestones from 2026-06-16 through 2026-11-01. |
@@ -109,7 +109,7 @@ superseded/interim package handoffs are consolidated into **[`docs/research/hist
 
 | Family | Directories under `research/` | Scope |
 | --- | --- | --- |
-| **Watch6 confirmation, replay & Oct 31–Nov 1 screens** | `watch6_l1_confirm`, `watch6_search_efficacy`, `watch6_search_efficacy_v3`, `watch_replay`, `watch6_alllen_screen`, `devicesim_v2_parity`, `r6_l600_census`, `r7_macro_fallback`, `t4_gate1` | Ratified 3-arm `Watch6-L1-V1` confirmation (`REGISTRATION_L1_V1.md`), Watch6 V3 confirmation (`GO_EFFICACY_ONLY`), live 132-session `exact-stop-l2-prime` replay bank + Mac `24 fps` `qualify.py` (`+36` `exact-stop-l1` staged), all-length screen (`ADOPT`), A100 `DeviceSim` v2 parity (`PASS`, `0` mismatches / `1.536M` snake-ticks), and R6/R7/T4 exploration screens (`KILL`). |
+| **Watch6 confirmation, replay & Oct 31–Nov 1 screens** | `watch6_l1_confirm`, `watch6_search_efficacy`, `watch6_search_efficacy_v3`, `watch_replay`, `watch6_alllen_screen`, `devicesim_v2_parity`, `r6_l600_census`, `r7_macro_fallback`, `t4_gate1` | Ratified 3-arm `Watch6-L1-V1` confirmation (`REGISTRATION_L1_V1.md`), Watch6 V3 confirmation (`GO_EFFICACY_ONLY`), live 132-session `exact-stop-l1-os` replay bank (`watch-replay-bank-live-132-l1os-installed`, plus `live-132-l1` and `live-132` rollback banks) + Mac `24 fps` `qualify.py`, all-length screen (`ADOPT`), A100 `DeviceSim` v2 parity (`PASS`, `0` mismatches / `1.536M` snake-ticks), and R6/R7/T4 exploration screens (`KILL`). |
 | **Sandbox A/B & GPU engine (`gpu_sim_spike`, `sandbox_*`)** | `gpu_sim_spike`, `sandbox_a_resident`, `sandbox_b_heads`, `a100_a2`, `a3_p1_ceiling` | GPU-resident simulator (`DeviceSim` / `CTDeviceSim` in `gpu_sim_spike`), A-1..A-3 throughput rulers, `TRAIN-01` resident PPO, and 60-config successor head sweeps. |
 | **Big-Lever program (`bl_*`, `r3*`)** | `bl_served_search`, `bl_labels`, `bl_residual`, `bl_ppo`, `bl_round30`, `r32_rehearsal`, `r33_ops`, `r33_verification`, `bl_k1`, `bl_mac_latency`, `bl_paced_identity`, `bl_step_ruler`, `bl_future_noise`, `bl_density`, `bl_info_value`, `bl_e16`, `bl_prefix`, `bl_evidence`, `bl_upload`, `bl_v0`, `bl_x5` | Exact-stop served search (`L2'`), hindsight label factory (`F0`), frozen-B8 residual dose study (`F4`, `STOP_FUNDING`), K-1 native `v8` kernel (`20.13×`), Round 30/32/33 harnesses, and offline probes. |
 | **T34 / T35 ExIt-B8 (`t34_*`, `t35_*`, `phase0_*`)** | `t34_exit_b8`, `t34_exit_b8_fit`, `t34_round0`, `t34_round0d`, `t34_pathb`, `t34_claim_a`, `t34_shadow`, `t35_outcome_head`, `t35_two_deviation`, `phase0_search_20261019` | Search-teacher engine, student distillation fit, Path B paced retention, Round 0, shadow measurements, and T35 probes. |
@@ -146,10 +146,10 @@ make install-dev        # dev tools + pre-commit hooks
 # Build frontend & start live server at http://localhost:8000 (live b8-s3 Watch + Play)
 make web
 
-# Serve Watch from the confirmed 132-session exact-stop-l1 replay bank
+# Serve Watch from the confirmed 132-session exact-stop-l1-os replay bank (or ./tools/ops/watch_server.sh)
 SNAKE_WATCH_SOURCE=replay \
-SNAKE_WATCH_REPLAY_DIR=/Users/josenunez/Projects/ml/snake-dqn-artifacts/watch-replay-bank-live-132-l1 \
-SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l1 \
+SNAKE_WATCH_REPLAY_DIR=/Users/josenunez/Projects/ml/snake-dqn-artifacts/watch-replay-bank-live-132-l1os-installed \
+SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l1-os \
 ./venv/bin/python web/serve.py
 
 # Frontend hot-reload dev server (proxies API/WS to :8000)

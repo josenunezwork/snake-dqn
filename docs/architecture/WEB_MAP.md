@@ -58,7 +58,7 @@ Client -> server: `{"type": "control", "action": <name>, "value": <any>}`. Actio
 (`app.py` `_CONTROL_HANDLERS`): `play`, `pause`, `reset`, `new_game`, `set_speed`,
 `set_mode` (string or `{mode, override_reward_contract}`), `set_epsilon`, `set_hero`,
 `set_food`, `load_checkpoint` (string or `{name, override_reward_contract}`),
-`human_input`, `human_boost`, `set_play_opponents`, `save_weights`,
+`human_input`, `human_boost`, `set_play_opponents`, `set_play_roster`, `save_weights`,
 `set_raster_stream` (per-connection opt-in). While another connection owns a live
 scored Play run, `set_mode`/`reset`/`new_game`/`load_checkpoint` are refused and
 steering is ignored. Unknown/malformed controls set `session.last_error`, never raise.
@@ -72,9 +72,9 @@ steering is ignored. Unknown/malformed controls set `session.last_error`, never 
 | `SNAKE_SERVE_VETO_WATCH_HERO` | ON | Master switch for the Watch-hero veto; `0/false/no/off` disables. |
 | `SNAKE_SERVE_VETO_PLAY_AI` | OFF | `1/true/yes/on` wraps Play AI snakes with v2. |
 | `SNAKE_SERVE_WATCH_ROSTER` | `mixed` | `mixed` (frp3-s12 opponent) or `all_b8` (rollback). |
-| `SNAKE_WATCH_SOURCE` | `live` (`replay` in `.claude/launch.json`) | `replay` streams verified precomputed `snake-watch-replay/v1` Watch sessions (`"Recorded assisted hero"`) when `_is_clean_mixed_watch6_b8()` holds (`checkpoint=None`, served `b8-s3` bare, `mixed` Watch6 roster) and `_replay_opted_out` is false (`set_epsilon`, live `set_hero` change, and `set_food` opt out to live B8 across `reset`; `new_game` and `_build` clear the opt-out; `Play -> Watch` resumes replay), with automatic live `b8-s3` fallback; `live` forces live simulation. Play is always live. |
-| `SNAKE_WATCH_REPLAY_DIR` | unset (`.../watch-replay-bank-live-132` in `.claude/launch.json`) | Directory of verified `.watch.gz` (gzipped canonical JSONL) + `.sha256` + `.complete` triplets read when `SNAKE_WATCH_SOURCE=replay` (`watch-replay-bank-live-132` holds the `132` confirmed `exact-stop-l2-prime` sessions; `watch-replay-bank-live-168` retains `132` `exact-stop-l2-prime` + `36` unconfirmed `exact-stop-l1` sessions on disk). |
-| `SNAKE_WATCH_REPLAY_CONTROLLER` | `all` (`exact-stop-l2-prime` in `.claude/launch.json`) | Line-1 `peek_header` controller filter for `ReplayBank`: `all`, `exact-stop-l2-prime`, or `exact-stop-l1`. Unknown values fail closed to live `b8-s3` with a logged error. |
+| `SNAKE_WATCH_SOURCE` | `live` (`replay` in `tools/ops/watch_server.sh` and `.claude/launch.json`) | `replay` streams verified precomputed `snake-watch-replay/v1` Watch sessions (`"Recorded assisted hero"`) when `_is_clean_mixed_watch6_b8()` holds (`checkpoint=None`, served `b8-s3` bare, `mixed` Watch6 roster) and `_replay_opted_out` is false (`set_epsilon`, live `set_hero` change, and `set_food` opt out to live B8 across `reset`; `new_game` and `_build` clear the opt-out; `Play -> Watch` resumes replay), with automatic live `b8-s3` fallback; `live` forces live simulation. Play is always live. |
+| `SNAKE_WATCH_REPLAY_DIR` | unset (`.../watch-replay-bank-live-132-l1os-installed` in `tools/ops/watch_server.sh` and `.claude/launch.json`) | Directory of verified `.watch.gz` (gzipped canonical JSONL) + `.sha256` + `.complete` triplets read when `SNAKE_WATCH_SOURCE=replay` (`watch-replay-bank-live-132-l1os-installed` holds the `132` confirmed `exact-stop-l1-os` sessions; `watch-replay-bank-live-132-l1` (`exact-stop-l1`) and `watch-replay-bank-live-132` (`exact-stop-l2-prime`) remain on disk as rollback banks). |
+| `SNAKE_WATCH_REPLAY_CONTROLLER` | `all` (`exact-stop-l1-os` in `tools/ops/watch_server.sh` and `.claude/launch.json`) | Line-1 `peek_header` controller filter for `ReplayBank`: `all`, `exact-stop-l2-prime`, `exact-stop-l1`, or `exact-stop-l1-os`. Unknown values fail closed to live `b8-s3` with a logged error. |
 | `SNAKE_SERVE_PATHB` | OFF | Path B assistance, only when eligible (see `pathb.eligible`). |
 | `SNAKE_MECHANICS_V2` | ON | `0/false/no` serves legacy v1 mechanics. |
 | `SNAKE_SCORES_DB` | `DEFAULT_SCORES_DB` | Play leaderboard SQLite path. |

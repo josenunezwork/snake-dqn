@@ -35,9 +35,10 @@
       "runtimeArgs": [
         "PORT=8017",
         "SNAKE_WATCH_SOURCE=replay",
-        "SNAKE_WATCH_REPLAY_DIR=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/watch-replay-fix/bank02-installed-01",
-        "/Users/josenunez/Projects/ml/snake-dqn-watch-replay-serve/venv/bin/python",
-        "/Users/josenunez/Projects/ml/snake-dqn-watch-replay-serve/web/serve.py"
+        "SNAKE_WATCH_REPLAY_DIR=/Users/josenunez/Projects/ml/snake-dqn-artifacts/watch-replay-bank-live-132-l1os-installed",
+        "SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l1-os",
+        "./venv/bin/python",
+        "web/serve.py"
       ],
       "port": 8017
     }

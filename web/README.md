@@ -11,14 +11,15 @@ over a WebSocket. No game logic or model inference runs in the browser.
 released 2026-10-17) with an opt-in **"Field: Classic B8 / Mixed"** selector (`Mixed` = `frp3-s12 + v8`
 opponents; leaderboard partitioned by field; force Classic with `SNAKE_SERVE_PLAY_ROSTER=all_b8`,
 `b3789463`), while live Watch fallback (`SNAKE_WATCH_SOURCE=live`) runs a bare `b8-s3` hero against
-the `mixed` `5× frp3-s12 + v8` roster. Watch plays the **132-session confirmed `exact-stop-l1`
+the `mixed` `5× frp3-s12 + v8` roster. Watch plays the **132-session confirmed `exact-stop-l1-os`
 replay bank** (`SNAKE_WATCH_SOURCE=replay`,
-`SNAKE_WATCH_REPLAY_DIR=.../watch-replay-bank-live-132-l1`,
-`SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l1`: `.watch.gz` gzipped canonical JSONL recordings from
-banks `14l1–24l1` visibly labelled `"Recorded assisted hero"`, confirmed by `Watch6-L1-V1`
-`GO_L1_SUPERIOR` and Mac `24 fps` qualification runs 2+3), with live bare `b8-s3` as automatic
-fallback (`SNAKE_WATCH_SOURCE=live`; rollback banks `watch-replay-bank-live-36-l1` and
-`watch-replay-bank-live-132` remain on disk). Replay is gated on
+`SNAKE_WATCH_REPLAY_DIR=.../watch-replay-bank-live-132-l1os-installed`,
+`SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l1-os`, launched via `tools/ops/watch_server.sh`:
+`.watch.gz` gzipped canonical JSONL recordings from banks `25l1os–35l1os` visibly labelled
+`"Recorded assisted hero"`, confirmed in `Bank-v2` with `+258.7` mass/world and `deaths −56%` at
+`H = 14,400`, `4/4` blocks won, and Mac `24 fps` qualification runs 3+4), with live bare `b8-s3` as
+automatic fallback (`SNAKE_WATCH_SOURCE=live`; rollback banks `watch-replay-bank-live-132-l1`,
+`watch-replay-bank-live-36-l1`, and `watch-replay-bank-live-132` remain on disk). Replay is gated on
 clean mixed-Watch6 `b8-s3` (`_is_clean_mixed_watch6_b8()`), so env-var checkpoint or roster
 rollbacks (`SNAKE_SERVE_CHECKPOINT=frp3-s12|champion` or `SNAKE_SERVE_WATCH_ROSTER=all_b8`)
 automatically run live. Full map of modules, the WebSocket
@@ -65,9 +66,11 @@ The arena is always on screen; the other six are tabs beside it.
 - **Inspector** — the active policy's scalar state, dueling Q/value/advantages, and replay search
   override markers (`"Move from search"`); `ego2s-bv8` (`b8-s3`) exposes its 60-D scalar band,
   `raster31v2` exposes its 26-D scalars, and `vector61` exposes the 61-D free-space vector.
-- **Raster** — what a `raster31v2` snake sees: the heading-rotated ego-centric 31×31 tactical and
-  25×25 strategic stacks (head centred, facing up), as a colour-coded composite or a single isolated
-  channel (brightness = the value byte). Shows a placeholder on `ego2s-*` (`b8-s3`) and `vector61`.
+- **Raster** — what a conv snake sees in live Watch: the heading-rotated ego-centric `ego2s-*`
+  (`b8-s3`: 7×31×31 local and 4×37×37 global stacks) or `raster31v2` (9×31×31 tactical and 3×25×25
+  strategic stacks, head centred, facing up), as a colour-coded composite or a single isolated
+  channel (brightness = the value byte). Shows a placeholder during recorded Watch replays, in Play
+  mode, and on `vector61`.
 - **Network** — live dueling-Q details and, where the served policy exposes them, activation
   views with top action, margin, and activity.
 - **Dashboard** — eval leaderboard parsed from `logs/eval_*.json` + the checkpoint inventory.
