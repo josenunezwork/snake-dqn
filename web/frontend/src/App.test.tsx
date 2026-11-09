@@ -149,25 +149,14 @@ describe("NetworkVisualizer and TelemetryBand prop wiring", () => {
     f.obs_spec = "ego2s-bv8";
     f.session.playing = false;
     f.inspector = {
-      id: 0,
-      name: "Hero",
-      color: [0, 255, 0],
-      length: 12,
-      alive: true,
-      boosting: false,
-      heading: [1, 0],
-      food_eaten: 2,
-      kills: 0,
       input_size: 60,
       state: [],
       groups: [],
       q_values: [1, 2, 0, -1, -2, -3],
-      value: 1,
-      advantages: [0, 1, -1, -2, -3, -4],
+      action_labels: ["L", "F", "R", "L+B", "F+B", "R+B"],
       chosen: 1,
       executed_action: 0,
-      veto_overrode: true,
-      action_source: "search",
+      free_space: null,
     };
     socket.mockReturnValue({ frame: f, connected: true, link: "live", history: [], send: vi.fn() });
     render(<App />);
