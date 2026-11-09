@@ -1,24 +1,32 @@
-# Pre-commit hooks. Install once: `./venv/bin/pre-commit install`
+# Pre-commit hooks. Install once: `./venv/bin/python -m pre_commit install`
 # Uses the locally-installed tools (from requirements-dev.txt) so pre-commit,
 # CI, and your editor all run the exact same versions — no formatter drift.
+#
+# Immutable research/evidence trees and SHA-256-pinned safety_veto modules are
+# excluded so formatting hooks can never rewrite hash-bound files.
+exclude: ^(research/|docs/research/|docs/experiments/|tests/fixtures/|saved_snakes/|src/evaluation/safety_veto.*\.py$|tools/ops/.*\.md$|tools/small_bench_evidence_20261024/)
+
 repos:
   - repo: local
     hooks:
       - id: isort
         name: isort
-        entry: isort --profile black
+        entry: ./venv/bin/python -m isort --profile black
         language: system
         types: [python]
+        files: ^(src/|web/backend/|web/serve\.py$|conftest\.py$|scripts/|tools/|tests/)
       - id: black
         name: black
-        entry: black --line-length 100
+        entry: ./venv/bin/python -m black --line-length 100
         language: system
         types: [python]
+        files: ^(src/|web/backend/|web/serve\.py$|conftest\.py$|scripts/|tools/|tests/)
       - id: flake8
         name: flake8
-        entry: flake8
+        entry: ./venv/bin/python -m flake8
         language: system
         types: [python]
+        files: ^(src/|web/backend/|web/serve\.py$|conftest\.py$|scripts/|tools/|tests/)
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
