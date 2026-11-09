@@ -32,6 +32,7 @@ from src.core.runtime_contract import (
 )
 from src.data.score_store import compute_score
 from src.game.game_state import GameState
+from src.model.ego2s_network import OBS_SHAPES as EGO2S_OBS_SHAPES
 from src.model.obs_spec import DEFAULT_OBS_SPEC, EGO2S_OBS_SPECS, RASTER31V2, RASTER31V3, VECTOR61
 from src.training.apex_policy import ApexPolicy
 from web.backend.checkpoints import resolve_checkpoint_name
@@ -1942,6 +1943,16 @@ class GameSession:
                     replay=replay.info(),
                 )
                 return state
+            net_cfg = getattr(getattr(self.policy, "net", None), "config", None)
+            n_scalars = net_cfg.get("n_scalars") if isinstance(net_cfg, Mapping) else None
+            ego_scalars = (
+                EGO2S_OBS_SHAPES[self.obs_spec][1] if self.obs_spec in EGO2S_OBS_SHAPES else None
+            )
+            raw_input_size = getattr(self.policy, "input_size", None)
+            if raw_input_size is None:
+                raw_input_size = n_scalars if n_scalars is not None else ego_scalars
+            if raw_input_size is None:
+                raw_input_size = GameConfig.INPUT_SIZE
             state = {
                 "playing": self.playing,
                 "speed": self.speed,
@@ -1956,15 +1967,7 @@ class GameSession:
                 "config": os.path.basename(self.config_path),
                 "mechanics_version": int(GameConfig.MECHANICS_VERSION),
                 "obs_spec": str(self.obs_spec),
-                "input_size": int(
-                    getattr(
-                        self.policy,
-                        "input_size",
-                        getattr(getattr(self.policy, "net", None), "config", {}).get(
-                            "n_scalars", GameConfig.INPUT_SIZE
-                        ),
-                    )
-                ),
+                "input_size": int(raw_input_size),
                 "num_snakes": int(len(self.game.snakes)),
                 "epsilon": float(getattr(self.policy, "epsilon", 0.0)),
                 "food_target": int(self.game.food_manager.max_food),

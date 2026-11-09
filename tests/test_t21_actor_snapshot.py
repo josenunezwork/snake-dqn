@@ -7,12 +7,12 @@ import random
 import numpy as np
 import pytest
 
-from research.redesign_m3c_20261008.actor_snapshot import (
+torch = pytest.importorskip("torch")
+
+from research.redesign_m3c_20261008.actor_snapshot import (  # noqa: E402
     capture_actor_state,
     restore_actor_state,
 )
-
-torch = pytest.importorskip("torch")
 
 
 class _EnvRng:

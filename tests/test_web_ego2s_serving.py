@@ -441,3 +441,19 @@ def test_ego2s_hero_raster_none_in_play_and_replay(bv8_ckpt):
         assert build_frame(sess)["hero_raster"] is None
     finally:
         sess._watch_replay = None
+
+
+def test_control_state_input_size_none_safe_for_ego2s(ego_ckpt, bv8_ckpt):
+    """control_state input_size stays None-safe and falls back to ego2s obs_spec scalar count."""
+    sess_b = GameSession(checkpoint=ego_ckpt)
+    sess_b.policy.net.config = None
+    assert sess_b.control_state()["input_size"] == 30
+    sess_b.policy = None
+    assert sess_b.control_state()["input_size"] == 30
+
+    sess_bv8 = GameSession(checkpoint=bv8_ckpt)
+    sess_bv8.policy.input_size = None
+    sess_bv8.policy.net.config = None
+    assert sess_bv8.control_state()["input_size"] == 60
+    sess_bv8.policy = None
+    assert sess_bv8.control_state()["input_size"] == 60

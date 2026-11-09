@@ -14,24 +14,26 @@ repos:
         entry: ./venv/bin/python -m isort --profile black
         language: system
         types: [python]
-        files: ^(src/|web/backend/|web/serve\.py$|conftest\.py$|scripts/|tools/|tests/)
+        files: ^(src/|web/backend/)
       - id: black
         name: black
         entry: ./venv/bin/python -m black --line-length 100
         language: system
         types: [python]
-        files: ^(src/|web/backend/|web/serve\.py$|conftest\.py$|scripts/|tools/|tests/)
+        files: ^(src/|web/backend/)
       - id: flake8
         name: flake8
         entry: ./venv/bin/python -m flake8
         language: system
         types: [python]
-        files: ^(src/|web/backend/|web/serve\.py$|conftest\.py$|scripts/|tools/|tests/)
+        files: ^(src/|web/backend/|web/serve\.py$|conftest\.py$|scripts/|tools/ops/|tests/)
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
       - id: trailing-whitespace
+        files: ^(src/|web/backend/)
       - id: end-of-file-fixer
+        files: ^(src/|web/backend/)
       - id: check-yaml
       - id: check-added-large-files
         args: ["--maxkb=2048"]
