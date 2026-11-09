@@ -460,9 +460,6 @@ def build_frame(session) -> dict:
     else:
         hero_raster = None
     checkpoint_path = getattr(session, "checkpoint_path", None)
-    for _play_attr in ("play_roster", "play_roster_reason", "_play_roster_choice"):
-        if not hasattr(session, _play_attr):
-            setattr(session, _play_attr, None)
 
     return {
         "type": "frame",

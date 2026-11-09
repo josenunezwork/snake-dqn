@@ -105,11 +105,33 @@ if sys.platform == "darwin" and hasattr(signal, "pthread_sigmask"):
 """
 
 
+def _wrap_amx_signal_guard(fn: Any) -> Any:
+    """Block SIGUSR1/SIGTERM across a forward pass on macOS to avoid Accelerate AMX abort."""
+    if getattr(fn, "_amx_sigmask_guarded", False):
+        return fn
+    sigs = (signal.SIGUSR1, signal.SIGTERM)
+
+    def _wrapped(self: Any, *args: Any, **kwargs: Any) -> Any:
+        signal.pthread_sigmask(signal.SIG_BLOCK, sigs)
+        try:
+            return fn(self, *args, **kwargs)
+        finally:
+            signal.pthread_sigmask(signal.SIG_UNBLOCK, sigs)
+
+    _wrapped._amx_sigmask_guarded = True  # type: ignore[attr-defined]
+    return _wrapped
+
+
 @pytest.fixture(autouse=True)
 def _checkpoint_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Configure single-thread CPU execution and stage Watch6 checkpoints."""
     configure_cpu()
-    exec(_AMX_SIGNAL_GUARD_SITE, {})
+    if sys.platform == "darwin" and hasattr(signal, "pthread_sigmask"):
+        from src.model.apex_network import ApexNetwork
+        from src.model.ego2s_network import Ego2sNet
+
+        monkeypatch.setattr(Ego2sNet, "forward", _wrap_amx_signal_guard(Ego2sNet.forward))
+        monkeypatch.setattr(ApexNetwork, "forward", _wrap_amx_signal_guard(ApexNetwork.forward))
     monkeypatch.setattr(p, "compute_identity", _local_smoke_science_identity)
     monkeypatch.setattr(p, "identity", _local_smoke_science_identity)
     if "SNAKE_CKPT_DIR" not in os.environ and DEFAULT_LOCAL_SAVED_DIR.is_dir():

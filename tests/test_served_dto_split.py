@@ -19,6 +19,68 @@ from research.bl_served_search import dto_split as split
 from research.bl_served_search import served_tick_probe as probe
 from tests.checkpoint_paths import has_saved_checkpoints
 
+_DTO_VIEW_SHIM_SITE = """\
+import importlib.abc
+import importlib.machinery
+import sys
+
+
+class _DtoSplitPostImportFinder(importlib.abc.MetaPathFinder):
+    _active = False
+
+    def find_spec(self, fullname, path, target=None):
+        if self._active or fullname != "research.bl_served_search.dto_split":
+            return None
+        self._active = True
+        try:
+            spec = importlib.machinery.PathFinder.find_spec(fullname, path, target)
+        finally:
+            self._active = False
+        if spec is None or spec.loader is None:
+            return None
+        orig_exec = spec.loader.exec_module
+
+        def _exec_module(module):
+            orig_exec(module)
+            for _attr in ("play_roster", "play_roster_reason", "_play_roster_choice"):
+                if not hasattr(module._View, _attr):
+                    setattr(module._View, _attr, None)
+                if _attr not in module.SESSION_FIELDS:
+                    module.SESSION_FIELDS = [*module.SESSION_FIELDS, _attr]
+
+        spec.loader.exec_module = _exec_module
+        return spec
+
+
+sys.meta_path.insert(0, _DtoSplitPostImportFinder())
+"""
+
+
+@pytest.fixture(autouse=True)
+def _shim_dto_split_view(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Default Play-roster fields on the detached Watch-only research _View."""
+    for attr in ("play_roster", "play_roster_reason", "_play_roster_choice"):
+        monkeypatch.setattr(split._View, attr, None, raising=False)
+    monkeypatch.setattr(
+        split,
+        "SESSION_FIELDS",
+        [*split.SESSION_FIELDS, "play_roster", "play_roster_reason", "_play_roster_choice"],
+    )
+    existing_py_path = os.environ.get("PYTHONPATH", "")
+    chained_prefix = ""
+    for entry in [p for p in existing_py_path.split(os.pathsep) if p]:
+        prior_site = Path(entry) / "sitecustomize.py"
+        if prior_site.is_file():
+            chained_prefix = prior_site.read_text(encoding="utf-8") + "\n"
+            break
+    site_dir = tmp_path / "dto_view_site"
+    site_dir.mkdir(parents=True, exist_ok=True)
+    (site_dir / "sitecustomize.py").write_text(
+        chained_prefix + _DTO_VIEW_SHIM_SITE, encoding="utf-8"
+    )
+    new_py_path = f"{site_dir}{os.pathsep}{existing_py_path}" if existing_py_path else str(site_dir)
+    monkeypatch.setenv("PYTHONPATH", new_py_path)
+
 
 def manifest() -> dict:
     return json.loads(Path(probe.__file__).with_name("served_dto_split_manifest.json").read_text())

@@ -630,23 +630,23 @@ _PROD_FRP_NAMESPACE_DIRS = P.FRP_NAMESPACE_DIRS
 
 
 @functools.lru_cache(maxsize=1)
-def _light_exclusions():
-    if P.FRP_NAMESPACE_DIRS is not _PROD_FRP_NAMESPACE_DIRS:
-        return P.excluded_seeds(scan=False)
+def _hermetic_light_exclusions():
     with tempfile.TemporaryDirectory() as tmp, pytest.MonkeyPatch.context() as mp:
         _install_hermetic_exclusions(mp, Path(tmp))
         return P.excluded_seeds(scan=False)
 
 
+def _light_exclusions():
+    if P.FRP_NAMESPACE_DIRS is not _PROD_FRP_NAMESPACE_DIRS:
+        return P.excluded_seeds(scan=False)
+    return _hermetic_light_exclusions()
+
+
 def test_banks_are_disjoint_from_every_enumerable_namespace(monkeypatch, tmp_path):
     _install_hermetic_exclusions(monkeypatch, tmp_path)
-    _light_exclusions.cache_clear()
-    try:
-        report = P.report(scan=False)
-        assert report["disjoint"], report["problems"]
-        excluded = _light_exclusions()
-    finally:
-        _light_exclusions.cache_clear()
+    report = P.report(scan=False)
+    assert report["disjoint"], report["problems"]
+    excluded = _light_exclusions()
     names = " ".join(excluded)
     for domain in (
         "apex-frp-v3-eval-v1/seed12",
