@@ -59,7 +59,7 @@ from research.watch_replay.open_stop import (
     OPEN_STOP_CRN_NAMESPACE,
     OPEN_STOP_V8_LAMBDA,
 )
-from src.model.ego2s_network import Ego2sNet, load_ego2s_checkpoint
+from src.model.ego2s_network import Ego2sNet
 from src.simd_env.grid_sim import GridBatchSim
 from web.backend.served_checkpoint import B8_S3_SHA256, FRP3_S12_SHA256
 
@@ -669,18 +669,14 @@ def harvest_probe32_bank(
             "scalars_f32": torch.stack([r["scalars_f32"] for r in rows], dim=0).to(torch.float32),
             "legal_mask": torch.stack([r["legal_mask"] for r in rows], dim=0).to(torch.bool),
             "safe_mask_s0": torch.stack([r["safe_mask_s0"] for r in rows], dim=0).to(torch.bool),
-            "consensus_safe_mask": torch.stack(
-                [r["consensus_safe_mask"] for r in rows], dim=0
-            ).to(torch.bool),
-            "bare_action": torch.tensor(
-                [int(r["bare_action"]) for r in rows], dtype=torch.long
+            "consensus_safe_mask": torch.stack([r["consensus_safe_mask"] for r in rows], dim=0).to(
+                torch.bool
             ),
+            "bare_action": torch.tensor([int(r["bare_action"]) for r in rows], dtype=torch.long),
             "a_star_action": torch.tensor(
                 [int(r["a_star_action"]) for r in rows], dtype=torch.long
             ),
-            "hero_length": torch.tensor(
-                [int(r["hero_length"]) for r in rows], dtype=torch.long
-            ),
+            "hero_length": torch.tensor([int(r["hero_length"]) for r in rows], dtype=torch.long),
             "world_seed": torch.tensor([int(r["world_seed"]) for r in rows], dtype=torch.long),
             "decision_frame": torch.tensor(
                 [int(r["decision_frame"]) for r in rows], dtype=torch.long
@@ -818,9 +814,7 @@ def evaluate_probe_bank_tripwires(
         ord_bare_act = ord_pack["bare_action"].cpu()
         ord_deciles = ord_pack["length_decile"].cpu()
         ord_disagree = ord_student_act != ord_bare_act
-        overall_ord_disagree = (
-            float(ord_disagree.float().mean().item()) if n_ord > 0 else 0.0
-        )
+        overall_ord_disagree = float(ord_disagree.float().mean().item()) if n_ord > 0 else 0.0
 
         decile_disagreement: dict[str, float] = {}
         decile_counts: dict[str, int] = {}
@@ -845,9 +839,7 @@ def evaluate_probe_bank_tripwires(
         student_boost_share = (
             float((ord_student_act >= 3).float().mean().item()) if n_ord > 0 else 0.0
         )
-        b8_boost_share = (
-            float((ord_bare_act >= 3).float().mean().item()) if n_ord > 0 else 0.0
-        )
+        b8_boost_share = float((ord_bare_act >= 3).float().mean().item()) if n_ord > 0 else 0.0
         if b8_boost_share > 0.0:
             boost_share_ratio = student_boost_share / b8_boost_share
             boost_tripwire_pass = bool(
@@ -931,10 +923,10 @@ def evaluate_probe_bank_tripwires(
 
 
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Harvest and verify the Step B1b probe32 bank (t34-gpu-sitl-probe32-20261109-v1)."
+    parser = argparse.ArgumentParser(description="Harvest and verify the Step B1b probe32 bank.")
+    parser.add_argument(
+        "--output", type=Path, required=True, help="Output .pt path for probe32 bank"
     )
-    parser.add_argument("--output", type=Path, required=True, help="Output .pt path for probe32 bank")
     parser.add_argument("--device", type=str, default="cpu", help="Torch device (cpu or cuda)")
     parser.add_argument("--b8-checkpoint", type=Path, default=None)
     parser.add_argument("--opponent-checkpoint", type=Path, default=None)

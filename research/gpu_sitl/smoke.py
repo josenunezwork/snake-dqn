@@ -67,7 +67,6 @@ from research.gpu_sitl.seed_check import (
     PREFLIGHT_NAMESPACE,
     TRAIN_NAMESPACE,
     audit_b1b_seeds,
-    preflight_seeds,
     train_seeds,
 )
 from research.gpu_sitl.train_sitl import (
@@ -77,8 +76,6 @@ from research.gpu_sitl.train_sitl import (
     REGISTERED_ENVS,
     REGISTERED_MIN_UNIQUE_RESCUE_ROOTS,
     REGISTERED_ORDINARY_BATCH_SIZE,
-    REGISTERED_ORDINARY_HARD_NEG_HALF,
-    REGISTERED_ORDINARY_UNIFORM_HALF,
     REGISTERED_RESCUE_BATCH_SIZE,
     REGISTERED_TOTAL_UPDATES,
     RESCUE_MARGIN_DELTA_DEFAULT,
@@ -118,9 +115,7 @@ def run_mature_cohort_row_subset_parity(
     t0 = time.perf_counter()
     dev = torch.device(device)
     if not dry_run and dev.type != "cuda":
-        raise RuntimeError(
-            f"Non-dry-run Step B1b-Smoke requires device='cuda', got {dev}"
-        )
+        raise RuntimeError(f"Non-dry-run Step B1b-Smoke requires device='cuda', got {dev}")
     native_info: dict[str, Any] = {}
     if dev.type == "cuda":
         native_info = verify_cuda_native_extensions(dev)
@@ -245,7 +240,7 @@ def run_mature_cohort_row_subset_parity(
         vec_cand = rt_dev._features_rows(sim_dev, rows_dev, update_memory=False)
     vec_max_abs = float((vec_ref - vec_cand.cpu()).abs().max().item())
 
-    # Also test FastDeviceVectorRuntime.prepare when only a subset of rows has sel_fresh / ~sel_ready
+    # Test FastDeviceVectorRuntime.prepare when only a subset of rows has sel_fresh / ~sel_ready
     rt_sub_cpu = rt_cpu.repeat_interleave(1)
     rt_sub_dev = rt_dev.repeat_interleave(1)
     rt_sub_cpu.__class__ = FastDeviceVectorRuntime
@@ -267,7 +262,9 @@ def run_mature_cohort_row_subset_parity(
     with _maybe_cpu_fast_flood(bool(dev.type == "cpu")):
         rt_sub_dev.prepare(sim_dev)
 
-    prep_state_max_abs = float((rt_sub_cpu.sel_state - rt_sub_dev.sel_state.cpu()).abs().max().item())
+    prep_state_max_abs = float(
+        (rt_sub_cpu.sel_state - rt_sub_dev.sel_state.cpu()).abs().max().item()
+    )
     prep_mask_match = bool(torch.equal(rt_sub_cpu.sel_mask, rt_sub_dev.sel_mask.cpu()))
     vec_parity_ok = bool(
         math.isfinite(vec_max_abs)
@@ -416,7 +413,9 @@ def compute_pilot_runaway_guard(
     # Rolled in batches of E=32 (5,000 env steps) and labeled in batches of 256 roots
     # (625 suffix-0 batches + ~125 scoring-suffix 4..7 batches = ~750 label batches).
     probe32_env_sec = float(PROBE32_HORIZON) / float(env_steps_per_sec)
-    probe32_label_batches = (float(PROBE32_WORLD_COUNT * PROBE32_HORIZON) / float(REGISTERED_ENVS)) + 125.0
+    probe32_label_batches = (
+        float(PROBE32_WORLD_COUNT * PROBE32_HORIZON) / float(REGISTERED_ENVS)
+    ) + 125.0
     probe32_label_sec = probe32_label_batches / float(label_batches_per_sec)
     probe32_total_sec = probe32_env_sec + probe32_label_sec
 
@@ -442,7 +441,9 @@ def compute_pilot_runaway_guard(
 
     base_units_calibrated = (base_minutes / 60.0) * REGISTERED_A100_CALIBRATED_RATE_UPH
     cap_units_calibrated = 2.0 * base_units_calibrated
-    cap_units_broker_8uph = (float(timeout_minutes) / 60.0) * REGISTERED_A100_BROKER_CEILING_RATE_UPH
+    cap_units_broker_8uph = (
+        float(timeout_minutes) / 60.0
+    ) * REGISTERED_A100_BROKER_CEILING_RATE_UPH
 
     return {
         "registered_min_unique_rescue_roots": REGISTERED_MIN_UNIQUE_RESCUE_ROOTS,
@@ -483,9 +484,7 @@ def run_step_b1b_smoke(
     dev = torch.device(device)
     if not dry_run:
         if dev.type != "cuda":
-            raise RuntimeError(
-                f"Non-dry-run Step B1b-Smoke requires device='cuda', got {dev}"
-            )
+            raise RuntimeError(f"Non-dry-run Step B1b-Smoke requires device='cuda', got {dev}")
         if int(num_envs) != REGISTERED_ENVS or int(branch_horizon) != OPEN_STOP_BRANCH_HORIZON:
             raise ValueError(
                 f"Non-dry-run Step B1b-Smoke requires E={REGISTERED_ENVS} and "
@@ -544,9 +543,7 @@ def run_step_b1b_smoke(
         policy.vector_prepared = True
     obs_warm = extract_hero_root_observations(sim, cpu_fast_flood=bool(dev.type == "cpu"))
     with torch.no_grad():
-        q_warm = student_net(
-            obs_warm["local_u8"], obs_warm["global_u8"], obs_warm["scalars_f32"]
-        )
+        q_warm = student_net(obs_warm["local_u8"], obs_warm["global_u8"], obs_warm["scalars_f32"])
         act_warm = q_warm.masked_fill(~obs_warm["legal_mask"], -torch.inf).argmax(dim=1)
     _ = batched_open_stop_h32(
         sim,
@@ -619,8 +616,16 @@ def run_step_b1b_smoke(
     branch_rollouts_per_sec = 6.0 * root_labels_per_sec
 
     # Benchmark 3: Learner updates/s (128 rescue + 128 ordinary with hard-negative mining)
-    res_batch_sz = min(REGISTERED_RESCUE_BATCH_SIZE, max(2, int(num_envs) * 2)) if dry_run else REGISTERED_RESCUE_BATCH_SIZE
-    ord_batch_sz = min(REGISTERED_ORDINARY_BATCH_SIZE, max(2, int(num_envs) * 2)) if dry_run else REGISTERED_ORDINARY_BATCH_SIZE
+    res_batch_sz = (
+        min(REGISTERED_RESCUE_BATCH_SIZE, max(2, int(num_envs) * 2))
+        if dry_run
+        else REGISTERED_RESCUE_BATCH_SIZE
+    )
+    ord_batch_sz = (
+        min(REGISTERED_ORDINARY_BATCH_SIZE, max(2, int(num_envs) * 2))
+        if dry_run
+        else REGISTERED_ORDINARY_BATCH_SIZE
+    )
     ord_uni = ord_batch_sz // 2
     ord_hn = ord_batch_sz - ord_uni
 
@@ -704,14 +709,10 @@ def run_step_b1b_smoke(
 
     # Restore student_net weights to initial b8-s3 after synthetic benchmark updates
     peak_vram_allocated_mib = (
-        float(torch.cuda.max_memory_allocated(dev)) / float(1024**2)
-        if dev.type == "cuda"
-        else 0.0
+        float(torch.cuda.max_memory_allocated(dev)) / float(1024**2) if dev.type == "cuda" else 0.0
     )
     peak_vram_reserved_mib = (
-        float(torch.cuda.max_memory_reserved(dev)) / float(1024**2)
-        if dev.type == "cuda"
-        else 0.0
+        float(torch.cuda.max_memory_reserved(dev)) / float(1024**2) if dev.type == "cuda" else 0.0
     )
 
     runaway_guard = compute_pilot_runaway_guard(
@@ -769,7 +770,7 @@ def run_step_b1b_smoke(
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Step B1b-Smoke: CUDA parity on row subsets + E=256 throughput & VRAM benchmark."
+        description="Step B1b-Smoke: CUDA parity on row subsets + E=256 throughput & VRAM."
     )
     parser.add_argument("--output-dir", type=Path, required=True, help="Output directory.")
     parser.add_argument("--b8-checkpoint", type=Path, default=None)

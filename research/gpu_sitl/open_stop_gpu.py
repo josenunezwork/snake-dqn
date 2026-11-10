@@ -171,7 +171,10 @@ def verify_cuda_native_extensions(device: torch.device | str) -> dict[str, Any]:
         }
     if not torch.cuda.is_available() or torch.version.cuda is None:
         raise RuntimeError("CUDA device requested but torch.cuda.is_available() is False")
-    if v8_device._flood is not _ORIG_V8_FLOOD or ego_device._component_sizes is not _ORIG_EGO_COMPONENTS:
+    if (
+        v8_device._flood is not _ORIG_V8_FLOOD
+        or ego_device._component_sizes is not _ORIG_EGO_COMPONENTS
+    ):
         raise RuntimeError(
             "CPU flood/component overrides are active while running on a CUDA device; "
             "silent CPU fallback is forbidden"
@@ -194,7 +197,7 @@ def select_a_star_nb_on_device(
     safe_mask: torch.Tensor,
     bare_actions: torch.Tensor,
 ) -> torch.Tensor:
-    """Compute ``a^*(s)`` on device matching :func:`evaluation_order_nb` (`K = 1` ``open-stop-h32-nb``).
+    """Compute ``a^*(s)`` on device matching :func:`evaluation_order_nb` (`open-stop-h32-nb`).
 
     Order of preference among legal certified-safe actions (``safe_mask``):
     1. ``bare`` action ``a_b8(s)`` if it is certified safe.
@@ -703,10 +706,7 @@ def batched_open_stop_h32(
             return_host_records=return_host_records,
         )
     with torch.inference_mode(False):
-        return {
-            k: (v.clone() if isinstance(v, torch.Tensor) else v)
-            for k, v in out.items()
-        }
+        return {k: (v.clone() if isinstance(v, torch.Tensor) else v) for k, v in out.items()}
 
 
 @torch.inference_mode()

@@ -110,9 +110,9 @@ def collect_known_repository_seeds(index_horizon: int = AUDIT_INDEX_RANGE) -> di
         int(s) for shard in range(16) for s in derive_world_seeds(shard, 64)
     }
 
-    by_source["known_fixture_seeds"] = {
-        int(s) for s in KNOWN_FIXTURE_SEEDS
-    } | {int(seed_for("t34-watch-replay-full-size-fixture-v1", 0))}
+    by_source["known_fixture_seeds"] = {int(s) for s in KNOWN_FIXTURE_SEEDS} | {
+        int(seed_for("t34-watch-replay-full-size-fixture-v1", 0))
+    }
     by_source["t3_rollout_labels_dense"] = {int(s) for s in t3_fresh_seeds(512)}
 
     bank_seeds: set[int] = set()

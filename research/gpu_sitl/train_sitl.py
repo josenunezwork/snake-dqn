@@ -9,10 +9,12 @@ Implements the pre-registered online SITL training recipe from
 - Online labeler: :func:`batched_open_stop_h32` evaluating all legal actions over ``H = 32``
   under ``suffix 0``.
 - Strict partition by ``bare_is_safe``:
-  - Mined rescue ring buffer ``D_rescue^train``: ``a_b8(s) not in A_safe(s)`` and ``A_safe(s) != empty``.
+  - Mined rescue ring buffer ``D_rescue^train``: ``a_b8(s) not in A_safe(s)`` and
+    ``A_safe(s) != empty``.
   - Ordinary safe buffer ``D_ordinary^train``: ``a_b8(s) in A_safe(s)``.
 - Balanced ``B = 256`` minibatch: ``128`` mined rescue + ``128`` ordinary (`64` uniform +
-  ``64`` hard-negative where ``a_theta(s) != a_b8(s)``, prioritizing ``a_theta(s) not in A_safe(s)``).
+  ``64`` hard-negative where ``a_theta(s) != a_b8(s)``, prioritizing
+  ``a_theta(s) not in A_safe(s)``).
 - Pure hinge sum objective (`delta_rescue = 0.3002`, `delta_ordinary = 0.0632`, no TD loss).
 - ``512`` unique rescue warmup, ``>= 5,000`` unique mined rescue roots, ``1,000`` updates.
 - Every-200-update fit-drift & selectivity tripwires on ``t34-gpu-sitl-probe32-20261109-v1``
@@ -40,9 +42,9 @@ import torch
 
 from research.gpu_sim_spike import r2_cache
 from research.gpu_sitl.open_stop_gpu import (
+    _VECTOR_RUNTIME_ENV_FIELDS,
     ORDINARY_MARGIN_DELTA_DEFAULT,
     RESCUE_MARGIN_DELTA_DEFAULT,
-    _VECTOR_RUNTIME_ENV_FIELDS,
     batched_open_stop_h32,
     compact_sim_and_policy,
     concat_sims_and_policies,
@@ -67,7 +69,6 @@ from research.gpu_sitl.probe_bank import (
 )
 from research.gpu_sitl.seed_check import (
     TRAIN_NAMESPACE,
-    TRAIN_WORLD_COUNT,
     audit_b1b_seeds,
     train_seeds,
 )
@@ -208,7 +209,9 @@ class SitlRingBuffer:
             self.decision_frame[:n].copy_(state["decision_frame"])
             self.hard_neg_tier[:n].copy_(state["hard_neg_tier"])
 
-    def gather_batch(self, indices: Sequence[int] | np.ndarray, device: torch.device) -> dict[str, torch.Tensor]:
+    def gather_batch(
+        self, indices: Sequence[int] | np.ndarray, device: torch.device
+    ) -> dict[str, torch.Tensor]:
         idx_t = torch.as_tensor(list(indices), dtype=torch.long)
         return {
             "local_u8": self.local_u8.index_select(0, idx_t).to(device),
@@ -232,12 +235,8 @@ def compute_sitl_hinge_loss(
 ) -> dict[str, torch.Tensor]:
     """Compute the registered pure hinge sum objective (no TD loss).
 
-    .. math::
-        \\mathcal{L}(\\theta) =
-            \\frac{1}{|B_{\\text{rescue}}|}\\sum_{s \\in B_{\\text{rescue}}}
-            \\max(0, \\delta_{\\text{rescue}} - (Q_\\theta(s, a^*(s)) - Q_\\theta(s, a_{\\text{unsafe}}(s))))
-            + \\frac{1}{|B_{\\text{ordinary}}|}\\sum_{s \\in B_{\\text{ordinary}}}
-            \\left(\\max_{a \\in \\text{legal}(s)}(Q_\\theta(s, a) + \\delta_{\\text{ordinary}}\\mathbb{1}[a \\neq a_{\\text{b8}}(s)]) - Q_\\theta(s, a_{\\text{b8}}(s))\\right)
+    Sums the rescue pairwise margin hinge ``delta_rescue`` and the ordinary DQfD
+    large-margin hinge ``delta_ordinary``.
     """
     n_res = int(rescue_batch["local_u8"].shape[0])
     n_ord = int(ordinary_batch["local_u8"].shape[0])
@@ -265,7 +264,8 @@ def compute_sitl_hinge_loss(
     res_losses = torch.clamp(res_margins, min=0.0)
     loss_rescue = res_losses.mean()
 
-    # 2. Ordinary DQfD hinge term: max_{a in legal}(Q(s, a) + delta_ordinary * 1[a != a_b8]) - Q(s, a_b8)
+    # 2. Ordinary DQfD hinge term:
+    # max_{a in legal}(Q(s, a) + delta_ordinary * 1[a != a_b8]) - Q(s, a_b8)
     ord_arange = torch.arange(n_ord, device=q_ord.device, dtype=torch.long)
     a_b8 = ordinary_batch["bare_action"].clamp(0, 5)
     ord_legal = ordinary_batch["legal_mask"]
@@ -307,7 +307,8 @@ def sample_ordinary_minibatch_indices(
     device: torch.device,
 ) -> tuple[np.ndarray, dict[str, int]]:
     """Sample ``uniform_count`` uniform ordinary states + ``hard_neg_count`` hard-negative
-    ordinary states where ``a_theta(s) != a_b8(s)``, prioritizing ``a_theta(s) not in A_safe(s)``."""
+    ordinary states where ``a_theta(s) != a_b8(s)``, prioritizing ``a_theta(s) not in A_safe(s)``.
+    """
     n = int(ordinary_buf.size)
     if n < 1:
         raise ValueError("ordinary_buf is empty")
@@ -315,7 +316,7 @@ def sample_ordinary_minibatch_indices(
     replace_u = n < int(uniform_count)
     uniform_idx = rng.choice(n, size=int(uniform_count), replace=replace_u).astype(np.int64)
 
-    # Refresh hard_neg_tier on previously flagged rows + a random probe slice under current student_net
+    # Refresh hard_neg_tier on flagged rows + a random probe slice under current student_net
     flagged = np.flatnonzero(ordinary_buf.hard_neg_tier[:n].numpy() > 0)
     k_probe = min(n, max(int(probe_pool_size), int(hard_neg_count) * 2))
     random_probe = rng.choice(n, size=k_probe, replace=False).astype(np.int64)
@@ -418,8 +419,9 @@ def evaluate_training_set_aliasing_diagnostic(
     per registration §3.1(3) and §3.4:
 
     If training-set rescue agreement (``argmax_{a in legal(s)} Q_theta(s, a) in A_safe(s)``)
-    is ``< 80.0%`` while training-set ordinary flips (``argmax_{a in legal(s)} Q_theta(s, a) != a_b8(s)``)
-    are ``<= 2.0%``, trigger ``STOP_EGO2S_BV8_INPUTS_INSUFFICIENT``.
+    is ``< 80.0%`` while training-set ordinary flips
+    (``argmax_{a in legal(s)} Q_theta(s, a) != a_b8(s)``) are ``<= 2.0%``, trigger
+    ``STOP_EGO2S_BV8_INPUTS_INSUFFICIENT``.
     """
     was_training = student_net.training
     student_net.eval()
@@ -505,7 +507,7 @@ def required_unique_rescues_for_update(
     min_unique_rescue_roots: int,
     total_updates: int,
 ) -> int:
-    """Return the required cumulative unique mined rescue roots before executing ``update_index_1based``."""
+    """Return required cumulative unique mined rescue roots before ``update_index_1based``."""
     u = max(1, int(update_index_1based))
     if total_updates <= 1:
         return max(int(warmup_rescue_roots), int(min_unique_rescue_roots))
@@ -606,8 +608,12 @@ def run_sitl_training(
             or int(branch_horizon) != OPEN_STOP_BRANCH_HORIZON
             or int(tripwire_interval) != REGISTERED_TRIPWIRE_INTERVAL
             or int(decision_window_size) != REGISTERED_DECISION_WINDOW_SIZE
-            or not math.isclose(float(delta_rescue), RESCUE_MARGIN_DELTA_DEFAULT, rel_tol=0.0, abs_tol=1e-9)
-            or not math.isclose(float(delta_ordinary), ORDINARY_MARGIN_DELTA_DEFAULT, rel_tol=0.0, abs_tol=1e-9)
+            or not math.isclose(
+                float(delta_rescue), RESCUE_MARGIN_DELTA_DEFAULT, rel_tol=0.0, abs_tol=1e-9
+            )
+            or not math.isclose(
+                float(delta_ordinary), ORDINARY_MARGIN_DELTA_DEFAULT, rel_tol=0.0, abs_tol=1e-9
+            )
         ):
             raise ValueError(
                 "Non-dry-run SITL training must use exact registered hyperparameters: "
@@ -740,7 +746,10 @@ def run_sitl_training(
         ckpt_pt_path = Path(latest_meta["checkpoint_path"])
         verify_file_sha256(ckpt_pt_path)
         state = torch.load(ckpt_pt_path, map_location="cpu", weights_only=False)
-        if state["b8_checkpoint_sha256"] != b8_sha or state["opponent_checkpoint_sha256"] != opp_sha:
+        if (
+            state["b8_checkpoint_sha256"] != b8_sha
+            or state["opponent_checkpoint_sha256"] != opp_sha
+        ):
             raise ValueError("Refusing to resume SITL checkpoint with mismatched model SHA256")
         if state["world_seeds"] != [int(s) for s in world_seeds]:
             raise ValueError("Refusing to resume SITL checkpoint with mismatched world_seeds")
@@ -813,7 +822,9 @@ def run_sitl_training(
             "update_history": list(update_history),
             "tripwire_breached": bool(tripwire_breached),
             "tripwire_breach_reason": tripwire_breach_reason,
-            "student_state_dict": {k: v.detach().cpu() for k, v in student_net.state_dict().items()},
+            "student_state_dict": {
+                k: v.detach().cpu() for k, v in student_net.state_dict().items()
+            },
             "optimizer_state_dict": optimizer.state_dict(),
             "sim_and_runtime": _capture_sim_and_runtime_state(sim, policy),
             "rescue_buffer": rescue_buf.state_dict(),
@@ -966,9 +977,8 @@ def run_sitl_training(
         )
 
         # Tripwire check every tripwire_interval updates and at final update
-        if (
-            updates_completed % int(tripwire_interval) == 0
-            or updates_completed == int(total_updates)
+        if updates_completed % int(tripwire_interval) == 0 or updates_completed == int(
+            total_updates
         ):
             check_rescue_bar = bool(updates_completed == int(total_updates))
             tw_res = evaluate_probe_bank_tripwires(
@@ -989,17 +999,15 @@ def run_sitl_training(
                 tripwire_breach_reason = f"probe_tripwire_breach_at_update_{updates_completed}"
 
         now_wall = time.perf_counter()
-        if (
-            updates_completed % int(checkpoint_every_updates) == 0
-            or (now_wall - last_ckpt_wall) >= float(checkpoint_every_seconds)
-        ):
+        if updates_completed % int(checkpoint_every_updates) == 0 or (
+            now_wall - last_ckpt_wall
+        ) >= float(checkpoint_every_seconds):
             _save_training_checkpoint(f"u{updates_completed:04d}")
             last_ckpt_wall = now_wall
 
     try:
-        while (
-            updates_completed < int(total_updates)
-            or len(unique_rescue_keys) < int(min_unique_rescue_roots)
+        while updates_completed < int(total_updates) or len(unique_rescue_keys) < int(
+            min_unique_rescue_roots
         ):
             if tripwire_breached:
                 break
@@ -1008,16 +1016,15 @@ def run_sitl_training(
                 break
             if signal_requested["stop"]:
                 _save_training_checkpoint(f"sig_u{updates_completed:04d}")
-                raise RuntimeError("Training interrupted by signal after saving verified checkpoint")
+                raise RuntimeError(
+                    "Training interrupted by signal after saving verified checkpoint"
+                )
 
             # Run learners updates if warmup and pacing targets are met
             while (
                 updates_completed < int(total_updates)
                 and not tripwire_breached
-                and (
-                    stop_after_updates is None
-                    or updates_completed < int(stop_after_updates)
-                )
+                and (stop_after_updates is None or updates_completed < int(stop_after_updates))
             ):
                 next_u = updates_completed + 1
                 req_rescues = required_unique_rescues_for_update(
@@ -1035,9 +1042,8 @@ def run_sitl_training(
                 else:
                     break
 
-            if (
-                updates_completed >= int(total_updates)
-                and len(unique_rescue_keys) >= int(min_unique_rescue_roots)
+            if updates_completed >= int(total_updates) and len(unique_rescue_keys) >= int(
+                min_unique_rescue_roots
             ):
                 break
             if tripwire_breached:

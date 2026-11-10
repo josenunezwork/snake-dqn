@@ -26,14 +26,6 @@ from research.gpu_sitl.probe_bank import (
     load_probe32_bank,
     verify_file_sha256,
 )
-from research.gpu_sitl.train_sitl import (
-    VERDICT_INPUTS_INSUFFICIENT,
-    SitlRingBuffer,
-    compute_sitl_hinge_loss,
-    evaluate_training_set_aliasing_diagnostic,
-    run_sitl_training,
-    sample_ordinary_minibatch_indices,
-)
 from research.gpu_sitl.seed_check import (
     CONTAMINATED_FORBIDDEN_DATA_NAMESPACES,
     PREFLIGHT_NAMESPACE,
@@ -48,6 +40,14 @@ from research.gpu_sitl.seed_check import (
     screen_seeds,
     selectivity_seeds,
     train_seeds,
+)
+from research.gpu_sitl.train_sitl import (
+    VERDICT_INPUTS_INSUFFICIENT,
+    SitlRingBuffer,
+    compute_sitl_hinge_loss,
+    evaluate_training_set_aliasing_diagnostic,
+    run_sitl_training,
+    sample_ordinary_minibatch_indices,
 )
 from research.sandbox_a_resident.ct_mechanics import CTDeviceSim
 from research.watch_replay.open_stop import evaluation_order_nb
@@ -74,9 +74,9 @@ def test_finding1_device_a_star_matches_host_evaluation_order_nb_boost_vs_nonboo
     # are both certified safe. evaluation_order_nb must pick action 1 (safe non-boost), NOT 4!
     # Root 1: bare=0 (unsafe); actions 1 (Q=0.1), 2 (Q=0.4), 5 (Q=1.5) are safe -> picks 2.
     # Root 2: bare=1 (unsafe); only boost actions 3 (Q=0.3) and 5 (Q=0.8) are safe -> picks 5.
-    # Root 3: bare=4 (boost, SAFE, Q=1.2) and action 0 (non-boost, SAFE, Q=0.5) -> bare is safe so picks 4.
+    # Root 3: bare=4 (boost, SAFE, Q=1.2) and action 0 (non-boost, SAFE, Q=0.5) -> picks 4.
     # Root 4: bare=2 (unsafe); no safe actions -> returns -1.
-    # Root 5: bare=0 (unsafe); tie between safe non-boost 1 (Q=0.5) and 2 (Q=0.5), plus boost 3 (Q=2.0) -> picks 1.
+    # Root 5: bare=0 (unsafe); tie between safe non-boost 1 and 2 (Q=0.5), boost 3 (Q=2.0) -> 1.
     root_q = torch.tensor(
         [
             [-0.5, 0.2, -0.1, 1.8, 0.9, 0.1],
@@ -115,7 +115,8 @@ def test_finding1_device_a_star_matches_host_evaluation_order_nb_boost_vs_nonboo
     assert expected == [1, 2, 5, 4, -1, 1]
     assert device_a_star.tolist() == expected
 
-    # Randomized stress check over 256 roots ensuring every root with safe non-boost + higher-Q safe boost matches host
+    # Randomized stress check over 256 roots ensuring every root with safe non-boost +
+    # higher-Q safe boost matches host evaluation_order_nb.
     rng = np.random.default_rng(20261109)
     q_rand = torch.from_numpy(rng.normal(size=(256, 6)).astype(np.float32))
     # Force boost columns 3..5 to have higher Q than 0..2 on the first 128 rows
@@ -231,7 +232,7 @@ def test_findings_1_and_2_in_batched_open_stop_and_margin_loss_fallback(
     assert int(res["roots"][0]["chosen"]) == 1
     assert int(res["a_star_actions"][0].item()) == 1
 
-    # Finding 1: device a_star_actions matches host evaluation_order_nb on every root where has_safe is True
+    # Finding 1: device a_star_actions matches host evaluation_order_nb on all safe roots
     for r, root_rec in enumerate(res["roots"]):
         if bool(safe_mask[r].any().item()):
             assert int(res["a_star_actions"][r].item()) == int(root_rec["chosen"])
@@ -247,9 +248,7 @@ def test_findings_1_and_2_in_batched_open_stop_and_margin_loss_fallback(
     raw_ckpt = torch.load(b8_path, map_location="cpu", weights_only=False)
     net = load_ego2s_checkpoint(b8_path, device=device)
     with torch.no_grad():
-        net.adv.bias.copy_(
-            torch.tensor([1.0, 2.0, 1.5, 50.0, 40.0, 30.0], dtype=torch.float32)
-        )
+        net.adv.bias.copy_(torch.tensor([1.0, 2.0, 1.5, 50.0, 40.0, 30.0], dtype=torch.float32))
         q0 = net(tac.float() / 255.0, strat.float() / 255.0, scalars)
     assert int(q0[0].argmax().item()) == 3
     assert float(q0[0, 4].item()) > float(q0[0, 1].item())
@@ -453,7 +452,8 @@ def test_sitl_hinge_loss_hard_neg_sampler_and_aliasing_diagnostic() -> None:
         )
 
     # At b8-s3 init: student picks bare_a on all rescue roots (0% rescue agreement < 80%)
-    # and picks bare_a on all ordinary states (0% ordinary flips <= 2.0%) -> triggers STOP_EGO2S_BV8_INPUTS_INSUFFICIENT
+    # and picks bare_a on all ordinary states (0% ordinary flips <= 2.0%) ->
+    # triggers STOP_EGO2S_BV8_INPUTS_INSUFFICIENT
     diag = evaluate_training_set_aliasing_diagnostic(
         net,
         res_buf,
@@ -496,7 +496,7 @@ def test_sitl_hinge_loss_hard_neg_sampler_and_aliasing_diagnostic() -> None:
 
 
 def test_sitl_training_dry_run_and_resume_determinism(tmp_path: Path) -> None:
-    """Run dry-run SITL training uninterrupted vs paused+resumed and verify bit-identical results."""
+    """Run dry-run SITL training uninterrupted vs paused+resumed and verify bit-identical."""
     b8_path, opp_path = resolve_product_checkpoints()
     if not Path(b8_path).exists() or not Path(opp_path).exists():
         pytest.skip("b8-s3 or opponent checkpoint not present")
@@ -556,8 +556,7 @@ def test_sitl_training_dry_run_and_resume_determinism(tmp_path: Path) -> None:
     assert res_part2["resumed_from_checkpoint"] is not None
     assert res_part2["counts"] == res_full["counts"]
     assert (
-        res_part2["final_student_checkpoint_sha256"]
-        == res_full["final_student_checkpoint_sha256"]
+        res_part2["final_student_checkpoint_sha256"] == res_full["final_student_checkpoint_sha256"]
     )
     assert res_part2["update_history"] == res_full["update_history"]
     assert res_part2["probe_bank_tripwires"] == res_full["probe_bank_tripwires"]
@@ -663,4 +662,3 @@ def test_step_b1b_smoke_parity_and_prepare_packets(tmp_path: Path) -> None:
         "max_outcome_blind_retries": 2,
     }
     assert manifest_pilot["timeout_minutes"] == rg["runaway_guard_timeout_minutes_2x"]
-
