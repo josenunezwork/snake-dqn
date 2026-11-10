@@ -545,17 +545,20 @@ def prepare_b1b_packet(
     resolved_commit = subprocess.check_output(
         ["git", "rev-parse", "--verify", f"{commit}^{{commit}}"], cwd=ROOT, text=True
     ).strip()
-    ancestor_ref = "HEAD" if mode == "shakeout" else "origin/main"
-    ancestor_check = subprocess.run(
-        ["git", "merge-base", "--is-ancestor", resolved_commit, ancestor_ref],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-    )
-    if ancestor_check.returncode != 0:
+    allowed_ancestor_refs = ("HEAD", "origin/main") if mode == "shakeout" else ("origin/main",)
+    if not any(
+        subprocess.run(
+            ["git", "merge-base", "--is-ancestor", resolved_commit, ref],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        ).returncode
+        == 0
+        for ref in allowed_ancestor_refs
+    ):
         raise ValueError(
             f"Refusing to prepare packet from unmerged commit {resolved_commit}: "
-            f"commit is not an ancestor of {ancestor_ref}"
+            f"commit is not an ancestor of {' or '.join(allowed_ancestor_refs)}"
         )
 
     if b8_checkpoint is None or opponent_checkpoint is None:
