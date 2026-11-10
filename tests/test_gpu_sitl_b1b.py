@@ -19,7 +19,21 @@ from research.gpu_sitl.preflight import (
     resolve_product_checkpoints,
     snapshot_worlds_to_device,
 )
-from research.gpu_sitl.seed_check import PREFLIGHT_NAMESPACE, preflight_seeds
+from research.gpu_sitl.seed_check import (
+    CONTAMINATED_FORBIDDEN_DATA_NAMESPACES,
+    PREFLIGHT_NAMESPACE,
+    PROBE32_NAMESPACE,
+    SCREEN_NAMESPACE,
+    SELECTIVITY_NAMESPACE,
+    T34_PREFLIGHT_NAMESPACE,
+    TRAIN_NAMESPACE,
+    audit_b1b_seeds,
+    preflight_seeds,
+    probe32_seeds,
+    screen_seeds,
+    selectivity_seeds,
+    train_seeds,
+)
 from research.sandbox_a_resident.ct_mechanics import CTDeviceSim
 from research.watch_replay.open_stop import evaluation_order_nb
 
@@ -253,3 +267,39 @@ def test_findings_1_and_2_in_batched_open_stop_and_margin_loss_fallback(
         device=device,
     )
     assert grad_res["selected_a_star"] == [1, 0]
+
+
+def test_b1b_seed_registration_and_disjointness_audit() -> None:
+    """Verify all Step B1b namespaces (train, probe32, selectivity, screen, preflight)
+    are mutually disjoint and have zero collisions with every repository seed source."""
+    report = audit_b1b_seeds(index_horizon=512, scan_code_roots=[])
+    assert report["ok"] is True
+    assert report["status"] == "CLEAR"
+    assert report["union_allocated_unique"] is True
+    assert report["cross_collisions_allocated"] == {}
+    assert report["cross_collisions_prefix"] == {}
+    assert report["contaminated_data_files_opened"] == 0
+    assert report["contaminated_namespaces_checked_algebraically"] == list(
+        CONTAMINATED_FORBIDDEN_DATA_NAMESPACES
+    )
+
+    ns_info = report["namespaces"]
+    for ns, expected_count in (
+        (PREFLIGHT_NAMESPACE, 40),
+        (T34_PREFLIGHT_NAMESPACE, 4),
+        (TRAIN_NAMESPACE, 256),
+        (PROBE32_NAMESPACE, 32),
+        (SELECTIVITY_NAMESPACE, 48),
+        (SCREEN_NAMESPACE, 48),
+    ):
+        assert ns in ns_info
+        assert ns_info[ns]["ok"] is True
+        assert ns_info[ns]["allocated_count"] == expected_count
+        assert len(ns_info[ns]["allocated_seeds"]) == expected_count
+        assert ns_info[ns]["repo_collisions_allocated"] == {}
+        assert ns_info[ns]["repo_collisions_prefix"] == {}
+
+    assert len(train_seeds()) == 256
+    assert len(probe32_seeds()) == 32
+    assert len(selectivity_seeds()) == 48
+    assert len(screen_seeds()) == 48
