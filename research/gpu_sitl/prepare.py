@@ -99,20 +99,16 @@ def runtime_source_paths(commit: str) -> list[str]:
         "smoke.py",
         "job.sh",
         "requirements.txt",
-        "prepare.py",
     }
-    tracked_set = set(
-        subprocess.check_output(
-            ["git", "ls-tree", "-r", "--name-only", commit, "src", "research"],
-            cwd=ROOT,
-            text=True,
-        ).splitlines()
+    tracked = sorted(
+        set(
+            subprocess.check_output(
+                ["git", "ls-tree", "-r", "--name-only", commit, "src", "research"],
+                cwd=ROOT,
+                text=True,
+            ).splitlines()
+        )
     )
-    for gs_name in gpu_sitl_names:
-        rel_gs = f"research/gpu_sitl/{gs_name}"
-        if (ROOT / rel_gs).is_file():
-            tracked_set.add(rel_gs)
-    tracked = sorted(tracked_set)
     return [
         name
         for name in tracked
@@ -230,33 +226,57 @@ def _stage_prior_attempt_artifacts(
     # 1. Carry over verified_units from prior verified-ledger.json (or checkpoint meta) if present
     found_prior_ledger = False
     for sroot in search_roots:
-        prior_ledger_p = sroot / "verified-ledger.json"
-        has_comp = Path(f"{prior_ledger_p}.complete").is_file()
-        has_sha = Path(f"{prior_ledger_p}.sha256").is_file()
-        if prior_ledger_p.is_file() and (has_comp or has_sha):
-            verify_file_sha256(prior_ledger_p, require_complete=has_comp)
-            prior_ledger = json.loads(prior_ledger_p.read_text(encoding="utf-8"))
-            if prior_ledger.get("namespace") != TRAIN_NAMESPACE:
-                raise ValueError(
-                    f"Foreign namespace in prior ledger {prior_ledger_p}: "
-                    f"{prior_ledger.get('namespace')!r}"
-                )
-            if prior_ledger.get("probe_namespace", PROBE32_NAMESPACE) != PROBE32_NAMESPACE:
-                raise ValueError(
-                    f"Foreign probe_namespace in prior ledger {prior_ledger_p}: "
-                    f"{prior_ledger.get('probe_namespace')!r}"
-                )
-            if isinstance(prior_ledger.get("world_seeds"), list) and prior_ledger["world_seeds"]:
-                ledger["world_seeds"] = [int(s) for s in prior_ledger["world_seeds"]]
-            if isinstance(prior_ledger.get("probe_seeds"), list) and prior_ledger["probe_seeds"]:
-                ledger["probe_seeds"] = [int(s) for s in prior_ledger["probe_seeds"]]
-            for u in prior_ledger.get("verified_units", []):
-                if isinstance(u, dict) and not any(
-                    existing.get("sha256") == u.get("sha256")
-                    for existing in ledger["verified_units"]
+        part_ledgers = sorted(
+            p
+            for p in sroot.glob("verified-ledger.part*.json")
+            if Path(f"{p}.complete").is_file() and Path(f"{p}.sha256").is_file()
+        )
+        cand_ledgers = (
+            [part_ledgers[-1], sroot / "verified-ledger.json"]
+            if part_ledgers
+            else [sroot / "verified-ledger.json"]
+        )
+        for prior_ledger_p in cand_ledgers:
+            has_comp = Path(f"{prior_ledger_p}.complete").is_file()
+            has_sha = Path(f"{prior_ledger_p}.sha256").is_file()
+            if prior_ledger_p.is_file() and has_comp and has_sha:
+                verify_file_sha256(prior_ledger_p, require_complete=True)
+                prior_ledger = json.loads(prior_ledger_p.read_text(encoding="utf-8"))
+                if bool(prior_ledger.get("canary_export_probe")) or bool(
+                    prior_ledger.get("shakeout")
                 ):
-                    ledger["verified_units"].append(dict(u))
-            found_prior_ledger = True
+                    raise ValueError(
+                        f"Refusing non-evidence / canary_export_probe ledger {prior_ledger_p}"
+                    )
+                if prior_ledger.get("namespace") != TRAIN_NAMESPACE:
+                    raise ValueError(
+                        f"Foreign namespace in prior ledger {prior_ledger_p}: "
+                        f"{prior_ledger.get('namespace')!r}"
+                    )
+                if prior_ledger.get("probe_namespace", PROBE32_NAMESPACE) != PROBE32_NAMESPACE:
+                    raise ValueError(
+                        f"Foreign probe_namespace in prior ledger {prior_ledger_p}: "
+                        f"{prior_ledger.get('probe_namespace')!r}"
+                    )
+                if (
+                    isinstance(prior_ledger.get("world_seeds"), list)
+                    and prior_ledger["world_seeds"]
+                ):
+                    ledger["world_seeds"] = [int(s) for s in prior_ledger["world_seeds"]]
+                if (
+                    isinstance(prior_ledger.get("probe_seeds"), list)
+                    and prior_ledger["probe_seeds"]
+                ):
+                    ledger["probe_seeds"] = [int(s) for s in prior_ledger["probe_seeds"]]
+                for u in prior_ledger.get("verified_units", []):
+                    if isinstance(u, dict) and not any(
+                        existing.get("sha256") == u.get("sha256")
+                        for existing in ledger["verified_units"]
+                    ):
+                        ledger["verified_units"].append(dict(u))
+                found_prior_ledger = True
+                break
+        if found_prior_ledger:
             break
 
     if not found_prior_ledger:
@@ -265,6 +285,8 @@ def _stage_prior_attempt_artifacts(
             if not ckpt_dir.is_dir():
                 continue
             for _key, mf, m_obj in _collect_verified_training_checkpoint_metas(ckpt_dir):
+                if bool(m_obj.get("canary_export_probe")) or bool(m_obj.get("shakeout")):
+                    raise ValueError(f"Refusing non-evidence checkpoint meta {mf}")
                 if m_obj.get("namespace") and m_obj.get("namespace") != TRAIN_NAMESPACE:
                     raise ValueError(
                         f"Foreign namespace in checkpoint meta {mf}: " f"{m_obj.get('namespace')!r}"
@@ -291,8 +313,47 @@ def _stage_prior_attempt_artifacts(
     staged_probe = False
     for sroot in search_roots:
         pb_cand = sroot / "probe32_bank.pt"
-        if pb_cand.is_file() and Path(f"{pb_cand}.complete").is_file():
+        if (
+            pb_cand.is_file()
+            and Path(f"{pb_cand}.complete").is_file()
+            and Path(f"{pb_cand}.sha256").is_file()
+        ):
             pb_sha = verify_file_sha256(pb_cand, require_complete=True)
+            pb_meta_cand = sroot / "probe32_bank.pt.meta.json"
+            pb_meta_sha: str | None = None
+            if pb_meta_cand.is_file():
+                pb_meta_sha = verify_file_sha256(pb_meta_cand, require_complete=True)
+                pb_meta_obj = json.loads(pb_meta_cand.read_text(encoding="utf-8"))
+                if (
+                    not isinstance(pb_meta_obj, dict)
+                    or bool(pb_meta_obj.get("canary_export_probe"))
+                    or bool(pb_meta_obj.get("shakeout"))
+                    or pb_meta_obj.get("namespace", PROBE32_NAMESPACE) != PROBE32_NAMESPACE
+                ):
+                    raise ValueError(
+                        f"Refusing non-evidence or canary_export_probe probe32_bank.pt.meta.json "
+                        f"at {pb_meta_cand}"
+                    )
+            import torch as _torch
+
+            try:
+                pb_loaded = _torch.load(pb_cand, map_location="cpu", weights_only=False)
+            except Exception:
+                pb_loaded = None
+            if isinstance(pb_loaded, dict):
+                pb_inner_meta = (
+                    pb_loaded.get("meta") if isinstance(pb_loaded.get("meta"), dict) else {}
+                )
+                if (
+                    bool(pb_loaded.get("canary_export_probe"))
+                    or bool(pb_loaded.get("shakeout"))
+                    or bool(pb_inner_meta.get("canary_export_probe"))
+                    or bool(pb_inner_meta.get("shakeout"))
+                    or pb_inner_meta.get("namespace", PROBE32_NAMESPACE) != PROBE32_NAMESPACE
+                ):
+                    raise ValueError(
+                        f"Refusing non-evidence or canary_export_probe probe32_bank.pt at {pb_cand}"
+                    )
             dst_pb = pkt_inputs_dir / "probe32_bank.pt"
             write_atomic_with_sha256(
                 dst_pb,
@@ -311,6 +372,22 @@ def _stage_prior_attempt_artifacts(
                 "sha256": pb_sha,
                 "size_bytes": int(dst_pb.stat().st_size),
             }
+            if pb_meta_cand.is_file() and pb_meta_sha is not None:
+                dst_pb_meta = pkt_inputs_dir / "probe32_bank.pt.meta.json"
+                write_atomic_with_sha256(
+                    dst_pb_meta,
+                    lambda tmp, src=pb_meta_cand: shutil.copyfile(src, tmp),
+                    write_complete_marker=True,
+                )
+                inputs_list.append(
+                    {
+                        "path": str(dst_pb_meta),
+                        "dest": "probe32_bank.pt.meta.json",
+                        "sha256": pb_meta_sha,
+                    }
+                )
+                ledger["probe32_bank"]["meta_relpath"] = "probe32_bank.pt.meta.json"
+                ledger["probe32_bank"]["meta_sha256"] = pb_meta_sha
             staged_probe = True
             break
 
@@ -335,8 +412,8 @@ def _stage_prior_attempt_artifacts(
             hckpt_cand = sroot / "probe32_bank.pt.ckpt.pt"
             has_comp = Path(f"{hckpt_cand}.complete").is_file()
             has_sha = Path(f"{hckpt_cand}.sha256").is_file()
-            if hckpt_cand.is_file() and (has_comp or has_sha):
-                hckpt_sha = verify_file_sha256(hckpt_cand, require_complete=has_comp)
+            if hckpt_cand.is_file() and has_comp and has_sha:
+                hckpt_sha = verify_file_sha256(hckpt_cand, require_complete=True)
                 hckpt_found = hckpt_cand
                 break
         if hckpt_found is not None and hckpt_sha is not None:
@@ -406,6 +483,17 @@ def _stage_prior_attempt_artifacts(
                 break
 
     if latest_ckpt_src is not None and latest_ckpt_sha is not None:
+        ckpt_meta_cand = latest_ckpt_src.parent / f"{latest_ckpt_src.stem}.meta.json"
+        if ckpt_meta_cand.is_file():
+            m_ckpt = _load_verified_checkpoint_meta(ckpt_meta_cand)
+            if m_ckpt is not None and (
+                bool(m_ckpt.get("canary_export_probe"))
+                or bool(m_ckpt.get("shakeout"))
+                or m_ckpt.get("namespace", TRAIN_NAMESPACE) != TRAIN_NAMESPACE
+            ):
+                raise ValueError(
+                    f"Refusing non-evidence or foreign-namespace checkpoint {latest_ckpt_src}"
+                )
         dst_ckpt = pkt_inputs_dir / latest_ckpt_src.name
         write_atomic_with_sha256(
             dst_ckpt,
@@ -448,6 +536,7 @@ def prepare_b1b_packet(
     base_seconds: float | None = None,
     prior_output_dir: Path | str | None = None,
     attempt: str = "attempt-01",
+    allow_non_evidence_smoke: bool = True,
 ) -> dict[str, Any]:
     """Prepare a Colab CLI packet for Step B1b-Smoke, Shakeout, or Pilot (no dispatch)."""
     if mode not in ("smoke", "shakeout", "pilot"):
@@ -481,15 +570,18 @@ def prepare_b1b_packet(
     if digest(opp_path) != FRP3_SHA:
         raise ValueError(f"FRP3 s12 checkpoint SHA256 mismatch at {opp_path}")
 
-    reg_path = ROOT / REGISTRATION_DOC
-    reg_sha = digest(reg_path)
+    reg_bytes = subprocess.check_output(
+        ["git", "show", f"{resolved_commit}:{REGISTRATION_DOC}"],
+        cwd=ROOT,
+    )
+    reg_sha = hashlib.sha256(reg_bytes).hexdigest()
 
     if mode == "shakeout":
         seed_audit = audit_shakeout_seeds(smoke_envs=4, probe_worlds=2, train_envs=4)
         if not bool(seed_audit["ok"]):
             raise RuntimeError(f"Step B1b shake-out seed audit failed: {seed_audit}")
     else:
-        seed_audit = audit_b1b_seeds(scan_code_roots=[])
+        seed_audit = audit_b1b_seeds()
         if not bool(seed_audit["ok"]):
             raise RuntimeError(f"Step B1b seed audit failed: {seed_audit}")
 
@@ -653,6 +745,24 @@ def prepare_b1b_packet(
                     f"evidence_class={smoke_data.get('evidence_class')!r}, "
                     f"not_evidence={smoke_data.get('not_evidence')!r})"
                 )
+            if not allow_non_evidence_smoke and (
+                bool(smoke_data.get("dry_run")) or bool(smoke_data.get("non_registration_evidence"))
+            ):
+                raise ValueError(
+                    f"Refusing dry_run / non-evidence smoke result {smoke_res_path} for --mode pilot"
+                )
+            verify_file_sha256(smoke_res_path, require_complete=True)
+            if not bool((smoke_data.get("parity_check") or {}).get("ok")):
+                raise ValueError(
+                    f"Refusing smoke result {smoke_res_path} with failing parity_check"
+                )
+            if (
+                smoke_data.get("b8_checkpoint_sha256") != B8_SHA
+                or smoke_data.get("opponent_checkpoint_sha256") != FRP3_SHA
+            ):
+                raise ValueError(
+                    f"Refusing smoke result {smoke_res_path} with mismatched checkpoint SHA256"
+                )
             rg = smoke_data["pilot_runaway_guard"]
             base_sec = float(rg["base_estimate_seconds"])
             timeout_minutes = float(rg["runaway_guard_timeout_minutes_2x"])
@@ -661,10 +771,6 @@ def prepare_b1b_packet(
             if "runaway_guard_max_collection_steps_2x" in rg:
                 extra_env["GPU_SITL_MAX_COLLECTION_STEPS"] = str(
                     int(rg["runaway_guard_max_collection_steps_2x"])
-                )
-            if "runaway_guard_timeout_seconds_2x" in rg:
-                extra_env["GPU_SITL_MAX_WALL_SECONDS"] = str(
-                    float(rg["runaway_guard_timeout_seconds_2x"])
                 )
             if canary_receipt is None:
                 for cand_rcpt in (
@@ -684,6 +790,8 @@ def prepare_b1b_packet(
                 "Preparing --mode pilot requires either --smoke-result or positive --base-seconds"
             )
         eff_sec = timeout_minutes * 60.0
+        wall_guard_headroom = min(180.0, max(30.0, eff_sec * 0.1))
+        extra_env["GPU_SITL_MAX_WALL_SECONDS"] = str(max(30.0, eff_sec - wall_guard_headroom))
         job_id = f"t34-gpu-sitl-b1b-pilot-20261109-{attempt}"
         required_exports = list(PILOT_REQUIRED_EXPORTS)
         resume_fields = {
@@ -817,7 +925,7 @@ def prepare_b1b_packet(
     else:
         prepare_preference(manifest)
 
-    if canary_receipt is not None and prior_output_dir is None:
+    if canary_receipt is not None:
         colab_canary.check(manifest, ROOT)
 
     manifest_path = pkt / "dispatch-manifest.json"
@@ -850,6 +958,7 @@ def main() -> int:
     parser.add_argument("--base-seconds", type=float, default=None)
     parser.add_argument("--prior-output-dir", type=Path, default=None)
     parser.add_argument("--attempt", type=str, default="attempt-01")
+    parser.add_argument("--allow-non-evidence-smoke", action="store_true")
     args = parser.parse_args()
     info = prepare_b1b_packet(
         args.packet,
@@ -864,6 +973,7 @@ def main() -> int:
         base_seconds=args.base_seconds,
         prior_output_dir=args.prior_output_dir,
         attempt=args.attempt,
+        allow_non_evidence_smoke=bool(args.allow_non_evidence_smoke),
     )
     print(json.dumps(info, indent=2, sort_keys=True))
     return 0

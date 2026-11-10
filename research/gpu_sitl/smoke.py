@@ -86,6 +86,7 @@ from research.gpu_sitl.seed_check import (
     SHAKEOUT_SMOKE_NAMESPACE,
     SHAKEOUT_TRAIN_NAMESPACE,
     TRAIN_NAMESPACE,
+    assert_allowed_training_seeds,
     audit_b1b_seeds,
     audit_shakeout_seeds,
     shakeout_smoke_seeds,
@@ -108,6 +109,7 @@ from research.gpu_sitl.train_sitl import (
 )
 from research.sandbox_a_resident.ct_mechanics import CTDeviceSim
 from src.model.ego2s_network import Ego2sNet, load_ego2s_checkpoint
+from web.backend.served_checkpoint import B8_S3_SHA256, FRP3_S12_SHA256
 
 # Default 8-root slice spanning Groups A (2), B (2), C (2), and D (2) of MATURE_EXTENSION_SPECS
 DEFAULT_MATURE_SLICE_INDICES: tuple[int, ...] = (0, 1, 8, 9, 16, 17, 24, 25)
@@ -639,22 +641,16 @@ def compute_pilot_runaway_guard(
             rescue_rate_guard_rule = "prior_band_bounded_under_20_rescues"
         rescue_rate_source = "registered_prior_bounds_fallback_under_20_rescues"
 
-    has_measured_ep_rate = (
-        measured_online_rescue_episode_rate is not None
-        and float(measured_online_rescue_episode_rate) > 0.0
-    )
-    raw_ep_rate = (
-        float(measured_online_rescue_episode_rate)
-        if has_measured_ep_rate
-        else effective_rescue_rate
-    )
-    if int(measured_rescue_episode_count) >= MIN_OBSERVED_RESCUES_FOR_UNCLAMPED_RATE:
-        effective_episode_rate = raw_ep_rate
+    if measured_online_rescue_episode_rate is not None and int(measured_rescue_episode_count) > 0:
+        raw_ep_rate = float(measured_online_rescue_episode_rate)
+        if int(measured_rescue_episode_count) >= MIN_OBSERVED_RESCUES_FOR_UNCLAMPED_RATE:
+            effective_episode_rate = raw_ep_rate
+        else:
+            effective_episode_rate = min(float(PRIOR_FALLBACK_UPPER_BOUND), raw_ep_rate)
+    elif measured_online_rescue_episode_rate is not None and int(k_rescues) > 0:
+        effective_episode_rate = min(float(PRIOR_FALLBACK_LOWER_BOUND), effective_rescue_rate)
     else:
-        effective_episode_rate = min(
-            float(PRIOR_FALLBACK_UPPER_BOUND),
-            max(float(PRIOR_FALLBACK_LOWER_BOUND), raw_ep_rate),
-        )
+        effective_episode_rate = effective_rescue_rate
 
     # 1. Pre-training probe32 bank harvest (N=32 worlds, H=5,000 -> 160,000 root decisions)
     # Rolled in batches of E=32 (5,000 env steps), suffix-0 labeled in batches of 256 roots,
@@ -812,7 +808,7 @@ def run_step_b1b_smoke(
         if not bool(seed_audit["ok"]):
             raise RuntimeError(f"Step B1b shake-out seed audit failed: {seed_audit}")
     else:
-        seed_audit = audit_b1b_seeds(scan_code_roots=[])
+        seed_audit = audit_b1b_seeds()
         if not bool(seed_audit["ok"]):
             raise RuntimeError(f"Step B1b seed audit failed: {seed_audit}")
 
@@ -824,8 +820,18 @@ def run_step_b1b_smoke(
     opp_path = Path(opponent_checkpoint)
     b8_sha = sha256_file(b8_path)
     opp_sha = sha256_file(opp_path)
+    if not is_non_prod:
+        if b8_sha != B8_S3_SHA256:
+            raise ValueError(f"Canonical b8-s3 SHA256 mismatch at {b8_path}: {b8_sha}")
+        if opp_sha != FRP3_S12_SHA256:
+            raise ValueError(f"Canonical frp3-s12 SHA256 mismatch at {opp_path}: {opp_sha}")
 
     out_dir = Path(output_dir)
+    result_file = out_dir / (
+        "b1b_smoke_shakeout_subresult.json" if is_shakeout else "smoke_result.json"
+    )
+    if Path(f"{result_file}.complete").is_file():
+        raise FileExistsError(f"Refusing to overwrite completed smoke output at {result_file}")
     out_dir.mkdir(parents=True, exist_ok=True)
 
     if dev.type == "cuda":
@@ -882,11 +888,18 @@ def run_step_b1b_smoke(
         phase_start=t_par,
         detail=f"ok={parity_report.get('ok')}",
     )
+    if not is_non_prod and not bool(parity_report.get("ok")):
+        raise RuntimeError(f"Step B1b-Smoke CUDA-vs-CPU parity check failed: {parity_report}")
 
     # (b) Throughput and peak VRAM benchmark at E = num_envs (256 on A100; dev seeds on shakeout)
     t_bundle = _log_smoke_phase("PHASE_START", "bundle_and_bench_warmup", t_start)
     world_seeds = shakeout_smoke_seeds(int(num_envs)) if is_shakeout else train_seeds(int(num_envs))
     active_train_namespace = SHAKEOUT_SMOKE_NAMESPACE if is_shakeout else TRAIN_NAMESPACE
+    assert_allowed_training_seeds(
+        namespace=active_train_namespace,
+        seeds=world_seeds,
+        context="run_step_b1b_smoke.world_seeds",
+    )
     sim, policy = build_watch6_ct_device_bundle(
         world_seeds,
         b8_path,
@@ -937,7 +950,79 @@ def run_step_b1b_smoke(
         detail=f"envs={num_envs}",
     )
 
-    # Benchmark 1: env steps/s at E = num_envs
+    # Advance bare b8-s3 on train_seeds(num_envs) into mature mid-game traffic (600 frames on
+    # CUDA) and splice mature cohort snapshots (L in [210, 823], L >= 160) BEFORE bench_1_env_steps
+    # so both env and label throughput benchmarks measure mature mid-game traffic, while online
+    # rescue-rate statistics exclude spliced PREFLIGHT_NAMESPACE rows.
+    t_warm0 = _log_smoke_phase("PHASE_START", "mature_warmup_and_splice", t_start)
+    mature_warmup_steps = (
+        0 if dry_run or dev.type != "cuda" else int(DEFAULT_CUDA_MATURE_WARMUP_STEPS)
+    )
+    for _ in range(mature_warmup_steps):
+        with torch.inference_mode():
+            sim.prepare()
+            policy.vector_runtime.prepare(sim)
+            policy.vector_prepared = True
+            _, _, bare_w_act = policy.evaluate(sim)
+            sim.step(policy.actions(sim, bare_w_act))
+            policy.after_step(sim)
+
+    n_mature_splice = min(len(parity_slice_indices), max(1, int(num_envs) // 2))
+    splice_sim: CTDeviceSim | None = None
+    splice_pol: Any = None
+    label_world_seeds = [int(s) for s in world_seeds]
+    if n_mature_splice > 0:
+        splice_worlds = ext_worlds_cpu[:n_mature_splice]
+        for s_i in range(n_mature_splice):
+            label_world_seeds[s_i] = int(splice_worlds[s_i].seed)
+        splice_sim, splice_pol = snapshot_worlds_to_device(
+            splice_worlds,
+            ext_pol_tpl,
+            sim_cls=CTDeviceSim,
+            device=dev,
+            vector_prepared=False,
+        )
+
+    def _apply_mature_splice() -> None:
+        if n_mature_splice <= 0 or splice_sim is None or splice_pol is None:
+            return
+        with torch.inference_mode():
+            for name in _ENV_TENSOR_FIELDS:
+                dst_t = getattr(sim, name, None)
+                src_t = getattr(splice_sim, name, None)
+                if (
+                    isinstance(dst_t, torch.Tensor)
+                    and isinstance(src_t, torch.Tensor)
+                    and dst_t.shape[1:] == src_t.shape[1:]
+                ):
+                    dst_t[:n_mature_splice].copy_(src_t[:n_mature_splice])
+            sim.hero_respawn = True
+            sim.terminal_slots[:n_mature_splice, 0] = False
+            sim._prepared = False
+            r2_cache.bump(sim)
+            for name in _VECTOR_RUNTIME_ENV_FIELDS:
+                dst_rt = getattr(policy.vector_runtime, name, None)
+                src_rt = getattr(splice_pol.vector_runtime, name, None)
+                if (
+                    isinstance(dst_rt, torch.Tensor)
+                    and isinstance(src_rt, torch.Tensor)
+                    and dst_rt.shape[1:] == src_rt.shape[1:]
+                ):
+                    dst_rt[:n_mature_splice].copy_(src_rt[:n_mature_splice])
+            policy.vector_prepared = False
+
+    _apply_mature_splice()
+    _sync_device(dev)
+    mature_warmup_elapsed = max(0.0, time.perf_counter() - t_warm0)
+    _log_smoke_phase(
+        "PHASE_END",
+        "mature_warmup_and_splice",
+        t_start,
+        phase_start=t_warm0,
+        detail=f"warmup_steps={mature_warmup_steps} spliced={n_mature_splice}",
+    )
+
+    # Benchmark 1: env steps/s at E = num_envs on mature mid-game + spliced L >= 160 traffic
     _log_smoke_phase("PHASE_START", "bench_1_env_steps", t_start, detail=f"steps={bench_env_steps}")
     t_env0 = time.perf_counter()
     for _ in range(int(bench_env_steps)):
@@ -967,67 +1052,9 @@ def run_step_b1b_smoke(
         detail=f"env_steps_per_sec={env_steps_per_sec:.2f}",
     )
 
-    # On CUDA (non-dry-run), advance bare b8-s3 on train_seeds(num_envs) into mature mid-game
-    # traffic (600 frames) and splice mature cohort snapshots (L in [210, 823], L >= 160) so the
-    # online rescue-rate measurement window covers both mature lengths and natural trajectories.
-    t_warm0 = _log_smoke_phase("PHASE_START", "mature_warmup_and_splice", t_start)
-    mature_warmup_steps = (
-        0
-        if dry_run or dev.type != "cuda"
-        else max(0, int(DEFAULT_CUDA_MATURE_WARMUP_STEPS) - int(bench_env_steps))
-    )
-    for _ in range(mature_warmup_steps):
-        with torch.inference_mode():
-            sim.prepare()
-            policy.vector_runtime.prepare(sim)
-            policy.vector_prepared = True
-            _, _, bare_w_act = policy.evaluate(sim)
-            sim.step(policy.actions(sim, bare_w_act))
-            policy.after_step(sim)
-
-    n_mature_splice = min(len(parity_slice_indices), max(1, int(num_envs) // 2))
-    if n_mature_splice > 0:
-        splice_worlds = ext_worlds_cpu[:n_mature_splice]
-        splice_pol_tpl = ext_pol_tpl
-        splice_sim, splice_pol = snapshot_worlds_to_device(
-            splice_worlds,
-            splice_pol_tpl,
-            sim_cls=CTDeviceSim,
-            device=dev,
-            vector_prepared=False,
-        )
-        with torch.inference_mode():
-            for name in _ENV_TENSOR_FIELDS:
-                dst_t = getattr(sim, name, None)
-                src_t = getattr(splice_sim, name, None)
-                if (
-                    isinstance(dst_t, torch.Tensor)
-                    and isinstance(src_t, torch.Tensor)
-                    and dst_t.shape[1:] == src_t.shape[1:]
-                ):
-                    dst_t[:n_mature_splice].copy_(src_t[:n_mature_splice])
-            sim.terminal_slots[:n_mature_splice, 0] = False
-            sim._prepared = False
-            r2_cache.bump(sim)
-            for name in _VECTOR_RUNTIME_ENV_FIELDS:
-                dst_rt = getattr(policy.vector_runtime, name, None)
-                src_rt = getattr(splice_pol.vector_runtime, name, None)
-                if (
-                    isinstance(dst_rt, torch.Tensor)
-                    and isinstance(src_rt, torch.Tensor)
-                    and dst_rt.shape[1:] == src_rt.shape[1:]
-                ):
-                    dst_rt[:n_mature_splice].copy_(src_rt[:n_mature_splice])
-            policy.vector_prepared = False
+    # Re-apply mature splice before Benchmark 2 so label batches also start with alive L >= 160 rows
+    _apply_mature_splice()
     _sync_device(dev)
-    mature_warmup_elapsed = max(0.0, time.perf_counter() - t_warm0)
-    _log_smoke_phase(
-        "PHASE_END",
-        "mature_warmup_and_splice",
-        t_start,
-        phase_start=t_warm0,
-        detail=f"warmup_steps={mature_warmup_steps} spliced={n_mature_splice}",
-    )
 
     # Benchmark 2: 6-branch H=branch_horizon labels/s AND online rescue-root rate on
     # train_seeds(num_envs) under bare b8-s3, plus per-step buffer insertion cost.
@@ -1058,12 +1085,14 @@ def run_step_b1b_smoke(
     online_alive_hero_decisions = 0
     online_rescue_frame_count = 0
     online_rescue_episode_count = 0
+    window_alive_decisions = 0
     window_mature_length_ge_160_decisions = 0
     window_length_sum = 0
     window_min_hero_length = 0
     window_max_hero_length = 0
     in_rescue_run_by_env = [False] * int(num_envs)
     last_label_res: dict[str, Any] | None = None
+    online_env_start = n_mature_splice if n_mature_splice < int(num_envs) else 0
 
     for _b_i in range(int(effective_label_batches)):
         with torch.inference_mode():
@@ -1076,7 +1105,7 @@ def run_step_b1b_smoke(
         last_label_res = batched_open_stop_h32(
             sim,
             policy,
-            world_seeds=world_seeds,
+            world_seeds=label_world_seeds,
             decisions=decs_now,
             suffix_id=0,
             branch_horizon=int(branch_horizon),
@@ -1090,7 +1119,8 @@ def run_step_b1b_smoke(
         lbl_total_elapsed += max(1e-9, time.perf_counter() - t_lbl_step)
 
         # Measure per-step observation extraction + CPU ring-buffer insertion cost
-        # and accumulate online rescue-root and distinct-episode rescue counts.
+        # and accumulate online rescue-root and distinct-episode rescue counts strictly over
+        # non-spliced active_train_namespace worlds.
         t_buf_step = time.perf_counter()
         obs_b = extract_hero_root_observations(sim, cpu_fast_flood=bool(dev.type == "cpu"))
         loc_b = obs_b["local_u8"].detach().cpu()
@@ -1112,13 +1142,16 @@ def run_step_b1b_smoke(
                 in_rescue_run_by_env[e_idx] = False
                 continue
             h_len = int(len_b[e_idx].item())
-            if online_alive_hero_decisions == 0 or h_len < window_min_hero_length:
+            if window_alive_decisions == 0 or h_len < window_min_hero_length:
                 window_min_hero_length = h_len
             if h_len > window_max_hero_length:
                 window_max_hero_length = h_len
             window_length_sum += h_len
             if h_len >= 160:
                 window_mature_length_ge_160_decisions += 1
+            window_alive_decisions += 1
+            if e_idx < online_env_start:
+                continue
             online_alive_hero_decisions += 1
             if bool(rescue_b[e_idx].item()):
                 online_rescue_frame_count += 1
@@ -1178,9 +1211,9 @@ def run_step_b1b_smoke(
     measured_online_rescue_episode_rate = float(online_rescue_episode_count) / float(
         max(1, online_alive_hero_decisions)
     )
-    window_mean_hero_length = float(window_length_sum) / float(max(1, online_alive_hero_decisions))
+    window_mean_hero_length = float(window_length_sum) / float(max(1, window_alive_decisions))
     window_mature_length_ge_160_fraction = float(window_mature_length_ge_160_decisions) / float(
-        max(1, online_alive_hero_decisions)
+        max(1, window_alive_decisions)
     )
     _log_smoke_phase(
         "PHASE_END",
@@ -1199,14 +1232,14 @@ def run_step_b1b_smoke(
         sim.prepare()
         policy.vector_runtime.prepare(sim)
         policy.vector_prepared = True
-    n_probe_sample = min(int(num_envs), 1 if is_shakeout else (2 if dry_run else 8))
+    n_probe_sample = min(int(num_envs), 1 if is_shakeout else (2 if dry_run else 64))
     obs_p = extract_hero_root_observations(sim, cpu_fast_flood=bool(dev.type == "cpu"))
     assert last_label_res is not None
     sample_snaps: list[dict[str, Any]] = []
     for r_i in range(n_probe_sample):
         sample_snaps.append(
             {
-                "world_seed": int(world_seeds[r_i]),
+                "world_seed": int(label_world_seeds[r_i]),
                 "world_index": int(r_i),
                 "decision_frame": int(obs_p["decision_frame"][r_i].item()),
                 "hero_length": int(obs_p["hero_length"][r_i].item()),
@@ -1257,27 +1290,36 @@ def run_step_b1b_smoke(
     sca_fill = obs_fill["scalars_f32"].detach().cpu()
     leg_fill = obs_fill["legal_mask"].detach().cpu()
 
+    initial_student_state = {
+        k: v.detach().cpu().clone() for k, v in student_net.state_dict().items()
+    }
     n_fill = max(res_batch_sz, ord_batch_sz, int(num_envs))
     for i in range(n_fill):
         idx = i % int(num_envs)
+        leg_row = leg_fill[idx].clone()
+        legal_acts = [int(a) for a in leg_row.nonzero(as_tuple=False).squeeze(1).tolist()]
+        if len(legal_acts) >= 2:
+            a_unsafe_pick, a_star_pick = legal_acts[0], legal_acts[1]
+        else:
+            a_star_pick = legal_acts[0] if legal_acts else 1
+            a_unsafe_pick = (a_star_pick + 1) % 3
+            leg_row[a_star_pick] = True
+            leg_row[a_unsafe_pick] = True
         safe_synth = torch.zeros(6, dtype=torch.bool)
-        safe_synth[1] = True
-        unsafe_synth = leg_fill[idx].clone()
-        unsafe_synth[1] = False
-        if not bool(unsafe_synth.any().item()):
-            unsafe_synth[0] = True
-            leg_fill[idx, 0] = True
-            leg_fill[idx, 1] = True
+        safe_synth[a_star_pick] = True
+        unsafe_synth = leg_row.clone()
+        unsafe_synth[a_star_pick] = False
+        seed_fill = int(world_seeds[max(online_env_start, idx) % int(num_envs)])
         rescue_buf.add_single(
             local_u8=loc_fill[idx],
             global_u8=glb_fill[idx],
             scalars_f32=sca_fill[idx],
-            legal_mask=leg_fill[idx],
+            legal_mask=leg_row,
             safe_mask=safe_synth,
             unsafe_mask=unsafe_synth,
-            bare_action=0,
-            a_star_action=1,
-            world_seed=int(world_seeds[idx]),
+            bare_action=a_unsafe_pick,
+            a_star_action=a_star_pick,
+            world_seed=seed_fill,
             decision_frame=int(i),
             hard_neg_tier=0,
         )
@@ -1285,12 +1327,12 @@ def run_step_b1b_smoke(
             local_u8=loc_fill[idx],
             global_u8=glb_fill[idx],
             scalars_f32=sca_fill[idx],
-            legal_mask=leg_fill[idx],
+            legal_mask=leg_row,
             safe_mask=safe_synth,
             unsafe_mask=unsafe_synth,
-            bare_action=1,
-            a_star_action=1,
-            world_seed=int(world_seeds[idx]),
+            bare_action=a_star_pick,
+            a_star_action=a_star_pick,
+            world_seed=seed_fill,
             decision_frame=int(i),
             hard_neg_tier=(i % 3),
         )
@@ -1319,6 +1361,8 @@ def run_step_b1b_smoke(
             delta_rescue=RESCUE_MARGIN_DELTA_DEFAULT,
             delta_ordinary=ORDINARY_MARGIN_DELTA_DEFAULT,
         )
+        if not bool(torch.isfinite(loss_dict["total_loss"]).item()):
+            raise RuntimeError("Non-finite synthetic learner loss in smoke benchmark")
         loss_dict["total_loss"].backward()
         torch.nn.utils.clip_grad_norm_(trainable_params, float(DEFAULT_MAX_GRAD_NORM))
         optimizer.step()
@@ -1334,6 +1378,8 @@ def run_step_b1b_smoke(
     )
 
     # Restore student_net weights to initial b8-s3 after synthetic benchmark updates
+    student_net.load_state_dict(initial_student_state)
+    freeze_ego2s_value_head(student_net)
     t_out_phase = _log_smoke_phase("PHASE_START", "write_outputs", t_start)
     if dev.type == "cuda":
         ensure_cuda_initialized(dev)
@@ -1437,7 +1483,8 @@ def run_step_b1b_smoke(
     result_sha = write_atomic_with_sha256(
         result_file,
         lambda tmp: tmp.write_text(
-            json.dumps(result_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            json.dumps(result_payload, indent=2, sort_keys=True, allow_nan=False) + "\n",
+            encoding="utf-8",
         ),
         write_complete_marker=True,
     )
@@ -1542,6 +1589,8 @@ def run_cuda_shakeout(
     t_start = time.perf_counter()
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    if Path(f"{out_dir / 'shakeout_result.json'}.complete").is_file():
+        raise FileExistsError(f"Refusing to overwrite completed shakeout_result.json in {out_dir}")
 
     if b8_checkpoint is None or opponent_checkpoint is None:
         default_b8, default_opp = resolve_product_checkpoints()
@@ -1906,6 +1955,40 @@ def run_cuda_shakeout(
                 raise RuntimeError("Train subresult missing not_evidence=True")
             if (train_sub_dir / "sitl_pilot_result.json").exists():
                 raise RuntimeError("Shake-out training must never write sitl_pilot_result.json")
+
+            uninterrupted = run_sitl_training(
+                work_dir / "train_uninterrupted",
+                probe_bank_path=probe_pt,
+                b8_checkpoint=b8_path,
+                opponent_checkpoint=opp_path,
+                device=dev,
+                num_envs=int(num_envs),
+                total_updates=total_u,
+                warmup_rescue_roots=1,
+                min_unique_rescue_roots=total_u,
+                rescue_batch_size=2,
+                ordinary_batch_size=4,
+                ordinary_uniform_half=2,
+                ordinary_hard_neg_half=2,
+                branch_horizon=int(branch_horizon),
+                tripwire_interval=1,
+                decision_window_size=8,
+                checkpoint_every_updates=1,
+                stop_after_updates=None,
+                max_collection_steps=16,
+                seed=int(seed),
+                dry_run=True,
+                shakeout=True,
+                resume=False,
+            )
+            if (
+                part2["final_student_checkpoint_sha256"]
+                != uninterrupted["final_student_checkpoint_sha256"]
+                or part2["update_history"] != uninterrupted["update_history"]
+            ):
+                raise RuntimeError(
+                    "Shake-out resume determinism check failed: resumed != uninterrupted"
+                )
             return {
                 "schema": part2["schema"],
                 "namespace": part2["namespace"],
@@ -1915,6 +1998,7 @@ def run_cuda_shakeout(
                 "resumed_from_checkpoint": str(part2["resumed_from_checkpoint"]),
                 "final_updates_completed": int(part2["counts"]["updates_completed"]),
                 "tripwire_evaluations": len(part2["probe_bank_tripwires"]["history"]),
+                "deterministic_resume_verified": True,
                 "subresult_json_sha256": part2["result_json_sha256"],
             }
 
@@ -1965,7 +2049,8 @@ def run_cuda_shakeout(
     result_sha = write_atomic_with_sha256(
         result_file,
         lambda tmp: tmp.write_text(
-            json.dumps(shakeout_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            json.dumps(shakeout_payload, indent=2, sort_keys=True, allow_nan=False) + "\n",
+            encoding="utf-8",
         ),
         write_complete_marker=True,
     )
@@ -2023,6 +2108,7 @@ def main() -> int:
                 args.bench_learner_updates if args.bench_learner_updates is not None else 2
             ),
             seed=args.seed,
+            require_cuda=str(args.device).startswith("cuda"),
         )
         print(
             json.dumps(

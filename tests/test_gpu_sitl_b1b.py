@@ -3719,3 +3719,147 @@ def test_review_train_findings_t1_t2_t3_t5_t6_t7_t8_t10(
                 "bare_action": torch.tensor([1], dtype=torch.long),
             },
         )
+
+
+def test_review_smoke_findings_sm1_sm2_sm3_sm4_sm5_sm6_sm7_sm10_sm11_sm12(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Regression coverage for confirmed smoke/prepare/job.sh findings SM1-SM7, SM10-SM12."""
+    import os
+    import subprocess
+
+    from research.gpu_sitl.prepare import (
+        ROOT,
+        _stage_prior_attempt_artifacts,
+        prepare_b1b_packet,
+        runtime_source_paths,
+    )
+    from research.gpu_sitl.smoke import run_cuda_shakeout, run_step_b1b_smoke
+
+    b8_path, opp_path = resolve_product_checkpoints()
+
+    # SM1: host-only prepare.py must not be shipped in runtime_source_paths.
+    src_paths = runtime_source_paths("origin/main")
+    assert "research/gpu_sitl/prepare.py" not in src_paths
+
+    # SM2a: job.sh must fail closed when MODE=pilot and verified-ledger.json is missing.
+    fake_cli_root = tmp_path / "fake_cli_root"
+    fake_in_dir = tmp_path / "fake_in_dir"
+    (fake_cli_root / "output").mkdir(parents=True)
+    fake_in_dir.mkdir(parents=True)
+    job_proc = subprocess.run(
+        ["bash", str(ROOT / "research" / "gpu_sitl" / "job.sh")],
+        env={
+            **os.environ,
+            "COLAB_CLI_ROOT": str(fake_cli_root),
+            "COLAB_INPUT_DIR": str(fake_in_dir),
+            "GPU_SITL_SOURCE_COMMIT": "deadbeef",
+            "GPU_SITL_MODE": "pilot",
+        },
+        capture_output=True,
+        text=True,
+    )
+    assert job_proc.returncode == 2
+    assert "verified-ledger.json" in job_proc.stderr
+
+    # SM3 + SM11 + SM12: run_step_b1b_smoke must exclude spliced PREFLIGHT_NAMESPACE rows from
+    # online_alive_hero_decisions (2 non-spliced envs * 2 label batches <= 4 decisions),
+    # pass splice world seeds for spliced CRN rows, and refuse overwriting a completed smoke dir.
+    seen_seed_lists: list[list[int]] = []
+    import research.gpu_sitl.smoke as smoke_mod
+
+    orig_batched_os = smoke_mod.batched_open_stop_h32
+
+    def _spy_batched_os(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        if "world_seeds" in kwargs:
+            seen_seed_lists.append([int(x) for x in kwargs["world_seeds"]])
+        return orig_batched_os(*args, **kwargs)
+
+    monkeypatch.setattr(smoke_mod, "batched_open_stop_h32", _spy_batched_os)
+
+    smoke_dir = tmp_path / "smoke_sm"
+    smoke_res = run_step_b1b_smoke(
+        smoke_dir,
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+        num_envs=4,
+        branch_horizon=2,
+        parity_slice_indices=(0, 8),
+        bench_env_steps=2,
+        bench_label_batches=2,
+        bench_learner_updates=2,
+        dry_run=True,
+    )
+    # 4 envs, 2 spliced mature worlds -> only 2 train_seeds worlds contribute to online decisions
+    assert smoke_res["throughput"]["mature_spliced_worlds"] == 2
+    assert 1 <= smoke_res["throughput"]["measured_alive_hero_decisions"] <= 4
+    # Label batches (after warmup) must use spliced mature world seeds on rows 0..1
+    train4 = train_seeds(4)
+    assert any(sl[:2] != train4[:2] and sl[2:] == train4[2:] for sl in seen_seed_lists)
+
+    # SM12: re-running smoke in a completed directory must raise FileExistsError immediately
+    with pytest.raises(FileExistsError):
+        run_step_b1b_smoke(
+            smoke_dir,
+            b8_checkpoint=b8_path,
+            opponent_checkpoint=opp_path,
+            device="cpu",
+            num_envs=4,
+            branch_horizon=2,
+            parity_slice_indices=(0, 8),
+            bench_env_steps=1,
+            bench_label_batches=1,
+            bench_learner_updates=1,
+            dry_run=True,
+        )
+
+    # SM5: _stage_prior_attempt_artifacts must refuse staging smoke canary_export_probe artifacts!
+    with pytest.raises(ValueError, match="canary_export_probe|non-evidence|probe"):
+        _stage_prior_attempt_artifacts(
+            smoke_dir,
+            tmp_path / "bad_stage_inputs",
+            [],
+            {"verified_units": []},
+        )
+
+    # SM4: prepare_b1b_packet(mode="pilot") must verify smoke_result.json .complete + parity_check.ok
+    # and reject dry_run smoke when allow_non_evidence_smoke=False.
+    with pytest.raises(ValueError, match="non-evidence|dry_run|evidence"):
+        prepare_b1b_packet(
+            tmp_path / "pkt_reject_dry_smoke",
+            commit="origin/main",
+            mode="pilot",
+            output_dir=tmp_path / "out_reject_dry",
+            b8_checkpoint=b8_path,
+            opponent_checkpoint=opp_path,
+            smoke_result_json=smoke_res["result_json_path"],
+            allow_non_evidence_smoke=False,
+        )
+
+    # SM6: both smoke_result_json and base_seconds paths set GPU_SITL_MAX_WALL_SECONDS < timeout * 60
+    info_bs = prepare_b1b_packet(
+        tmp_path / "pkt_bs",
+        commit="origin/main",
+        mode="pilot",
+        output_dir=tmp_path / "out_bs",
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        base_seconds=600.0,
+    )
+    mf_bs = json.loads(Path(info_bs["manifest_path"]).read_text(encoding="utf-8"))
+    max_wall_bs = float(mf_bs["env"]["GPU_SITL_MAX_WALL_SECONDS"])
+    assert 0.0 < max_wall_bs < float(mf_bs["timeout_minutes"]) * 60.0
+
+    # SM10: run_cuda_shakeout phase 6 verifies uninterrupted == resumed determinism
+    shake_dir = tmp_path / "shake_sm10"
+    shake_res = run_cuda_shakeout(
+        shake_dir,
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+    )
+    assert shake_res["ok"] is True
+    p6 = [p for p in shake_res["phases"] if "phase_6" in p["phase"]][0]
+    assert p6["detail"]["deterministic_resume_verified"] is True

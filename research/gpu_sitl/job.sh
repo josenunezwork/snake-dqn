@@ -36,12 +36,21 @@ elif [ "$MODE" = "pilot" ]; then
     EXTRA_ARGS+=(--ledger "$COLAB_CLI_ROOT/inputs/verified-ledger.json")
   elif [ -f "$COLAB_INPUT_DIR/verified-ledger.json" ]; then
     EXTRA_ARGS+=(--ledger "$COLAB_INPUT_DIR/verified-ledger.json")
+  else
+    echo "Missing required verified-ledger.json for GPU_SITL_MODE=pilot" >&2
+    exit 2
   fi
   if [ -n "${GPU_SITL_MAX_COLLECTION_STEPS:-}" ]; then
     EXTRA_ARGS+=(--max-collection-steps "$GPU_SITL_MAX_COLLECTION_STEPS")
   fi
   if [ -n "${GPU_SITL_MAX_WALL_SECONDS:-}" ]; then
     EXTRA_ARGS+=(--max-wall-seconds "$GPU_SITL_MAX_WALL_SECONDS")
+  fi
+  if [ -n "${GPU_SITL_PAUSE_AFTER_SECONDS:-}" ]; then
+    EXTRA_ARGS+=(--pause-after-seconds "$GPU_SITL_PAUSE_AFTER_SECONDS")
+  fi
+  if [ -n "${GPU_SITL_STOP_AFTER_UPDATES:-}" ]; then
+    EXTRA_ARGS+=(--stop-after-updates "$GPU_SITL_STOP_AFTER_UPDATES")
   fi
   exec nice -n 15 python -m research.gpu_sitl.train_sitl \
     --output-dir "$COLAB_CLI_ROOT/output" \
