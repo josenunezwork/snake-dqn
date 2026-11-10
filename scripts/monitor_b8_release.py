@@ -23,6 +23,9 @@ PREFIX = "b8-release-monitor:"
 WATCH_ROSTER_ALL_B8 = "all_b8"
 WATCH_ROSTER_MIXED = "mixed"
 WATCH_ROSTERS = (WATCH_ROSTER_ALL_B8, WATCH_ROSTER_MIXED)
+PLAY_ROSTER_ALL_B8 = "all_b8"
+PLAY_ROSTER_MIXED = "mixed"
+PLAY_ROSTERS = (PLAY_ROSTER_ALL_B8, PLAY_ROSTER_MIXED)
 # Registered Watch death baselines are roster-mode and size specific. They
 # must not be inherited from or pooled with another Watch roster.
 WATCH_DEATHS_PER_1K_BASELINE = {
@@ -180,6 +183,8 @@ def assess(
     watch_timestamps: dict[tuple[str, int], list[float]] = {}
     timestamps: list[float] = []
     replay_frames = 0
+    replay_over_trigger_frames = 0
+    replay_over_trigger_invalid = 0
     replay_summary_batches: list[tuple[int, float]] = []
     replay_raw_updates: list[float] = []
     replay_timestamps: list[float] = []
@@ -205,6 +210,9 @@ def assess(
         except (KeyError, TypeError, ValueError, OverflowError):
             faults.append("incomplete Watch replay telemetry")
     for item in replay_summaries:
+        frames: int | None = None
+        p95_val: float | None = None
+        update_val: float | None = None
         try:
             if item.get("checkpoint", "b8-s3") != "b8-s3":
                 faults.append("Watch replay telemetry checkpoint is not b8-s3")
@@ -246,6 +254,20 @@ def assess(
                 replay_bank_exhaustions += max(1, int(item.get("bank_exhaustions", 0) or 0))
         except (KeyError, TypeError, ValueError, OverflowError):
             faults.append("incomplete Watch replay telemetry")
+            continue
+        if item.get("event") == "watch_replay_summary":
+            if "over_trigger_frames" in item:
+                over_trigger_raw = item["over_trigger_frames"]
+                if (
+                    frames is not None
+                    and type(over_trigger_raw) is int
+                    and 0 <= over_trigger_raw <= frames
+                ):
+                    replay_over_trigger_frames += over_trigger_raw
+                else:
+                    replay_over_trigger_invalid += 1
+            elif update_val is not None and update_val > REPLAY_UPDATE_P95_TRIGGER_MS:
+                replay_over_trigger_frames += 1
     for item in [*replay_failures, *replay_bank_exhausted]:
         ts = item.get("timestamp")
         if isinstance(ts, (int, float)) and math.isfinite(ts):
@@ -312,24 +334,33 @@ def assess(
         }
         if baseline is None:
             faults.append(f"no registered Watch death baseline for {label}")
+    play_ticks_excluded_by_roster = 0
     for item in latency_ticks:
         if item.get("event") != "play_tick":
             continue
         try:
             if item.get("checkpoint") != "b8-s3":
                 raise ValueError("non-B8 Play telemetry")
-            roster_size = int(item["driven_ai"])
+            roster_mode = item.get("roster_mode", PLAY_ROSTER_ALL_B8)
+            driven_ai = int(item["driven_ai"])
+            roster_size_raw = item.get("roster_size")
+            roster_size = driven_ai if roster_size_raw is None else int(roster_size_raw)
             speed = float(item["speed"])
             update = float(item["update_ms"])
             if (
-                roster_size <= 0
+                roster_mode not in PLAY_ROSTERS
+                or roster_size <= 0
+                or driven_ai < 0
+                or (roster_mode == PLAY_ROSTER_ALL_B8 and driven_ai <= 0)
                 or update < 0
                 or not all(math.isfinite(value) for value in (speed, update))
                 or type(item.get("latency_eligible")) is not bool
             ):
                 raise ValueError("invalid Play tick values")
-            if speed == DEFAULT_SPEED and item["latency_eligible"]:
-                default_update_ms.setdefault(("play", "", roster_size), []).append(update)
+            if roster_mode != PLAY_ROSTER_ALL_B8:
+                play_ticks_excluded_by_roster += 1
+            elif speed == DEFAULT_SPEED and item["latency_eligible"]:
+                default_update_ms.setdefault(("play", "", driven_ai), []).append(update)
         except (KeyError, TypeError, ValueError, OverflowError):
             faults.append("incomplete Play tick telemetry")
 
@@ -415,6 +446,7 @@ def assess(
         "deaths_per_1000": death_rate,
         "deaths_by_roster": deaths_by_roster,
         "latency_by_roster": latency,
+        "play_ticks_excluded_by_roster": play_ticks_excluded_by_roster,
         "windows_by_roster": windows_by_roster,
         "fallback_records": len(fallback),
         "ego2s_exceptions": len(exceptions),
@@ -422,6 +454,8 @@ def assess(
         "window_complete": window_complete,
         "replay_mode": replay_mode,
         "replay_frames": replay_frames,
+        "replay_over_trigger_frames": replay_over_trigger_frames,
+        "replay_over_trigger_invalid": replay_over_trigger_invalid,
         "replay_update_p95_ms": replay_update_p95_ms,
         "replay_update_trigger_ms": REPLAY_UPDATE_P95_TRIGGER_MS,
         "replay_step_failures": replay_step_failures,
@@ -513,6 +547,11 @@ def main(argv: list[str] | None = None) -> int:
                 values["qualification_update_p95_ms"],
                 values["trigger_ms"],
             )
+        )
+    if metrics["play_ticks_excluded_by_roster"]:
+        print(
+            "Play ticks excluded by roster (informational only): "
+            f"{metrics['play_ticks_excluded_by_roster']}"
         )
     print(
         "Aggregate observation: %.3f days, %d decisions; %s. Owner check-in: %s."

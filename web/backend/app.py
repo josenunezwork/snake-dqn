@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import gc
 import json
 import logging
 import os
@@ -36,7 +37,6 @@ from web.backend.watch_replay import _ensure_frame_gc_thresholds
 # thread per core oversubscribes the CPU against the event loop (measured ~3x
 # slowdown). Set at import so it applies under uvicorn regardless of launcher.
 torch.set_num_threads(1)
-_ensure_frame_gc_thresholds()
 
 logger = logging.getLogger(__name__)
 
@@ -149,21 +149,36 @@ hub = Hub()
 
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
+    prev_gc_thresholds = gc.get_threshold()
     _ensure_frame_gc_thresholds()
-    hub.store = ScoreStore(os.environ.get("SNAKE_SCORES_DB", DEFAULT_SCORES_DB))
-    hub.session = await asyncio.to_thread(GameSession)
-    hub.engine_task = asyncio.create_task(hub.engine_loop())
+    store: Optional[ScoreStore] = None
+    session: Optional[GameSession] = None
+    engine_task: Optional[asyncio.Task] = None
     try:
+        store = ScoreStore(os.environ.get("SNAKE_SCORES_DB", DEFAULT_SCORES_DB))
+        hub.store = store
+        session = await asyncio.to_thread(GameSession)
+        hub.session = session
+        engine_task = asyncio.create_task(hub.engine_loop())
+        hub.engine_task = engine_task
         yield
     finally:
-        if hub.engine_task:
-            hub.engine_task.cancel()
+        if engine_task is not None:
+            engine_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
-                await hub.engine_task
-        if hub.store is not None:
-            hub.store.close()
-        if hub.session is not None:
-            await asyncio.to_thread(hub.session.close, True)
+                await engine_task
+            if hub.engine_task is engine_task:
+                hub.engine_task = None
+        if store is not None:
+            store.close()
+            if hub.store is store:
+                hub.store = None
+        if session is not None:
+            await asyncio.to_thread(session.close, True)
+            if hub.session is session:
+                hub.session = None
+        if gc.get_threshold()[0] != 0:
+            gc.set_threshold(*prev_gc_thresholds)
 
 
 app = FastAPI(title="snake-dqn web", lifespan=lifespan)

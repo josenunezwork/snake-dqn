@@ -649,3 +649,64 @@ def test_play_mixed_survives_reset_new_game_and_watch_switch():
     assert pending is not None
     assert pending["play_roster"] == "mixed"
     assert pending["play_opponents"] == 3
+
+
+def test_watch_switch_emits_chosen_play_roster_and_ego2s_bv8_slices_at_least_60(monkeypatch):
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    from web.backend import serialize
+
+    session = GameSession()
+    assert "play_roster" not in session.control_state()
+
+    session.set_mode(MODE_PLAY)
+    session.set_play_roster("mixed")
+    assert session.control_state()["play_roster"] == "mixed"
+
+    # F15: switching back to Watch keeps reporting the viewer's chosen play_roster
+    # ("mixed") instead of inactive "all_b8" or omitting the key.
+    session.set_mode(MODE_WATCH)
+    assert session.mode == MODE_WATCH
+    assert session.play_roster == "all_b8"
+    assert session._play_roster_choice == "mixed"
+    assert session.control_state()["play_roster"] == "mixed"
+    assert session.control_state()["play_roster_reason"] is None
+
+    # Inspecting an FRP3 opponent in live Mixed Watch uses vector61 free_space[58:61].
+    session.set_hero(int(session.game.snakes[1].id))
+    session.step()
+    snap = session.snapshot()
+    inspector = snap["inspector"]
+    assert inspector is not None
+    assert inspector["input_size"] == 61
+    assert inspector["free_space"] == inspector["state"][58:61]
+
+    # F16: ego2s-bv8 inputs with >= 60 scalars still populate free_space from 30:60.
+    scalars_64 = np.arange(64, dtype=np.float32) / 100.0
+    monkeypatch.setattr(
+        serialize,
+        "_raster_activations",
+        lambda _sess, _hero: (
+            scalars_64,
+            np.zeros(256, dtype=np.float32),
+            np.zeros(6, dtype=np.float32),
+            {},
+        ),
+    )
+    fake_hero = SimpleNamespace(id=0, is_alive=True, policy=object(), last_action=1)
+    fake_session = SimpleNamespace(
+        hero_id=0,
+        policy=fake_hero.policy,
+        obs_spec="ego2s-bv8",
+        game=SimpleNamespace(snakes=[fake_hero], food=[]),
+    )
+    ego_inspector, _ = serialize._build_inspector_and_netviz(fake_session)
+    assert ego_inspector is not None
+    assert ego_inspector["input_size"] == 64
+    assert ego_inspector["free_space"] == [
+        float(scalars_64[30]),
+        float(scalars_64[35]),
+        float(scalars_64[40]),
+    ]

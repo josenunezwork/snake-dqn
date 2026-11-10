@@ -37,6 +37,7 @@ from src.model.obs_spec import DEFAULT_OBS_SPEC, EGO2S_OBS_SPECS, RASTER31V2, RA
 from src.training.apex_policy import ApexPolicy
 from web.backend.checkpoints import resolve_checkpoint_name
 from web.backend.release_monitoring import (
+    REPLAY_UPDATE_P95_TRIGGER_MS,
     _log_telemetry_error,
     ego2s_exception,
     mixed_roster_fallback,
@@ -78,6 +79,7 @@ from web.backend.served_checkpoint import (
     resolve_served_checkpoint,
 )
 from web.backend.serving_speed import driven_ai_count, roster_ai_count, speed_ceiling
+from web.backend.watch_replay import ReplayClosedError
 
 # The three ways to drive the shared game.
 MODE_WATCH = "watch"  # AI plays itself; we observe.
@@ -953,12 +955,13 @@ class GameSession:
         self._log_play_roster(requested, None)
         return state
 
-    def _is_clean_mixed_watch6_b8(self) -> bool:
+    def _is_clean_mixed_watch6_b8(self, *, hero_id: Optional[int] = None) -> bool:
         """True only for the clean released 6-snake mixed-Watch6 b8-s3 serving world."""
         choice = getattr(self, "served_checkpoint", None)
         opponent = getattr(self, "watch_opponent_checkpoint", None)
         snakes = list(getattr(getattr(self, "game", None), "snakes", ()))
         safety_veto = getattr(self, "safety_veto", None)
+        effective_hero_id = self.hero_id if hero_id is None else hero_id
         return bool(
             self.mode == MODE_WATCH
             and GameConfig.MECHANICS_VERSION == 2
@@ -978,7 +981,7 @@ class GameSession:
             and not opponent.get("pin_problems")
             and getattr(self, "watch_opponent_policy", None) is not None
             and getattr(self, "obs_spec", None) in EGO2S_OBS_SPECS
-            and int(snakes[0].id) == int(self.hero_id)
+            and int(snakes[0].id) == int(effective_hero_id)
             and getattr(snakes[0], "policy", None) is getattr(self, "policy", None)
             and getattr(snakes[0], "safety_veto", None) is None
             and safety_veto is not None
@@ -1277,18 +1280,28 @@ class GameSession:
                                 stepped_record = self._watch_replay
                             hold_frame = True
                 except Exception as exc:
-                    try:
-                        self._close_watch_replay(active_replay)
-                    finally:
-                        self._watch_replay = None
-                        self.last_error = f"Replay playback failed; using live B8: {exc}"
-                        self._safe_telemetry(self._flush_watch_replay_telemetry)
-                        self._safe_telemetry(
-                            self._record_watch_replay_failure,
-                            active_replay,
-                            stage="step",
-                            exc=exc,
-                        )
+                    if isinstance(exc, ReplayClosedError) and bool(
+                        getattr(active_replay, "_intentional_close", False)
+                    ):
+                        try:
+                            self._close_watch_replay(active_replay, intentional=True)
+                        finally:
+                            if self._watch_replay is active_replay:
+                                self._watch_replay = None
+                            self._safe_telemetry(self._flush_watch_replay_telemetry)
+                    else:
+                        try:
+                            self._close_watch_replay(active_replay, intentional=False)
+                        finally:
+                            self._watch_replay = None
+                            self.last_error = f"Replay playback failed; using live B8: {exc}"
+                            self._safe_telemetry(self._flush_watch_replay_telemetry)
+                            self._safe_telemetry(
+                                self._record_watch_replay_failure,
+                                active_replay,
+                                stage="step",
+                                exc=exc,
+                            )
                 else:
                     if stepped_record is not None:
                         self._safe_telemetry(
@@ -1463,6 +1476,7 @@ class GameSession:
             lower = math.floor(pos)
             upper = math.ceil(pos)
             p95_ms = ordered[lower] + (ordered[upper] - ordered[lower]) * (pos - lower)
+            over_trigger = sum(1 for ms in ordered if ms > REPLAY_UPDATE_P95_TRIGGER_MS)
             self._safe_telemetry(
                 watch_replay_summary,
                 checkpoint="b8-s3",
@@ -1474,6 +1488,7 @@ class GameSession:
                 update_p95_ms=p95_ms,
                 max_update_ms=ordered[-1],
                 mean_update_ms=sum(ordered) / len(ordered),
+                over_trigger_frames=over_trigger,
                 first_timestamp=first_ts,
             )
         except Exception as exc:
@@ -1569,6 +1584,8 @@ class GameSession:
                 play_tick,
                 checkpoint="b8-s3",
                 driven_ai=driven_ai_count(self.game.snakes, self.policy),
+                roster_mode=getattr(self, "play_roster", PLAY_ROSTER_ALL_B8),
+                roster_size=roster_ai_count(self.game.snakes),
                 speed=self.speed,
                 update_ms=update_ms,
                 latency_eligible=latency_eligible,
@@ -1588,18 +1605,28 @@ class GameSession:
                 try:
                     return active_replay.snapshot(self)
                 except Exception as exc:
-                    try:
-                        self._close_watch_replay(active_replay)
-                    finally:
-                        self._watch_replay = None
-                        self.last_error = f"Replay snapshot failed; using live B8: {exc}"
-                        self._safe_telemetry(self._flush_watch_replay_telemetry)
-                        self._safe_telemetry(
-                            self._record_watch_replay_failure,
-                            active_replay,
-                            stage="snapshot",
-                            exc=exc,
-                        )
+                    if isinstance(exc, ReplayClosedError) and bool(
+                        getattr(active_replay, "_intentional_close", False)
+                    ):
+                        try:
+                            self._close_watch_replay(active_replay, intentional=True)
+                        finally:
+                            if self._watch_replay is active_replay:
+                                self._watch_replay = None
+                            self._safe_telemetry(self._flush_watch_replay_telemetry)
+                    else:
+                        try:
+                            self._close_watch_replay(active_replay, intentional=False)
+                        finally:
+                            self._watch_replay = None
+                            self.last_error = f"Replay snapshot failed; using live B8: {exc}"
+                            self._safe_telemetry(self._flush_watch_replay_telemetry)
+                            self._safe_telemetry(
+                                self._record_watch_replay_failure,
+                                active_replay,
+                                stage="snapshot",
+                                exc=exc,
+                            )
             try:
                 return build_frame(self)
             except Exception as exc:
@@ -1609,7 +1636,12 @@ class GameSession:
 
     # -- controls -----------------------------------------------------------
     @staticmethod
-    def _close_watch_replay(record: Any) -> None:
+    def _close_watch_replay(record: Any, *, intentional: bool = True) -> None:
+        if intentional and record is not None:
+            try:
+                record._intentional_close = True
+            except AttributeError:
+                pass
         close = getattr(record, "close", None)
         if callable(close):
             close()
@@ -1765,7 +1797,31 @@ class GameSession:
     def new_game(self) -> None:
         """Start a fresh game, re-enabling Watch replay after an explicit opt-out."""
         with self._lock:
+            restore_replay_hero = bool(
+                self.mode == MODE_WATCH
+                and getattr(self, "_replay_bank", None) is not None
+                and self.obs_spec != RASTER31V3
+                and getattr(self.game, "snakes", None)
+            )
+            target_hero_id = int(self.game.snakes[0].id) if restore_replay_hero else None
+            if restore_replay_hero and (
+                self._is_clean_mixed_watch6_b8(hero_id=target_hero_id)
+                or self._is_b8_release_monitoring()
+            ):
+                # Watch replay and B8 release monitoring both require obs_spec in
+                # EGO2S_OBS_SPECS, which _build_impl backs exclusively with
+                # Ego2sServingPolicy (epsilon property pinned to 0.0).
+                try:
+                    pinned_zero = float(self.policy.epsilon) == 0.0
+                except (AttributeError, TypeError, ValueError):
+                    pinned_zero = False
+                if not pinned_zero:
+                    raise RuntimeError(
+                        "Watch replay / B8 release monitoring requires pinned epsilon == 0.0"
+                    )
             self._replay_opted_out = False
+            if target_hero_id is not None:
+                self.hero_id = target_hero_id
             self.reset_game()
 
     def save_weights(self) -> str:
@@ -2177,6 +2233,11 @@ class GameSession:
                     watch_source="replay",
                     replay=replay.info(),
                 )
+                if getattr(self, "_play_roster_choice", None) is not None:
+                    state.update(
+                        play_roster=self._play_roster_choice,
+                        play_roster_reason=self.play_roster_reason,
+                    )
                 return state
             net_cfg = getattr(getattr(self.policy, "net", None), "config", None)
             n_scalars = net_cfg.get("n_scalars") if isinstance(net_cfg, Mapping) else None
@@ -2239,10 +2300,17 @@ class GameSession:
                         ),
                     }
                 )
-            elif self.mode == MODE_PLAY or self._play_roster_choice is not None:
+            elif self.mode == MODE_PLAY:
                 state.update(
                     {
                         "play_roster": self.play_roster,
+                        "play_roster_reason": self.play_roster_reason,
+                    }
+                )
+            elif self._play_roster_choice is not None:
+                state.update(
+                    {
+                        "play_roster": self._play_roster_choice,
                         "play_roster_reason": self.play_roster_reason,
                     }
                 )

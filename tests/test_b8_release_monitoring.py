@@ -1201,3 +1201,370 @@ def test_replay_telemetry_snapshots_batch_attributes_at_batch_open(
     assert summaries[1]["roster_size"] == 12
     assert summaries[1]["controller"] == "mutated-controller"
     assert summaries[1]["speed"] == 12.0
+
+
+def test_mixed_play_ticks_do_not_fault_or_pollute_all_b8_play_latency(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.game.ai_snake import AISnake
+    from web.backend import release_monitoring
+    from web.backend.served_checkpoint import (
+        PLAY_ROSTER_ALL_B8,
+        PLAY_ROSTER_MIXED,
+        PLAY_ROSTERS,
+    )
+
+    assert monitor.PLAY_ROSTER_ALL_B8 == PLAY_ROSTER_ALL_B8
+    assert monitor.PLAY_ROSTER_MIXED == PLAY_ROSTER_MIXED
+    assert monitor.PLAY_ROSTERS == PLAY_ROSTERS
+
+    emitted: list[dict] = []
+    monkeypatch.setattr(
+        release_monitoring,
+        "emit",
+        lambda event, **fields: emitted.append({"event": event, "timestamp": 1.0, **fields}),
+    )
+
+    b8_policy = object()
+    opp_policy = object()
+    human = SimpleNamespace(id=0, is_alive=True, is_human=True, policy=None)
+    b8_rival = AISnake.__new__(AISnake)
+    b8_rival.id = 1
+    b8_rival.is_alive = True
+    b8_rival.policy = b8_policy
+    frp_opps = []
+    for idx in range(2, 6):
+        opp = AISnake.__new__(AISnake)
+        opp.id = idx
+        opp.is_alive = True
+        opp.policy = opp_policy
+        frp_opps.append(opp)
+    game = SimpleNamespace(
+        snakes=[human, b8_rival, *frp_opps],
+        frame_death_causes={},
+        update=lambda **_kw: None,
+    )
+    session = _b8_session(game, mode=MODE_PLAY, warmup=0)
+    session.policy = b8_policy
+    session.play_roster = "mixed"
+    session.run_started = True
+    session.run_over = False
+    session.run_frames = 0
+    session._find_human = lambda: human
+
+    session._step_play()
+    assert len(emitted) == 1
+    assert emitted[0]["event"] == "play_tick"
+    assert emitted[0]["driven_ai"] == 1
+
+    _, _, baseline_metrics = monitor.assess(_healthy_records(), [])
+    assert baseline_metrics["play_ticks_excluded_by_roster"] == 0
+
+    healthy, messages, metrics = monitor.assess([*_healthy_records(), *emitted], [])
+    assert healthy and messages == []
+    assert emitted[0]["roster_mode"] == "mixed"
+    assert emitted[0]["roster_size"] == 5
+    assert metrics["play_ticks_excluded_by_roster"] == 1
+    assert "play1" not in metrics["latency_by_roster"]
+    assert "play5" not in metrics["latency_by_roster"]
+
+    # Malformed play_tick roster_mode still fails closed, validating against PLAY_ROSTERS
+    # rather than WATCH_ROSTERS.
+    bad_play = {**emitted[0], "roster_mode": "unknown_roster"}
+    healthy, messages, _ = monitor.assess([*_healthy_records(), bad_play], [])
+    assert not healthy and "incomplete Play tick telemetry" in messages
+
+    monkeypatch.setattr(monitor, "WATCH_ROSTERS", ("all_b8", "mixed", "watch_only_test"))
+    monkeypatch.setattr(monitor, "PLAY_ROSTERS", ("all_b8", "mixed", "play_only_test"))
+    watch_only_tick = {**emitted[0], "roster_mode": "watch_only_test"}
+    healthy, messages, _ = monitor.assess([*_healthy_records(), watch_only_tick], [])
+    assert not healthy and "incomplete Play tick telemetry" in messages
+    play_only_tick = {**emitted[0], "roster_mode": "play_only_test"}
+    healthy, messages, metrics = monitor.assess([*_healthy_records(), play_only_tick], [])
+    assert healthy and messages == []
+    assert metrics["play_ticks_excluded_by_roster"] == 1
+
+
+def test_registered_replay_window_p95_estimator_and_metric_only_over_trigger_counts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from web.backend import release_monitoring
+
+    # F3 / N2: local constant in web/backend avoids importing unshipped scripts/,
+    # pinned by three-way equality across monitor, release_monitoring, and session.
+    assert (
+        release_monitoring.REPLAY_UPDATE_P95_TRIGGER_MS
+        == monitor.REPLAY_UPDATE_P95_TRIGGER_MS
+        == session_mod.REPLAY_UPDATE_P95_TRIGGER_MS
+    )
+
+    resolution = _healthy_replay_records()[0]
+
+    # F1: registered estimator prefers batches >= REPLAY_SUMMARY_FULL_FRAMES (600)
+    # when present, falling back to >= REPLAY_SUMMARY_MIN_P95_FRAMES (20) only when
+    # no full 600-frame batch exists.
+    partial_400 = [
+        {
+            "event": "watch_replay_summary",
+            "checkpoint": "b8-s3",
+            "roster_mode": "mixed",
+            "roster_size": 6,
+            "controller": "exact-stop-l1-os",
+            "speed": 24.0,
+            "frames": 400,
+            "update_p95_ms": 80.0,
+            "max_update_ms": 90.0,
+            "mean_update_ms": 75.0,
+            "first_timestamp": float(i * 400),
+            "timestamp": float((i + 1) * 400),
+        }
+        for i in range(125)
+    ]
+    one_fast_600 = {
+        **partial_400[0],
+        "frames": 600,
+        "update_p95_ms": 3.0,
+        "max_update_ms": 4.0,
+        "mean_update_ms": 2.0,
+        "first_timestamp": 50_000.0,
+        "timestamp": 50_600.0,
+    }
+    healthy, messages, metrics = monitor.assess(
+        [resolution, *partial_400, one_fast_600], [], now=8 * 86400
+    )
+    assert healthy and messages == []
+    assert metrics["replay_window_complete"] is True
+    assert metrics["replay_update_p95_ms"] == 3.0
+    assert monitor.replay_window_p95([(400, 80.0)], []) == 80.0
+    assert monitor.replay_window_p95([(30, 1.0)], [80.0] * 30) == 1.0
+
+    # F2: over_trigger_frames is reported in metrics only, with no new ROLLBACK
+    # trigger or verdict impact when the registered replay_update_p95_ms bar passes.
+    stealth_batches = [
+        {
+            **one_fast_600,
+            "update_p95_ms": 0.05,
+            "max_update_ms": 55.0,
+            "over_trigger_frames": 29,
+            "first_timestamp": float(i * 600),
+            "timestamp": float((i + 1) * 600),
+        }
+        for i in range(96)
+    ]
+    stalled_batches = [
+        {
+            **one_fast_600,
+            "update_p95_ms": 50.0,
+            "max_update_ms": 55.0,
+            "over_trigger_frames": 600,
+            "first_timestamp": float((96 + i) * 600),
+            "timestamp": float((97 + i) * 600),
+        }
+        for i in range(4)
+    ]
+    healthy, messages, metrics = monitor.assess(
+        [resolution, *stealth_batches, *stalled_batches], [], now=8 * 86400
+    )
+    assert healthy and messages == []
+    assert metrics["replay_over_trigger_frames"] == 5184
+    assert metrics["replay_over_trigger_invalid"] == 0
+
+    # N3: Malformed over_trigger_frames must never fault, change verdict, truncate floats,
+    # or crash assess (bad type, bool, negative, > frames, float, Infinity, -Infinity, NaN).
+    bad_over_trigger_values: list[object] = [
+        "bad",
+        "12",
+        None,
+        True,
+        False,
+        [1],
+        {"count": 1},
+        -1,
+        601,
+        3.7,
+        3.0,
+        float("inf"),
+        float("-inf"),
+        float("nan"),
+    ]
+    base_healthy_replay = _healthy_replay_records()
+    healthy_plain, plain_messages, plain_metrics = monitor.assess(
+        base_healthy_replay, [], now=8 * 86400
+    )
+    assert healthy_plain and plain_messages == []
+    assert plain_metrics["replay_over_trigger_frames"] == 0
+    assert plain_metrics["replay_over_trigger_invalid"] == 0
+
+    for idx, bad_value in enumerate(bad_over_trigger_values):
+        bad_record = {
+            **one_fast_600,
+            "frames": 600,
+            "over_trigger_frames": bad_value,
+            "first_timestamp": float(700_000 + idx * 600),
+            "timestamp": float(700_600 + idx * 600),
+        }
+        ok, msgs, bad_metrics = monitor.assess(
+            [*base_healthy_replay, bad_record], [], now=9 * 86400
+        )
+        assert ok is True, f"bad value {bad_value!r} changed verdict: {msgs}"
+        assert msgs == [], f"bad value {bad_value!r} added fault/message: {msgs}"
+        assert bad_metrics["replay_over_trigger_frames"] == 0
+        assert bad_metrics["replay_over_trigger_invalid"] == 1
+
+    combined_bad = [
+        {
+            **one_fast_600,
+            "frames": 600,
+            "over_trigger_frames": bad_value,
+            "first_timestamp": float(800_000 + idx * 600),
+            "timestamp": float(800_600 + idx * 600),
+        }
+        for idx, bad_value in enumerate(bad_over_trigger_values)
+    ]
+    valid_edge_batches = [
+        {
+            **one_fast_600,
+            "frames": 600,
+            "over_trigger_frames": 0,
+            "first_timestamp": 820_000.0,
+            "timestamp": 820_600.0,
+        },
+        {
+            **one_fast_600,
+            "frames": 600,
+            "over_trigger_frames": 17,
+            "first_timestamp": 820_600.0,
+            "timestamp": 821_200.0,
+        },
+    ]
+    ok, msgs, combined_metrics = monitor.assess(
+        [*base_healthy_replay, *combined_bad, *valid_edge_batches], [], now=10 * 86400
+    )
+    assert ok is True and msgs == []
+    assert combined_metrics["replay_over_trigger_frames"] == 17
+    assert combined_metrics["replay_over_trigger_invalid"] == len(bad_over_trigger_values)
+
+    # R2: Non-summary records carrying over_trigger_frames (including as the first record)
+    # are ignored by the watch_replay_summary over_trigger_frames block, and older
+    # watch_replay_summary records lacking over_trigger_frames have update_val=None so
+    # high batch update_p95_ms is not counted as 1 frame.
+    non_summary_first_bad = {
+        "event": "watch_replay_tick",
+        "checkpoint": "b8-s3",
+        "roster_mode": "mixed",
+        "roster_size": 6,
+        "speed": 24.0,
+        "update_ms": 5.0,
+        "timestamp": 1.0,
+        "over_trigger_frames": "bad",
+    }
+    non_summary_tick_count = {
+        **non_summary_first_bad,
+        "timestamp": 2.0,
+        "over_trigger_frames": 1,
+    }
+    non_summary_active = {
+        "event": "watch_replay_active",
+        "checkpoint": "b8-s3",
+        "roster_mode": "mixed",
+        "roster_size": 6,
+        "speed": 24.0,
+        "timestamp": 0.5,
+        "over_trigger_frames": "bad",
+    }
+    ok, msgs, non_summary_metrics = monitor.assess(
+        [non_summary_first_bad, non_summary_active, non_summary_tick_count, *base_healthy_replay],
+        [],
+        now=9 * 86400,
+    )
+    assert ok is True and msgs == []
+    assert non_summary_metrics["replay_over_trigger_frames"] == 0
+    assert non_summary_metrics["replay_over_trigger_invalid"] == 0
+
+    legacy_fast = [
+        {k: v for k, v in batch.items() if k != "over_trigger_frames"} for batch in stealth_batches
+    ]
+    legacy_high_p95_no_key = {
+        k: v for k, v in stalled_batches[0].items() if k != "over_trigger_frames"
+    }
+    assert "over_trigger_frames" not in legacy_high_p95_no_key
+    assert "update_ms" not in legacy_high_p95_no_key
+    ok, msgs, legacy_metrics = monitor.assess(
+        [resolution, *legacy_fast, legacy_high_p95_no_key], [], now=8 * 86400
+    )
+    assert ok is True and msgs == []
+    assert legacy_metrics["replay_over_trigger_frames"] == 0
+    assert legacy_metrics["replay_over_trigger_invalid"] == 0
+
+    # Session flush still emits over_trigger_frames for telemetry reporting.
+    summaries: list[dict] = []
+    monkeypatch.setattr(session_mod, "roster_ai_count", lambda *_args: 6)
+    monkeypatch.setattr(
+        session_mod, "watch_replay_summary", lambda **kwargs: summaries.append(kwargs)
+    )
+    monkeypatch.setattr(session_mod, "watch_replay_active", lambda **_kwargs: None)
+
+    hero = SimpleNamespace(id=0, is_alive=True, update=lambda *_a: None)
+    game = SimpleNamespace(
+        snakes=[hero],
+        frame_death_causes={0: "wall"},
+        update=lambda **_kw: hero.update([], []),
+    )
+    session = _b8_session(game)
+    session.watch_roster = "mixed"
+    session.speed = 24.0
+
+    session._record_watch_replay_step(
+        SimpleNamespace(header={"controller": "exact-stop-l1-os"}), 50.0
+    )
+    session._record_watch_replay_step(
+        SimpleNamespace(header={"controller": "exact-stop-l1-os"}), 10.0
+    )
+    session._flush_watch_replay_telemetry()
+    assert len(summaries) == 1
+    assert summaries[0]["over_trigger_frames"] == 1
+
+
+def test_replay_opt_out_preserves_live_b8_watch_tick_monitoring(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _PinnedEgo2sPolicy:
+        @property
+        def epsilon(self) -> float:
+            return 0.0
+
+        @epsilon.setter
+        def epsilon(self, _value: float) -> None:
+            return
+
+    ticks: list[dict] = []
+    monkeypatch.setattr(session_mod, "roster_ai_count", lambda *_args: 6)
+    monkeypatch.setattr(session_mod, "watch_tick", lambda **kwargs: ticks.append(kwargs))
+
+    hero = SimpleNamespace(id=0, is_alive=True, update=lambda *_a: None)
+    game = SimpleNamespace(
+        snakes=[hero],
+        frame_death_causes={0: "wall"},
+        update=lambda **_kw: hero.update([], []),
+    )
+    session = _b8_session(game, warmup=0)
+    session.policy = _PinnedEgo2sPolicy()
+    session.watch_roster = "mixed"
+    session.speed = 12.0
+    session._replay_bank = SimpleNamespace(pick=lambda: None, pending=False, error=None)
+    session._replay_opted_out = False
+
+    session.step()
+    assert len(ticks) == 1
+    assert ticks[0]["decisions"] == 1
+    assert ticks[0]["deaths"] == 1
+
+    # Viewer opt-out on the pinned-epsilon B8 policy still runs clean live B8 and must
+    # continue emitting watch_tick latency and hero-death telemetry.
+    session.set_epsilon(0.5)
+    assert session._replay_opted_out is True
+    assert session._is_b8_release_monitoring() is True
+    session.step()
+    assert len(ticks) == 2
+    assert ticks[1]["decisions"] == 1
+    assert ticks[1]["deaths"] == 1

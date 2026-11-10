@@ -128,6 +128,10 @@ def _decode_json_object(line: bytes) -> dict:
     return value
 
 
+class ReplayClosedError(ValueError):
+    """Raised when reading, seeking, or querying a closed replay buffer."""
+
+
 class _BufferReader(io.RawIOBase):
     """Zero-copy readable stream over bytes or an anonymous mmap buffer."""
 
@@ -143,9 +147,13 @@ class _BufferReader(io.RawIOBase):
         return True
 
     def tell(self) -> int:
+        if self.closed or getattr(self._buf, "closed", False):
+            raise ReplayClosedError("I/O operation on closed buffer")
         return self._pos
 
     def seek(self, pos: int, whence: int = io.SEEK_SET) -> int:
+        if self.closed or getattr(self._buf, "closed", False):
+            raise ReplayClosedError("I/O operation on closed buffer")
         if whence == io.SEEK_SET:
             new_pos = pos
         elif whence == io.SEEK_CUR:
@@ -160,8 +168,8 @@ class _BufferReader(io.RawIOBase):
         return self._pos
 
     def readinto(self, b: Any) -> int:
-        if getattr(self._buf, "closed", False):
-            return 0
+        if self.closed or getattr(self._buf, "closed", False):
+            raise ReplayClosedError("I/O operation on closed buffer")
         avail = self._size - self._pos
         if avail <= 0:
             return 0
@@ -691,6 +699,7 @@ class Recording:
     ) -> None:
         self._records: Iterator[dict] | None = None
         self._mmap: mmap.mmap | None = None
+        self._intentional_close: bool = False
         if stop is not None:
             _ensure_frame_gc_thresholds()
         sha_path, _ = _check_replay_files(path)
@@ -756,10 +765,13 @@ class Recording:
     def step(self) -> bool:
         """Advance one frame; false asks the caller to rotate or use live Watch."""
         if self._records is None:
+            if not getattr(self, "_intentional_close", False):
+                raise ReplayClosedError("I/O operation on closed buffer")
             return False
         if self.frame["frame"] >= self.header["horizon"]:
             has_more = next(self._records, None) is not None
             if not has_more:
+                self._intentional_close = True
                 self.close()
             return has_more
         _enter_gc_suppress()
@@ -769,6 +781,7 @@ class Recording:
             frame = next(self._records, None)
             if frame is None:
                 self.frame = prev_frame
+                self._intentional_close = True
                 self.close()
                 return False
             self.frame = frame
@@ -782,19 +795,23 @@ class Recording:
 
     def snapshot(self, session: Any) -> dict:
         """Keep recorded inspector/roster, overlay only present playback controls."""
+        session_state = {
+            **self.frame["session"],
+            "playing": session.playing,
+            "speed": session.speed,
+            "speed_ceiling": session.speed_ceiling,
+            "error": session.last_error,
+            "watch_source": "replay",
+            "replay": self.info(),
+        }
+        if getattr(session, "_play_roster_choice", None) is not None:
+            session_state["play_roster"] = session._play_roster_choice
+            session_state["play_roster_reason"] = getattr(session, "play_roster_reason", None)
         return {
             **self.frame,
             "paused": not session.playing,
             "viewer_count": session.viewer_count,
-            "session": {
-                **self.frame["session"],
-                "playing": session.playing,
-                "speed": session.speed,
-                "speed_ceiling": session.speed_ceiling,
-                "error": session.last_error,
-                "watch_source": "replay",
-                "replay": self.info(),
-            },
+            "session": session_state,
         }
 
     def info(self) -> dict:
@@ -811,6 +828,12 @@ class Recording:
             "frame": self.frame["frame"],
             "horizon": self.header["horizon"],
         }
+
+
+def _close_record(record: Any) -> None:
+    close_rec = getattr(record, "close", None)
+    if callable(close_rec):
+        close_rec()
 
 
 class ReplayBank:
@@ -868,9 +891,7 @@ class ReplayBank:
                 record = self._ready.get_nowait()
             except queue.Empty:
                 break
-            close_rec = getattr(record, "close", None)
-            if callable(close_rec):
-                close_rec()
+            _close_record(record)
 
     def close(self) -> None:
         """Cancel verification/queue waits, reap the worker, and release queued recordings."""
@@ -973,34 +994,26 @@ class ReplayBank:
                         self.controller != REPLAY_CONTROLLER_ALL
                         and record.header["controller"] != self.controller
                     ):
-                        close_rec = getattr(record, "close", None)
-                        if callable(close_rec):
-                            close_rec()
+                        _close_record(record)
                         raise ValueError("replaced replay controller")
                     if (
                         opt_in_horizon
                         and "horizon" in getattr(record, "header", {})
                         and record.header["horizon"] not in self.horizons
                     ):
-                        close_rec = getattr(record, "close", None)
-                        if callable(close_rec):
-                            close_rec()
+                        _close_record(record)
                         raise ValueError("replaced replay horizon")
                     uid = record.header["unit_id"]
                     verified.append((path, uid))
                     if uid != last and uid not in seen:
                         if not self._enqueue(record):
-                            close_rec = getattr(record, "close", None)
-                            if callable(close_rec):
-                                close_rec()
+                            _close_record(record)
                             record = None
                             return
                         last = uid
                         seen.add(uid)
                     else:
-                        close_rec = getattr(record, "close", None)
-                        if callable(close_rec):
-                            close_rec()
+                        _close_record(record)
                     record = None
                 except InterruptedError:
                     record = None
@@ -1033,26 +1046,20 @@ class ReplayBank:
                         )
                         # A replaced file must retain its bank identity and controller filter.
                         if chosen.header["unit_id"] != uid:
-                            close_rec = getattr(chosen, "close", None)
-                            if callable(close_rec):
-                                close_rec()
+                            _close_record(chosen)
                             raise ValueError("replaced replay identity")
                         if (
                             self.controller != REPLAY_CONTROLLER_ALL
                             and chosen.header["controller"] != self.controller
                         ):
-                            close_rec = getattr(chosen, "close", None)
-                            if callable(close_rec):
-                                close_rec()
+                            _close_record(chosen)
                             raise ValueError("replaced replay controller")
                         if (
                             opt_in_horizon
                             and "horizon" in getattr(chosen, "header", {})
                             and chosen.header["horizon"] not in self.horizons
                         ):
-                            close_rec = getattr(chosen, "close", None)
-                            if callable(close_rec):
-                                close_rec()
+                            _close_record(chosen)
                             raise ValueError("replaced replay horizon")
                         break
                     except InterruptedError:
@@ -1066,9 +1073,7 @@ class ReplayBank:
                     continue
                 chosen_uid = chosen.header["unit_id"]
                 if not self._enqueue(chosen):
-                    close_rec = getattr(chosen, "close", None)
-                    if callable(close_rec):
-                        close_rec()
+                    _close_record(chosen)
                     chosen = None
                     return
                 chosen = None

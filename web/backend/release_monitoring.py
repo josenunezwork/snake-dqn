@@ -14,6 +14,7 @@ import sys
 import time
 from typing import Any, Mapping
 
+REPLAY_UPDATE_P95_TRIGGER_MS = 41.67
 LOG_PREFIX = "b8-release-monitor:"
 logger = logging.getLogger(__name__)
 _TELEMETRY_ERROR_INTERVAL_S = 60.0
@@ -128,18 +129,28 @@ def watch_tick(
 
 
 def play_tick(
-    *, checkpoint: str, driven_ai: int, speed: float, update_ms: float, latency_eligible: bool
+    *,
+    checkpoint: str,
+    driven_ai: int,
+    speed: float,
+    update_ms: float,
+    latency_eligible: bool,
+    roster_mode: str = "all_b8",
+    roster_size: int | None = None,
 ) -> None:
     """Record one B8 Play update for the separately qualified Play latency path."""
     try:
-        emit(
-            "play_tick",
-            checkpoint=checkpoint,
-            driven_ai=int(driven_ai),
-            speed=float(speed),
-            update_ms=float(update_ms),
-            latency_eligible=bool(latency_eligible),
-        )
+        fields: dict[str, Any] = {
+            "checkpoint": checkpoint,
+            "driven_ai": int(driven_ai),
+            "roster_mode": str(roster_mode),
+            "speed": float(speed),
+            "update_ms": float(update_ms),
+            "latency_eligible": bool(latency_eligible),
+        }
+        if roster_size is not None:
+            fields["roster_size"] = int(roster_size)
+        emit("play_tick", **fields)
     except Exception as exc:
         _log_telemetry_error(exc)
 
@@ -193,6 +204,7 @@ def watch_replay_summary(
     update_p95_ms: float,
     max_update_ms: float,
     mean_update_ms: float = 0.0,
+    over_trigger_frames: int | None = None,
     first_timestamp: float | None = None,
 ) -> None:
     """Record aggregated Watch replay playback telemetry without per-frame logging."""
@@ -208,6 +220,8 @@ def watch_replay_summary(
             "max_update_ms": round(float(max_update_ms), 4),
             "mean_update_ms": round(float(mean_update_ms), 4),
         }
+        if over_trigger_frames is not None:
+            fields["over_trigger_frames"] = int(over_trigger_frames)
         if first_timestamp is not None:
             fields["first_timestamp"] = float(first_timestamp)
         emit("watch_replay_summary", **fields)

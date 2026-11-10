@@ -1573,6 +1573,141 @@ def test_set_hero_during_live_fallback_opts_out_and_cancels_pending_replay(tmp_p
         session.close()
 
 
+def test_new_game_restores_hero_for_replay_while_preserving_viewer_food_settings(
+    tmp_path, monkeypatch
+):
+    for key in (
+        "SNAKE_SERVE_WATCH_ROSTER",
+        "SNAKE_SERVE_CHECKPOINT",
+        "SNAKE_SERVE_VETO_WATCH_HERO",
+        "SNAKE_SERVE_VETO_PLAY_AI",
+        "SNAKE_SERVE_VETO_VARIANT",
+        "SNAKE_WATCH_REPLAY_CONTROLLER",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    _install_local_release_fixtures(monkeypatch, tmp_path)
+
+    bank_dir = tmp_path / "bank"
+    bank_dir.mkdir()
+    for name in ("00_l2a", "01_l2b", "02_l2c"):
+        recording(bank_dir, name, controller="exact-stop-l2-prime")
+
+    monkeypatch.setenv("SNAKE_WATCH_SOURCE", "replay")
+    monkeypatch.setenv("SNAKE_WATCH_REPLAY_DIR", str(bank_dir))
+    monkeypatch.setenv("SNAKE_WATCH_REPLAY_CONTROLLER", "exact-stop-l2-prime")
+
+    session = GameSession()
+    try:
+        # Opt out via food + hero while in live Watch.
+        session.set_food(42)
+        session.set_hero(1)
+        assert session._replay_opted_out is True
+        assert session._watch_replay is None
+        assert session.hero_id == 1
+        assert session.game.food_manager.max_food == 42
+
+        deadline = time.monotonic() + 10
+        while session._replay_bank._ready.empty() and time.monotonic() < deadline:
+            time.sleep(0.01)
+
+        pre_reset_food_mutations: list[str] = []
+        orig_trim = session.game.food_manager.trim_ambient
+        orig_maintain = session.game.food_manager.maintain_count
+        monkeypatch.setattr(
+            session.game.food_manager,
+            "trim_ambient",
+            lambda *a, **kw: pre_reset_food_mutations.append("trim") or orig_trim(*a, **kw),
+        )
+        monkeypatch.setattr(
+            session.game.food_manager,
+            "maintain_count",
+            lambda *a, **kw: pre_reset_food_mutations.append("maintain") or orig_maintain(*a, **kw),
+        )
+
+        # Calling new_game() restores hero #0 so Watch replay resumes, without
+        # mutating food RNG before reset_game() (F13) or wiping viewer food settings (F14).
+        session.new_game()
+        assert pre_reset_food_mutations == []
+        assert session._replay_opted_out is False
+        assert session.hero_id == int(session.game.snakes[0].id)
+        assert session._watch_replay is not None
+        assert session.snapshot()["session"]["watch_source"] == "replay"
+        assert session.game.food_manager.max_food == 42
+        assert session.game._effective_max_food == 42
+        assert session.game._effective_initial_food == 42
+
+        # Opting out back into live Watch retains the viewer's food_target=42.
+        # N5: Replay deployments require obs_spec in EGO2S_OBS_SPECS, which always
+        # constructs Ego2sServingPolicy with epsilon pinned to 0.0. Even after
+        # set_epsilon(0.25) + new_game() + replay fallback to live B8, epsilon stays 0.0,
+        # and new_game() asserts that invariant.
+        from web.backend.ego2s_policy import Ego2sServingPolicy
+
+        assert isinstance(session.policy, Ego2sServingPolicy)
+        session.set_epsilon(0.25)
+        assert session.policy.epsilon == 0.0
+        assert session._watch_replay is None
+        assert session.control_state()["food_target"] == 42
+
+        # Exhaust bank so new_game() falls back directly to live B8 Watch.
+        session._replay_bank.close()
+        session._replay_bank = SimpleNamespace(
+            pick=lambda: None, pending=False, error="exhausted", close=lambda: None
+        )
+        session.new_game()
+        assert session._watch_replay is None
+        assert session._is_b8_release_monitoring() is True
+        assert session.policy.epsilon == 0.0
+
+        # R4: If an unpinned policy (epsilon != 0.0) were ever wired under Watch replay
+        # or B8 release monitoring + _replay_bank, new_game() raises RuntimeError BEFORE
+        # mutating _replay_opted_out, hero_id, or resetting the game.
+        non_default_hero = int(session.game.snakes[2].id)
+        assert non_default_hero != int(session.game.snakes[0].id)
+        session.set_hero(non_default_hero)
+        session.set_epsilon(0.25)
+        session.step()
+        prev_frame = int(session.game.frame)
+        assert prev_frame > 0
+        assert session._replay_opted_out is True
+        assert session.hero_id == non_default_hero
+
+        resets: list[int] = []
+        orig_reset_game = session.reset_game
+        monkeypatch.setattr(
+            session,
+            "reset_game",
+            lambda: (resets.append(1), orig_reset_game())[1],
+        )
+
+        real_policy = session.policy
+        orig_snake0_policy = session.game.snakes[0].policy
+        session.policy = SimpleNamespace(epsilon=0.1)
+        try:
+            with pytest.raises(RuntimeError, match="pinned epsilon == 0.0"):
+                session.new_game()
+            assert session._replay_opted_out is True
+            assert session.hero_id == non_default_hero
+            assert int(session.game.frame) == prev_frame
+            assert resets == []
+
+            session._release_monitoring = False
+            session.game.snakes[0].policy = session.policy
+            with pytest.raises(RuntimeError, match="pinned epsilon == 0.0"):
+                session.new_game()
+            assert session._replay_opted_out is True
+            assert session.hero_id == non_default_hero
+            assert int(session.game.frame) == prev_frame
+            assert resets == []
+        finally:
+            session._release_monitoring = True
+            session.game.snakes[0].policy = orig_snake0_policy
+            session.policy = real_policy
+            session._replay_bank = None
+    finally:
+        session.close()
+
+
 def test_set_mode_exception_in_watch_reselects_replay_under_clean_gate(tmp_path, monkeypatch):
     for key in (
         "SNAKE_SERVE_WATCH_ROSTER",
@@ -2182,3 +2317,264 @@ def test_replay_bank_and_session_close_release_queued_recordings(tmp_path):
     assert session._replay_bank is None
     assert bank._ready.empty()
     assert all(rec._mmap is None for rec in queued)
+
+
+def test_closed_buffer_reader_raises_and_app_import_preserves_gc_thresholds(tmp_path, monkeypatch):
+    import gc
+    import io
+    import mmap
+    import subprocess
+    import sys
+
+    from fastapi.testclient import TestClient
+
+    import web.backend.app as app_mod
+    import web.backend.session as session_mod
+    import web.backend.watch_replay as replay
+    from web.backend.watch_replay import ReplayClosedError, _BufferReader
+
+    # 1. Multi-member gzip over _BufferReader raises ReplayClosedError (a ValueError)
+    # if underlying mmap closes instead of silently returning clean EOF at a member boundary.
+    two_members = gzip.compress(b"member1\n", mtime=0) + gzip.compress(b"member2\n", mtime=0)
+    mm = mmap.mmap(-1, len(two_members))
+    mm.write(two_members)
+    raw = _BufferReader(mm)
+    gz = gzip.GzipFile(
+        fileobj=io.BufferedReader(raw, buffer_size=len(gzip.compress(b"member1\n", mtime=0))),
+        mode="rb",
+    )
+    try:
+        assert gz.readline() == b"member1\n"
+        mm.close()
+        with pytest.raises(ReplayClosedError, match="closed"):
+            gz.readline()
+    finally:
+        if not mm.closed:
+            mm.close()
+
+    closed_raw = _BufferReader(b"abc")
+    closed_raw.close()
+    with pytest.raises(ReplayClosedError, match="closed"):
+        closed_raw.readinto(bytearray(3))
+
+    # N1: Only an intentionally flagged close is a quiet stop; an unflagged closed buffer
+    # goes through the normal failure path and records exactly one watch_replay_failure.
+    failures: list[dict] = []
+    monkeypatch.setattr(
+        session_mod, "watch_replay_failure", lambda **kwargs: failures.append(kwargs)
+    )
+    shell = shell_session()
+    shell._release_monitoring = True
+    shell.served_checkpoint = {"name": "b8-s3"}
+    shell.obs_spec = "ego2s-bv8"
+    shell.watch_roster = "mixed"
+    shell.hero_id = 0
+    shell._release_latency_warmup_remaining = 0
+    shell.game = SimpleNamespace(
+        snakes=[],
+        frame_death_causes={},
+        update=lambda **_kw: None,
+        food_manager=SimpleNamespace(max_food=10, trim_ambient=lambda *_a: None),
+    )
+    monkeypatch.setattr(session_mod, "watch_tick", lambda **_kwargs: None)
+
+    # Real Recording (> 8 KiB compressed so BufferedReader refills from _BufferReader):
+    # closing _mmap without _intentional_close records exactly one replay step failure.
+    unflagged_horizon = 16
+    unflagged_header = {
+        "schema": SCHEMA,
+        "controller": "exact-stop-l1-os",
+        "horizon": unflagged_horizon,
+        "world": "watch6-mechanics-v2-continuous-respawn",
+        "protocol_version": 2,
+        "checkpoint_shas": {"hero": B8_SHA, "opponents": FRP3_SHA},
+        "seed": 4242,
+        "unit_id": "unflagged_mmap",
+        "fixture": True,
+        "stats": {},
+    }
+    unflagged_bytes = canonical(unflagged_header) + b"".join(
+        canonical({**frame(i), "food": [[k, (k * 31 + i) % 500] for k in range(120)]})
+        for i in range(1, unflagged_horizon + 1)
+    )
+    unflagged_gz = gzip.compress(unflagged_bytes, compresslevel=0, mtime=0)
+    assert len(unflagged_gz) > 16_384
+    unflagged_path = tmp_path / "unflagged_mmap.watch.gz"
+    publish_immutable(unflagged_path, unflagged_gz)
+
+    real_unflagged = Recording(unflagged_path, product=False)
+    assert real_unflagged._intentional_close is False
+    assert real_unflagged._mmap is not None and not real_unflagged._mmap.closed
+    shell._watch_replay = real_unflagged
+    real_unflagged._mmap.close()
+    for _ in range(unflagged_horizon + 2):
+        shell.step()
+    assert shell._watch_replay is None
+    assert real_unflagged._intentional_close is False
+    assert "Replay playback failed; using live B8" in (shell.last_error or "")
+    assert len(failures) == 1
+    assert failures[0]["stage"] == "step"
+    assert isinstance(failures[0]["error"], ReplayClosedError)
+
+    class _ClosingRecord:
+        header = {"controller": "exact-stop-l1-os"}
+
+        def __init__(self, *, intentional: bool) -> None:
+            self._intentional_close = intentional
+
+        def step(self) -> bool:
+            raise ReplayClosedError("I/O operation on closed buffer")
+
+        def snapshot(self, _sess) -> dict:
+            raise ReplayClosedError("I/O operation on closed buffer")
+
+        def close(self) -> None:
+            return
+
+    # Unflagged snapshot close records exactly one snapshot failure.
+    monkeypatch.setattr("web.backend.serialize.build_frame", lambda _s: {"ok": True})
+    failures.clear()
+    shell.last_error = None
+    shell._watch_replay = _ClosingRecord(intentional=False)
+    assert shell.snapshot() == {"ok": True}
+    assert shell._watch_replay is None
+    assert "Replay snapshot failed; using live B8" in (shell.last_error or "")
+    assert len(failures) == 1
+    assert failures[0]["stage"] == "snapshot"
+    assert isinstance(failures[0]["error"], ReplayClosedError)
+
+    # Flagged close (step & snapshot) is a quiet stop and records zero failures.
+    failures.clear()
+    shell.last_error = None
+    shell._watch_replay = _ClosingRecord(intentional=True)
+    shell.step()
+    assert shell._watch_replay is None
+    assert shell.last_error is None
+    assert failures == []
+
+    shell._watch_replay = _ClosingRecord(intentional=True)
+    assert shell.snapshot() == {"ok": True}
+    assert shell._watch_replay is None
+    assert shell.last_error is None
+    assert failures == []
+
+    # Session close paths (_leave_watch_replay, bank rotation) and natural EOF set
+    # _intentional_close = True BEFORE releasing _mmap, whereas ReplayBank uses plain close()
+    # so a bank-closed record handed to a session records a watch_replay_failure (R3).
+    def _spy_close(rec: Recording, log: list[tuple[bool, bool]]) -> Recording:
+        orig_close = rec.close
+
+        def _wrapped_close() -> None:
+            mm_open = rec._mmap is not None and not rec._mmap.closed
+            log.append((bool(rec._intentional_close), mm_open))
+            orig_close()
+
+        rec.close = _wrapped_close  # type: ignore[method-assign]
+        return rec
+
+    close_events: list[tuple[bool, bool]] = []
+    rot_a = _spy_close(Recording(unflagged_path, product=False), close_events)
+    rot_b = _spy_close(Recording(unflagged_path, product=False), close_events)
+    shell._watch_replay = rot_a
+    shell._replay_bank = SimpleNamespace(pick=lambda: rot_b, pending=False, error=None)
+    shell._select_watch_replay()
+    assert shell._watch_replay is rot_b
+    assert close_events == [(True, True)]
+    assert rot_a._mmap is None
+
+    shell._leave_watch_replay()
+    assert shell._watch_replay is None
+    assert close_events == [(True, True), (True, True)]
+    assert rot_b._mmap is None
+
+    eof_rec = _spy_close(Recording(unflagged_path, product=False), close_events)
+    while eof_rec.step():
+        pass
+    assert eof_rec._intentional_close is True
+    assert eof_rec._mmap is None
+    assert close_events == [(True, True), (True, True), (True, True)]
+
+    queued_rec = _spy_close(Recording(unflagged_path, product=False), close_events)
+    bank_dir = tmp_path / "intentional_bank"
+    bank_dir.mkdir()
+    empty_bank = ReplayBank(bank_dir, shuffle_discovery=False)
+    assert pick_ready(empty_bank) is None
+    empty_bank._ready.put(queued_rec)
+    shell._replay_bank = empty_bank
+    shell.close(wait=True)
+    assert close_events == [(True, True), (True, True), (True, True), (False, True)]
+    assert queued_rec._intentional_close is False
+    assert queued_rec._mmap is None
+    assert failures == []
+
+    # Handing a bank-closed Recording to a session must record a replay step failure.
+    shell._watch_replay = queued_rec
+    shell.step()
+    assert shell._watch_replay is None
+    assert queued_rec._intentional_close is False
+    assert "Replay playback failed; using live B8" in (shell.last_error or "")
+    assert len(failures) == 1
+    assert failures[0]["stage"] == "step"
+    assert isinstance(failures[0]["error"], ReplayClosedError)
+
+    # 2. F18 / N7: Check import-time GC preservation in a clean subprocess (no importlib.reload)
+    # with a 120 s timeout for cold CI imports, plus lifespan threshold elevation/restoration.
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import gc; gc.set_threshold(700, 10, 10); "
+                "import web.backend.app; "
+                "assert gc.get_threshold() == (700, 10, 10), gc.get_threshold()"
+            ),
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+    prev_thresholds = gc.get_threshold()
+    prev_hub_session = app_mod.hub.session
+    prev_hub_store = app_mod.hub.store
+    prev_hub_task = app_mod.hub.engine_task
+    monkeypatch.setenv("SNAKE_SCORES_DB", str(tmp_path / "scores.db"))
+    monkeypatch.delenv("SNAKE_WATCH_SOURCE", raising=False)
+    try:
+        gc.set_threshold(700, 10, 10)
+        with TestClient(app_mod.app):
+            t0, t1, t2 = gc.get_threshold()
+            assert t0 >= replay.GC_GEN0_THRESHOLD
+            assert t1 >= replay.GC_GEN1_THRESHOLD
+            assert t2 >= replay.GC_GEN2_THRESHOLD
+        assert gc.get_threshold() == (700, 10, 10)
+
+        # F19: If GameSession() raises inside lifespan, a pre-existing hub.session is NOT
+        # closed in finally and the startup exception is not masked.
+        stale_closed = False
+
+        def _fail_if_stale_closed(*_args):
+            nonlocal stale_closed
+            stale_closed = True
+            raise AssertionError("stale hub.session closed on GameSession startup failure")
+
+        app_mod.hub.session = SimpleNamespace(close=_fail_if_stale_closed)
+        with monkeypatch.context() as mp:
+            mp.setattr(
+                app_mod,
+                "GameSession",
+                lambda: (_ for _ in ()).throw(RuntimeError("startup boom")),
+            )
+            with pytest.raises(RuntimeError, match="startup boom"):
+                with TestClient(app_mod.app):
+                    pass
+        assert stale_closed is False
+        assert gc.get_threshold() == (700, 10, 10)
+    finally:
+        app_mod.hub.session = prev_hub_session
+        app_mod.hub.store = prev_hub_store
+        app_mod.hub.engine_task = prev_hub_task
+        gc.set_threshold(*prev_thresholds)

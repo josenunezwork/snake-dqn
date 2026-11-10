@@ -76,9 +76,26 @@ from web.backend.watch_replay import (
 
 PRODUCT_CONTROLLER = "exact-stop-l1-os"
 
+ENV_INSTALLED_H6000_BANK = "SNAKE_WATCH_INSTALLED_H6000_BANK"
+REPO_ROOT = Path(os.path.abspath(__file__)).parents[1]
 INSTALLED_H6000_BANK_DEFAULT = Path(
     "/Users/josenunez/Projects/ml/snake-dqn-artifacts/watch-replay-bank-live-132-l1os-installed"
 )
+
+
+def _resolve_default_installed_bank() -> Path:
+    """Return the default installed H=6,000 bank path, allowing an env override."""
+    override = os.environ.get(ENV_INSTALLED_H6000_BANK, "").strip()
+    return Path(override) if override else INSTALLED_H6000_BANK_DEFAULT
+
+
+def _repo_relpath(path: Path) -> str:
+    """Format a path relative to REPO_ROOT using portable POSIX separators."""
+    base = os.path.abspath(REPO_ROOT)
+    target = os.path.abspath(path if path.is_absolute() else REPO_ROOT / path)
+    return Path(os.path.relpath(target, base)).as_posix()
+
+
 INSTALLED_H6000_NAMESPACE = "watch-replay-bank-live-132-l1os-v1"
 INSTALLED_H6000_COUNT = 132
 INSTALLED_H6000_SUBBANK_COUNT = 44
@@ -370,14 +387,15 @@ def write_synthetic_session(
     }
 
 
-def verify_bank_directory(
+def _verify_bank_directory_with_rows(
     bank_dir: Path,
     *,
     expected_horizon: int | None = None,
     allow_long: bool = True,
     full_payload: bool = False,
-) -> dict[str, Any]:
-    """Verify all `.watch.gz` recordings in a bank directory."""
+    verify_sha: bool = False,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Verify all `.watch.gz` recordings in a bank directory and return summary + rows."""
     direct_files = sorted(bank_dir.glob("*.watch.gz"))
     if direct_files:
         sessions_dir = bank_dir
@@ -428,6 +446,11 @@ def verify_bank_directory(
                 horizons=horizons,
             )
         else:
+            if verify_sha:
+                with path.open("rb") as fh:
+                    digest = hashlib.file_digest(fh, "sha256").hexdigest()
+                if sha_tokens != [digest, path.name]:
+                    raise ValueError(f"SHA mismatch on {path.name}")
             header = peek_header(
                 path,
                 product=True,
@@ -454,6 +477,7 @@ def verify_bank_directory(
             {
                 "name": path.name,
                 "unit_id": uid,
+                "allocation": header.get("allocation"),
                 "index": idx,
                 "seed": seed,
                 "horizon": int(header["horizon"]),
@@ -463,7 +487,7 @@ def verify_bank_directory(
     elapsed = time.perf_counter() - started
     sorted_sizes = sorted(compressed_sizes)
     n = len(sorted_sizes)
-    return {
+    summary = {
         "bank_dir": str(bank_dir),
         "sessions_dir": str(sessions_dir),
         "count": n,
@@ -480,6 +504,26 @@ def verify_bank_directory(
         "full_payload_verified": full_payload,
         "elapsed_seconds": elapsed,
     }
+    return summary, verified_rows
+
+
+def verify_bank_directory(
+    bank_dir: Path,
+    *,
+    expected_horizon: int | None = None,
+    allow_long: bool = True,
+    full_payload: bool = False,
+    verify_sha: bool = False,
+) -> dict[str, Any]:
+    """Verify all `.watch.gz` recordings in a bank directory."""
+    summary, _ = _verify_bank_directory_with_rows(
+        bank_dir,
+        expected_horizon=expected_horizon,
+        allow_long=allow_long,
+        full_payload=full_payload,
+        verify_sha=verify_sha,
+    )
+    return summary
 
 
 def install_long_bank(
@@ -489,21 +533,63 @@ def install_long_bank(
     expected_count: int = PILOT_COUNT,
     expected_horizon: int = LONG_HORIZON,
     full_payload: bool = True,
+    require_contract: bool = True,
 ) -> dict[str, Any]:
     """Verify and atomically install an opt-in long-session Watch bank."""
     if dest_dir.exists():
         raise FileExistsError(f"destination already exists: {dest_dir}")
-    summary = verify_bank_directory(
+    summary, verified_rows = _verify_bank_directory_with_rows(
         source_dir,
         expected_horizon=expected_horizon,
         allow_long=True,
         full_payload=full_payload,
+        verify_sha=True,
     )
     if summary["count"] != expected_count:
         raise ValueError(f"expected {expected_count} sessions, found {summary['count']}")
     if summary["horizons"] != [expected_horizon]:
         raise ValueError(f"expected horizon {[expected_horizon]}, found {summary['horizons']}")
+    if summary["controllers"] != [PRODUCT_CONTROLLER]:
+        raise ValueError(
+            f"expected controller {[PRODUCT_CONTROLLER]}, found {summary['controllers']}"
+        )
+    if len(summary["allocations"]) != 1 or not summary["allocations"][0]:
+        raise ValueError(f"expected single non-empty allocation, found {summary['allocations']}")
     src_sessions = Path(summary["sessions_dir"])
+    contract_src = source_dir / "contract.json"
+    if not contract_src.is_file() and (src_sessions / "contract.json").is_file():
+        contract_src = src_sessions / "contract.json"
+    contract_verified = False
+    if contract_src.is_file():
+        try:
+            contract = json.loads(contract_src.read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise ValueError(f"invalid contract.json: {exc}") from exc
+        if not isinstance(contract, dict):
+            raise ValueError("contract.json must be a JSON object")
+        rows_raw = contract.get("rows")
+        try:
+            contract_alloc = identity(contract)
+            contract_pairs = (
+                sorted((int(r["index"]), int(r["seed"])) for r in rows_raw)
+                if isinstance(rows_raw, list)
+                else None
+            )
+        except Exception as exc:
+            raise ValueError(f"invalid contract.json fields: {exc}") from exc
+        verified_pairs = sorted((int(r["index"]), int(r["seed"])) for r in verified_rows)
+        if (
+            contract.get("controller") != PRODUCT_CONTROLLER
+            or contract.get("horizon") != expected_horizon
+            or contract_pairs is None
+            or len(contract_pairs) != expected_count
+            or any(r.get("allocation") != contract_alloc for r in verified_rows)
+            or contract_pairs != verified_pairs
+        ):
+            raise ValueError("contract.json mismatch against verified bank recordings")
+        contract_verified = True
+    elif require_contract:
+        raise ValueError(f"missing contract.json in {source_dir} (pass --no-contract to override)")
     staging = dest_dir.parent / f".{dest_dir.name}.staging-{os.getpid()}"
     if staging.exists():
         shutil.rmtree(staging)
@@ -519,7 +605,6 @@ def install_long_bank(
                     os.link(item, target)
                 except OSError:
                     shutil.copy2(item, target)
-        contract_src = source_dir / "contract.json"
         if contract_src.is_file():
             shutil.copy2(contract_src, staging / "contract.json")
         os.replace(staging, dest_dir)
@@ -529,8 +614,24 @@ def install_long_bank(
         raise
     return {
         **summary,
+        "contract_verified": contract_verified,
         "installed_dir": str(dest_dir),
     }
+
+
+def _scan_bank_disk_seeds(bank_dir: Path) -> set[int]:
+    """Scan top-level and sessions/ subdirectory .watch.gz headers and return their seed union."""
+    seeds: set[int] = set()
+    if not bank_dir.is_dir():
+        return seeds
+    scan_dirs = [bank_dir]
+    if (bank_dir / "sessions").is_dir():
+        scan_dirs.append(bank_dir / "sessions")
+    for scan_dir in scan_dirs:
+        for path in sorted(scan_dir.glob("*.watch.gz")):
+            hdr = peek_header(path, product=True)
+            seeds.add(int(hdr["seed"]))
+    return seeds
 
 
 def audit_pilot_seeds(
@@ -540,10 +641,13 @@ def audit_pilot_seeds(
     pilot_horizon: int = PILOT_HORIZON,
     installed_namespace: str = INSTALLED_H6000_NAMESPACE,
     installed_count: int = INSTALLED_H6000_COUNT,
-    installed_bank_dir: Path = INSTALLED_H6000_BANK_DEFAULT,
+    installed_bank_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Verify that the 12-session H=14,400 pilot seeds are disjoint from all installed H=6,000
     bank seeds and all historical Watch/T34 study namespaces."""
+    default_bank_dir = _resolve_default_installed_bank()
+    if installed_bank_dir is None:
+        installed_bank_dir = default_bank_dir
     pilot_contract = long_allocation(
         pilot_namespace, pilot_count, PRODUCT_CONTROLLER, pilot_horizon
     )
@@ -576,14 +680,26 @@ def audit_pilot_seeds(
         for idx in range(cap):
             prior_namespace_seeds.add(replay_seed_audit.seed_for(ns, idx))
 
-    # 4. If the installed 132-session bank is present on disk, verify against its 132 headers.
-    disk_installed_seeds: set[int] = set()
-    if installed_bank_dir.is_dir():
-        for path in sorted(installed_bank_dir.glob("*.watch.gz")):
-            hdr = peek_header(path, product=True)
-            disk_installed_seeds.add(int(hdr["seed"]))
+    # 4. If the installed bank (and default 132-session bank when distinct) is present on disk,
+    # verify against headers across both top-level and sessions/ layouts.
+    disk_installed_seeds = _scan_bank_disk_seeds(installed_bank_dir)
+    same_as_default = os.path.abspath(installed_bank_dir) == os.path.abspath(default_bank_dir) or (
+        installed_bank_dir.exists()
+        and default_bank_dir.exists()
+        and installed_bank_dir.resolve() == default_bank_dir.resolve()
+    )
+    default_bank_seeds = (
+        set(disk_installed_seeds) if same_as_default else _scan_bank_disk_seeds(default_bank_dir)
+    )
+    default_bank_present = default_bank_dir.is_dir() and len(default_bank_seeds) > 0
 
-    all_compared = subbank_seeds | alias_seeds | prior_namespace_seeds | disk_installed_seeds
+    all_compared = (
+        subbank_seeds
+        | alias_seeds
+        | prior_namespace_seeds
+        | disk_installed_seeds
+        | default_bank_seeds
+    )
     overlap = sorted(all_compared.intersection(pilot_seed_set))
     if overlap:
         raise ValueError(f"seed collision between pilot and prior/installed banks: {overlap}")
@@ -593,9 +709,13 @@ def audit_pilot_seeds(
         "pilot_horizon": pilot_horizon,
         "pilot_allocation": identity(pilot_contract),
         "pilot_rows": pilot_contract["rows"],
+        "installed_bank_dir": _repo_relpath(installed_bank_dir),
         "installed_subbank_namespaces": list(L1_OS_BANK_NAMESPACES),
         "installed_subbank_seed_count": len(subbank_seeds),
         "installed_disk_seed_count": len(disk_installed_seeds),
+        "default_bank_dir": _repo_relpath(default_bank_dir),
+        "default_bank_present": default_bank_present,
+        "default_bank_seed_count": len(default_bank_seeds),
         "installed_namespace": installed_namespace,
         "installed_count": installed_count,
         "installed_allocation": identity(alias_contract),
@@ -605,9 +725,12 @@ def audit_pilot_seeds(
     }
 
 
-def build_pilot_package_spec() -> dict[str, Any]:
+def build_pilot_package_spec(
+    *,
+    installed_bank_dir: Path | None = None,
+) -> dict[str, Any]:
     """Return the exact specification for the 12-session H=14,400 G4 pilot package."""
-    seed_audit = audit_pilot_seeds()
+    seed_audit = audit_pilot_seeds(installed_bank_dir=installed_bank_dir)
     return {
         "package_dir": "research/watch_replay_long_pilot",
         "purpose": (
@@ -628,7 +751,11 @@ def build_pilot_package_spec() -> dict[str, Any]:
         "seed_disjointness": {
             "compared_against_installed_subbanks": seed_audit["installed_subbank_namespaces"],
             "compared_against_alias": INSTALLED_H6000_NAMESPACE,
+            "installed_bank_dir": seed_audit["installed_bank_dir"],
             "installed_disk_seed_count": seed_audit["installed_disk_seed_count"],
+            "default_bank_dir": seed_audit["default_bank_dir"],
+            "default_bank_present": seed_audit["default_bank_present"],
+            "default_bank_seed_count": seed_audit["default_bank_seed_count"],
             "total_prior_seeds_checked": seed_audit["total_prior_seeds_checked"],
             "overlap_count": seed_audit["seed_overlap_count"],
             "disjoint": seed_audit["disjoint_from_installed_132"],
@@ -729,11 +856,13 @@ def build_pilot_package_spec() -> dict[str, Any]:
 
 
 def extrapolate_from_installed_bank(
-    installed_dir: Path = INSTALLED_H6000_BANK_DEFAULT,
+    installed_dir: Path | None = None,
     *,
     sample_sessions_for_frame_curve: int = 6,
 ) -> dict[str, Any]:
     """Measure the installed H=6,000 bank and extrapolate compressed/decoded sizes to H=14,400."""
+    if installed_dir is None:
+        installed_dir = _resolve_default_installed_bank()
     if not installed_dir.exists():
         return {"installed_bank_available": False, "path": str(installed_dir)}
     summary = verify_bank_directory(
@@ -1267,14 +1396,16 @@ def run_h14400_scale_synthetic_gate() -> dict[str, Any]:
 
 def run_mac_engineering_gate(
     *,
-    installed_bank_dir: Path = INSTALLED_H6000_BANK_DEFAULT,
+    installed_bank_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Execute the complete 0-unit Mac engineering gate for opt-in H=14,400 Watch sessions."""
     started = time.perf_counter()
+    if installed_bank_dir is None:
+        installed_bank_dir = _resolve_default_installed_bank()
     short_gen = run_short_local_generator_check(horizon=6, count=2)
     synth_gate = run_h14400_scale_synthetic_gate()
     extrapolation = extrapolate_from_installed_bank(installed_bank_dir)
-    pilot_spec = build_pilot_package_spec()
+    pilot_spec = build_pilot_package_spec(installed_bank_dir=installed_bank_dir)
 
     s0 = synth_gate["synthetic_h14400_session0"]
     timing = synth_gate["verification_and_prefetch_timing"]
@@ -1312,6 +1443,9 @@ def run_mac_engineering_gate(
             and iso["opt_in_first_horizon"] == LONG_HORIZON
             and iso["opt_in_rotated_horizon"] == LONG_HORIZON
             and iso["long_only_dual_bank_horizon"] == LONG_HORIZON
+        ),
+        "default_h6000_bank_present": (
+            pilot_spec["seed_disjointness"]["default_bank_present"] is True
         ),
         "pilot_seeds_disjoint_from_installed_132": (
             pilot_spec["seed_disjointness"]["disjoint"] is True
@@ -1351,7 +1485,7 @@ def main(argv: list[str] | None = None) -> int:
     gate_p.add_argument(
         "--installed-bank",
         type=Path,
-        default=INSTALLED_H6000_BANK_DEFAULT,
+        default=None,
         help="Path to the installed 132-session H=6,000 bank for empirical extrapolation",
     )
 
@@ -1368,7 +1502,11 @@ def main(argv: list[str] | None = None) -> int:
     install_p.add_argument("dest_dir", type=Path)
     install_p.add_argument("--count", type=int, default=PILOT_COUNT)
     install_p.add_argument("--horizon", type=int, default=LONG_HORIZON)
-    install_p.add_argument("--header-only", action="store_true")
+    install_p.add_argument(
+        "--no-contract",
+        action="store_true",
+        help="Allow installing when contract.json is absent",
+    )
 
     sub.add_parser(
         "pilot-spec", help="Print the 12-session H=14,400 G4 pilot package specification"
@@ -1394,7 +1532,8 @@ def main(argv: list[str] | None = None) -> int:
             args.dest_dir,
             expected_count=args.count,
             expected_horizon=args.horizon,
-            full_payload=not args.header_only,
+            full_payload=True,
+            require_contract=not args.no_contract,
         )
         print(json.dumps(res, indent=2, sort_keys=True))
         return 0

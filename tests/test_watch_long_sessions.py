@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import shutil
 import time
 from pathlib import Path
 from unittest.mock import Mock
@@ -9,6 +11,8 @@ from unittest.mock import Mock
 import pytest
 
 from tools.watch_long_sessions import (
+    ENV_INSTALLED_H6000_BANK,
+    INSTALLED_H6000_BANK_DEFAULT,
     PILOT_CHECKPOINT_FRAMES,
     PILOT_COUNT,
     PILOT_HORIZON,
@@ -436,6 +440,15 @@ def test_verify_and_install_long_bank_tooling(
     monkeypatch.setattr("tools.watch_long_sessions.os.link", spy_link)
 
     dest_dir = tmp_path / "installed_long"
+    (src_dir / "contract.json").write_text(
+        json.dumps(
+            {
+                **watch_replay_long_allocation_for_test("test-install-long-v1", 2),
+                "commit": "a" * 40,
+            }
+        ),
+        encoding="utf-8",
+    )
     installed = install_long_bank(
         src_dir,
         dest_dir,
@@ -443,6 +456,7 @@ def test_verify_and_install_long_bank_tooling(
         expected_horizon=LONG_HORIZON,
         full_payload=False,
     )
+    assert installed["contract_verified"] is True
     assert Path(installed["installed_dir"]).is_dir()
     assert len(list(dest_dir.glob("*.watch.gz"))) == 2
     assert not (dest_dir / "000000.watch.gz.tmp").exists()
@@ -460,14 +474,180 @@ def test_verify_and_install_long_bank_tooling(
 
     # Corrupting .sha256 sidecar format must fail verify_bank_directory even with
     # full_payload=False.
-    (src_dir / "000000.watch.gz.sha256").write_text("not-a-valid-sha256  wrong.watch.gz\n")
+    bad_fmt_dir = tmp_path / "bad_fmt"
+    bad_fmt_dir.mkdir()
+    shutil.copy2(src_dir / "000000.watch.gz", bad_fmt_dir / "000000.watch.gz")
+    (bad_fmt_dir / "000000.watch.gz.sha256").write_text("not-a-valid-sha256  wrong.watch.gz\n")
+    (bad_fmt_dir / "000000.watch.gz.complete").write_text("complete\n")
     with pytest.raises(ValueError, match="invalid .sha256 sidecar format"):
         verify_bank_directory(
-            src_dir,
+            bad_fmt_dir,
             expected_horizon=LONG_HORIZON,
             allow_long=True,
             full_payload=False,
         )
+
+
+def watch_replay_long_allocation_for_test(namespace: str, count: int) -> dict:
+    from tools.watch_long_sessions import PRODUCT_CONTROLLER, long_allocation
+
+    return long_allocation(namespace, count, PRODUCT_CONTROLLER, LONG_HORIZON)
+
+
+def test_install_long_bank_enforces_sha256_controller_allocation_and_contract(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from tools.watch_long_sessions import PRODUCT_CONTROLLER, long_allocation, main
+
+    # 1. Header-only verify_bank_directory(full_payload=False) stays lightweight and
+    # does NOT read/hash full payloads, while install_long_bank always enforces SHA-256
+    # even when full_payload=False, and CLI install-long-bank rejects --header-only.
+    valid_dir = tmp_path / "valid_src"
+    for idx in range(2):
+        write_synthetic_session(
+            valid_dir,
+            namespace="test-strict-install-v1",
+            count=2,
+            index=idx,
+            horizon=LONG_HORIZON,
+            snake_lengths=(12, 10, 8, 8, 8, 8),
+            unique_frames=2,
+        )
+    corrupt_dir = tmp_path / "corrupt_payload"
+    corrupt_dir.mkdir()
+    raw_bytes = (valid_dir / "000000.watch.gz").read_bytes()
+    (corrupt_dir / "000000.watch.gz").write_bytes(raw_bytes[:-8] + b"\x00" * 8)
+    shutil.copy2(
+        valid_dir / "000000.watch.gz.sha256",
+        corrupt_dir / "000000.watch.gz.sha256",
+    )
+    (corrupt_dir / "000000.watch.gz.complete").write_text("complete\n")
+    header_only_summary = verify_bank_directory(
+        corrupt_dir,
+        expected_horizon=LONG_HORIZON,
+        allow_long=True,
+        full_payload=False,
+    )
+    assert header_only_summary["count"] == 1
+    assert header_only_summary["full_payload_verified"] is False
+    assert "verified_rows" not in header_only_summary
+    with pytest.raises(ValueError, match="SHA mismatch"):
+        install_long_bank(
+            corrupt_dir,
+            tmp_path / "dest_corrupt",
+            expected_count=1,
+            expected_horizon=LONG_HORIZON,
+            full_payload=False,
+            require_contract=False,
+        )
+
+    with pytest.raises(SystemExit):
+        main(["install-long-bank", "--header-only", str(valid_dir), str(tmp_path / "cli_dest")])
+
+    # 2. Wrong controller (exact-stop-l1 instead of exact-stop-l1-os) is rejected.
+    wrong_ctrl_dir = tmp_path / "wrong_ctrl"
+    for idx in range(2):
+        write_synthetic_session(
+            wrong_ctrl_dir,
+            namespace="test-wrong-ctrl-v1",
+            count=2,
+            index=idx,
+            horizon=LONG_HORIZON,
+            controller="exact-stop-l1",
+            snake_lengths=(12, 10, 8, 8, 8, 8),
+            unique_frames=1,
+        )
+    with pytest.raises(ValueError, match="controller"):
+        install_long_bank(
+            wrong_ctrl_dir,
+            tmp_path / "dest_wrong_ctrl",
+            expected_count=2,
+            expected_horizon=LONG_HORIZON,
+        )
+
+    # 3. Heterogeneous allocations across sessions are rejected.
+    mixed_alloc_dir = tmp_path / "mixed_alloc"
+    write_synthetic_session(
+        mixed_alloc_dir,
+        namespace="test-alloc-a-v1",
+        count=2,
+        index=0,
+        horizon=LONG_HORIZON,
+        snake_lengths=(12, 10, 8, 8, 8, 8),
+        unique_frames=1,
+    )
+    write_synthetic_session(
+        mixed_alloc_dir,
+        namespace="test-alloc-b-v1",
+        count=2,
+        index=1,
+        horizon=LONG_HORIZON,
+        snake_lengths=(12, 10, 8, 8, 8, 8),
+        unique_frames=1,
+    )
+    with pytest.raises(ValueError, match="allocation"):
+        install_long_bank(
+            mixed_alloc_dir,
+            tmp_path / "dest_mixed_alloc",
+            expected_count=2,
+            expected_horizon=LONG_HORIZON,
+        )
+
+    # 4. Missing contract.json fails closed by default; --no-contract explicitly overrides
+    # and records contract_verified=False; mismatched contract.json fails; matching passes.
+    with pytest.raises(ValueError, match="missing contract.json"):
+        install_long_bank(
+            valid_dir,
+            tmp_path / "dest_missing_contract",
+            expected_count=2,
+            expected_horizon=LONG_HORIZON,
+        )
+
+    capsys.readouterr()
+    rc = main(
+        [
+            "install-long-bank",
+            "--no-contract",
+            "--count",
+            "2",
+            str(valid_dir),
+            str(tmp_path / "dest_no_contract_cli"),
+        ]
+    )
+    assert rc == 0
+    cli_out = json.loads(capsys.readouterr().out)
+    assert cli_out["contract_verified"] is False
+
+    bad_contract_dir = tmp_path / "bad_contract"
+    shutil.copytree(valid_dir, bad_contract_dir)
+    wrong_contract = {
+        **long_allocation("test-other-ns-v1", 2, PRODUCT_CONTROLLER, LONG_HORIZON),
+        "commit": "a" * 40,
+    }
+    (bad_contract_dir / "contract.json").write_text(json.dumps(wrong_contract), encoding="utf-8")
+    with pytest.raises(ValueError, match="contract.json"):
+        install_long_bank(
+            bad_contract_dir,
+            tmp_path / "dest_bad_contract",
+            expected_count=2,
+            expected_horizon=LONG_HORIZON,
+        )
+
+    good_contract = {
+        **long_allocation("test-strict-install-v1", 2, PRODUCT_CONTROLLER, LONG_HORIZON),
+        "commit": "a" * 40,
+    }
+    (valid_dir / "contract.json").write_text(json.dumps(good_contract), encoding="utf-8")
+    installed = install_long_bank(
+        valid_dir,
+        tmp_path / "dest_good_contract",
+        expected_count=2,
+        expected_horizon=LONG_HORIZON,
+    )
+    assert installed["contract_verified"] is True
+    assert "verified_rows" not in installed
+    assert (Path(installed["installed_dir"]) / "contract.json").is_file()
 
 
 def test_extrapolate_from_installed_bank_quantile_sampling_includes_largest(
@@ -504,17 +684,44 @@ def test_extrapolate_from_installed_bank_quantile_sampling_includes_largest(
     assert ext["decoded_headroom_below_long_cap_mib"]["superlinear_max"] > 0.0
 
 
-def test_pilot_seed_disjointness_and_package_spec() -> None:
+def test_pilot_seed_disjointness_and_package_spec(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import tools.watch_long_sessions as wls
+
+    assert wls.INSTALLED_H6000_BANK_DEFAULT == Path(
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/watch-replay-bank-live-132-l1os-installed"
+    )
+    synth_bank = tmp_path / "synthetic_default_bank"
+    write_synthetic_session(
+        synth_bank,
+        namespace="test-pilot-default-bank-v1",
+        count=1,
+        index=0,
+        horizon=DEFAULT_HORIZON,
+        snake_lengths=(10, 8, 8, 8, 8, 8),
+        unique_frames=1,
+    )
+    monkeypatch.setenv(ENV_INSTALLED_H6000_BANK, str(synth_bank))
+    expected_rel = wls._repo_relpath(synth_bank)
+
     audit = audit_pilot_seeds()
     assert audit["pilot_namespace"] == PILOT_NAMESPACE
     assert audit["pilot_count"] == PILOT_COUNT
     assert audit["pilot_horizon"] == PILOT_HORIZON
+    assert audit["installed_bank_dir"] == expected_rel
+    assert audit["default_bank_dir"] == expected_rel
+    assert audit["default_bank_present"] is True
+    assert audit["default_bank_seed_count"] == 1
     assert audit["seed_overlap_count"] == 0
     assert audit["disjoint_from_installed_132"] is True
     assert len(audit["pilot_rows"]) == 12
 
     spec = build_pilot_package_spec()
     assert spec["namespace"] == PILOT_NAMESPACE
+    assert spec["seed_disjointness"]["installed_bank_dir"] == expected_rel
+    assert spec["seed_disjointness"]["default_bank_dir"] == expected_rel
+    assert spec["seed_disjointness"]["default_bank_present"] is True
     assert spec["count"] == 12
     assert spec["horizon"] == 14400
     assert spec["checkpoints"]["cadence_frames"] == PILOT_CHECKPOINT_FRAMES
@@ -545,3 +752,239 @@ def test_pilot_seed_disjointness_and_package_spec() -> None:
     assert g4["base_timeout_minutes"] == 480
     assert g4["effective_timeout_minutes_2x_rule"] == 960
     assert "three_hour_session_guard_option" not in g4
+
+
+@pytest.mark.skipif(
+    not INSTALLED_H6000_BANK_DEFAULT.is_dir(),
+    reason="real 132-session H=6,000 bank not present on disk",
+)
+def test_real_installed_h6000_bank_disjointness(monkeypatch: pytest.MonkeyPatch) -> None:
+    import tools.watch_long_sessions as wls
+
+    monkeypatch.delenv(ENV_INSTALLED_H6000_BANK, raising=False)
+    expected_rel = wls._repo_relpath(INSTALLED_H6000_BANK_DEFAULT)
+    audit = audit_pilot_seeds()
+    assert audit["installed_bank_dir"] == expected_rel
+    assert audit["default_bank_dir"] == expected_rel
+    assert audit["default_bank_present"] is True
+    assert audit["default_bank_seed_count"] == 132
+    assert audit["seed_overlap_count"] == 0
+    assert audit["disjoint_from_installed_132"] is True
+
+
+def test_audit_pilot_seeds_and_gate_thread_installed_bank_and_sessions_subdir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import tools.watch_long_sessions as wls
+
+    clean_default_bank = tmp_path / "clean_default_bank"
+    write_synthetic_session(
+        clean_default_bank,
+        namespace="test-clean-default-v1",
+        count=1,
+        index=0,
+        horizon=DEFAULT_HORIZON,
+        snake_lengths=(10, 8, 8, 8, 8, 8),
+        unique_frames=1,
+    )
+    monkeypatch.setenv(ENV_INSTALLED_H6000_BANK, str(clean_default_bank))
+
+    # 1. sessions/ subdirectory layout is scanned by audit_pilot_seeds and detects collisions.
+    nested_bank = tmp_path / "nested_bank"
+    write_synthetic_session(
+        nested_bank / "sessions",
+        namespace="test-disjoint-nested-v1",
+        count=1,
+        index=0,
+        horizon=DEFAULT_HORIZON,
+        snake_lengths=(10, 8, 8, 8, 8, 8),
+        unique_frames=1,
+    )
+    audit = audit_pilot_seeds(installed_bank_dir=nested_bank)
+    expected_rel = wls._repo_relpath(nested_bank)
+    assert not expected_rel.startswith("/")
+    assert audit["installed_bank_dir"] == expected_rel
+    assert audit["installed_disk_seed_count"] == 1
+    spec_nested = build_pilot_package_spec(installed_bank_dir=nested_bank)
+    assert spec_nested["seed_disjointness"]["installed_bank_dir"] == expected_rel
+    spec_in_repo = build_pilot_package_spec(
+        installed_bank_dir=wls.REPO_ROOT / "replays" / "nonexistent_test_bank"
+    )
+    assert spec_in_repo["seed_disjointness"]["installed_bank_dir"] == (
+        "replays/nonexistent_test_bank"
+    )
+
+    # Mixed layout (both top-level *.watch.gz and sessions/*.watch.gz) scans the union,
+    # catching collisions inside sessions/ even when top-level files exist (F11).
+    mixed_layout_bank = tmp_path / "mixed_layout_bank"
+    write_synthetic_session(
+        mixed_layout_bank,
+        namespace="test-disjoint-top-v1",
+        count=1,
+        index=0,
+        horizon=DEFAULT_HORIZON,
+        snake_lengths=(10, 8, 8, 8, 8, 8),
+        unique_frames=1,
+    )
+    write_synthetic_session(
+        mixed_layout_bank / "sessions",
+        namespace=PILOT_NAMESPACE,
+        count=PILOT_COUNT,
+        index=0,
+        horizon=DEFAULT_HORIZON,
+        snake_lengths=(10, 8, 8, 8, 8, 8),
+        unique_frames=1,
+    )
+    with pytest.raises(ValueError, match="seed collision"):
+        audit_pilot_seeds(installed_bank_dir=mixed_layout_bank)
+
+    # Auditing a custom --installed-bank still checks INSTALLED_H6000_BANK_DEFAULT
+    # when present on disk (F12).
+    fake_default_bank = tmp_path / "fake_default_bank"
+    write_synthetic_session(
+        fake_default_bank,
+        namespace=PILOT_NAMESPACE,
+        count=PILOT_COUNT,
+        index=1,
+        horizon=DEFAULT_HORIZON,
+        snake_lengths=(10, 8, 8, 8, 8, 8),
+        unique_frames=1,
+    )
+    with monkeypatch.context() as mp:
+        mp.delenv(ENV_INSTALLED_H6000_BANK, raising=False)
+        mp.setattr(wls, "INSTALLED_H6000_BANK_DEFAULT", fake_default_bank)
+        with pytest.raises(ValueError, match="seed collision"):
+            audit_pilot_seeds(installed_bank_dir=nested_bank)
+
+    colliding_bank = tmp_path / "colliding_bank"
+    write_synthetic_session(
+        colliding_bank / "sessions",
+        namespace=PILOT_NAMESPACE,
+        count=PILOT_COUNT,
+        index=0,
+        horizon=DEFAULT_HORIZON,
+        snake_lengths=(10, 8, 8, 8, 8, 8),
+        unique_frames=1,
+    )
+    with pytest.raises(ValueError, match="seed collision"):
+        build_pilot_package_spec(installed_bank_dir=colliding_bank)
+
+    # 2. run_mac_engineering_gate forwards installed_bank_dir to build_pilot_package_spec.
+    monkeypatch.setattr(
+        wls,
+        "run_short_local_generator_check",
+        lambda **_kw: {
+            "sessions_generated": 2,
+            "frames_replayed": [6, 6],
+            "resumed_bit_identical": True,
+        },
+    )
+    monkeypatch.setattr(
+        wls,
+        "run_h14400_scale_synthetic_gate",
+        lambda: {
+            "synthetic_h14400_session0": {
+                "within_max_compressed_128_mib": True,
+                "within_max_long_decoded_1228_8_mib": True,
+                "within_max_line_2048_kib": True,
+                "peak_line_kib": 35.0,
+            },
+            "verification_and_prefetch_timing": {
+                "cold_first_pick_production_seconds": 1.0,
+                "playback_duration_24fps_seconds": 600.0,
+                "prefetch_headroom_ratio": 10.0,
+                "full_verify_payload_slots_verified": 3,
+            },
+            "memory": {
+                "peak_python_heap_delta_mib": 4.0,
+                "pinned_mmap_3_slots_mib": 12.0,
+            },
+            "default_h6000_byte_identity_and_isolation": {
+                "default_rejects_h14400_header": True,
+                "default_rejects_h14400_peek": True,
+                "unselected_long_header_detected": True,
+                "unselected_long_header_skip_ms": 1.0,
+                "mixed_dir_default_served_horizon": DEFAULT_HORIZON,
+                "mixed_dir_skipped_long_without_verify": True,
+                "opt_in_first_horizon": LONG_HORIZON,
+                "opt_in_rotated_horizon": LONG_HORIZON,
+                "long_only_dual_bank_horizon": LONG_HORIZON,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        wls,
+        "extrapolate_from_installed_bank",
+        lambda _dir=None: {"installed_bank_available": False},
+    )
+    with pytest.raises(ValueError, match="seed collision"):
+        wls.run_mac_engineering_gate(installed_bank_dir=colliding_bank)
+
+    # R1: Importing from a nested checkout not sibling to snake-dqn-artifacts still
+    # points INSTALLED_H6000_BANK_DEFAULT to the original absolute default path from main.
+    import importlib.util
+
+    nested_copy = tmp_path / "deep" / "nested_checkout" / "tools" / "watch_long_sessions.py"
+    nested_copy.parent.mkdir(parents=True)
+    shutil.copy2(Path(wls.__file__), nested_copy)
+    spec_mod = importlib.util.spec_from_file_location("_wls_nested_test", nested_copy)
+    assert spec_mod is not None and spec_mod.loader is not None
+    nested_mod = importlib.util.module_from_spec(spec_mod)
+    spec_mod.loader.exec_module(nested_mod)
+    assert nested_mod.INSTALLED_H6000_BANK_DEFAULT == wls.INSTALLED_H6000_BANK_DEFAULT
+
+    # R1: _repo_relpath uses os.path.abspath (not resolve()) so symlinked artifact
+    # directories keep their portable lexical path instead of following symlinks.
+    real_target = tmp_path / "elsewhere" / "real_bank"
+    real_target.mkdir(parents=True)
+    sym_parent = tmp_path / "sym_artifacts"
+    sym_parent.mkdir(parents=True)
+    sym_bank = sym_parent / "watch-replay-bank-live-132-l1os-installed"
+    sym_bank.symlink_to(real_target)
+    checkout_dir = tmp_path / "checkout"
+    checkout_dir.mkdir()
+    with monkeypatch.context() as mp:
+        mp.setattr(wls, "REPO_ROOT", checkout_dir)
+        assert (
+            wls._repo_relpath(sym_bank)
+            == "../sym_artifacts/watch-replay-bank-live-132-l1os-installed"
+        )
+
+    # R1: Missing default H=6,000 bank sets default_bank_present=False and fails the gate;
+    # pilot_seeds_disjoint_from_installed_132 stays True (default_h6000_bank_present is separate);
+    # SNAKE_WATCH_INSTALLED_H6000_BANK overrides the default lookup while output stays relative.
+    missing_default = tmp_path / "missing_default_bank"
+    with monkeypatch.context() as mp:
+        mp.setenv(wls.ENV_INSTALLED_H6000_BANK, str(missing_default))
+        audit_missing = audit_pilot_seeds(installed_bank_dir=nested_bank)
+        assert audit_missing["default_bank_present"] is False
+        assert audit_missing["default_bank_seed_count"] == 0
+        assert audit_missing["default_bank_dir"] == wls._repo_relpath(missing_default)
+        gate_missing = wls.run_mac_engineering_gate(installed_bank_dir=nested_bank)
+        assert gate_missing["verdict"] == "FAIL"
+        assert gate_missing["checks"]["default_h6000_bank_present"] is False
+        assert gate_missing["checks"]["pilot_seeds_disjoint_from_installed_132"] is True
+        assert [k for k, v in gate_missing["checks"].items() if not v] == [
+            "default_h6000_bank_present"
+        ]
+        assert wls.main(["gate", "--installed-bank", str(nested_bank)]) == 1
+
+    present_default = tmp_path / "present_default_bank"
+    write_synthetic_session(
+        present_default,
+        namespace="test-present-default-v1",
+        count=1,
+        index=0,
+        horizon=DEFAULT_HORIZON,
+        snake_lengths=(10, 8, 8, 8, 8, 8),
+        unique_frames=1,
+    )
+    with monkeypatch.context() as mp:
+        mp.setenv(wls.ENV_INSTALLED_H6000_BANK, str(present_default))
+        audit_present = audit_pilot_seeds(installed_bank_dir=nested_bank)
+        assert audit_present["default_bank_present"] is True
+        assert audit_present["default_bank_seed_count"] == 1
+        gate_present = wls.run_mac_engineering_gate(installed_bank_dir=nested_bank)
+        assert gate_present["verdict"] == "PASS"
+        assert gate_present["checks"]["default_h6000_bank_present"] is True
+        assert wls.main(["gate", "--installed-bank", str(nested_bank)]) == 0
