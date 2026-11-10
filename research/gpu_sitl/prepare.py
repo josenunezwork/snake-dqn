@@ -18,8 +18,13 @@ from research.gpu_sitl.probe_bank import verify_file_sha256, write_atomic_with_s
 from research.gpu_sitl.seed_check import (
     PREFLIGHT_NAMESPACE,
     PROBE32_NAMESPACE,
+    SHAKEOUT_PROBE_NAMESPACE,
+    SHAKEOUT_SMOKE_NAMESPACE,
+    SHAKEOUT_TRAIN_NAMESPACE,
     TRAIN_NAMESPACE,
     audit_b1b_seeds,
+    audit_shakeout_seeds,
+    shakeout_train_seeds,
     train_seeds,
 )
 from web.backend.served_checkpoint import B8_S3_SHA256 as B8_SHA
@@ -29,11 +34,17 @@ ROOT = Path(__file__).resolve().parents[2]
 REGISTRATION_DOC = "docs/research/advice/2026-11-09_live_search_reopen_registration_argon.md"
 FAMILY_SCRIPT = "research/gpu_sitl/job.sh"
 FAMILY_PACKAGE = "research/gpu_sitl"
+L4_RATE_UNITS_PER_HOUR = 1.54
 
 SMOKE_REQUIRED_EXPORTS: tuple[str, ...] = (
     "smoke_result.json",
     "smoke_result.json.sha256",
     "smoke_result.json.complete",
+)
+SHAKEOUT_REQUIRED_EXPORTS: tuple[str, ...] = (
+    "shakeout_result.json",
+    "shakeout_result.json.sha256",
+    "shakeout_result.json.complete",
 )
 PILOT_REQUIRED_EXPORTS: tuple[str, ...] = (
     "probe32_bank.pt",
@@ -331,15 +342,16 @@ def prepare_b1b_packet(
     prior_output_dir: Path | str | None = None,
     attempt: str = "attempt-01",
 ) -> dict[str, Any]:
-    """Prepare a Colab CLI packet for Step B1b-Smoke or Step B1b Pilot (no dispatch)."""
-    if mode not in ("smoke", "pilot"):
-        raise ValueError(f"mode must be 'smoke' or 'pilot', got {mode!r}")
+    """Prepare a Colab CLI packet for Step B1b-Smoke, Shakeout, or Pilot (no dispatch)."""
+    if mode not in ("smoke", "shakeout", "pilot"):
+        raise ValueError(f"mode must be 'smoke', 'shakeout', or 'pilot', got {mode!r}")
 
     resolved_commit = subprocess.check_output(
         ["git", "rev-parse", "--verify", f"{commit}^{{commit}}"], cwd=ROOT, text=True
     ).strip()
+    ancestor_ref = "HEAD" if mode == "shakeout" else "origin/main"
     ancestor_check = subprocess.run(
-        ["git", "merge-base", "--is-ancestor", resolved_commit, "origin/main"],
+        ["git", "merge-base", "--is-ancestor", resolved_commit, ancestor_ref],
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -347,7 +359,7 @@ def prepare_b1b_packet(
     if ancestor_check.returncode != 0:
         raise ValueError(
             f"Refusing to prepare packet from unmerged commit {resolved_commit}: "
-            "commit is not an ancestor of origin/main"
+            f"commit is not an ancestor of {ancestor_ref}"
         )
 
     if b8_checkpoint is None or opponent_checkpoint is None:
@@ -365,9 +377,14 @@ def prepare_b1b_packet(
     reg_path = ROOT / REGISTRATION_DOC
     reg_sha = digest(reg_path)
 
-    seed_audit = audit_b1b_seeds(scan_code_roots=[])
-    if not bool(seed_audit["ok"]):
-        raise RuntimeError(f"Step B1b seed audit failed: {seed_audit}")
+    if mode == "shakeout":
+        seed_audit = audit_shakeout_seeds(smoke_envs=4, probe_worlds=2, train_envs=4)
+        if not bool(seed_audit["ok"]):
+            raise RuntimeError(f"Step B1b shake-out seed audit failed: {seed_audit}")
+    else:
+        seed_audit = audit_b1b_seeds(scan_code_roots=[])
+        if not bool(seed_audit["ok"]):
+            raise RuntimeError(f"Step B1b seed audit failed: {seed_audit}")
 
     pkt = Path(packet_dir).resolve()
     pkt.mkdir(parents=True, exist_ok=False)
@@ -394,17 +411,32 @@ def prepare_b1b_packet(
     ]
     pkt_inputs_dir = pkt / "inputs"
     pkt_inputs_dir.mkdir(parents=True, exist_ok=True)
-    ledger: dict[str, Any] = {
-        "schema": "t34-gpu-sitl-verified-ledger/v1",
-        "namespace": TRAIN_NAMESPACE,
-        "probe_namespace": PROBE32_NAMESPACE,
-        "world_seeds": [int(s) for s in train_seeds(256)],
-        "unit_kind": "update",
-        "skip_verified": True,
-        "total_updates": 1000,
-        "min_unique_rescue_roots": 5000,
-        "verified_units": [],
-    }
+    if mode == "shakeout":
+        ledger: dict[str, Any] = {
+            "schema": "t34-gpu-sitl-verified-ledger/v1",
+            "namespace": SHAKEOUT_TRAIN_NAMESPACE,
+            "probe_namespace": SHAKEOUT_PROBE_NAMESPACE,
+            "world_seeds": [int(s) for s in shakeout_train_seeds(4)],
+            "unit_kind": "update",
+            "skip_verified": True,
+            "total_updates": 2,
+            "min_unique_rescue_roots": 2,
+            "not_evidence": True,
+            "evidence_class": "SHAKEOUT_NOT_EVIDENCE",
+            "verified_units": [],
+        }
+    else:
+        ledger = {
+            "schema": "t34-gpu-sitl-verified-ledger/v1",
+            "namespace": TRAIN_NAMESPACE,
+            "probe_namespace": PROBE32_NAMESPACE,
+            "world_seeds": [int(s) for s in train_seeds(256)],
+            "unit_kind": "update",
+            "skip_verified": True,
+            "total_updates": 1000,
+            "min_unique_rescue_roots": 5000,
+            "verified_units": [],
+        }
     if mode == "pilot" and prior_output_dir is not None:
         _stage_prior_attempt_artifacts(
             Path(prior_output_dir),
@@ -459,11 +491,61 @@ def prepare_b1b_packet(
         extra_env["SNAKE_COLAB_CANARY_PACKAGE"] = FAMILY_PACKAGE
         base_sec = est_minutes * 60.0
         eff_sec = timeout_minutes * 60.0
+    elif mode == "shakeout":
+        # Cheap dev-only L4 CUDA shake-out: short-canary <= 20 min, cap <= 1.0 L4 u at 1.54 u/h
+        # (7.5 min base / 15.0 min 2x timeout = 0.385 L4 u).
+        if pinned_hardware is not None and pinned_hardware != "L4":
+            raise ValueError(
+                f"--mode shakeout requires requested_gpu='L4', got --gpu={pinned_hardware!r}"
+            )
+        pinned_hardware = "L4"
+        est_minutes = 7.5
+        timeout_minutes = 15.0
+        a100_unit_cap = round((timeout_minutes * L4_RATE_UNITS_PER_HOUR) / 60.0 + 1e-9, 4)
+        job_id = f"t34-gpu-sitl-b1b-shakeout-20261110-{attempt}"
+        required_exports = list(SHAKEOUT_REQUIRED_EXPORTS)
+        resume_fields = {
+            "resume_exemption": {
+                "kind": "short-canary",
+                "reason": (
+                    "Step B1b dev-only L4 CUDA shake-out canary (<= 20 min, cap <= 1.0 L4 u); "
+                    "NOT EVIDENCE, no registered namespace read or scored"
+                ),
+            }
+        }
+        canary_block = {
+            "schema": "colab-family-canary/v1",
+            "mode": "probe",
+            "family": FAMILY_SCRIPT,
+        }
+        extra_env["SNAKE_COLAB_CANARY"] = "1"
+        extra_env["SNAKE_COLAB_CANARY_PACKAGE"] = FAMILY_PACKAGE
+        base_sec = est_minutes * 60.0
+        eff_sec = timeout_minutes * 60.0
     else:
         # Step B1b (`B1-A100-Pilot`): requires measured smoke_result_json or explicit base_seconds
         if smoke_result_json is not None:
             smoke_res_path = Path(smoke_result_json).resolve()
+            if "shakeout" in smoke_res_path.name.lower():
+                raise ValueError(
+                    f"Refusing shake-out result {smoke_res_path} for --mode pilot: "
+                    "shake-out outputs are NOT EVIDENCE and cannot size or gate the pilot"
+                )
             smoke_data = json.loads(smoke_res_path.read_text(encoding="utf-8"))
+            if (
+                smoke_data.get("schema") != "t34-gpu-sitl-b1b-smoke-result/v1"
+                or bool(smoke_data.get("shakeout"))
+                or bool(smoke_data.get("not_evidence"))
+                or smoke_data.get("evidence_class") == "SHAKEOUT_NOT_EVIDENCE"
+                or smoke_data.get("mode") == "shakeout"
+                or smoke_data.get("train_namespace") != TRAIN_NAMESPACE
+            ):
+                raise ValueError(
+                    f"Refusing non-smoke or NOT EVIDENCE result {smoke_res_path} for --mode pilot "
+                    f"(schema={smoke_data.get('schema')!r}, "
+                    f"evidence_class={smoke_data.get('evidence_class')!r}, "
+                    f"not_evidence={smoke_data.get('not_evidence')!r})"
+                )
             rg = smoke_data["pilot_runaway_guard"]
             base_sec = float(rg["base_estimate_seconds"])
             timeout_minutes = float(rg["runaway_guard_timeout_minutes_2x"])
@@ -510,6 +592,17 @@ def prepare_b1b_packet(
             if not rcpt_path.is_file():
                 raise FileNotFoundError(f"Canary receipt not found: {rcpt_path}")
             rcpt_data = json.loads(rcpt_path.read_text(encoding="utf-8"))
+            if "shakeout" in str(rcpt_data.get("job_id", "")).lower():
+                raise ValueError(f"Refusing shake-out canary receipt {rcpt_path} for --mode pilot")
+            saved_mf_path = rcpt_path.parent / "manifest.json"
+            if saved_mf_path.is_file():
+                saved_mf = json.loads(saved_mf_path.read_text(encoding="utf-8"))
+                if (saved_mf.get("env") or {}).get("GPU_SITL_MODE") == "shakeout" or bool(
+                    saved_mf.get("not_evidence")
+                ):
+                    raise ValueError(
+                        f"Refusing shake-out canary manifest in {rcpt_path.parent} for --mode pilot"
+                    )
             rcpt_hw = str((rcpt_data.get("canary_evidence") or {}).get("hardware") or "").strip()
             if not rcpt_hw and (rcpt_path.parent / "hardware.json").is_file():
                 hw_data = json.loads(
@@ -564,13 +657,25 @@ def prepare_b1b_packet(
         },
         **resume_fields,
         "requirements_file": "research/gpu_sitl/requirements.txt",
-        "registration_binding": {
-            "doc": REGISTRATION_DOC,
-            "sha256": reg_sha,
-            "train_namespace": TRAIN_NAMESPACE,
-            "probe32_namespace": PROBE32_NAMESPACE,
-            "preflight_namespace": PREFLIGHT_NAMESPACE,
-        },
+        "registration_binding": (
+            {
+                "doc": REGISTRATION_DOC,
+                "sha256": reg_sha,
+                "not_evidence": True,
+                "evidence_class": "SHAKEOUT_NOT_EVIDENCE",
+                "shakeout_smoke_namespace": SHAKEOUT_SMOKE_NAMESPACE,
+                "shakeout_probe_namespace": SHAKEOUT_PROBE_NAMESPACE,
+                "shakeout_train_namespace": SHAKEOUT_TRAIN_NAMESPACE,
+            }
+            if mode == "shakeout"
+            else {
+                "doc": REGISTRATION_DOC,
+                "sha256": reg_sha,
+                "train_namespace": TRAIN_NAMESPACE,
+                "probe32_namespace": PROBE32_NAMESPACE,
+                "preflight_namespace": PREFLIGHT_NAMESPACE,
+            }
+        ),
         "technical_envelope": {
             "base_seconds": base_sec,
             "effective_seconds": eff_sec,
@@ -578,12 +683,20 @@ def prepare_b1b_packet(
             "mode": mode,
         },
     }
+    if mode == "shakeout":
+        manifest["not_evidence"] = True
+        manifest["evidence_class"] = "SHAKEOUT_NOT_EVIDENCE"
     if canary_block is not None:
         manifest["canary"] = canary_block
 
     if pinned_hardware is not None:
-        # Pin pilot to the single hardware proven by the smoke canary receipt (`canary.py:302-311`).
-        rate_uph = 12.0 if pinned_hardware == "H100" else 8.0
+        # Pin to the explicit hardware (L4 for shakeout, or A100/H100 from smoke canary receipt).
+        if pinned_hardware == "L4":
+            rate_uph = L4_RATE_UNITS_PER_HOUR
+        elif pinned_hardware == "H100":
+            rate_uph = 12.0
+        else:
+            rate_uph = 8.0
         manifest["requirements"] = {
             "gpu": pinned_hardware,
             "allowed_gpus": [pinned_hardware],
@@ -618,13 +731,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--packet", type=Path, required=True, help="Target packet directory.")
     parser.add_argument("--commit", type=str, default="HEAD")
-    parser.add_argument("--mode", choices=("smoke", "pilot"), default="smoke")
+    parser.add_argument("--mode", choices=("smoke", "shakeout", "pilot"), default="smoke")
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--b8-checkpoint", type=Path, default=None)
     parser.add_argument("--opponent-checkpoint", type=Path, default=None)
     parser.add_argument("--smoke-result", type=Path, default=None)
     parser.add_argument("--canary-receipt", type=Path, default=None)
-    parser.add_argument("--gpu", choices=("H100", "A100"), default=None)
+    parser.add_argument("--gpu", choices=("H100", "A100", "L4"), default=None)
     parser.add_argument("--base-seconds", type=float, default=None)
     parser.add_argument("--prior-output-dir", type=Path, default=None)
     parser.add_argument("--attempt", type=str, default="attempt-01")

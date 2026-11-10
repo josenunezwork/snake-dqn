@@ -29,9 +29,12 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
+import tempfile
 import time
+import traceback
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 import numpy as np
 import torch
@@ -40,15 +43,17 @@ from research.gpu_sim_spike import ego_device, r2_cache
 from research.gpu_sim_spike.v8_device import v8_decide as gpu_v8_decide
 from research.gpu_sim_spike.vector_device import DeviceVectorRuntime
 from research.gpu_sitl.open_stop_gpu import (
+    DEFAULT_CUDA_ARCH_LIST,
     OPEN_STOP_BRANCH_HORIZON,
     OPEN_STOP_CRN_NAMESPACE,
     OPEN_STOP_V8_LAMBDA,
+    REQUIRED_CUDA_ARCHS,
     FastDeviceVectorRuntime,
     _maybe_cpu_fast_flood,
     _ttl_by_owner,
     batched_open_stop_h32,
+    ensure_cuda_initialized,
     freeze_ego2s_value_head,
-    normalize_device,
     verify_cuda_native_extensions,
 )
 from research.gpu_sitl.preflight import (
@@ -66,14 +71,24 @@ from research.gpu_sitl.probe_bank import (
     _evaluate_scoring_suffixes_on_snapshots,
     build_watch6_ct_device_bundle,
     extract_hero_root_observations,
+    harvest_probe32_bank,
+    load_probe32_bank,
     sha256_file,
     slice_single_row_cpu_state,
     write_atomic_with_sha256,
 )
 from research.gpu_sitl.seed_check import (
     PREFLIGHT_NAMESPACE,
+    PROBE32_NAMESPACE,
+    SCREEN_NAMESPACE,
+    SELECTIVITY_NAMESPACE,
+    SHAKEOUT_PROBE_NAMESPACE,
+    SHAKEOUT_SMOKE_NAMESPACE,
+    SHAKEOUT_TRAIN_NAMESPACE,
     TRAIN_NAMESPACE,
     audit_b1b_seeds,
+    audit_shakeout_seeds,
+    shakeout_smoke_seeds,
     train_seeds,
 )
 from research.gpu_sitl.train_sitl import (
@@ -88,6 +103,7 @@ from research.gpu_sitl.train_sitl import (
     RESCUE_MARGIN_DELTA_DEFAULT,
     SitlRingBuffer,
     compute_sitl_hinge_loss,
+    run_sitl_training,
     sample_ordinary_minibatch_indices,
 )
 from research.sandbox_a_resident.ct_mechanics import CTDeviceSim
@@ -126,6 +142,7 @@ def wilson_rate_ci95(successes: int, trials: int) -> tuple[float, float]:
 
 def _sync_device(dev: torch.device) -> None:
     if dev.type == "cuda":
+        ensure_cuda_initialized(dev)
         torch.cuda.synchronize(dev)
     elif dev.type == "mps" and hasattr(torch, "mps"):
         torch.mps.synchronize()
@@ -146,7 +163,7 @@ def run_mature_cohort_row_subset_parity(
     Fails closed (raises :class:`RuntimeError`) on any boolean or action mismatch.
     """
     t0 = time.perf_counter()
-    dev = normalize_device(device)
+    dev = ensure_cuda_initialized(device)
     if not dry_run and dev.type != "cuda":
         raise RuntimeError(f"Non-dry-run Step B1b-Smoke requires device='cuda', got {dev}")
     native_info: dict[str, Any] = {}
@@ -718,16 +735,19 @@ def run_step_b1b_smoke(
     bench_learner_updates: int = 20,
     seed: int = 20261109,
     dry_run: bool = False,
+    shakeout: bool = False,
 ) -> dict[str, Any]:
     """Run Step B1b-Smoke (`short-canary <= 25 min`, cap `3.0 A100 u`) and write JSON + SHA256."""
     t_start = time.perf_counter()
-    dev = normalize_device(device)
+    is_shakeout = bool(shakeout)
+    is_non_prod = bool(dry_run or is_shakeout)
+    dev = ensure_cuda_initialized(device)
     effective_label_batches = (
         int(bench_label_batches)
         if bench_label_batches is not None
-        else (8 if dry_run else int(DEFAULT_CUDA_BENCH_LABEL_BATCHES))
+        else (8 if is_non_prod else int(DEFAULT_CUDA_BENCH_LABEL_BATCHES))
     )
-    if not dry_run:
+    if not is_non_prod:
         if dev.type != "cuda":
             raise RuntimeError(f"Non-dry-run Step B1b-Smoke requires device='cuda', got {dev}")
         if int(num_envs) != REGISTERED_ENVS or int(branch_horizon) != OPEN_STOP_BRANCH_HORIZON:
@@ -736,9 +756,18 @@ def run_step_b1b_smoke(
                 f"H={OPEN_STOP_BRANCH_HORIZON}, got E={num_envs}, H={branch_horizon}"
             )
 
-    seed_audit = audit_b1b_seeds(scan_code_roots=[])
-    if not bool(seed_audit["ok"]):
-        raise RuntimeError(f"Step B1b seed audit failed: {seed_audit}")
+    if is_shakeout:
+        seed_audit = audit_shakeout_seeds(
+            smoke_envs=int(num_envs),
+            probe_worlds=2,
+            train_envs=int(num_envs),
+        )
+        if not bool(seed_audit["ok"]):
+            raise RuntimeError(f"Step B1b shake-out seed audit failed: {seed_audit}")
+    else:
+        seed_audit = audit_b1b_seeds(scan_code_roots=[])
+        if not bool(seed_audit["ok"]):
+            raise RuntimeError(f"Step B1b seed audit failed: {seed_audit}")
 
     if b8_checkpoint is None or opponent_checkpoint is None:
         default_b8, default_opp = resolve_product_checkpoints()
@@ -753,6 +782,7 @@ def run_step_b1b_smoke(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     if dev.type == "cuda":
+        ensure_cuda_initialized(dev)
         torch.cuda.reset_peak_memory_stats(dev)
 
     # (a) CUDA-vs-CPU parity check on row subsets against pure-Torch paths
@@ -762,11 +792,12 @@ def run_step_b1b_smoke(
         device=dev,
         slice_indices=parity_slice_indices,
         branch_horizon=int(branch_horizon),
-        dry_run=dry_run,
+        dry_run=is_non_prod,
     )
 
-    # (b) Throughput and peak VRAM benchmark at E = num_envs (256 on A100)
-    world_seeds = train_seeds(int(num_envs))
+    # (b) Throughput and peak VRAM benchmark at E = num_envs (256 on A100; dev seeds on shakeout)
+    world_seeds = shakeout_smoke_seeds(int(num_envs)) if is_shakeout else train_seeds(int(num_envs))
+    active_train_namespace = SHAKEOUT_SMOKE_NAMESPACE if is_shakeout else TRAIN_NAMESPACE
     sim, policy = build_watch6_ct_device_bundle(
         world_seeds,
         b8_path,
@@ -1045,7 +1076,7 @@ def run_step_b1b_smoke(
         sim.prepare()
         policy.vector_runtime.prepare(sim)
         policy.vector_prepared = True
-    n_probe_sample = min(int(num_envs), 2 if dry_run else 8)
+    n_probe_sample = min(int(num_envs), 1 if is_shakeout else (2 if dry_run else 8))
     obs_p = extract_hero_root_observations(sim, cpu_fast_flood=bool(dev.type == "cpu"))
     assert last_label_res is not None
     sample_snaps: list[dict[str, Any]] = []
@@ -1160,6 +1191,8 @@ def run_step_b1b_smoke(
     updates_per_sec = float(bench_learner_updates) / upd_elapsed
 
     # Restore student_net weights to initial b8-s3 after synthetic benchmark updates
+    if dev.type == "cuda":
+        ensure_cuda_initialized(dev)
     peak_vram_allocated_mib = (
         float(torch.cuda.max_memory_allocated(dev)) / float(1024**2) if dev.type == "cuda" else 0.0
     )
@@ -1181,12 +1214,23 @@ def run_step_b1b_smoke(
     )
 
     result_payload: dict[str, Any] = {
-        "schema": "t34-gpu-sitl-b1b-smoke-result/v1",
-        "step": "Step B1b-Smoke",
-        "dry_run": bool(dry_run),
-        "non_registration_evidence": bool(dry_run),
+        "schema": (
+            "t34-gpu-sitl-b1b-smoke-shakeout-subresult/v1"
+            if is_shakeout
+            else "t34-gpu-sitl-b1b-smoke-result/v1"
+        ),
+        "step": "Step B1b-Smoke-Shakeout-Subphase" if is_shakeout else "Step B1b-Smoke",
+        "shakeout": is_shakeout,
+        "not_evidence": bool(is_shakeout),
+        "evidence_class": (
+            "SHAKEOUT_NOT_EVIDENCE"
+            if is_shakeout
+            else ("DRY_RUN_NON_EVIDENCE" if dry_run else "REGISTERED_STEP_B1B_SMOKE_EVIDENCE")
+        ),
+        "dry_run": bool(is_non_prod),
+        "non_registration_evidence": bool(is_non_prod),
         "device": str(dev),
-        "train_namespace": TRAIN_NAMESPACE,
+        "train_namespace": active_train_namespace,
         "preflight_namespace": PREFLIGHT_NAMESPACE,
         "seed_audit_status": seed_audit["status"],
         "b8_checkpoint": str(b8_path),
@@ -1237,7 +1281,9 @@ def run_step_b1b_smoke(
         "elapsed_sec": time.perf_counter() - t_start,
     }
 
-    result_file = out_dir / "smoke_result.json"
+    result_file = out_dir / (
+        "b1b_smoke_shakeout_subresult.json" if is_shakeout else "smoke_result.json"
+    )
     result_sha = write_atomic_with_sha256(
         result_file,
         lambda tmp: tmp.write_text(
@@ -1248,51 +1294,521 @@ def run_step_b1b_smoke(
     result_payload["result_json_path"] = str(result_file)
     result_payload["result_json_sha256"] = result_sha
 
-    # Write family-canary export-probe artifacts for the pilot's required_exports relative paths
-    # if they do not already exist, so the colab_cli runtime export scanner records full producer
-    # export coverage in the smoke canary receipt (`canary.py:322`).
-    canary_probe_meta = {
-        "schema": "t34-gpu-sitl-canary-export-probe/v1",
-        "evidence_class": "CANARY_EXPORT_PROBE_NON_EVIDENCE",
-        "canary_export_probe": True,
-        "smoke_result_sha256": result_sha,
-    }
-    probe_pt_path = out_dir / "probe32_bank.pt"
-    if not probe_pt_path.exists():
-        write_atomic_with_sha256(
-            probe_pt_path,
-            lambda tmp: torch.save(canary_probe_meta, tmp),
-            write_complete_marker=True,
-        )
-    probe_meta_path = out_dir / "probe32_bank.pt.meta.json"
-    if not probe_meta_path.exists():
-        write_atomic_with_sha256(
-            probe_meta_path,
-            lambda tmp: tmp.write_text(
-                json.dumps(canary_probe_meta, indent=2, sort_keys=True) + "\n",
-                encoding="utf-8",
-            ),
-            write_complete_marker=True,
-        )
-    student_final_path = out_dir / "b8_sitl_student_final.pth"
-    if not student_final_path.exists():
-        write_atomic_with_sha256(
-            student_final_path,
-            lambda tmp: torch.save(canary_probe_meta, tmp),
-            write_complete_marker=True,
-        )
-    pilot_res_probe_path = out_dir / "sitl_pilot_result.json"
-    if not pilot_res_probe_path.exists():
-        write_atomic_with_sha256(
-            pilot_res_probe_path,
-            lambda tmp: tmp.write_text(
-                json.dumps(canary_probe_meta, indent=2, sort_keys=True) + "\n",
-                encoding="utf-8",
-            ),
-            write_complete_marker=True,
-        )
+    if not is_shakeout:
+        # Write family-canary export-probe artifacts for the pilot's required_exports relative paths
+        # if they do not already exist, so the colab_cli runtime export scanner records full
+        # producer export coverage in the smoke canary receipt (`canary.py:322`).
+        canary_probe_meta = {
+            "schema": "t34-gpu-sitl-canary-export-probe/v1",
+            "evidence_class": "CANARY_EXPORT_PROBE_NON_EVIDENCE",
+            "canary_export_probe": True,
+            "smoke_result_sha256": result_sha,
+        }
+        probe_pt_path = out_dir / "probe32_bank.pt"
+        if not probe_pt_path.exists():
+            write_atomic_with_sha256(
+                probe_pt_path,
+                lambda tmp: torch.save(canary_probe_meta, tmp),
+                write_complete_marker=True,
+            )
+        probe_meta_path = out_dir / "probe32_bank.pt.meta.json"
+        if not probe_meta_path.exists():
+            write_atomic_with_sha256(
+                probe_meta_path,
+                lambda tmp: tmp.write_text(
+                    json.dumps(canary_probe_meta, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                ),
+                write_complete_marker=True,
+            )
+        student_final_path = out_dir / "b8_sitl_student_final.pth"
+        if not student_final_path.exists():
+            write_atomic_with_sha256(
+                student_final_path,
+                lambda tmp: torch.save(canary_probe_meta, tmp),
+                write_complete_marker=True,
+            )
+        pilot_res_probe_path = out_dir / "sitl_pilot_result.json"
+        if not pilot_res_probe_path.exists():
+            write_atomic_with_sha256(
+                pilot_res_probe_path,
+                lambda tmp: tmp.write_text(
+                    json.dumps(canary_probe_meta, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                ),
+                write_complete_marker=True,
+            )
 
     return result_payload
+
+
+def run_cuda_shakeout(
+    output_dir: Path | str,
+    *,
+    b8_checkpoint: Path | str | None = None,
+    opponent_checkpoint: Path | str | None = None,
+    device: str | torch.device = "cuda",
+    num_envs: int = 4,
+    branch_horizon: int = 2,
+    parity_slice_indices: Sequence[int] = (0, 8),
+    bench_env_steps: int = 1,
+    bench_label_batches: int = 1,
+    bench_learner_updates: int = 2,
+    probe_worlds: int = 2,
+    probe_horizon: int = 4,
+    train_total_updates: int = 2,
+    train_stop_after_updates: int = 1,
+    seed: int = 20261110,
+    require_cuda: bool = False,
+) -> dict[str, Any]:
+    """Run the cheap L4/CUDA shake-out across all GPU SITL phases at tiny size.
+
+    Exercises on real CUDA (and on CPU/MPS in local tests):
+    1. CUDA initialization and caching-allocator statistics before any kernel launch
+       (`torch.cuda.reset_peak_memory_stats`, `max_memory_allocated`, `max_memory_reserved`,
+       `synchronize`, `get_rng_state_all`).
+    2. `TORCH_CUDA_ARCH_LIST` verification (`8.0` A100, `8.9` L4, `9.0` H100) + native extension
+       compile/load and functional kernel verification (`flood_cuda`, `vector_geometry`).
+    3. Dev-only seed isolation audit (never reading or scoring
+       `t34-gpu-sitl-selectivity-20261109-v1`, `t34-gpu-sitl-screen-20261109-v1`,
+       `t34-gpu-sitl-probe32-20261109-v1`, or `t34-gpu-sitl-train-20261109-v1`).
+    4. Full `run_step_b1b_smoke` code path at reduced configuration (row-subset parity, mature
+       cohort splice with length `>= 80` snakes exercising the flood cap of `160`, env benchmark,
+       label benchmark, probe-suffix benchmark, learner benchmark, runaway guard, export writing).
+    5. Tiny dev-seed probe-bank harvest and namespace-isolation refusal check.
+    6. Tiny dev-seed `run_sitl_training` including tripwire evaluation, checkpoint save, and
+       verified-ledger resume from that checkpoint.
+
+    Continues past a failing phase where safe and reports every phase's pass/fail with traceback
+    in `shakeout_result.json` (`NOT EVIDENCE`).
+    """
+    t_start = time.perf_counter()
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    if b8_checkpoint is None or opponent_checkpoint is None:
+        default_b8, default_opp = resolve_product_checkpoints()
+        b8_checkpoint = b8_checkpoint or default_b8
+        opponent_checkpoint = opponent_checkpoint or default_opp
+    b8_path = Path(b8_checkpoint)
+    opp_path = Path(opponent_checkpoint)
+
+    phase_reports: list[dict[str, Any]] = []
+
+    def _run_phase(phase_name: str, fn: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+        print(f"[shakeout] START {phase_name}", flush=True)
+        t_p0 = time.perf_counter()
+        try:
+            detail = fn()
+            el = time.perf_counter() - t_p0
+            rec = {
+                "phase": phase_name,
+                "ok": True,
+                "status": "PASS",
+                "elapsed_sec": el,
+                "detail": detail,
+                "error": None,
+                "traceback": None,
+            }
+            print(f"[shakeout] PASS {phase_name} ({el:.2f}s)", flush=True)
+            phase_reports.append(rec)
+            return rec
+        except Exception as exc:
+            el = time.perf_counter() - t_p0
+            tb = traceback.format_exc()
+            rec = {
+                "phase": phase_name,
+                "ok": False,
+                "status": "FAIL",
+                "elapsed_sec": el,
+                "detail": {},
+                "error": f"{type(exc).__name__}: {exc}",
+                "traceback": tb,
+            }
+            print(
+                f"[shakeout] FAIL {phase_name} ({el:.2f}s): {type(exc).__name__}: {exc}",
+                flush=True,
+            )
+            phase_reports.append(rec)
+            return rec
+
+    resolved_dev_holder: dict[str, torch.device] = {"dev": torch.device("cpu")}
+
+    def _phase_1_cuda_init() -> dict[str, Any]:
+        dev = ensure_cuda_initialized(device)
+        resolved_dev_holder["dev"] = dev
+        if require_cuda and dev.type != "cuda":
+            raise RuntimeError(
+                f"CUDA shake-out with require_cuda=True requires device='cuda', got {dev}"
+            )
+        if dev.type == "cuda":
+            if not torch.cuda.is_initialized():
+                raise RuntimeError(
+                    "torch.cuda.is_initialized() is False after ensure_cuda_initialized"
+                )
+            torch.cuda.reset_peak_memory_stats(dev)
+            alloc_bytes = int(torch.cuda.max_memory_allocated(dev))
+            reserved_bytes = int(torch.cuda.max_memory_reserved(dev))
+            torch.cuda.synchronize(dev)
+            rng_states = torch.cuda.get_rng_state_all()
+            cap = torch.cuda.get_device_capability(dev)
+            dev_name = str(torch.cuda.get_device_name(dev))
+            return {
+                "device": str(dev),
+                "cuda_is_initialized": True,
+                "device_name": dev_name,
+                "device_capability": f"{cap[0]}.{cap[1]}",
+                "peak_allocated_bytes_after_reset": alloc_bytes,
+                "peak_reserved_bytes_after_reset": reserved_bytes,
+                "cuda_rng_state_count": len(rng_states),
+            }
+        return {
+            "device": str(dev),
+            "cuda_is_initialized": False,
+            "device_name": dev.type,
+            "device_capability": "non-cuda",
+        }
+
+    def _phase_2_native_extensions() -> dict[str, Any]:
+        dev = resolved_dev_holder["dev"]
+        raw_arch = os.environ.get("TORCH_CUDA_ARCH_LIST", "").strip()
+        if not raw_arch:
+            os.environ["TORCH_CUDA_ARCH_LIST"] = DEFAULT_CUDA_ARCH_LIST
+            raw_arch = DEFAULT_CUDA_ARCH_LIST
+        tokens = {
+            tok.split("+")[0].strip()
+            for tok in raw_arch.replace(",", ";").replace(" ", ";").split(";")
+            if tok.strip()
+        }
+        missing_archs = [arch for arch in REQUIRED_CUDA_ARCHS if arch not in tokens]
+        if missing_archs:
+            raise RuntimeError(
+                f"TORCH_CUDA_ARCH_LIST={raw_arch!r} is missing required architectures "
+                f"{missing_archs} (must include 8.0 A100, 8.9 L4, 9.0 H100)"
+            )
+        if dev.type == "cuda":
+            ext_info = verify_cuda_native_extensions(dev)
+            return {
+                "torch_cuda_arch_list": raw_arch,
+                "required_archs_present": list(REQUIRED_CUDA_ARCHS),
+                "cuda_native_extensions_verified": True,
+                "extension_info": ext_info,
+            }
+        return {
+            "torch_cuda_arch_list": raw_arch,
+            "required_archs_present": list(REQUIRED_CUDA_ARCHS),
+            "cuda_native_extensions_verified": False,
+            "note": f"Non-CUDA device {dev}; verified TORCH_CUDA_ARCH_LIST covers 8.0, 8.9, 9.0",
+        }
+
+    def _phase_3_seed_isolation() -> dict[str, Any]:
+        audit = audit_shakeout_seeds(
+            smoke_envs=int(num_envs),
+            probe_worlds=int(probe_worlds),
+            train_envs=int(num_envs),
+        )
+        if not bool(audit["ok"]):
+            raise RuntimeError(f"Shake-out seed isolation audit failed: {audit}")
+        forbidden_namespaces = {
+            SELECTIVITY_NAMESPACE,
+            SCREEN_NAMESPACE,
+            PROBE32_NAMESPACE,
+            TRAIN_NAMESPACE,
+        }
+        active_namespaces = {
+            SHAKEOUT_SMOKE_NAMESPACE,
+            SHAKEOUT_PROBE_NAMESPACE,
+            SHAKEOUT_TRAIN_NAMESPACE,
+        }
+        if active_namespaces & forbidden_namespaces:
+            raise RuntimeError("Shake-out namespaces overlap forbidden registered namespaces")
+        return audit
+
+    with tempfile.TemporaryDirectory(prefix="gpu_sitl_shakeout_work_") as tmp_work_str:
+        work_dir = Path(tmp_work_str)
+        harvested_probe_path_holder: dict[str, Path | None] = {"path": None}
+
+        def _phase_4_b1b_smoke_reduced() -> dict[str, Any]:
+            dev = resolved_dev_holder["dev"]
+            smoke_sub_dir = work_dir / "smoke_subphase"
+            smoke_res = run_step_b1b_smoke(
+                smoke_sub_dir,
+                b8_checkpoint=b8_path,
+                opponent_checkpoint=opp_path,
+                device=dev,
+                num_envs=int(num_envs),
+                branch_horizon=int(branch_horizon),
+                parity_slice_indices=parity_slice_indices,
+                bench_env_steps=int(bench_env_steps),
+                bench_label_batches=int(bench_label_batches),
+                bench_learner_updates=int(bench_learner_updates),
+                seed=int(seed),
+                dry_run=True,
+                shakeout=True,
+            )
+            if not bool(smoke_res["parity_check"]["ok"]):
+                raise RuntimeError("Reduced smoke row-subset parity check did not pass")
+            tp = smoke_res["throughput"]
+            if int(tp["mature_spliced_worlds"]) < 1:
+                raise RuntimeError("Reduced smoke did not splice any mature cohort worlds")
+            if int(tp["window_max_hero_length"]) < 80:
+                raise RuntimeError(
+                    f"Reduced smoke mature splice did not exercise hero length >= 80: "
+                    f"window_max_hero_length={tp['window_max_hero_length']}"
+                )
+            if int(tp["window_mature_length_ge_160_decisions"]) < 1:
+                raise RuntimeError(
+                    "Reduced smoke mature splice did not exercise flood cap 160 (L >= 160)"
+                )
+            if smoke_res.get("schema") != "t34-gpu-sitl-b1b-smoke-shakeout-subresult/v1":
+                raise RuntimeError(f"Unexpected sub-smoke schema: {smoke_res.get('schema')}")
+            if smoke_res.get("not_evidence") is not True:
+                raise RuntimeError("Sub-smoke result missing not_evidence=True")
+            if (smoke_sub_dir / "smoke_result.json").exists():
+                raise RuntimeError("Shake-out must never write smoke_result.json")
+            return {
+                "schema": smoke_res["schema"],
+                "train_namespace": smoke_res["train_namespace"],
+                "parity_ok": bool(smoke_res["parity_check"]["ok"]),
+                "mature_spliced_worlds": int(tp["mature_spliced_worlds"]),
+                "window_max_hero_length": int(tp["window_max_hero_length"]),
+                "window_mature_length_ge_160_decisions": int(
+                    tp["window_mature_length_ge_160_decisions"]
+                ),
+                "env_steps_per_sec": float(tp["env_steps_per_sec"]),
+                "label_batches_per_sec": float(tp["label_batches_per_sec"]),
+                "updates_per_sec": float(tp["updates_per_sec"]),
+                "peak_vram_allocated_mib": float(tp["peak_vram_allocated_mib"]),
+                "runaway_guard_timeout_minutes_2x": int(
+                    smoke_res["pilot_runaway_guard"]["runaway_guard_timeout_minutes_2x"]
+                ),
+                "subresult_json_sha256": smoke_res["result_json_sha256"],
+            }
+
+        def _phase_5_tiny_probe_harvest() -> dict[str, Any]:
+            dev = resolved_dev_holder["dev"]
+            probe_sub_dir = work_dir / "probe_subphase"
+            probe_pt = probe_sub_dir / "shakeout_probe_bank.pt"
+            meta = harvest_probe32_bank(
+                probe_pt,
+                b8_checkpoint=b8_path,
+                opponent_checkpoint=opp_path,
+                device=dev,
+                num_worlds=int(probe_worlds),
+                horizon=int(probe_horizon),
+                branch_horizon=int(branch_horizon),
+                ordinary_per_world=3,
+                harvest_batch_roots=max(2, int(num_envs)),
+                dry_run=True,
+                shakeout=True,
+            )
+            loaded = load_probe32_bank(
+                probe_pt,
+                expected_namespace=SHAKEOUT_PROBE_NAMESPACE,
+            )
+            if loaded["meta"].get("namespace") != SHAKEOUT_PROBE_NAMESPACE:
+                raise RuntimeError(
+                    f"Tiny probe harvest namespace mismatch: {loaded['meta'].get('namespace')}"
+                )
+            if loaded["meta"].get("not_evidence") is not True:
+                raise RuntimeError("Tiny probe harvest missing not_evidence=True")
+            # Verify default registered loader refuses the shake-out probe bank
+            refused_by_default_loader = False
+            try:
+                load_probe32_bank(probe_pt)
+            except (RuntimeError, ValueError):
+                refused_by_default_loader = True
+            if not refused_by_default_loader:
+                raise RuntimeError(
+                    "load_probe32_bank with default PROBE32_NAMESPACE failed to refuse "
+                    "shake-out bank"
+                )
+            harvested_probe_path_holder["path"] = probe_pt
+            return {
+                "schema": meta["schema"],
+                "namespace": meta["namespace"],
+                "not_evidence": bool(meta["not_evidence"]),
+                "num_worlds": int(meta["num_worlds"]),
+                "horizon": int(meta["horizon"]),
+                "decisive_rescue_roots_count": int(meta["decisive_rescue_roots_count"]),
+                "ordinary_roots_count": int(meta["ordinary_roots_count"]),
+                "refused_by_registered_probe32_loader": refused_by_default_loader,
+                "sha256": str(loaded["verified_sha256"]),
+            }
+
+        def _phase_6_tiny_sitl_training_and_resume() -> dict[str, Any]:
+            dev = resolved_dev_holder["dev"]
+            probe_pt = harvested_probe_path_holder["path"]
+            if probe_pt is None or not probe_pt.exists():
+                probe_fallback_dir = work_dir / "probe_fallback"
+                probe_pt = probe_fallback_dir / "shakeout_probe_bank.pt"
+                harvest_probe32_bank(
+                    probe_pt,
+                    b8_checkpoint=b8_path,
+                    opponent_checkpoint=opp_path,
+                    device=dev,
+                    num_worlds=int(probe_worlds),
+                    horizon=max(4, int(probe_horizon)),
+                    branch_horizon=int(branch_horizon),
+                    ordinary_per_world=3,
+                    harvest_batch_roots=max(2, int(num_envs)),
+                    dry_run=True,
+                    shakeout=True,
+                )
+
+            train_sub_dir = work_dir / "train_subphase"
+            total_u = max(2, int(train_total_updates))
+            stop_u = max(1, min(total_u - 1, int(train_stop_after_updates)))
+
+            part1 = run_sitl_training(
+                train_sub_dir,
+                probe_bank_path=probe_pt,
+                b8_checkpoint=b8_path,
+                opponent_checkpoint=opp_path,
+                device=dev,
+                num_envs=int(num_envs),
+                total_updates=total_u,
+                warmup_rescue_roots=1,
+                min_unique_rescue_roots=total_u,
+                rescue_batch_size=2,
+                ordinary_batch_size=4,
+                ordinary_uniform_half=2,
+                ordinary_hard_neg_half=2,
+                branch_horizon=int(branch_horizon),
+                tripwire_interval=1,
+                decision_window_size=8,
+                checkpoint_every_updates=1,
+                stop_after_updates=stop_u,
+                max_collection_steps=12,
+                seed=int(seed),
+                dry_run=True,
+                shakeout=True,
+            )
+            if part1.get("status") != "PAUSED_FOR_RESUME":
+                raise RuntimeError(
+                    f"Expected PAUSED_FOR_RESUME after stop_after_updates={stop_u}, got {part1}"
+                )
+            ledger_path = Path(part1["verified_ledger_path"])
+            if not ledger_path.exists():
+                raise RuntimeError(f"Missing verified ledger after pause: {ledger_path}")
+
+            part2 = run_sitl_training(
+                train_sub_dir,
+                probe_bank_path=probe_pt,
+                b8_checkpoint=b8_path,
+                opponent_checkpoint=opp_path,
+                ledger_path=ledger_path,
+                device=dev,
+                num_envs=int(num_envs),
+                total_updates=total_u,
+                warmup_rescue_roots=1,
+                min_unique_rescue_roots=total_u,
+                rescue_batch_size=2,
+                ordinary_batch_size=4,
+                ordinary_uniform_half=2,
+                ordinary_hard_neg_half=2,
+                branch_horizon=int(branch_horizon),
+                tripwire_interval=1,
+                decision_window_size=8,
+                checkpoint_every_updates=1,
+                stop_after_updates=None,
+                max_collection_steps=16,
+                seed=int(seed),
+                dry_run=True,
+                shakeout=True,
+                resume=True,
+            )
+            if not part2.get("resumed_from_checkpoint"):
+                raise RuntimeError("Resumed training run did not load verified checkpoint")
+            if int(part2["counts"]["updates_completed"]) != total_u:
+                raise RuntimeError(
+                    f"Expected {total_u} updates completed after resume, got "
+                    f"{part2['counts']['updates_completed']}"
+                )
+            if len(part2["probe_bank_tripwires"]["history"]) < 1:
+                raise RuntimeError("No probe-bank tripwire evaluations recorded during shake-out")
+            fc = part2["unconditional_fault_checks"]
+            if (
+                int(fc["non_finite_loss_count"]) != 0
+                or int(fc["non_finite_q_count"]) != 0
+                or int(fc["non_finite_grad_count"]) != 0
+                or int(fc["illegal_action_count"]) != 0
+            ):
+                raise RuntimeError(f"Unconditional fault check failed during shake-out: {fc}")
+            if part2.get("schema") != "t34-gpu-sitl-shakeout-train-subresult/v1":
+                raise RuntimeError(f"Unexpected train subresult schema: {part2.get('schema')}")
+            if part2.get("not_evidence") is not True:
+                raise RuntimeError("Train subresult missing not_evidence=True")
+            if (train_sub_dir / "sitl_pilot_result.json").exists():
+                raise RuntimeError("Shake-out training must never write sitl_pilot_result.json")
+            return {
+                "schema": part2["schema"],
+                "namespace": part2["namespace"],
+                "probe_namespace": part2["probe_namespace"],
+                "not_evidence": bool(part2["not_evidence"]),
+                "paused_at_updates": int(part1["updates_completed"]),
+                "resumed_from_checkpoint": str(part2["resumed_from_checkpoint"]),
+                "final_updates_completed": int(part2["counts"]["updates_completed"]),
+                "tripwire_evaluations": len(part2["probe_bank_tripwires"]["history"]),
+                "subresult_json_sha256": part2["result_json_sha256"],
+            }
+
+        _run_phase("phase_1_cuda_init_and_allocator_stats", _phase_1_cuda_init)
+        _run_phase("phase_2_native_extensions_and_arch_list", _phase_2_native_extensions)
+        _run_phase("phase_3_seed_isolation_audit", _phase_3_seed_isolation)
+        _run_phase("phase_4_b1b_smoke_reduced", _phase_4_b1b_smoke_reduced)
+        _run_phase("phase_5_tiny_probe_harvest", _phase_5_tiny_probe_harvest)
+        _run_phase("phase_6_tiny_sitl_training_and_resume", _phase_6_tiny_sitl_training_and_resume)
+
+    all_ok = bool(phase_reports) and all(bool(p["ok"]) for p in phase_reports)
+    failed_phases = [str(p["phase"]) for p in phase_reports if not bool(p["ok"])]
+    elapsed_sec = time.perf_counter() - t_start
+
+    shakeout_payload: dict[str, Any] = {
+        "schema": "t34-gpu-sitl-cuda-shakeout-result/v1",
+        "step": "Step B1b-CUDA-Shakeout",
+        "mode": "shakeout",
+        "shakeout": True,
+        "dry_run": True,
+        "not_evidence": True,
+        "non_registration_evidence": True,
+        "evidence_class": "SHAKEOUT_NOT_EVIDENCE",
+        "evidence_banner": "NOT EVIDENCE — DEV-ONLY L4 CUDA SHAKE-OUT",
+        "ok": all_ok,
+        "verdict": "SHAKEOUT_PASS_NOT_EVIDENCE" if all_ok else "SHAKEOUT_FAIL_NOT_EVIDENCE",
+        "device": str(resolved_dev_holder["dev"]),
+        "namespaces": {
+            "smoke": SHAKEOUT_SMOKE_NAMESPACE,
+            "probe": SHAKEOUT_PROBE_NAMESPACE,
+            "train": SHAKEOUT_TRAIN_NAMESPACE,
+        },
+        "forbidden_namespaces_never_read_or_scored": [
+            SELECTIVITY_NAMESPACE,
+            SCREEN_NAMESPACE,
+            PROBE32_NAMESPACE,
+            TRAIN_NAMESPACE,
+        ],
+        "phases": phase_reports,
+        "failed_phases": failed_phases,
+        "elapsed_sec": elapsed_sec,
+    }
+
+    result_file = out_dir / "shakeout_result.json"
+    result_sha = write_atomic_with_sha256(
+        result_file,
+        lambda tmp: tmp.write_text(
+            json.dumps(shakeout_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        ),
+        write_complete_marker=True,
+    )
+    shakeout_payload["result_json_path"] = str(result_file)
+    shakeout_payload["result_json_sha256"] = result_sha
+    print(
+        f"[shakeout] DONE verdict={shakeout_payload['verdict']} "
+        f"failed_phases={failed_phases} elapsed={elapsed_sec:.2f}s",
+        flush=True,
+    )
+    return shakeout_payload
 
 
 def main() -> int:
@@ -1314,7 +1830,53 @@ def main() -> int:
         action="store_true",
         help="Run a tiny CPU dry-run configuration (marks dry_run=true).",
     )
+    parser.add_argument(
+        "--shakeout",
+        action="store_true",
+        help=(
+            "Run the cheap dev-only CUDA shake-out across all phases "
+            "(writes shakeout_result.json, NOT EVIDENCE)."
+        ),
+    )
     args = parser.parse_args()
+    if bool(args.shakeout):
+        shake_res = run_cuda_shakeout(
+            args.output_dir,
+            b8_checkpoint=args.b8_checkpoint,
+            opponent_checkpoint=args.opponent_checkpoint,
+            device=args.device,
+            num_envs=args.num_envs if args.num_envs is not None else 4,
+            branch_horizon=args.branch_horizon if args.branch_horizon is not None else 2,
+            bench_env_steps=args.bench_env_steps if args.bench_env_steps is not None else 1,
+            bench_label_batches=(
+                args.bench_label_batches if args.bench_label_batches is not None else 1
+            ),
+            bench_learner_updates=(
+                args.bench_learner_updates if args.bench_learner_updates is not None else 2
+            ),
+            seed=args.seed,
+        )
+        print(
+            json.dumps(
+                {
+                    "step": shake_res["step"],
+                    "mode": shake_res["mode"],
+                    "not_evidence": shake_res["not_evidence"],
+                    "evidence_class": shake_res["evidence_class"],
+                    "ok": shake_res["ok"],
+                    "verdict": shake_res["verdict"],
+                    "device": shake_res["device"],
+                    "failed_phases": shake_res["failed_phases"],
+                    "result_json_path": shake_res["result_json_path"],
+                    "result_json_sha256": shake_res["result_json_sha256"],
+                    "elapsed_sec": shake_res["elapsed_sec"],
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return 0 if bool(shake_res["ok"]) else 1
+
     is_dry = bool(args.dry_run)
     res = run_step_b1b_smoke(
         args.output_dir,
