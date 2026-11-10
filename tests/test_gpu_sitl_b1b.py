@@ -3,6 +3,7 @@ harvester, online SITL training loop, and smoke entrypoint."""
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -565,3 +566,101 @@ def test_sitl_training_dry_run_and_resume_determinism(tmp_path: Path) -> None:
         == res_full["training_set_aliasing_diagnostic"]
     )
     assert res_part2["verdict"] == res_full["verdict"]
+
+
+def test_step_b1b_smoke_parity_and_prepare_packets(tmp_path: Path) -> None:
+    """Verify Step B1b-Smoke row-subset parity, runaway guard, and prepare.py packets."""
+    from research.gpu_sitl.prepare import prepare_b1b_packet
+    from research.gpu_sitl.smoke import run_step_b1b_smoke
+
+    b8_path, opp_path = resolve_product_checkpoints()
+    if not Path(b8_path).exists() or not Path(opp_path).exists():
+        pytest.skip("b8-s3 or opponent checkpoint not present")
+
+    # Non-dry-run smoke on CPU must fail closed
+    with pytest.raises(RuntimeError, match="requires device='cuda'"):
+        run_step_b1b_smoke(
+            tmp_path / "bad_smoke",
+            b8_checkpoint=b8_path,
+            opponent_checkpoint=opp_path,
+            device="cpu",
+            dry_run=False,
+        )
+
+    smoke_dir = tmp_path / "smoke_dry"
+    smoke_res = run_step_b1b_smoke(
+        smoke_dir,
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+        num_envs=4,
+        branch_horizon=2,
+        parity_slice_indices=(0, 8, 16, 24),
+        bench_env_steps=2,
+        bench_label_batches=2,
+        bench_learner_updates=2,
+        dry_run=True,
+    )
+    assert smoke_res["dry_run"] is True
+    assert smoke_res["parity_check"]["ok"] is True
+    assert smoke_res["parity_check"]["rebuilt_from_repo_specs_only"] is True
+    assert smoke_res["parity_check"]["flood_cuda_v8_decide_row_subset"]["ok"] is True
+    assert smoke_res["parity_check"]["flood_cuda_components_row_subset"]["ok"] is True
+    assert smoke_res["parity_check"]["vector_geometry_row_subset"]["ok"] is True
+    assert smoke_res["parity_check"]["batched_open_stop_h32_mature_slice"]["ok"] is True
+    assert smoke_res["throughput"]["env_steps_per_sec"] > 0.0
+    assert smoke_res["throughput"]["six_branch_h32_root_labels_per_sec"] > 0.0
+    assert smoke_res["throughput"]["updates_per_sec"] > 0.0
+    rg = smoke_res["pilot_runaway_guard"]
+    assert rg["runaway_guard_timeout_minutes_2x"] >= 2 * int(rg["base_estimate_minutes"])
+    assert verify_file_sha256(smoke_res["result_json_path"]) == smoke_res["result_json_sha256"]
+
+    # Prepare smoke packet (short-canary <= 25 min, cap 3.0 A100 u)
+    pkt_smoke = tmp_path / "pkt_smoke"
+    info_smoke = prepare_b1b_packet(
+        pkt_smoke,
+        commit="HEAD",
+        mode="smoke",
+        output_dir=tmp_path / "out_smoke",
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        attempt="test-01",
+    )
+    manifest_smoke = json.loads(Path(info_smoke["manifest_path"]).read_text(encoding="utf-8"))
+    assert manifest_smoke["timeout_minutes"] == 25.0
+    assert manifest_smoke["budget"]["unit_cap"] == 3.0
+    assert manifest_smoke["resume_exemption"]["kind"] == "short-canary"
+    assert "resume" not in manifest_smoke
+    for expected_src in (
+        "research/gpu_sitl/open_stop_gpu.py",
+        "research/gpu_sitl/seed_check.py",
+        "research/gpu_sitl/probe_bank.py",
+        "research/gpu_sitl/train_sitl.py",
+        "research/gpu_sitl/smoke.py",
+        "research/gpu_sitl/job.sh",
+        "research/gpu_sitl/requirements.txt",
+    ):
+        assert expected_src in manifest_smoke["source_paths"]
+
+    # Prepare pilot packet from smoke_result.json (resume block, no resume_exemption)
+    pkt_pilot = tmp_path / "pkt_pilot"
+    info_pilot = prepare_b1b_packet(
+        pkt_pilot,
+        commit="HEAD",
+        mode="pilot",
+        output_dir=tmp_path / "out_pilot",
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        smoke_result_json=smoke_res["result_json_path"],
+        attempt="test-01",
+    )
+    manifest_pilot = json.loads(Path(info_pilot["manifest_path"]).read_text(encoding="utf-8"))
+    assert "resume_exemption" not in manifest_pilot
+    assert manifest_pilot["resume"] == {
+        "unit_kind": "update",
+        "ledger_path": "verified-ledger.json",
+        "skip_verified": True,
+        "max_outcome_blind_retries": 2,
+    }
+    assert manifest_pilot["timeout_minutes"] == rg["runaway_guard_timeout_minutes_2x"]
+
