@@ -36,28 +36,13 @@ FAMILY_SCRIPT = "research/gpu_sitl/job.sh"
 FAMILY_PACKAGE = "research/gpu_sitl"
 L4_RATE_UNITS_PER_HOUR = 1.54
 
-SMOKE_REQUIRED_EXPORTS: tuple[str, ...] = (
-    "smoke_result.json",
-    "smoke_result.json.sha256",
-    "smoke_result.json.complete",
-)
-SHAKEOUT_REQUIRED_EXPORTS: tuple[str, ...] = (
-    "shakeout_result.json",
-    "shakeout_result.json.sha256",
-    "shakeout_result.json.complete",
-)
+SMOKE_REQUIRED_EXPORTS: tuple[str, ...] = ("smoke_result.json",)
+SHAKEOUT_REQUIRED_EXPORTS: tuple[str, ...] = ("shakeout_result.json",)
 PILOT_REQUIRED_EXPORTS: tuple[str, ...] = (
     "probe32_bank.pt",
-    "probe32_bank.pt.sha256",
-    "probe32_bank.pt.complete",
     "probe32_bank.pt.meta.json",
-    "probe32_bank.pt.meta.json.sha256",
     "b8_sitl_student_final.pth",
-    "b8_sitl_student_final.pth.sha256",
-    "b8_sitl_student_final.pth.complete",
     "sitl_pilot_result.json",
-    "sitl_pilot_result.json.sha256",
-    "sitl_pilot_result.json.complete",
 )
 
 
@@ -178,11 +163,14 @@ def _stage_prior_attempt_artifacts(
     if (prior_dir / "exports").is_dir():
         search_roots.append(prior_dir / "exports")
 
-    # 1. Carry over verified_units from prior verified-ledger.json if present
+    # 1. Carry over verified_units from prior verified-ledger.json (or checkpoint meta) if present
+    found_prior_ledger = False
     for sroot in search_roots:
         prior_ledger_p = sroot / "verified-ledger.json"
-        if prior_ledger_p.is_file() and Path(f"{prior_ledger_p}.complete").is_file():
-            verify_file_sha256(prior_ledger_p, require_complete=True)
+        has_comp = Path(f"{prior_ledger_p}.complete").is_file()
+        has_sha = Path(f"{prior_ledger_p}.sha256").is_file()
+        if prior_ledger_p.is_file() and (has_comp or has_sha):
+            verify_file_sha256(prior_ledger_p, require_complete=has_comp)
             prior_ledger = json.loads(prior_ledger_p.read_text(encoding="utf-8"))
             if prior_ledger.get("namespace") != TRAIN_NAMESPACE:
                 raise ValueError(
@@ -204,7 +192,45 @@ def _stage_prior_attempt_artifacts(
                     for existing in ledger["verified_units"]
                 ):
                     ledger["verified_units"].append(dict(u))
+            found_prior_ledger = True
             break
+
+    if not found_prior_ledger:
+        for sroot in search_roots:
+            ckpt_dir = sroot / "checkpoints"
+            if not ckpt_dir.is_dir():
+                continue
+            meta_files = sorted(
+                ckpt_dir.glob("sitl_state_*.meta.json"),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )
+            for mf in meta_files:
+                if Path(f"{mf}.complete").is_file() and Path(f"{mf}.sha256").is_file():
+                    verify_file_sha256(mf, require_complete=True)
+                    m_obj = json.loads(mf.read_text(encoding="utf-8"))
+                    if m_obj.get("namespace") and m_obj.get("namespace") != TRAIN_NAMESPACE:
+                        raise ValueError(
+                            f"Foreign namespace in checkpoint meta {mf}: "
+                            f"{m_obj.get('namespace')!r}"
+                        )
+                    if m_obj.get("probe_namespace", PROBE32_NAMESPACE) != PROBE32_NAMESPACE:
+                        raise ValueError(
+                            f"Foreign probe_namespace in checkpoint meta {mf}: "
+                            f"{m_obj.get('probe_namespace')!r}"
+                        )
+                    if isinstance(m_obj.get("world_seeds"), list) and m_obj["world_seeds"]:
+                        ledger["world_seeds"] = [int(s) for s in m_obj["world_seeds"]]
+                    for u in m_obj.get("verified_units", []):
+                        if isinstance(u, dict) and not any(
+                            existing.get("sha256") == u.get("sha256")
+                            for existing in ledger["verified_units"]
+                        ):
+                            ledger["verified_units"].append(dict(u))
+                    found_prior_ledger = True
+                    break
+            if found_prior_ledger:
+                break
 
     # 2. Stage completed probe32_bank.pt (or partial probe32_bank.pt.ckpt.pt if harvest interrupted)
     staged_probe = False
@@ -234,37 +260,59 @@ def _stage_prior_attempt_artifacts(
             break
 
     if not staged_probe:
+        hckpt_found: Path | None = None
+        hckpt_sha: str | None = None
         for sroot in search_roots:
-            hckpt_cand = sroot / "probe32_bank.pt.ckpt.pt"
-            if hckpt_cand.is_file() and Path(f"{hckpt_cand}.complete").is_file():
-                hckpt_sha = verify_file_sha256(hckpt_cand, require_complete=True)
-                dst_hckpt = pkt_inputs_dir / "probe32_bank.pt.ckpt.pt"
-                write_atomic_with_sha256(
-                    dst_hckpt,
-                    lambda tmp, src=hckpt_cand: shutil.copyfile(src, tmp),
-                    write_complete_marker=True,
+            ckpt_dir = sroot / "checkpoints"
+            if ckpt_dir.is_dir():
+                tick_ckpts = sorted(
+                    ckpt_dir.glob("probe32_bank.pt.t*.ckpt.pt"),
+                    key=lambda p: p.stat().st_mtime,
+                    reverse=True,
                 )
-                inputs_list.append(
-                    {
-                        "path": str(dst_hckpt),
-                        "dest": "probe32_bank.pt.ckpt.pt",
-                        "sha256": hckpt_sha,
-                    }
-                )
-                ledger["probe32_harvest_ckpt"] = {
-                    "relpath": "probe32_bank.pt.ckpt.pt",
-                    "sha256": hckpt_sha,
-                    "size_bytes": int(dst_hckpt.stat().st_size),
-                }
+                for tc in tick_ckpts:
+                    if Path(f"{tc}.complete").is_file() and Path(f"{tc}.sha256").is_file():
+                        hckpt_sha = verify_file_sha256(tc, require_complete=True)
+                        hckpt_found = tc
+                        break
+            if hckpt_found is not None:
                 break
+            hckpt_cand = sroot / "probe32_bank.pt.ckpt.pt"
+            has_comp = Path(f"{hckpt_cand}.complete").is_file()
+            has_sha = Path(f"{hckpt_cand}.sha256").is_file()
+            if hckpt_cand.is_file() and (has_comp or has_sha):
+                hckpt_sha = verify_file_sha256(hckpt_cand, require_complete=has_comp)
+                hckpt_found = hckpt_cand
+                break
+        if hckpt_found is not None and hckpt_sha is not None:
+            dst_hckpt = pkt_inputs_dir / "probe32_bank.pt.ckpt.pt"
+            write_atomic_with_sha256(
+                dst_hckpt,
+                lambda tmp, src=hckpt_found: shutil.copyfile(src, tmp),
+                write_complete_marker=True,
+            )
+            inputs_list.append(
+                {
+                    "path": str(dst_hckpt),
+                    "dest": "probe32_bank.pt.ckpt.pt",
+                    "sha256": hckpt_sha,
+                }
+            )
+            ledger["probe32_harvest_ckpt"] = {
+                "relpath": "probe32_bank.pt.ckpt.pt",
+                "sha256": hckpt_sha,
+                "size_bytes": int(dst_hckpt.stat().st_size),
+            }
 
     # 3. Stage newest verified training checkpoint (checkpoints/sitl_state_*.pt)
     latest_ckpt_src: Path | None = None
     latest_ckpt_sha: str | None = None
     for sroot in search_roots:
         meta_cand = sroot / "checkpoints" / "latest_checkpoint.json"
-        if meta_cand.is_file() and Path(f"{meta_cand}.complete").is_file():
-            verify_file_sha256(meta_cand, require_complete=True)
+        has_comp = Path(f"{meta_cand}.complete").is_file()
+        has_sha = Path(f"{meta_cand}.sha256").is_file()
+        if meta_cand.is_file() and (has_comp or has_sha):
+            verify_file_sha256(meta_cand, require_complete=has_comp)
             meta_obj = json.loads(meta_cand.read_text(encoding="utf-8"))
             rel_or_path = str(meta_obj.get("relpath") or meta_obj.get("checkpoint_path", ""))
             cand_pt = sroot / rel_or_path
@@ -608,7 +656,9 @@ def prepare_b1b_packet(
                 hw_data = json.loads(
                     (rcpt_path.parent / "hardware.json").read_text(encoding="utf-8")
                 )
-                rcpt_hw = str(hw_data.get("kind") or "").strip()
+                rcpt_hw = str(
+                    (hw_data.get("hardware") or {}).get("kind") or hw_data.get("kind") or ""
+                ).strip()
             if not rcpt_hw:
                 rcpt_hw = pinned_hardware or "A100"
             if pinned_hardware is not None and pinned_hardware != rcpt_hw:
