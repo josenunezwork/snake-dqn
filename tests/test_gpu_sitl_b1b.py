@@ -3490,3 +3490,232 @@ def test_review_search_findings_se1_to_se9(
     grad_chk = margin_loss_gradient_check(str(b8_path), sim=unprep_sim, device="cpu")
     assert grad_chk["all_non_value_grads_finite_and_nonzero"] is True
     assert 0 not in grad_chk["selected_root_indices"]
+
+
+def test_review_train_findings_t1_t2_t3_t5_t6_t7_t8_t10(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Regression coverage for confirmed train/probe_bank findings T1-T3, T5-T8, T10."""
+    import research.gpu_sitl.train_sitl as ts
+    from research.gpu_sitl.probe_bank import (
+        build_watch6_ct_device_bundle,
+        write_atomic_with_sha256,
+    )
+    from src.model.ego2s_network import load_ego2s_checkpoint
+
+    b8_path, opp_path = resolve_product_checkpoints()
+
+    # T1a: write_atomic_with_sha256 must refuse overwriting .complete-marked files,
+    # and verify_file_sha256 must validate the digest inside <path>.complete.
+    immutable_f = tmp_path / "immutable.json"
+    write_atomic_with_sha256(
+        immutable_f,
+        lambda tmp: tmp.write_text('{"a": 1}\n', encoding="utf-8"),
+        write_complete_marker=True,
+    )
+    with pytest.raises(FileExistsError):
+        write_atomic_with_sha256(
+            immutable_f,
+            lambda tmp: tmp.write_text('{"a": 2}\n', encoding="utf-8"),
+            write_complete_marker=False,
+        )
+    Path(f"{immutable_f}.complete").write_text("0" * 64 + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="complete|mismatch"):
+        verify_file_sha256(immutable_f, require_complete=True)
+
+    # T2a: CLI _parse_args supports pause/stop/shakeout flags.
+    parsed = ts._parse_args(
+        [
+            "--output-dir",
+            str(tmp_path / "cli_out"),
+            "--stop-after-updates",
+            "2",
+            "--stop-after-collection-steps",
+            "10",
+            "--pause-after-seconds",
+            "300",
+            "--shakeout",
+        ]
+    )
+    assert parsed.stop_after_updates == 2
+    assert parsed.stop_after_collection_steps == 10
+    assert parsed.pause_after_seconds == 300.0
+    assert parsed.shakeout is True
+
+    # T3a: lazy _last_done tensor and int/tensor fresh_rows restored; pending_rows preserved across
+    # wall-clock harvest checkpoints so checkpoint_every_seconds=0.0 matches uninterrupted harvest.
+    seeds2 = preflight_seeds((0, 1))
+    sim_src, pol_src = build_watch6_ct_device_bundle(seeds2, b8_path, opp_path, device="cpu")
+    sim_src.prepare()
+    pol_src.vector_runtime.prepare(sim_src)
+    pol_src.vector_prepared = True
+    _, _, h_act = pol_src.evaluate(sim_src)
+    sim_src.step(pol_src.actions(sim_src, h_act))
+    pol_src.after_step(sim_src)
+    assert isinstance(sim_src._last_done, torch.Tensor)
+    captured_state = ts._capture_sim_and_runtime_state(sim_src, pol_src)
+
+    sim_dst, pol_dst = build_watch6_ct_device_bundle(seeds2, b8_path, opp_path, device="cpu")
+    sim_dst._last_done = None
+    pol_dst.vector_runtime.fresh_rows = 0
+    pol_dst.vector_runtime.carried_rows = 0
+    ts._restore_sim_and_runtime_state(sim_dst, pol_dst, captured_state)
+    assert isinstance(sim_dst._last_done, torch.Tensor)
+    assert torch.equal(sim_dst._last_done, sim_src._last_done)
+    assert isinstance(pol_dst.vector_runtime.fresh_rows, torch.Tensor)
+    assert int(pol_dst.vector_runtime.fresh_rows) == int(pol_src.vector_runtime.fresh_rows)
+
+    pb_unint = tmp_path / "pb_unint.pt"
+    pb_ckpt0 = tmp_path / "pb_ckpt0.pt"
+    harvest_probe32_bank(
+        pb_unint,
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+        num_worlds=2,
+        horizon=5,
+        branch_horizon=2,
+        ordinary_per_world=3,
+        harvest_batch_roots=4,
+        checkpoint_every_seconds=9999.0,
+        dry_run=True,
+    )
+    harvest_probe32_bank(
+        pb_ckpt0,
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+        num_worlds=2,
+        horizon=5,
+        branch_horizon=2,
+        ordinary_per_world=3,
+        harvest_batch_roots=4,
+        checkpoint_every_seconds=0.0,
+        dry_run=True,
+    )
+    b_u = load_probe32_bank(pb_unint)
+    b_c = load_probe32_bank(pb_ckpt0)
+    assert torch.equal(b_u["ordinary"]["decision_frame"], b_c["ordinary"]["decision_frame"])
+
+    # T1b + T2b: multi-unit pause/resume keeps verified-ledger.json.complete valid,
+    # final state checkpoint has unmutated completed_windows, and re-entry is idempotent.
+    common = dict(
+        probe_bank_path=pb_unint,
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+        num_envs=4,
+        total_updates=2,
+        warmup_rescue_roots=1,
+        min_unique_rescue_roots=2,
+        rescue_batch_size=2,
+        ordinary_batch_size=4,
+        ordinary_uniform_half=2,
+        ordinary_hard_neg_half=2,
+        branch_horizon=2,
+        tripwire_interval=2,
+        decision_window_size=10,
+        checkpoint_every_updates=1,
+        seed=20261109,
+        dry_run=True,
+    )
+    multi_dir = tmp_path / "multi_unit"
+    p1 = run_sitl_training(multi_dir, stop_after_updates=1, **common)
+    assert p1["status"] == "PAUSED_FOR_RESUME"
+    ledger1_sha = verify_file_sha256(multi_dir / "verified-ledger.json", require_complete=True)
+    p2 = run_sitl_training(multi_dir, resume=True, **common)
+    assert p2["counts"]["updates_completed"] == 2
+    # Original verified-ledger.json + .complete stays digest-intact!
+    assert (
+        verify_file_sha256(multi_dir / "verified-ledger.json", require_complete=True) == ledger1_sha
+    )
+    final_ckpt_obj = torch.load(
+        p2["final_state_checkpoint_path"], map_location="cpu", weights_only=False
+    )
+    assert all(not bool(w.get("is_partial_final")) for w in final_ckpt_obj["completed_windows"])
+
+    # Re-entering completed run with resume=True returns identical summary without rewriting files
+    res_sha_before = p2["result_json_sha256"]
+    p2_again = run_sitl_training(multi_dir, resume=True, **common)
+    assert p2_again["result_json_sha256"] == res_sha_before
+    assert len(p2_again["unconditional_fault_checks"]["decision_windows"]) == len(
+        p2["unconditional_fault_checks"]["decision_windows"]
+    )
+    with pytest.raises(FileExistsError):
+        run_sitl_training(multi_dir, resume=False, **common)
+
+    # T5: <100k decision collapse must trigger STOP_TRIPWIRE_BREACH
+    verdict_collapse = ts.compute_step_b1b_pilot_verdict(
+        runaway_guard_reached=False,
+        updates_completed=1000,
+        total_updates=1000,
+        completed_windows=[],
+        delivered_boost_band_pass=True,
+        non_finite_loss_count=0,
+        non_finite_q_count=0,
+        non_finite_grad_count=0,
+        illegal_action_count=0,
+        tripwire_history=[
+            {
+                "all_pass": True,
+                "decile_tripwire_pass": True,
+                "boost_tripwire_pass": True,
+                "decisive_rescue_bar_pass": True,
+                "all_q_finite": True,
+                "illegal_action_count": 0,
+            }
+        ],
+        tripwire_breached=False,
+        stop_ego2s_bv8_inputs_insufficient=False,
+        overall_max_single_action_share=0.95,
+    )
+    assert verdict_collapse == ts.VERDICT_TRIPWIRE_STOP
+
+    # T6: evaluate_probe_bank_tripwires with b8_boost_share == 0 and student_boost_share > 0
+    # must serialize cleanly under allow_nan=False.
+    net = load_ego2s_checkpoint(str(b8_path), device="cpu")
+    with torch.no_grad():
+        net.adv.bias.copy_(torch.tensor([-10.0, -10.0, -10.0, 50.0, 40.0, 30.0]))
+    zero_boost_bank = {
+        "meta": dict(b_u["meta"]),
+        "ordinary": {
+            **b_u["ordinary"],
+            "bare_action": torch.zeros_like(b_u["ordinary"]["bare_action"]),
+            "legal_mask": torch.ones_like(b_u["ordinary"]["legal_mask"], dtype=torch.bool),
+        },
+        "rescue": b_u["rescue"],
+    }
+    tw_zero = evaluate_probe_bank_tripwires(net, zero_boost_bank, update_step=200, device="cpu")
+    assert tw_zero["boost_tripwire_pass"] is False
+    json.dumps(tw_zero, allow_nan=False)
+
+    # T7 + T10: non-dry-run rejects tampered checkpoint SHA256; hinge loss rejects a_star == -1.
+    tampered_b8 = tmp_path / "tampered_b8.pth"
+    tampered_b8.write_bytes(Path(b8_path).read_bytes() + b"\x00")
+    with pytest.raises(ValueError, match="SHA256|sha256"):
+        harvest_probe32_bank(
+            tmp_path / "bad_sha_pb.pt",
+            b8_checkpoint=tampered_b8,
+            opponent_checkpoint=opp_path,
+            dry_run=False,
+        )
+    with pytest.raises(RuntimeError, match="a_star_action"):
+        compute_sitl_hinge_loss(
+            net,
+            rescue_batch={
+                "local_u8": torch.zeros((1, 7, 31, 31), dtype=torch.uint8),
+                "global_u8": torch.zeros((1, 4, 37, 37), dtype=torch.uint8),
+                "scalars_f32": torch.zeros((1, 60), dtype=torch.float32),
+                "legal_mask": torch.ones((1, 6), dtype=torch.bool),
+                "unsafe_mask": torch.tensor([[True, False, False, False, False, False]]),
+                "a_star_action": torch.tensor([-1], dtype=torch.long),
+            },
+            ordinary_batch={
+                "local_u8": torch.zeros((1, 7, 31, 31), dtype=torch.uint8),
+                "global_u8": torch.zeros((1, 4, 37, 37), dtype=torch.uint8),
+                "scalars_f32": torch.zeros((1, 60), dtype=torch.float32),
+                "legal_mask": torch.ones((1, 6), dtype=torch.bool),
+                "bare_action": torch.tensor([1], dtype=torch.long),
+            },
+        )
