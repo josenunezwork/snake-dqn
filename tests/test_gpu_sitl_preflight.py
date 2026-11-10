@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+from typing import Any
+
 import numpy as np
 
 from research.bl_served_search import ceiling
@@ -440,3 +443,198 @@ def test_registered_rescue_hinge_gradient_check_frozen_value_head() -> None:
     assert report["all_grads_finite"] is True
     assert report["all_non_value_grads_finite_and_nonzero"] is True
     assert report["non_value_zero_param_tensors"] == 0
+
+
+def test_review_preflight_findings_pf1_pf2_pf4_pf5_pf6_pf7_pf8(
+    monkeypatch: Any,
+    tmp_path: Any,
+) -> None:
+    """Regression coverage for confirmed preflight.py findings PF1, PF2, PF4, PF5, PF6, PF7, PF8."""
+    import struct
+    import sys
+    from dataclasses import replace
+
+    import pytest
+
+    import research.gpu_sitl.preflight as preflight_mod
+    from src.core.game_config import get_config, initialize_config
+
+    # PF6: empty-denominator agreement rates must default to 0.0, never 1.0.
+    empty_summary = preflight_mod.summarize_agreement([], [])
+    assert empty_summary["agreement_rate"] == 0.0
+    assert empty_summary["cpu_certified_safe_agreement_rate"] == 0.0
+    assert empty_summary["exact_int_surviving_branches"]["all_three_rate"] == 0.0
+    assert empty_summary["roots_chosen_agreement_rate"] == 0.0
+
+    # PF7: ensure_watch6_v2_game_config must restore min_boost_length, boost_length_cost_frames,
+    # and arena_type even when mechanics_version/num_snakes/input_size already match.
+    preflight_mod.ensure_watch6_v2_game_config()
+    cfg_before = get_config()
+    initialize_config(
+        replace(
+            cfg_before,
+            game=replace(
+                cfg_before.game,
+                min_boost_length=9,
+                boost_length_cost_frames=7,
+                arena_type="circular",
+            ),
+        )
+    )
+    preflight_mod.ensure_watch6_v2_game_config()
+    cfg_after = get_config()
+    assert cfg_after.game.min_boost_length == 5
+    assert cfg_after.game.boost_length_cost_frames == 3
+    assert cfg_after.game.arena_type == "rectangular"
+
+    # PF2 + PF4 + PF8: freeze-cohort, shard bounds, overlapping-shard refusal, CLI --delta,
+    # deterministic gzip mtime=0, and create-only sidecars (.sha256 + .complete).
+    two_specs = (MATURE_EXTENSION_SPECS[0], MATURE_EXTENSION_SPECS[9])
+    monkeypatch.setattr(preflight_mod, "MATURE_EXTENSION_SPECS", two_specs)
+    monkeypatch.setattr(
+        preflight_mod,
+        "EXTENSION_MATURE_WORLD_INDICES",
+        tuple(int(s["world_index"]) for s in two_specs),
+    )
+    monkeypatch.setattr(preflight_mod, "EXT_MIN_SURVIVING_ENCLOSED", 2)
+    monkeypatch.setattr(preflight_mod, "EXT_MIN_NEAR_THRESHOLD_SURVIVING", 1)
+    monkeypatch.setattr(preflight_mod, "EXT_MIN_RESCUE_ROOTS", 2)
+    monkeypatch.setattr(preflight_mod, "EXT_MATCHED_RNG_CERT_AGREE_MIN", 12)
+    monkeypatch.setattr(preflight_mod, "EXT_CROSS_RNG_CERT_AGREE_MIN", 10)
+    monkeypatch.setattr(preflight_mod, "EXT_CROSS_RNG_CHOSEN_AGREE_MIN", 2)
+    monkeypatch.setattr(
+        preflight_mod,
+        "audit_preflight_seeds",
+        lambda: audit_preflight_seeds(index_horizon=64, scan_code_roots=[]),
+    )
+
+    ext_dir = tmp_path / "ext_out"
+    freeze_res = preflight_mod.freeze_mature_cohort_cpu(out_dir=ext_dir, branch_horizon=32)
+    cohort_file = ext_dir / preflight_mod.FROZEN_COHORT_FILENAME
+    assert cohort_file.is_file()
+    assert Path(f"{cohort_file}.sha256").is_file()
+    assert Path(f"{cohort_file}.complete").is_file()
+    assert freeze_res["cohort_sha256"] in Path(f"{cohort_file}.complete").read_text()
+
+    # PF2: re-running freeze_mature_cohort_cpu in same out_dir must raise FileExistsError
+    with pytest.raises(FileExistsError):
+        preflight_mod.freeze_mature_cohort_cpu(out_dir=ext_dir, branch_horizon=32)
+
+    # PF8: invalid shard_start / shard_end bounds must raise ValueError
+    with pytest.raises(ValueError):
+        preflight_mod.run_extension_shard(
+            out_dir=ext_dir, shard_start=1, shard_end=1, branch_horizon=32
+        )
+    with pytest.raises(ValueError):
+        preflight_mod.run_extension_shard(
+            out_dir=ext_dir, shard_start=0, shard_end=99, branch_horizon=32
+        )
+
+    s0 = preflight_mod.run_extension_shard(
+        out_dir=ext_dir, shard_start=0, shard_end=1, branch_horizon=32
+    )
+    preflight_mod.run_extension_shard(
+        out_dir=ext_dir, shard_start=1, shard_end=2, branch_horizon=32
+    )
+
+    # PF4: duplicate/overlapping shard file in _shards must be refused by finalize
+    dup_shard = ext_dir / "_shards" / "shard_00_02.json"
+    dup_shard.write_text(Path(s0["shard_path"]).read_text(encoding="utf-8"), encoding="utf-8")
+    with pytest.raises(RuntimeError, match="shard|contiguous|Expected"):
+        preflight_mod.finalize_extension_preflight(out_dir=ext_dir)
+    dup_shard.unlink()
+
+    # PF4: main() --mode ext-finalize must forward --delta and write create-only deterministic gzip
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "preflight.py",
+            "--mode",
+            "ext-finalize",
+            "--out-dir",
+            str(ext_dir),
+            "--delta",
+            "0.1234",
+        ],
+    )
+    rc_ext = preflight_mod.main()
+    assert rc_ext == 0
+    ext_sum_path = ext_dir / "gpu_sitl_preflight_ext_summary_20261109.json"
+    ext_gz_path = ext_dir / "gpu_sitl_preflight_ext_certificates_20261109.json.gz"
+    assert Path(f"{ext_sum_path}.sha256").is_file()
+    assert Path(f"{ext_sum_path}.complete").is_file()
+    assert Path(f"{ext_gz_path}.sha256").is_file()
+    assert Path(f"{ext_gz_path}.complete").is_file()
+    # Gzip header bytes 4..8 store 32-bit little-endian mtime; deterministic gzip sets mtime=0
+    assert struct.unpack("<I", ext_gz_path.read_bytes()[4:8])[0] == 0
+    import json
+
+    ext_sum = json.loads(ext_sum_path.read_text(encoding="utf-8"))
+    assert abs(float(ext_sum["gradient_check"]["delta"]) - 0.1234) < 1e-6
+
+    with pytest.raises(FileExistsError):
+        preflight_mod.finalize_extension_preflight(out_dir=ext_dir)
+
+    # PF1 + PF5: run_preflight must not call inject_serpentines with [3,3,3,3,3,3] on natural4,
+    # must enforce long_hero min(hero_length) >= 800, and main() must return non-zero on FAIL.
+    seen_serp_lengths: list[list[int]] = []
+    orig_inject = preflight_mod.inject_serpentines
+
+    def _spy_inject(sims: Any, lengths: Any, **kwargs: Any) -> Any:
+        seen_serp_lengths.append([int(x) for x in lengths])
+        return orig_inject(sims, lengths, **kwargs)
+
+    monkeypatch.setattr(preflight_mod, "inject_serpentines", _spy_inject)
+    b1a_dir = tmp_path / "b1a_pass"
+    b1a_sum = preflight_mod.run_preflight(
+        out_dir=b1a_dir,
+        natural_ticks=1,
+        long_hero_ticks=1,
+        branch_horizon=2,
+        device="cpu",
+    )
+    assert [3, 3, 3, 3, 3, 3] not in seen_serp_lengths
+    assert b1a_sum["verdict"] == "PASS"
+    assert b1a_sum["bar_checks"]["long_hero_min_length_ge_800"] is True
+    assert b1a_sum["bar_checks"]["wavefront_24certs_exact_agree"] is True
+    b1a_gz = b1a_dir / "gpu_sitl_preflight_certificates_20261109.json.gz"
+    assert Path(f"{b1a_gz}.complete").is_file()
+    assert struct.unpack("<I", b1a_gz.read_bytes()[4:8])[0] == 0
+
+    # PF5 + PF1: if long-hero length drops below 800, verdict must be FAIL and main() returns 1
+    monkeypatch.setattr(
+        preflight_mod,
+        "LONG_HERO_LENGTH_PROFILES",
+        (
+            [120, 64, 48, 32, 24, 16],
+            [840, 72, 56, 40, 28, 20],
+            [900, 80, 64, 48, 32, 24],
+            [960, 96, 72, 56, 40, 28],
+        ),
+    )
+    b1a_fail_dir = tmp_path / "b1a_fail"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "preflight.py",
+            "--mode",
+            "b1a",
+            "--out-dir",
+            str(b1a_fail_dir),
+            "--natural-ticks",
+            "1",
+            "--long-hero-ticks",
+            "1",
+            "--branch-horizon",
+            "1",
+        ],
+    )
+    rc_fail = preflight_mod.main()
+    assert rc_fail == 1
+    fail_sum = json.loads(
+        (b1a_fail_dir / "gpu_sitl_preflight_summary_20261109.json").read_text(encoding="utf-8")
+    )
+    assert fail_sum["verdict"] == "FAIL"
+    assert fail_sum["bar_checks"]["long_hero_min_length_ge_800"] is False

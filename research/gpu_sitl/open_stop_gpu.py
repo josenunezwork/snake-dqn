@@ -1290,7 +1290,6 @@ def _batched_open_stop_h32_impl(
         openness_by_branch: dict[int, dict[str, Any]] = {}
         active_idx_cpu = active_idx.detach().cpu().tolist()
         if active_idx_cpu:
-            op_alive = openness_local["alive"].detach().cpu().tolist()
             op_len = openness_local["length"].detach().cpu().tolist()
             op_adv = openness_local["advisory_any"].detach().cpu().tolist()
             op_need = openness_local["v8_need"].detach().cpu().tolist()
@@ -1301,7 +1300,6 @@ def _batched_open_stop_h32_impl(
             op_unenc = openness_local["un_enclosed"].detach().cpu().tolist()
             for local_i, b_idx in enumerate(active_idx_cpu):
                 openness_by_branch[int(b_idx)] = {
-                    "alive": bool(op_alive[local_i]),
                     "length": int(op_len[local_i]),
                     "advisory_any": bool(op_adv[local_i]),
                     "v8_need": int(op_need[local_i]),
