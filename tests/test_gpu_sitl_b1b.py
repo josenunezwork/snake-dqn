@@ -4795,3 +4795,126 @@ def test_b1b_smoke_partial_phase_files_timeout_evidence_and_pilot_rejection(
             mode="pilot",
             smoke_result_json=disguised,
         )
+
+
+def test_shakeout_smoke_wall_time_projection_and_700s_gate(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify shakeout predictive scale in job.sh, per-phase projection math, and >700s failure."""
+    from research.gpu_sitl import smoke as smoke_mod
+    from research.gpu_sitl.prepare import ROOT
+
+    job_sh_text = (ROOT / "research" / "gpu_sitl" / "job.sh").read_text(encoding="utf-8")
+    shake_section = job_sh_text.split('elif [ "$MODE" = "shakeout" ]; then', 1)[1].split(
+        'elif [ "$MODE" = "pilot" ]; then', 1
+    )[0]
+    for expected_flag in (
+        "--enforce-projection-gate",
+        "--num-envs 256",
+        "--branch-horizon 32",
+        "--mature-warmup-steps 60",
+        "--bench-env-steps 8",
+        "--bench-label-batches 8",
+        "--probe-sample-roots 8",
+        "--bench-learner-updates 5",
+    ):
+        assert expected_flag in shake_section, f"Missing {expected_flag} in job.sh shakeout"
+
+    # 1. Exact per-phase scale_ratio and L4 -> A100 estimate math at E=256, H=32
+    synthetic_l4_sub = {
+        "device": "cuda:0",
+        "effective_build_cuda_arch": "8.9",
+        "parity_check": {
+            "num_roots": 8,
+            "subphase_timings_sec": {
+                "parity_1_v8_flood_sec": 0.4,
+                "parity_2_components_sec": 0.2,
+                "parity_3_vector_runtime_sec": 0.4,
+                "parity_4_open_stop_h32_sec": 24.0,
+            },
+        },
+        "throughput": {
+            "num_envs": 256,
+            "branch_horizon": 32,
+            "mature_warmup_steps": 60,
+            "bench_env_steps": 8,
+            "bench_label_batches": 8,
+            "probe_sample_roots": 8,
+            "bench_learner_updates": 5,
+        },
+        "phase_timings_sec": {
+            "init_and_extensions_sec": 0.2,
+            "mature_extension_build_sec": 3.0,
+            "parity_check_sec": 25.5,
+            "bundle_and_bench_warmup_sec": 5.0,
+            "mature_warmup_and_splice_sec": 4.0,
+            "env_benchmark_sec": 0.6,
+            "label_benchmark_sec": 18.0,
+            "buffer_insertion_sec": 0.5,
+            "probe_scoring_benchmark_sec": 2.5,
+            "learner_benchmark_sec": 0.8,
+            "write_outputs_sec": 0.5,
+        },
+    }
+    proj_ok = smoke_mod.compute_smoke_wall_time_projection(
+        synthetic_l4_sub,
+        cold_init_elapsed_sec=70.0,
+        target_a100_limit_sec=700.0,
+    )
+    out_text = capsys.readouterr().out
+    assert "[shakeout.projection] SUMMARY" in out_text
+    assert "(ESTIMATE)" in out_text
+    assert proj_ok["is_estimate"] is True
+    assert "ESTIMATE" in proj_ok["l4_to_a100_factor_derivation"]
+    assert proj_ok["within_a100_limit"] is True
+    assert proj_ok["a100_total_projected_sec_estimate"] < 300.0
+
+    by_p = {row["phase"]: row for row in proj_ok["phases"]}
+    assert by_p["init_and_extensions"]["measured_sec"] == pytest.approx(70.0)
+    assert by_p["init_and_extensions"]["scale_ratio"] == pytest.approx(1.0)
+    assert by_p["mature_warmup_and_splice"]["scale_ratio"] == pytest.approx(10.0)
+    assert by_p["bench_1_env_steps"]["scale_ratio"] == pytest.approx(4.0)
+    assert by_p["bench_2_label_batches_and_rescue_rate"]["scale_ratio"] == pytest.approx(8.0)
+    assert by_p["bench_3_probe32_scoring_suffixes"]["scale_ratio"] == pytest.approx(8.0)
+    assert by_p["bench_4_learner_updates"]["scale_ratio"] == pytest.approx(4.0)
+
+    # 2. End-to-end CLI --shakeout --enforce-projection-gate fails closed when A100 proj > 700s
+    b8_path, opp_path = resolve_product_checkpoints()
+    orig_proj_fn = smoke_mod.compute_smoke_wall_time_projection
+
+    def _slow_projection(sub_res: dict[str, Any], **kw: Any) -> dict[str, Any]:
+        inflated = dict(sub_res)
+        inflated["phase_timings_sec"] = {
+            **dict(sub_res["phase_timings_sec"]),
+            "label_benchmark_sec": 200.0,
+        }
+        return orig_proj_fn(inflated, **kw)
+
+    monkeypatch.setattr(smoke_mod, "compute_smoke_wall_time_projection", _slow_projection)
+    out_slow = tmp_path / "shakeout_exceeds_700s"
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "smoke.py",
+            "--shakeout",
+            "--enforce-projection-gate",
+            "--device",
+            "cpu",
+            "--output-dir",
+            str(out_slow),
+            "--b8-checkpoint",
+            str(b8_path),
+            "--opponent-checkpoint",
+            str(opp_path),
+        ],
+    )
+    rc = smoke_mod.main()
+    assert rc == 1
+    saved_shake = json.loads((out_slow / "shakeout_result.json").read_text(encoding="utf-8"))
+    assert saved_shake["ok"] is False
+    assert saved_shake["verdict"] == "SHAKEOUT_FAIL_NOT_EVIDENCE"
+    assert saved_shake["failed_phases"] == ["phase_4_b1b_smoke_reduced"]
+    assert saved_shake["smoke_wall_time_projection"]["within_a100_limit"] is False
+    assert saved_shake["smoke_wall_time_projection"]["a100_total_projected_sec_estimate"] > 700.0

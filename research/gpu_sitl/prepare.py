@@ -580,7 +580,7 @@ def prepare_b1b_packet(
     reg_sha = hashlib.sha256(reg_bytes).hexdigest()
 
     if mode == "shakeout":
-        seed_audit = audit_shakeout_seeds(smoke_envs=4, probe_worlds=2, train_envs=4)
+        seed_audit = audit_shakeout_seeds(smoke_envs=256, probe_worlds=2, train_envs=256)
         if not bool(seed_audit["ok"]):
             raise RuntimeError(f"Step B1b shake-out seed audit failed: {seed_audit}")
     else:

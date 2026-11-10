@@ -21,15 +21,18 @@ if [ "$MODE" = "smoke" ]; then
 elif [ "$MODE" = "shakeout" ]; then
   exec nice -n 15 python -m research.gpu_sitl.smoke \
     --shakeout \
+    --enforce-projection-gate \
     --output-dir "$COLAB_CLI_ROOT/output" \
     --b8-checkpoint "$COLAB_INPUT_DIR/b8-s3.pth" \
     --opponent-checkpoint "$COLAB_INPUT_DIR/frp3-s12.pth" \
     --device cuda \
-    --num-envs 4 \
-    --branch-horizon 2 \
-    --bench-env-steps 1 \
-    --bench-label-batches 1 \
-    --bench-learner-updates 2
+    --num-envs 256 \
+    --branch-horizon 32 \
+    --mature-warmup-steps 60 \
+    --bench-env-steps 8 \
+    --bench-label-batches 8 \
+    --probe-sample-roots 8 \
+    --bench-learner-updates 5
 elif [ "$MODE" = "pilot" ]; then
   EXTRA_ARGS=(--input-dir "$COLAB_INPUT_DIR")
   if [ -f "$COLAB_CLI_ROOT/inputs/verified-ledger.json" ]; then

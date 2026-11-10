@@ -124,6 +124,26 @@ REGISTERED_ALIVE_HERO_FRAC_ESTIMATE = 0.95
 REGISTERED_A100_CALIBRATED_RATE_UPH = 6.73
 REGISTERED_A100_BROKER_CEILING_RATE_UPH = 8.00
 
+# Target ceiling for projected A100 Step B1b-Smoke wall time (leaves >= 380 s headroom inside
+# the ~1,080 s remaining after ~200 s Colab session setup under the 22.5 min = 1,350 s timeout).
+SMOKE_A100_PROJECTION_LIMIT_SEC = 700.0
+
+# ESTIMATED L4 -> A100 wall-time multipliers (marked explicitly as estimates, never exact truth):
+# - Host/CPU phases (`init_and_extensions`, `build_mature_extension_worlds`, `write_outputs`):
+#   1.00 (ESTIMATE) — Colab L4 and A100 runtimes both expose 12 Intel Xeon vCPUs at comparable
+#   single-core clock/IPC (`AGENTS.md` "Right tool first").
+# - GPU-resident phases (`CTDeviceSim`, `flood_cuda.static_capped`, `vector_geometry`, `Ego2sNet`):
+#   0.55 (ESTIMATE, ~1.82x speedup on A100 vs L4) — A100-SXM4-40GB provides 1,555 GB/s HBM2e vs
+#   L4 300 GB/s GDDR6 (5.18x bandwidth; 0.19x time if purely bandwidth-bound) and 108 vs 58 SMs
+#   (1.86x SM count; 0.54x time on per-(row,dir) flood/vector blocks), tempered by non-TF32 FP32
+#   ALU parity and fixed host Python/launch floor.
+# - Mixed CPU+GPU `parity_4_open_stop_h32`: 0.85 (ESTIMATE: ~70% single-vCPU `cert_ref` at 1.00 +
+#   ~30% GPU `cert_cand` at ~0.50).
+ESTIMATED_L4_TO_A100_CPU_FACTOR = 1.00
+ESTIMATED_L4_TO_A100_GPU_FACTOR = 0.55
+ESTIMATED_L4_TO_A100_PARITY4_FACTOR = 0.85
+ESTIMATED_H100_TO_A100_GPU_FACTOR = 1.35
+
 
 def wilson_rate_ci95(successes: int, trials: int) -> tuple[float, float]:
     """Return 95% Wilson score confidence interval ``(low, high)`` for ``successes / trials``."""
@@ -1801,6 +1821,8 @@ def run_step_b1b_smoke(
                 write_complete_marker=True,
             )
 
+    write_outputs_elapsed = max(0.0, time.perf_counter() - t_out_phase)
+    result_payload["phase_timings_sec"]["write_outputs_sec"] = float(write_outputs_elapsed)
     _log_smoke_phase(
         "PHASE_END",
         "write_outputs",
@@ -1811,28 +1833,216 @@ def run_step_b1b_smoke(
     return result_payload
 
 
+def compute_smoke_wall_time_projection(
+    smoke_subresult: dict[str, Any],
+    *,
+    cold_init_elapsed_sec: float | None = None,
+    target_a100_limit_sec: float = SMOKE_A100_PROJECTION_LIMIT_SEC,
+) -> dict[str, Any]:
+    """Project full registered Step B1b-Smoke wall time per phase from a shake-out subresult.
+
+    For each phase ``i``:
+    - ``same_hw_projected_sec = measured_sec * scale_ratio``
+    - ``a100_projected_sec_estimate = same_hw_projected_sec * a100_hw_factor_estimate``
+
+    The ``L4 -> A100`` conversion multiplier is an explicit hardware **ESTIMATE** (``0.55`` for
+    GPU-resident phases from 108 vs 58 SMs and 1,555 vs 300 GB/s HBM2e/GDDR6 tempered by host
+    launch overhead; ``0.85`` for mixed CPU+GPU ``parity_4_open_stop_h32``; ``1.00`` for host CPU
+    compile/build phases on 12-vCPU Colab VMs).
+    """
+    tp = dict(smoke_subresult.get("throughput") or {})
+    timings = dict(smoke_subresult.get("phase_timings_sec") or {})
+    parity = dict(smoke_subresult.get("parity_check") or {})
+    sub_par = dict(parity.get("subphase_timings_sec") or {})
+
+    n_envs = max(1, int(tp.get("num_envs", REGISTERED_ENVS)))
+    b_hor = max(1, int(tp.get("branch_horizon", OPEN_STOP_BRANCH_HORIZON)))
+    n_par_roots = max(1, int(parity.get("num_roots", len(DEFAULT_MATURE_SLICE_INDICES))))
+    n_warm_steps = int(tp.get("mature_warmup_steps", 0))
+    n_env_steps = max(1, int(tp.get("bench_env_steps", 32)))
+    n_lbl_batches = max(1, int(tp.get("bench_label_batches", DEFAULT_CUDA_BENCH_LABEL_BATCHES)))
+    n_probe_roots = max(1, int(tp.get("probe_sample_roots", 64)))
+    n_upd = max(1, int(tp.get("bench_learner_updates", 20)))
+
+    env_scale = float(REGISTERED_ENVS) / float(n_envs)
+    hor_scale = float(OPEN_STOP_BRANCH_HORIZON) / float(b_hor)
+    shape_scale = env_scale * hor_scale
+    par_roots_scale = float(len(DEFAULT_MATURE_SLICE_INDICES)) / float(n_par_roots)
+
+    src_dev = str(smoke_subresult.get("device", "cpu"))
+    eff_arch = str(smoke_subresult.get("effective_build_cuda_arch") or "")
+    if eff_arch == "8.0":
+        cpu_factor = 1.00
+        gpu_factor = 1.00
+        par4_factor = 1.00
+        factor_source = "direct_a100_sm80_measurement (factor=1.00)"
+    elif eff_arch == "9.0":
+        cpu_factor = 1.00
+        gpu_factor = float(ESTIMATED_H100_TO_A100_GPU_FACTOR)
+        par4_factor = 1.10
+        factor_source = "ESTIMATE: H100 sm_90 -> A100 sm_80 (gpu=1.35x, parity_4=1.10x, cpu=1.00x)"
+    else:
+        cpu_factor = float(ESTIMATED_L4_TO_A100_CPU_FACTOR)
+        gpu_factor = float(ESTIMATED_L4_TO_A100_GPU_FACTOR)
+        par4_factor = float(ESTIMATED_L4_TO_A100_PARITY4_FACTOR)
+        factor_source = (
+            "ESTIMATE: L4 sm_89 -> A100 sm_80 derived from 108 vs 58 SMs (1.86x), "
+            "1,555 vs 300 GB/s HBM2e/GDDR6 (5.18x), and 12-vCPU parity "
+            f"(gpu={gpu_factor:.2f}x, parity_4={par4_factor:.2f}x, cpu={cpu_factor:.2f}x)"
+        )
+
+    init_meas = float(timings.get("init_and_extensions_sec", 0.0))
+    if cold_init_elapsed_sec is not None:
+        init_meas = max(init_meas, float(cold_init_elapsed_sec))
+
+    p1_meas = float(sub_par.get("parity_1_v8_flood_sec", 0.0))
+    p2_meas = float(sub_par.get("parity_2_components_sec", 0.0))
+    p3_meas = float(sub_par.get("parity_3_vector_runtime_sec", 0.0))
+    p4_meas = float(sub_par.get("parity_4_open_stop_h32_sec", 0.0))
+    par_total_meas = float(timings.get("parity_check_sec", p1_meas + p2_meas + p3_meas + p4_meas))
+    par_setup_meas = max(0.0, par_total_meas - (p1_meas + p2_meas + p3_meas + p4_meas))
+
+    warm_scale = (
+        (float(DEFAULT_CUDA_MATURE_WARMUP_STEPS) / float(n_warm_steps)) * env_scale
+        if n_warm_steps > 0
+        else float(DEFAULT_CUDA_MATURE_WARMUP_STEPS) / float(n_env_steps) * env_scale
+    )
+    warm_meas = (
+        float(timings.get("mature_warmup_and_splice_sec", 0.0))
+        if n_warm_steps > 0
+        else float(timings.get("env_benchmark_sec", 0.0))
+    )
+
+    b2_meas = float(timings.get("label_benchmark_sec", 0.0)) + float(
+        timings.get("buffer_insertion_sec", 0.0)
+    )
+    write_meas = float(timings.get("write_outputs_sec", 0.5))
+
+    phase_specs: list[tuple[str, float, float, float]] = [
+        ("init_and_extensions", init_meas, 1.0, cpu_factor),
+        (
+            "build_mature_extension_worlds",
+            float(timings.get("mature_extension_build_sec", 0.0)),
+            par_roots_scale,
+            cpu_factor,
+        ),
+        ("parity_setup_and_snapshots", par_setup_meas, par_roots_scale, cpu_factor),
+        ("parity_1_v8_flood", p1_meas, par_roots_scale, gpu_factor),
+        ("parity_2_components", p2_meas, par_roots_scale, gpu_factor),
+        ("parity_3_vector_runtime", p3_meas, par_roots_scale, gpu_factor),
+        ("parity_4_open_stop_h32", p4_meas, par_roots_scale * hor_scale, par4_factor),
+        (
+            "bundle_and_bench_warmup",
+            float(timings.get("bundle_and_bench_warmup_sec", 0.0)),
+            shape_scale,
+            gpu_factor,
+        ),
+        ("mature_warmup_and_splice", warm_meas, warm_scale, gpu_factor),
+        (
+            "bench_1_env_steps",
+            float(timings.get("env_benchmark_sec", 0.0)),
+            (32.0 / float(n_env_steps)) * env_scale,
+            gpu_factor,
+        ),
+        (
+            "bench_2_label_batches_and_rescue_rate",
+            b2_meas,
+            (float(DEFAULT_CUDA_BENCH_LABEL_BATCHES) / float(n_lbl_batches)) * shape_scale,
+            gpu_factor,
+        ),
+        (
+            "bench_3_probe32_scoring_suffixes",
+            float(timings.get("probe_scoring_benchmark_sec", 0.0)),
+            (64.0 / float(n_probe_roots)) * hor_scale,
+            gpu_factor,
+        ),
+        (
+            "bench_4_learner_updates",
+            float(timings.get("learner_benchmark_sec", 0.0)),
+            20.0 / float(n_upd),
+            gpu_factor,
+        ),
+        ("write_outputs", write_meas, 1.0, cpu_factor),
+    ]
+
+    per_phase: list[dict[str, Any]] = []
+    same_hw_total = 0.0
+    a100_total_est = 0.0
+    for p_name, meas_s, s_ratio, hw_fac in phase_specs:
+        same_hw_s = float(meas_s) * float(s_ratio)
+        a100_s = same_hw_s * float(hw_fac)
+        same_hw_total += same_hw_s
+        a100_total_est += a100_s
+        per_phase.append(
+            {
+                "phase": p_name,
+                "measured_sec": float(meas_s),
+                "scale_ratio": float(s_ratio),
+                "same_hw_projected_sec": float(same_hw_s),
+                "a100_hw_factor_estimate": float(hw_fac),
+                "a100_projected_sec_estimate": float(a100_s),
+                "is_estimate": True,
+            }
+        )
+        print(
+            f"[shakeout.projection] phase={p_name} measured_s={meas_s:.2f} "
+            f"scale_ratio={s_ratio:.2f}x same_hw_projected_s={same_hw_s:.2f} "
+            f"a100_hw_factor_est={hw_fac:.2f} (ESTIMATE) "
+            f"a100_projected_s={a100_s:.2f} (ESTIMATE)",
+            flush=True,
+        )
+
+    within_limit = bool(a100_total_est <= float(target_a100_limit_sec))
+    print(
+        f"[shakeout.projection] SUMMARY source_device={src_dev} source_arch={eff_arch or 'cpu'} "
+        f"same_hw_total_projected_s={same_hw_total:.2f} "
+        f"a100_total_projected_s={a100_total_est:.2f} (ESTIMATE) "
+        f"limit_s={float(target_a100_limit_sec):.2f} "
+        f"status={'PASS' if within_limit else 'FAIL'}",
+        flush=True,
+    )
+    return {
+        "schema": "t34-gpu-sitl-smoke-wall-projection/v1",
+        "is_estimate": True,
+        "source_device": src_dev,
+        "source_effective_cuda_arch": eff_arch or None,
+        "l4_to_a100_factor_derivation": factor_source,
+        "target_a100_limit_sec": float(target_a100_limit_sec),
+        "same_hw_total_projected_sec": float(same_hw_total),
+        "a100_total_projected_sec_estimate": float(a100_total_est),
+        "within_a100_limit": within_limit,
+        "phases": per_phase,
+    }
+
+
 def run_cuda_shakeout(
     output_dir: Path | str,
     *,
     b8_checkpoint: Path | str | None = None,
     opponent_checkpoint: Path | str | None = None,
     device: str | torch.device = "cuda",
-    num_envs: int = 4,
-    branch_horizon: int = 2,
-    parity_slice_indices: Sequence[int] = (0, 8),
-    bench_env_steps: int = 1,
-    bench_label_batches: int = 1,
-    bench_learner_updates: int = 2,
+    num_envs: int | None = None,
+    branch_horizon: int | None = None,
+    parity_slice_indices: Sequence[int] | None = None,
+    mature_warmup_steps: int | None = None,
+    bench_env_steps: int | None = None,
+    bench_label_batches: int | None = None,
+    probe_sample_roots: int | None = None,
+    bench_learner_updates: int | None = None,
     probe_worlds: int = 2,
     probe_horizon: int = 4,
     train_total_updates: int = 2,
     train_stop_after_updates: int = 1,
     seed: int = 20261110,
     require_cuda: bool = False,
+    enforce_projection_gate: bool | None = None,
+    target_a100_limit_sec: float = SMOKE_A100_PROJECTION_LIMIT_SEC,
 ) -> dict[str, Any]:
-    """Run the cheap L4/CUDA shake-out across all GPU SITL phases at tiny size.
+    """Run the dev-only L4/CUDA shake-out across all GPU SITL phases at predictive smoke scale.
 
-    Exercises on real CUDA (and on CPU/MPS in local tests):
+    Exercises on real CUDA (at full ``E = 256, H = 32`` smoke batch shape with scaled iteration
+    counts so phase timings linearly predict ``Step B1b-Smoke``; and at tiny size on CPU/MPS in
+    local unit tests):
     1. CUDA initialization and caching-allocator statistics before any kernel launch
        (`torch.cuda.reset_peak_memory_stats`, `max_memory_allocated`, `max_memory_reserved`,
        `synchronize`, `get_rng_state_all`).
@@ -1841,9 +2051,8 @@ def run_cuda_shakeout(
     3. Dev-only seed isolation audit (never reading or scoring
        `t34-gpu-sitl-selectivity-20261109-v1`, `t34-gpu-sitl-screen-20261109-v1`,
        `t34-gpu-sitl-probe32-20261109-v1`, or `t34-gpu-sitl-train-20261109-v1`).
-    4. Full `run_step_b1b_smoke` code path at reduced configuration (row-subset parity, mature
-       cohort splice with length `>= 80` snakes exercising the flood cap of `160`, env benchmark,
-       label benchmark, probe-suffix benchmark, learner benchmark, runaway guard, export writing).
+    4. Full `run_step_b1b_smoke` code path at predictive scale + per-phase A100 wall-time
+       projection (fails closed if projected A100 smoke wall time exceeds `700.0 s`).
     5. Tiny dev-seed probe-bank harvest and namespace-isolation refusal check.
     6. Tiny dev-seed `run_sitl_training` including tripwire evaluation, checkpoint save, and
        verified-ledger resume from that checkpoint.
@@ -1904,7 +2113,62 @@ def run_cuda_shakeout(
             return rec
 
     resolved_dev_holder: dict[str, torch.device] = {"dev": torch.device("cpu")}
-    ext_info_holder: dict[str, dict[str, Any]] = {"info": {}}
+    ext_info_holder: dict[str, Any] = {"info": {}, "cold_init_elapsed_sec": 0.0}
+    projection_holder: dict[str, dict[str, Any] | None] = {"projection": None}
+
+    def _effective_shakeout_knobs() -> dict[str, Any]:
+        dev_now = resolved_dev_holder["dev"]
+        is_cuda_dev = dev_now.type == "cuda"
+        e_val = int(num_envs) if num_envs is not None else (REGISTERED_ENVS if is_cuda_dev else 4)
+        h_val = (
+            int(branch_horizon)
+            if branch_horizon is not None
+            else (OPEN_STOP_BRANCH_HORIZON if is_cuda_dev else 2)
+        )
+        p_slice = (
+            tuple(int(i) for i in parity_slice_indices)
+            if parity_slice_indices is not None
+            else (DEFAULT_MATURE_SLICE_INDICES if is_cuda_dev else (0, 8))
+        )
+        warm_val = (
+            int(mature_warmup_steps)
+            if mature_warmup_steps is not None
+            else (60 if is_cuda_dev else 2)
+        )
+        env_steps_val = (
+            int(bench_env_steps) if bench_env_steps is not None else (8 if is_cuda_dev else 1)
+        )
+        lbl_batches_val = (
+            int(bench_label_batches)
+            if bench_label_batches is not None
+            else (8 if is_cuda_dev else 1)
+        )
+        probe_roots_val = (
+            int(probe_sample_roots) if probe_sample_roots is not None else (8 if is_cuda_dev else 1)
+        )
+        upd_val = (
+            int(bench_learner_updates)
+            if bench_learner_updates is not None
+            else (5 if is_cuda_dev else 2)
+        )
+        gate_val = (
+            bool(enforce_projection_gate)
+            if enforce_projection_gate is not None
+            else bool(is_cuda_dev)
+        )
+        return {
+            "num_envs": e_val,
+            "branch_horizon": h_val,
+            "parity_slice_indices": p_slice,
+            "mature_warmup_steps": warm_val,
+            "bench_env_steps": env_steps_val,
+            "bench_label_batches": lbl_batches_val,
+            "probe_sample_roots": probe_roots_val,
+            "bench_learner_updates": upd_val,
+            "train_num_envs": min(e_val, 16),
+            "train_branch_horizon": min(h_val, 8),
+            "enforce_projection_gate": gate_val,
+        }
 
     def _phase_1_cuda_init() -> dict[str, Any]:
         dev = ensure_cuda_initialized(device)
@@ -1958,8 +2222,12 @@ def run_cuda_shakeout(
                 f"TORCH_CUDA_ARCH_LIST={raw_arch!r} is missing required architectures "
                 f"{missing_archs} (must include 8.0 A100, 8.9 L4, 9.0 H100)"
             )
+        t_ext0 = time.perf_counter()
         ext_info = verify_cuda_native_extensions(dev)
+        ext_elapsed = max(0.0, time.perf_counter() - t_ext0)
+        p1_elapsed = float(phase_reports[0]["elapsed_sec"]) if phase_reports else 0.0
         ext_info_holder["info"] = ext_info
+        ext_info_holder["cold_init_elapsed_sec"] = p1_elapsed + ext_elapsed
         if dev.type == "cuda":
             return {
                 "torch_cuda_arch_list": raw_arch,
@@ -1981,10 +2249,11 @@ def run_cuda_shakeout(
         }
 
     def _phase_3_seed_isolation() -> dict[str, Any]:
+        knobs = _effective_shakeout_knobs()
         audit = audit_shakeout_seeds(
-            smoke_envs=int(num_envs),
+            smoke_envs=int(knobs["num_envs"]),
             probe_worlds=int(probe_worlds),
-            train_envs=int(num_envs),
+            train_envs=int(knobs["num_envs"]),
         )
         if not bool(audit["ok"]):
             raise RuntimeError(f"Shake-out seed isolation audit failed: {audit}")
@@ -2009,18 +2278,21 @@ def run_cuda_shakeout(
 
         def _phase_4_b1b_smoke_reduced() -> dict[str, Any]:
             dev = resolved_dev_holder["dev"]
+            knobs = _effective_shakeout_knobs()
             smoke_sub_dir = work_dir / "smoke_subphase"
             smoke_res = run_step_b1b_smoke(
                 smoke_sub_dir,
                 b8_checkpoint=b8_path,
                 opponent_checkpoint=opp_path,
                 device=dev,
-                num_envs=int(num_envs),
-                branch_horizon=int(branch_horizon),
-                parity_slice_indices=parity_slice_indices,
-                bench_env_steps=int(bench_env_steps),
-                bench_label_batches=int(bench_label_batches),
-                bench_learner_updates=int(bench_learner_updates),
+                num_envs=int(knobs["num_envs"]),
+                branch_horizon=int(knobs["branch_horizon"]),
+                parity_slice_indices=knobs["parity_slice_indices"],
+                bench_env_steps=int(knobs["bench_env_steps"]),
+                bench_label_batches=int(knobs["bench_label_batches"]),
+                bench_learner_updates=int(knobs["bench_learner_updates"]),
+                mature_warmup_steps_override=int(knobs["mature_warmup_steps"]),
+                probe_sample_roots_override=int(knobs["probe_sample_roots"]),
                 seed=int(seed),
                 dry_run=True,
                 shakeout=True,
@@ -2045,6 +2317,20 @@ def run_cuda_shakeout(
                 raise RuntimeError("Sub-smoke result missing not_evidence=True")
             if (smoke_sub_dir / "smoke_result.json").exists():
                 raise RuntimeError("Shake-out must never write smoke_result.json")
+
+            projection = compute_smoke_wall_time_projection(
+                smoke_res,
+                cold_init_elapsed_sec=float(ext_info_holder.get("cold_init_elapsed_sec", 0.0)),
+                target_a100_limit_sec=float(target_a100_limit_sec),
+            )
+            projection_holder["projection"] = projection
+            if bool(knobs["enforce_projection_gate"]) and not bool(projection["within_a100_limit"]):
+                raise RuntimeError(
+                    f"Shake-out projected A100 smoke wall time "
+                    f"{projection['a100_total_projected_sec_estimate']:.2f}s (ESTIMATE) "
+                    f"exceeds limit {projection['target_a100_limit_sec']:.2f}s"
+                )
+
             return {
                 "schema": smoke_res["schema"],
                 "train_namespace": smoke_res["train_namespace"],
@@ -2061,11 +2347,13 @@ def run_cuda_shakeout(
                 "runaway_guard_timeout_minutes_2x": int(
                     smoke_res["pilot_runaway_guard"]["runaway_guard_timeout_minutes_2x"]
                 ),
+                "smoke_wall_time_projection": projection,
                 "subresult_json_sha256": smoke_res["result_json_sha256"],
             }
 
         def _phase_5_tiny_probe_harvest() -> dict[str, Any]:
             dev = resolved_dev_holder["dev"]
+            knobs = _effective_shakeout_knobs()
             probe_sub_dir = work_dir / "probe_subphase"
             probe_pt = probe_sub_dir / "shakeout_probe_bank.pt"
             meta = harvest_probe32_bank(
@@ -2075,9 +2363,9 @@ def run_cuda_shakeout(
                 device=dev,
                 num_worlds=int(probe_worlds),
                 horizon=int(probe_horizon),
-                branch_horizon=int(branch_horizon),
+                branch_horizon=int(knobs["train_branch_horizon"]),
                 ordinary_per_world=3,
-                harvest_batch_roots=max(2, int(num_envs)),
+                harvest_batch_roots=max(2, int(knobs["train_num_envs"])),
                 dry_run=True,
                 shakeout=True,
             )
@@ -2117,6 +2405,9 @@ def run_cuda_shakeout(
 
         def _phase_6_tiny_sitl_training_and_resume() -> dict[str, Any]:
             dev = resolved_dev_holder["dev"]
+            knobs = _effective_shakeout_knobs()
+            t_envs = int(knobs["train_num_envs"])
+            t_bhor = int(knobs["train_branch_horizon"])
             probe_pt = harvested_probe_path_holder["path"]
             if probe_pt is None or not probe_pt.exists():
                 probe_fallback_dir = work_dir / "probe_fallback"
@@ -2128,9 +2419,9 @@ def run_cuda_shakeout(
                     device=dev,
                     num_worlds=int(probe_worlds),
                     horizon=max(4, int(probe_horizon)),
-                    branch_horizon=int(branch_horizon),
+                    branch_horizon=t_bhor,
                     ordinary_per_world=3,
-                    harvest_batch_roots=max(2, int(num_envs)),
+                    harvest_batch_roots=max(2, t_envs),
                     dry_run=True,
                     shakeout=True,
                 )
@@ -2145,7 +2436,7 @@ def run_cuda_shakeout(
                 b8_checkpoint=b8_path,
                 opponent_checkpoint=opp_path,
                 device=dev,
-                num_envs=int(num_envs),
+                num_envs=t_envs,
                 total_updates=total_u,
                 warmup_rescue_roots=1,
                 min_unique_rescue_roots=total_u,
@@ -2153,7 +2444,7 @@ def run_cuda_shakeout(
                 ordinary_batch_size=4,
                 ordinary_uniform_half=2,
                 ordinary_hard_neg_half=2,
-                branch_horizon=int(branch_horizon),
+                branch_horizon=t_bhor,
                 tripwire_interval=1,
                 decision_window_size=8,
                 checkpoint_every_updates=1,
@@ -2178,7 +2469,7 @@ def run_cuda_shakeout(
                 opponent_checkpoint=opp_path,
                 ledger_path=ledger_path,
                 device=dev,
-                num_envs=int(num_envs),
+                num_envs=t_envs,
                 total_updates=total_u,
                 warmup_rescue_roots=1,
                 min_unique_rescue_roots=total_u,
@@ -2186,7 +2477,7 @@ def run_cuda_shakeout(
                 ordinary_batch_size=4,
                 ordinary_uniform_half=2,
                 ordinary_hard_neg_half=2,
-                branch_horizon=int(branch_horizon),
+                branch_horizon=t_bhor,
                 tripwire_interval=1,
                 decision_window_size=8,
                 checkpoint_every_updates=1,
@@ -2227,7 +2518,7 @@ def run_cuda_shakeout(
                 b8_checkpoint=b8_path,
                 opponent_checkpoint=opp_path,
                 device=dev,
-                num_envs=int(num_envs),
+                num_envs=t_envs,
                 total_updates=total_u,
                 warmup_rescue_roots=1,
                 min_unique_rescue_roots=total_u,
@@ -2235,7 +2526,7 @@ def run_cuda_shakeout(
                 ordinary_batch_size=4,
                 ordinary_uniform_half=2,
                 ordinary_hard_neg_half=2,
-                branch_horizon=int(branch_horizon),
+                branch_horizon=t_bhor,
                 tripwire_interval=1,
                 decision_window_size=8,
                 checkpoint_every_updates=1,
@@ -2307,6 +2598,7 @@ def run_cuda_shakeout(
         ],
         "phases": phase_reports,
         "failed_phases": failed_phases,
+        "smoke_wall_time_projection": projection_holder["projection"],
         "elapsed_sec": elapsed_sec,
     }
 
@@ -2339,9 +2631,22 @@ def main() -> int:
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--num-envs", type=int, default=None)
     parser.add_argument("--branch-horizon", type=int, default=None)
+    parser.add_argument("--mature-warmup-steps", type=int, default=None)
     parser.add_argument("--bench-env-steps", type=int, default=None)
     parser.add_argument("--bench-label-batches", type=int, default=None)
+    parser.add_argument("--probe-sample-roots", type=int, default=None)
     parser.add_argument("--bench-learner-updates", type=int, default=None)
+    parser.add_argument(
+        "--enforce-projection-gate",
+        action="store_true",
+        default=None,
+        help="Fail shake-out if projected A100 smoke wall time exceeds --target-a100-limit-sec.",
+    )
+    parser.add_argument(
+        "--target-a100-limit-sec",
+        type=float,
+        default=SMOKE_A100_PROJECTION_LIMIT_SEC,
+    )
     parser.add_argument("--seed", type=int, default=20261109)
     parser.add_argument(
         "--dry-run",
@@ -2352,7 +2657,7 @@ def main() -> int:
         "--shakeout",
         action="store_true",
         help=(
-            "Run the cheap dev-only CUDA shake-out across all phases "
+            "Run the dev-only CUDA shake-out across all phases at predictive scale "
             "(writes shakeout_result.json, NOT EVIDENCE)."
         ),
     )
@@ -2363,17 +2668,17 @@ def main() -> int:
             b8_checkpoint=args.b8_checkpoint,
             opponent_checkpoint=args.opponent_checkpoint,
             device=args.device,
-            num_envs=args.num_envs if args.num_envs is not None else 4,
-            branch_horizon=args.branch_horizon if args.branch_horizon is not None else 2,
-            bench_env_steps=args.bench_env_steps if args.bench_env_steps is not None else 1,
-            bench_label_batches=(
-                args.bench_label_batches if args.bench_label_batches is not None else 1
-            ),
-            bench_learner_updates=(
-                args.bench_learner_updates if args.bench_learner_updates is not None else 2
-            ),
+            num_envs=args.num_envs,
+            branch_horizon=args.branch_horizon,
+            mature_warmup_steps=args.mature_warmup_steps,
+            bench_env_steps=args.bench_env_steps,
+            bench_label_batches=args.bench_label_batches,
+            probe_sample_roots=args.probe_sample_roots,
+            bench_learner_updates=args.bench_learner_updates,
             seed=args.seed,
             require_cuda=str(args.device).startswith("cuda"),
+            enforce_projection_gate=args.enforce_projection_gate,
+            target_a100_limit_sec=float(args.target_a100_limit_sec),
         )
         print(
             json.dumps(
@@ -2386,6 +2691,7 @@ def main() -> int:
                     "verdict": shake_res["verdict"],
                     "device": shake_res["device"],
                     "failed_phases": shake_res["failed_phases"],
+                    "smoke_wall_time_projection": shake_res["smoke_wall_time_projection"],
                     "result_json_path": shake_res["result_json_path"],
                     "result_json_sha256": shake_res["result_json_sha256"],
                     "elapsed_sec": shake_res["elapsed_sec"],
