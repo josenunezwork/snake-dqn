@@ -89,6 +89,8 @@ Campaign authority: [SUCCESS_CONTRACT.md](research/final_run_20261019/SUCCESS_CO
 | Document | Purpose |
 | --- | --- |
 | [STATUS.md](STATUS.md) | **Single source of truth** for current served state, standing owner rules, release pins, monitoring thresholds, and historical milestones. |
+| [REGISTERED_ITEMS.md](REGISTERED_ITEMS.md) | **Active frozen registry** of registered parameters, rollback bars, code-contract notes, SHA-256 pins, seed namespaces, job caps, and frozen paths. |
+| [IMPLEMENTER_CHECKLIST.md](IMPLEMENTER_CHECKLIST.md) | **Preflight checklist** for implementers and reviewers (registered items, scope, hermetic tests, Mac thread/process caps, Colab GPU shake-out). |
 | [research/ROADMAP.md](research/ROADMAP.md) | **T34 closeout summary (2026-11-04 PT) & archived Round-27 research roadmap:** final shipped state (`watch-replay-bank-live-132-l1os-installed` with `exact-stop-l1-os` on Watch since 2026-11-06, upgrading `watch-replay-bank-live-132-l1`; `b8-s3` default + opt-in `Field: Classic B8 / Mixed` on Play), closing Mac-only evidence (`open-stop-h32-nb` gate `PASS`, search→bare distillation Stage 1B `CLOSED`, live search Part B `CLOSED`, Claim A `b8-head-closedloop` `KILL`), and archived Round-27 advisor synthesis. |
 | [README.md](README.md) | Per-document status guide (`Current`, `Historical`, `Superseded`) and reconciled historical discrepancies. |
 | [MAP.md](MAP.md) | Directory-by-directory layout of `docs/`. |
@@ -100,6 +102,7 @@ Campaign authority: [SUCCESS_CONTRACT.md](research/final_run_20261019/SUCCESS_CO
 | [research/specs/INDEX.md](research/specs/INDEX.md) & [research/advice/INDEX.md](research/advice/INDEX.md) | Preserved implementation specs/amendments and advisor/judge synthesis memos. |
 | [colab-cli.md](colab-cli.md) | Operator guide for the Mac-side Colab CLI supervisor (`research/colab_cli/`). |
 | [architecture/WEB_MAP.md](architecture/WEB_MAP.md) & [architecture/TESTS_MAP.md](architecture/TESTS_MAP.md) | Architecture maps for the web stack (`web/`) and test suite (`tests/`). |
+| [ml_algorithm.md](ml_algorithm.md), [simd_env_spec.md](simd_env_spec.md) & [ml_redesign_blueprint_2026-07.md](ml_redesign_blueprint_2026-07.md) | Historical Apex DQN design, `BatchSim` parity spec, and July 2026 redesign blueprint. |
 
 ### Experiment packages (`research/`)
 
@@ -125,7 +128,7 @@ superseded/interim package handoffs are consolidated into **[`docs/research/hist
 - [`src/model/`](../src/model/) — `Ego2sNet` (`ego2s_network.py`), `ApexNetwork`, `RasterDuelingNetwork`, `obs_spec.py`.
 - [`src/training/`](../src/training/), [`src/evaluation/`](../src/evaluation/), & [`src/scripts/`](../src/scripts/) — `ApexPolicy`, `PQNTrainer`, `apex_safety_veto.py` (`v2`–`v8`), `tournament_eval.py`.
 - [`web/`](../web/) — FastAPI WebSocket game/replay server (`web/backend/`) and React + Vite + Canvas UI (`web/frontend/`).
-- [`configs/`](../configs/) — `mechanics_v2.yaml` (product Watch/Play rules), `free_space_v2.yaml`, `production.yaml`.
+- [`configs/`](../configs/) — [`mechanics_v2.yaml`](../configs/mechanics_v2.yaml) (product Watch/Play rules), [`free_space_v2.yaml`](../configs/free_space_v2.yaml), [`eval_free_space.yaml`](../configs/eval_free_space.yaml), [`default.yaml`](../configs/default.yaml), [`production.yaml`](../configs/production.yaml).
 - [`tools/ops/`](../tools/ops/) — Colab manifest validation, resume-by-default ledger helpers, `dispatch.sh`, `ready_queue.py`, `auto_retry.py`.
 
 ---
@@ -164,6 +167,7 @@ serving qualification is active.
 ```bash
 make test-fast          # fast pytest suite (-n auto -m "not slow")
 make test               # full pytest suite
+./venv/bin/python -m pytest --cov=. --cov-report=html
 make test-web           # frontend vitest suite (web/frontend)
 make lint               # black --check, isort --check, flake8 (src/, web/backend/)
 make format             # isort + black (line length 100)
@@ -176,15 +180,25 @@ make format             # isort + black (line length 100)
 SNAKE_DQN_DEVICE=cpu ./venv/bin/python src/scripts/tournament_eval.py \
     saved_snakes/champion_a5_freespace_20260621.pth --gate \
     --frames 3000 --seeds 0,1,2,3,4,5,6,7,8,9
+./venv/bin/python src/scripts/tournament_eval.py --pilot --frames 3000
 
-# Legacy Apex health smoke (vector61 line is frozen for new governed studies)
+# Legacy Apex health smoke & training variants (vector61 line is frozen for new governed studies)
 ./venv/bin/python src/main.py --health-smoke --eval \
     --load saved_snakes/champion_a5_freespace_20260621.pth \
     --config configs/free_space_v2.yaml --health-smoke-frames 300
+./venv/bin/python src/main.py --health-smoke --config configs/free_space_v2.yaml
+./venv/bin/python src/main.py --headless --episodes 100000
+./venv/bin/python src/main.py --headless --config configs/production.yaml
+./venv/bin/python src/main.py --show-config --config configs/mechanics_v2.yaml
+./venv/bin/python src/scripts/apex_train.py --num-actors 4 --total-steps 100000
+./venv/bin/python src/scripts/apex_train.py --num-actors 64 --total-steps 10000000 --batch-size 512
+./venv/bin/python src/scripts/apex_train.py --resume saved_snakes/apex_checkpoint.pth --config configs/production.yaml --num-actors 16
 
-# Raster/PQN local smoke
+# Raster/PQN local smoke & run variants
 SNAKE_DQN_DEVICE=cpu ./venv/bin/python src/scripts/train_pqn.py \
     --total-steps 150000 --envs 32 --snakes 6 --rollout-len 24 --out-dir /tmp/pqn_smoke
+./venv/bin/python src/scripts/train_pqn.py --total-steps 5000000 --envs 64 --snakes 6 --out-dir runs/pqn_local
+./venv/bin/python src/scripts/train_pqn.py --no-self-play --total-steps 100000
 ```
 
 ### Colab & remote compute rules (summary)
