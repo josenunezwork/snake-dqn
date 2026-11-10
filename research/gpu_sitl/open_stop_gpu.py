@@ -504,6 +504,43 @@ def compact_sim_and_policy(
 
 
 @torch.no_grad()
+def concat_sims_and_policies(
+    sims: Sequence[DeviceSim],
+    policies: Sequence[DevicePolicy],
+) -> tuple[DeviceSim, DevicePolicy]:
+    """Concatenate multiple ``(sim, policy)`` snapshots along world dimension ``dim=0``."""
+    if not sims or len(sims) != len(policies):
+        raise ValueError("sims and policies must be non-empty sequences of equal length")
+    if len(sims) == 1:
+        out_sim = sims[0].clone()
+        out_pol = policies[0].repeat_interleave(1)
+        if out_pol.vector_runtime is not None:
+            out_pol.vector_runtime.__class__ = FastDeviceVectorRuntime
+        return out_sim, out_pol
+
+    out_sim = sims[0].clone()
+    out_pol = policies[0].repeat_interleave(1)
+    if out_pol.vector_runtime is not None:
+        out_pol.vector_runtime.__class__ = FastDeviceVectorRuntime
+
+    total_e = sum(int(s.E) for s in sims)
+    for name in _ENV_TENSOR_FIELDS:
+        vals = [getattr(s, name, None) for s in sims]
+        if all(isinstance(v, torch.Tensor) for v in vals):
+            setattr(out_sim, name, torch.cat(vals, dim=0))
+    out_sim.E = total_e
+    r2_cache.bump(out_sim)
+
+    out_rt = out_pol.vector_runtime
+    for name in _VECTOR_RUNTIME_ENV_FIELDS:
+        vals = [getattr(p.vector_runtime, name, None) for p in policies]
+        if all(isinstance(v, torch.Tensor) for v in vals):
+            setattr(out_rt, name, torch.cat(vals, dim=0))
+    out_rt.E = total_e
+    return out_sim, out_pol
+
+
+@torch.no_grad()
 def evaluate_terminal_openness_device(sim: DeviceSim) -> dict[str, torch.Tensor]:
     """Evaluate the batched ``open-stop`` terminal openness predicate on ``sim.device``.
 

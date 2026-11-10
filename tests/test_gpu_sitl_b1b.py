@@ -19,6 +19,12 @@ from research.gpu_sitl.preflight import (
     resolve_product_checkpoints,
     snapshot_worlds_to_device,
 )
+from research.gpu_sitl.probe_bank import (
+    evaluate_probe_bank_tripwires,
+    harvest_probe32_bank,
+    load_probe32_bank,
+    verify_file_sha256,
+)
 from research.gpu_sitl.seed_check import (
     CONTAMINATED_FORBIDDEN_DATA_NAMESPACES,
     PREFLIGHT_NAMESPACE,
@@ -303,3 +309,78 @@ def test_b1b_seed_registration_and_disjointness_audit() -> None:
     assert len(probe32_seeds()) == 32
     assert len(selectivity_seeds()) == 48
     assert len(screen_seeds()) == 48
+
+
+def test_probe32_harvester_and_tripwire_evaluator(tmp_path: Path) -> None:
+    """Verify dry-run probe32 bank harvest, SHA256 verification, and tripwire evaluation."""
+    b8_path, opp_path = resolve_product_checkpoints()
+    if not Path(b8_path).exists() or not Path(opp_path).exists():
+        pytest.skip("b8-s3 or opponent checkpoint not present")
+
+    # Non-dry-run with reduced parameters must fail closed
+    with pytest.raises(ValueError, match="Non-dry-run probe32 harvest"):
+        harvest_probe32_bank(
+            tmp_path / "bad_probe.pt",
+            b8_checkpoint=b8_path,
+            opponent_checkpoint=opp_path,
+            num_worlds=2,
+            horizon=4,
+            branch_horizon=2,
+            ordinary_per_world=2,
+            dry_run=False,
+        )
+
+    out_pt = tmp_path / "probe32_dry.pt"
+    meta = harvest_probe32_bank(
+        out_pt,
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+        num_worlds=2,
+        horizon=5,
+        branch_horizon=2,
+        ordinary_per_world=4,
+        harvest_batch_roots=4,
+        dry_run=True,
+    )
+    assert meta["dry_run"] is True
+    assert meta["evidence_class"] == "DRY_RUN_NON_EVIDENCE"
+    assert meta["namespace"] == PROBE32_NAMESPACE
+    assert meta["decisive_rescue_roots_count"] >= 1
+    assert meta["ordinary_roots_count"] >= 4
+    assert Path(f"{out_pt}.sha256").is_file()
+    assert Path(f"{out_pt}.complete").is_file()
+    assert verify_file_sha256(out_pt) == meta["probe_bank_sha256"]
+
+    bank = load_probe32_bank(out_pt)
+    assert bank["verified_sha256"] == meta["probe_bank_sha256"]
+
+    from src.model.ego2s_network import load_ego2s_checkpoint
+
+    student = load_ego2s_checkpoint(b8_path, device="cpu")
+    # At init (student == b8-s3), ordinary disagreement in every decile is 0.0 <= 5.0%
+    tw_200 = evaluate_probe_bank_tripwires(
+        student,
+        bank,
+        update_step=200,
+        check_decisive_rescue_bar=False,
+        device="cpu",
+    )
+    assert tw_200["max_decile_ordinary_disagreement_rate"] == 0.0
+    assert tw_200["decile_tripwire_pass"] is True
+    assert tw_200["boost_tripwire_pass"] is True
+    assert tw_200["all_q_finite"] is True
+    assert tw_200["illegal_action_count"] == 0
+    assert tw_200["all_pass"] is True
+
+    # At update 1000 (check_decisive_rescue_bar=True), bare b8-s3 has 0% rescue agreement < 70%
+    tw_1000 = evaluate_probe_bank_tripwires(
+        student,
+        bank,
+        update_step=1000,
+        check_decisive_rescue_bar=True,
+        device="cpu",
+    )
+    assert tw_1000["decisive_rescue_agreement_rate"] == 0.0
+    assert tw_1000["decisive_rescue_bar_pass"] is False
+    assert tw_1000["all_pass"] is False
