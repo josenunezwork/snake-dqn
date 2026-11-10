@@ -20,7 +20,7 @@ Stronger models now; cut ceremony that does not pay for itself.
 
 ## Implementers (owner 2026-11-09, standing)
 
-Project code is implemented and reviewed only by **Argon** (Gemini 4 Argon via the Antigravity CLI, own git worktree, local commits) and **Astra** (Codex). **Owner's 2026-11-09 rule:** Argon reviews Argon builds through a separate fresh Argon run, and Claude is not the reviewer (an author run never reviews its own build; Astra or a separate fresh Argon run reviews). Do not use the Sol implementer persona. (Superseded 2026-10-27 text is in [docs/history/AGENTS_superseded_2026-11-09.md](docs/history/AGENTS_superseded_2026-11-09.md).)
+Project code is implemented and reviewed only by **Argon** (Gemini 4 Argon via the Antigravity CLI, own git worktree, local commits) and **Astra** (Codex). **Owner's 2026-11-10 rule:** the agy implementer/reviewer model is now **Gemini 4 Carbon** (`gemini-4-carbon-*`, agy 1.5.5), used in place of Gemini 4 Argon; the `argon_*.sh` wrappers default to Carbon (`ARGON_FAMILY=argon` to opt back), and "Argon" in older rules and logs means this agy lane. **Owner's 2026-11-09 rule:** Argon reviews Argon builds through a separate fresh Argon run, and Claude is not the reviewer (an author run never reviews its own build; Astra or a separate fresh Argon run reviews). Do not use the Sol implementer persona. (Superseded 2026-10-27 text is in [docs/history/AGENTS_superseded_2026-11-09.md](docs/history/AGENTS_superseded_2026-11-09.md).)
 
 ## Campaign authority (owner-ratified 2026-10-19) — overrides older text
 
