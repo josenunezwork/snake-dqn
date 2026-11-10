@@ -16,9 +16,11 @@ from __future__ import annotations
 import copy
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
-from typing import Any, Iterator, Sequence
+from typing import Any, Callable, Iterator, Sequence
 
 import numpy as np
 import torch
@@ -26,7 +28,8 @@ from numba import njit
 
 from research.bl_served_search import ceiling
 from research.gpu_sim_spike import ego_device, r2_cache, v8_device
-from research.gpu_sim_spike.device_policy import DevicePolicy
+from research.gpu_sim_spike.anchors_device import choose_anchor
+from research.gpu_sim_spike.device_policy import DevicePolicy, _masked_argmax
 from research.gpu_sim_spike.device_sim import DeviceSim
 from research.gpu_sim_spike.ego_device import (
     _ttl_by_owner,
@@ -52,6 +55,7 @@ from research.watch_replay.open_stop import (
     branch_suffix_seed,
     evaluation_order_nb,
 )
+from src.core.mechanics_constants import HEADON_SIZE_RATIO
 from src.model.ego2s_network import Ego2sNet, load_ego2s_checkpoint
 
 RESCUE_MARGIN_DELTA_DEFAULT = 0.3002
@@ -218,6 +222,23 @@ def _load_event_cuda_extension() -> Any:
     return event_cuda._EXTENSION
 
 
+def _load_move_cuda_extension() -> Any:
+    """Pre-load ``research.gpu_sim_spike.move_cuda._EXTENSION`` under the active single-arch
+    scope so ``CTDeviceSim`` with ``move_backend='indexed'`` never compiles lazily on step 1."""
+    from torch.utils import cpp_extension
+
+    from research.gpu_sim_spike import move_cuda
+
+    if move_cuda._EXTENSION is not None:
+        return move_cuda._EXTENSION
+    if (
+        not hasattr(torch._C, "_cuda_getDeviceCount")
+        and getattr(cpp_extension.load, "__module__", "") == "torch.utils.cpp_extension"
+    ):
+        return object()
+    return move_cuda._extension()
+
+
 def ensure_cuda_initialized(device: torch.device | str) -> torch.device:
     """Normalize ``device`` and initialize CUDA + ``CUDACachingAllocator`` when targeting CUDA.
 
@@ -339,29 +360,51 @@ def verify_cuda_native_extensions(device: torch.device | str) -> dict[str, Any]:
     scoped_ext_dir = _resolve_scoped_torch_extensions_dir(arch_tag)
     build_key = (effective_build_arch, scoped_ext_dir)
 
-    from research.gpu_sim_spike import event_cuda, flood_cuda, vector_geometry
+    from research.gpu_sim_spike import event_cuda, flood_cuda, move_cuda, vector_geometry
 
-    if _LAST_SCOPED_BUILD_KEY != build_key:
+    has_real_cuda = bool(
+        hasattr(torch._C, "_cuda_getDeviceCount") and torch._C._cuda_getDeviceCount() > 0
+    )
+    is_cold_arch = _LAST_SCOPED_BUILD_KEY != build_key
+    if is_cold_arch:
         if hasattr(flood_cuda._load, "cache_clear"):
             flood_cuda._load.cache_clear()
         if hasattr(vector_geometry._load_exact_extension, "cache_clear"):
             vector_geometry._load_exact_extension.cache_clear()
         if _LAST_SCOPED_BUILD_KEY is not None:
+            flood_cuda._EXTENSION = None
+            flood_cuda._ERROR = None
+            vector_geometry._EXTENSION = None
             event_cuda._EXTENSION = None
+            move_cuda._EXTENSION = None
 
     os.environ["TORCH_EXTENSIONS_DIR"] = scoped_ext_dir
     os.environ["TORCH_CUDA_ARCH_LIST"] = effective_build_arch
+    move_ext: Any = object()
     try:
-        flood_ext = flood_cuda._load()
-        vec_ext = vector_geometry._load_exact_extension()
-        event_ext = _load_event_cuda_extension()
+        if is_cold_arch and has_real_cuda:
+            loaders: tuple[Callable[[], Any], ...] = (
+                flood_cuda._load,
+                vector_geometry._load_exact_extension,
+                _load_event_cuda_extension,
+                _load_move_cuda_extension,
+            )
+            with ThreadPoolExecutor(max_workers=len(loaders)) as pool:
+                futures = [pool.submit(fn) for fn in loaders]
+                flood_ext, vec_ext, event_ext, move_ext = [fut.result() for fut in futures]
+        else:
+            flood_ext = flood_cuda._load()
+            vec_ext = vector_geometry._load_exact_extension()
+            event_ext = _load_event_cuda_extension()
+            if has_real_cuda:
+                move_ext = _load_move_cuda_extension()
     finally:
         os.environ["TORCH_CUDA_ARCH_LIST"] = arch_list_raw
 
-    if flood_ext is None or vec_ext is None or event_ext is None:
+    if flood_ext is None or vec_ext is None or event_ext is None or move_ext is None:
         raise RuntimeError(
             f"Native CUDA extensions failed to load (flood_cuda={flood_ext!r}, "
-            f"vector_geometry={vec_ext!r}, event_cuda={event_ext!r}); "
+            f"vector_geometry={vec_ext!r}, event_cuda={event_ext!r}, move_cuda={move_ext!r}); "
             "silent fallback is forbidden"
         )
     _LAST_SCOPED_BUILD_KEY = build_key
@@ -374,6 +417,7 @@ def verify_cuda_native_extensions(device: torch.device | str) -> dict[str, Any]:
         "flood_cuda_loaded": True,
         "vector_geometry_loaded": True,
         "event_cuda_loaded": True,
+        "move_cuda_loaded": bool(has_real_cuda),
         "gpu_sim_vector_geometry": geom_env,
         "gpu_sim_vector_flood": flood_env,
         "torch_cuda_arch_list": arch_list_raw,
@@ -488,6 +532,13 @@ class FastDeviceVectorRuntime(DeviceVectorRuntime):
       wavefront flood on CPU, and CUDA uses ``flood_cuda.flood``.
     """
 
+    def _body_view(self, sim: Any) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        cached_sim = getattr(self, "_cached_body_sim", None)
+        cached_view = getattr(self, "_cached_body_view", None)
+        if cached_sim is sim and cached_view is not None:
+            return cached_view
+        return super()._body_view(sim)
+
     def _free_space_for_rows(self, sim: Any, rows: torch.Tensor) -> torch.Tensor:
         assert self.params is not None
         rows = torch.as_tensor(rows, dtype=torch.long, device=self.device).reshape(-1, 2)
@@ -524,12 +575,32 @@ class FastDeviceVectorRuntime(DeviceVectorRuntime):
         turns, cardinal = self._turns_and_cardinal(sim)
         dirs = (direction[..., None] + turns) % 4
         starts = heads[..., None, :] + cardinal[dirs]
-        blocked = occupied_all[er][:, None].expand(n, 3, -1, -1)
 
         cap = torch.minimum(
             torch.full_like(length, FREE_SPACE_BFS_CAP),
             torch.clamp(length * 2, min=FREE_SPACE_MIN_CAP),
         ).to(torch.long)
+
+        if (
+            self.device is not None
+            and self.device.type == "cuda"
+            and os.environ.get("GPU_SIM_VECTOR_FLOOD", "").strip().lower() == "static"
+            and type(starts).__name__ != "FakeTensor"
+            and int(sim.E) > 0
+            and v8_device._flood is _ORIG_V8_FLOOD
+        ):
+            from research.gpu_sim_spike import flood_cuda
+
+            starts_full = torch.full((sim.E, sim.S, 3, 2), -1, dtype=torch.long, device=self.device)
+            cap_full = torch.ones((sim.E, sim.S), dtype=torch.long, device=self.device)
+            starts_full[er, sr] = starts
+            cap_full[er, sr] = cap
+            count = flood_cuda.static_capped(starts_full, occupied_all.contiguous(), cap_full)[
+                er, sr
+            ]
+            return self._normalize_free(count, cap)
+
+        blocked = occupied_all[er][:, None].expand(n, 3, -1, -1)
         count = v8_device._flood(
             starts,
             blocked,
@@ -541,25 +612,42 @@ class FastDeviceVectorRuntime(DeviceVectorRuntime):
     def _features_for_rows(self, sim: Any, rows: torch.Tensor) -> torch.Tensor:
         assert self.params is not None
         rows = torch.as_tensor(rows, dtype=torch.long, device=self.device).reshape(-1, 2)
-        fs_rows = self._free_space_for_rows(sim, rows) if self.params.use_free_space else None
-        fs_full = None
-        if fs_rows is not None:
-            fs_full = torch.zeros((sim.E, sim.S, 3), dtype=torch.float32, device=self.device)
-            fs_full[rows[:, 0], rows[:, 1]] = fs_rows
-        if len(rows) <= FEATURE_ROW_CHUNK:
+        if not len(rows):
+            return torch.zeros((0, self.params.input_size), dtype=torch.float32, device=self.device)
+        if self.device is not None and self.device.type == "cuda":
+            fs_rows = self._free_space_for_rows(sim, rows) if self.params.use_free_space else None
+            fs_full = None
+            if fs_rows is not None:
+                fs_full = torch.zeros((sim.E, sim.S, 3), dtype=torch.float32, device=self.device)
+                fs_full[rows[:, 0], rows[:, 1]] = fs_rows
             return self._features_rows(sim, rows, update_memory=True, free_space=fs_full)
-        parts = []
-        for start in range(0, len(rows), FEATURE_ROW_CHUNK):
-            stop = min(start + FEATURE_ROW_CHUNK, len(rows))
-            parts.append(
-                self._features_rows(
-                    sim,
-                    rows[start:stop],
-                    update_memory=True,
-                    free_space=fs_full,
+
+        self._cached_body_sim = sim
+        self._cached_body_view = super()._body_view(sim)
+        try:
+            fs_rows = self._free_space_for_rows(sim, rows) if self.params.use_free_space else None
+            fs_full = None
+            if fs_rows is not None:
+                fs_full = torch.zeros((sim.E, sim.S, 3), dtype=torch.float32, device=self.device)
+                fs_full[rows[:, 0], rows[:, 1]] = fs_rows
+            chunk_sz = max(int(FEATURE_ROW_CHUNK), 256)
+            if len(rows) <= chunk_sz:
+                return self._features_rows(sim, rows, update_memory=True, free_space=fs_full)
+            parts = []
+            for start in range(0, len(rows), chunk_sz):
+                stop = min(start + chunk_sz, len(rows))
+                parts.append(
+                    self._features_rows(
+                        sim,
+                        rows[start:stop],
+                        update_memory=True,
+                        free_space=fs_full,
+                    )
                 )
-            )
-        return torch.cat(parts, dim=0)
+            return torch.cat(parts, dim=0)
+        finally:
+            self._cached_body_sim = None
+            self._cached_body_view = None
 
     def prepare(self, sim: Any, rows_mask: torch.Tensor | None = None) -> None:
         if not v8_device._host_scalar_safe(sim.alive):
@@ -653,6 +741,445 @@ class FastDeviceVectorRuntime(DeviceVectorRuntime):
         out = super().repeat_interleave(repeats)
         out.__class__ = FastDeviceVectorRuntime
         return out
+
+
+def fast_v8_decide(
+    sim: Any,
+    rows: torch.Tensor,
+    q: torch.Tensor,
+    mask: torch.Tensor,
+    lam: float = 8.0,
+    features: bool = False,
+    *,
+    slot_layout: str | None = None,
+) -> v8_device.V8DeviceResult:
+    """Bit-identical faster ``v8_decide`` for hero and batched opponent decisions.
+
+    Eliminates wasted flood work without changing any field of :class:`V8DeviceResult`:
+    1. On CUDA with ``slot_layout`` in ``("hero", "opp_slot_major")`` and unpatched
+       ``v8_device._flood``, uses ``flood_cuda.static_capped`` directly on ``(E, H, W)``
+       occupancy without materializing ``(N, 3, H, W)`` blocked grids.
+    2. Floods ``landing`` only for the 3 boost columns (`3..5`), masking non-boosted
+       lanes to ``start = (-1, -1)`` so BFS returns immediately in 0 iterations.
+    3. Caps ``area_full`` ``max_steps`` at ``min(4096, max(area_cap))`` instead of
+       unconditional ``4096`` (cutting ``flood_cuda`` queue/distance allocation by ~20x),
+       and when ``features=False`` computes ``area_full`` lazily only on ``need_area``
+       rows and ``candidates | safe`` action columns.
+    """
+    q = q.to(dtype=torch.float32)
+    device, n = q.device, int(q.shape[0])
+    rows = rows.to(device=device, dtype=torch.long)
+    if n == 0:
+        return gpu_v8_decide(sim, rows, q, mask, lam, features=features)
+    env, slot = rows[:, 0], rows[:, 1]
+    h, w = int(sim.grid_h), int(sim.grid_w)
+    r2 = r2_cache.enabled(sim)
+    span = r2_cache.window(sim) if r2 else sim.cap
+    if r2:
+        all_occ = r2_cache.all_occupancy(sim)[env]
+        other_occ = r2_cache.other_occupancy(sim, env, slot)
+        own_cells, own_valid = v8_device._own_cells(sim, env, slot, span)
+    else:
+        old_cells_all, old_valid_all = v8_device._body_cells(sim, env)
+        own_cells = old_cells_all[torch.arange(n, device=device), slot]
+        own_valid = old_valid_all[torch.arange(n, device=device), slot]
+        all_occ = v8_device._paint(old_cells_all, old_valid_all, h, w)
+        other_valid = old_valid_all & (
+            torch.arange(sim.S, device=device)[None, :, None] != slot[:, None, None]
+        )
+        other_occ = v8_device._paint(old_cells_all, other_valid, h, w)
+
+    heads = v8_device._heads(sim, env, slot)
+    direction = sim.direction[env, slot]
+    rel3 = torch.arange(3, device=device)[None]
+    hd3 = (direction[:, None] + rel3 - 1) % 4
+    table_x, table_y = v8_device._deltas(device, r2)
+    delta3 = torch.stack((table_x[hd3], table_y[hd3]), -1)
+    starts = heads[:, None] + delta3
+    length = sim.length[env, slot]
+    cap = (2 * length).clamp(v8_device._CAP_MIN, v8_device._CAP_MAX)
+    need = length.clamp_min(1).minimum(cap)
+
+    e_sim = int(sim.E)
+    s_sim = int(sim.S)
+    can_use_static_cuda = (
+        device.type == "cuda"
+        and v8_device._flood is _ORIG_V8_FLOOD
+        and type(starts).__name__ != "FakeTensor"
+        and e_sim > 0
+    )
+    if can_use_static_cuda and slot_layout == "hero" and n == e_sim:
+        from research.gpu_sim_spike import flood_cuda
+
+        occ_world = (
+            r2_cache.all_occupancy(sim)
+            if r2
+            else v8_device._paint(
+                *v8_device._body_cells(sim, torch.arange(e_sim, device=device)), h, w
+            )
+        )
+        counts = flood_cuda.static_capped(
+            starts[:, None], occ_world.contiguous(), cap[:, None]
+        ).squeeze(1)
+    elif (
+        can_use_static_cuda
+        and slot_layout == "opp_slot_major"
+        and s_sim > 1
+        and n == e_sim * (s_sim - 1)
+    ):
+        from research.gpu_sim_spike import flood_cuda
+
+        s_opp = s_sim - 1
+        occ_world = (
+            r2_cache.all_occupancy(sim)
+            if r2
+            else v8_device._paint(
+                *v8_device._body_cells(sim, torch.arange(e_sim, device=device)), h, w
+            )
+        )
+        starts_es = starts.view(s_opp, e_sim, 3, 2).transpose(0, 1).contiguous()
+        cap_es = cap.view(s_opp, e_sim).transpose(0, 1).contiguous()
+        counts = (
+            flood_cuda.static_capped(starts_es, occ_world.contiguous(), cap_es)
+            .transpose(0, 1)
+            .reshape(n, 3)
+        )
+    else:
+        counts = v8_device._flood(
+            starts,
+            all_occ[:, None].expand(-1, 3, -1, -1),
+            cap[:, None].expand(-1, 3),
+            max_steps=v8_device._CAP_MAX,
+        )
+
+    spacious = counts >= need[:, None]
+    legal = mask.bool()
+    legal = torch.where(legal.any(1, keepdim=True), legal, torch.arange(6, device=device)[None] < 3)
+    base = q.masked_fill(~legal, -1e30).argmax(1)
+    actions6 = torch.arange(6, device=device)[None].expand(n, -1)
+
+    post_cells, post_valid, lpost, boosted = v8_device._post_body(
+        sim, env, slot, actions6, own_cells, own_valid, span if r2 else None, r2
+    )
+    head_pos = post_cells[:, :, 0]
+    first_pos = post_cells[:, :, 1]
+
+    boost3 = boosted[:, 3:]
+    post_tail3 = v8_device._paint(
+        post_cells[:, 3:, 1:].reshape(n * 3, span - 1, 2),
+        post_valid[:, 3:, 1:].reshape(n * 3, span - 1),
+        h,
+        w,
+    ).reshape(n, 3, h, w)
+    landing_block3 = other_occ[:, None] | post_tail3
+    head_pos3_masked = torch.where(
+        boost3[..., None], head_pos[:, 3:], torch.full_like(head_pos[:, 3:], -1)
+    )
+    landing3 = v8_device._flood(
+        head_pos3_masked,
+        landing_block3,
+        cap[:, None].expand(-1, 3),
+        max_steps=v8_device._CAP_MAX,
+    )
+    landing = torch.where(boost3, landing3, torch.full_like(landing3, v8_device._LANDING_NO_BOOST))
+
+    landing_ok3 = (landing == v8_device._LANDING_NO_BOOST) | (landing >= need[:, None])
+    elig = legal & torch.cat((spacious, spacious & landing_ok3), dim=1)
+    v5, outcome = v8_device._choice(q, elig, base)
+    base_v2_eligible = legal.gather(1, base[:, None]).squeeze(1) & spacious.gather(
+        1, base.remainder(3)[:, None]
+    ).squeeze(1)
+    base_boost_bad = (
+        (base >= 3)
+        & base_v2_eligible
+        & ~landing_ok3.gather(1, (base - 3).clamp_min(0)[:, None]).squeeze(1)
+    )
+    same_normal = legal.gather(1, base.remainder(3)[:, None]).squeeze(1)
+    v5 = torch.where(base_boost_bad & same_normal, base.remainder(3), v5)
+    outcome = torch.where(
+        base_boost_bad & same_normal, torch.full_like(outcome, v8_device._VETOED), outcome
+    )
+    reason = torch.where(
+        base_boost_bad & same_normal,
+        torch.full_like(base, v8_device._R_SAME_DIR),
+        torch.where(
+            base_boost_bad & (outcome == v8_device._NO_SPACIOUS),
+            torch.full_like(base, v8_device._R_LANDING_NONE),
+            torch.where(
+                base_boost_bad,
+                torch.full_like(base, v8_device._R_LANDING_V2),
+                torch.where(
+                    elig.gather(1, base[:, None]).squeeze(1),
+                    torch.full_like(base, v8_device._R_KEPT),
+                    torch.full_like(base, v8_device._R_V2),
+                ),
+            ),
+        ),
+    )
+
+    covered = other_occ.flatten(1).sum(1)
+    area_cap = (
+        (2 * length)
+        .clamp_min(v8_device._CAP_MIN)
+        .minimum(torch.full_like(length, v8_device._AREA_MAX))
+        .minimum((h * w - covered).clamp_min(1))
+    )
+
+    opp = torch.arange(s_sim, device=device)[None, :] != slot[:, None]
+    all_slots = torch.arange(s_sim, device=device)[None].expand(n, -1)
+    oh = sim.bodies[env[:, None], all_slots, sim.head_ptr[env[:, None], all_slots]]
+    od = sim.direction[env]
+    ol = sim.length[env]
+    oa = sim.alive[env] & opp & (sim.seg_count[env] > 0)
+    od3 = (od[:, :, None] + torch.arange(3, device=device)[None, None, :] - 1) % 4
+    if not r2:
+        table_x, table_y = v8_device._deltas(device, r2)
+    odelta = torch.stack((table_x[od3], table_y[od3]), -1)
+    reach1, reach2 = oh[:, :, None] + odelta, oh[:, :, None] + 2 * odelta
+    reach = torch.cat((oh[:, :, None], reach1, reach2), 2)
+    rvalid = torch.cat(
+        (
+            oa[:, :, None],
+            oa[:, :, None].expand(-1, -1, 3),
+            (oa & (ol >= int(sim.cfg.min_boost_length)))[:, :, None].expand(-1, -1, 3),
+        ),
+        2,
+    )
+    bound = (ol.clamp_min(1) + 1)[:, :, None].expand_as(rvalid)
+    paths = torch.stack((head_pos, first_pos), dim=2)
+    path_valid = (
+        torch.arange(2, device=device)[None, None, :] < torch.where(boosted, 2, 1)[:, :, None]
+    )
+    equal = (paths[:, :, :, None, None, :] == reach[:, None, None, :, :, :]).all(-1) & rvalid[
+        :, None, None
+    ]
+    bmax_point = torch.where(
+        equal, bound[:, None, None], torch.full_like(bound[:, None, None], -1)
+    ).amax(dim=(-1, -2))
+    waived_point = (int(getattr(sim.cfg, "mechanics_version", 1)) == 2) & (
+        lpost[:, :, None] >= float(HEADON_SIZE_RATIO) * bmax_point
+    )
+    risky = ((bmax_point >= 0) & ~waived_point & path_valid).any(dim=2)
+    waived = (waived_point & (bmax_point >= 0) & path_valid).any(dim=2) & ~risky
+    safe = legal & torch.cat((spacious, spacious & landing_ok3), 1) & ~risky
+
+    speed = v5 >= 3
+    candidates = (
+        legal
+        & torch.cat((spacious, spacious & landing_ok3), 1)
+        & ((actions6 >= 3) == speed[:, None])
+    )
+    candidates.scatter_(1, v5[:, None], True)
+    do_v7 = (
+        (outcome != v8_device._NO_SPACIOUS)
+        & (reason != v8_device._R_SAME_DIR)
+        & (float(lam) != 0.0)
+        & (candidates.sum(1) >= 2)
+    )
+
+    def _compute_area_for_subset(
+        sub_rows: torch.Tensor, act_mask: torch.Tensor | None
+    ) -> torch.Tensor:
+        ns = int(sub_rows.numel())
+        if ns == 0:
+            return torch.zeros((0, 6), dtype=torch.long, device=device)
+        pc_s = post_cells.index_select(0, sub_rows)
+        pv_s = post_valid.index_select(0, sub_rows)
+        lp_s = lpost.index_select(0, sub_rows)
+        hp_s = head_pos.index_select(0, sub_rows)
+        oo_s = other_occ.index_select(0, sub_rows)
+        ac_s = area_cap.index_select(0, sub_rows)
+        i_idx = torch.arange(span, device=device)[None, None, :]
+        rel_values = (lp_s[:, :, None] - i_idx + 1).clamp_min(0)
+        rel_map = torch.zeros((ns, 6, h * w), dtype=torch.long, device=device)
+        px, py = pc_s[..., 0], pc_s[..., 1]
+        good = pv_s & (px >= 0) & (px < w) & (py >= 0) & (py < h)
+        pind = py.clamp(0, h - 1) * w + px.clamp(0, w - 1)
+        rel_map.scatter_reduce_(
+            2,
+            pind,
+            torch.where(good, rel_values, torch.zeros_like(rel_values)),
+            reduce="amax",
+            include_self=True,
+        )
+        rel_map = rel_map.reshape(ns, 6, h, w)
+        hi = hp_s[..., 1].clamp(0, h - 1) * w + hp_s[..., 0].clamp(0, w - 1)
+        rel_map.reshape(ns, 6, -1).scatter_(
+            2, hi[..., None], torch.zeros((ns, 6, 1), dtype=torch.long, device=device)
+        )
+        hp_eff = (
+            torch.where(act_mask[..., None], hp_s, torch.full_like(hp_s, -1))
+            if act_mask is not None
+            else hp_s
+        )
+        if type(ac_s).__name__ == "FakeTensor":
+            tight_max = int(v8_device._AREA_MAX)
+        else:
+            ac_max = max(1, int(ac_s.max().item()))
+            if device.type == "mps":
+                tight_max = min(int(v8_device._AREA_MAX), max(64, ((ac_max + 63) // 64) * 64))
+            else:
+                tight_max = min(int(v8_device._AREA_MAX), ac_max)
+        return v8_device._flood(
+            hp_eff,
+            oo_s[:, None].expand(-1, 6, -1, -1),
+            ac_s[:, None].expand(-1, 6),
+            rel_map,
+            max_steps=tight_max,
+        )
+
+    if features or type(q).__name__ == "FakeTensor":
+        all_r = torch.arange(n, dtype=torch.long, device=device)
+        area_full = _compute_area_for_subset(all_r, None)
+        area = area_full
+    else:
+        same_v5 = safe & ((actions6 >= 3) == (v5[:, None] >= 3)) & (actions6 != v5[:, None])
+        alt_v5 = torch.where(
+            same_v5.any(1, keepdim=True), same_v5, safe & (actions6 != v5[:, None])
+        )
+        anc_v5 = q.masked_fill(~alt_v5, -1e30).argmax(1)
+        hcand_v5 = alt_v5 & ((actions6 >= 3) == (anc_v5[:, None] >= 3))
+        rep_v5 = (
+            (outcome != v8_device._NO_SPACIOUS)
+            & risky.gather(1, v5[:, None]).squeeze(1)
+            & alt_v5.any(1)
+        )
+        need_area = do_v7 | ((~do_v7) & rep_v5 & (float(lam) != 0.0) & (hcand_v5.sum(1) >= 2))
+        area_full = torch.zeros((n, 6), dtype=torch.long, device=device)
+        sub_r = need_area.nonzero(as_tuple=False).squeeze(1)
+        if int(sub_r.numel()) > 0:
+            act_needed = (candidates | safe).index_select(0, sub_r)
+            area_full[sub_r] = _compute_area_for_subset(sub_r, act_needed)
+        area = torch.full_like(area_full, v8_device._LANDING_UNKNOWN)
+
+    reranked = v8_device._rerank(q, candidates, v5, area_full, area_cap, lam)
+    v7 = torch.where(do_v7, reranked, v5)
+    v7_outcome = torch.where(
+        do_v7 & (v7 != v5), torch.full_like(outcome, v8_device._VETOED), outcome
+    )
+    same_v7 = safe & ((actions6 >= 3) == (v7[:, None] >= 3)) & (actions6 != v7[:, None])
+    alternate = torch.where(same_v7.any(1, keepdim=True), same_v7, safe & (actions6 != v7[:, None]))
+    anchor = q.masked_fill(~alternate, -1e30).argmax(1)
+    hcand = alternate & ((actions6 >= 3) == (anchor[:, None] >= 3))
+    head_best = v8_device._rerank(q, hcand, anchor, area_full, area_cap, lam)
+    replace_mask = (
+        (v7_outcome != v8_device._NO_SPACIOUS)
+        & risky.gather(1, v7[:, None]).squeeze(1)
+        & alternate.any(1)
+    )
+    final = torch.where(replace_mask, head_best, v7)
+    final_outcome = torch.where(
+        replace_mask, torch.full_like(outcome, v8_device._VETOED), v7_outcome
+    )
+    return v8_device.V8DeviceResult(
+        final,
+        base,
+        v5,
+        v7,
+        final_outcome,
+        reason,
+        counts,
+        cap,
+        need,
+        area_cap,
+        area,
+        landing,
+        risky,
+        waived,
+        elig,
+    )
+
+
+class FastDevicePolicy(DevicePolicy):
+    """Bit-identical faster :class:`DevicePolicy` batching all 5 opponent slots per step."""
+
+    @torch.inference_mode()
+    def evaluate(self, sim: Any) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        if self.reference_bridge is not None:
+            return super().evaluate(sim)
+        e = int(sim.E)
+        rows = torch.stack(
+            (
+                torch.arange(e, device=self.device, dtype=torch.long),
+                torch.zeros(e, dtype=torch.long, device=self.device),
+            ),
+            dim=1,
+        )
+        with sim.stage("v8_floods"):
+            legal = sim.advisory_mask()[:, 0]
+        with sim.stage("v8_floods"):
+            features = (
+                fast_v8_decide(
+                    sim,
+                    rows,
+                    torch.zeros((e, 6), dtype=torch.float32, device=self.device),
+                    legal,
+                    self.v8_lambda,
+                    features=True,
+                    slot_layout="hero",
+                )
+                .feature_planes()
+                .reshape(e, 30)
+            )
+        with sim.stage("observation_paint"):
+            observation = build_observation(sim, rows, features)
+        with sim.stage("b8_forward"):
+            q = self.b8_network(*observation).float()
+        return q, legal, _masked_argmax(q, legal)
+
+    @torch.inference_mode()
+    def actions(self, sim: Any, hero_actions: torch.Tensor | None = None) -> torch.Tensor:
+        s_sim = int(sim.S)
+        if (
+            self.reference_bridge is not None
+            or len(self.opponent_networks) != s_sim - 1
+            or any(k is not None for k in self.anchor_kinds)
+            or any(net is None for net in self.opponent_networks)
+        ):
+            return super().actions(sim, hero_actions)
+        if hero_actions is None:
+            _, _, hero_actions = self.evaluate(sim)
+        e = int(sim.E)
+        s_opp = s_sim - 1
+        out = torch.ones((e, s_sim), dtype=torch.long, device=self.device)
+        out[:, 0] = hero_actions
+        if e == 0 or s_opp <= 0:
+            return out
+        if not self.vector_prepared:
+            with sim.stage("vector61"):
+                self.vector_runtime.prepare(sim)
+            self.vector_prepared = True
+        e_ar = torch.arange(e, dtype=torch.long, device=self.device)
+        s_ar = torch.arange(1, s_sim, dtype=torch.long, device=self.device)
+        opp_rows = torch.stack(
+            (e_ar.repeat(s_opp), s_ar.repeat_interleave(e)),
+            dim=1,
+        )
+        with sim.stage("vector61"):
+            states_all, masks_all = self.vector_runtime.selection(opp_rows)
+        with sim.stage("opponent_forwards"):
+            q_parts = [
+                net(states_all[k * e : (k + 1) * e]).float()
+                for k, net in enumerate(self.opponent_networks)
+            ]
+            q_all = torch.cat(q_parts, dim=0)
+        with sim.stage("v8_floods"):
+            opp_act = fast_v8_decide(
+                sim,
+                opp_rows,
+                q_all,
+                masks_all,
+                self.v8_lambda,
+                features=False,
+                slot_layout="opp_slot_major",
+            ).action
+        out[:, 1:] = opp_act.reshape(s_opp, e).transpose(0, 1)
+        return out
+
+    def repeat_interleave(self, repeats: int) -> "FastDevicePolicy":
+        out = super().repeat_interleave(repeats)
+        out.__class__ = FastDevicePolicy
+        return out  # type: ignore[return-value]
 
 
 def sync_runtime_from_cpu(
@@ -763,6 +1290,8 @@ def move_device_policy_to_device(
                     setattr(rt, attr, val.index_select(0, keep_rows).clone())
             rt.E = int(e_count)
         rt.__class__ = FastDeviceVectorRuntime
+    if type(policy) is DevicePolicy:
+        policy.__class__ = FastDevicePolicy
     return policy
 
 
@@ -869,6 +1398,31 @@ def compact_sim_and_policy(
         rt.E = new_e
         rt.__class__ = FastDeviceVectorRuntime
     assert_sim_and_policy_on_device(sim, policy, target_dev)
+
+
+@torch.no_grad()
+def _compact_sim_and_policy_fast(
+    sim: DeviceSim,
+    policy: DevicePolicy,
+    keep_rows: torch.Tensor,
+) -> None:
+    """Fast inner-loop compaction when ``sim`` and ``policy`` are already validated on-device."""
+    keep_rows = keep_rows.reshape(-1)
+    new_e = int(keep_rows.shape[0])
+    for name in _ENV_TENSOR_FIELDS:
+        val = getattr(sim, name, None)
+        if isinstance(val, torch.Tensor):
+            setattr(sim, name, val.index_select(0, keep_rows))
+    sim.E = new_e
+    r2_cache.bump(sim)
+
+    rt = policy.vector_runtime
+    if rt is not None:
+        for name in _VECTOR_RUNTIME_ENV_FIELDS:
+            val = getattr(rt, name, None)
+            if isinstance(val, torch.Tensor):
+                setattr(rt, name, val.index_select(0, keep_rows))
+        rt.E = new_e
 
 
 @torch.no_grad()
@@ -989,13 +1543,14 @@ def evaluate_terminal_openness_device(sim: DeviceSim) -> dict[str, torch.Tensor]
         dim=1,
     )
     q_zeros = torch.zeros((e_count, 6), dtype=torch.float32, device=device)
-    v8_res = gpu_v8_decide(
+    v8_res = fast_v8_decide(
         sim,
         hero_rows,
         q_zeros,
         advisory,
         float(OPEN_STOP_V8_LAMBDA),
         features=True,
+        slot_layout="hero",
     )
     areas = torch.where(
         advisory,
@@ -1149,6 +1704,8 @@ def _batched_open_stop_h32_impl(
     b_count = r_count * 6
     branch_sim = root_sim.repeat_interleave(6)
     branch_policy = root_policy.repeat_interleave(6)
+    if type(branch_policy) is DevicePolicy:
+        branch_policy.__class__ = FastDevicePolicy
     if branch_policy.vector_runtime is not None:
         branch_policy.vector_runtime.__class__ = FastDeviceVectorRuntime
     if enable_r2:
@@ -1188,11 +1745,12 @@ def _batched_open_stop_h32_impl(
     for _step in range(1, int(branch_horizon)):
         if compact_dead:
             keep_mask = branch_sim.alive[:, 0]
-            if not bool(keep_mask.any().item()):
+            alive_count = int(keep_mask.sum().item())
+            if alive_count == 0:
                 break
-            if not bool(keep_mask.all().item()):
+            if alive_count < int(branch_sim.E):
                 keep_rows = keep_mask.nonzero(as_tuple=False).squeeze(1)
-                compact_sim_and_policy(branch_sim, branch_policy, keep_rows)
+                _compact_sim_and_policy_fast(branch_sim, branch_policy, keep_rows)
                 active_idx = active_idx.index_select(0, keep_rows)
 
             branch_sim.prepare()
@@ -1241,10 +1799,11 @@ def _batched_open_stop_h32_impl(
         surv_mask_local = branch_sim.alive[:, 0] & (
             frames_executed.index_select(0, active_idx) == int(branch_horizon)
         )
-        if bool(surv_mask_local.any().item()):
-            if not bool(surv_mask_local.all().item()):
+        surv_count = int(surv_mask_local.sum().item())
+        if surv_count > 0:
+            if surv_count < int(branch_sim.E):
                 surv_rows = surv_mask_local.nonzero(as_tuple=False).squeeze(1)
-                compact_sim_and_policy(branch_sim, branch_policy, surv_rows)
+                _compact_sim_and_policy_fast(branch_sim, branch_policy, surv_rows)
                 active_idx = active_idx.index_select(0, surv_rows)
             openness_local: dict[str, torch.Tensor] = evaluate_terminal_openness_device(branch_sim)
         else:
@@ -1519,13 +2078,14 @@ def margin_loss_gradient_check(
             )
             default_legal = torch.where(fallback, fallback_mask.expand_as(advisory), advisory)
             features = (
-                gpu_v8_decide(
+                fast_v8_decide(
                     sim,
                     hero_rows,
                     torch.zeros((total_roots, 6), device=sim.device),
                     advisory,
                     float(OPEN_STOP_V8_LAMBDA),
                     features=True,
+                    slot_layout="hero",
                 )
                 .feature_planes()
                 .reshape(total_roots, 30)

@@ -32,6 +32,7 @@ import torch
 
 from research.bl_served_search import ceiling
 from research.devicesim_v2_parity.harness import (
+    SimpleWorldView,
     SplitMixEnvRngProxy,
     build_product_world_bundle,
     prepare_cpu_policy_phase,
@@ -42,6 +43,8 @@ from research.gpu_sim_spike.device_sim import DeviceSim
 from research.gpu_sitl.open_stop_gpu import (
     MARGIN_DELTA_DEFAULT,
     RESCUE_MARGIN_DELTA_DEFAULT,
+    FastDevicePolicy,
+    FastDeviceVectorRuntime,
     assert_sim_and_policy_on_device,
     batched_open_stop_h32,
     margin_loss_gradient_check,
@@ -449,6 +452,7 @@ def build_watch6_captured_worlds(
     max_capacity: int = DEFAULT_MAX_CAPACITY,
     long_hero_profiles: Sequence[Sequence[int]] | None = None,
     device: str | torch.device = "cpu",
+    cpu_featurizer_backend: str = "numba",
 ) -> tuple[list[CapturedWorld], DevicePolicy]:
     """Construct ``E`` CPU :class:`CapturedWorld` instances and a matching :class:`DevicePolicy`."""
     ensure_watch6_v2_game_config()
@@ -460,7 +464,7 @@ def build_watch6_captured_worlds(
     )
     # Build one template Vector61SimdPolicy so we load FRP3 weights from disk only once.
     dummy_sim = GridBatchSim(cfg_1, seeds=[int(seeds[0])], train_mode=False, allow_respawn=True)
-    dummy_rt = Vector61Runtime(params=params, backend="numba")
+    dummy_rt = Vector61Runtime(params=params, backend=cpu_featurizer_backend)
     dummy_rt.bind(dummy_sim, np.array([[False, True, True, True, True, True]]))
     template_opp = Vector61SimdPolicy(
         str(frp3_path),
@@ -479,7 +483,7 @@ def build_watch6_captured_worlds(
             inject_serpentines([sim], lengths, box_height=LONG_HERO_BOX_HEIGHT)
             sim._rebuild_env_grids(0, food=True)
 
-        rt = Vector61Runtime(params=params, backend="numba")
+        rt = Vector61Runtime(params=params, backend=cpu_featurizer_backend)
         rt.bind(sim, np.array([[False, True, True, True, True, True]]))
 
         opp = object.__new__(Vector61SimdPolicy)
@@ -505,12 +509,28 @@ def build_watch6_captured_worlds(
     batch_ref_sim = GridBatchSim(
         cfg_batch, seeds=[int(s) for s in seeds], train_mode=False, allow_respawn=True
     )
-    bundle = build_product_world_bundle(batch_ref_sim, b8_path, frp3_path)
-    device_policy = DevicePolicy.from_world(
+    batch_rt = Vector61Runtime(params=params, backend=cpu_featurizer_backend)
+    batch_controlled = np.zeros((len(seeds), 6), dtype=bool)
+    batch_controlled[:, 1:] = True
+    batch_rt.bind(batch_ref_sim, batch_controlled)
+    batch_opp = object.__new__(Vector61SimdPolicy)
+    batch_opp.__dict__ = dict(template_opp.__dict__)
+    batch_opp.runtime = batch_rt
+    bundle = SimpleWorldView(
+        sim=batch_ref_sim,
+        runtime=batch_rt,
+        hero=shared_hero,
+        opponents=[batch_opp] * 5,
+        seed=int(seeds[0]),
+    )
+    target_dev = normalize_device(device)
+    init_dev = torch.device("cpu") if target_dev.type == "mps" else target_dev
+    device_policy = FastDevicePolicy.from_world(
         bundle,
-        device=normalize_device(device),
+        device=init_dev,
         prepared=False,
     )
+    move_device_policy_to_device(device_policy, target_dev, e_count=len(seeds))
     return worlds, device_policy
 
 
@@ -1228,6 +1248,8 @@ def _setup_rolled_serpentine_world(
     hero_length: int,
     rollout_ticks: int,
     ego_cfg: EgoRasterConfig,
+    *,
+    ego_raster_backend: str = "numba",
 ) -> None:
     """Inject mature serpentine snakes and roll bare ``b8-s3`` for ``rollout_ticks`` frames."""
     lengths = [int(hero_length), 96, 72, 56, 40, 28]
@@ -1241,7 +1263,7 @@ def _setup_rolled_serpentine_world(
         obs = build_ego_raster(
             w.sim,
             ego_cfg,
-            backend="numba",
+            backend=ego_raster_backend,
             rows=np.array([[0, 0]], dtype=np.int64),
         )
         q = np.asarray(prepared_q(w, obs), dtype=np.float32)
@@ -1257,6 +1279,8 @@ def build_extension_worlds(
     *,
     specs: Sequence[dict[str, Any]] | None = None,
     device: str = "cpu",
+    cpu_featurizer_backend: str = "numba",
+    ego_raster_backend: str = "numba",
 ) -> tuple[list[CapturedWorld], DevicePolicy, list[dict[str, Any]]]:
     """Build the 32 mature extension ``CapturedWorld`` roots at their pre-prepare hero seam."""
     if specs is None:
@@ -1270,6 +1294,7 @@ def build_extension_worlds(
         max_capacity=DEFAULT_MAX_CAPACITY,
         long_hero_profiles=None,
         device=device,
+        cpu_featurizer_backend=cpu_featurizer_backend,
     )
     ego_cfg = EgoRasterConfig(version="bv8")
     meta_rows: list[dict[str, Any]] = []
@@ -1288,6 +1313,7 @@ def build_extension_worlds(
                 int(spec["hero_length"]),
                 int(spec["rollout_ticks"]),
                 ego_cfg,
+                ego_raster_backend=ego_raster_backend,
             )
         else:
             raise ValueError(f"Unknown extension world kind: {kind!r}")

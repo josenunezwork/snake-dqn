@@ -19,6 +19,7 @@ import hashlib
 import json
 import random
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
@@ -26,6 +27,7 @@ import numpy as np
 import torch
 
 from research.devicesim_v2_parity.harness import (
+    SimpleWorldView,
     build_product_world_bundle,
     watch6_v2_config,
 )
@@ -33,16 +35,17 @@ from research.gpu_sim_spike import r2_cache
 from research.gpu_sim_spike.device_policy import DevicePolicy
 from research.gpu_sim_spike.device_sim import DeviceSim
 from research.gpu_sim_spike.ego_device import build_observation
-from research.gpu_sim_spike.v8_device import v8_decide as gpu_v8_decide
 from research.gpu_sitl.open_stop_gpu import (
     _ENV_TENSOR_FIELDS,
     _VECTOR_RUNTIME_ENV_FIELDS,
+    FastDevicePolicy,
     FastDeviceVectorRuntime,
     _maybe_cpu_fast_flood,
     assert_sim_and_policy_on_device,
     batched_open_stop_h32,
     concat_sims_and_policies,
     ensure_cuda_initialized,
+    fast_v8_decide,
     move_device_policy_to_device,
     normalize_device,
     verify_cuda_native_extensions,
@@ -50,6 +53,7 @@ from research.gpu_sitl.open_stop_gpu import (
 from research.gpu_sitl.preflight import (
     MATURE_EXTENSION_SPECS,
     build_extension_worlds,
+    ensure_watch6_v2_game_config,
     resolve_product_checkpoints,
     snapshot_worlds_to_device,
 )
@@ -148,23 +152,26 @@ def build_watch6_ct_device_bundle(
     device: str | torch.device = "cpu",
     hero_respawn: bool = True,
     max_capacity: int = 1600,
+    policy_template: DevicePolicy | None = None,
+    cpu_featurizer_backend: str = "python",
 ) -> tuple[CTDeviceSim, DevicePolicy]:
     """Initialize a batch of Watch6-v2 ``CTDeviceSim`` worlds and ``DevicePolicy``."""
+    from src.simd_env.ego2s_policy import Ego2sSimdPolicy
+    from src.simd_env.vector61_featurizer import Vector61Params
+    from src.simd_env.vector61_policy import Vector61Runtime, Vector61SimdPolicy
+
     dev = normalize_device(device)
     if dev.type == "cuda":
         verify_cuda_native_extensions(dev)
-    cfg_batch = watch6_v2_config(len(seeds), max_capacity=max_capacity)
+    ensure_watch6_v2_game_config()
+    e_count = len(seeds)
+    cfg_batch = watch6_v2_config(e_count, max_capacity=max_capacity)
     batch_ref_sim = GridBatchSim(
         cfg_batch,
         seeds=[int(s) for s in seeds],
         train_mode=False,
         allow_respawn=True,
     )
-    bundle = build_product_world_bundle(batch_ref_sim, Path(b8_path), Path(frp3_path))
-    dev_policy = DevicePolicy.from_world(bundle, device=dev, prepared=False)
-    if dev_policy.vector_runtime is not None:
-        dev_policy.vector_runtime.__class__ = FastDeviceVectorRuntime
-        dev_policy.vector_runtime.E = len(seeds)
     dev_sim = CTDeviceSim.from_reference(
         batch_ref_sim,
         device=dev,
@@ -172,6 +179,61 @@ def build_watch6_ct_device_bundle(
         prepared=False,
     )
     r2_cache.enable(dev_sim)
+
+    controlled = np.zeros((e_count, 6), dtype=bool)
+    controlled[:, 1:] = True
+    params = replace(Vector61Params.from_game_config(cfg_batch), use_free_space=True)
+
+    if policy_template is not None:
+        dev_policy = policy_template.repeat_interleave(1)
+        if dev.type == "mps":
+            cpu_rt = Vector61Runtime(params=params, backend="python")
+            cpu_rt.bind(batch_ref_sim, controlled)
+            sim_cpu_stub = CTDeviceSim.from_reference(
+                batch_ref_sim, device="cpu", hero_respawn=hero_respawn, prepared=False
+            )
+            rt = FastDeviceVectorRuntime.from_reference(cpu_rt, sim_cpu_stub)
+        else:
+            rt = FastDeviceVectorRuntime(params)
+            rt.bind(dev_sim, controlled)
+        rt.E = e_count
+        dev_policy.vector_runtime = rt
+        dev_policy.vector_prepared = False
+        move_device_policy_to_device(dev_policy, dev, e_count=e_count)
+    else:
+        if cpu_featurizer_backend == "numba":
+            bundle = build_product_world_bundle(batch_ref_sim, Path(b8_path), Path(frp3_path))
+        else:
+            hero = Ego2sSimdPolicy(
+                str(b8_path), device="cpu", forward="rowwise", mask_mode="advisory"
+            )
+            cpu_rt = Vector61Runtime(params=params, backend=cpu_featurizer_backend)
+            cpu_rt.bind(batch_ref_sim, controlled)
+            opp = Vector61SimdPolicy(
+                str(frp3_path),
+                cpu_rt,
+                veto_slots=(1, 2, 3, 4, 5),
+                forward="rowwise",
+                veto_variant="v8",
+                veto_lambda=8.0,
+            )
+            bundle = SimpleWorldView(
+                sim=batch_ref_sim,
+                runtime=cpu_rt,
+                hero=hero,
+                opponents=[opp] * 5,
+                seed=int(seeds[0]) if seeds else 0,
+            )
+        init_dev = torch.device("cpu") if dev.type == "mps" else dev
+        init_sim = None if dev.type == "mps" else dev_sim
+        dev_policy = FastDevicePolicy.from_world(
+            bundle,
+            device=init_dev,
+            sim=init_sim,
+            prepared=False,
+        )
+        move_device_policy_to_device(dev_policy, dev, e_count=e_count)
+
     assert_sim_and_policy_on_device(dev_sim, dev_policy, dev)
     return dev_sim, dev_policy
 
@@ -203,13 +265,14 @@ def _extract_hero_root_observations_impl(
         )
         legal_mask = torch.where(fallback, fallback_mask.expand_as(advisory), advisory)
         v8_feats = (
-            gpu_v8_decide(
+            fast_v8_decide(
                 sim,
                 hero_rows,
                 torch.zeros((e_count, 6), device=dev),
                 advisory,
                 float(OPEN_STOP_V8_LAMBDA),
                 features=True,
+                slot_layout="hero",
             )
             .feature_planes()
             .reshape(e_count, 30)

@@ -4267,3 +4267,404 @@ def test_ct_device_sim_step_and_reset_bit_identical_cpu_and_mps(
                     assert torch.equal(
                         getattr(sim_fast, field_name), getattr(sim_ref, field_name)
                     ), f"[{dev_name}] step {step_i} mismatch on {field_name}"
+
+
+def test_fast_v8_decide_and_fast_device_policy_bit_identical_cpu_and_mps() -> None:
+    """Prove fast_v8_decide and FastDevicePolicy match v8_decide/DevicePolicy bit-for-bit."""
+    from dataclasses import fields as dc_fields
+
+    from research.gpu_sim_spike import r2_cache, v8_device
+    from research.gpu_sim_spike.device_policy import DevicePolicy
+    from research.gpu_sitl.open_stop_gpu import (
+        FastDevicePolicy,
+        _maybe_cpu_fast_flood,
+        fast_v8_decide,
+    )
+    from research.gpu_sitl.preflight import (
+        MATURE_EXTENSION_SPECS,
+        build_extension_worlds,
+        snapshot_worlds_to_device,
+    )
+    from research.gpu_sitl.smoke import DEFAULT_MATURE_SLICE_INDICES
+
+    b8_path, opp_path = resolve_product_checkpoints()
+    specs = [MATURE_EXTENSION_SPECS[i] for i in DEFAULT_MATURE_SLICE_INDICES[:4]]
+    worlds, pol_tpl, _ = build_extension_worlds(
+        Path(b8_path),
+        Path(opp_path),
+        specs=specs,
+        cpu_featurizer_backend="python",
+        ego_raster_backend="numpy",
+    )
+
+    devices = ["cpu"] + (["mps"] if torch.backends.mps.is_available() else [])
+    for dev_name in devices:
+        ctx = _mps_readonly_spike_compat() if dev_name == "mps" else _maybe_cpu_fast_flood(True)
+        with ctx:
+            dev = torch.device("mps", 0) if dev_name == "mps" else torch.device("cpu")
+            sim, pol_fast = snapshot_worlds_to_device(
+                worlds * 2, pol_tpl, sim_cls=CTDeviceSim, device=dev, vector_prepared=False
+            )
+            # Mark one opponent dead to prove dead-slot parity as well
+            sim.alive[1, 3] = False
+            r2_cache.enable(sim)
+            assert type(pol_fast) is FastDevicePolicy
+
+            pol_ref = pol_fast.repeat_interleave(1)
+            pol_ref.__class__ = DevicePolicy
+
+            e = int(sim.E)
+            hero_rows = torch.stack(
+                (
+                    torch.arange(e, dtype=torch.long, device=dev),
+                    torch.zeros(e, dtype=torch.long, device=dev),
+                ),
+                dim=1,
+            )
+            opp_rows = torch.stack(
+                (
+                    torch.arange(e, dtype=torch.long, device=dev).repeat(5),
+                    torch.arange(1, 6, dtype=torch.long, device=dev).repeat_interleave(e),
+                ),
+                dim=1,
+            )
+            gen = torch.Generator(device="cpu").manual_seed(20261110)
+            q_hero = torch.randn((e, 6), generator=gen, dtype=torch.float32).to(dev)
+            q_opp = torch.randn((e * 5, 6), generator=gen, dtype=torch.float32).to(dev)
+            adv_all = sim.advisory_mask()
+            mask_hero = adv_all[:, 0]
+            mask_opp = adv_all[opp_rows[:, 0], opp_rows[:, 1]]
+
+            for feat_flag in (True, False):
+                ref_h = v8_device.v8_decide(
+                    sim, hero_rows, q_hero, mask_hero, 8.0, features=feat_flag
+                )
+                cand_h = fast_v8_decide(
+                    sim,
+                    hero_rows,
+                    q_hero,
+                    mask_hero,
+                    8.0,
+                    features=feat_flag,
+                    slot_layout="hero",
+                )
+                for f in dc_fields(ref_h):
+                    assert torch.equal(
+                        getattr(ref_h, f.name), getattr(cand_h, f.name)
+                    ), f"[{dev_name} feat={feat_flag}] hero field mismatch: {f.name}"
+                if feat_flag:
+                    assert torch.equal(ref_h.feature_planes(), cand_h.feature_planes())
+
+                ref_o = v8_device.v8_decide(sim, opp_rows, q_opp, mask_opp, 8.0, features=feat_flag)
+                cand_o = fast_v8_decide(
+                    sim,
+                    opp_rows,
+                    q_opp,
+                    mask_opp,
+                    8.0,
+                    features=feat_flag,
+                    slot_layout="opp_slot_major",
+                )
+                for f in dc_fields(ref_o):
+                    assert torch.equal(
+                        getattr(ref_o, f.name), getattr(cand_o, f.name)
+                    ), f"[{dev_name} feat={feat_flag}] opp field mismatch: {f.name}"
+
+            # Multi-step rollout comparing FastDevicePolicy vs DevicePolicy bit-for-bit
+            sim_ref = sim.clone()
+            r2_cache.enable(sim_ref)
+            for step_idx in range(4):
+                sim.prepare()
+                sim_ref.prepare()
+                q_f, leg_f, bare_f = pol_fast.evaluate(sim)
+                q_r, leg_r, bare_r = pol_ref.evaluate(sim_ref)
+                assert torch.equal(q_f, q_r), f"[{dev_name}] step {step_idx} evaluate Q mismatch"
+                assert torch.equal(leg_f, leg_r)
+                assert torch.equal(bare_f, bare_r)
+
+                act_f = pol_fast.actions(sim, bare_f)
+                act_r = pol_ref.actions(sim_ref, bare_r)
+                assert torch.equal(act_f, act_r), f"[{dev_name}] step {step_idx} actions mismatch"
+                sim.step(act_f)
+                sim_ref.step(act_r)
+                pol_fast.after_step(sim)
+                pol_ref.after_step(sim_ref)
+
+
+def test_fast_device_vector_runtime_and_open_stop_h32_bit_identical_cpu_and_mps() -> None:
+    """Prove FastDeviceVectorRuntime and batched_open_stop_h32 match reference on CPU and MPS."""
+    from research.gpu_sim_spike.device_policy import DevicePolicy
+    from research.gpu_sim_spike.vector_device import DeviceVectorRuntime
+    from research.gpu_sitl import open_stop_gpu as osg
+    from research.gpu_sitl.open_stop_gpu import (
+        FastDeviceVectorRuntime,
+        _maybe_cpu_fast_flood,
+        batched_open_stop_h32,
+        compact_sim_and_policy,
+    )
+    from research.gpu_sitl.preflight import (
+        MATURE_EXTENSION_SPECS,
+        build_extension_worlds,
+        snapshot_worlds_to_device,
+    )
+    from research.gpu_sitl.smoke import DEFAULT_MATURE_SLICE_INDICES
+
+    b8_path, opp_path = resolve_product_checkpoints()
+    specs = [MATURE_EXTENSION_SPECS[i] for i in DEFAULT_MATURE_SLICE_INDICES[:4]]
+    worlds, pol_tpl, _ = build_extension_worlds(
+        Path(b8_path),
+        Path(opp_path),
+        specs=specs,
+        cpu_featurizer_backend="python",
+        ego_raster_backend="numpy",
+    )
+    slice_seeds = [int(w.seed) for w in worlds]
+    slice_decisions = [int(w.sim.frame[0]) for w in worlds]
+
+    # 1. Prove cpu_fast_flood=True vs cpu_fast_flood=False bit-identity on CPU (parity_4 speedup)
+    sim_cpu, pol_cpu = snapshot_worlds_to_device(
+        worlds, pol_tpl, sim_cls=CTDeviceSim, device="cpu", vector_prepared=False
+    )
+    cert_slow = batched_open_stop_h32(
+        sim_cpu,
+        pol_cpu,
+        world_seeds=slice_seeds,
+        decisions=slice_decisions,
+        branch_horizon=6,
+        cpu_fast_flood=False,
+        return_host_records=False,
+    )
+    cert_fast = batched_open_stop_h32(
+        sim_cpu,
+        pol_cpu,
+        world_seeds=slice_seeds,
+        decisions=slice_decisions,
+        branch_horizon=6,
+        cpu_fast_flood=True,
+        return_host_records=False,
+    )
+    for key in (
+        "certified",
+        "raw_survives",
+        "safe_mask",
+        "unsafe_mask",
+        "rescue_mask",
+        "ordinary_mask",
+        "bare_actions",
+        "a_star_actions",
+        "v8_best_safe_area",
+        "max_pocket_r",
+        "root_q",
+    ):
+        assert torch.equal(cert_slow[key], cert_fast[key]), f"cpu_fast_flood mismatch on {key}"
+
+    # 2. Prove FastDeviceVectorRuntime + FastDevicePolicy + _compact_sim_and_policy_fast
+    # match DeviceVectorRuntime + DevicePolicy + compact_sim_and_policy on CPU and MPS
+    devices = ["cpu"] + (["mps"] if torch.backends.mps.is_available() else [])
+    for dev_name in devices:
+        ctx = _mps_readonly_spike_compat() if dev_name == "mps" else _maybe_cpu_fast_flood(True)
+        with ctx:
+            dev = torch.device("mps", 0) if dev_name == "mps" else torch.device("cpu")
+            sim_d, pol_d = snapshot_worlds_to_device(
+                worlds, pol_tpl, sim_cls=CTDeviceSim, device=dev, vector_prepared=False
+            )
+            rt_fast = pol_d.vector_runtime
+            assert type(rt_fast) is FastDeviceVectorRuntime
+            rt_base = rt_fast.repeat_interleave(1)
+            rt_base.__class__ = DeviceVectorRuntime
+            sim_rt = sim_d.clone()
+            sim_rt.prepare()
+            rt_fast.prepare(sim_rt)
+            rt_base.prepare(sim_rt)
+            assert torch.equal(rt_fast.sel_state, rt_base.sel_state)
+            assert torch.equal(rt_fast.sel_mask, rt_base.sel_mask)
+
+            res_fast = batched_open_stop_h32(
+                sim_d,
+                pol_d,
+                world_seeds=slice_seeds,
+                decisions=slice_decisions,
+                branch_horizon=6,
+                cpu_fast_flood=True,
+                return_host_records=False,
+            )
+
+            # Force unoptimized DevicePolicy + original compact_sim_and_policy
+            orig_compact = osg._compact_sim_and_policy_fast
+            orig_move = osg.move_device_policy_to_device
+
+            def _move_plain(pol_arg: Any, dev_arg: Any, **kw: Any) -> Any:
+                out_p = orig_move(pol_arg, dev_arg, **kw)
+                out_p.__class__ = DevicePolicy
+                return out_p
+
+            try:
+                osg._compact_sim_and_policy_fast = compact_sim_and_policy
+                osg.move_device_policy_to_device = _move_plain
+                pol_plain = pol_d.repeat_interleave(1)
+                pol_plain.__class__ = DevicePolicy
+                res_plain = batched_open_stop_h32(
+                    sim_d,
+                    pol_plain,
+                    world_seeds=slice_seeds,
+                    decisions=slice_decisions,
+                    branch_horizon=6,
+                    cpu_fast_flood=True,
+                    return_host_records=False,
+                )
+            finally:
+                osg._compact_sim_and_policy_fast = orig_compact
+                osg.move_device_policy_to_device = orig_move
+
+            for key in (
+                "certified",
+                "raw_survives",
+                "safe_mask",
+                "unsafe_mask",
+                "rescue_mask",
+                "ordinary_mask",
+                "bare_actions",
+                "a_star_actions",
+                "v8_best_safe_area",
+                "max_pocket_r",
+                "root_q",
+            ):
+                assert torch.equal(
+                    res_fast[key], res_plain[key]
+                ), f"[{dev_name}] open_stop_h32 fast vs plain mismatch on {key}"
+
+
+def test_extension_worlds_and_watch6_bundle_template_reuse_bit_identical() -> None:
+    """Prove python/numpy world building and policy_template bundle reuse match numba/disk."""
+    from research.gpu_sitl.open_stop_gpu import _ENV_TENSOR_FIELDS, _VECTOR_RUNTIME_ENV_FIELDS
+    from research.gpu_sitl.preflight import MATURE_EXTENSION_SPECS, build_extension_worlds
+    from research.gpu_sitl.probe_bank import build_watch6_ct_device_bundle
+
+    b8_path, opp_path = resolve_product_checkpoints()
+    specs = [MATURE_EXTENSION_SPECS[0], MATURE_EXTENSION_SPECS[26]]
+    w_nb, tpl_nb, meta_nb = build_extension_worlds(
+        Path(b8_path),
+        Path(opp_path),
+        specs=specs,
+        cpu_featurizer_backend="numba",
+        ego_raster_backend="numba",
+    )
+    w_py, tpl_py, meta_py = build_extension_worlds(
+        Path(b8_path),
+        Path(opp_path),
+        specs=specs,
+        cpu_featurizer_backend="python",
+        ego_raster_backend="numpy",
+    )
+    assert meta_nb == meta_py
+    for wn, wp in zip(w_nb, w_py):
+        assert np.array_equal(wn.sim.bodies, wp.sim.bodies)
+        assert np.array_equal(wn.sim.head_ptr, wp.sim.head_ptr)
+        assert np.array_equal(wn.sim.seg_count, wp.sim.seg_count)
+        assert np.array_equal(wn.sim.length, wp.sim.length)
+        assert np.array_equal(wn.sim.alive, wp.sim.alive)
+        assert np.array_equal(wn.sim.direction, wp.sim.direction)
+        assert np.array_equal(wn.sim.frame, wp.sim.frame)
+        assert wn.sim.food_cells == wp.sim.food_cells
+        assert wn.sim.corpse_cells == wp.sim.corpse_cells
+        np.testing.assert_allclose(wn.runtime._carry_state, wp.runtime._carry_state, atol=1e-6)
+        assert np.array_equal(wn.runtime._carry_mask, wp.runtime._carry_mask)
+        assert np.array_equal(wn.runtime._carry_valid, wp.runtime._carry_valid)
+
+    seeds = preflight_seeds((0, 1, 2, 3))
+    devices = ["cpu"] + (["mps"] if torch.backends.mps.is_available() else [])
+    for dev_name in devices:
+        ctx = _mps_readonly_spike_compat() if dev_name == "mps" else contextlib.nullcontext()
+        with ctx:
+            dev = torch.device("mps", 0) if dev_name == "mps" else torch.device("cpu")
+            sim_disk, pol_disk = build_watch6_ct_device_bundle(
+                seeds,
+                b8_path,
+                opp_path,
+                device=dev,
+                policy_template=None,
+                cpu_featurizer_backend="numba",
+            )
+            sim_tpl, pol_tpl_out = build_watch6_ct_device_bundle(
+                seeds, b8_path, opp_path, device=dev, policy_template=tpl_py
+            )
+            for fname in _ENV_TENSOR_FIELDS:
+                assert torch.equal(getattr(sim_disk, fname), getattr(sim_tpl, fname))
+            for fname in _VECTOR_RUNTIME_ENV_FIELDS:
+                assert torch.equal(
+                    getattr(pol_disk.vector_runtime, fname),
+                    getattr(pol_tpl_out.vector_runtime, fname),
+                )
+            for (_, p1), (_, p2) in zip(
+                pol_disk.b8_network.named_parameters(), pol_tpl_out.b8_network.named_parameters()
+            ):
+                assert torch.equal(p1, p2)
+
+
+def test_verify_cuda_native_extensions_parallel_cold_compile(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Verify cold CUDA extension compilation dispatches all 4 modules in parallel."""
+    import threading
+    import time
+
+    from research.gpu_sim_spike import event_cuda, flood_cuda, move_cuda, vector_geometry
+    from research.gpu_sitl import open_stop_gpu as osg
+
+    active = 0
+    max_active = 0
+    calls: list[str] = []
+    lock = threading.Lock()
+    barrier = threading.Barrier(4, timeout=5.0)
+
+    def _make_loader(tag: str) -> Any:
+        def _loader() -> str:
+            nonlocal active, max_active
+            with lock:
+                active += 1
+                max_active = max(max_active, active)
+                calls.append(tag)
+            try:
+                barrier.wait()
+                time.sleep(0.01)
+                return f"ext_{tag}"
+            finally:
+                with lock:
+                    active -= 1
+
+        return _loader
+
+    monkeypatch.setenv("TORCH_EXTENSIONS_DIR", str(tmp_path / "ext_cache"))
+    monkeypatch.setenv("TORCH_CUDA_ARCH_LIST", "8.0;8.9;9.0")
+    monkeypatch.setenv("GPU_SIM_VECTOR_GEOMETRY", "native")
+    monkeypatch.setenv("GPU_SIM_VECTOR_FLOOD", "static")
+    monkeypatch.setattr(osg, "_LAST_SCOPED_BUILD_KEY", None)
+    monkeypatch.setattr(osg, "ensure_cuda_initialized", lambda d: torch.device("cuda:0"))
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "is_initialized", lambda: True)
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda d=None: (8, 0))
+    monkeypatch.setattr(torch.version, "cuda", "12.6")
+    monkeypatch.setattr(torch._C, "_cuda_getDeviceCount", lambda: 1, raising=False)
+    monkeypatch.setattr(flood_cuda, "_load", _make_loader("flood"))
+    monkeypatch.setattr(vector_geometry, "_load_exact_extension", _make_loader("vector"))
+    monkeypatch.setattr(osg, "_load_event_cuda_extension", _make_loader("event"))
+    monkeypatch.setattr(osg, "_load_move_cuda_extension", _make_loader("move"))
+
+    info = osg.verify_cuda_native_extensions(torch.device("cuda:0"))
+    assert info["effective_build_cuda_arch"] == "8.0"
+    assert set(calls) == {"flood", "move", "event", "vector"}
+    assert max_active == 4
+
+    # Warm second call with same build_key must NOT re-spawn parallel barrier threads
+    calls.clear()
+    monkeypatch.setattr(flood_cuda, "_load", lambda: (calls.append("flood"), "ext")[1])
+    monkeypatch.setattr(
+        vector_geometry, "_load_exact_extension", lambda: (calls.append("vector"), "ext")[1]
+    )
+    monkeypatch.setattr(
+        osg, "_load_event_cuda_extension", lambda: (calls.append("event"), "ext")[1]
+    )
+    monkeypatch.setattr(osg, "_load_move_cuda_extension", lambda: (calls.append("move"), "ext")[1])
+    osg.verify_cuda_native_extensions(torch.device("cuda:0"))
+    assert calls == ["flood", "vector", "event", "move"]
