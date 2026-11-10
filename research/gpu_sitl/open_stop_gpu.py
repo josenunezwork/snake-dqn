@@ -234,17 +234,23 @@ def ensure_cuda_initialized(device: torch.device | str) -> torch.device:
     dev = torch.device(device)
     if dev.type in {"cuda", "mps"} and dev.index is None:
         dev = torch.device(dev.type, 0)
-    if dev.type == "cuda" and torch.cuda.is_available():
-        if (
-            hasattr(torch._C, "_cuda_getDeviceCount")
-            or getattr(torch.cuda.init, "__module__", "") != "torch.cuda"
-        ):
-            torch.cuda.init()
+    if dev.type == "cuda":
+        torch.backends.cuda.matmul.allow_tf32 = False
+        torch.backends.cudnn.allow_tf32 = False
+        torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = False
+        torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = False
+        torch.set_float32_matmul_precision("highest")
+        if torch.cuda.is_available():
             if (
-                hasattr(torch._C, "_cuda_setDevice")
-                or getattr(torch.cuda.set_device, "__module__", "") != "torch.cuda"
+                hasattr(torch._C, "_cuda_getDeviceCount")
+                or getattr(torch.cuda.init, "__module__", "") != "torch.cuda"
             ):
-                torch.cuda.set_device(dev)
+                torch.cuda.init()
+                if (
+                    hasattr(torch._C, "_cuda_setDevice")
+                    or getattr(torch.cuda.set_device, "__module__", "") != "torch.cuda"
+                ):
+                    torch.cuda.set_device(dev)
     return dev
 
 
@@ -269,7 +275,7 @@ def verify_cuda_native_extensions(device: torch.device | str) -> dict[str, Any]:
         os.environ["TORCH_CUDA_ARCH_LIST"] = DEFAULT_CUDA_ARCH_LIST
         arch_list_raw = DEFAULT_CUDA_ARCH_LIST
     arch_tokens = {
-        tok.strip().removesuffix("+PTX")
+        tok.strip().removesuffix("+PTX").removesuffix("a")
         for part in arch_list_raw.replace(",", ";").split(";")
         for tok in part.split()
         if tok.strip()
@@ -501,7 +507,9 @@ class FastDeviceVectorRuntime(DeviceVectorRuntime):
             inb = all_live & (ox >= 0) & (ox < sim.grid_w) & (oy >= 0) & (oy < sim.grid_h)
             occ_u8.flatten(1).scatter_reduce_(
                 1,
-                (oy.clamp(0, sim.grid_h - 1) * sim.grid_w + ox.clamp(0, sim.grid_w - 1)),
+                (oy.clamp(0, sim.grid_h - 1) * sim.grid_w + ox.clamp(0, sim.grid_w - 1)).to(
+                    torch.long
+                ),
                 inb.to(torch.uint8),
                 "amax",
                 include_self=True,
@@ -673,6 +681,18 @@ def sync_runtime_from_cpu(
     device_policy.vector_prepared = bool(vector_prepared)
 
 
+def _module_off_device(mod: torch.nn.Module | None, target_dev: torch.device) -> bool:
+    if mod is None:
+        return False
+    for p in mod.parameters():
+        if p.device != target_dev:
+            return True
+    for b in mod.buffers():
+        if b.device != target_dev:
+            return True
+    return False
+
+
 def move_device_policy_to_device(
     policy: DevicePolicy,
     device: str | torch.device,
@@ -681,27 +701,34 @@ def move_device_policy_to_device(
 ) -> DevicePolicy:
     """Ensure ``policy``, its networks/tables, and ``policy.vector_runtime`` live on ``device``."""
     target_dev = normalize_device(device)
-    if policy.device != target_dev:
-        policy.device = target_dev
+    if target_dev.type == "cuda":
+        torch.backends.cuda.matmul.allow_tf32 = False
+        torch.backends.cudnn.allow_tf32 = False
+        torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = False
+        torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = False
+        torch.set_float32_matmul_precision("highest")
+
+    policy.device = target_dev
+    if _module_off_device(policy.b8_network, target_dev):
         policy.b8_network = copy.deepcopy(policy.b8_network).to(target_dev).eval()
+    if any(_module_off_device(net, target_dev) for net in policy.opponent_networks):
         memo: dict[int, torch.nn.Module] = {}
         new_nets = []
         for net in policy.opponent_networks:
             if net is not None:
                 if id(net) not in memo:
-                    memo[id(net)] = copy.deepcopy(net).to(target_dev).eval()
+                    memo[id(net)] = (
+                        copy.deepcopy(net).to(target_dev).eval()
+                        if _module_off_device(net, target_dev)
+                        else net
+                    )
                 net = memo[id(net)]
             new_nets.append(net)
         policy.opponent_networks = tuple(new_nets)
+    if any(isinstance(t, torch.Tensor) and t.device != target_dev for t in policy.anchor_tables):
         policy.anchor_tables = tuple(
             t.to(target_dev) if isinstance(t, torch.Tensor) else t for t in policy.anchor_tables
         )
-        if target_dev.type == "cuda":
-            torch.backends.cuda.matmul.allow_tf32 = False
-            torch.backends.cudnn.allow_tf32 = False
-            torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = False
-            torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = False
-            torch.set_float32_matmul_precision("highest")
 
     rt = policy.vector_runtime
     if rt is not None:
@@ -814,7 +841,7 @@ def assert_sim_and_policy_on_device(
             )
 
 
-@torch.inference_mode()
+@torch.no_grad()
 def compact_sim_and_policy(
     sim: DeviceSim,
     policy: DevicePolicy,
@@ -844,7 +871,7 @@ def compact_sim_and_policy(
     assert_sim_and_policy_on_device(sim, policy, target_dev)
 
 
-@torch.inference_mode()
+@torch.no_grad()
 def concat_sims_and_policies(
     sims: Sequence[DeviceSim],
     policies: Sequence[DevicePolicy],
@@ -861,25 +888,50 @@ def concat_sims_and_policies(
         assert_sim_and_policy_on_device(out_sim, out_pol, target_dev)
         return out_sim, out_pol
 
-    out_sim = sims[0].clone()
+    any_sim_prepared = any(bool(s._prepared) for s in sims)
+    any_pol_prepared = any(bool(p.vector_prepared) for p in policies)
+    norm_sims: list[DeviceSim] = []
+    norm_pols: list[DevicePolicy] = []
+    for s_in, p_in in zip(sims, policies):
+        s_cur = s_in.clone()
+        s_cur.device = target_dev
+        for name in _ENV_TENSOR_FIELDS:
+            v = getattr(s_cur, name, None)
+            if isinstance(v, torch.Tensor) and v.device != target_dev:
+                setattr(s_cur, name, v.to(target_dev))
+        p_cur = p_in.repeat_interleave(1)
+        move_device_policy_to_device(p_cur, target_dev)
+        if (any_sim_prepared or any_pol_prepared) and not s_cur._prepared:
+            s_cur.prepare()
+        if any_pol_prepared and p_cur.vector_runtime is not None and not p_cur.vector_prepared:
+            p_cur.vector_runtime.prepare(s_cur)
+            p_cur.vector_prepared = True
+        norm_sims.append(s_cur)
+        norm_pols.append(p_cur)
+
+    out_sim = norm_sims[0].clone()
     out_sim.device = target_dev
-    out_pol = policies[0].repeat_interleave(1)
+    out_pol = norm_pols[0].repeat_interleave(1)
     move_device_policy_to_device(out_pol, target_dev)
 
-    total_e = sum(int(s.E) for s in sims)
+    total_e = sum(int(s.E) for s in norm_sims)
     for name in _ENV_TENSOR_FIELDS:
-        vals = [getattr(s, name, None) for s in sims]
+        vals = [getattr(s, name, None) for s in norm_sims]
         if all(isinstance(v, torch.Tensor) for v in vals):
             setattr(out_sim, name, torch.cat([v.to(target_dev) for v in vals], dim=0))
     out_sim.E = total_e
+    out_sim._prepared = bool(any_sim_prepared or any_pol_prepared)
     r2_cache.bump(out_sim)
 
     out_rt = out_pol.vector_runtime
-    for name in _VECTOR_RUNTIME_ENV_FIELDS:
-        vals = [getattr(p.vector_runtime, name, None) for p in policies]
-        if all(isinstance(v, torch.Tensor) for v in vals):
-            setattr(out_rt, name, torch.cat([v.to(target_dev) for v in vals], dim=0))
-    out_rt.E = total_e
+    if out_rt is not None and all(p.vector_runtime is not None for p in norm_pols):
+        for name in _VECTOR_RUNTIME_ENV_FIELDS:
+            vals = [getattr(p.vector_runtime, name, None) for p in norm_pols]
+            if all(isinstance(v, torch.Tensor) for v in vals):
+                setattr(out_rt, name, torch.cat([v.to(target_dev) for v in vals], dim=0))
+        out_rt.E = total_e
+        out_rt.__class__ = FastDeviceVectorRuntime
+    out_pol.vector_prepared = bool(any_pol_prepared)
     assert_sim_and_policy_on_device(out_sim, out_pol, target_dev)
     return out_sim, out_pol
 
@@ -898,7 +950,9 @@ def evaluate_terminal_openness_device(sim: DeviceSim) -> dict[str, torch.Tensor]
     - ``un_enclosed = v8_open & pocket_open``
     """
     e_count = int(sim.E)
-    device = sim.device
+    device = normalize_device(sim.device)
+    if device.type == "cuda":
+        verify_cuda_native_extensions(device)
     if e_count == 0:
         empty_b = torch.zeros(0, dtype=torch.bool, device=device)
         empty_i = torch.zeros(0, dtype=torch.long, device=device)
@@ -1068,8 +1122,10 @@ def _batched_open_stop_h32_impl(
     device = normalize_device(sim.device)
     root_sim = sim.clone()
     root_sim.device = device
+    root_alive = root_sim.alive[:, 0].to(device=device, dtype=torch.bool).clone()
+    root_sim.terminal_slots[:, 0] = True
     root_policy = policy.repeat_interleave(1)
-    move_device_policy_to_device(root_policy, device, e_count=r_count)
+    move_device_policy_to_device(root_policy, device)
     assert_sim_and_policy_on_device(root_sim, root_policy, device)
     if enable_r2:
         r2_cache.enable(root_sim)
@@ -1119,7 +1175,7 @@ def _batched_open_stop_h32_impl(
     branch_policy.after_step(branch_sim)
 
     frames_executed = torch.ones(b_count, dtype=torch.long, device=device)
-    alive_every_step = branch_sim.alive[:, 0].clone()
+    alive_every_step = branch_sim.alive[:, 0].clone() & root_alive.repeat_interleave(6)
     frames_survived = alive_every_step.to(torch.long)
     final_length = torch.where(
         alive_every_step,
@@ -1190,10 +1246,10 @@ def _batched_open_stop_h32_impl(
                 surv_rows = surv_mask_local.nonzero(as_tuple=False).squeeze(1)
                 compact_sim_and_policy(branch_sim, branch_policy, surv_rows)
                 active_idx = active_idx.index_select(0, surv_rows)
-            openness_local = evaluate_terminal_openness_device(branch_sim)
+            openness_local: dict[str, torch.Tensor] = evaluate_terminal_openness_device(branch_sim)
         else:
             active_idx = torch.zeros(0, dtype=torch.long, device=device)
-            openness_local = evaluate_terminal_openness_device(branch_sim)
+            openness_local = {}
     else:
         surv_rows = raw_survives.nonzero(as_tuple=False).squeeze(1)
         if int(surv_rows.numel()) > 0:
@@ -1202,7 +1258,7 @@ def _batched_open_stop_h32_impl(
             openness_local = evaluate_terminal_openness_device(branch_sim)
         else:
             active_idx = torch.zeros(0, dtype=torch.long, device=device)
-            openness_local = evaluate_terminal_openness_device(branch_sim)
+            openness_local = {}
 
     un_enclosed_full = torch.zeros(b_count, dtype=torch.bool, device=device)
     v8_area_full = torch.zeros(b_count, dtype=torch.long, device=device)
@@ -1233,8 +1289,28 @@ def _batched_open_stop_h32_impl(
     if return_host_records:
         openness_by_branch: dict[int, dict[str, Any]] = {}
         active_idx_cpu = active_idx.detach().cpu().tolist()
-        for local_i, b_idx in enumerate(active_idx_cpu):
-            openness_by_branch[int(b_idx)] = openness_row_to_dict(openness_local, local_i)
+        if active_idx_cpu:
+            op_alive = openness_local["alive"].detach().cpu().tolist()
+            op_len = openness_local["length"].detach().cpu().tolist()
+            op_adv = openness_local["advisory_any"].detach().cpu().tolist()
+            op_need = openness_local["v8_need"].detach().cpu().tolist()
+            op_area = openness_local["v8_best_safe_area"].detach().cpu().tolist()
+            op_v8 = openness_local["v8_open"].detach().cpu().tolist()
+            op_pkt = openness_local["max_pocket_r"].detach().cpu().tolist()
+            op_pktopen = openness_local["pocket_open"].detach().cpu().tolist()
+            op_unenc = openness_local["un_enclosed"].detach().cpu().tolist()
+            for local_i, b_idx in enumerate(active_idx_cpu):
+                openness_by_branch[int(b_idx)] = {
+                    "alive": bool(op_alive[local_i]),
+                    "length": int(op_len[local_i]),
+                    "advisory_any": bool(op_adv[local_i]),
+                    "v8_need": int(op_need[local_i]),
+                    "v8_best_safe_area": int(op_area[local_i]),
+                    "v8_open": bool(op_v8[local_i]),
+                    "max_pocket_r": int(op_pkt[local_i]),
+                    "pocket_open": bool(op_pktopen[local_i]),
+                    "un_enclosed": bool(op_unenc[local_i]),
+                }
 
         root_q_np = root_q_t.detach().cpu().numpy()
         root_legal_np = root_legal_t.detach().cpu().numpy()
@@ -1400,6 +1476,8 @@ def margin_loss_gradient_check(
     and asserting finite, non-zero gradients on every non-value parameter tensor.
     """
     dev = normalize_device(device)
+    if dev.type == "cuda":
+        verify_cuda_native_extensions(dev)
     net = load_ego2s_checkpoint(str(b8_checkpoint), device=dev)
     if not isinstance(net, Ego2sNet):
         raise TypeError(f"Expected Ego2sNet from {b8_checkpoint}, got {type(net)!r}")
@@ -1420,6 +1498,11 @@ def margin_loss_gradient_check(
     net.zero_grad(set_to_none=True)
 
     if sim is not None:
+        alive_mask = sim.alive[:, 0].to(device=dev, dtype=torch.bool).clone()
+        if not sim._prepared:
+            sim = sim.clone()
+            sim.terminal_slots[:, 0] = True
+            sim.prepare()
         total_roots = int(sim.E)
         hero_rows = torch.stack(
             (
@@ -1461,6 +1544,7 @@ def margin_loss_gradient_check(
     else:
         gen = torch.Generator(device="cpu").manual_seed(20261109)
         total_roots = 16
+        alive_mask = torch.ones(total_roots, dtype=torch.bool, device=dev)
         tac_all = torch.randint(
             0, 256, (total_roots, local_channels, 31, 31), generator=gen, dtype=torch.uint8
         ).to(dev)
@@ -1507,7 +1591,7 @@ def margin_loss_gradient_check(
             if unsafe_mask is not None
             else (legal_all & ~safe_all)
         )
-        both_safe_and_unsafe = safe_all.any(dim=1) & unsafe_all.any(dim=1)
+        both_safe_and_unsafe = safe_all.any(dim=1) & unsafe_all.any(dim=1) & alive_mask
         if not bool(both_safe_and_unsafe.any().item()):
             raise ValueError(
                 "margin_loss_gradient_check requires at least one root with both safe and "

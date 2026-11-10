@@ -18,6 +18,8 @@ import argparse
 import gzip
 import hashlib
 import json
+import os
+import subprocess
 import time
 from contextlib import contextmanager
 from dataclasses import replace
@@ -261,7 +263,33 @@ def _sha256_file(path: Path) -> str:
 
 def resolve_product_checkpoints(saved_dir: Path | None = None) -> tuple[Path, Path]:
     """Return verified ``(b8_s3_path, frp3_s12_path)`` under ``saved_snakes``."""
-    base = Path(saved_dir) if saved_dir is not None else Path(REPO_ROOT) / "saved_snakes"
+    candidates: list[Path] = []
+    if saved_dir is not None:
+        candidates.append(Path(saved_dir))
+    else:
+        env_dir = os.environ.get("SNAKE_CKPT_DIR", "").strip()
+        if env_dir:
+            candidates.append(Path(env_dir))
+        candidates.append(Path(REPO_ROOT) / "saved_snakes")
+        try:
+            proc = subprocess.run(
+                ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                cwd=str(REPO_ROOT),
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if proc.returncode == 0 and proc.stdout.strip():
+                common_saved = Path(proc.stdout.strip()).resolve().parent / "saved_snakes"
+                if common_saved not in candidates:
+                    candidates.append(common_saved)
+        except OSError:
+            pass
+    base = candidates[0]
+    for cand in candidates:
+        if (cand / B8_S3_FILENAME).is_file() and (cand / FRP3_S12_FILENAME).is_file():
+            base = cand
+            break
     b8_path = base / B8_S3_FILENAME
     frp3_path = base / FRP3_S12_FILENAME
     if not b8_path.is_file():

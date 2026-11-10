@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 from pathlib import Path
@@ -51,10 +52,52 @@ CONTAMINATED_FORBIDDEN_DATA_NAMESPACES: tuple[str, ...] = (
     "t34-hero-probe-20261103-v1",
 )
 
+FORBIDDEN_TRAINING_NAMESPACES: frozenset[str] = frozenset(
+    {
+        SELECTIVITY_NAMESPACE,
+        SCREEN_NAMESPACE,
+        *CONTAMINATED_FORBIDDEN_DATA_NAMESPACES,
+    }
+)
+
+DEFAULT_SCAN_CODE_ROOTS: tuple[Path, ...] = (
+    REPO_ROOT / "src",
+    REPO_ROOT / "web",
+    REPO_ROOT / "configs",
+    REPO_ROOT / "research" / "gpu_sitl",
+)
+
 NATURAL_WORLD_INDICES: tuple[int, ...] = (0, 1, 2, 3)
 LONG_HERO_WORLD_INDICES: tuple[int, ...] = (4, 5, 6, 7)
 EXTENSION_MATURE_WORLD_INDICES: tuple[int, ...] = tuple(range(8, 40))
 AUDIT_INDEX_RANGE = 512
+
+
+def assert_allowed_training_seeds(
+    *,
+    namespace: str,
+    seeds: Sequence[int],
+    context: str,
+    index_horizon: int = AUDIT_INDEX_RANGE,
+) -> None:
+    """Fail closed if ``namespace`` or ``seeds`` touch held-out or contaminated namespaces."""
+    ns_str = str(namespace)
+    if ns_str in FORBIDDEN_TRAINING_NAMESPACES:
+        raise ValueError(
+            f"Forbidden held-out/contaminated namespace {ns_str!r} rejected in {context}"
+        )
+    seed_set = {int(s) for s in seeds}
+    if not seed_set:
+        return
+    horizon = max(int(index_horizon), 512)
+    for bad_ns in sorted(FORBIDDEN_TRAINING_NAMESPACES):
+        bad_seeds = {int(seed_for(bad_ns, idx)) for idx in range(horizon)}
+        overlap = sorted(seed_set & bad_seeds)
+        if overlap:
+            raise ValueError(
+                f"Forbidden seed overlap in {context} with held-out/contaminated namespace "
+                f"{bad_ns!r}: {overlap}"
+            )
 
 
 def namespace_seeds(namespace: str, count_or_indices: int | Sequence[int]) -> list[int]:
@@ -128,6 +171,10 @@ def audit_shakeout_seeds(
     dev_union = s_smoke | s_probe | s_train
 
     forbidden_registered: dict[str, set[int]] = {
+        PREFLIGHT_NAMESPACE: set(namespace_seeds(PREFLIGHT_NAMESPACE, max(40, index_horizon))),
+        T34_PREFLIGHT_NAMESPACE: set(
+            namespace_seeds(T34_PREFLIGHT_NAMESPACE, max(4, index_horizon))
+        ),
         TRAIN_NAMESPACE: set(
             namespace_seeds(TRAIN_NAMESPACE, max(TRAIN_WORLD_COUNT, index_horizon))
         ),
@@ -174,6 +221,8 @@ def audit_shakeout_seeds(
             "train": SHAKEOUT_TRAIN_NAMESPACE,
         },
         "forbidden_registered_namespaces_untouched": [
+            PREFLIGHT_NAMESPACE,
+            T34_PREFLIGHT_NAMESPACE,
             SELECTIVITY_NAMESPACE,
             SCREEN_NAMESPACE,
             PROBE32_NAMESPACE,
@@ -181,6 +230,79 @@ def audit_shakeout_seeds(
         ],
         "overlaps": overlaps,
     }
+
+
+def _assert_not_contaminated_path(path: Path | str) -> None:
+    path_str = Path(path).as_posix()
+    for bad_ns in FORBIDDEN_TRAINING_NAMESPACES:
+        if bad_ns in path_str:
+            raise RuntimeError(
+                f"Refusing to open file under forbidden/contaminated namespace {bad_ns!r}: {path}"
+            )
+
+
+def _scan_code_roots_for_literal_seeds(
+    scan_code_roots: Sequence[Path],
+    tokens: dict[str, int],
+) -> dict[str, list[int]]:
+    literal_hits: dict[str, list[int]] = {}
+    for root in scan_code_roots:
+        root_p = Path(root)
+        if root_p.is_dir():
+            _assert_not_contaminated_path(root_p)
+            resolved_root = root_p.resolve()
+            hits = fixed_string_hits(resolved_root, tokens, word_regexp=True)
+            for hit_path, matched_tokens in hits.items():
+                _assert_not_contaminated_path(hit_path)
+                try:
+                    rel_str = Path(hit_path).resolve().relative_to(resolved_root).as_posix()
+                except ValueError:
+                    rel_str = Path(hit_path).as_posix()
+                literal_hits[f"{root_p.name}/{rel_str}"] = sorted(tokens[t] for t in matched_tokens)
+    return literal_hits
+
+
+def _audit_runtime_modules_no_heldout_refs(
+    gpu_sitl_dir: Path | None = None,
+) -> dict[str, list[str]]:
+    """Verify training/harvest/smoke modules never materialize or score held-out namespaces."""
+    target_dir = (
+        (REPO_ROOT / "research" / "gpu_sitl") if gpu_sitl_dir is None else Path(gpu_sitl_dir)
+    )
+    if not target_dir.is_dir():
+        return {}
+    forbidden_fn_names = {"selectivity_seeds", "screen_seeds"}
+    forbidden_train_names = {
+        "selectivity_seeds",
+        "screen_seeds",
+        "SELECTIVITY_NAMESPACE",
+        "SCREEN_NAMESPACE",
+        "CONTAMINATED_FORBIDDEN_DATA_NAMESPACES",
+    }
+    forbidden_train_strings = set(FORBIDDEN_TRAINING_NAMESPACES)
+    forbidden_smoke_strings = set(CONTAMINATED_FORBIDDEN_DATA_NAMESPACES)
+    violations: dict[str, list[str]] = {}
+    for mod_name in ("open_stop_gpu.py", "probe_bank.py", "train_sitl.py", "smoke.py"):
+        mod_path = target_dir / mod_name
+        if not mod_path.is_file():
+            continue
+        tree = ast.parse(mod_path.read_text(encoding="utf-8"), filename=str(mod_path))
+        bad_names = forbidden_fn_names if mod_name == "smoke.py" else forbidden_train_names
+        bad_strings = forbidden_smoke_strings if mod_name == "smoke.py" else forbidden_train_strings
+        found: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and node.id in bad_names:
+                found.add(f"name:{node.id}")
+            elif isinstance(node, ast.Attribute) and node.attr in bad_names:
+                found.add(f"attr:{node.attr}")
+            elif isinstance(node, ast.alias) and node.name in bad_names:
+                found.add(f"import:{node.name}")
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+                if node.value in bad_strings:
+                    found.add(f"literal:{node.value}")
+        if found:
+            violations[mod_name] = sorted(found)
+    return violations
 
 
 def collect_known_repository_seeds(index_horizon: int = AUDIT_INDEX_RANGE) -> dict[str, set[int]]:
@@ -212,6 +334,7 @@ def collect_known_repository_seeds(index_horizon: int = AUDIT_INDEX_RANGE) -> di
 
     bank_seeds: set[int] = set()
     for rel_path in COMMITTED_BANK_FILES:
+        _assert_not_contaminated_path(rel_path)
         full_path = REPO_ROOT / rel_path
         if full_path.is_file():
             text = full_path.read_text(encoding="utf-8")
@@ -235,6 +358,7 @@ def collect_known_repository_seeds(index_horizon: int = AUDIT_INDEX_RANGE) -> di
         REPO_ROOT / "docs" / "experiments" / "2026-10-08_frp_v5_screen" / "training_exclusions.json"
     )
     if exclusions_path.is_file():
+        _assert_not_contaminated_path(exclusions_path)
         excl_text = exclusions_path.read_text(encoding="utf-8")
         excl_seeds = {int(x) for x in re.findall(r"\b(\d{5,12})\b", excl_text)}
         if excl_seeds:
@@ -256,17 +380,19 @@ def audit_preflight_seeds(
     extension_seeds = preflight_seeds(extension_indices)
     all_allocated = natural_seeds + long_hero_seeds + extension_seeds
 
-    internal_256 = [seed_for(PREFLIGHT_NAMESPACE, i) for i in range(256)]
+    internal_256 = [seed_for(PREFLIGHT_NAMESPACE, i) for i in range(max(256, int(index_horizon)))]
     internal_unique = len(internal_256) == len(set(internal_256))
     allocated_unique = len(all_allocated) == len(set(all_allocated))
 
     known_by_source = collect_known_repository_seeds(index_horizon=index_horizon)
     allocated_set = set(all_allocated)
-    prefix_256_set = set(internal_256)
+    prefix_256_set = set(internal_256[:256])
 
     collisions_allocated: dict[str, list[int]] = {}
     collisions_prefix_256: dict[str, list[int]] = {}
     for source, seeds in known_by_source.items():
+        if source == f"namespace:{PREFLIGHT_NAMESPACE}":
+            continue
         hit_alloc = sorted(allocated_set & seeds)
         if hit_alloc:
             collisions_allocated[source] = hit_alloc
@@ -275,21 +401,9 @@ def audit_preflight_seeds(
             collisions_prefix_256[source] = hit_256
 
     if scan_code_roots is None:
-        scan_code_roots = [
-            REPO_ROOT / "src",
-            REPO_ROOT / "web",
-            REPO_ROOT / "configs",
-            REPO_ROOT / "docs",
-        ]
+        scan_code_roots = list(DEFAULT_SCAN_CODE_ROOTS)
     tokens = {str(s): int(s) for s in all_allocated}
-    literal_hits: dict[str, list[int]] = {}
-    for root in scan_code_roots:
-        if Path(root).is_dir():
-            hits = fixed_string_hits(Path(root), tokens, word_regexp=True)
-            for rel_file, matched_tokens in hits.items():
-                literal_hits[f"{Path(root).name}/{rel_file}"] = sorted(
-                    tokens[t] for t in matched_tokens
-                )
+    literal_hits = _scan_code_roots_for_literal_seeds(scan_code_roots, tokens)
 
     ok = (
         internal_unique
@@ -342,6 +456,11 @@ def audit_b1b_seeds(
     )
     known_by_source = collect_known_repository_seeds(index_horizon=index_horizon)
 
+    contaminated_opened = 0
+    for rel_path in COMMITTED_BANK_FILES:
+        if any(bad_ns in str(rel_path) for bad_ns in CONTAMINATED_FORBIDDEN_DATA_NAMESPACES):
+            contaminated_opened += 1
+
     # Confirm both contaminated namespaces are present in the algebraic seed registry
     for forbidden_ns in CONTAMINATED_FORBIDDEN_DATA_NAMESPACES:
         if f"namespace:{forbidden_ns}" not in known_by_source:
@@ -349,13 +468,14 @@ def audit_b1b_seeds(
                 f"Contaminated namespace {forbidden_ns!r} missing from known seed registry"
             )
 
+    min_prefix = max(256, int(index_horizon))
     all_audited_specs: tuple[tuple[str, int, int], ...] = (
-        (PREFLIGHT_NAMESPACE, 40, 256),
-        (T34_PREFLIGHT_NAMESPACE, 4, 256),
+        (PREFLIGHT_NAMESPACE, 40, min_prefix),
+        (T34_PREFLIGHT_NAMESPACE, 4, min_prefix),
         (TRAIN_NAMESPACE, TRAIN_WORLD_COUNT, max(512, int(index_horizon))),
-        (PROBE32_NAMESPACE, PROBE32_WORLD_COUNT, 256),
-        (SELECTIVITY_NAMESPACE, SELECTIVITY_WORLD_COUNT, 256),
-        (SCREEN_NAMESPACE, SCREEN_WORLD_COUNT, 256),
+        (PROBE32_NAMESPACE, PROBE32_WORLD_COUNT, min_prefix),
+        (SELECTIVITY_NAMESPACE, SELECTIVITY_WORLD_COUNT, min_prefix),
+        (SCREEN_NAMESPACE, SCREEN_WORLD_COUNT, min_prefix),
     )
 
     per_namespace: dict[str, dict[str, Any]] = {}
@@ -377,6 +497,8 @@ def audit_b1b_seeds(
         repo_collisions_alloc: dict[str, list[int]] = {}
         repo_collisions_prefix: dict[str, list[int]] = {}
         for source, seeds in known_by_source.items():
+            if source == f"namespace:{ns}":
+                continue
             hit_a = sorted(alloc_set & seeds)
             if hit_a:
                 repo_collisions_alloc[source] = hit_a
@@ -414,21 +536,10 @@ def audit_b1b_seeds(
                 cross_collisions_prefix[pair_key] = overlap_pref
 
     if scan_code_roots is None:
-        scan_code_roots = [
-            REPO_ROOT / "src",
-            REPO_ROOT / "web",
-            REPO_ROOT / "configs",
-            REPO_ROOT / "docs",
-        ]
+        scan_code_roots = list(DEFAULT_SCAN_CODE_ROOTS)
     tokens = {str(s): int(s) for s in set(all_allocated_union)}
-    literal_hits: dict[str, list[int]] = {}
-    for root in scan_code_roots:
-        if Path(root).is_dir():
-            hits = fixed_string_hits(Path(root), tokens, word_regexp=True)
-            for rel_file, matched_tokens in hits.items():
-                literal_hits[f"{Path(root).name}/{rel_file}"] = sorted(
-                    tokens[t] for t in matched_tokens
-                )
+    literal_hits = _scan_code_roots_for_literal_seeds(scan_code_roots, tokens)
+    heldout_code_hits = _audit_runtime_modules_no_heldout_refs()
 
     all_ns_ok = all(info["ok"] for info in per_namespace.values())
     union_unique = len(all_allocated_union) == len(set(all_allocated_union))
@@ -439,6 +550,8 @@ def audit_b1b_seeds(
         and not cross_collisions_allocated
         and not cross_collisions_prefix
         and not literal_hits
+        and not heldout_code_hits
+        and contaminated_opened == 0
     )
     return {
         "ok": bool(ok),
@@ -451,11 +564,12 @@ def audit_b1b_seeds(
         "audited_repository_source_count": len(known_by_source),
         "index_horizon_per_namespace": int(index_horizon),
         "total_known_unique_seeds_checked": len(set().union(*known_by_source.values())),
-        "contaminated_data_files_opened": 0,
+        "contaminated_data_files_opened": int(contaminated_opened),
         "contaminated_namespaces_checked_algebraically": list(
             CONTAMINATED_FORBIDDEN_DATA_NAMESPACES
         ),
         "literal_code_hits": literal_hits,
+        "heldout_code_reference_hits": heldout_code_hits,
     }
 
 

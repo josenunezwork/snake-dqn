@@ -3359,3 +3359,134 @@ def test_b1b_smoke_emits_per_phase_wall_time_stamps(
     }
     assert expected_phases <= set(started_phases)
     assert expected_phases <= set(ended_phases)
+
+
+def test_review_search_findings_se1_to_se9(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Regression coverage for confirmed search/seed_check review findings SE1-SE7, SE9."""
+    import copy as copy_mod
+
+    import research.gpu_sitl.open_stop_gpu as osg
+    import research.gpu_sitl.seed_check as sc
+    from research.gpu_sitl.probe_bank import build_watch6_ct_device_bundle
+
+    b8_path, opp_path = resolve_product_checkpoints()
+    seeds2 = preflight_seeds((0, 1))
+    sim2, pol2 = build_watch6_ct_device_bundle(seeds2, b8_path, opp_path, device="cpu")
+
+    # SE1: move_device_policy_to_device must not deepcopy networks already on target_dev.
+    deepcopy_calls = 0
+    orig_deepcopy = copy_mod.deepcopy
+
+    def _counting_deepcopy(obj: Any, *args: Any, **kwargs: Any) -> Any:
+        nonlocal deepcopy_calls
+        deepcopy_calls += 1
+        return orig_deepcopy(obj, *args, **kwargs)
+
+    monkeypatch.setattr(osg.copy, "deepcopy", _counting_deepcopy)
+    pol_chk = pol2.repeat_interleave(1)
+    pol_chk.device = torch.device("meta")  # mismatched wrapper attr while params live on cpu
+    osg.move_device_policy_to_device(pol_chk, "cpu")
+    assert pol_chk.device == torch.device("cpu")
+    assert deepcopy_calls == 0
+    monkeypatch.setattr(osg.copy, "deepcopy", orig_deepcopy)
+
+    # SE2: batched_open_stop_h32 must fail closed when policy E != sim.E (not modulo-wrap).
+    bad_pol = pol2.repeat_interleave(1)
+    osg.move_device_policy_to_device(bad_pol, "cpu", e_count=1)
+    assert int(bad_pol.vector_runtime.controlled.shape[0]) == 1
+    with pytest.raises(RuntimeError, match="controlled E=1 != sim.E=2"):
+        batched_open_stop_h32(
+            sim2,
+            bad_pol,
+            world_seeds=seeds2,
+            decisions=[0, 0],
+            branch_horizon=1,
+        )
+
+    # SE3: compact_sim_and_policy and concat_sims_and_policies must not emit inference tensors,
+    # must reconcile heterogeneous _prepared/vector_prepared, and tolerate vector_runtime=None.
+    sim_a, pol_a = build_watch6_ct_device_bundle([seeds2[0]], b8_path, opp_path, device="cpu")
+    sim_b, pol_b = build_watch6_ct_device_bundle([seeds2[1]], b8_path, opp_path, device="cpu")
+    sim_a.prepare()
+    pol_a.vector_runtime.prepare(sim_a)
+    pol_a.vector_prepared = True
+    assert sim_a._prepared is True and sim_b._prepared is False
+    cat_sim, cat_pol = osg.concat_sims_and_policies([sim_a, sim_b], [pol_a, pol_b])
+    assert not cat_sim.alive.is_inference()
+    assert cat_sim._prepared is True
+    assert cat_pol.vector_prepared is True
+    osg.compact_sim_and_policy(cat_sim, cat_pol, torch.tensor([1], dtype=torch.long))
+    assert not cat_sim.alive.is_inference()
+    _, _, hero_act = cat_pol.evaluate(cat_sim)
+    cat_sim.step(cat_pol.actions(cat_sim, hero_act))
+
+    pol_none_a = pol_a.repeat_interleave(1)
+    pol_none_b = pol_b.repeat_interleave(1)
+    pol_none_a.vector_runtime = None
+    pol_none_b.vector_runtime = None
+    cat_sim_nr, cat_pol_nr = osg.concat_sims_and_policies([sim_a, sim_b], [pol_none_a, pol_none_b])
+    assert int(cat_sim_nr.E) == 2 and cat_pol_nr.vector_runtime is None
+
+    # SE4 + SE9: default scan_code_roots scans research/gpu_sitl (not docs), checks heldout refs,
+    # propagates index_horizon >= 256, and audit_shakeout_seeds guards preflight namespaces.
+    b1b_rep = audit_b1b_seeds(index_horizon=600)
+    assert b1b_rep["ok"] is True
+    assert b1b_rep["heldout_code_reference_hits"] == {}
+    assert b1b_rep["namespaces"][PROBE32_NAMESPACE]["prefix_horizon"] == 600
+    shake_rep = sc.audit_shakeout_seeds(smoke_envs=2, probe_worlds=2, train_envs=2)
+    assert PREFLIGHT_NAMESPACE in shake_rep["forbidden_registered_namespaces_untouched"]
+    assert T34_PREFLIGHT_NAMESPACE in shake_rep["forbidden_registered_namespaces_untouched"]
+
+    fake_code_dir = tmp_path / "fake_code"
+    fake_code_dir.mkdir()
+    (fake_code_dir / "leak.py").write_text(f"LEAK = {train_seeds(1)[0]}\n", encoding="utf-8")
+    leak_rep = audit_b1b_seeds(scan_code_roots=[fake_code_dir])
+    assert leak_rep["ok"] is False
+    assert "fake_code/leak.py" in leak_rep["literal_code_hits"]
+
+    with pytest.raises(ValueError, match="Forbidden|held-out|contaminated"):
+        sc.assert_allowed_training_seeds(
+            namespace=SELECTIVITY_NAMESPACE,
+            seeds=[12345],
+            context="unit-test",
+        )
+
+    # SE5: verify_cuda_native_extensions normalizes Hopper '9.0a' arch token.
+    monkeypatch.setenv("TORCH_CUDA_ARCH_LIST", "8.0;8.9;9.0a")
+    ext_cpu = osg.verify_cuda_native_extensions("cpu")
+    assert ext_cpu["arch_list_covers_a100_l4_h100"] is True
+
+    # SE6: batched_open_stop_h32 skips terminal openness kernel when 0 branches survive.
+    dead_sim = sim2.clone()
+    dead_sim.alive[:, 0] = False
+    openness_calls = 0
+    orig_eval_open = osg.evaluate_terminal_openness_device
+
+    def _counting_open(s: Any) -> dict[str, torch.Tensor]:
+        nonlocal openness_calls
+        openness_calls += 1
+        return orig_eval_open(s)
+
+    monkeypatch.setattr(osg, "evaluate_terminal_openness_device", _counting_open)
+    dead_res = batched_open_stop_h32(
+        dead_sim,
+        pol2,
+        world_seeds=seeds2,
+        decisions=[0, 0],
+        branch_horizon=2,
+        compact_dead=False,
+    )
+    assert not bool(dead_res["raw_survives"].any().item())
+    assert openness_calls == 0
+    monkeypatch.setattr(osg, "evaluate_terminal_openness_device", orig_eval_open)
+
+    # SE7: margin_loss_gradient_check prepares unprepared sim and skips dead hero rows.
+    unprep_sim, _ = build_watch6_ct_device_bundle(seeds2, b8_path, opp_path, device="cpu")
+    assert unprep_sim._prepared is False
+    unprep_sim.alive[0, 0] = False
+    grad_chk = margin_loss_gradient_check(str(b8_path), sim=unprep_sim, device="cpu")
+    assert grad_chk["all_non_value_grads_finite_and_nonzero"] is True
+    assert 0 not in grad_chk["selected_root_indices"]
