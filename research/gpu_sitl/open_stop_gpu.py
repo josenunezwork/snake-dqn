@@ -256,8 +256,11 @@ def ensure_cuda_initialized(device: torch.device | str) -> torch.device:
     if dev.type in {"cuda", "mps"} and dev.index is None:
         dev = torch.device(dev.type, 0)
     if dev.type == "cuda":
+        os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
         torch.backends.cuda.matmul.allow_tf32 = False
         torch.backends.cudnn.allow_tf32 = False
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
         torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = False
         torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = False
         torch.set_float32_matmul_precision("highest")
@@ -1237,8 +1240,11 @@ def move_device_policy_to_device(
     """Ensure ``policy``, its networks/tables, and ``policy.vector_runtime`` live on ``device``."""
     target_dev = normalize_device(device)
     if target_dev.type == "cuda":
+        os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
         torch.backends.cuda.matmul.allow_tf32 = False
         torch.backends.cudnn.allow_tf32 = False
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
         torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = False
         torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = False
         torch.set_float32_matmul_precision("highest")

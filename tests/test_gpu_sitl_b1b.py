@@ -4918,3 +4918,126 @@ def test_shakeout_smoke_wall_time_projection_and_700s_gate(
     assert saved_shake["failed_phases"] == ["phase_4_b1b_smoke_reduced"]
     assert saved_shake["smoke_wall_time_projection"]["within_a100_limit"] is False
     assert saved_shake["smoke_wall_time_projection"]["a100_total_projected_sec_estimate"] > 700.0
+
+
+def test_opus_s1_cuda_cudnn_deterministic_and_no_global_deterministic_algorithms(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """S1/A1: ensure_cuda_initialized sets cudnn.deterministic=True, benchmark=False,
+    and CUBLAS_WORKSPACE_CONFIG without enabling global use_deterministic_algorithms."""
+    import os
+
+    import research.gpu_sitl.open_stop_gpu as osg
+
+    orig_det = torch.backends.cudnn.deterministic
+    orig_bench = torch.backends.cudnn.benchmark
+    orig_algos = torch.are_deterministic_algorithms_enabled()
+    monkeypatch.delenv("CUBLAS_WORKSPACE_CONFIG", raising=False)
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    try:
+        torch.backends.cudnn.deterministic = False
+        torch.backends.cudnn.benchmark = True
+        torch.use_deterministic_algorithms(False)
+
+        dev = osg.ensure_cuda_initialized("cuda")
+        assert dev == torch.device("cuda", 0)
+        assert torch.backends.cudnn.deterministic is True
+        assert torch.backends.cudnn.benchmark is False
+        assert os.environ.get("CUBLAS_WORKSPACE_CONFIG") == ":4096:8"
+        assert torch.are_deterministic_algorithms_enabled() is False
+    finally:
+        torch.backends.cudnn.deterministic = orig_det
+        torch.backends.cudnn.benchmark = orig_bench
+        torch.use_deterministic_algorithms(orig_algos)
+
+
+def test_a1_phase6_resume_mismatch_reports_first_update_and_tensor_name(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A1: phase_6 failure prints and raises with first differing update index and tensor name."""
+    import research.gpu_sitl.smoke as smoke_mod
+
+    ckpt_r = tmp_path / "resumed_student.pth"
+    ckpt_u = tmp_path / "unint_student.pth"
+    w_base = torch.zeros((6, 256), dtype=torch.float32)
+    w_diff = w_base.clone()
+    w_diff[2, 5] = 1.25e-4
+    torch.save(
+        {
+            "state_dict": {
+                "trunk.0.weight": torch.ones((256, 60), dtype=torch.float32),
+                "advantage.weight": w_base,
+            }
+        },
+        ckpt_r,
+    )
+    torch.save(
+        {
+            "state_dict": {
+                "trunk.0.weight": torch.ones((256, 60), dtype=torch.float32),
+                "advantage.weight": w_diff,
+            }
+        },
+        ckpt_u,
+    )
+    res_r = {
+        "final_student_checkpoint_path": str(ckpt_r),
+        "final_student_checkpoint_sha256": "aaa",
+        "update_history": [
+            {"update": 1, "loss_total": 0.25},
+            {"update": 2, "loss_total": 0.20, "grad_norm": 1.1},
+        ],
+    }
+    res_u = {
+        "final_student_checkpoint_path": str(ckpt_u),
+        "final_student_checkpoint_sha256": "bbb",
+        "update_history": [
+            {"update": 1, "loss_total": 0.25},
+            {"update": 2, "loss_total": 0.21, "grad_norm": 1.1},
+        ],
+    }
+    diag = smoke_mod._describe_resume_determinism_mismatch(res_r, res_u)
+    assert "first_differing_update_index=1 (update=2;" in diag
+    assert "loss_total: resumed=0.2 vs unint=0.21" in diag
+    assert "first_differing_tensor=advantage.weight" in diag
+
+    b8_path, opp_path = resolve_product_checkpoints()
+    orig_train = smoke_mod.run_sitl_training
+
+    perturbed_key_holder: list[str] = []
+
+    def _perturbed_uninterrupted(output_dir: Path | str, **kwargs: Any) -> dict[str, Any]:
+        out = orig_train(output_dir, **kwargs)
+        if kwargs.get("resume") is False and kwargs.get("stop_after_updates") is None:
+            p = Path(str(out["final_student_checkpoint_path"]))
+            blob = torch.load(p, map_location="cpu", weights_only=False)
+            last_key = list(blob["state_dict"].keys())[-1]
+            perturbed_key_holder.append(last_key)
+            blob["state_dict"][last_key] = blob["state_dict"][last_key] + 1.0e-3
+            torch.save(blob, p)
+            out = dict(out)
+            out["final_student_checkpoint_sha256"] = "perturbed_sha"
+            hist = [dict(row) for row in out["update_history"]]
+            float_key = next(k for k, v in hist[-1].items() if isinstance(v, float))
+            hist[-1][float_key] = float(hist[-1][float_key]) + 0.125
+            out["update_history"] = hist
+        return out
+
+    monkeypatch.setattr(smoke_mod, "run_sitl_training", _perturbed_uninterrupted)
+    rep = smoke_mod.run_cuda_shakeout(
+        tmp_path / "shakeout_diag",
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+    )
+    captured = capsys.readouterr().out
+    assert rep["ok"] is False
+    assert perturbed_key_holder
+    assert "phase_6_tiny_sitl_training_and_resume" in rep["failed_phases"]
+    p6 = next(p for p in rep["phases"] if p["phase"] == "phase_6_tiny_sitl_training_and_resume")
+    assert "first_differing_update_index=1" in str(p6["error"])
+    assert f"first_differing_tensor={perturbed_key_holder[0]}" in str(p6["error"])
+    assert "[shakeout] phase_6 resume determinism mismatch:" in captured
+

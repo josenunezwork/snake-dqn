@@ -2011,6 +2011,76 @@ def compute_smoke_wall_time_projection(
     }
 
 
+def _describe_resume_determinism_mismatch(
+    resumed_result: dict[str, Any],
+    uninterrupted_result: dict[str, Any],
+) -> str:
+    """Return a concise diagnostic pinpointing the first differing update index and tensor name."""
+    parts: list[str] = []
+    hist_r = list(resumed_result.get("update_history") or [])
+    hist_u = list(uninterrupted_result.get("update_history") or [])
+    first_update_diff: str | None = None
+    for idx in range(min(len(hist_r), len(hist_u))):
+        row_r = hist_r[idx]
+        row_u = hist_u[idx]
+        if row_r != row_u:
+            upd_num = row_r.get("update", idx + 1)
+            diff_keys: list[str] = []
+            for key in sorted(set(row_r.keys()) | set(row_u.keys())):
+                if row_r.get(key) != row_u.get(key):
+                    diff_keys.append(f"{key}: resumed={row_r.get(key)!r} vs unint={row_u.get(key)!r}")
+            shown = "; ".join(diff_keys[:4])
+            first_update_diff = f"first_differing_update_index={idx} (update={upd_num}; {shown})"
+            break
+    if first_update_diff is None and len(hist_r) != len(hist_u):
+        first_update_diff = (
+            f"first_differing_update_index={min(len(hist_r), len(hist_u))} "
+            f"(len resumed={len(hist_r)} vs unint={len(hist_u)})"
+        )
+    parts.append(first_update_diff or "first_differing_update_index=none")
+
+    first_tensor_diff: str | None = None
+    path_r = resumed_result.get("final_student_checkpoint_path")
+    path_u = uninterrupted_result.get("final_student_checkpoint_path")
+    if path_r and path_u and Path(str(path_r)).is_file() and Path(str(path_u)).is_file():
+        blob_r = torch.load(Path(str(path_r)), map_location="cpu", weights_only=False)
+        blob_u = torch.load(Path(str(path_u)), map_location="cpu", weights_only=False)
+        sd_r = blob_r.get("state_dict", blob_r) if isinstance(blob_r, dict) else {}
+        sd_u = blob_u.get("state_dict", blob_u) if isinstance(blob_u, dict) else {}
+        all_names = list(sd_r.keys()) + [k for k in sd_u.keys() if k not in sd_r]
+        for t_name in all_names:
+            if t_name not in sd_r or t_name not in sd_u:
+                first_tensor_diff = f"first_differing_tensor={t_name} (missing in one state_dict)"
+                break
+            t_r = sd_r[t_name]
+            t_u = sd_u[t_name]
+            if isinstance(t_r, torch.Tensor) and isinstance(t_u, torch.Tensor):
+                if t_r.shape != t_u.shape or t_r.dtype != t_u.dtype or not torch.equal(t_r, t_u):
+                    max_abs = (
+                        float((t_r.detach().float() - t_u.detach().float()).abs().max().item())
+                        if t_r.shape == t_u.shape and t_r.numel() > 0
+                        else float("nan")
+                    )
+                    first_tensor_diff = (
+                        f"first_differing_tensor={t_name} "
+                        f"(shape={tuple(t_r.shape)}, max_abs_diff={max_abs:.6e})"
+                    )
+                    break
+            elif t_r != t_u:
+                first_tensor_diff = f"first_differing_tensor={t_name} (non-tensor mismatch)"
+                break
+        if (
+            first_tensor_diff is None
+            and resumed_result.get("final_student_checkpoint_sha256")
+            != uninterrupted_result.get("final_student_checkpoint_sha256")
+        ):
+            first_tensor_diff = (
+                "first_differing_tensor=none_in_state_dict (checkpoint metadata/serialization differs)"
+            )
+    parts.append(first_tensor_diff or "first_differing_tensor=none")
+    return ", ".join(parts)
+
+
 def run_cuda_shakeout(
     output_dir: Path | str,
     *,
@@ -2538,8 +2608,13 @@ def run_cuda_shakeout(
                 != uninterrupted["final_student_checkpoint_sha256"]
                 or part2["update_history"] != uninterrupted["update_history"]
             ):
+                diag = _describe_resume_determinism_mismatch(part2, uninterrupted)
+                print(
+                    f"[shakeout] phase_6 resume determinism mismatch: {diag}",
+                    flush=True,
+                )
                 raise RuntimeError(
-                    "Shake-out resume determinism check failed: resumed != uninterrupted"
+                    f"Shake-out resume determinism check failed: resumed != uninterrupted ({diag})"
                 )
             return {
                 "schema": part2["schema"],
