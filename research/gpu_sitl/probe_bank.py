@@ -9,7 +9,7 @@ once before training from frozen ``bare b8-s3`` trajectories using the Stage 1B
   succeeds under ``suffix 0`` AND all ``suffixes 4..7`` (``n_diff == 0``).
 - Stratified ordinary roots: ``210`` roots/world (`6,720` total across ``32`` worlds,
   stratified across length deciles ``D1..D10``) where ``bare`` is certified safe
-  under ``suffix 0`` AND all ``suffixes 4..7``.
+  under ``suffix 0``.
 """
 
 from __future__ import annotations
@@ -34,10 +34,11 @@ from research.gpu_sim_spike.device_sim import DeviceSim
 from research.gpu_sim_spike.ego_device import build_observation
 from research.gpu_sim_spike.v8_device import v8_decide as gpu_v8_decide
 from research.gpu_sitl.open_stop_gpu import (
+    _ENV_TENSOR_FIELDS,
+    _VECTOR_RUNTIME_ENV_FIELDS,
     FastDeviceVectorRuntime,
     _maybe_cpu_fast_flood,
     batched_open_stop_h32,
-    compact_sim_and_policy,
     concat_sims_and_policies,
     verify_cuda_native_extensions,
 )
@@ -104,14 +105,17 @@ def write_atomic_with_sha256(
     return digest
 
 
-def verify_file_sha256(path: Path | str) -> str:
-    """Verify ``path`` against its ``<path>.sha256`` sidecar and return the hex digest."""
+def verify_file_sha256(path: Path | str, *, require_complete: bool = True) -> str:
+    """Verify ``path`` against its ``<path>.sha256`` (and ``<path>.complete``) sidecar."""
     p = Path(path)
     sha_p = Path(f"{p}.sha256")
+    comp_p = Path(f"{p}.complete")
     if not p.is_file():
         raise FileNotFoundError(f"Missing file: {p}")
     if not sha_p.is_file():
         raise FileNotFoundError(f"Missing SHA256 sidecar: {sha_p}")
+    if require_complete and not comp_p.is_file():
+        raise FileNotFoundError(f"Missing completion marker: {comp_p}")
     expected = sha_p.read_text(encoding="utf-8").strip().split()[0]
     actual = sha256_file(p)
     if actual != expected:
@@ -216,9 +220,104 @@ def extract_hero_root_observations(
 
 
 @torch.inference_mode()
+def slice_single_row_cpu_state(
+    batch_sim: DeviceSim,
+    batch_pol: DevicePolicy,
+    row_idx: int,
+) -> dict[str, Any]:
+    """Slice a single row ``[row_idx : row_idx + 1]`` directly to CPU without full-batch cloning."""
+    idx = int(row_idx)
+    sim_tensors = {
+        name: getattr(batch_sim, name)[idx : idx + 1].detach().cpu().clone()
+        for name in _ENV_TENSOR_FIELDS
+        if isinstance(getattr(batch_sim, name, None), torch.Tensor)
+    }
+    rt = batch_pol.vector_runtime
+    rt_tensors = {
+        name: getattr(rt, name)[idx : idx + 1].detach().cpu().clone()
+        for name in _VECTOR_RUNTIME_ENV_FIELDS
+        if isinstance(getattr(rt, name, None), torch.Tensor)
+    }
+    return {
+        "sim_tensors": sim_tensors,
+        "rt_tensors": rt_tensors,
+        "vector_prepared": bool(batch_pol.vector_prepared),
+        "sim_prepared": bool(getattr(batch_sim, "_prepared", False)),
+    }
+
+
+@torch.inference_mode()
+def reconstruct_batch_from_cpu_row_states(
+    row_states: Sequence[dict[str, Any]],
+    template_sim: DeviceSim,
+    template_pol: DevicePolicy,
+    target_device: torch.device,
+) -> tuple[DeviceSim, DevicePolicy]:
+    """Build a ``(batch_sim, batch_pol)`` on ``target_device`` from 1-row CPU state dicts."""
+    if not row_states:
+        raise ValueError("row_states must be non-empty")
+    total_e = len(row_states)
+    out_sim = template_sim.clone()
+    out_pol = template_pol.repeat_interleave(1)
+    if out_pol.vector_runtime is not None:
+        out_pol.vector_runtime.__class__ = FastDeviceVectorRuntime
+
+    for name in _ENV_TENSOR_FIELDS:
+        if all(name in rs["sim_tensors"] for rs in row_states):
+            setattr(
+                out_sim,
+                name,
+                torch.cat([rs["sim_tensors"][name] for rs in row_states], dim=0).to(target_device),
+            )
+    out_sim.E = total_e
+    out_sim._prepared = bool(row_states[0].get("sim_prepared", False))
+    r2_cache.bump(out_sim)
+
+    out_rt = out_pol.vector_runtime
+    for name in _VECTOR_RUNTIME_ENV_FIELDS:
+        if all(name in rs["rt_tensors"] for rs in row_states):
+            setattr(
+                out_rt,
+                name,
+                torch.cat([rs["rt_tensors"][name] for rs in row_states], dim=0).to(target_device),
+            )
+    out_rt.E = total_e
+    out_pol.vector_prepared = bool(row_states[0].get("vector_prepared", True))
+    return out_sim, out_pol
+
+
+def select_ordinary_buffer_slot(
+    seen_k: int,
+    current_buf_len: int,
+    *,
+    horizon: int,
+    max_buffer_per_world: int,
+) -> int | None:
+    """Return buffer slot index to write for the ``seen_k``-th ordinary frame of a world,
+    or ``None`` if this frame is skipped by uniform striding.
+
+    Uses proportional Bresenham striding across ``horizon`` so at most
+    ``max_buffer_per_world`` frames are sampled uniformly across the full horizon
+    without front-loading early frames.
+    """
+    cap = max(1, int(max_buffer_per_world))
+    denom = max(cap, int(horizon))
+    k = int(seen_k)
+    if k < 0:
+        return None
+    if k == 0 or (k * cap) // denom > ((k - 1) * cap) // denom:
+        if int(current_buf_len) < cap:
+            return int(current_buf_len)
+        return int(k % cap)
+    return None
+
+
+@torch.inference_mode()
 def _evaluate_scoring_suffixes_on_snapshots(
     snapshots: Sequence[dict[str, Any]],
     *,
+    template_sim: DeviceSim | None = None,
+    template_pol: DevicePolicy | None = None,
     scoring_suffixes: Sequence[int] = PROBE32_SCORING_SUFFIXES,
     branch_horizon: int = OPEN_STOP_BRANCH_HORIZON,
     namespace: str = OPEN_STOP_CRN_NAMESPACE,
@@ -231,9 +330,21 @@ def _evaluate_scoring_suffixes_on_snapshots(
     out_records: list[dict[str, Any]] = []
     for start in range(0, len(snapshots), int(batch_roots)):
         chunk = snapshots[start : start + int(batch_roots)]
-        sims = [c["sim_1"] for c in chunk]
-        pols = [c["pol_1"] for c in chunk]
-        batch_sim, batch_pol = concat_sims_and_policies(sims, pols)
+        if all("row_state" in c for c in chunk):
+            if template_sim is None or template_pol is None:
+                raise ValueError(
+                    "template_sim and template_pol are required when snapshots use CPU row_state"
+                )
+            batch_sim, batch_pol = reconstruct_batch_from_cpu_row_states(
+                [c["row_state"] for c in chunk],
+                template_sim,
+                template_pol,
+                template_sim.device,
+            )
+        else:
+            sims = [c["sim_1"] for c in chunk]
+            pols = [c["pol_1"] for c in chunk]
+            batch_sim, batch_pol = concat_sims_and_policies(sims, pols)
         w_seeds = [int(c["world_seed"]) for c in chunk]
         decs = [int(c["decision_frame"]) for c in chunk]
 
@@ -276,6 +387,7 @@ def _evaluate_scoring_suffixes_on_snapshots(
             rec = dict(item)
             rec.pop("sim_1", None)
             rec.pop("pol_1", None)
+            rec.pop("row_state", None)
             rec["safe_by_scoring_suffix"] = per_suffix_safe
             rec["consensus_safe_mask"] = consensus_safe
             rec["n_diff_rescue"] = int(n_diff_rescue)
@@ -297,10 +409,20 @@ def harvest_probe32_bank(
     ordinary_per_world: int = PROBE32_ORDINARY_PER_WORLD,
     scoring_suffixes: Sequence[int] = PROBE32_SCORING_SUFFIXES,
     harvest_batch_roots: int = 256,
+    checkpoint_every_seconds: float = 900.0,
+    resume_ckpt_path: Path | str | None = None,
     cpu_fast_flood: bool = True,
     dry_run: bool = False,
 ) -> dict[str, Any]:
     """Harvest ``t34-gpu-sitl-probe32-20261109-v1`` before training and write ``.sha256``."""
+    out_path = Path(output_path)
+    sha_path = Path(f"{out_path}.sha256")
+    comp_path = Path(f"{out_path}.complete")
+    if out_path.exists() or sha_path.exists() or comp_path.exists():
+        raise FileExistsError(
+            f"Refusing to overwrite existing probe32 bank or sidecar at {out_path}"
+        )
+
     t0 = time.perf_counter()
     dev = torch.device(device)
     if dev.type == "cuda":
@@ -344,42 +466,101 @@ def harvest_probe32_bank(
 
     # First pass: step all N worlds for H ticks under frozen bare b8-s3, batching alive roots
     # up to harvest_batch_roots for suffix-0 open-stop-h32 evaluation.
-    pending_tick_batches: list[dict[str, Any]] = []
-    pending_root_count = 0
+    pending_rows: list[dict[str, Any]] = []
     candidate_rescue_snapshots: list[dict[str, Any]] = []
     s0_ordinary_by_world: dict[int, list[dict[str, Any]]] = {int(s): [] for s in seeds}
     s0_ordinary_seen_by_world: dict[int, int] = {int(s): 0 for s in seeds}
     oversample_per_world = int(ordinary_per_world) + max(10, int(ordinary_per_world) // 5)
-    max_s0_buffer_per_world = max(oversample_per_world, min(int(horizon), oversample_per_world * 2))
-    # Precompute target tick stride when horizon is large so we retain all length strata cleanly
-    stride_s0 = max(1, int(horizon) // max(1, max_s0_buffer_per_world))
+    max_s0_buffer_per_world = int(oversample_per_world)
     total_alive_hero_decisions = 0
+    start_tick = 0
 
-    def _slice_single_row(
-        batch_sim: DeviceSim,
-        batch_pol: DevicePolicy,
-        row_idx: int,
-    ) -> tuple[DeviceSim, DevicePolicy]:
-        keep_t = torch.tensor([int(row_idx)], dtype=torch.long, device=batch_sim.device)
-        sim_1 = batch_sim.clone()
-        pol_1 = batch_pol.repeat_interleave(1)
-        if pol_1.vector_runtime is not None:
-            pol_1.vector_runtime.__class__ = FastDeviceVectorRuntime
-        compact_sim_and_policy(sim_1, pol_1, keep_t)
-        return sim_1, pol_1
+    default_ckpt_path = Path(f"{out_path}.ckpt.pt")
+    active_resume_ckpt = (
+        Path(resume_ckpt_path) if resume_ckpt_path is not None else default_ckpt_path
+    )
+    if active_resume_ckpt.is_file() and Path(f"{active_resume_ckpt}.sha256").is_file():
+        verify_file_sha256(active_resume_ckpt)
+        ckpt_payload = torch.load(active_resume_ckpt, map_location="cpu", weights_only=False)
+        if ckpt_payload.get("namespace") != PROBE32_NAMESPACE:
+            raise ValueError(
+                f"Probe harvest checkpoint namespace mismatch: {ckpt_payload.get('namespace')!r}"
+            )
+        if [int(s) for s in ckpt_payload.get("world_seeds", [])] != [int(s) for s in seeds]:
+            raise ValueError("Probe harvest checkpoint world_seeds mismatch")
+        start_tick = int(ckpt_payload["completed_tick"])
+        total_alive_hero_decisions = int(ckpt_payload["total_alive_hero_decisions"])
+        candidate_rescue_snapshots = list(ckpt_payload["candidate_rescue_snapshots"])
+        s0_ordinary_by_world = {
+            int(k): list(v) for k, v in ckpt_payload["s0_ordinary_by_world"].items()
+        }
+        s0_ordinary_seen_by_world = {
+            int(k): int(v) for k, v in ckpt_payload["s0_ordinary_seen_by_world"].items()
+        }
+        sim_state = ckpt_payload["sim_state"]
+        for name in _ENV_TENSOR_FIELDS:
+            if name in sim_state["sim"] and isinstance(getattr(sim, name, None), torch.Tensor):
+                setattr(sim, name, sim_state["sim"][name].to(dev).clone())
+        sim.E = int(sim_state["sim"]["E"])
+        sim._prepared = bool(sim_state["sim"].get("_prepared", False))
+        r2_cache.bump(sim)
+        rt = policy.vector_runtime
+        for name in _VECTOR_RUNTIME_ENV_FIELDS:
+            if name in sim_state["rt"] and isinstance(getattr(rt, name, None), torch.Tensor):
+                setattr(rt, name, sim_state["rt"][name].to(dev).clone())
+        policy.vector_prepared = bool(sim_state["rt"]["vector_prepared"])
+
+    def _save_harvest_checkpoint(completed_tick: int) -> str:
+        sim_state = {
+            "sim": {
+                "E": int(sim.E),
+                "_prepared": bool(getattr(sim, "_prepared", False)),
+                **{
+                    name: getattr(sim, name).detach().cpu().clone()
+                    for name in _ENV_TENSOR_FIELDS
+                    if isinstance(getattr(sim, name, None), torch.Tensor)
+                },
+            },
+            "rt": {
+                "E": int(getattr(policy.vector_runtime, "E", sim.E)),
+                "vector_prepared": bool(policy.vector_prepared),
+                **{
+                    name: getattr(policy.vector_runtime, name).detach().cpu().clone()
+                    for name in _VECTOR_RUNTIME_ENV_FIELDS
+                    if isinstance(getattr(policy.vector_runtime, name, None), torch.Tensor)
+                },
+            },
+        }
+        ckpt_obj = {
+            "schema": "t34-gpu-sitl-probe32-harvest-ckpt/v1",
+            "namespace": PROBE32_NAMESPACE,
+            "world_seeds": [int(s) for s in seeds],
+            "completed_tick": int(completed_tick),
+            "horizon": int(horizon),
+            "total_alive_hero_decisions": int(total_alive_hero_decisions),
+            "candidate_rescue_snapshots": candidate_rescue_snapshots,
+            "s0_ordinary_by_world": s0_ordinary_by_world,
+            "s0_ordinary_seen_by_world": s0_ordinary_seen_by_world,
+            "sim_state": sim_state,
+        }
+        return write_atomic_with_sha256(
+            default_ckpt_path,
+            lambda tmp: torch.save(ckpt_obj, tmp),
+            write_complete_marker=True,
+        )
 
     def _flush_pending_suffix0() -> None:
-        nonlocal pending_tick_batches, pending_root_count
-        if not pending_tick_batches:
+        nonlocal pending_rows
+        if not pending_rows:
             return
-        sims_chunk = [tb["sim_alive"] for tb in pending_tick_batches]
-        pols_chunk = [tb["pol_alive"] for tb in pending_tick_batches]
-        flat_meta: list[dict[str, Any]] = [
-            m for tb in pending_tick_batches for m in tb["meta_rows"]
-        ]
-        batch_sim, batch_pol = concat_sims_and_policies(sims_chunk, pols_chunk)
-        w_seeds = [int(m["world_seed"]) for m in flat_meta]
-        decs = [int(m["decision_frame"]) for m in flat_meta]
+        batch_sim, batch_pol = reconstruct_batch_from_cpu_row_states(
+            [m["row_state"] for m in pending_rows],
+            sim,
+            policy,
+            dev,
+        )
+        w_seeds = [int(m["world_seed"]) for m in pending_rows]
+        decs = [int(m["decision_frame"]) for m in pending_rows]
         res0 = batched_open_stop_h32(
             batch_sim,
             batch_pol,
@@ -400,34 +581,40 @@ def harvest_probe32_bank(
         astar_s0 = res0["a_star_actions"].detach().cpu()
         q_s0 = res0["root_q"].detach().cpu()
 
-        for idx, item in enumerate(flat_meta):
+        for idx, item in enumerate(pending_rows):
             if bool(rescue_s0[idx].item()):
-                sim_1, pol_1 = _slice_single_row(batch_sim, batch_pol, idx)
                 item["safe_mask_s0"] = safe_s0[idx]
                 item["bare_action"] = int(bare_s0[idx].item())
                 item["a_star_action"] = int(astar_s0[idx].item())
                 item["root_q_b8"] = q_s0[idx]
-                item["sim_1"] = sim_1
-                item["pol_1"] = pol_1
                 candidate_rescue_snapshots.append(item)
             elif bool(ordinary_s0[idx].item()):
+                item.pop("row_state", None)
                 ws = int(item["world_seed"])
                 seen_k = s0_ordinary_seen_by_world[ws]
                 s0_ordinary_seen_by_world[ws] = seen_k + 1
                 world_buf = s0_ordinary_by_world[ws]
-                if len(world_buf) < max_s0_buffer_per_world or (seen_k % stride_s0 == 0):
-                    sim_1, pol_1 = _slice_single_row(batch_sim, batch_pol, idx)
+                slot = select_ordinary_buffer_slot(
+                    seen_k,
+                    len(world_buf),
+                    horizon=int(horizon),
+                    max_buffer_per_world=max_s0_buffer_per_world,
+                )
+                if slot is not None:
                     item["safe_mask_s0"] = safe_s0[idx]
                     item["bare_action"] = int(bare_s0[idx].item())
                     item["a_star_action"] = int(astar_s0[idx].item())
                     item["root_q_b8"] = q_s0[idx]
-                    item["sim_1"] = sim_1
-                    item["pol_1"] = pol_1
-                    world_buf.append(item)
-        pending_tick_batches = []
-        pending_root_count = 0
+                    if slot == len(world_buf):
+                        world_buf.append(item)
+                    else:
+                        world_buf[slot] = item
+            else:
+                item.pop("row_state", None)
+        pending_rows = []
 
-    for _tick in range(int(horizon)):
+    last_ckpt_wall = time.perf_counter()
+    for _tick in range(int(start_tick), int(horizon)):
         sim.prepare()
         policy.vector_runtime.prepare(sim)
         policy.vector_prepared = True
@@ -441,16 +628,9 @@ def harvest_probe32_bank(
         total_alive_hero_decisions += n_alive
 
         if n_alive > 0:
-            sim_alive = sim.clone()
-            pol_alive = policy.repeat_interleave(1)
-            if pol_alive.vector_runtime is not None:
-                pol_alive.vector_runtime.__class__ = FastDeviceVectorRuntime
-            if n_alive < int(sim.E):
-                compact_sim_and_policy(sim_alive, pol_alive, alive_rows)
-            meta_rows: list[dict[str, Any]] = []
             for r_idx in alive_rows.detach().cpu().tolist():
                 r = int(r_idx)
-                meta_rows.append(
+                pending_rows.append(
                     {
                         "world_seed": int(seeds[r]),
                         "world_index": int(r),
@@ -460,17 +640,10 @@ def harvest_probe32_bank(
                         "global_u8": obs["global_u8"][r].detach().cpu(),
                         "scalars_f32": obs["scalars_f32"][r].detach().cpu(),
                         "legal_mask": obs["legal_mask"][r].detach().cpu(),
+                        "row_state": slice_single_row_cpu_state(sim, policy, r),
                     }
                 )
-            pending_tick_batches.append(
-                {
-                    "sim_alive": sim_alive,
-                    "pol_alive": pol_alive,
-                    "meta_rows": meta_rows,
-                }
-            )
-            pending_root_count += n_alive
-            if pending_root_count >= int(harvest_batch_roots):
+            if len(pending_rows) >= int(harvest_batch_roots):
                 _flush_pending_suffix0()
 
         # Advance frozen bare b8-s3 trajectory by 1 frame.
@@ -478,11 +651,17 @@ def harvest_probe32_bank(
         sim.step(step_actions)
         policy.after_step(sim)
 
+        now_wall = time.perf_counter()
+        if (now_wall - last_ckpt_wall) >= float(checkpoint_every_seconds):
+            _flush_pending_suffix0()
+            _save_harvest_checkpoint(_tick + 1)
+            last_ckpt_wall = time.perf_counter()
+
     _flush_pending_suffix0()
 
     # In dry_run mode with tiny horizon, if 0 natural candidate rescue roots were encountered,
-    # include a mature rescue spec from MATURE_EXTENSION_SPECS so the dry-run exercises
-    # the rescue certification and tripwire paths end-to-end.
+    # include a mature rescue spec from MATURE_EXTENSION_SPECS (bound to seeds[0] in
+    # PROBE32_NAMESPACE) so the dry-run exercises rescue certification and tripwire paths.
     if dry_run and not candidate_rescue_snapshots:
         ext_worlds, ext_pol_tpl, _ = build_extension_worlds(
             b8_path,
@@ -497,10 +676,11 @@ def harvest_probe32_bank(
             vector_prepared=False,
         )
         ext_obs = extract_hero_root_observations(ext_sim, cpu_fast_flood=cpu_fast_flood)
+        probe_rescue_seed = int(seeds[0])
         ext_res0 = batched_open_stop_h32(
             ext_sim,
             ext_pol,
-            world_seeds=[int(ext_worlds[0].seed)],
+            world_seeds=[probe_rescue_seed],
             decisions=[int(ext_worlds[0].sim.frame[0])],
             suffix_id=0,
             branch_horizon=int(branch_horizon),
@@ -512,7 +692,7 @@ def harvest_probe32_bank(
         )
         candidate_rescue_snapshots.append(
             {
-                "world_seed": int(ext_worlds[0].seed),
+                "world_seed": probe_rescue_seed,
                 "world_index": 0,
                 "decision_frame": int(ext_worlds[0].sim.frame[0]),
                 "hero_length": int(ext_obs["hero_length"][0].item()),
@@ -524,14 +704,15 @@ def harvest_probe32_bank(
                 "bare_action": int(ext_res0["bare_actions"][0].item()),
                 "a_star_action": int(ext_res0["a_star_actions"][0].item()),
                 "root_q_b8": ext_res0["root_q"][0].detach().cpu(),
-                "sim_1": ext_sim,
-                "pol_1": ext_pol,
+                "row_state": slice_single_row_cpu_state(ext_sim, ext_pol, 0),
             }
         )
 
     # Evaluate suffixes 4..7 on all candidate rescue roots and keep n_diff == 0.
     scored_rescue = _evaluate_scoring_suffixes_on_snapshots(
         candidate_rescue_snapshots,
+        template_sim=sim,
+        template_pol=policy,
         scoring_suffixes=scoring_suffixes,
         branch_horizon=branch_horizon,
         namespace=OPEN_STOP_CRN_NAMESPACE,
@@ -549,57 +730,22 @@ def harvest_probe32_bank(
             "Zero Stage 1B certified decisive rescue roots harvested on probe32 bank"
         )
 
-    # Select stratified ordinary candidates per world (ordered by length then decision_frame),
-    # oversampling slightly per world before suffix 4..7 filtering so each world yields
-    # up to ordinary_per_world roots certified safe under suffixes 0, 4..7.
-    ordinary_candidates_to_score: list[dict[str, Any]] = []
-    oversample_per_world = int(ordinary_per_world) + max(10, int(ordinary_per_world) // 5)
-    for ws in seeds:
-        world_ord = sorted(
-            s0_ordinary_by_world[int(ws)],
-            key=lambda x: (int(x["hero_length"]), int(x["decision_frame"])),
-        )
-        if len(world_ord) <= oversample_per_world:
-            chosen_cands = world_ord
-        else:
-            idx_grid = np.linspace(0, len(world_ord) - 1, oversample_per_world, dtype=int)
-            chosen_set = set(int(i) for i in idx_grid.tolist())
-            chosen_cands = [world_ord[i] for i in sorted(chosen_set)]
-            # Drop unchosen sim/pol references immediately to free memory
-            for i, item in enumerate(world_ord):
-                if i not in chosen_set:
-                    item.pop("sim_1", None)
-                    item.pop("pol_1", None)
-        ordinary_candidates_to_score.extend(chosen_cands)
-
-    scored_ordinary = _evaluate_scoring_suffixes_on_snapshots(
-        ordinary_candidates_to_score,
-        scoring_suffixes=scoring_suffixes,
-        branch_horizon=branch_horizon,
-        namespace=OPEN_STOP_CRN_NAMESPACE,
-        batch_roots=harvest_batch_roots,
-        cpu_fast_flood=cpu_fast_flood,
-    )
-    certified_ordinary_by_world: dict[int, list[dict[str, Any]]] = {int(s): [] for s in seeds}
-    for rec in scored_ordinary:
-        if int(rec["n_fail_ordinary"]) == 0:
-            certified_ordinary_by_world[int(rec["world_seed"])].append(rec)
-
+    # Select stratified ordinary roots per world from suffix-0-safe ordinary states
+    # (ordered by length then decision_frame), as specified in registration §3.1(1) & §3.1(4).
     harvested_ordinary_roots: list[dict[str, Any]] = []
     for ws in seeds:
         c_list = sorted(
-            certified_ordinary_by_world[int(ws)],
+            s0_ordinary_by_world[int(ws)],
             key=lambda x: (int(x["hero_length"]), int(x["decision_frame"])),
         )
         target_k = min(int(ordinary_per_world), len(c_list))
         if not dry_run and target_k < int(ordinary_per_world):
             raise RuntimeError(
                 f"World {ws} yielded only {target_k} < {ordinary_per_world} "
-                "5-suffix-certified ordinary roots"
+                "suffix-0-safe ordinary roots"
             )
         if target_k > 0:
             idx_pick = np.linspace(0, len(c_list) - 1, target_k, dtype=int)
-            # Ensure unique indices if len(c_list) >= target_k
             picked_indices: list[int] = []
             seen_idx: set[int] = set()
             for raw_i in idx_pick.tolist():
@@ -612,10 +758,13 @@ def harvest_probe32_bank(
                     seen_idx.add(cand_i)
                     picked_indices.append(cand_i)
             for idx_p in sorted(picked_indices):
-                harvested_ordinary_roots.append(c_list[idx_p])
+                rec = dict(c_list[idx_p])
+                rec["consensus_safe_mask"] = rec["safe_mask_s0"].clone()
+                rec["n_fail_ordinary"] = 0
+                harvested_ordinary_roots.append(rec)
 
     if not harvested_ordinary_roots:
-        raise RuntimeError("Zero certified ordinary roots harvested for probe bank")
+        raise RuntimeError("Zero ordinary roots harvested for probe bank")
 
     # Assign length deciles D1..D10 (0..9) across harvested ordinary roots sorted by length.
     harvested_ordinary_roots.sort(
@@ -661,6 +810,8 @@ def harvest_probe32_bank(
                 "world_seed": torch.zeros((0,), dtype=torch.long),
                 "decision_frame": torch.zeros((0,), dtype=torch.long),
                 "length_decile": torch.zeros((0,), dtype=torch.long),
+                "n_fail_ordinary": torch.zeros((0,), dtype=torch.long),
+                "n_diff_rescue": torch.zeros((0,), dtype=torch.long),
             }
         return {
             "count": int(count),
@@ -683,6 +834,14 @@ def harvest_probe32_bank(
             ),
             "length_decile": torch.tensor(
                 [int(r.get("length_decile", -1)) if is_ordinary else -1 for r in rows],
+                dtype=torch.long,
+            ),
+            "n_fail_ordinary": torch.tensor(
+                [int(r.get("n_fail_ordinary", 0)) for r in rows],
+                dtype=torch.long,
+            ),
+            "n_diff_rescue": torch.tensor(
+                [int(r.get("n_diff_rescue", 0)) for r in rows],
                 dtype=torch.long,
             ),
         }
@@ -722,21 +881,25 @@ def harvest_probe32_bank(
         "opponent_checkpoint_sha256": sha256_file(opp_path),
         "opponent_expected_sha256": FRP3_S12_SHA256,
         "device": str(dev),
-        "elapsed_seconds": elapsed_s,
     }
 
     payload = {
-        "meta": meta_summary,
+        "meta": dict(meta_summary),
         "rescue": rescue_pack,
         "ordinary": ordinary_pack,
     }
 
-    out_path = Path(output_path)
+    if out_path.exists() or sha_path.exists() or comp_path.exists():
+        raise FileExistsError(
+            f"Refusing to overwrite existing probe32 bank or sidecar at {out_path}"
+        )
     pt_sha256 = write_atomic_with_sha256(
         out_path,
         lambda tmp: torch.save(payload, tmp),
         write_complete_marker=True,
     )
+
+    meta_summary["elapsed_seconds"] = elapsed_s
     meta_summary["probe_bank_path"] = str(out_path)
     meta_summary["probe_bank_sha256"] = pt_sha256
 

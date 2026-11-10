@@ -13,6 +13,7 @@ Implements Step B1a (``M0-GPU-SITL-Preflight``) from
 
 from __future__ import annotations
 
+import os
 from contextlib import contextmanager
 from typing import Any, Iterator, Sequence
 
@@ -179,15 +180,30 @@ def verify_cuda_native_extensions(device: torch.device | str) -> dict[str, Any]:
             "CPU flood/component overrides are active while running on a CUDA device; "
             "silent CPU fallback is forbidden"
         )
+    geom_env = os.environ.get("GPU_SIM_VECTOR_GEOMETRY", "").strip().lower()
+    flood_env = os.environ.get("GPU_SIM_VECTOR_FLOOD", "").strip().lower()
+    if geom_env not in {"native", "exact"}:
+        raise RuntimeError(
+            f"GPU_SIM_VECTOR_GEOMETRY must be 'native' or 'exact' on CUDA, got {geom_env!r}"
+        )
+    if flood_env != "static":
+        raise RuntimeError(f"GPU_SIM_VECTOR_FLOOD must be 'static' on CUDA, got {flood_env!r}")
     from research.gpu_sim_spike import flood_cuda, vector_geometry
 
     flood_ext = flood_cuda._load()
     vec_ext = vector_geometry._load_exact_extension()
+    if flood_ext is None or vec_ext is None:
+        raise RuntimeError(
+            f"Native CUDA extensions failed to load (flood_cuda={flood_ext!r}, "
+            f"vector_geometry={vec_ext!r}); silent fallback is forbidden"
+        )
     return {
         "device": str(dev),
         "cuda_active": True,
-        "flood_cuda_loaded": flood_ext is not None,
-        "vector_geometry_loaded": vec_ext is not None,
+        "flood_cuda_loaded": True,
+        "vector_geometry_loaded": True,
+        "gpu_sim_vector_geometry": geom_env,
+        "gpu_sim_vector_flood": flood_env,
         "cpu_overrides_absent": True,
     }
 
@@ -499,11 +515,13 @@ def compact_sim_and_policy(
     r2_cache.bump(sim)
 
     rt = policy.vector_runtime
-    for name in _VECTOR_RUNTIME_ENV_FIELDS:
-        val = getattr(rt, name, None)
-        if isinstance(val, torch.Tensor):
-            setattr(rt, name, val.index_select(0, keep_rows))
-    rt.E = new_e
+    if rt is not None:
+        for name in _VECTOR_RUNTIME_ENV_FIELDS:
+            val = getattr(rt, name, None)
+            if isinstance(val, torch.Tensor):
+                setattr(rt, name, val.index_select(0, keep_rows))
+        rt.E = new_e
+        rt.__class__ = FastDeviceVectorRuntime
 
 
 @torch.inference_mode()
