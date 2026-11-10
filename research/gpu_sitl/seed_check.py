@@ -23,6 +23,7 @@ from research.watch_replay.seed_audit import (
 PREFLIGHT_NAMESPACE = "gpu-sitl-preflight-20261109-v1"
 NATURAL_WORLD_INDICES: tuple[int, ...] = (0, 1, 2, 3)
 LONG_HERO_WORLD_INDICES: tuple[int, ...] = (4, 5, 6, 7)
+EXTENSION_MATURE_WORLD_INDICES: tuple[int, ...] = tuple(range(8, 40))
 AUDIT_INDEX_RANGE = 512
 
 
@@ -75,13 +76,15 @@ def audit_preflight_seeds(
     *,
     natural_indices: Sequence[int] = NATURAL_WORLD_INDICES,
     long_hero_indices: Sequence[int] = LONG_HERO_WORLD_INDICES,
+    extension_indices: Sequence[int] = EXTENSION_MATURE_WORLD_INDICES,
     index_horizon: int = AUDIT_INDEX_RANGE,
     scan_code_roots: Sequence[Path] | None = None,
 ) -> dict[str, Any]:
     """Verify that ``gpu-sitl-preflight-20261109-v1`` collides with nothing in the repo."""
     natural_seeds = preflight_seeds(natural_indices)
     long_hero_seeds = preflight_seeds(long_hero_indices)
-    all_allocated = natural_seeds + long_hero_seeds
+    extension_seeds = preflight_seeds(extension_indices)
+    all_allocated = natural_seeds + long_hero_seeds + extension_seeds
 
     internal_256 = [seed_for(PREFLIGHT_NAMESPACE, i) for i in range(256)]
     internal_unique = len(internal_256) == len(set(internal_256))
@@ -132,6 +135,8 @@ def audit_preflight_seeds(
         "natural_world_seeds": natural_seeds,
         "long_hero_world_indices": [int(i) for i in long_hero_indices],
         "long_hero_world_seeds": long_hero_seeds,
+        "extension_mature_world_indices": [int(i) for i in extension_indices],
+        "extension_mature_world_seeds": extension_seeds,
         "all_allocated_seeds": all_allocated,
         "internal_256_unique": bool(internal_unique),
         "allocated_unique": bool(allocated_unique),

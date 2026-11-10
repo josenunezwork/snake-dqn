@@ -19,15 +19,17 @@ import gzip
 import hashlib
 import json
 import time
+from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Iterator, Sequence
 
 import numpy as np
 import torch
 
 from research.bl_served_search import ceiling
 from research.devicesim_v2_parity.harness import (
+    SplitMixEnvRngProxy,
     build_product_world_bundle,
     prepare_cpu_policy_phase,
     watch6_v2_config,
@@ -36,12 +38,15 @@ from research.gpu_sim_spike.device_policy import DevicePolicy
 from research.gpu_sim_spike.device_sim import DeviceSim
 from research.gpu_sitl.open_stop_gpu import (
     MARGIN_DELTA_DEFAULT,
+    RESCUE_MARGIN_DELTA_DEFAULT,
     batched_open_stop_h32,
     margin_loss_gradient_check,
 )
 from research.gpu_sitl.seed_check import (
+    EXTENSION_MATURE_WORLD_INDICES,
     PREFLIGHT_NAMESPACE,
     audit_preflight_seeds,
+    preflight_seeds,
 )
 from research.sandbox_a_resident.ct_mechanics import CTDeviceSim
 from research.t3_rollout_labels_20261015.bank_engine import (
@@ -49,6 +54,7 @@ from research.t3_rollout_labels_20261015.bank_engine import (
     prepared_q,
     step_prepared,
 )
+from research.watch_replay import open_stop as open_stop_mod
 from research.watch_replay.open_stop import (
     OPEN_STOP_BRANCH_HORIZON,
     OPEN_STOP_CRN_NAMESPACE,
@@ -58,7 +64,7 @@ from research.watch_replay.open_stop import (
 from src.core.game_config import get_config, initialize_config
 from src.simd_env.ego2s_policy import Ego2sSimdPolicy
 from src.simd_env.ego_raster import EgoRasterConfig, build_ego_raster
-from src.simd_env.grid_scenarios import inject_serpentines
+from src.simd_env.grid_scenarios import _heading, inject_serpentines, serpentine_path
 from src.simd_env.grid_sim import GridBatchSim
 from src.simd_env.vector61_featurizer import Vector61Params
 from src.simd_env.vector61_policy import Vector61Runtime, Vector61SimdPolicy
@@ -71,6 +77,15 @@ from web.backend.served_checkpoint import (
 )
 
 PASS_BAR_AGREEMENT = 0.990
+EXT_MATCHED_RNG_CERT_AGREE_MIN = 191  # >= 191 / 192 (99.48%)
+EXT_MATCHED_RNG_INT_AGREE_RATE_MIN = 0.980  # >= 98.0%
+EXT_CROSS_RNG_CERT_AGREE_MIN = 186  # >= 186 / 192 (96.875%)
+EXT_CROSS_RNG_CHOSEN_AGREE_MIN = 30  # >= 30 / 32 (93.75%)
+
+EXT_MIN_SURVIVING_ENCLOSED = 12
+EXT_MIN_NEAR_THRESHOLD_SURVIVING = 8
+EXT_MIN_RESCUE_ROOTS = 8
+
 DEFAULT_NATURAL_WORLDS = 4
 DEFAULT_NATURAL_TICKS = 32
 DEFAULT_LONG_HERO_WORLDS = 4
@@ -88,6 +103,125 @@ LONG_HERO_BOX_HEIGHT = 8
 DEFAULT_ARTIFACT_OUT_DIR = Path(
     "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/"
     "argon-20261026/gpu-sitl-preflight-1109"
+)
+DEFAULT_EXTENSION_OUT_DIR = Path(
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/"
+    "argon-20261026/gpu-sitl-preflight-fix-1109"
+)
+FROZEN_COHORT_FILENAME = "mature_cohort_32_roots_cpu_frozen_20261109.json"
+
+MATURE_EXTENSION_SPECS: tuple[dict[str, Any], ...] = (
+    # Group A (8 roots, indices 8..15): dynamic doorway pocket_open=False, v8_open=True,
+    # near-threshold (0.85*L <= max_pocket_r < L), rescue-override (chosen != bare).
+    {
+        "world_index": 8,
+        "kind": "doorway_pocket",
+        "hero_length": 420,
+        "pocket_w": 40,
+        "pocket_h": 10,
+    },
+    {
+        "world_index": 9,
+        "kind": "doorway_pocket",
+        "hero_length": 500,
+        "pocket_w": 47,
+        "pocket_h": 10,
+    },
+    {
+        "world_index": 10,
+        "kind": "doorway_pocket",
+        "hero_length": 580,
+        "pocket_w": 48,
+        "pocket_h": 12,
+    },
+    {
+        "world_index": 11,
+        "kind": "doorway_pocket",
+        "hero_length": 660,
+        "pocket_w": 54,
+        "pocket_h": 12,
+    },
+    {
+        "world_index": 12,
+        "kind": "doorway_pocket",
+        "hero_length": 740,
+        "pocket_w": 52,
+        "pocket_h": 14,
+    },
+    {
+        "world_index": 13,
+        "kind": "doorway_pocket",
+        "hero_length": 820,
+        "pocket_w": 57,
+        "pocket_h": 14,
+    },
+    {
+        "world_index": 14,
+        "kind": "doorway_pocket",
+        "hero_length": 920,
+        "pocket_w": 56,
+        "pocket_h": 16,
+    },
+    {
+        "world_index": 15,
+        "kind": "doorway_pocket",
+        "hero_length": 1040,
+        "pocket_w": 57,
+        "pocket_h": 18,
+    },
+    # Group B (6 roots, indices 16..21): dynamic doorway v8_open=False (area < 160),
+    # near-threshold (136 <= v8_best_safe_area < 160), rescue-override (chosen != bare).
+    {"world_index": 16, "kind": "doorway_v8", "hero_length": 320, "pocket_w": 22, "pocket_h": 8},
+    {"world_index": 17, "kind": "doorway_v8", "hero_length": 360, "pocket_w": 22, "pocket_h": 8},
+    {"world_index": 18, "kind": "doorway_v8", "hero_length": 440, "pocket_w": 23, "pocket_h": 8},
+    {"world_index": 19, "kind": "doorway_v8", "hero_length": 540, "pocket_w": 22, "pocket_h": 8},
+    {"world_index": 20, "kind": "doorway_v8", "hero_length": 680, "pocket_w": 23, "pocket_h": 8},
+    {"world_index": 21, "kind": "doorway_v8", "hero_length": 860, "pocket_w": 22, "pocket_h": 8},
+    # Group C (4 roots, indices 22..25): near-threshold safe-side (L <= max_pocket_r <= 1.15*L).
+    {
+        "world_index": 22,
+        "kind": "doorway_safe_near_threshold",
+        "hero_length": 450,
+        "pocket_w": 49,
+        "pocket_h": 10,
+    },
+    {
+        "world_index": 23,
+        "kind": "doorway_safe_near_threshold",
+        "hero_length": 550,
+        "pocket_w": 51,
+        "pocket_h": 12,
+    },
+    {
+        "world_index": 24,
+        "kind": "doorway_safe_near_threshold",
+        "hero_length": 650,
+        "pocket_w": 59,
+        "pocket_h": 12,
+    },
+    {
+        "world_index": 25,
+        "kind": "doorway_safe_near_threshold",
+        "hero_length": 750,
+        "pocket_w": 59,
+        "pocket_h": 14,
+    },
+    # Group D (14 roots, indices 26..39): multi-tick rolled bare b8-s3 Watch6-v2 mature
+    # inject_serpentines worlds spanning L in [310, 1185].
+    {"world_index": 26, "kind": "rolled_serpentine", "hero_length": 310, "rollout_ticks": 2},
+    {"world_index": 27, "kind": "rolled_serpentine", "hero_length": 380, "rollout_ticks": 3},
+    {"world_index": 28, "kind": "rolled_serpentine", "hero_length": 460, "rollout_ticks": 4},
+    {"world_index": 29, "kind": "rolled_serpentine", "hero_length": 520, "rollout_ticks": 2},
+    {"world_index": 30, "kind": "rolled_serpentine", "hero_length": 600, "rollout_ticks": 3},
+    {"world_index": 31, "kind": "rolled_serpentine", "hero_length": 680, "rollout_ticks": 4},
+    {"world_index": 32, "kind": "rolled_serpentine", "hero_length": 760, "rollout_ticks": 5},
+    {"world_index": 33, "kind": "rolled_serpentine", "hero_length": 840, "rollout_ticks": 2},
+    {"world_index": 34, "kind": "rolled_serpentine", "hero_length": 900, "rollout_ticks": 3},
+    {"world_index": 35, "kind": "rolled_serpentine", "hero_length": 960, "rollout_ticks": 4},
+    {"world_index": 36, "kind": "rolled_serpentine", "hero_length": 1020, "rollout_ticks": 5},
+    {"world_index": 37, "kind": "rolled_serpentine", "hero_length": 1080, "rollout_ticks": 6},
+    {"world_index": 38, "kind": "rolled_serpentine", "hero_length": 1140, "rollout_ticks": 3},
+    {"world_index": 39, "kind": "rolled_serpentine", "hero_length": 1180, "rollout_ticks": 4},
 )
 
 _SIM_ARRAY_FIELDS: tuple[str, ...] = (
@@ -397,6 +531,54 @@ def _enrich_open_info(open_info: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+@contextmanager
+def _maybe_matched_branch_rng(enabled: bool) -> Iterator[None]:
+    """Align CPU branch clones with ``CTDeviceSim``'s ``SplitMix64`` per-branch RNG stream."""
+    if not enabled:
+        yield
+        return
+
+    orig_reseed = open_stop_mod.reseed_branch_suffix
+    orig_clone = open_stop_mod._clone_root
+
+    def _patched_reseed(branch: Any, decision: int, suffix_id: int, *, namespace: str) -> int:
+        seed64 = orig_reseed(branch, decision, suffix_id, namespace=namespace)
+        branch._matched_branch_seed64 = int(seed64)
+        return int(seed64)
+
+    def _patched_clone(root: Any) -> Any:
+        matched_seed64 = getattr(root, "_matched_branch_seed64", None)
+        if hasattr(root, "_matched_branch_seed64"):
+            delattr(root, "_matched_branch_seed64")
+        branch = orig_clone(root)
+        if matched_seed64 is not None:
+            pos_seed = int(matched_seed64) & 0x7FFF_FFFF_FFFF_FFFF
+            if pos_seed == 0:
+                pos_seed = 1
+            sim = branch.sim
+            for env_idx in range(int(sim.E)):
+                proxy = SplitMixEnvRngProxy(
+                    pos_seed ^ env_idx,
+                    0,
+                    game_width=int(sim.cfg.game_width),
+                    game_height=int(sim.cfg.game_height),
+                    segment_size=int(sim.cfg.segment_size),
+                    wall_thickness=int(sim.cfg.wall_thickness),
+                )
+                sim._rngs[env_idx]._draw_find_empty_candidate = (  # type: ignore[method-assign]
+                    proxy._draw_find_empty_candidate
+                )
+        return branch
+
+    open_stop_mod.reseed_branch_suffix = _patched_reseed
+    open_stop_mod._clone_root = _patched_clone
+    try:
+        yield
+    finally:
+        open_stop_mod.reseed_branch_suffix = orig_reseed
+        open_stop_mod._clone_root = orig_clone
+
+
 def evaluate_cpu_open_stop_all_actions(
     world: CapturedWorld,
     decision: int,
@@ -405,43 +587,46 @@ def evaluate_cpu_open_stop_all_actions(
     *,
     branch_horizon: int = OPEN_STOP_BRANCH_HORIZON,
     namespace: str = OPEN_STOP_CRN_NAMESPACE,
+    matched_rng: bool = False,
 ) -> dict[str, Any]:
     """Evaluate CPU :func:`open_stop_batch` both with early-stopping and for all 6 actions."""
-    early = open_stop_batch(
-        world,
-        int(decision),
-        q,
-        legal,
-        branch_horizon=branch_horizon,
-        namespace=namespace,
-    )
-    all_outcomes: dict[int, dict[str, Any]] = {}
-    for a in range(6):
-        existing = early["outcomes"].get(a)
-        if existing is not None and "certified" in existing:
-            out_a = dict(existing)
-            out_a["action"] = int(a)
-            out_a["legal"] = bool(legal[a])
-            out_a["status"] = "EVALUATED"
-            out_a["terminal_openness"] = _enrich_open_info(out_a["terminal_openness"])
-            all_outcomes[a] = out_a
-        else:
-            one_hot = np.zeros(6, dtype=bool)
-            one_hot[a] = True
-            single = open_stop_batch(
-                world,
-                int(decision),
-                q,
-                one_hot,
-                branch_horizon=branch_horizon,
-                namespace=namespace,
-            )
-            out_a = dict(single["outcomes"][a])
-            out_a["action"] = int(a)
-            out_a["legal"] = bool(legal[a])
-            out_a["status"] = "EVALUATED"
-            out_a["terminal_openness"] = _enrich_open_info(out_a["terminal_openness"])
-            all_outcomes[a] = out_a
+    with _maybe_matched_branch_rng(matched_rng):
+        early = open_stop_batch(
+            world,
+            int(decision),
+            q,
+            legal,
+            branch_horizon=branch_horizon,
+            namespace=namespace,
+        )
+        suffix = int(open_stop_mod.OPEN_STOP_SELECTION_SUFFIXES[0])
+        root_clone = open_stop_mod._clone_root(world)
+        all_outcomes: dict[int, dict[str, Any]] = {}
+        with open_stop_mod.configure("kernel", open_stop_mod.RowStats()):
+            for a in range(6):
+                existing = early["outcomes"].get(a)
+                if existing is not None and "certified" in existing:
+                    out_a = dict(existing)
+                    out_a["action"] = int(a)
+                    out_a["legal"] = bool(legal[a])
+                    out_a["status"] = "EVALUATED"
+                    out_a["terminal_openness"] = _enrich_open_info(out_a["terminal_openness"])
+                    all_outcomes[a] = out_a
+                else:
+                    single_out = open_stop_mod._eval_branch_suffix(
+                        root_clone,
+                        int(a),
+                        int(decision),
+                        suffix,
+                        branch_horizon=branch_horizon,
+                        namespace=namespace,
+                    )
+                    out_a = dict(single_out)
+                    out_a["action"] = int(a)
+                    out_a["legal"] = bool(legal[a])
+                    out_a["status"] = "EVALUATED"
+                    out_a["terminal_openness"] = _enrich_open_info(out_a["terminal_openness"])
+                    all_outcomes[a] = out_a
     return {
         **early,
         "all_outcomes": all_outcomes,
@@ -688,7 +873,7 @@ def summarize_agreement(
     certificate_rows: Sequence[dict[str, Any]],
     root_rows: Sequence[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Compute overall and certified-safe / not-safe split agreement statistics."""
+    """Compute overall, certified-safe / not-safe split, and exact integer agreement statistics."""
     total = len(certificate_rows)
     agree = sum(1 for r in certificate_rows if r["certified_agree"])
     cpu_safe_rows = [r for r in certificate_rows if r["cpu_certified"]]
@@ -712,11 +897,44 @@ def summarize_agreement(
 
     cert_disagreements = [r for r in certificate_rows if not r["certified_agree"]]
     sub_disagreements = [r for r in certificate_rows if r["subcondition_diffs"]]
+    all_bool_agree = sum(
+        1 for r in certificate_rows if r["certified_agree"] and not r["subcondition_diffs"]
+    )
+
+    surviving_rows = [
+        r for r in certificate_rows if r["cpu_raw_survives"] and r["gpu_raw_survives"]
+    ]
+    surv_total = len(surviving_rows)
+
+    def _int_eq(row: dict[str, Any], key: str) -> bool:
+        return int(row["cpu_terminal_openness"][key]) == int(row["gpu_terminal_openness"][key])
+
+    len_agree_all = sum(1 for r in certificate_rows if _int_eq(r, "length"))
+    v8_area_agree_all = sum(1 for r in certificate_rows if _int_eq(r, "v8_best_safe_area"))
+    pocket_r_agree_all = sum(1 for r in certificate_rows if _int_eq(r, "max_pocket_r"))
+    all3_int_agree_all = sum(
+        1
+        for r in certificate_rows
+        if _int_eq(r, "length") and _int_eq(r, "v8_best_safe_area") and _int_eq(r, "max_pocket_r")
+    )
+
+    len_agree_surv = sum(1 for r in surviving_rows if _int_eq(r, "length"))
+    v8_area_agree_surv = sum(1 for r in surviving_rows if _int_eq(r, "v8_best_safe_area"))
+    pocket_r_agree_surv = sum(1 for r in surviving_rows if _int_eq(r, "max_pocket_r"))
+    all3_int_agree_surv = sum(
+        1
+        for r in surviving_rows
+        if _int_eq(r, "length") and _int_eq(r, "v8_best_safe_area") and _int_eq(r, "max_pocket_r")
+    )
 
     return {
         "total_certificates": total,
         "agreed_certificates": agree,
         "agreement_rate": float(agree / total) if total else 1.0,
+        "all_boolean_subconditions_agreed": all_bool_agree,
+        "all_boolean_subconditions_agreement_rate": (
+            float(all_bool_agree / total) if total else 1.0
+        ),
         "cpu_certified_safe_total": len(cpu_safe_rows),
         "cpu_certified_safe_agreed": safe_agree,
         "cpu_certified_safe_agreement_rate": (
@@ -743,6 +961,30 @@ def summarize_agreement(
         "v8_open_agreement_rate": float(v8_open_agree / total) if total else 1.0,
         "pocket_open_agreed": pocket_open_agree,
         "pocket_open_agreement_rate": float(pocket_open_agree / total) if total else 1.0,
+        "exact_int_all_certificates": {
+            "total": total,
+            "length_agreed": len_agree_all,
+            "length_rate": float(len_agree_all / total) if total else 1.0,
+            "v8_best_safe_area_agreed": v8_area_agree_all,
+            "v8_best_safe_area_rate": float(v8_area_agree_all / total) if total else 1.0,
+            "max_pocket_r_agreed": pocket_r_agree_all,
+            "max_pocket_r_rate": float(pocket_r_agree_all / total) if total else 1.0,
+            "all_three_agreed": all3_int_agree_all,
+            "all_three_rate": float(all3_int_agree_all / total) if total else 1.0,
+        },
+        "exact_int_surviving_branches": {
+            "total": surv_total,
+            "length_agreed": len_agree_surv,
+            "length_rate": float(len_agree_surv / surv_total) if surv_total else 1.0,
+            "v8_best_safe_area_agreed": v8_area_agree_surv,
+            "v8_best_safe_area_rate": (
+                float(v8_area_agree_surv / surv_total) if surv_total else 1.0
+            ),
+            "max_pocket_r_agreed": pocket_r_agree_surv,
+            "max_pocket_r_rate": float(pocket_r_agree_surv / surv_total) if surv_total else 1.0,
+            "all_three_agreed": all3_int_agree_surv,
+            "all_three_rate": float(all3_int_agree_surv / surv_total) if surv_total else 1.0,
+        },
         "roots_total": roots_total,
         "roots_chosen_agreed": roots_chosen_agree,
         "roots_chosen_agreement_rate": (
@@ -755,6 +997,809 @@ def summarize_agreement(
         "certificate_disagreement_count": len(cert_disagreements),
         "any_subcondition_disagreement_count": len(sub_disagreements),
     }
+
+
+def _set_snake_cells(
+    sim: GridBatchSim,
+    env: int,
+    slot: int,
+    cells_head_first: Sequence[tuple[int, int]],
+) -> None:
+    """Write ``cells_head_first`` into ``sim`` for ``(env, slot)`` and validate adjacency."""
+    sim.bodies[env, slot] = 0
+    n = len(cells_head_first)
+    for i in range(n - 1):
+        d = abs(cells_head_first[i][0] - cells_head_first[i + 1][0]) + abs(
+            cells_head_first[i][1] - cells_head_first[i + 1][1]
+        )
+        if d != 1:
+            raise ValueError(f"slot {slot} non-adjacent cells at index {i}")
+    if len(set(cells_head_first)) != n:
+        raise ValueError(f"slot {slot} has duplicate body cells")
+    sim.bodies[env, slot, :n] = np.array(cells_head_first[::-1], dtype=np.int64)
+    sim.head_ptr[env, slot] = n - 1
+    sim.seg_count[env, slot] = n
+    sim.length[env, slot] = n
+    sim.alive[env, slot] = True
+    sim.direction[env, slot] = _heading(list(cells_head_first))
+    sim.boost_frames[env, slot] = 0
+    sim.frames_since_food[env, slot] = 0
+    sim._reward_prev_length[env, slot] = n
+
+
+def _setup_doorway_world(
+    w: CapturedWorld,
+    hero_length: int,
+    pocket_w: int,
+    pocket_h: int,
+) -> None:
+    """Configure a dynamic doorway Watch6-v2 world and step 1 organic warmup frame."""
+    sim = w.sim
+    stem_head_to_top = [(pocket_w + 2, r) for r in range(pocket_h - 1, -1, -1)]
+    rem_l = int(hero_length) - len(stem_head_to_top)
+    body_tail: list[tuple[int, int]] = []
+    for r_off in range(25):
+        r = r_off
+        cols = range(pocket_w + 3, 144) if r_off % 2 == 0 else range(143, pocket_w + 2, -1)
+        for c in cols:
+            body_tail.append((c, r))
+            if len(body_tail) == rem_l:
+                break
+        if len(body_tail) == rem_l:
+            break
+    hero_cells = stem_head_to_top + body_tail
+    if len(hero_cells) != int(hero_length):
+        raise ValueError(f"Expected hero_length={hero_length}, got {len(hero_cells)}")
+    _set_snake_cells(sim, 0, 0, hero_cells)
+
+    nozzle3 = [
+        (3, pocket_h),
+        (4, pocket_h),
+        (4, pocket_h - 1),
+        (3, pocket_h - 1),
+        (2, pocket_h - 1),
+        (1, pocket_h - 1),
+        (1, pocket_h - 2),
+        (2, pocket_h - 2),
+        (3, pocket_h - 2),
+        (4, pocket_h - 2),
+        (5, pocket_h - 2),
+        (5, pocket_h - 1),
+        (5, pocket_h),
+        (5, pocket_h + 1),
+        (4, pocket_h + 1),
+        (3, pocket_h + 1),
+        (2, pocket_h + 1),
+        (1, pocket_h + 1),
+        (1, pocket_h + 2),
+        (2, pocket_h + 2),
+        (3, pocket_h + 2),
+        (4, pocket_h + 2),
+        (5, pocket_h + 2),
+        (6, pocket_h + 2),
+        (6, pocket_h + 1),
+        (6, pocket_h),
+    ]
+    east_wall = [(c, pocket_h) for c in range(7, pocket_w + 1)]
+    opp1_down = [(pocket_w, r) for r in range(pocket_h + 1, pocket_h + 6)]
+    opp1_serp: list[tuple[int, int]] = []
+    for r_off in range(14):
+        r = pocket_h + 6 + r_off
+        cols = range(pocket_w, 6, -1) if r_off % 2 == 0 else range(7, pocket_w + 1)
+        for c in cols:
+            opp1_serp.append((c, r))
+    opp1_cells = (nozzle3 + east_wall + opp1_down + opp1_serp)[:260]
+    _set_snake_cells(sim, 0, 1, opp1_cells)
+
+    for sidx, (r0, slen) in enumerate([(34, 300), (45, 260), (56, 220), (67, 180)], start=2):
+        scells = serpentine_path(65, r0, 75, 8, slen)
+        _set_snake_cells(sim, 0, sidx, scells)
+
+    occupied: set[tuple[int, int]] = set()
+    for sidx in range(6):
+        n = int(sim.seg_count[0, sidx])
+        for k in range(n):
+            c = (int(sim.bodies[0, sidx, k, 0]), int(sim.bodies[0, sidx, k, 1]))
+            occupied.add(c)
+    keep = [c for c in sim.food_cells[0] if c not in occupied]
+    for bait in [
+        (pocket_w + 1, pocket_h - 1),
+        (pocket_w, pocket_h - 1),
+        (pocket_w - 1, pocket_h - 1),
+        (0, pocket_h + 1),
+        (0, pocket_h + 2),
+    ]:
+        if bait not in occupied:
+            if bait in keep:
+                keep.remove(bait)
+            keep.insert(0, bait)
+    keep = keep[: int(sim.cfg.max_food)]
+    sim.food_cells[0] = keep
+    sim.food_set[0] = set(keep)
+    sim.corpse_cells[0].intersection_update(keep)
+    sim._rebuild_env_grids(0, food=True)
+    all_envs = np.ones(1, dtype=bool)
+    sim._rebuild_traversed_from_heads(all_envs)
+    sim._refresh_action_masks(all_envs)
+
+    advance_to_next_live_hero_seam(w)
+    w.runtime.prepare(sim)
+    sim._policy_phase_prepared = True
+    step_prepared(w, 2)
+    advance_to_next_live_hero_seam(w)
+
+
+def _setup_rolled_serpentine_world(
+    w: CapturedWorld,
+    hero_length: int,
+    rollout_ticks: int,
+    ego_cfg: EgoRasterConfig,
+) -> None:
+    """Inject mature serpentine snakes and roll bare ``b8-s3`` for ``rollout_ticks`` frames."""
+    lengths = [int(hero_length), 96, 72, 56, 40, 28]
+    inject_serpentines([w.sim], lengths, box_height=10)
+    w.sim._rebuild_env_grids(0, food=True)
+
+    for _ in range(int(rollout_ticks)):
+        advance_to_next_live_hero_seam(w)
+        w.runtime.prepare(w.sim)
+        w.sim._policy_phase_prepared = True
+        obs = build_ego_raster(
+            w.sim,
+            ego_cfg,
+            backend="numba",
+            rows=np.array([[0, 0]], dtype=np.int64),
+        )
+        q = np.asarray(prepared_q(w, obs), dtype=np.float32)
+        adv = np.asarray(w.sim.get_advisory_action_mask()[0, 0], dtype=bool)
+        _, bare = ceiling._legal(q, adv)
+        step_prepared(w, int(bare))
+    advance_to_next_live_hero_seam(w)
+
+
+def build_extension_worlds(
+    b8_path: Path,
+    frp3_path: Path,
+    *,
+    specs: Sequence[dict[str, Any]] = MATURE_EXTENSION_SPECS,
+    device: str = "cpu",
+) -> tuple[list[CapturedWorld], DevicePolicy, list[dict[str, Any]]]:
+    """Build the 32 mature extension ``CapturedWorld`` roots at their pre-prepare hero seam."""
+    indices = [int(s["world_index"]) for s in specs]
+    seeds = preflight_seeds(indices)
+    worlds, dev_policy_template = build_watch6_captured_worlds(
+        seeds,
+        b8_path,
+        frp3_path,
+        max_capacity=DEFAULT_MAX_CAPACITY,
+        long_hero_profiles=None,
+        device=device,
+    )
+    ego_cfg = EgoRasterConfig(version="bv8")
+    meta_rows: list[dict[str, Any]] = []
+    for idx, (w, spec) in enumerate(zip(worlds, specs)):
+        kind = str(spec["kind"])
+        if kind.startswith("doorway"):
+            _setup_doorway_world(
+                w,
+                int(spec["hero_length"]),
+                int(spec["pocket_w"]),
+                int(spec["pocket_h"]),
+            )
+        elif kind == "rolled_serpentine":
+            _setup_rolled_serpentine_world(
+                w,
+                int(spec["hero_length"]),
+                int(spec["rollout_ticks"]),
+                ego_cfg,
+            )
+        else:
+            raise ValueError(f"Unknown extension world kind: {kind!r}")
+        meta_rows.append(
+            {
+                "cohort_root_index": int(idx),
+                "world_index": int(spec["world_index"]),
+                "world_seed": int(w.seed),
+                "kind": kind,
+                "decision_frame": int(w.sim.frame[0]),
+                "hero_length_root": int(w.sim.length[0, 0]),
+                "spec": dict(spec),
+            }
+        )
+    return worlds, dev_policy_template, meta_rows
+
+
+def evaluate_cpu_cohort_reference(
+    worlds: Sequence[CapturedWorld],
+    meta_rows: Sequence[dict[str, Any]],
+    *,
+    branch_horizon: int = OPEN_STOP_BRANCH_HORIZON,
+    matched_rng: bool = False,
+) -> tuple[list[dict[str, Any]], dict[str, Any], float]:
+    """Run CPU ``open_stop_batch`` on cloned roots and compute CPU-only cohort composition."""
+    ego_cfg = EgoRasterConfig(version="bv8")
+    cpu_roots: list[dict[str, Any]] = []
+
+    surviving_total = 0
+    surviving_enclosed = 0
+    surviving_v8_false = 0
+    surviving_pocket_false = 0
+    surviving_v8_true_pocket_false = 0
+    near_threshold_surviving = 0
+    rescue_roots = 0
+    hero_lengths: list[int] = []
+
+    t0 = time.perf_counter()
+    for w, meta in zip(worlds, meta_rows):
+        w_cpu = open_stop_mod._clone_root(w)
+        w_cpu.runtime.prepare(w_cpu.sim)
+        w_cpu.sim._policy_phase_prepared = True
+        obs = build_ego_raster(
+            w_cpu.sim,
+            ego_cfg,
+            backend="numba",
+            rows=np.array([[0, 0]], dtype=np.int64),
+        )
+        q = np.asarray(prepared_q(w_cpu, obs), dtype=np.float32)
+        adv = np.asarray(w_cpu.sim.get_advisory_action_mask()[0, 0], dtype=bool)
+        legal, _ = ceiling._legal(q, adv)
+        decision = int(w_cpu.sim.frame[0])
+        res = evaluate_cpu_open_stop_all_actions(
+            w_cpu,
+            decision,
+            q,
+            legal,
+            branch_horizon=branch_horizon,
+            namespace=OPEN_STOP_CRN_NAMESPACE,
+            matched_rng=matched_rng,
+        )
+        res["root_meta"] = dict(meta)
+        res["root_q"] = [float(x) for x in q.tolist()]
+        res["root_legal"] = [bool(x) for x in legal.tolist()]
+        cpu_roots.append(res)
+
+        hero_lengths.append(int(w_cpu.sim.length[0, 0]))
+        if int(res["chosen"]) != int(res["bare"]):
+            rescue_roots += 1
+        for a in range(6):
+            out_a = res["all_outcomes"][a]
+            if bool(out_a["raw_survives"]):
+                surviving_total += 1
+                op = out_a["terminal_openness"]
+                length = int(op["length"])
+                pocket_r = int(op["max_pocket_r"])
+                v8_area = int(op["v8_best_safe_area"])
+                if not bool(op["un_enclosed"]):
+                    surviving_enclosed += 1
+                    if not bool(op["v8_open"]):
+                        surviving_v8_false += 1
+                    if not bool(op["pocket_open"]):
+                        surviving_pocket_false += 1
+                    if bool(op["v8_open"]) and not bool(op["pocket_open"]):
+                        surviving_v8_true_pocket_false += 1
+                if (0.85 * length <= pocket_r <= 1.15 * length) or (136 <= v8_area <= 184):
+                    near_threshold_surviving += 1
+    cpu_wall = time.perf_counter() - t0
+
+    composition = {
+        "roots_total": len(worlds),
+        "certificates_total": len(worlds) * 6,
+        "hero_length_min": min(hero_lengths) if hero_lengths else 0,
+        "hero_length_max": max(hero_lengths) if hero_lengths else 0,
+        "hero_length_in_300_1200": bool(
+            hero_lengths and 300 <= min(hero_lengths) and max(hero_lengths) <= 1200
+        ),
+        "surviving_branches_total": surviving_total,
+        "surviving_but_enclosed_branches": surviving_enclosed,
+        "surviving_v8_open_false": surviving_v8_false,
+        "surviving_pocket_open_false": surviving_pocket_false,
+        "surviving_v8_true_pocket_false": surviving_v8_true_pocket_false,
+        "near_threshold_surviving_branches": near_threshold_surviving,
+        "rescue_override_roots": rescue_roots,
+        "composition_bars_met": bool(
+            len(worlds) == len(EXTENSION_MATURE_WORLD_INDICES)
+            and hero_lengths
+            and 300 <= min(hero_lengths)
+            and max(hero_lengths) <= 1200
+            and surviving_enclosed >= EXT_MIN_SURVIVING_ENCLOSED
+            and surviving_v8_false >= 1
+            and surviving_pocket_false >= 1
+            and near_threshold_surviving >= EXT_MIN_NEAR_THRESHOLD_SURVIVING
+            and rescue_roots >= EXT_MIN_RESCUE_ROOTS
+        ),
+    }
+    return cpu_roots, composition, float(cpu_wall)
+
+
+def freeze_mature_cohort_cpu(
+    *,
+    out_dir: Path = DEFAULT_EXTENSION_OUT_DIR,
+    branch_horizon: int = OPEN_STOP_BRANCH_HORIZON,
+) -> dict[str, Any]:
+    """Audit seeds, verify 32-root CPU composition, and freeze root list before device run."""
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    seed_audit = audit_preflight_seeds()
+    if not seed_audit["ok"]:
+        raise RuntimeError(f"Seed audit failed for {PREFLIGHT_NAMESPACE}: {seed_audit}")
+
+    b8_path, frp3_path = resolve_product_checkpoints()
+    worlds, _, meta_rows = build_extension_worlds(b8_path, frp3_path, device="cpu")
+    cpu_roots_cross, composition_cross, cpu_wall_cross = evaluate_cpu_cohort_reference(
+        worlds,
+        meta_rows,
+        branch_horizon=branch_horizon,
+        matched_rng=False,
+    )
+    if not composition_cross["composition_bars_met"]:
+        raise RuntimeError(f"CPU cohort composition failed bars: {composition_cross}")
+
+    frozen_roots_manifest: list[dict[str, Any]] = []
+    for meta, cpu_r in zip(meta_rows, cpu_roots_cross):
+        surv_enclosed_actions = [
+            int(a)
+            for a in range(6)
+            if bool(cpu_r["all_outcomes"][a]["raw_survives"])
+            and not bool(cpu_r["all_outcomes"][a]["terminal_openness"]["un_enclosed"])
+        ]
+        near_th_actions = [
+            int(a)
+            for a in range(6)
+            if bool(cpu_r["all_outcomes"][a]["raw_survives"])
+            and (
+                (
+                    0.85 * int(cpu_r["all_outcomes"][a]["terminal_openness"]["length"])
+                    <= int(cpu_r["all_outcomes"][a]["terminal_openness"]["max_pocket_r"])
+                    <= 1.15 * int(cpu_r["all_outcomes"][a]["terminal_openness"]["length"])
+                )
+                or (
+                    136
+                    <= int(cpu_r["all_outcomes"][a]["terminal_openness"]["v8_best_safe_area"])
+                    <= 184
+                )
+            )
+        ]
+        frozen_roots_manifest.append(
+            {
+                **meta,
+                "cpu_bare_action": int(cpu_r["bare"]),
+                "cpu_chosen_action": int(cpu_r["chosen"]),
+                "cpu_is_rescue_override": bool(int(cpu_r["chosen"]) != int(cpu_r["bare"])),
+                "cpu_surviving_enclosed_actions": surv_enclosed_actions,
+                "cpu_near_threshold_actions": near_th_actions,
+            }
+        )
+
+    payload = {
+        "schema": "gpu-sitl-preflight-ext-frozen-cohort/v1",
+        "namespace": PREFLIGHT_NAMESPACE,
+        "world_indices": list(EXTENSION_MATURE_WORLD_INDICES),
+        "world_seeds": [int(m["world_seed"]) for m in meta_rows],
+        "seed_audit_ok": bool(seed_audit["ok"]),
+        "cpu_reference_composition": composition_cross,
+        "cpu_reference_wall_seconds": float(cpu_wall_cross),
+        "roots": frozen_roots_manifest,
+    }
+    cohort_path = out_dir / FROZEN_COHORT_FILENAME
+    cohort_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    cohort_sha = _sha256_file(cohort_path)
+    sha_path = out_dir / f"{FROZEN_COHORT_FILENAME}.sha256"
+    sha_path.write_text(f"{cohort_sha}  {FROZEN_COHORT_FILENAME}\n", encoding="utf-8")
+    cache_path = out_dir / "_cpu_cohort_cache.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "cpu_cross_roots": cpu_roots_cross,
+                "cpu_cross_wall_seconds": float(cpu_wall_cross),
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return {
+        "cohort_path": str(cohort_path),
+        "cohort_sha256": cohort_sha,
+        "sha_sidecar_path": str(sha_path),
+        "cpu_reference_composition": composition_cross,
+        "cpu_reference_wall_seconds": float(cpu_wall_cross),
+    }
+
+
+def _outcome_for_action(root_res: dict[str, Any], action: int) -> dict[str, Any]:
+    outcomes = root_res["all_outcomes"]
+    if action in outcomes:
+        return outcomes[action]
+    return outcomes[str(action)]
+
+
+def _build_comparison_rows(
+    cohort_name: str,
+    meta_rows: Sequence[dict[str, Any]],
+    cpu_roots: Sequence[dict[str, Any]],
+    gpu_roots: Sequence[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Build per-root, per-certificate, and disagreement rows between CPU and GPU results."""
+    root_rows: list[dict[str, Any]] = []
+    certificate_rows: list[dict[str, Any]] = []
+    disagreements: list[dict[str, Any]] = []
+
+    for e_idx, (meta, cpu_r, gpu_r) in enumerate(zip(meta_rows, cpu_roots, gpu_roots)):
+        w_idx = int(meta["world_index"])
+        w_seed = int(meta["world_seed"])
+        decision = int(meta["decision_frame"])
+        hero_len = int(meta["hero_length_root"])
+        root_id = f"{cohort_name}:r{e_idx}:w{w_idx}:seed{w_seed}:frame{decision}"
+
+        root_rows.append(
+            {
+                "cohort": cohort_name,
+                "root_id": root_id,
+                "cohort_root_index": int(e_idx),
+                "world_index": w_idx,
+                "world_seed": w_seed,
+                "kind": str(meta["kind"]),
+                "decision_frame": decision,
+                "hero_length": hero_len,
+                "cpu_bare": int(cpu_r["bare"]),
+                "gpu_bare": int(gpu_r["bare"]),
+                "cpu_chosen": int(cpu_r["chosen"]),
+                "gpu_chosen": int(gpu_r["chosen"]),
+                "chosen_agree": bool(int(cpu_r["chosen"]) == int(gpu_r["chosen"])),
+                "cpu_evaluated_actions": list(cpu_r["evaluation_order"]),
+                "gpu_evaluated_actions": list(gpu_r["evaluation_order"]),
+            }
+        )
+
+        for action in range(6):
+            c_out = _outcome_for_action(cpu_r, action)
+            g_out = _outcome_for_action(gpu_r, action)
+            in_cpu_early = action in cpu_r["evaluation_order"]
+            in_gpu_early = action in gpu_r["evaluation_order"]
+
+            cert_agree = bool(c_out["certified"]) == bool(g_out["certified"])
+            raw_agree = bool(c_out["raw_survives"]) == bool(g_out["raw_survives"])
+            c_open = c_out["terminal_openness"]
+            g_open = g_out["terminal_openness"]
+            v8_agree = bool(c_open["v8_open"]) == bool(g_open["v8_open"])
+            pocket_agree = bool(c_open["pocket_open"]) == bool(g_open["pocket_open"])
+            sub_diffs = _diff_subconditions(c_out, g_out)
+
+            int_diffs: list[str] = []
+            for ikey in ("length", "v8_best_safe_area", "max_pocket_r"):
+                if int(c_open[ikey]) != int(g_open[ikey]):
+                    int_diffs.append(f"{ikey}(cpu={c_open[ikey]},gpu={g_open[ikey]})")
+
+            row_record = {
+                "cohort": cohort_name,
+                "root_id": root_id,
+                "cohort_root_index": int(e_idx),
+                "world_index": w_idx,
+                "world_seed": w_seed,
+                "kind": str(meta["kind"]),
+                "decision_frame": decision,
+                "hero_length": hero_len,
+                "action": int(action),
+                "legal_at_root": bool(c_out["legal"]),
+                "in_early_stop_evaluated": bool(in_cpu_early),
+                "in_gpu_early_stop_evaluated": bool(in_gpu_early),
+                "cpu_certified": bool(c_out["certified"]),
+                "gpu_certified": bool(g_out["certified"]),
+                "certified_agree": bool(cert_agree),
+                "cpu_raw_survives": bool(c_out["raw_survives"]),
+                "gpu_raw_survives": bool(g_out["raw_survives"]),
+                "raw_survives_agree": bool(raw_agree),
+                "v8_open_agree": bool(v8_agree),
+                "pocket_open_agree": bool(pocket_agree),
+                "cpu_frames_executed": int(c_out["frames_executed"]),
+                "gpu_frames_executed": int(g_out["frames_executed"]),
+                "cpu_frames_survived": int(c_out["frames_survived"]),
+                "gpu_frames_survived": int(g_out["frames_survived"]),
+                "cpu_terminal_openness": c_open,
+                "gpu_terminal_openness": g_open,
+                "subcondition_diffs": sub_diffs,
+                "integer_diffs": int_diffs,
+            }
+            certificate_rows.append(row_record)
+            if not cert_agree or sub_diffs or int_diffs:
+                disagreements.append(row_record)
+
+    return root_rows, certificate_rows, disagreements
+
+
+def run_extension_shard(
+    *,
+    out_dir: Path = DEFAULT_EXTENSION_OUT_DIR,
+    shard_start: int = 0,
+    shard_end: int = 32,
+    branch_horizon: int = OPEN_STOP_BRANCH_HORIZON,
+    device: str = "cpu",
+) -> dict[str, Any]:
+    """Run ``MATURE_EXTENSION_SPECS[shard_start:shard_end]`` after verifying frozen cohort."""
+    out_dir = Path(out_dir)
+    cohort_path = out_dir / FROZEN_COHORT_FILENAME
+    sha_path = out_dir / f"{FROZEN_COHORT_FILENAME}.sha256"
+    if not cohort_path.exists() or not sha_path.exists():
+        raise RuntimeError(
+            f"Frozen CPU cohort missing at {cohort_path}; run --mode freeze-cohort first."
+        )
+    expected_sha = sha_path.read_text(encoding="utf-8").strip().split()[0]
+    actual_sha = _sha256_file(cohort_path)
+    if actual_sha != expected_sha:
+        raise RuntimeError(f"Frozen CPU cohort SHA mismatch: {actual_sha} != {expected_sha}")
+
+    specs_slice = MATURE_EXTENSION_SPECS[int(shard_start) : int(shard_end)]
+    b8_path, frp3_path = resolve_product_checkpoints()
+    worlds, dev_policy_tpl, meta_rows = build_extension_worlds(
+        b8_path,
+        frp3_path,
+        specs=specs_slice,
+        device=device,
+    )
+    for local_i, m in enumerate(meta_rows):
+        m["cohort_root_index"] = int(shard_start) + local_i
+
+    cpu_matched_roots, _, cpu_matched_wall = evaluate_cpu_cohort_reference(
+        worlds,
+        meta_rows,
+        branch_horizon=branch_horizon,
+        matched_rng=True,
+    )
+    cache_path = out_dir / "_cpu_cohort_cache.json"
+    if cache_path.exists():
+        cached = json.loads(cache_path.read_text(encoding="utf-8"))
+        cpu_cross_roots = cached["cpu_cross_roots"][int(shard_start) : int(shard_end)]
+        cpu_cross_wall = float(cached["cpu_cross_wall_seconds"]) * (
+            len(specs_slice) / float(len(MATURE_EXTENSION_SPECS))
+        )
+    else:
+        cpu_cross_roots, _, cpu_cross_wall = evaluate_cpu_cohort_reference(
+            worlds,
+            meta_rows,
+            branch_horizon=branch_horizon,
+            matched_rng=False,
+        )
+
+    dev_sim, dev_pol = snapshot_worlds_to_device(
+        worlds,
+        dev_policy_tpl,
+        sim_cls=CTDeviceSim,
+        device=device,
+        vector_prepared=False,
+    )
+    decisions = [int(m["decision_frame"]) for m in meta_rows]
+    world_seeds = [int(m["world_seed"]) for m in meta_rows]
+
+    t0_gpu = time.perf_counter()
+    gpu_batch_wavefront = batched_open_stop_h32(
+        dev_sim,
+        dev_pol,
+        world_seeds=world_seeds,
+        decisions=decisions,
+        suffix_id=0,
+        branch_horizon=branch_horizon,
+        namespace=OPEN_STOP_CRN_NAMESPACE,
+        compact_dead=True,
+        enable_r2=True,
+        cpu_fast_flood=False,
+        return_host_records=True,
+    )
+    gpu_wavefront_wall = time.perf_counter() - t0_gpu
+
+    shard_dir = out_dir / "_shards"
+    shard_dir.mkdir(parents=True, exist_ok=True)
+    shard_path = shard_dir / f"shard_{int(shard_start):02d}_{int(shard_end):02d}.json"
+    shard_payload = {
+        "shard_start": int(shard_start),
+        "shard_end": int(shard_end),
+        "meta_rows": meta_rows,
+        "cpu_matched_roots": cpu_matched_roots,
+        "cpu_cross_roots": cpu_cross_roots,
+        "gpu_wavefront_roots": gpu_batch_wavefront["roots"],
+        "cpu_matched_wall_seconds": float(cpu_matched_wall),
+        "cpu_cross_wall_seconds": float(cpu_cross_wall),
+        "gpu_wavefront_wall_seconds": float(gpu_wavefront_wall),
+    }
+    shard_path.write_text(json.dumps(shard_payload, indent=2) + "\n", encoding="utf-8")
+    return {
+        "shard_path": str(shard_path),
+        "roots": len(meta_rows),
+        "gpu_wavefront_wall_seconds": float(gpu_wavefront_wall),
+        "cpu_matched_wall_seconds": float(cpu_matched_wall),
+        "cpu_cross_wall_seconds": float(cpu_cross_wall),
+    }
+
+
+def finalize_extension_preflight(
+    *,
+    out_dir: Path = DEFAULT_EXTENSION_OUT_DIR,
+    delta: float = RESCUE_MARGIN_DELTA_DEFAULT,
+    device: str = "cpu",
+) -> dict[str, Any]:
+    """Aggregate shard results for all 32 mature roots, run grad check, and write report."""
+    out_dir = Path(out_dir)
+    cohort_path = out_dir / FROZEN_COHORT_FILENAME
+    sha_path = out_dir / f"{FROZEN_COHORT_FILENAME}.sha256"
+    if not cohort_path.exists() or not sha_path.exists():
+        raise RuntimeError(f"Frozen CPU cohort missing at {cohort_path}")
+    expected_sha = sha_path.read_text(encoding="utf-8").strip().split()[0]
+    actual_sha = _sha256_file(cohort_path)
+    if actual_sha != expected_sha:
+        raise RuntimeError(f"Frozen CPU cohort SHA mismatch: {actual_sha} != {expected_sha}")
+    frozen_cohort = json.loads(cohort_path.read_text(encoding="utf-8"))
+
+    shard_dir = out_dir / "_shards"
+    shard_files = sorted(shard_dir.glob("shard_*.json"))
+    meta_rows: list[dict[str, Any]] = []
+    cpu_matched_roots: list[dict[str, Any]] = []
+    cpu_cross_roots: list[dict[str, Any]] = []
+    gpu_wavefront_roots: list[dict[str, Any]] = []
+    cpu_matched_wall = 0.0
+    cpu_cross_wall = 0.0
+    gpu_wavefront_wall = 0.0
+
+    for sf in shard_files:
+        sp = json.loads(sf.read_text(encoding="utf-8"))
+        meta_rows.extend(sp["meta_rows"])
+        cpu_matched_roots.extend(sp["cpu_matched_roots"])
+        cpu_cross_roots.extend(sp["cpu_cross_roots"])
+        gpu_wavefront_roots.extend(sp["gpu_wavefront_roots"])
+        cpu_matched_wall += float(sp["cpu_matched_wall_seconds"])
+        cpu_cross_wall += float(sp["cpu_cross_wall_seconds"])
+        gpu_wavefront_wall += float(sp["gpu_wavefront_wall_seconds"])
+
+    if len(meta_rows) != len(MATURE_EXTENSION_SPECS):
+        raise RuntimeError(
+            f"Expected {len(MATURE_EXTENSION_SPECS)} roots across shards, got {len(meta_rows)}"
+        )
+
+    matched_root_rows, matched_cert_rows, matched_disagreements = _build_comparison_rows(
+        "mature_32_matched_rng_wavefront",
+        meta_rows,
+        cpu_matched_roots,
+        gpu_wavefront_roots,
+    )
+    cross_root_rows, cross_cert_rows, cross_disagreements = _build_comparison_rows(
+        "mature_32_cross_rng_wavefront",
+        meta_rows,
+        cpu_cross_roots,
+        gpu_wavefront_roots,
+    )
+
+    summary_matched = summarize_agreement(matched_cert_rows, matched_root_rows)
+    summary_cross = summarize_agreement(cross_cert_rows, cross_root_rows)
+
+    # Registered rescue-hinge gradient check on rescue roots with both safe and unsafe legal actions
+    b8_path, frp3_path = resolve_product_checkpoints()
+    grad_specs = MATURE_EXTENSION_SPECS[:8]
+    grad_worlds, grad_pol_tpl, _ = build_extension_worlds(
+        b8_path,
+        frp3_path,
+        specs=grad_specs,
+        device=device,
+    )
+    grad_sim, _ = snapshot_worlds_to_device(
+        grad_worlds,
+        grad_pol_tpl,
+        sim_cls=CTDeviceSim,
+        device=device,
+        vector_prepared=False,
+    )
+    legal_list = []
+    safe_list = []
+    unsafe_list = []
+    astar_list = []
+    for r in gpu_wavefront_roots[:8]:
+        leg = [bool(_outcome_for_action(r, a)["legal"]) for a in range(6)]
+        cert = [bool(_outcome_for_action(r, a)["certified"]) for a in range(6)]
+        saf = [is_leg and is_cert for is_leg, is_cert in zip(leg, cert)]
+        uns = [is_leg and (not is_cert) for is_leg, is_cert in zip(leg, cert)]
+        legal_list.append(leg)
+        safe_list.append(saf)
+        unsafe_list.append(uns)
+        astar_list.append(int(r["chosen"]))
+
+    gradient_report = margin_loss_gradient_check(
+        str(b8_path),
+        sim=grad_sim,
+        delta=delta,
+        device=device,
+        freeze_value_head=True,
+        legal_mask=torch.tensor(legal_list, dtype=torch.bool),
+        safe_mask=torch.tensor(safe_list, dtype=torch.bool),
+        unsafe_mask=torch.tensor(unsafe_list, dtype=torch.bool),
+        a_star=torch.tensor(astar_list, dtype=torch.int64),
+    )
+
+    seed_audit = audit_preflight_seeds()
+    comp = frozen_cohort["cpu_reference_composition"]
+
+    part1_bool_pass = bool(summary_matched["agreed_certificates"] >= EXT_MATCHED_RNG_CERT_AGREE_MIN)
+    part1_int_surv = summary_matched["exact_int_surviving_branches"]
+    part1_int_all = summary_matched["exact_int_all_certificates"]
+    part1_int_pass = bool(
+        part1_int_surv["length_rate"] >= EXT_MATCHED_RNG_INT_AGREE_RATE_MIN
+        and part1_int_surv["v8_best_safe_area_rate"] >= EXT_MATCHED_RNG_INT_AGREE_RATE_MIN
+        and part1_int_surv["max_pocket_r_rate"] >= EXT_MATCHED_RNG_INT_AGREE_RATE_MIN
+        and part1_int_all["length_rate"] >= EXT_MATCHED_RNG_INT_AGREE_RATE_MIN
+        and part1_int_all["v8_best_safe_area_rate"] >= EXT_MATCHED_RNG_INT_AGREE_RATE_MIN
+        and part1_int_all["max_pocket_r_rate"] >= EXT_MATCHED_RNG_INT_AGREE_RATE_MIN
+    )
+    part2_bool_pass = bool(summary_cross["agreed_certificates"] >= EXT_CROSS_RNG_CERT_AGREE_MIN)
+    part2_chosen_pass = bool(summary_cross["roots_chosen_agreed"] >= EXT_CROSS_RNG_CHOSEN_AGREE_MIN)
+    grad_pass = bool(
+        gradient_report["all_grads_present"]
+        and gradient_report["all_grads_finite"]
+        and gradient_report["all_non_value_grads_finite_and_nonzero"]
+    )
+    comp_pass = bool(comp["composition_bars_met"])
+    overall_pass = bool(
+        seed_audit["ok"]
+        and comp_pass
+        and part1_bool_pass
+        and part1_int_pass
+        and part2_bool_pass
+        and part2_chosen_pass
+        and grad_pass
+    )
+
+    raw_payload = {
+        "schema": "gpu-sitl-preflight-ext-raw/v1",
+        "namespace": PREFLIGHT_NAMESPACE,
+        "verdict": "PASS" if overall_pass else "FAIL",
+        "frozen_cohort_path": str(cohort_path),
+        "frozen_cohort_sha256": actual_sha,
+        "cpu_reference_composition": comp,
+        "seed_audit": seed_audit,
+        "summary_matched_rng_wavefront": summary_matched,
+        "summary_cross_rng_wavefront": summary_cross,
+        "matched_rng_disagreements": matched_disagreements,
+        "cross_rng_disagreements": cross_disagreements,
+        "gradient_check": gradient_report,
+        "matched_roots": matched_root_rows,
+        "matched_certificates": matched_cert_rows,
+        "cross_roots": cross_root_rows,
+        "cross_certificates": cross_cert_rows,
+    }
+    raw_gz_path = out_dir / "gpu_sitl_preflight_ext_certificates_20261109.json.gz"
+    with gzip.open(raw_gz_path, "wt", encoding="utf-8") as gz_file:
+        json.dump(raw_payload, gz_file, indent=2)
+    raw_gz_sha256 = _sha256_file(raw_gz_path)
+
+    summary_payload = {
+        "schema": "gpu-sitl-preflight-ext-summary/v1",
+        "namespace": PREFLIGHT_NAMESPACE,
+        "verdict": "PASS" if overall_pass else "FAIL",
+        "frozen_cohort_path": str(cohort_path),
+        "frozen_cohort_sha256": actual_sha,
+        "raw_certificates_gz_path": str(raw_gz_path),
+        "raw_certificates_gz_sha256": raw_gz_sha256,
+        "raw_certificates_gz_bytes": int(raw_gz_path.stat().st_size),
+        "bar_checks": {
+            "seed_audit_ok": bool(seed_audit["ok"]),
+            "cpu_composition_bars_met": comp_pass,
+            "part1_matched_rng_bool_ge_191_of_192": part1_bool_pass,
+            "part1_matched_rng_exact_int_ge_98pct": part1_int_pass,
+            "part2_cross_rng_bool_ge_186_of_192": part2_bool_pass,
+            "part2_cross_rng_chosen_ge_30_of_32": part2_chosen_pass,
+            "rescue_hinge_all_trainable_grads_finite_nonzero": grad_pass,
+        },
+        "cpu_reference_composition": comp,
+        "summary_matched_rng_wavefront": summary_matched,
+        "summary_cross_rng_wavefront": summary_cross,
+        "matched_rng_disagreements": matched_disagreements,
+        "cross_rng_disagreements": cross_disagreements,
+        "gradient_check": gradient_report,
+        "wall_seconds": {
+            "gpu_wavefront_total": float(gpu_wavefront_wall),
+            "cpu_matched_rng_total": float(cpu_matched_wall),
+            "cpu_cross_rng_total": float(cpu_cross_wall),
+        },
+    }
+    summary_path = out_dir / "gpu_sitl_preflight_ext_summary_20261109.json"
+    summary_path.write_text(json.dumps(summary_payload, indent=2) + "\n", encoding="utf-8")
+    return summary_payload
 
 
 def run_preflight(
@@ -841,7 +1886,7 @@ def run_preflight(
     )
 
     # Also measure 1 batch (4 natural roots = 24 certificates) with pure-Torch 2D wavefront floods
-    # (cpu_fast_flood=False) so both CPU-queue and pure-Torch wavefront rates are reported.
+    # (cpu_fast_flood=False) and verify parity against CPU reference.
     nat4_sim, nat4_pol = snapshot_worlds_to_device(
         grad_worlds[:4],
         grad_policy_tpl,
@@ -849,12 +1894,13 @@ def run_preflight(
         device=device,
         vector_prepared=False,
     )
+    nat4_decisions = [int(w.sim.frame[0]) for w in grad_worlds[:4]]
     t0_wavefront = time.perf_counter()
-    batched_open_stop_h32(
+    wavefront_batch = batched_open_stop_h32(
         nat4_sim,
         nat4_pol,
         world_seeds=natural_seeds,
-        decisions=[int(w.sim.frame[0]) for w in grad_worlds[:4]],
+        decisions=nat4_decisions,
         suffix_id=0,
         branch_horizon=branch_horizon,
         namespace=OPEN_STOP_CRN_NAMESPACE,
@@ -864,6 +1910,36 @@ def run_preflight(
     )
     wavefront_wall_sec = time.perf_counter() - t0_wavefront
     wavefront_certs = len(natural_seeds) * 6
+    ego_cfg = EgoRasterConfig(version="bv8")
+    wavefront_agreed = 0
+    for e_idx, w in enumerate(grad_worlds[:4]):
+        w_cpu = open_stop_mod._clone_root(w)
+        w_cpu.runtime.prepare(w_cpu.sim)
+        w_cpu.sim._policy_phase_prepared = True
+        obs = build_ego_raster(
+            w_cpu.sim,
+            ego_cfg,
+            backend="numba",
+            rows=np.array([[0, 0]], dtype=np.int64),
+        )
+        q = np.asarray(prepared_q(w_cpu, obs), dtype=np.float32)
+        adv = np.asarray(w_cpu.sim.get_advisory_action_mask()[0, 0], dtype=bool)
+        legal, _ = ceiling._legal(q, adv)
+        cpu_r = evaluate_cpu_open_stop_all_actions(
+            w_cpu,
+            nat4_decisions[e_idx],
+            q,
+            legal,
+            branch_horizon=branch_horizon,
+            namespace=OPEN_STOP_CRN_NAMESPACE,
+            matched_rng=True,
+        )
+        gpu_r = wavefront_batch["roots"][e_idx]
+        for a in range(6):
+            if bool(cpu_r["all_outcomes"][a]["certified"]) == bool(
+                gpu_r["all_outcomes"][a]["certified"]
+            ):
+                wavefront_agreed += 1
 
     total_gpu_certs = natural_res["certificates_total"] + long_hero_res["certificates_total"]
     total_gpu_sec = natural_res["gpu_wall_seconds"] + long_hero_res["gpu_wall_seconds"]
@@ -898,6 +1974,7 @@ def run_preflight(
         },
         "pure_torch_wavefront_4roots_24certs_sample": {
             "certificates": int(wavefront_certs),
+            "agreed_certificates": int(wavefront_agreed),
             "wall_seconds": float(wavefront_wall_sec),
             "certs_per_sec": (
                 float(wavefront_certs / wavefront_wall_sec) if wavefront_wall_sec > 0 else 0.0
@@ -976,13 +2053,20 @@ def run_preflight(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run Step B1a M0-GPU-SITL-Preflight on Mac CPU.")
+    parser = argparse.ArgumentParser(description="Run Step B1a / B1a-ext Preflight on Mac CPU.")
+    parser.add_argument(
+        "--mode",
+        choices=("b1a", "freeze-cohort", "ext-shard", "ext-finalize"),
+        default="b1a",
+    )
     parser.add_argument(
         "--out-dir",
         type=Path,
-        default=DEFAULT_ARTIFACT_OUT_DIR,
-        help="Artifact directory for compressed per-certificate output.",
+        default=None,
+        help="Artifact directory for output.",
     )
+    parser.add_argument("--shard-start", type=int, default=0)
+    parser.add_argument("--shard-end", type=int, default=32)
     parser.add_argument("--natural-ticks", type=int, default=DEFAULT_NATURAL_TICKS)
     parser.add_argument("--long-hero-ticks", type=int, default=DEFAULT_LONG_HERO_TICKS)
     parser.add_argument("--branch-horizon", type=int, default=OPEN_STOP_BRANCH_HORIZON)
@@ -990,8 +2074,35 @@ def main() -> None:
     args = parser.parse_args()
 
     torch.set_num_threads(1)
+    if args.mode == "freeze-cohort":
+        out_dir = args.out_dir or DEFAULT_EXTENSION_OUT_DIR
+        res = freeze_mature_cohort_cpu(out_dir=out_dir, branch_horizon=args.branch_horizon)
+        print(json.dumps(res, indent=2))
+        return
+    if args.mode == "ext-shard":
+        out_dir = args.out_dir or DEFAULT_EXTENSION_OUT_DIR
+        res = run_extension_shard(
+            out_dir=out_dir,
+            shard_start=args.shard_start,
+            shard_end=args.shard_end,
+            branch_horizon=args.branch_horizon,
+            device="cpu",
+        )
+        print(json.dumps(res, indent=2))
+        return
+    if args.mode == "ext-finalize":
+        out_dir = args.out_dir or DEFAULT_EXTENSION_OUT_DIR
+        res = finalize_extension_preflight(
+            out_dir=out_dir,
+            delta=RESCUE_MARGIN_DELTA_DEFAULT,
+            device="cpu",
+        )
+        print(json.dumps(res["bar_checks"], indent=2))
+        return
+
+    out_dir = args.out_dir or DEFAULT_ARTIFACT_OUT_DIR
     summary = run_preflight(
-        out_dir=args.out_dir,
+        out_dir=out_dir,
         natural_ticks=args.natural_ticks,
         long_hero_ticks=args.long_hero_ticks,
         branch_horizon=args.branch_horizon,

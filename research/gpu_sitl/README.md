@@ -15,17 +15,20 @@ This package implements Step B1a (`M0-GPU-SITL-Preflight`, `0 u` Mac preflight) 
     action-independent CRN suffix seeds (`branch_suffix_seed`), steps all 6 root hero actions on
     step 1 and `b8-s3` hero + `5x frp3-s12 + v8` opponent continuations through `H = 32` (with
     optional dead-hero branch compaction), and evaluates terminal openness certificates.
-  - `margin_loss_gradient_check(b8_checkpoint, ...)`: Single backward pass of
-    $\max(0, \delta - (Q_\theta(s, a^*) - Q_\theta(s, a_0)))$ with $\delta = 0.0632$ on unfrozen
-    `Ego2sNet` initialized from `b8-s3`.
+  - `freeze_ego2s_value_head(net)` and `margin_loss_gradient_check(b8_checkpoint, ...)`:
+    Freezes `value.weight` and `value.bias` (`requires_grad_(False)`) and runs the registered
+    rescue-root hinge $\max(0, \delta - (Q_\theta(s, a^*) - \max_{a \in \text{legal}\setminus\text{safe}} Q_\theta(s, a)))$
+    ($\delta = 0.3002$) on roots with both safe and unsafe legal actions, asserting finite
+    non-zero gradients on all 24 non-value tensors.
 - `seed_check.py`:
   - Deterministic seed derivation and repository disjointness audit for namespace
-    `gpu-sitl-preflight-20261109-v1`.
+    `gpu-sitl-preflight-20261109-v1` (`0..3` natural, `4..7` long-hero, `8..39` 32-root mature
+    extension cohort).
 - `preflight.py`:
-  - Parity runner comparing `batched_open_stop_h32` on `CTDeviceSim` against CPU
-    `research/watch_replay/open_stop.py:open_stop_batch` across `E = 4` natural Watch6 v2 worlds ×
-    `32` hero ticks (`128` roots, `768` branch certificates) plus long-hero (`L >= 800`) Watch6 v2
-    probe states constructed via `src/simd_env/grid_scenarios.py:inject_serpentines`.
+  - Step B1a and Step B1a-ext parity runner (`--mode {b1a,freeze-cohort,ext-shard,ext-finalize}`),
+    comparing `batched_open_stop_h32` (`cpu_fast_flood=False`) on `CTDeviceSim` against CPU
+    `research/watch_replay/open_stop.py:open_stop_batch` under both matched-RNG
+    (`SplitMixEnvRngProxy`) and cross-RNG (CPython MT19937 vs SplitMix64).
 
 ## Usage
 

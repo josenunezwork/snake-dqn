@@ -9,20 +9,25 @@ from research.devicesim_v2_parity.harness import prepare_cpu_policy_phase
 from research.gpu_sim_spike.device_sim import DeviceSim
 from research.gpu_sitl.open_stop_gpu import (
     MARGIN_DELTA_DEFAULT,
+    RESCUE_MARGIN_DELTA_DEFAULT,
     batched_open_stop_h32,
     evaluate_terminal_openness_device,
+    freeze_ego2s_value_head,
     margin_loss_gradient_check,
     openness_row_to_dict,
 )
 from research.gpu_sitl.preflight import (
     LONG_HERO_BOX_HEIGHT,
+    MATURE_EXTENSION_SPECS,
     advance_to_next_live_hero_seam,
+    build_extension_worlds,
     build_watch6_captured_worlds,
     evaluate_cpu_open_stop_all_actions,
     resolve_product_checkpoints,
     snapshot_worlds_to_device,
 )
 from research.gpu_sitl.seed_check import (
+    EXTENSION_MATURE_WORLD_INDICES,
     PREFLIGHT_NAMESPACE,
     audit_preflight_seeds,
     preflight_seeds,
@@ -48,6 +53,8 @@ def test_seed_audit_disjointness() -> None:
     assert report["collisions_prefix_256"] == {}
     assert len(report["natural_world_seeds"]) == 4
     assert len(report["long_hero_world_seeds"]) == 4
+    assert len(report["extension_mature_world_seeds"]) == len(EXTENSION_MATURE_WORLD_INDICES)
+    assert len(report["all_allocated_seeds"]) == 40
 
 
 def test_terminal_openness_device_parity_short_and_long_hero() -> None:
@@ -182,12 +189,22 @@ def test_batched_open_stop_compacted_vs_uncompacted_and_cpu() -> None:
 
 
 def test_margin_loss_gradient_check_b8_s3() -> None:
-    """Verify finite gradients on all Ego2sNet parameters under the registration margin loss."""
+    """Verify finite non-zero gradients on all trainable non-value Ego2sNet parameters."""
+    from src.model.ego2s_network import Ego2sNet
+
+    net = Ego2sNet()
+    freeze_info = freeze_ego2s_value_head(net)
+    assert freeze_info["frozen_param_tensors"] == 2
+    assert freeze_info["frozen_scalar_params"] == 257
+    assert net.value.weight.requires_grad is False
+    assert net.value.bias.requires_grad is False
+
     b8_path, _ = resolve_product_checkpoints()
     report = margin_loss_gradient_check(
         str(b8_path),
         delta=MARGIN_DELTA_DEFAULT,
         device="cpu",
+        freeze_value_head=False,
     )
     assert report["loss_finite"] is True
     assert report["loss_value"] > 0.0
@@ -198,3 +215,228 @@ def test_margin_loss_gradient_check_b8_s3() -> None:
     assert report["non_value_zero_param_tensors"] == 0
     assert report["value_head_zero_param_tensors"] == 2
     assert report["value_head_scalar_params"] == 257
+
+
+def test_surviving_but_enclosed_branch_device_vs_cpu() -> None:
+    """Verify surviving-but-enclosed branches (both v8_open=False and pocket_open=False) vs CPU."""
+    b8_path, frp3_path = resolve_product_checkpoints()
+    specs = (MATURE_EXTENSION_SPECS[0], MATURE_EXTENSION_SPECS[9])
+    worlds, dev_policy_tpl, meta_rows = build_extension_worlds(
+        b8_path,
+        frp3_path,
+        specs=specs,
+        device="cpu",
+    )
+    dev_sim, dev_pol = snapshot_worlds_to_device(
+        worlds,
+        dev_policy_tpl,
+        sim_cls=CTDeviceSim,
+        device="cpu",
+        vector_prepared=False,
+    )
+    decisions = [int(m["decision_frame"]) for m in meta_rows]
+    world_seeds = [int(m["world_seed"]) for m in meta_rows]
+
+    gpu_res = batched_open_stop_h32(
+        dev_sim,
+        dev_pol,
+        world_seeds=world_seeds,
+        decisions=decisions,
+        branch_horizon=32,
+        namespace=OPEN_STOP_CRN_NAMESPACE,
+        compact_dead=True,
+        enable_r2=True,
+        cpu_fast_flood=True,
+        return_host_records=True,
+    )
+
+    ego_cfg = EgoRasterConfig(version="bv8")
+    enclosed_count = 0
+    v8_false_count = 0
+    pocket_false_count = 0
+    for e_idx, w in enumerate(worlds):
+        w.runtime.prepare(w.sim)
+        w.sim._policy_phase_prepared = True
+        obs = build_ego_raster(
+            w.sim,
+            ego_cfg,
+            backend="numba",
+            rows=np.array([[0, 0]], dtype=np.int64),
+        )
+        q = np.asarray(prepared_q(w, obs), dtype=np.float32)
+        adv = np.asarray(w.sim.get_advisory_action_mask()[0, 0], dtype=bool)
+        legal, _ = ceiling._legal(q, adv)
+        cpu_res = evaluate_cpu_open_stop_all_actions(
+            w,
+            decisions[e_idx],
+            q,
+            legal,
+            branch_horizon=32,
+            namespace=OPEN_STOP_CRN_NAMESPACE,
+            matched_rng=True,
+        )
+        g_root = gpu_res["roots"][e_idx]
+        assert g_root["chosen"] == cpu_res["chosen"]
+        assert g_root["bare"] == cpu_res["bare"]
+        assert g_root["chosen"] != g_root["bare"]
+        for a in range(6):
+            c_out = cpu_res["all_outcomes"][a]
+            g_out = g_root["all_outcomes"][a]
+            assert g_out["certified"] == c_out["certified"]
+            assert g_out["raw_survives"] == c_out["raw_survives"]
+            assert g_out["terminal_openness"] == c_out["terminal_openness"]
+            if c_out["raw_survives"] and not c_out["terminal_openness"]["un_enclosed"]:
+                enclosed_count += 1
+                assert g_out["certified"] is False
+                if not c_out["terminal_openness"]["v8_open"]:
+                    v8_false_count += 1
+                if not c_out["terminal_openness"]["pocket_open"]:
+                    pocket_false_count += 1
+
+    assert enclosed_count >= 4
+    assert v8_false_count >= 1
+    assert pocket_false_count >= 1
+
+
+def test_cpu_fast_flood_false_parity_h32_mature_root() -> None:
+    """Verify cpu_fast_flood=False parity at H=32 on a mature root (L >= 300) vs CPU."""
+    b8_path, frp3_path = resolve_product_checkpoints()
+    specs = (MATURE_EXTENSION_SPECS[8],)
+    worlds, dev_policy_tpl, meta_rows = build_extension_worlds(
+        b8_path,
+        frp3_path,
+        specs=specs,
+        device="cpu",
+    )
+    dev_sim, dev_pol = snapshot_worlds_to_device(
+        worlds,
+        dev_policy_tpl,
+        sim_cls=CTDeviceSim,
+        device="cpu",
+        vector_prepared=False,
+    )
+    decisions = [int(m["decision_frame"]) for m in meta_rows]
+    world_seeds = [int(m["world_seed"]) for m in meta_rows]
+
+    gpu_wavefront = batched_open_stop_h32(
+        dev_sim,
+        dev_pol,
+        world_seeds=world_seeds,
+        decisions=decisions,
+        branch_horizon=32,
+        namespace=OPEN_STOP_CRN_NAMESPACE,
+        compact_dead=True,
+        enable_r2=True,
+        cpu_fast_flood=False,
+        return_host_records=True,
+    )
+    gpu_fast_flood = batched_open_stop_h32(
+        dev_sim,
+        dev_pol,
+        world_seeds=world_seeds,
+        decisions=decisions,
+        branch_horizon=32,
+        namespace=OPEN_STOP_CRN_NAMESPACE,
+        compact_dead=True,
+        enable_r2=True,
+        cpu_fast_flood=True,
+        return_host_records=True,
+    )
+    assert np.array_equal(gpu_wavefront["certified_matrix"], gpu_fast_flood["certified_matrix"])
+    assert np.array_equal(
+        gpu_wavefront["raw_survives_matrix"], gpu_fast_flood["raw_survives_matrix"]
+    )
+
+    ego_cfg = EgoRasterConfig(version="bv8")
+    w = worlds[0]
+    w.runtime.prepare(w.sim)
+    w.sim._policy_phase_prepared = True
+    obs = build_ego_raster(
+        w.sim,
+        ego_cfg,
+        backend="numba",
+        rows=np.array([[0, 0]], dtype=np.int64),
+    )
+    q = np.asarray(prepared_q(w, obs), dtype=np.float32)
+    adv = np.asarray(w.sim.get_advisory_action_mask()[0, 0], dtype=bool)
+    legal, _ = ceiling._legal(q, adv)
+    cpu_res = evaluate_cpu_open_stop_all_actions(
+        w,
+        decisions[0],
+        q,
+        legal,
+        branch_horizon=32,
+        namespace=OPEN_STOP_CRN_NAMESPACE,
+        matched_rng=True,
+    )
+    g_root = gpu_wavefront["roots"][0]
+    f_root = gpu_fast_flood["roots"][0]
+    assert int(w.sim.length[0, 0]) >= 300
+    assert g_root["chosen"] == cpu_res["chosen"]
+    for a in range(6):
+        c_out = cpu_res["all_outcomes"][a]
+        g_out = g_root["all_outcomes"][a]
+        f_out = f_root["all_outcomes"][a]
+        assert g_out["certified"] == c_out["certified"]
+        assert g_out["raw_survives"] == c_out["raw_survives"]
+        assert g_out["terminal_openness"] == f_out["terminal_openness"]
+        assert g_out["terminal_openness"] == c_out["terminal_openness"]
+
+
+def test_registered_rescue_hinge_gradient_check_frozen_value_head() -> None:
+    """Verify registered rescue hinge (delta=0.3002) with frozen value.* on rescue roots."""
+    import torch
+
+    b8_path, frp3_path = resolve_product_checkpoints()
+    specs = (MATURE_EXTENSION_SPECS[0], MATURE_EXTENSION_SPECS[8])
+    worlds, dev_policy_tpl, _ = build_extension_worlds(
+        b8_path,
+        frp3_path,
+        specs=specs,
+        device="cpu",
+    )
+    dev_sim, _ = snapshot_worlds_to_device(
+        worlds,
+        dev_policy_tpl,
+        sim_cls=CTDeviceSim,
+        device="cpu",
+        vector_prepared=False,
+    )
+    legal_mask = torch.tensor(
+        [
+            [True, True, False, True, True, False],
+            [True, True, False, True, True, False],
+        ],
+        dtype=torch.bool,
+    )
+    safe_mask = torch.tensor(
+        [
+            [True, False, False, True, False, False],
+            [True, False, False, True, False, False],
+        ],
+        dtype=torch.bool,
+    )
+    unsafe_mask = legal_mask & (~safe_mask)
+    a_star = torch.tensor([0, 0], dtype=torch.long)
+
+    report = margin_loss_gradient_check(
+        str(b8_path),
+        sim=dev_sim,
+        delta=RESCUE_MARGIN_DELTA_DEFAULT,
+        device="cpu",
+        freeze_value_head=True,
+        legal_mask=legal_mask,
+        safe_mask=safe_mask,
+        unsafe_mask=unsafe_mask,
+        a_star=a_star,
+    )
+    assert report["delta"] == RESCUE_MARGIN_DELTA_DEFAULT
+    assert report["value_head_frozen"] is True
+    assert report["freeze_summary"]["frozen_param_tensors"] == 2
+    assert report["freeze_summary"]["frozen_scalar_params"] == 257
+    assert report["freeze_summary"]["trainable_param_tensors"] == 24
+    assert report["freeze_summary"]["trainable_scalar_params"] == 1_638_006
+    assert report["all_grads_present"] is True
+    assert report["all_grads_finite"] is True
+    assert report["all_non_value_grads_finite_and_nonzero"] is True
+    assert report["non_value_zero_param_tensors"] == 0
