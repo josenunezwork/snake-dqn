@@ -32,6 +32,7 @@ import argparse
 import json
 import math
 import random
+import shutil
 import signal
 import time
 from pathlib import Path
@@ -45,6 +46,7 @@ from research.gpu_sitl.open_stop_gpu import (
     _VECTOR_RUNTIME_ENV_FIELDS,
     ORDINARY_MARGIN_DELTA_DEFAULT,
     RESCUE_MARGIN_DELTA_DEFAULT,
+    FastDeviceVectorRuntime,
     batched_open_stop_h32,
     compact_sim_and_policy,
     concat_sims_and_policies,
@@ -68,6 +70,7 @@ from research.gpu_sitl.probe_bank import (
     write_atomic_with_sha256,
 )
 from research.gpu_sitl.seed_check import (
+    PROBE32_NAMESPACE,
     TRAIN_NAMESPACE,
     audit_b1b_seeds,
     train_seeds,
@@ -102,13 +105,27 @@ ALIASING_RESCUE_AGREEMENT_THRESHOLD = 0.800
 ALIASING_ORDINARY_FLIP_THRESHOLD = 0.020
 VERDICT_INPUTS_INSUFFICIENT = "STOP_EGO2S_BV8_INPUTS_INSUFFICIENT"
 VERDICT_TRIPWIRE_STOP = "STOP_TRIPWIRE_BREACH"
+VERDICT_RUNAWAY_GUARD_STOP = "STOP_RUNAWAY_GUARD_REACHED"
 VERDICT_PROCEED_TO_GATE_B1 = "PROCEED_TO_GATE_B1_EVALUATION"
+
+RESCUE_QUOTA_SCORING_METRIC = "world_seed_decision_frame"
+RESCUE_QUOTA_REGISTRATION_QUOTES = (
+    "§2.1 (line 61): 'Every candidate state s (defined by (world_seed, decision_frame) "
+    "for the hero snake slot 0) is evaluated from an identical cloned simulator state "
+    "across legal actions a in A_legal(s)'; "
+    "§3.2 item 1 (line 143): 'Training must accumulate >= 5,000 unique mined rescue roots "
+    "(counting only true rescue roots s in D_rescue^train with a_b8(s) not in A_safe(s) "
+    "and A_safe(s) != empty, just as the < 80.0% diagnostic in §3.1(3) and §3.4 counts "
+    "only true rescue roots in D_rescue^train) and complete 1,000 balanced learner updates "
+    "(after an initial buffer warmup of 512 unique mined rescue roots in D_rescue^train) "
+    "before Gate B1 evaluation.'"
+)
 
 DEFAULT_LEARNING_RATE = 3e-5
 DEFAULT_MAX_GRAD_NORM = 10.0
 DEFAULT_RESCUE_BUFFER_CAPACITY = 16384
 DEFAULT_ORDINARY_BUFFER_CAPACITY = 32768
-DEFAULT_HARD_NEG_PROBE_POOL = 512
+DEFAULT_HARD_NEG_PROBE_POOL = 2048
 
 
 class SitlRingBuffer:
@@ -378,20 +395,26 @@ def sample_ordinary_minibatch_indices(
 
     rem = int(hard_neg_count) - len(chosen_hn)
     if rem > 0:
-        # If fewer than hard_neg_count distinct hard negatives exist, oversample existing hard
-        # negatives if any exist (prioritizing tier 2 then tier 1), else fill from uniform ordinary.
-        if len(tier2_idx) > 0:
-            extra2 = rng.choice(tier2_idx, size=rem, replace=True).tolist()
-            chosen_hn.extend(int(x) for x in extra2)
-            n_tier2_used += rem
-        elif len(tier1_idx) > 0:
-            extra1 = rng.choice(tier1_idx, size=rem, replace=True).tolist()
-            chosen_hn.extend(int(x) for x in extra1)
-            n_tier1_used += rem
+        # When fewer than hard_neg_count distinct hard negatives exist, fill the remaining
+        # slots uniformly without replacement from the remaining ordinary buffer rows (never
+        # duplicating a hard negative up to 64 times).
+        excluded_hn = np.asarray(chosen_hn, dtype=np.int64)
+        preferred_excluded = np.unique(np.concatenate([excluded_hn, uniform_idx]))
+        preferred_pool = np.setdiff1d(
+            np.arange(n, dtype=np.int64), preferred_excluded, assume_unique=True
+        )
+        if len(preferred_pool) >= rem:
+            extra_u = rng.choice(preferred_pool, size=rem, replace=False).tolist()
         else:
-            extra_u = rng.choice(n, size=rem, replace=(n < rem)).tolist()
-            chosen_hn.extend(int(x) for x in extra_u)
-            n_uniform_fallback = rem
+            fallback_pool = np.setdiff1d(
+                np.arange(n, dtype=np.int64), excluded_hn, assume_unique=True
+            )
+            if len(fallback_pool) >= rem:
+                extra_u = rng.choice(fallback_pool, size=rem, replace=False).tolist()
+            else:
+                extra_u = rng.choice(n, size=rem, replace=(n < rem)).tolist()
+        chosen_hn.extend(int(x) for x in extra_u)
+        n_uniform_fallback = rem
 
     hn_idx = np.asarray(chosen_hn, dtype=np.int64)
     all_ord_idx = np.concatenate([uniform_idx, hn_idx])
@@ -516,7 +539,10 @@ def required_unique_rescues_for_update(
 
 
 def _capture_sim_and_runtime_state(sim: Any, policy: Any) -> dict[str, Any]:
-    sim_state: dict[str, Any] = {"E": int(sim.E)}
+    sim_state: dict[str, Any] = {
+        "E": int(sim.E),
+        "_prepared": bool(getattr(sim, "_prepared", False)),
+    }
     for name in _ENV_TENSOR_FIELDS:
         val = getattr(sim, name, None)
         if isinstance(val, torch.Tensor):
@@ -525,6 +551,16 @@ def _capture_sim_and_runtime_state(sim: Any, policy: Any) -> dict[str, Any]:
     rt_state: dict[str, Any] = {
         "E": int(rt.E),
         "vector_prepared": bool(policy.vector_prepared),
+        "fresh_rows": (
+            rt.fresh_rows.detach().cpu().clone()
+            if isinstance(getattr(rt, "fresh_rows", None), torch.Tensor)
+            else int(getattr(rt, "fresh_rows", 0))
+        ),
+        "carried_rows": (
+            rt.carried_rows.detach().cpu().clone()
+            if isinstance(getattr(rt, "carried_rows", None), torch.Tensor)
+            else int(getattr(rt, "carried_rows", 0))
+        ),
     }
     for name in _VECTOR_RUNTIME_ENV_FIELDS:
         val = getattr(rt, name, None)
@@ -541,6 +577,7 @@ def _restore_sim_and_runtime_state(sim: Any, policy: Any, state: dict[str, Any])
         if name in sim_state and isinstance(getattr(sim, name, None), torch.Tensor):
             setattr(sim, name, sim_state[name].to(dev).clone())
     sim.E = int(sim_state["E"])
+    sim._prepared = bool(sim_state.get("_prepared", False))
     r2_cache.bump(sim)
 
     rt = policy.vector_runtime
@@ -548,8 +585,43 @@ def _restore_sim_and_runtime_state(sim: Any, policy: Any, state: dict[str, Any])
     for name in _VECTOR_RUNTIME_ENV_FIELDS:
         if name in rt_state and isinstance(getattr(rt, name, None), torch.Tensor):
             setattr(rt, name, rt_state[name].to(dev).clone())
+    if "fresh_rows" in rt_state and isinstance(getattr(rt, "fresh_rows", None), torch.Tensor):
+        rt.fresh_rows = torch.as_tensor(rt_state["fresh_rows"], device=dev).clone()
+    if "carried_rows" in rt_state and isinstance(getattr(rt, "carried_rows", None), torch.Tensor):
+        rt.carried_rows = torch.as_tensor(rt_state["carried_rows"], device=dev).clone()
     rt.E = int(rt_state["E"])
+    rt.__class__ = FastDeviceVectorRuntime
     policy.vector_prepared = bool(rt_state["vector_prepared"])
+
+
+def _resolve_staged_input_file(
+    relpath_or_path: str,
+    *,
+    input_dir: Path | None,
+    ledger_file: Path | None,
+    out_dir: Path,
+) -> Path:
+    cand = Path(relpath_or_path)
+    if cand.is_absolute() and cand.is_file():
+        return cand
+    search_roots: list[Path] = []
+    if input_dir is not None:
+        search_roots.append(Path(input_dir))
+    if ledger_file is not None:
+        search_roots.append(ledger_file.parent)
+        if ledger_file.parent.name == "inputs":
+            search_roots.append(ledger_file.parent.parent)
+    search_roots.append(out_dir)
+    for root in search_roots:
+        p1 = root / relpath_or_path
+        if p1.is_file():
+            return p1
+        p2 = root / Path(relpath_or_path).name
+        if p2.is_file():
+            return p2
+    raise FileNotFoundError(
+        f"Staged input {relpath_or_path!r} not found in {[str(r) for r in search_roots]}"
+    )
 
 
 def run_sitl_training(
@@ -558,6 +630,8 @@ def run_sitl_training(
     probe_bank_path: Path | str | None = None,
     b8_checkpoint: Path | str | None = None,
     opponent_checkpoint: Path | str | None = None,
+    ledger_path: Path | str | None = None,
+    input_dir: Path | str | None = None,
     device: str | torch.device = "cpu",
     num_envs: int = REGISTERED_ENVS,
     total_updates: int = REGISTERED_TOTAL_UPDATES,
@@ -577,10 +651,12 @@ def run_sitl_training(
     checkpoint_every_updates: int = 100,
     checkpoint_every_seconds: float = 900.0,
     max_collection_steps: int = 200_000,
+    max_wall_seconds: float | None = None,
     seed: int = 20261109,
     cpu_fast_flood: bool = True,
     resume: bool = True,
     stop_after_updates: int | None = None,
+    stop_after_collection_steps: int | None = None,
     dry_run: bool = False,
 ) -> dict[str, Any]:
     """Run the Step B1b online GPU SITL training loop (or dry-run on CPU)."""
@@ -647,11 +723,100 @@ def run_sitl_training(
     out_dir.mkdir(parents=True, exist_ok=True)
     ckpt_dir = out_dir / "checkpoints"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
+    in_dir = Path(input_dir) if input_dir is not None else None
+
+    world_seeds = train_seeds(int(num_envs))
+
+    # Resolve and validate verified-ledger.json if present (for cross-session Colab resume)
+    active_ledger_file: Path | None = None
+    if ledger_path is not None:
+        active_ledger_file = Path(ledger_path)
+    elif in_dir is not None:
+        for cand_l in (in_dir / "inputs" / "verified-ledger.json", in_dir / "verified-ledger.json"):
+            if cand_l.is_file():
+                active_ledger_file = cand_l
+                break
+    elif (out_dir / "verified-ledger.json").is_file():
+        active_ledger_file = out_dir / "verified-ledger.json"
+
+    loaded_ledger: dict[str, Any] = {}
+    verified_units_ledger: list[dict[str, Any]] = []
+    if active_ledger_file is not None and active_ledger_file.is_file():
+        loaded_ledger = json.loads(active_ledger_file.read_text(encoding="utf-8"))
+        if not isinstance(loaded_ledger, dict):
+            raise ValueError(f"Invalid verified ledger at {active_ledger_file}")
+        if loaded_ledger.get("namespace") != TRAIN_NAMESPACE:
+            raise ValueError(
+                f"Refusing foreign training namespace in ledger {active_ledger_file}: "
+                f"expected {TRAIN_NAMESPACE!r}, got {loaded_ledger.get('namespace')!r}"
+            )
+        if loaded_ledger.get("probe_namespace", PROBE32_NAMESPACE) != PROBE32_NAMESPACE:
+            raise ValueError(
+                f"Refusing foreign probe namespace in ledger {active_ledger_file}: "
+                f"expected {PROBE32_NAMESPACE!r}, got {loaded_ledger.get('probe_namespace')!r}"
+            )
+        ledger_seeds = loaded_ledger.get("world_seeds")
+        if ledger_seeds and [int(s) for s in ledger_seeds] != [int(s) for s in world_seeds]:
+            raise ValueError(
+                f"Refusing ledger {active_ledger_file} with mismatched world_seeds allocation"
+            )
+        if isinstance(loaded_ledger.get("verified_units"), list):
+            verified_units_ledger = list(loaded_ledger["verified_units"])
 
     # Harvest or load probe32 bank before training starts
     if probe_bank_path is None:
         probe_bank_path = out_dir / "probe32_bank.pt"
     probe_bank_file = Path(probe_bank_path)
+
+    if resume and (
+        not probe_bank_file.is_file() or not Path(f"{probe_bank_file}.sha256").is_file()
+    ):
+        staged_probe_info = loaded_ledger.get("probe32_bank")
+        if isinstance(staged_probe_info, dict) and staged_probe_info.get("relpath"):
+            staged_pb = _resolve_staged_input_file(
+                str(staged_probe_info["relpath"]),
+                input_dir=in_dir,
+                ledger_file=active_ledger_file,
+                out_dir=out_dir,
+            )
+            expected_pb_sha = str(staged_probe_info["sha256"])
+            actual_pb_sha = sha256_file(staged_pb)
+            if actual_pb_sha != expected_pb_sha:
+                raise ValueError(
+                    f"Staged probe32_bank SHA256 mismatch: expected {expected_pb_sha}, "
+                    f"got {actual_pb_sha}"
+                )
+            published_sha = write_atomic_with_sha256(
+                probe_bank_file,
+                lambda tmp: shutil.copyfile(staged_pb, tmp),
+                write_complete_marker=True,
+            )
+            if published_sha != expected_pb_sha:
+                raise RuntimeError("Published probe32_bank SHA256 mismatch after staging")
+
+    staged_harvest_ckpt: Path | None = None
+    if resume and (
+        not probe_bank_file.is_file() or not Path(f"{probe_bank_file}.sha256").is_file()
+    ):
+        staged_hckpt_info = loaded_ledger.get("probe32_harvest_ckpt")
+        if isinstance(staged_hckpt_info, dict) and staged_hckpt_info.get("relpath"):
+            cand_hckpt = _resolve_staged_input_file(
+                str(staged_hckpt_info["relpath"]),
+                input_dir=in_dir,
+                ledger_file=active_ledger_file,
+                out_dir=out_dir,
+            )
+            expected_h_sha = str(staged_hckpt_info["sha256"])
+            if sha256_file(cand_hckpt) != expected_h_sha:
+                raise ValueError("Staged probe32 harvest checkpoint SHA256 mismatch")
+            local_hckpt = Path(f"{probe_bank_file}.ckpt.pt")
+            write_atomic_with_sha256(
+                local_hckpt,
+                lambda tmp: shutil.copyfile(cand_hckpt, tmp),
+                write_complete_marker=True,
+            )
+            staged_harvest_ckpt = local_hckpt
+
     if not probe_bank_file.is_file() or not Path(f"{probe_bank_file}.sha256").is_file():
         harvest_probe32_bank(
             probe_bank_file,
@@ -663,12 +828,34 @@ def run_sitl_training(
             branch_horizon=int(branch_horizon),
             ordinary_per_world=4 if dry_run else 210,
             harvest_batch_roots=max(4, int(num_envs)),
+            checkpoint_every_seconds=float(checkpoint_every_seconds),
+            resume_ckpt_path=staged_harvest_ckpt,
             cpu_fast_flood=cpu_fast_flood,
             dry_run=dry_run,
         )
     probe_bank = load_probe32_bank(probe_bank_file)
     if not dry_run and bool(probe_bank["meta"].get("dry_run", False)):
         raise ValueError("Refusing to use a dry_run probe32 bank for non-dry-run SITL training")
+    if probe_bank.get("meta", {}).get("namespace") != PROBE32_NAMESPACE:
+        raise ValueError(
+            f"probe_bank namespace must be {PROBE32_NAMESPACE!r}, "
+            f"got {probe_bank.get('meta', {}).get('namespace')!r}"
+        )
+    probe_seed_set: set[int] = {int(s) for s in probe_bank.get("meta", {}).get("world_seeds", [])}
+    if "rescue" in probe_bank and isinstance(probe_bank["rescue"].get("world_seed"), torch.Tensor):
+        probe_seed_set.update(int(x) for x in probe_bank["rescue"]["world_seed"].tolist())
+    if "ordinary" in probe_bank and isinstance(
+        probe_bank["ordinary"].get("world_seed"), torch.Tensor
+    ):
+        probe_seed_set.update(int(x) for x in probe_bank["ordinary"]["world_seed"].tolist())
+    if not probe_seed_set:
+        raise ValueError("probe_bank world_seeds set is empty")
+    seed_overlap = probe_seed_set.intersection(int(s) for s in world_seeds)
+    if seed_overlap:
+        raise ValueError(
+            f"Seed contamination between probe32 bank and training world_seeds: "
+            f"{sorted(seed_overlap)}"
+        )
 
     random.seed(int(seed))
     np.random.seed(int(seed) & 0xFFFF_FFFF)
@@ -677,7 +864,6 @@ def run_sitl_training(
         torch.cuda.manual_seed_all(int(seed))
     rng = np.random.default_rng(int(seed))
 
-    world_seeds = train_seeds(int(num_envs))
     sim, policy = build_watch6_ct_device_bundle(
         world_seeds,
         b8_path,
@@ -687,13 +873,13 @@ def run_sitl_training(
     )
     if dry_run and int(num_envs) >= 2:
         # In dry-run mode (CPU, 0 u), seed the first min(2, num_envs // 2) worlds from
-        # MATURE_EXTENSION_SPECS doorway rescue states so a tiny dry-run horizon mines
-        # real rescue roots and ordinary roots without needing thousands of rollout ticks.
+        # MATURE_EXTENSION_SPECS[9:9+n_door] (disjoint from MATURE_EXTENSION_SPECS[0] used in
+        # probe_bank.py dry-run) so a tiny dry-run horizon mines rescue and ordinary roots.
         n_door = min(2, int(num_envs) // 2)
         ext_worlds, ext_pol_tpl, _ = build_extension_worlds(
             b8_path,
             opp_path,
-            specs=MATURE_EXTENSION_SPECS[:n_door],
+            specs=MATURE_EXTENSION_SPECS[9 : 9 + n_door],
         )
         ext_sim, ext_pol = snapshot_worlds_to_device(
             ext_worlds,
@@ -705,6 +891,8 @@ def run_sitl_training(
         keep_rest = torch.arange(n_door, int(num_envs), device=dev, dtype=torch.long)
         sim_rest = sim.clone()
         pol_rest = policy.repeat_interleave(1)
+        if pol_rest.vector_runtime is not None:
+            pol_rest.vector_runtime.__class__ = FastDeviceVectorRuntime
         compact_sim_and_policy(sim_rest, pol_rest, keep_rest)
         sim, policy = concat_sims_and_policies([ext_sim, sim_rest], [ext_pol, pol_rest])
         r2_cache.enable(sim)
@@ -719,6 +907,10 @@ def run_sitl_training(
     rescue_buf = SitlRingBuffer(capacity=DEFAULT_RESCUE_BUFFER_CAPACITY)
     ordinary_buf = SitlRingBuffer(capacity=DEFAULT_ORDINARY_BUFFER_CAPACITY)
     unique_rescue_keys: set[tuple[int, int]] = set()
+    unique_rescue_episode_keys: set[tuple[int, int, int]] = set()
+    hero_life_id_by_env: list[int] = [0] * int(num_envs)
+    rescue_episode_seq_by_env: list[int] = [0] * int(num_envs)
+    in_rescue_run_by_env: list[bool] = [False] * int(num_envs)
 
     updates_completed = 0
     collection_steps = 0
@@ -736,30 +928,89 @@ def run_sitl_training(
     update_history: list[dict[str, Any]] = []
     tripwire_breached = False
     tripwire_breach_reason: str | None = None
+    runaway_guard_reached = False
+    runaway_guard_reason: str | None = None
 
     latest_ckpt_meta_path = ckpt_dir / "latest_checkpoint.json"
+    out_ledger_path = out_dir / "verified-ledger.json"
     resumed_from_checkpoint: str | None = None
 
-    if resume and latest_ckpt_meta_path.is_file():
-        verify_file_sha256(latest_ckpt_meta_path)
-        latest_meta = json.loads(latest_ckpt_meta_path.read_text(encoding="utf-8"))
-        ckpt_pt_path = Path(latest_meta["checkpoint_path"])
-        verify_file_sha256(ckpt_pt_path)
+    def _write_verified_ledger(latest_ckpt_info: dict[str, Any] | None = None) -> None:
+        ledger_obj: dict[str, Any] = {
+            "schema": "t34-gpu-sitl-verified-ledger/v1",
+            "namespace": TRAIN_NAMESPACE,
+            "probe_namespace": PROBE32_NAMESPACE,
+            "world_seeds": [int(s) for s in world_seeds],
+            "unit_kind": "update",
+            "skip_verified": True,
+            "probe32_bank": {
+                "relpath": probe_bank_file.name,
+                "sha256": probe_bank["verified_sha256"],
+                "size_bytes": int(probe_bank_file.stat().st_size),
+            },
+            "verified_units": list(verified_units_ledger),
+        }
+        if latest_ckpt_info is not None:
+            ledger_obj["resume_checkpoint"] = dict(latest_ckpt_info)
+        elif loaded_ledger.get("resume_checkpoint") is not None:
+            ledger_obj["resume_checkpoint"] = dict(loaded_ledger["resume_checkpoint"])
+        write_atomic_with_sha256(
+            out_ledger_path,
+            lambda tmp: tmp.write_text(
+                json.dumps(ledger_obj, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            ),
+            write_complete_marker=True,
+        )
+
+    _write_verified_ledger(None)
+
+    def _load_training_checkpoint_file(ckpt_pt_path: Path) -> None:
+        nonlocal unique_rescue_keys, unique_rescue_episode_keys
+        nonlocal hero_life_id_by_env, rescue_episode_seq_by_env, in_rescue_run_by_env
+        nonlocal updates_completed, collection_steps, total_hero_decisions, total_branches_evaluated
+        nonlocal non_finite_loss_count, non_finite_q_count, non_finite_grad_count
+        nonlocal illegal_action_count, total_action_counts, window_action_counts, window_decisions
+        nonlocal completed_windows, tripwire_history, update_history
+        nonlocal tripwire_breached, tripwire_breach_reason, resumed_from_checkpoint
+
         state = torch.load(ckpt_pt_path, map_location="cpu", weights_only=False)
+        if state.get("namespace") != TRAIN_NAMESPACE:
+            raise ValueError(
+                f"Refusing to resume SITL checkpoint with foreign namespace: "
+                f"{state.get('namespace')!r}"
+            )
         if (
             state["b8_checkpoint_sha256"] != b8_sha
             or state["opponent_checkpoint_sha256"] != opp_sha
         ):
             raise ValueError("Refusing to resume SITL checkpoint with mismatched model SHA256")
+        if state.get("probe_bank_sha256") != probe_bank["verified_sha256"]:
+            raise ValueError("Refusing to resume SITL checkpoint with mismatched probe_bank_sha256")
         if state["world_seeds"] != [int(s) for s in world_seeds]:
             raise ValueError("Refusing to resume SITL checkpoint with mismatched world_seeds")
         student_net.load_state_dict(state["student_state_dict"])
         freeze_ego2s_value_head(student_net)
         optimizer.load_state_dict(state["optimizer_state_dict"])
+        for opt_st in optimizer.state.values():
+            for opt_k, opt_v in list(opt_st.items()):
+                if isinstance(opt_v, torch.Tensor) and opt_k != "step":
+                    opt_st[opt_k] = opt_v.to(dev)
         _restore_sim_and_runtime_state(sim, policy, state["sim_and_runtime"])
         rescue_buf.load_state_dict(state["rescue_buffer"])
         ordinary_buf.load_state_dict(state["ordinary_buffer"])
         unique_rescue_keys = {(int(a), int(b)) for a, b in state["unique_rescue_keys"]}
+        unique_rescue_episode_keys = {
+            (int(a), int(b), int(c)) for a, b, c in state.get("unique_rescue_episode_keys", [])
+        }
+        hero_life_id_by_env = [
+            int(x) for x in state.get("hero_life_id_by_env", [0] * int(num_envs))
+        ]
+        rescue_episode_seq_by_env = [
+            int(x) for x in state.get("rescue_episode_seq_by_env", [0] * int(num_envs))
+        ]
+        in_rescue_run_by_env = [
+            bool(x) for x in state.get("in_rescue_run_by_env", [False] * int(num_envs))
+        ]
         updates_completed = int(state["updates_completed"])
         collection_steps = int(state["collection_steps"])
         total_hero_decisions = int(state["total_hero_decisions"])
@@ -783,7 +1034,34 @@ def run_sitl_training(
             torch.cuda.set_rng_state_all(state["torch_cuda_rng_state"])
         resumed_from_checkpoint = str(ckpt_pt_path)
 
+    if resume:
+        if latest_ckpt_meta_path.is_file():
+            verify_file_sha256(latest_ckpt_meta_path)
+            latest_meta = json.loads(latest_ckpt_meta_path.read_text(encoding="utf-8"))
+            ckpt_pt_path = Path(latest_meta["checkpoint_path"])
+            if not ckpt_pt_path.is_file():
+                ckpt_pt_path = ckpt_dir / ckpt_pt_path.name
+            verify_file_sha256(ckpt_pt_path)
+            _load_training_checkpoint_file(ckpt_pt_path)
+        elif isinstance(loaded_ledger.get("resume_checkpoint"), dict):
+            rc_info = loaded_ledger["resume_checkpoint"]
+            staged_ckpt = _resolve_staged_input_file(
+                str(rc_info["relpath"]),
+                input_dir=in_dir,
+                ledger_file=active_ledger_file,
+                out_dir=out_dir,
+            )
+            expected_ckpt_sha = str(rc_info["sha256"])
+            actual_ckpt_sha = sha256_file(staged_ckpt)
+            if actual_ckpt_sha != expected_ckpt_sha:
+                raise ValueError(
+                    f"Staged resume_checkpoint SHA256 mismatch: expected {expected_ckpt_sha}, "
+                    f"got {actual_ckpt_sha}"
+                )
+            _load_training_checkpoint_file(staged_ckpt)
+
     last_ckpt_wall = time.perf_counter()
+    last_ckpt_state: tuple[int, int] = (-1, -1)
     signal_requested = {"stop": False}
 
     def _on_signal(signum: int, _frame: Any) -> None:
@@ -796,6 +1074,7 @@ def run_sitl_training(
         signal.signal(signal.SIGUSR1, _on_signal)
 
     def _save_training_checkpoint(tag: str) -> str:
+        nonlocal last_ckpt_state
         ckpt_file = ckpt_dir / f"sitl_state_{tag}.pt"
         payload_ckpt = {
             "schema": "t34-gpu-sitl-train-checkpoint/v1",
@@ -810,6 +1089,10 @@ def run_sitl_training(
             "total_hero_decisions": int(total_hero_decisions),
             "total_branches_evaluated": int(total_branches_evaluated),
             "unique_rescue_keys": sorted(list(unique_rescue_keys)),
+            "unique_rescue_episode_keys": sorted(list(unique_rescue_episode_keys)),
+            "hero_life_id_by_env": list(hero_life_id_by_env),
+            "rescue_episode_seq_by_env": list(rescue_episode_seq_by_env),
+            "in_rescue_run_by_env": list(in_rescue_run_by_env),
             "non_finite_loss_count": int(non_finite_loss_count),
             "non_finite_q_count": int(non_finite_q_count),
             "non_finite_grad_count": int(non_finite_grad_count),
@@ -841,12 +1124,17 @@ def run_sitl_training(
             lambda tmp: torch.save(payload_ckpt, tmp),
             write_complete_marker=True,
         )
+        ckpt_size = int(ckpt_file.stat().st_size)
         latest_info = {
             "checkpoint_path": str(ckpt_file),
+            "relpath": f"checkpoints/{ckpt_file.name}",
+            "sha256": ckpt_sha,
             "checkpoint_sha256": ckpt_sha,
+            "size_bytes": ckpt_size,
             "updates_completed": int(updates_completed),
             "collection_steps": int(collection_steps),
             "unique_mined_rescue_roots": len(unique_rescue_keys),
+            "unique_mined_rescue_episodes": len(unique_rescue_episode_keys),
         }
         write_atomic_with_sha256(
             latest_ckpt_meta_path,
@@ -855,6 +1143,18 @@ def run_sitl_training(
             ),
             write_complete_marker=True,
         )
+        unit_entry = {
+            "unit_id": f"tag:{tag}",
+            "relpath": f"checkpoints/{ckpt_file.name}",
+            "sha256": ckpt_sha,
+            "size_bytes": ckpt_size,
+            "updates_completed": int(updates_completed),
+            "collection_steps": int(collection_steps),
+        }
+        if not any(u.get("sha256") == ckpt_sha for u in verified_units_ledger):
+            verified_units_ledger.append(unit_entry)
+        _write_verified_ledger(latest_info)
+        last_ckpt_state = (int(updates_completed), int(collection_steps))
         return str(ckpt_file)
 
     def _flush_decision_window(*, is_partial_final: bool = False) -> dict[str, Any] | None:
@@ -862,12 +1162,15 @@ def run_sitl_training(
         if window_decisions <= 0:
             return None
         max_share = max(window_action_counts) / float(window_decisions)
+        enforce_action_share = bool(
+            not is_partial_final or window_decisions >= int(decision_window_size)
+        )
         win_pass = bool(
             non_finite_loss_count == 0
             and non_finite_q_count == 0
             and non_finite_grad_count == 0
             and illegal_action_count == 0
-            and max_share < REGISTERED_MAX_SINGLE_ACTION_SHARE
+            and (not enforce_action_share or max_share < REGISTERED_MAX_SINGLE_ACTION_SHARE)
         )
         rec = {
             "window_index": len(completed_windows),
@@ -925,6 +1228,9 @@ def run_sitl_training(
         total_loss = loss_out["total_loss"]
         if not bool(loss_out["q_all_finite"].item()):
             non_finite_q_count += 1
+            tripwire_breached = True
+            tripwire_breach_reason = f"non_finite_q_at_update_{next_u}"
+            return
         if not bool(torch.isfinite(total_loss).item()):
             non_finite_loss_count += 1
             tripwire_breached = True
@@ -964,6 +1270,7 @@ def run_sitl_training(
                 "update": int(updates_completed),
                 "collection_steps": int(collection_steps),
                 "unique_mined_rescue_roots": len(unique_rescue_keys),
+                "unique_mined_rescue_episodes": len(unique_rescue_episode_keys),
                 "rescue_buffer_size": int(rescue_buf.size),
                 "ordinary_buffer_size": int(ordinary_buf.size),
                 "total_loss": float(total_loss.detach().item()),
@@ -989,12 +1296,7 @@ def run_sitl_training(
                 device=dev,
             )
             tripwire_history.append(tw_res)
-            # Note: at intermediate updates (200, 400, 600, 800), decile ordinary disagreement
-            # > 5% or boost share > 1.5x breaches the fit-drift tripwire immediately.
-            # At update 1000, we record the tripwire result and still run the end-of-pilot
-            # training-set aliasing diagnostic so STOP_EGO2S_BV8_INPUTS_INSUFFICIENT is
-            # evaluated and reported alongside the update-1000 probe tripwire.
-            if not bool(tw_res["all_pass"]) and updates_completed < int(total_updates):
+            if not bool(tw_res["all_pass"]):
                 tripwire_breached = True
                 tripwire_breach_reason = f"probe_tripwire_breach_at_update_{updates_completed}"
 
@@ -1003,7 +1305,11 @@ def run_sitl_training(
             now_wall - last_ckpt_wall
         ) >= float(checkpoint_every_seconds):
             _save_training_checkpoint(f"u{updates_completed:04d}")
-            last_ckpt_wall = now_wall
+            last_ckpt_wall = time.perf_counter()
+
+    max_steps_per_update_after_warmup = max(
+        1, int(max_collection_steps) // max(1, int(total_updates) * 2)
+    )
 
     try:
         while updates_completed < int(total_updates) or len(unique_rescue_keys) < int(
@@ -1011,16 +1317,26 @@ def run_sitl_training(
         ):
             if tripwire_breached:
                 break
-            if stop_after_updates is not None and updates_completed >= int(stop_after_updates):
-                _save_training_checkpoint(f"u{updates_completed:04d}")
-                break
             if signal_requested["stop"]:
-                _save_training_checkpoint(f"sig_u{updates_completed:04d}")
+                if last_ckpt_state != (int(updates_completed), int(collection_steps)):
+                    _save_training_checkpoint(
+                        f"sig_u{updates_completed:04d}_s{collection_steps:06d}"
+                    )
                 raise RuntimeError(
                     "Training interrupted by signal after saving verified checkpoint"
                 )
+            if stop_after_updates is not None and updates_completed >= int(stop_after_updates):
+                if last_ckpt_state != (int(updates_completed), int(collection_steps)):
+                    _save_training_checkpoint(f"u{updates_completed:04d}")
+                break
+            if stop_after_collection_steps is not None and collection_steps >= int(
+                stop_after_collection_steps
+            ):
+                if last_ckpt_state != (int(updates_completed), int(collection_steps)):
+                    _save_training_checkpoint(f"u{updates_completed:04d}_s{collection_steps:06d}")
+                break
 
-            # Run learners updates if warmup and pacing targets are met
+            # Run learner updates if warmup and pacing targets are met
             while (
                 updates_completed < int(total_updates)
                 and not tripwire_breached
@@ -1033,11 +1349,16 @@ def run_sitl_training(
                     min_unique_rescue_roots=int(min_unique_rescue_roots),
                     total_updates=int(total_updates),
                 )
-                if (
-                    len(unique_rescue_keys) >= req_rescues
+                warmup_ok = (
+                    len(unique_rescue_keys) >= int(warmup_rescue_roots)
                     and rescue_buf.size >= 1
                     and ordinary_buf.size >= 1
-                ):
+                )
+                pacing_ok = (
+                    len(unique_rescue_keys) >= req_rescues
+                    or collection_steps >= next_u * max_steps_per_update_after_warmup
+                )
+                if warmup_ok and pacing_ok:
                     _run_single_learner_update(next_u)
                 else:
                     break
@@ -1048,15 +1369,41 @@ def run_sitl_training(
                 break
             if tripwire_breached:
                 break
+            if signal_requested["stop"]:
+                if last_ckpt_state != (int(updates_completed), int(collection_steps)):
+                    _save_training_checkpoint(
+                        f"sig_u{updates_completed:04d}_s{collection_steps:06d}"
+                    )
+                raise RuntimeError(
+                    "Training interrupted by signal after saving verified checkpoint"
+                )
             if stop_after_updates is not None and updates_completed >= int(stop_after_updates):
-                _save_training_checkpoint(f"u{updates_completed:04d}")
+                if last_ckpt_state != (int(updates_completed), int(collection_steps)):
+                    _save_training_checkpoint(f"u{updates_completed:04d}")
+                break
+            if stop_after_collection_steps is not None and collection_steps >= int(
+                stop_after_collection_steps
+            ):
+                if last_ckpt_state != (int(updates_completed), int(collection_steps)):
+                    _save_training_checkpoint(f"u{updates_completed:04d}_s{collection_steps:06d}")
                 break
             if collection_steps >= int(max_collection_steps):
-                raise RuntimeError(
-                    f"Exceeded max_collection_steps={max_collection_steps} at "
-                    f"updates_completed={updates_completed}, "
-                    f"unique_rescues={len(unique_rescue_keys)}"
+                runaway_guard_reached = True
+                runaway_guard_reason = (
+                    f"max_collection_steps_reached:{collection_steps}>={max_collection_steps}"
                 )
+                _save_training_checkpoint(f"guard_u{updates_completed:04d}_s{collection_steps:06d}")
+                break
+            if max_wall_seconds is not None and (time.perf_counter() - t_start) >= float(
+                max_wall_seconds
+            ):
+                runaway_guard_reached = True
+                elapsed_wall = time.perf_counter() - t_start
+                runaway_guard_reason = (
+                    f"max_wall_seconds_reached:{elapsed_wall:.1f}>={max_wall_seconds}"
+                )
+                _save_training_checkpoint(f"guard_u{updates_completed:04d}_s{collection_steps:06d}")
+                break
 
             # Online collection step: student acts on-sim, batched_open_stop_h32 labels alive roots
             with torch.inference_mode():
@@ -1068,6 +1415,10 @@ def run_sitl_training(
             alive_mask = obs["hero_alive"]
             alive_rows = alive_mask.nonzero(as_tuple=False).squeeze(1)
             n_alive = int(alive_rows.numel())
+
+            for env_i in range(int(sim.E)):
+                if not bool(alive_mask[env_i].item()):
+                    in_rescue_run_by_env[env_i] = False
 
             student_hero_actions = torch.ones(int(sim.E), dtype=torch.long, device=dev)
             if n_alive > 0:
@@ -1106,6 +1457,7 @@ def run_sitl_training(
                         _flush_decision_window(is_partial_final=False)
 
                 # Evaluate batched_open_stop_h32 on alive roots
+                alive_list = [int(i) for i in alive_rows.detach().cpu().tolist()]
                 if n_alive == int(sim.E):
                     sim_eval = sim
                     pol_eval = policy
@@ -1115,10 +1467,11 @@ def run_sitl_training(
                     with torch.inference_mode():
                         sim_eval = sim.clone()
                         pol_eval = policy.repeat_interleave(1)
+                        if pol_eval.vector_runtime is not None:
+                            pol_eval.vector_runtime.__class__ = FastDeviceVectorRuntime
                         compact_sim_and_policy(sim_eval, pol_eval, alive_rows)
-                    alive_list = alive_rows.detach().cpu().tolist()
-                    seeds_eval = [int(world_seeds[int(i)]) for i in alive_list]
-                    decs_eval = [int(obs["decision_frame"][int(i)].item()) for i in alive_list]
+                    seeds_eval = [int(world_seeds[i]) for i in alive_list]
+                    decs_eval = [int(obs["decision_frame"][i].item()) for i in alive_list]
 
                 label_res = batched_open_stop_h32(
                     sim_eval,
@@ -1148,14 +1501,26 @@ def run_sitl_training(
                 leg_cpu = obs["legal_mask"].index_select(0, alive_rows).detach().cpu()
 
                 for local_i in range(n_alive):
+                    env_idx = alive_list[local_i]
                     ws_i = int(seeds_eval[local_i])
                     dec_i = int(decs_eval[local_i])
+                    if ws_i in probe_seed_set:
+                        raise RuntimeError(
+                            f"Refusing to insert probe32 seed {ws_i} into training buffer"
+                        )
                     b_act = int(bare_acts[local_i].item())
                     s_act = int(astar_acts[local_i].item())
                     stu_a = int(stu_acts_cpu[local_i].item())
 
                     if bool(rescue_m[local_i].item()):
                         unique_rescue_keys.add((ws_i, dec_i))
+                        if not in_rescue_run_by_env[env_idx]:
+                            in_rescue_run_by_env[env_idx] = True
+                            ep_seq = rescue_episode_seq_by_env[env_idx]
+                            rescue_episode_seq_by_env[env_idx] = ep_seq + 1
+                            unique_rescue_episode_keys.add(
+                                (ws_i, hero_life_id_by_env[env_idx], ep_seq)
+                            )
                         rescue_buf.add_single(
                             local_u8=loc_cpu[local_i],
                             global_u8=glb_cpu[local_i],
@@ -1169,43 +1534,73 @@ def run_sitl_training(
                             decision_frame=dec_i,
                             hard_neg_tier=0,
                         )
-                    elif bool(ordinary_m[local_i].item()):
-                        if stu_a != b_act:
-                            hn_tier = 2 if not bool(safe_m[local_i, stu_a].item()) else 1
-                        else:
-                            hn_tier = 0
-                        ordinary_buf.add_single(
-                            local_u8=loc_cpu[local_i],
-                            global_u8=glb_cpu[local_i],
-                            scalars_f32=sca_cpu[local_i],
-                            legal_mask=leg_cpu[local_i],
-                            safe_mask=safe_m[local_i],
-                            unsafe_mask=unsafe_m[local_i],
-                            bare_action=b_act,
-                            a_star_action=s_act,
-                            world_seed=ws_i,
-                            decision_frame=dec_i,
-                            hard_neg_tier=hn_tier,
-                        )
+                    else:
+                        in_rescue_run_by_env[env_idx] = False
+                        if bool(ordinary_m[local_i].item()):
+                            if stu_a != b_act:
+                                hn_tier = 2 if not bool(safe_m[local_i, stu_a].item()) else 1
+                            else:
+                                hn_tier = 0
+                            ordinary_buf.add_single(
+                                local_u8=loc_cpu[local_i],
+                                global_u8=glb_cpu[local_i],
+                                scalars_f32=sca_cpu[local_i],
+                                legal_mask=leg_cpu[local_i],
+                                safe_mask=safe_m[local_i],
+                                unsafe_mask=unsafe_m[local_i],
+                                bare_action=b_act,
+                                a_star_action=s_act,
+                                world_seed=ws_i,
+                                decision_frame=dec_i,
+                                hard_neg_tier=hn_tier,
+                            )
 
             # Step online simulator under student's action
             with torch.inference_mode():
                 step_actions = policy.actions(sim, student_hero_actions)
                 sim.step(step_actions)
                 policy.after_step(sim)
+                done_hero = sim._last_done[:, 0].detach().cpu().tolist()
+                for env_i, is_done in enumerate(done_hero):
+                    if bool(is_done):
+                        hero_life_id_by_env[env_i] += 1
+                        in_rescue_run_by_env[env_i] = False
             collection_steps += 1
+
+            # Periodic wall-clock checkpointing (<= 15 minutes) during warmup and collection
+            now_wall = time.perf_counter()
+            if (now_wall - last_ckpt_wall) >= float(checkpoint_every_seconds):
+                _save_training_checkpoint(f"u{updates_completed:04d}_s{collection_steps:06d}")
+                last_ckpt_wall = time.perf_counter()
     finally:
         signal.signal(signal.SIGTERM, prev_sigterm)
         if hasattr(signal, "SIGUSR1") and prev_sigusr1 is not None:
             signal.signal(signal.SIGUSR1, prev_sigusr1)
 
-    if stop_after_updates is not None and updates_completed < int(total_updates):
+    if (
+        (
+            stop_after_updates is not None
+            and (
+                updates_completed < int(total_updates)
+                or len(unique_rescue_keys) < int(min_unique_rescue_roots)
+            )
+        )
+        or (
+            stop_after_collection_steps is not None
+            and (
+                updates_completed < int(total_updates)
+                or len(unique_rescue_keys) < int(min_unique_rescue_roots)
+            )
+        )
+    ) and not runaway_guard_reached:
         return {
             "status": "PAUSED_FOR_RESUME",
             "updates_completed": int(updates_completed),
             "collection_steps": int(collection_steps),
             "unique_mined_rescue_roots": len(unique_rescue_keys),
+            "unique_mined_rescue_episodes": len(unique_rescue_episode_keys),
             "latest_checkpoint_meta": str(latest_ckpt_meta_path),
+            "verified_ledger_path": str(out_ledger_path),
         }
 
     # Flush final partial decision window
@@ -1224,6 +1619,7 @@ def run_sitl_training(
                 "dry_run": bool(dry_run),
                 "updates_completed": int(updates_completed),
                 "unique_mined_rescue_roots": len(unique_rescue_keys),
+                "unique_mined_rescue_episodes": len(unique_rescue_episode_keys),
                 "parent_b8_sha256": b8_sha,
             },
         ),
@@ -1232,12 +1628,30 @@ def run_sitl_training(
     final_state_path = _save_training_checkpoint("final")
 
     # End-of-pilot training-set aliasing diagnostic
-    aliasing_diag = evaluate_training_set_aliasing_diagnostic(
-        student_net,
-        rescue_buf,
-        ordinary_buf,
-        device=dev,
-    )
+    if rescue_buf.size >= 1 and ordinary_buf.size >= 1:
+        aliasing_diag = evaluate_training_set_aliasing_diagnostic(
+            student_net,
+            rescue_buf,
+            ordinary_buf,
+            device=dev,
+        )
+    else:
+        aliasing_diag = {
+            "rescue_buffer_evaluated_count": int(rescue_buf.size),
+            "ordinary_buffer_evaluated_count": int(ordinary_buf.size),
+            "train_rescue_safe_agreement_count": 0,
+            "train_rescue_safe_agreement_rate": 0.0,
+            "train_rescue_exact_a_star_count": 0,
+            "train_rescue_exact_a_star_rate": 0.0,
+            "train_ordinary_flip_count": 0,
+            "train_ordinary_flip_rate": 0.0,
+            "train_ordinary_unsafe_flip_count": 0,
+            "train_ordinary_unsafe_flip_rate": 0.0,
+            "rescue_agreement_threshold": ALIASING_RESCUE_AGREEMENT_THRESHOLD,
+            "ordinary_flip_threshold": ALIASING_ORDINARY_FLIP_THRESHOLD,
+            "stop_ego2s_bv8_inputs_insufficient": False,
+            "verdict": "INSUFFICIENT_SAMPLES_DUE_TO_EARLY_STOP",
+        }
 
     total_decisions_denom = max(1, sum(total_action_counts))
     delivered_boost_share = float(sum(total_action_counts[3:6])) / float(total_decisions_denom)
@@ -1249,10 +1663,31 @@ def run_sitl_training(
     all_probe_tripwires_pass = bool(
         tripwire_history and all(bool(t["all_pass"]) for t in tripwire_history)
     )
+    any_probe_fault_or_drift = any(
+        not bool(t.get("all_ordinary_deciles_pass", True))
+        or not bool(t.get("boost_ratio_pass", True))
+        or not bool(t.get("q_all_finite", True))
+        or not bool(t.get("all_actions_legal", True))
+        for t in tripwire_history
+    )
+    fault_or_drift_tripwire_failed = bool(
+        updates_completed < int(total_updates)
+        or not all_windows_pass
+        or not delivered_boost_band_pass
+        or non_finite_loss_count > 0
+        or non_finite_q_count > 0
+        or non_finite_grad_count > 0
+        or illegal_action_count > 0
+        or any_probe_fault_or_drift
+    )
 
-    if bool(aliasing_diag["stop_ego2s_bv8_inputs_insufficient"]):
+    if runaway_guard_reached:
+        pilot_verdict = VERDICT_RUNAWAY_GUARD_STOP
+    elif fault_or_drift_tripwire_failed:
+        pilot_verdict = VERDICT_TRIPWIRE_STOP
+    elif bool(aliasing_diag["stop_ego2s_bv8_inputs_insufficient"]):
         pilot_verdict = VERDICT_INPUTS_INSUFFICIENT
-    elif tripwire_breached or not all_windows_pass or not all_probe_tripwires_pass:
+    elif tripwire_breached or not all_probe_tripwires_pass:
         pilot_verdict = VERDICT_TRIPWIRE_STOP
     else:
         pilot_verdict = VERDICT_PROCEED_TO_GATE_B1
@@ -1267,11 +1702,14 @@ def run_sitl_training(
             "DRY_RUN_NON_EVIDENCE" if dry_run else "REGISTERED_STEP_B1B_PILOT_EVIDENCE"
         ),
         "verdict": pilot_verdict,
+        "runaway_guard_reached": bool(runaway_guard_reached),
+        "runaway_guard_reason": runaway_guard_reason,
         "stop_ego2s_bv8_inputs_insufficient": bool(
             aliasing_diag["stop_ego2s_bv8_inputs_insufficient"]
         ),
         "device": str(dev),
         "resumed_from_checkpoint": resumed_from_checkpoint,
+        "verified_ledger_path": str(out_ledger_path),
         "b8_checkpoint_sha256": b8_sha,
         "b8_expected_sha256": B8_S3_SHA256,
         "opponent_checkpoint_sha256": opp_sha,
@@ -1306,10 +1744,23 @@ def run_sitl_training(
             "total_hero_decisions": int(total_hero_decisions),
             "total_branches_evaluated": int(total_branches_evaluated),
             "unique_mined_rescue_roots": len(unique_rescue_keys),
+            "unique_mined_rescue_roots_by_world_frame": len(unique_rescue_keys),
+            "unique_mined_rescue_episodes": len(unique_rescue_episode_keys),
             "rescue_buffer_size": int(rescue_buf.size),
             "rescue_buffer_total_added": int(rescue_buf.total_added),
             "ordinary_buffer_size": int(ordinary_buf.size),
             "ordinary_buffer_total_added": int(ordinary_buf.total_added),
+        },
+        "rescue_quota_scoring": {
+            "scored_metric": RESCUE_QUOTA_SCORING_METRIC,
+            "scored_count": len(unique_rescue_keys),
+            "distinct_episode_count": len(unique_rescue_episode_keys),
+            "target_min_unique_rescues": int(min_unique_rescue_roots),
+            "scored_quota_met": bool(len(unique_rescue_keys) >= int(min_unique_rescue_roots)),
+            "distinct_episode_quota_met": bool(
+                len(unique_rescue_episode_keys) >= int(min_unique_rescue_roots)
+            ),
+            "registration_quote": RESCUE_QUOTA_REGISTRATION_QUOTES,
         },
         "unconditional_fault_checks": {
             "non_finite_loss_count": int(non_finite_loss_count),
@@ -1359,6 +1810,8 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--probe-bank-path", type=Path, default=None)
     parser.add_argument("--b8-checkpoint", type=Path, default=None)
     parser.add_argument("--opponent-checkpoint", type=Path, default=None)
+    parser.add_argument("--ledger", type=Path, default=None)
+    parser.add_argument("--input-dir", type=Path, default=None)
     parser.add_argument("--device", type=str, default="cpu")
     parser.add_argument("--num-envs", type=int, default=REGISTERED_ENVS)
     parser.add_argument("--total-updates", type=int, default=REGISTERED_TOTAL_UPDATES)
@@ -1379,7 +1832,9 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--tripwire-interval", type=int, default=REGISTERED_TRIPWIRE_INTERVAL)
     parser.add_argument("--decision-window-size", type=int, default=REGISTERED_DECISION_WINDOW_SIZE)
     parser.add_argument("--checkpoint-every-updates", type=int, default=100)
+    parser.add_argument("--checkpoint-every-seconds", type=float, default=900.0)
     parser.add_argument("--max-collection-steps", type=int, default=200_000)
+    parser.add_argument("--max-wall-seconds", type=float, default=None)
     parser.add_argument("--seed", type=int, default=20261109)
     parser.add_argument("--no-resume", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
@@ -1393,6 +1848,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         probe_bank_path=args.probe_bank_path,
         b8_checkpoint=args.b8_checkpoint,
         opponent_checkpoint=args.opponent_checkpoint,
+        ledger_path=args.ledger,
+        input_dir=args.input_dir,
         device=args.device,
         num_envs=args.num_envs,
         total_updates=args.total_updates,
@@ -1407,7 +1864,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         tripwire_interval=args.tripwire_interval,
         decision_window_size=args.decision_window_size,
         checkpoint_every_updates=args.checkpoint_every_updates,
+        checkpoint_every_seconds=args.checkpoint_every_seconds,
         max_collection_steps=args.max_collection_steps,
+        max_wall_seconds=args.max_wall_seconds,
         seed=args.seed,
         resume=not bool(args.no_resume),
         dry_run=bool(args.dry_run),

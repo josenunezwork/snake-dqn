@@ -38,6 +38,7 @@ import torch
 
 from research.gpu_sim_spike import ego_device, r2_cache
 from research.gpu_sim_spike.v8_device import v8_decide as gpu_v8_decide
+from research.gpu_sim_spike.vector_device import DeviceVectorRuntime
 from research.gpu_sitl.open_stop_gpu import (
     OPEN_STOP_BRANCH_HORIZON,
     OPEN_STOP_CRN_NAMESPACE,
@@ -57,10 +58,13 @@ from research.gpu_sitl.preflight import (
 )
 from research.gpu_sitl.probe_bank import (
     PROBE32_HORIZON,
+    PROBE32_SCORING_SUFFIXES,
     PROBE32_WORLD_COUNT,
+    _evaluate_scoring_suffixes_on_snapshots,
     build_watch6_ct_device_bundle,
     extract_hero_root_observations,
     sha256_file,
+    slice_single_row_cpu_state,
     write_atomic_with_sha256,
 )
 from research.gpu_sitl.seed_check import (
@@ -240,44 +244,115 @@ def run_mature_cohort_row_subset_parity(
         vec_cand = rt_dev._features_rows(sim_dev, rows_dev, update_memory=False)
     vec_max_abs = float((vec_ref - vec_cand.cpu()).abs().max().item())
 
-    # Test FastDeviceVectorRuntime.prepare when only a subset of rows has sel_fresh / ~sel_ready
+    # Test FastDeviceVectorRuntime.prepare vs DeviceVectorRuntime.prepare across three
+    # distinct non-empty row subsets:
+    # (a) fresh_rows: sel_fresh=True, sel_ready=False, _carry_valid=False
+    # (b) cap_rows: sel_fresh=False, sel_ready=False, _carry_valid=True
+    # (c) already_ready: sel_fresh=False, sel_ready=True
+    rt_base_cpu = rt_cpu.repeat_interleave(1)
     rt_sub_cpu = rt_cpu.repeat_interleave(1)
     rt_sub_dev = rt_dev.repeat_interleave(1)
+    rt_base_cpu.__class__ = DeviceVectorRuntime
     rt_sub_cpu.__class__ = FastDeviceVectorRuntime
     rt_sub_dev.__class__ = FastDeviceVectorRuntime
-    # Force alternating rows to require fresh featurization vs carry-state capture
-    fresh_toggle_cpu = torch.zeros((n_roots, int(sim_cpu.S)), dtype=torch.bool, device="cpu")
-    fresh_toggle_cpu[:, 1:] = True
-    fresh_toggle_cpu[::2, 1::2] = False
-    ready_toggle_cpu = ~fresh_toggle_cpu
-    rt_sub_cpu.sel_fresh.copy_(fresh_toggle_cpu)
-    rt_sub_cpu.sel_ready.copy_(ready_toggle_cpu)
-    rt_sub_cpu._carry_valid.zero_()
-    rt_sub_dev.sel_fresh.copy_(fresh_toggle_cpu.to(device=dev))
-    rt_sub_dev.sel_ready.copy_(ready_toggle_cpu.to(device=dev))
-    rt_sub_dev._carry_valid.zero_()
 
     with _maybe_cpu_fast_flood(False):
+        rt_base_cpu.observe_step(sim_cpu)
+        rt_sub_cpu.observe_step(sim_cpu)
+    with _maybe_cpu_fast_flood(bool(dev.type == "cpu")):
+        rt_sub_dev.observe_step(sim_dev)
+
+    s_count = int(sim_cpu.S)
+    sel_fresh_init = torch.zeros((n_roots, s_count), dtype=torch.bool, device="cpu")
+    sel_ready_init = torch.zeros((n_roots, s_count), dtype=torch.bool, device="cpu")
+    carry_valid_init = torch.zeros((n_roots, s_count), dtype=torch.bool, device="cpu")
+    # (a) fresh_rows on slots 1..2
+    sel_fresh_init[:, 1:3] = True
+    sel_ready_init[:, 1:3] = False
+    carry_valid_init[:, 1:3] = False
+    # (b) cap_rows on slots 3..4
+    sel_fresh_init[:, 3:5] = False
+    sel_ready_init[:, 3:5] = False
+    carry_valid_init[:, 3:5] = True
+    # (c) already_ready on slot 5
+    sel_fresh_init[:, 5:] = False
+    sel_ready_init[:, 5:] = True
+    carry_valid_init[:, 5:] = True
+
+    for rt_obj, tgt_dev in (
+        (rt_base_cpu, torch.device("cpu")),
+        (rt_sub_cpu, torch.device("cpu")),
+        (rt_sub_dev, dev),
+    ):
+        rt_obj.sel_fresh.copy_(sel_fresh_init.to(device=tgt_dev))
+        rt_obj.sel_ready.copy_(sel_ready_init.to(device=tgt_dev))
+        rt_obj._carry_valid.copy_(carry_valid_init.to(device=tgt_dev))
+
+    active_ctrl = rt_sub_dev.controlled & sim_dev.alive.to(device=dev, dtype=torch.bool)
+    pre_fresh_rows = int(
+        (active_ctrl & rt_sub_dev.sel_fresh & (~rt_sub_dev.sel_ready) & (~rt_sub_dev._carry_valid))
+        .sum()
+        .item()
+    )
+    pre_cap_rows = int(
+        (active_ctrl & (~rt_sub_dev.sel_fresh) & (~rt_sub_dev.sel_ready) & rt_sub_dev._carry_valid)
+        .sum()
+        .item()
+    )
+    pre_already_ready_rows = int(
+        (active_ctrl & (~rt_sub_dev.sel_fresh) & rt_sub_dev.sel_ready).sum().item()
+    )
+    if pre_fresh_rows <= 0 or pre_cap_rows <= 0 or pre_already_ready_rows <= 0:
+        raise RuntimeError(
+            "Step B1b-Smoke prepare setup must have non-empty fresh_rows, cap_rows, and "
+            f"already_ready_rows before prepare(sim): got fresh_rows={pre_fresh_rows}, "
+            f"cap_rows={pre_cap_rows}, already_ready_rows={pre_already_ready_rows}"
+        )
+
+    with _maybe_cpu_fast_flood(False):
+        rt_base_cpu.prepare(sim_cpu)
         rt_sub_cpu.prepare(sim_cpu)
     with _maybe_cpu_fast_flood(bool(dev.type == "cpu")):
         rt_sub_dev.prepare(sim_dev)
 
+    post_fresh_rows = int(rt_sub_dev.sel_fresh.sum().item())
+    post_cap_rows = int((rt_sub_dev.sel_ready & ~rt_sub_dev.sel_fresh).sum().item())
+    if post_fresh_rows <= 0 or post_cap_rows <= 0:
+        raise RuntimeError(
+            f"Step B1b-Smoke post-prepare fresh_rows={post_fresh_rows} and "
+            f"cap_rows={post_cap_rows} must both be > 0"
+        )
+
     prep_state_max_abs = float(
-        (rt_sub_cpu.sel_state - rt_sub_dev.sel_state.cpu()).abs().max().item()
+        max(
+            (rt_base_cpu.sel_state - rt_sub_dev.sel_state.cpu()).abs().max().item(),
+            (rt_sub_cpu.sel_state - rt_sub_dev.sel_state.cpu()).abs().max().item(),
+        )
     )
-    prep_mask_match = bool(torch.equal(rt_sub_cpu.sel_mask, rt_sub_dev.sel_mask.cpu()))
+    prep_mask_match = bool(
+        torch.equal(rt_base_cpu.sel_mask, rt_sub_dev.sel_mask.cpu())
+        and torch.equal(rt_sub_cpu.sel_mask, rt_sub_dev.sel_mask.cpu())
+        and torch.equal(rt_base_cpu.sel_ready, rt_sub_dev.sel_ready.cpu())
+        and torch.equal(rt_base_cpu.sel_fresh, rt_sub_dev.sel_fresh.cpu())
+        and torch.equal(rt_base_cpu._carry_valid, rt_sub_dev._carry_valid.cpu())
+    )
     vec_parity_ok = bool(
         math.isfinite(vec_max_abs)
         and vec_max_abs <= 1e-4
         and math.isfinite(prep_state_max_abs)
         and prep_state_max_abs <= 1e-4
         and prep_mask_match
+        and pre_fresh_rows > 0
+        and pre_cap_rows > 0
+        and post_fresh_rows > 0
+        and post_cap_rows > 0
     )
     if not vec_parity_ok:
         raise RuntimeError(
             "Step B1b-Smoke parity failure in vector_geometry / FastDeviceVectorRuntime on row "
             f"subsets: vec_max_abs={vec_max_abs}, prep_state_max_abs={prep_state_max_abs}, "
-            f"prep_mask_match={prep_mask_match}"
+            f"prep_mask_match={prep_mask_match}, fresh_rows={post_fresh_rows}, "
+            f"cap_rows={post_cap_rows}"
         )
 
     # 4. Parity Check: batched_open_stop_h32 boolean certificates on the mature cohort slice
@@ -381,6 +456,11 @@ def run_mature_cohort_row_subset_parity(
             "features_rows_max_abs_diff": vec_max_abs,
             "partial_prepare_sel_state_max_abs_diff": prep_state_max_abs,
             "partial_prepare_sel_mask_exact_match": prep_mask_match,
+            "pre_prepare_fresh_rows": pre_fresh_rows,
+            "pre_prepare_cap_rows": pre_cap_rows,
+            "pre_prepare_already_ready_rows": pre_already_ready_rows,
+            "fresh_rows": post_fresh_rows,
+            "cap_rows": post_cap_rows,
         },
         "batched_open_stop_h32_mature_slice": {
             "ok": open_stop_parity_ok,
@@ -404,33 +484,87 @@ def compute_pilot_runaway_guard(
     env_steps_per_sec: float,
     label_batches_per_sec: float,
     updates_per_sec: float,
+    measured_online_rescue_rate: float | None = None,
+    measured_online_rescue_episode_rate: float | None = None,
+    measured_alive_hero_decisions: int = 0,
+    measured_rescue_frame_count: int = 0,
+    measured_rescue_episode_count: int = 0,
+    buffer_insertion_sec_per_step: float = 0.0,
+    probe32_scoring_suffix_sec_per_root: float = 0.0,
 ) -> dict[str, Any]:
     """Compute the Step B1b (`B1-A100-Pilot`) base estimate and 2x runaway guard."""
     if env_steps_per_sec <= 0 or label_batches_per_sec <= 0 or updates_per_sec <= 0:
         raise ValueError("All measured throughput rates must be > 0")
 
-    # 1. Pre-training probe32 bank harvest (N=32 worlds, H=5,000 -> 160,000 root decisions)
-    # Rolled in batches of E=32 (5,000 env steps) and labeled in batches of 256 roots
-    # (625 suffix-0 batches + ~125 scoring-suffix 4..7 batches = ~750 label batches).
-    probe32_env_sec = float(PROBE32_HORIZON) / float(env_steps_per_sec)
-    probe32_label_batches = (
-        float(PROBE32_WORLD_COUNT * PROBE32_HORIZON) / float(REGISTERED_ENVS)
-    ) + 125.0
-    probe32_label_sec = probe32_label_batches / float(label_batches_per_sec)
-    probe32_total_sec = probe32_env_sec + probe32_label_sec
+    has_measured_rate = (
+        measured_online_rescue_rate is not None and float(measured_online_rescue_rate) > 0.0
+    )
+    rescue_rate_source = (
+        "smoke_measured_train_namespace"
+        if has_measured_rate
+        else "registered_prior_fallback_on_zero_sample"
+    )
+    effective_rescue_rate = (
+        float(measured_online_rescue_rate)
+        if has_measured_rate
+        else float(REGISTERED_RESCUE_RATE_PRIOR)
+    )
+    has_measured_ep_rate = (
+        measured_online_rescue_episode_rate is not None
+        and float(measured_online_rescue_episode_rate) > 0.0
+    )
+    effective_episode_rate = (
+        float(measured_online_rescue_episode_rate)
+        if has_measured_ep_rate
+        else effective_rescue_rate
+    )
 
-    # 2. Online collection to mine >= 5,000 unique rescue roots at registered 0.12% rescue rate
-    expected_hero_decisions = float(REGISTERED_MIN_UNIQUE_RESCUE_ROOTS) / float(
-        REGISTERED_RESCUE_RATE_PRIOR
+    # 1. Pre-training probe32 bank harvest (N=32 worlds, H=5,000 -> 160,000 root decisions)
+    # Rolled in batches of E=32 (5,000 env steps), suffix-0 labeled in batches of 256 roots,
+    # plus 4 scoring suffixes (4..7) on candidate rescue roots and CPU snapshot slicing.
+    probe32_env_sec = float(PROBE32_HORIZON) / float(env_steps_per_sec)
+    probe32_s0_batches = float(PROBE32_WORLD_COUNT * PROBE32_HORIZON) / float(REGISTERED_ENVS)
+    probe32_s0_label_sec = probe32_s0_batches / float(label_batches_per_sec)
+    est_probe32_candidate_rescues = max(
+        64.0, float(PROBE32_WORLD_COUNT * PROBE32_HORIZON) * effective_rescue_rate
+    )
+    if float(probe32_scoring_suffix_sec_per_root) > 0.0:
+        probe32_scoring_suffix_sec = est_probe32_candidate_rescues * float(
+            probe32_scoring_suffix_sec_per_root
+        )
+    else:
+        probe32_scoring_batches = (
+            est_probe32_candidate_rescues * float(len(PROBE32_SCORING_SUFFIXES))
+        ) / float(REGISTERED_ENVS)
+        probe32_scoring_suffix_sec = max(1.0, probe32_scoring_batches) / float(
+            label_batches_per_sec
+        )
+    probe32_total_sec = probe32_env_sec + probe32_s0_label_sec + probe32_scoring_suffix_sec
+
+    # 2. Online collection to mine >= 5,000 unique rescue roots using smoke-measured rate
+    # (and per-step CPU ring-buffer insertion cost).
+    expected_hero_decisions = float(REGISTERED_MIN_UNIQUE_RESCUE_ROOTS) / max(
+        1e-6, effective_rescue_rate
     )
     expected_collection_steps = expected_hero_decisions / (
         float(REGISTERED_ENVS) * float(REGISTERED_ALIVE_HERO_FRAC_ESTIMATE)
     )
     online_env_sec = expected_collection_steps / float(env_steps_per_sec)
     online_label_sec = expected_collection_steps / float(label_batches_per_sec)
-    online_collection_sec = online_env_sec + online_label_sec
+    online_buffer_insertion_sec = expected_collection_steps * max(
+        0.0, float(buffer_insertion_sec_per_step)
+    )
+    online_collection_sec = online_env_sec + online_label_sec + online_buffer_insertion_sec
 
-    # 3. 1,000 learner updates + 5 probe32 tripwires + checkpoint I/O
+    # Distinct-episode rescue reachability comparison
+    expected_hero_decisions_episodes = float(REGISTERED_MIN_UNIQUE_RESCUE_ROOTS) / max(
+        1e-6, effective_episode_rate
+    )
+    expected_collection_steps_episodes = expected_hero_decisions_episodes / (
+        float(REGISTERED_ENVS) * float(REGISTERED_ALIVE_HERO_FRAC_ESTIMATE)
+    )
+
+    # 3. 1,000 learner updates + 6 probe32 tripwires + checkpoint I/O
     learner_sec = float(REGISTERED_TOTAL_UPDATES) / float(updates_per_sec)
     overhead_sec = 180.0
 
@@ -438,6 +572,7 @@ def compute_pilot_runaway_guard(
     base_minutes = base_seconds / 60.0
     timeout_minutes = int(math.ceil(2.0 * base_minutes))
     timeout_seconds = float(timeout_minutes * 60)
+    max_collection_steps_guard = int(math.ceil(2.0 * expected_collection_steps))
 
     base_units_calibrated = (base_minutes / 60.0) * REGISTERED_A100_CALIBRATED_RATE_UPH
     cap_units_calibrated = 2.0 * base_units_calibrated
@@ -448,9 +583,32 @@ def compute_pilot_runaway_guard(
     return {
         "registered_min_unique_rescue_roots": REGISTERED_MIN_UNIQUE_RESCUE_ROOTS,
         "registered_rescue_rate_prior": REGISTERED_RESCUE_RATE_PRIOR,
+        "measured_online_rescue_rate": (
+            float(measured_online_rescue_rate) if measured_online_rescue_rate is not None else 0.0
+        ),
+        "measured_online_rescue_episode_rate": (
+            float(measured_online_rescue_episode_rate)
+            if measured_online_rescue_episode_rate is not None
+            else 0.0
+        ),
+        "measured_alive_hero_decisions": int(measured_alive_hero_decisions),
+        "measured_rescue_frame_count": int(measured_rescue_frame_count),
+        "measured_rescue_episode_count": int(measured_rescue_episode_count),
+        "rescue_rate_used_for_guard": effective_rescue_rate,
+        "rescue_rate_source": rescue_rate_source,
         "expected_hero_decisions_for_5000_rescues": expected_hero_decisions,
         "expected_collection_steps_at_e256": expected_collection_steps,
+        "expected_collection_steps_for_5000_distinct_episodes": expected_collection_steps_episodes,
+        "distinct_episodes_reachable_within_2x_step_guard": bool(
+            expected_collection_steps_episodes <= float(max_collection_steps_guard)
+        ),
+        "runaway_guard_max_collection_steps_2x": max_collection_steps_guard,
+        "probe32_env_estimate_sec": probe32_env_sec,
+        "probe32_s0_label_estimate_sec": probe32_s0_label_sec,
+        "probe32_scoring_suffix_estimate_sec": probe32_scoring_suffix_sec,
         "probe32_harvest_estimate_sec": probe32_total_sec,
+        "buffer_insertion_sec_per_step": float(buffer_insertion_sec_per_step),
+        "online_buffer_insertion_estimate_sec": online_buffer_insertion_sec,
         "online_collection_estimate_sec": online_collection_sec,
         "learner_updates_estimate_sec": learner_sec,
         "checkpoint_and_tripwire_overhead_sec": overhead_sec,
@@ -586,36 +744,21 @@ def run_step_b1b_smoke(
     env_steps_per_sec = float(bench_env_steps) / env_elapsed
     hero_decisions_per_sec = float(int(num_envs) * int(bench_env_steps)) / env_elapsed
 
-    # Benchmark 2: 6-branch H=branch_horizon labels/s at E = num_envs
-    with torch.inference_mode():
-        sim.prepare()
-        policy.vector_runtime.prepare(sim)
-        policy.vector_prepared = True
-    decs_now = [int(x) for x in sim.frame.detach().cpu().tolist()]
+    # On CUDA (non-dry-run), advance bare b8-s3 on train_seeds(num_envs) into mature mid-game
+    # traffic (~180 frames) before measuring label throughput and empirical online rescue rate.
+    mature_warmup_steps = 0 if dry_run or dev.type != "cuda" else max(0, 180 - int(bench_env_steps))
+    for _ in range(mature_warmup_steps):
+        with torch.inference_mode():
+            sim.prepare()
+            policy.vector_runtime.prepare(sim)
+            policy.vector_prepared = True
+            _, _, bare_w_act = policy.evaluate(sim)
+            sim.step(policy.actions(sim, bare_w_act))
+            policy.after_step(sim)
     _sync_device(dev)
-    t_lbl0 = time.perf_counter()
-    last_label_res: dict[str, Any] | None = None
-    for b_i in range(int(bench_label_batches)):
-        last_label_res = batched_open_stop_h32(
-            sim,
-            policy,
-            world_seeds=world_seeds,
-            decisions=[d + b_i for d in decs_now],
-            suffix_id=0,
-            branch_horizon=int(branch_horizon),
-            namespace=OPEN_STOP_CRN_NAMESPACE,
-            compact_dead=True,
-            enable_r2=True,
-            cpu_fast_flood=bool(dev.type == "cpu"),
-            return_host_records=False,
-        )
-    _sync_device(dev)
-    lbl_elapsed = max(1e-9, time.perf_counter() - t_lbl0)
-    label_batches_per_sec = float(bench_label_batches) / lbl_elapsed
-    root_labels_per_sec = float(int(num_envs) * int(bench_label_batches)) / lbl_elapsed
-    branch_rollouts_per_sec = 6.0 * root_labels_per_sec
 
-    # Benchmark 3: Learner updates/s (128 rescue + 128 ordinary with hard-negative mining)
+    # Benchmark 2: 6-branch H=branch_horizon labels/s AND online rescue-root rate on
+    # train_seeds(num_envs) under bare b8-s3, plus per-step buffer insertion cost.
     res_batch_sz = (
         min(REGISTERED_RESCUE_BATCH_SIZE, max(2, int(num_envs) * 2))
         if dry_run
@@ -631,8 +774,165 @@ def run_step_b1b_smoke(
 
     rescue_buf = SitlRingBuffer(capacity=max(512, res_batch_sz * 2))
     ordinary_buf = SitlRingBuffer(capacity=max(512, ord_batch_sz * 2))
-    obs_fill = extract_hero_root_observations(sim, cpu_fast_flood=bool(dev.type == "cpu"))
+
+    lbl_total_elapsed = 0.0
+    buf_insert_total_elapsed = 0.0
+    online_alive_hero_decisions = 0
+    online_rescue_frame_count = 0
+    online_rescue_episode_count = 0
+    in_rescue_run_by_env = [False] * int(num_envs)
+    last_label_res: dict[str, Any] | None = None
+
+    for _b_i in range(int(bench_label_batches)):
+        with torch.inference_mode():
+            sim.prepare()
+            policy.vector_runtime.prepare(sim)
+            policy.vector_prepared = True
+        decs_now = [int(x) for x in sim.frame.detach().cpu().tolist()]
+        _sync_device(dev)
+        t_lbl_step = time.perf_counter()
+        last_label_res = batched_open_stop_h32(
+            sim,
+            policy,
+            world_seeds=world_seeds,
+            decisions=decs_now,
+            suffix_id=0,
+            branch_horizon=int(branch_horizon),
+            namespace=OPEN_STOP_CRN_NAMESPACE,
+            compact_dead=True,
+            enable_r2=True,
+            cpu_fast_flood=bool(dev.type == "cpu"),
+            return_host_records=False,
+        )
+        _sync_device(dev)
+        lbl_total_elapsed += max(1e-9, time.perf_counter() - t_lbl_step)
+
+        # Measure per-step observation extraction + CPU ring-buffer insertion cost
+        # and accumulate online rescue-root and distinct-episode rescue counts.
+        t_buf_step = time.perf_counter()
+        obs_b = extract_hero_root_observations(sim, cpu_fast_flood=bool(dev.type == "cpu"))
+        loc_b = obs_b["local_u8"].detach().cpu()
+        glb_b = obs_b["global_u8"].detach().cpu()
+        sca_b = obs_b["scalars_f32"].detach().cpu()
+        leg_b = obs_b["legal_mask"].detach().cpu()
+        alive_b = obs_b["hero_alive"].detach().cpu()
+        safe_b = last_label_res["safe_mask"].detach().cpu()
+        unsafe_b = last_label_res["unsafe_mask"].detach().cpu()
+        rescue_b = last_label_res["rescue_mask"].detach().cpu()
+        ordinary_b = last_label_res["ordinary_mask"].detach().cpu()
+        bare_b = last_label_res["bare_actions"].detach().cpu()
+        astar_b = last_label_res["a_star_actions"].detach().cpu()
+
+        for e_idx in range(int(num_envs)):
+            is_alive = bool(alive_b[e_idx].item())
+            if not is_alive:
+                in_rescue_run_by_env[e_idx] = False
+                continue
+            online_alive_hero_decisions += 1
+            if bool(rescue_b[e_idx].item()):
+                online_rescue_frame_count += 1
+                if not in_rescue_run_by_env[e_idx]:
+                    online_rescue_episode_count += 1
+                    in_rescue_run_by_env[e_idx] = True
+                rescue_buf.add_single(
+                    local_u8=loc_b[e_idx],
+                    global_u8=glb_b[e_idx],
+                    scalars_f32=sca_b[e_idx],
+                    legal_mask=leg_b[e_idx],
+                    safe_mask=safe_b[e_idx],
+                    unsafe_mask=unsafe_b[e_idx],
+                    bare_action=int(bare_b[e_idx].item()),
+                    a_star_action=int(astar_b[e_idx].item()),
+                    world_seed=int(world_seeds[e_idx]),
+                    decision_frame=int(decs_now[e_idx]),
+                    hard_neg_tier=0,
+                )
+            else:
+                in_rescue_run_by_env[e_idx] = False
+                if bool(ordinary_b[e_idx].item()):
+                    ordinary_buf.add_single(
+                        local_u8=loc_b[e_idx],
+                        global_u8=glb_b[e_idx],
+                        scalars_f32=sca_b[e_idx],
+                        legal_mask=leg_b[e_idx],
+                        safe_mask=safe_b[e_idx],
+                        unsafe_mask=unsafe_b[e_idx],
+                        bare_action=int(bare_b[e_idx].item()),
+                        a_star_action=int(astar_b[e_idx].item()),
+                        world_seed=int(world_seeds[e_idx]),
+                        decision_frame=int(decs_now[e_idx]),
+                        hard_neg_tier=0,
+                    )
+        buf_insert_total_elapsed += max(0.0, time.perf_counter() - t_buf_step)
+
+        # Step bare b8-s3 trajectory forward 1 frame for next label batch
+        with torch.inference_mode():
+            _, _, bare_step_act = policy.evaluate(sim)
+            sim.step(policy.actions(sim, bare_step_act))
+            policy.after_step(sim)
+            for e_idx in range(int(num_envs)):
+                if bool(sim._last_done[e_idx, 0].item()):
+                    in_rescue_run_by_env[e_idx] = False
+
+    lbl_elapsed = max(1e-9, lbl_total_elapsed)
+    label_batches_per_sec = float(bench_label_batches) / lbl_elapsed
+    root_labels_per_sec = float(int(num_envs) * int(bench_label_batches)) / lbl_elapsed
+    branch_rollouts_per_sec = 6.0 * root_labels_per_sec
+    buffer_insertion_sec_per_step = buf_insert_total_elapsed / float(
+        max(1, int(bench_label_batches))
+    )
+    measured_online_rescue_rate = float(online_rescue_frame_count) / float(
+        max(1, online_alive_hero_decisions)
+    )
+    measured_online_rescue_episode_rate = float(online_rescue_episode_count) / float(
+        max(1, online_alive_hero_decisions)
+    )
+
+    # Benchmark probe32 4-suffix scoring cost per candidate root using CPU 1-row snapshot slicing
+    with torch.inference_mode():
+        sim.prepare()
+        policy.vector_runtime.prepare(sim)
+        policy.vector_prepared = True
+    n_probe_sample = min(int(num_envs), 2 if dry_run else 8)
+    obs_p = extract_hero_root_observations(sim, cpu_fast_flood=bool(dev.type == "cpu"))
     assert last_label_res is not None
+    sample_snaps: list[dict[str, Any]] = []
+    for r_i in range(n_probe_sample):
+        sample_snaps.append(
+            {
+                "world_seed": int(world_seeds[r_i]),
+                "world_index": int(r_i),
+                "decision_frame": int(obs_p["decision_frame"][r_i].item()),
+                "hero_length": int(obs_p["hero_length"][r_i].item()),
+                "local_u8": obs_p["local_u8"][r_i].detach().cpu(),
+                "global_u8": obs_p["global_u8"][r_i].detach().cpu(),
+                "scalars_f32": obs_p["scalars_f32"][r_i].detach().cpu(),
+                "legal_mask": obs_p["legal_mask"][r_i].detach().cpu(),
+                "safe_mask_s0": last_label_res["safe_mask"][r_i].detach().cpu(),
+                "bare_action": int(last_label_res["bare_actions"][r_i].item()),
+                "a_star_action": int(last_label_res["a_star_actions"][r_i].item()),
+                "root_q_b8": last_label_res["root_q"][r_i].detach().cpu(),
+                "row_state": slice_single_row_cpu_state(sim, policy, r_i),
+            }
+        )
+    _sync_device(dev)
+    t_probe_suf0 = time.perf_counter()
+    _ = _evaluate_scoring_suffixes_on_snapshots(
+        sample_snaps,
+        template_sim=sim,
+        template_pol=policy,
+        scoring_suffixes=PROBE32_SCORING_SUFFIXES,
+        branch_horizon=int(branch_horizon),
+        namespace=OPEN_STOP_CRN_NAMESPACE,
+        batch_roots=max(1, n_probe_sample),
+        cpu_fast_flood=bool(dev.type == "cpu"),
+    )
+    _sync_device(dev)
+    probe_suf_elapsed = max(1e-9, time.perf_counter() - t_probe_suf0)
+    probe32_scoring_suffix_sec_per_root = probe_suf_elapsed / float(max(1, n_probe_sample))
+
+    # Benchmark 3: Learner updates/s (128 rescue + 128 ordinary with hard-negative mining)
+    obs_fill = extract_hero_root_observations(sim, cpu_fast_flood=bool(dev.type == "cpu"))
     loc_fill = obs_fill["local_u8"].detach().cpu()
     glb_fill = obs_fill["global_u8"].detach().cpu()
     sca_fill = obs_fill["scalars_f32"].detach().cpu()
@@ -719,6 +1019,13 @@ def run_step_b1b_smoke(
         env_steps_per_sec=env_steps_per_sec,
         label_batches_per_sec=label_batches_per_sec,
         updates_per_sec=updates_per_sec,
+        measured_online_rescue_rate=measured_online_rescue_rate,
+        measured_online_rescue_episode_rate=measured_online_rescue_episode_rate,
+        measured_alive_hero_decisions=online_alive_hero_decisions,
+        measured_rescue_frame_count=online_rescue_frame_count,
+        measured_rescue_episode_count=online_rescue_episode_count,
+        buffer_insertion_sec_per_step=buffer_insertion_sec_per_step,
+        probe32_scoring_suffix_sec_per_root=probe32_scoring_suffix_sec_per_root,
     )
 
     result_payload: dict[str, Any] = {
@@ -748,6 +1055,13 @@ def run_step_b1b_smoke(
             "six_branch_h32_root_labels_per_sec": root_labels_per_sec,
             "six_branch_h32_branch_rollouts_per_sec": branch_rollouts_per_sec,
             "updates_per_sec": updates_per_sec,
+            "buffer_insertion_sec_per_step": buffer_insertion_sec_per_step,
+            "probe32_scoring_suffix_sec_per_root": probe32_scoring_suffix_sec_per_root,
+            "measured_online_rescue_rate": measured_online_rescue_rate,
+            "measured_online_rescue_episode_rate": measured_online_rescue_episode_rate,
+            "measured_alive_hero_decisions": online_alive_hero_decisions,
+            "measured_rescue_frame_count": online_rescue_frame_count,
+            "measured_rescue_episode_count": online_rescue_episode_count,
             "peak_vram_allocated_mib": peak_vram_allocated_mib,
             "peak_vram_reserved_mib": peak_vram_reserved_mib,
         },
