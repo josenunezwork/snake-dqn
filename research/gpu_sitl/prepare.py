@@ -11,6 +11,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from research.colab_cli import canary as colab_canary
 from research.compute.gpu_preference import prepare_preference
 from research.gpu_sitl.preflight import resolve_product_checkpoints
 from research.gpu_sitl.probe_bank import verify_file_sha256, write_atomic_with_sha256
@@ -26,6 +27,27 @@ from web.backend.served_checkpoint import FRP3_S12_SHA256 as FRP3_SHA
 
 ROOT = Path(__file__).resolve().parents[2]
 REGISTRATION_DOC = "docs/research/advice/2026-11-09_live_search_reopen_registration_argon.md"
+FAMILY_SCRIPT = "research/gpu_sitl/job.sh"
+FAMILY_PACKAGE = "research/gpu_sitl"
+
+SMOKE_REQUIRED_EXPORTS: tuple[str, ...] = (
+    "smoke_result.json",
+    "smoke_result.json.sha256",
+    "smoke_result.json.complete",
+)
+PILOT_REQUIRED_EXPORTS: tuple[str, ...] = (
+    "probe32_bank.pt",
+    "probe32_bank.pt.sha256",
+    "probe32_bank.pt.complete",
+    "probe32_bank.pt.meta.json",
+    "probe32_bank.pt.meta.json.sha256",
+    "b8_sitl_student_final.pth",
+    "b8_sitl_student_final.pth.sha256",
+    "b8_sitl_student_final.pth.complete",
+    "sitl_pilot_result.json",
+    "sitl_pilot_result.json.sha256",
+    "sitl_pilot_result.json.complete",
+)
 
 
 def digest(path: Path | str) -> str:
@@ -303,6 +325,8 @@ def prepare_b1b_packet(
     b8_checkpoint: Path | str | None = None,
     opponent_checkpoint: Path | str | None = None,
     smoke_result_json: Path | str | None = None,
+    canary_receipt: Path | str | None = None,
+    gpu: str | None = None,
     base_seconds: float | None = None,
     prior_output_dir: Path | str | None = None,
     attempt: str = "attempt-01",
@@ -362,23 +386,61 @@ def prepare_b1b_packet(
 
     write_json(pkt / "seed-audit.json", seed_audit)
 
+    # Both smoke (family canary) and pilot carry the identical deterministic verified-ledger
+    # input destination and count so `canary.check` input-inventory validation succeeds.
     inputs_list: list[dict[str, str]] = [
         {"path": str(b8_path), "dest": "b8-s3.pth", "sha256": B8_SHA},
         {"path": str(opp_path), "dest": "frp3-s12.pth", "sha256": FRP3_SHA},
     ]
+    pkt_inputs_dir = pkt / "inputs"
+    pkt_inputs_dir.mkdir(parents=True, exist_ok=True)
+    ledger: dict[str, Any] = {
+        "schema": "t34-gpu-sitl-verified-ledger/v1",
+        "namespace": TRAIN_NAMESPACE,
+        "probe_namespace": PROBE32_NAMESPACE,
+        "world_seeds": [int(s) for s in train_seeds(256)],
+        "unit_kind": "update",
+        "skip_verified": True,
+        "total_updates": 1000,
+        "min_unique_rescue_roots": 5000,
+        "verified_units": [],
+    }
+    if mode == "pilot" and prior_output_dir is not None:
+        _stage_prior_attempt_artifacts(
+            Path(prior_output_dir),
+            pkt_inputs_dir,
+            inputs_list,
+            ledger,
+        )
+    ledger_path = pkt_inputs_dir / "verified-ledger.json"
+    ledger_sha = write_atomic_with_sha256(
+        ledger_path,
+        lambda tmp: tmp.write_text(
+            json.dumps(ledger, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        ),
+        write_complete_marker=True,
+    )
+    write_json(pkt / "verified-ledger.json", ledger)
+    inputs_list.append(
+        {
+            "path": str(ledger_path),
+            "dest": "verified-ledger.json",
+            "sha256": ledger_sha,
+        }
+    )
 
     extra_env: dict[str, str] = {}
+    canary_block: dict[str, Any] | None = None
+    pinned_hardware: str | None = str(gpu).strip() if gpu is not None else None
+
     if mode == "smoke":
-        # Registered Step B1b-Smoke: short-canary <= 25 min, cap 3.0 A100 u (base 12.5 min / 1.5 u)
-        est_minutes = 12.5
-        timeout_minutes = 25.0
+        # Registered Step B1b-Smoke: short-canary <= 25 min, cap 3.0 A100 u (11.25 min base /
+        # 22.5 min 2x timeout = 3.0 A100 u at 8.0 u/h ceiling rate).
+        est_minutes = 11.25
+        timeout_minutes = 22.5
         a100_unit_cap = 3.0
         job_id = f"t34-gpu-sitl-b1b-smoke-20261109-{attempt}"
-        required_exports = [
-            "smoke_result.json",
-            "smoke_result.json.sha256",
-            "smoke_result.json.complete",
-        ]
+        required_exports = list(SMOKE_REQUIRED_EXPORTS)
         resume_fields: dict[str, Any] = {
             "resume_exemption": {
                 "kind": "short-canary",
@@ -388,12 +450,20 @@ def prepare_b1b_packet(
                 ),
             }
         }
+        canary_block = {
+            "schema": "colab-family-canary/v1",
+            "mode": "probe",
+            "family": FAMILY_SCRIPT,
+        }
+        extra_env["SNAKE_COLAB_CANARY"] = "1"
+        extra_env["SNAKE_COLAB_CANARY_PACKAGE"] = FAMILY_PACKAGE
         base_sec = est_minutes * 60.0
         eff_sec = timeout_minutes * 60.0
     else:
         # Step B1b (`B1-A100-Pilot`): requires measured smoke_result_json or explicit base_seconds
         if smoke_result_json is not None:
-            smoke_data = json.loads(Path(smoke_result_json).read_text(encoding="utf-8"))
+            smoke_res_path = Path(smoke_result_json).resolve()
+            smoke_data = json.loads(smoke_res_path.read_text(encoding="utf-8"))
             rg = smoke_data["pilot_runaway_guard"]
             base_sec = float(rg["base_estimate_seconds"])
             timeout_minutes = float(rg["runaway_guard_timeout_minutes_2x"])
@@ -407,6 +477,14 @@ def prepare_b1b_packet(
                 extra_env["GPU_SITL_MAX_WALL_SECONDS"] = str(
                     float(rg["runaway_guard_timeout_seconds_2x"])
                 )
+            if canary_receipt is None:
+                for cand_rcpt in (
+                    smoke_res_path.parent / "receipt.json",
+                    smoke_res_path.parent.parent / "receipt.json",
+                ):
+                    if cand_rcpt.is_file():
+                        canary_receipt = cand_rcpt
+                        break
         elif base_seconds is not None and math.isfinite(base_seconds) and base_seconds > 0:
             base_sec = float(base_seconds)
             est_minutes = base_sec / 60.0
@@ -418,54 +496,7 @@ def prepare_b1b_packet(
             )
         eff_sec = timeout_minutes * 60.0
         job_id = f"t34-gpu-sitl-b1b-pilot-20261109-{attempt}"
-        pkt_inputs_dir = pkt / "inputs"
-        pkt_inputs_dir.mkdir(parents=True, exist_ok=True)
-        ledger: dict[str, Any] = {
-            "schema": "t34-gpu-sitl-verified-ledger/v1",
-            "namespace": TRAIN_NAMESPACE,
-            "probe_namespace": PROBE32_NAMESPACE,
-            "world_seeds": [int(s) for s in train_seeds(256)],
-            "unit_kind": "update",
-            "skip_verified": True,
-            "total_updates": 1000,
-            "min_unique_rescue_roots": 5000,
-            "verified_units": [],
-        }
-        if prior_output_dir is not None:
-            _stage_prior_attempt_artifacts(
-                Path(prior_output_dir),
-                pkt_inputs_dir,
-                inputs_list,
-                ledger,
-            )
-        ledger_path = pkt_inputs_dir / "verified-ledger.json"
-        ledger_sha = write_atomic_with_sha256(
-            ledger_path,
-            lambda tmp: tmp.write_text(
-                json.dumps(ledger, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-            ),
-            write_complete_marker=True,
-        )
-        # Also write top-level copy for backwards-compatible inspection
-        write_json(pkt / "verified-ledger.json", ledger)
-        inputs_list.append(
-            {
-                "path": str(ledger_path),
-                "dest": "verified-ledger.json",
-                "sha256": ledger_sha,
-            }
-        )
-        required_exports = [
-            "probe32_bank.pt",
-            "probe32_bank.pt.sha256",
-            "probe32_bank.pt.complete",
-            "b8_sitl_student_final.pth",
-            "b8_sitl_student_final.pth.sha256",
-            "b8_sitl_student_final.pth.complete",
-            "sitl_pilot_result.json",
-            "sitl_pilot_result.json.sha256",
-            "sitl_pilot_result.json.complete",
-        ]
+        required_exports = list(PILOT_REQUIRED_EXPORTS)
         resume_fields = {
             "resume": {
                 "unit_kind": "update",
@@ -474,11 +505,35 @@ def prepare_b1b_packet(
                 "max_outcome_blind_retries": 2,
             }
         }
+        if canary_receipt is not None:
+            rcpt_path = Path(canary_receipt).resolve()
+            if not rcpt_path.is_file():
+                raise FileNotFoundError(f"Canary receipt not found: {rcpt_path}")
+            rcpt_data = json.loads(rcpt_path.read_text(encoding="utf-8"))
+            rcpt_hw = str((rcpt_data.get("canary_evidence") or {}).get("hardware") or "").strip()
+            if not rcpt_hw and (rcpt_path.parent / "hardware.json").is_file():
+                hw_data = json.loads(
+                    (rcpt_path.parent / "hardware.json").read_text(encoding="utf-8")
+                )
+                rcpt_hw = str(hw_data.get("kind") or "").strip()
+            if not rcpt_hw:
+                rcpt_hw = pinned_hardware or "A100"
+            if pinned_hardware is not None and pinned_hardware != rcpt_hw:
+                raise ValueError(
+                    f"--gpu {pinned_hardware!r} does not match canary receipt hardware {rcpt_hw!r}"
+                )
+            pinned_hardware = rcpt_hw
+            canary_block = {
+                "receipt": {
+                    "path": str(rcpt_path),
+                    "sha256": digest(rcpt_path),
+                }
+            }
 
     manifest: dict[str, Any] = {
         "job_id": job_id,
         "commit": resolved_commit,
-        "script": "research/gpu_sitl/job.sh",
+        "script": FAMILY_SCRIPT,
         "device": "cuda",
         "source_paths": runtime_source_paths(resolved_commit),
         "requirements": {
@@ -523,7 +578,25 @@ def prepare_b1b_packet(
             "mode": mode,
         },
     }
-    prepare_preference(manifest)
+    if canary_block is not None:
+        manifest["canary"] = canary_block
+
+    if pinned_hardware is not None:
+        # Pin pilot to the single hardware proven by the smoke canary receipt (`canary.py:302-311`).
+        rate_uph = 12.0 if pinned_hardware == "H100" else 8.0
+        manifest["requirements"] = {
+            "gpu": pinned_hardware,
+            "allowed_gpus": [pinned_hardware],
+            "min_vcpu": 2,
+            "est_minutes": est_minutes,
+        }
+        manifest["budget"]["rate_units_per_hour"] = rate_uph
+        manifest["budget"]["unit_cap"] = round((timeout_minutes * rate_uph) / 60.0 + 1e-9, 4)
+    else:
+        prepare_preference(manifest)
+
+    if canary_receipt is not None and prior_output_dir is None:
+        colab_canary.check(manifest, ROOT)
 
     manifest_path = pkt / "dispatch-manifest.json"
     write_json(manifest_path, manifest)
@@ -534,6 +607,7 @@ def prepare_b1b_packet(
         "mode": mode,
         "job_id": job_id,
         "commit": resolved_commit,
+        "gpu": manifest["requirements"]["gpu"],
         "timeout_minutes": timeout_minutes,
         "unit_cap": manifest["budget"]["unit_cap"],
         "a100_unit_cap": a100_unit_cap,
@@ -549,6 +623,8 @@ def main() -> int:
     parser.add_argument("--b8-checkpoint", type=Path, default=None)
     parser.add_argument("--opponent-checkpoint", type=Path, default=None)
     parser.add_argument("--smoke-result", type=Path, default=None)
+    parser.add_argument("--canary-receipt", type=Path, default=None)
+    parser.add_argument("--gpu", choices=("H100", "A100"), default=None)
     parser.add_argument("--base-seconds", type=float, default=None)
     parser.add_argument("--prior-output-dir", type=Path, default=None)
     parser.add_argument("--attempt", type=str, default="attempt-01")
@@ -561,6 +637,8 @@ def main() -> int:
         b8_checkpoint=args.b8_checkpoint,
         opponent_checkpoint=args.opponent_checkpoint,
         smoke_result_json=args.smoke_result,
+        canary_receipt=args.canary_receipt,
+        gpu=args.gpu,
         base_seconds=args.base_seconds,
         prior_output_dir=args.prior_output_dir,
         attempt=args.attempt,

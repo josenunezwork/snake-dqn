@@ -287,28 +287,54 @@ def reconstruct_batch_from_cpu_row_states(
 
 
 def select_ordinary_buffer_slot(
-    seen_k: int,
+    decision_frame: int,
     current_buf_len: int,
     *,
     horizon: int,
     max_buffer_per_world: int,
+    existing_frames: Sequence[int] | None = None,
 ) -> int | None:
-    """Return buffer slot index to write for the ``seen_k``-th ordinary frame of a world,
-    or ``None`` if this frame is skipped by uniform striding.
+    """Return buffer slot index to write for an ordinary frame at ``decision_frame``,
+    or ``None`` if the frame's horizon bucket is already represented in a full buffer.
 
-    Uses proportional Bresenham striding across ``horizon`` so at most
-    ``max_buffer_per_world`` frames are sampled uniformly across the full horizon
-    without front-loading early frames.
+    Always appends while ``current_buf_len < max_buffer_per_world`` so the candidate
+    buffer fills whenever a world has at least ``max_buffer_per_world`` (or ``>= 210``)
+    suffix-0-safe ordinary frames. Once full, replaces duplicate entries from the most
+    over-represented horizon bucket so retained candidates span ``[0, horizon)`` by
+    actual ``decision_frame`` deterministically.
     """
     cap = max(1, int(max_buffer_per_world))
     denom = max(cap, int(horizon))
-    k = int(seen_k)
-    if k < 0:
+    t = int(decision_frame)
+    if t < 0:
         return None
-    if k == 0 or (k * cap) // denom > ((k - 1) * cap) // denom:
-        if int(current_buf_len) < cap:
-            return int(current_buf_len)
-        return int(k % cap)
+    if int(current_buf_len) < cap:
+        return int(current_buf_len)
+    target_bucket = min(cap - 1, (t * cap) // denom)
+    if existing_frames is not None and len(existing_frames) >= cap:
+        slot_buckets = [min(cap - 1, (max(0, int(f)) * cap) // denom) for f in existing_frames]
+        if target_bucket in slot_buckets:
+            return None
+        counts: dict[int, int] = {}
+        for b in slot_buckets:
+            counts[b] = counts.get(b, 0) + 1
+        dup_buckets = [b for b, c in counts.items() if c > 1]
+        if not dup_buckets:
+            return int(target_bucket)
+        best_dup_bucket = max(dup_buckets, key=lambda b: (counts[b], -b))
+        for idx in range(len(slot_buckets) - 1, -1, -1):
+            if slot_buckets[idx] == best_dup_bucket:
+                return int(idx)
+    if t == 0 or (t * cap) // denom > ((t - 1) * cap) // denom:
+        b_max_init = min(cap - 1, ((cap - 1) * cap) // denom)
+        reserved = {min(cap - 1, (b * denom + cap - 1) // cap) for b in range(b_max_init + 1)}
+        if target_bucket <= b_max_init:
+            return min(cap - 1, (target_bucket * denom + cap - 1) // cap)
+        free_slots = [s for s in range(cap) if s not in reserved]
+        if free_slots:
+            free_idx = min(len(free_slots) - 1, target_bucket - (b_max_init + 1))
+            return int(free_slots[free_idx])
+        return int(target_bucket)
     return None
 
 
@@ -589,16 +615,16 @@ def harvest_probe32_bank(
                 item["root_q_b8"] = q_s0[idx]
                 candidate_rescue_snapshots.append(item)
             elif bool(ordinary_s0[idx].item()):
-                item.pop("row_state", None)
                 ws = int(item["world_seed"])
                 seen_k = s0_ordinary_seen_by_world[ws]
                 s0_ordinary_seen_by_world[ws] = seen_k + 1
                 world_buf = s0_ordinary_by_world[ws]
                 slot = select_ordinary_buffer_slot(
-                    seen_k,
+                    int(item["decision_frame"]),
                     len(world_buf),
                     horizon=int(horizon),
                     max_buffer_per_world=max_s0_buffer_per_world,
+                    existing_frames=[int(x["decision_frame"]) for x in world_buf],
                 )
                 if slot is not None:
                     item["safe_mask_s0"] = safe_s0[idx]
@@ -609,6 +635,8 @@ def harvest_probe32_bank(
                         world_buf.append(item)
                     else:
                         world_buf[slot] = item
+                else:
+                    item.pop("row_state", None)
             else:
                 item.pop("row_state", None)
         pending_rows = []
@@ -658,6 +686,14 @@ def harvest_probe32_bank(
             last_ckpt_wall = time.perf_counter()
 
     _flush_pending_suffix0()
+
+    for ws in seeds:
+        n_s0_ord = len(s0_ordinary_by_world[int(ws)])
+        if not dry_run and n_s0_ord < int(ordinary_per_world):
+            raise RuntimeError(
+                f"World {ws} yielded only {n_s0_ord} < {ordinary_per_world} "
+                "suffix-0-safe ordinary roots"
+            )
 
     # In dry_run mode with tiny horizon, if 0 natural candidate rescue roots were encountered,
     # include a mature rescue spec from MATURE_EXTENSION_SPECS (bound to seeds[0] in
@@ -730,38 +766,86 @@ def harvest_probe32_bank(
             "Zero Stage 1B certified decisive rescue roots harvested on probe32 bank"
         )
 
-    # Select stratified ordinary roots per world from suffix-0-safe ordinary states
-    # (ordered by length then decision_frame), as specified in registration §3.1(1) & §3.1(4).
-    harvested_ordinary_roots: list[dict[str, Any]] = []
+    # Score buffered ordinary candidates on independent scoring suffixes 4..7 per registration
+    # §3.3 item 4 (Stage 1B certification rule). Prefer fully certified roots
+    # (n_fail_ordinary == 0) and backfill by ascending n_fail_ordinary when a world has fewer
+    # than ordinary_per_world fully certified.
+    all_ordinary_candidates: list[dict[str, Any]] = []
     for ws in seeds:
-        c_list = sorted(
-            s0_ordinary_by_world[int(ws)],
+        all_ordinary_candidates.extend(s0_ordinary_by_world[int(ws)])
+    scored_ordinary_all = _evaluate_scoring_suffixes_on_snapshots(
+        all_ordinary_candidates,
+        template_sim=sim,
+        template_pol=policy,
+        scoring_suffixes=scoring_suffixes,
+        branch_horizon=branch_horizon,
+        namespace=OPEN_STOP_CRN_NAMESPACE,
+        batch_roots=harvest_batch_roots,
+        cpu_fast_flood=cpu_fast_flood,
+    )
+    scored_ordinary_by_world: dict[int, list[dict[str, Any]]] = {int(s): [] for s in seeds}
+    for rec in scored_ordinary_all:
+        scored_ordinary_by_world[int(rec["world_seed"])].append(rec)
+
+    def _stratified_pick(
+        candidates: Sequence[dict[str, Any]],
+        k: int,
+    ) -> list[dict[str, Any]]:
+        if k <= 0 or not candidates:
+            return []
+        if k >= len(candidates):
+            return [dict(c) for c in candidates]
+        idx_pick = np.linspace(0, len(candidates) - 1, k, dtype=int)
+        picked_indices: list[int] = []
+        seen_idx: set[int] = set()
+        for raw_i in idx_pick.tolist():
+            cand_i = int(raw_i)
+            while cand_i in seen_idx and cand_i + 1 < len(candidates):
+                cand_i += 1
+            while cand_i in seen_idx and cand_i - 1 >= 0:
+                cand_i -= 1
+            if cand_i not in seen_idx:
+                seen_idx.add(cand_i)
+                picked_indices.append(cand_i)
+        return [dict(candidates[idx_p]) for idx_p in sorted(picked_indices)]
+
+    harvested_ordinary_roots: list[dict[str, Any]] = []
+    selected_ordinary_by_world: dict[int, list[dict[str, Any]]] = {}
+    for ws in seeds:
+        world_cands = scored_ordinary_by_world[int(ws)]
+        target_k = min(int(ordinary_per_world), len(world_cands))
+        certified_cands = sorted(
+            [r for r in world_cands if int(r["n_fail_ordinary"]) == 0],
             key=lambda x: (int(x["hero_length"]), int(x["decision_frame"])),
         )
-        target_k = min(int(ordinary_per_world), len(c_list))
-        if not dry_run and target_k < int(ordinary_per_world):
-            raise RuntimeError(
-                f"World {ws} yielded only {target_k} < {ordinary_per_world} "
-                "suffix-0-safe ordinary roots"
-            )
-        if target_k > 0:
-            idx_pick = np.linspace(0, len(c_list) - 1, target_k, dtype=int)
-            picked_indices: list[int] = []
-            seen_idx: set[int] = set()
-            for raw_i in idx_pick.tolist():
-                cand_i = int(raw_i)
-                while cand_i in seen_idx and cand_i + 1 < len(c_list):
-                    cand_i += 1
-                while cand_i in seen_idx and cand_i - 1 >= 0:
-                    cand_i -= 1
-                if cand_i not in seen_idx:
-                    seen_idx.add(cand_i)
-                    picked_indices.append(cand_i)
-            for idx_p in sorted(picked_indices):
-                rec = dict(c_list[idx_p])
-                rec["consensus_safe_mask"] = rec["safe_mask_s0"].clone()
-                rec["n_fail_ordinary"] = 0
-                harvested_ordinary_roots.append(rec)
+        backfill_cands = sorted(
+            [r for r in world_cands if int(r["n_fail_ordinary"]) > 0],
+            key=lambda x: (
+                int(x["n_fail_ordinary"]),
+                int(x["hero_length"]),
+                int(x["decision_frame"]),
+            ),
+        )
+        if len(certified_cands) >= target_k:
+            selected_world = _stratified_pick(certified_cands, target_k)
+        else:
+            selected_world = [dict(r) for r in certified_cands]
+            needed = target_k - len(selected_world)
+            for n_fail_val in range(1, len(scoring_suffixes) + 1):
+                if needed <= 0:
+                    break
+                tier = [r for r in backfill_cands if int(r["n_fail_ordinary"]) == n_fail_val]
+                if not tier:
+                    continue
+                if len(tier) <= needed:
+                    selected_world.extend(dict(r) for r in tier)
+                    needed -= len(tier)
+                else:
+                    selected_world.extend(_stratified_pick(tier, needed))
+                    needed = 0
+            selected_world.sort(key=lambda x: (int(x["hero_length"]), int(x["decision_frame"])))
+        selected_ordinary_by_world[int(ws)] = selected_world
+        harvested_ordinary_roots.extend(selected_world)
 
     if not harvested_ordinary_roots:
         raise RuntimeError("Zero ordinary roots harvested for probe bank")
@@ -785,13 +869,55 @@ def harvest_probe32_bank(
         dec_key = f"D{d + 1}"
         if d_rows:
             lengths_d = [int(r["hero_length"]) for r in d_rows]
+            cert_d = sum(1 for r in d_rows if int(r["n_fail_ordinary"]) == 0)
             decile_Meta[dec_key] = {
                 "count": len(d_rows),
+                "fully_certified_count": int(cert_d),
+                "backfilled_count": int(len(d_rows) - cert_d),
                 "min_length": min(lengths_d),
                 "max_length": max(lengths_d),
             }
         else:
-            decile_Meta[dec_key] = {"count": 0, "min_length": 0, "max_length": 0}
+            decile_Meta[dec_key] = {
+                "count": 0,
+                "fully_certified_count": 0,
+                "backfilled_count": 0,
+                "min_length": 0,
+                "max_length": 0,
+            }
+
+    per_world_ordinary_certification: dict[str, dict[str, Any]] = {}
+    for ws in seeds:
+        ws_int = int(ws)
+        world_cands = scored_ordinary_by_world[ws_int]
+        world_selected = selected_ordinary_by_world[ws_int]
+        cert_cand_cnt = sum(1 for r in world_cands if int(r["n_fail_ordinary"]) == 0)
+        sel_cert_cnt = sum(1 for r in world_selected if int(r["n_fail_ordinary"]) == 0)
+        per_world_ordinary_certification[str(ws_int)] = {
+            "world_seed": ws_int,
+            "s0_ordinary_seen": int(s0_ordinary_seen_by_world[ws_int]),
+            "candidates_buffered": len(world_cands),
+            "candidates_fully_certified_count": int(cert_cand_cnt),
+            "selected_count": len(world_selected),
+            "selected_fully_certified_count": int(sel_cert_cnt),
+            "selected_backfilled_count": int(len(world_selected) - sel_cert_cnt),
+            "selected_n_fail_histogram": {
+                str(nf): sum(1 for r in world_selected if int(r["n_fail_ordinary"]) == nf)
+                for nf in range(len(scoring_suffixes) + 1)
+            },
+            "decile_counts": {
+                f"D{d + 1}": sum(1 for r in world_selected if int(r.get("length_decile", -1)) == d)
+                for d in range(PROBE32_DECILE_COUNT)
+            },
+            "decile_fully_certified_counts": {
+                f"D{d + 1}": sum(
+                    1
+                    for r in world_selected
+                    if int(r.get("length_decile", -1)) == d and int(r["n_fail_ordinary"]) == 0
+                )
+                for d in range(PROBE32_DECILE_COUNT)
+            },
+        }
 
     def _pack_root_tensors(rows: Sequence[dict[str, Any]], *, is_ordinary: bool) -> dict[str, Any]:
         count = len(rows)
@@ -857,6 +983,11 @@ def harvest_probe32_bank(
     )
     rescue_worlds_covered = len({int(r["world_seed"]) for r in decisive_rescue_roots})
 
+    ordinary_fully_certified_total = sum(
+        1 for r in harvested_ordinary_roots if int(r["n_fail_ordinary"]) == 0
+    )
+    ordinary_backfilled_total = int(ordinary_pack["count"]) - int(ordinary_fully_certified_total)
+
     meta_summary: dict[str, Any] = {
         "schema": "t34-gpu-sitl-probe32-bank/v1",
         "namespace": PROBE32_NAMESPACE,
@@ -874,6 +1005,9 @@ def harvest_probe32_bank(
         "decisive_rescue_roots_count": int(rescue_pack["count"]),
         "decisive_rescue_worlds_covered": int(rescue_worlds_covered),
         "ordinary_roots_count": int(ordinary_pack["count"]),
+        "ordinary_fully_certified_count": int(ordinary_fully_certified_total),
+        "ordinary_backfilled_count": int(ordinary_backfilled_total),
+        "per_world_ordinary_certification": per_world_ordinary_certification,
         "b8_ordinary_boost_share": float(b8_ord_boost_share),
         "length_deciles": decile_Meta,
         "b8_checkpoint_sha256": sha256_file(b8_path),

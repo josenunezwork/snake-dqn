@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -639,13 +640,20 @@ def test_step_b1b_smoke_parity_and_prepare_packets(tmp_path: Path) -> None:
         attempt="test-01",
     )
     manifest_smoke = json.loads(Path(info_smoke["manifest_path"]).read_text(encoding="utf-8"))
-    assert manifest_smoke["timeout_minutes"] == 25.0
+    assert manifest_smoke["timeout_minutes"] == 22.5
     assert manifest_smoke["requirements"]["gpu"] == "H100"
     assert manifest_smoke["requirements"]["allowed_gpus"] == ["H100"]
     assert manifest_smoke["requirements"]["prefer"] == ["H100", "A100"]
+    assert manifest_smoke["canary"] == {
+        "schema": "colab-family-canary/v1",
+        "mode": "probe",
+        "family": "research/gpu_sitl/job.sh",
+    }
+    assert manifest_smoke["env"]["SNAKE_COLAB_CANARY"] == "1"
+    assert manifest_smoke["env"]["SNAKE_COLAB_CANARY_PACKAGE"] == "research/gpu_sitl"
     assert manifest_smoke["env"]["MAX_JOBS"] == "4"
     assert manifest_smoke["technical_envelope"]["registered_a100_unit_cap"] == 3.0
-    assert manifest_smoke["budget"]["unit_cap"] == 5.0
+    assert manifest_smoke["budget"]["unit_cap"] == 4.5
     assert manifest_smoke["resume_exemption"]["kind"] == "short-canary"
     assert "resume" not in manifest_smoke
     for req_exp in manifest_smoke["required_exports"]:
@@ -689,6 +697,8 @@ def test_step_b1b_smoke_parity_and_prepare_packets(tmp_path: Path) -> None:
         "probe32_bank.pt",
         "probe32_bank.pt.sha256",
         "probe32_bank.pt.complete",
+        "probe32_bank.pt.meta.json",
+        "probe32_bank.pt.meta.json.sha256",
         "b8_sitl_student_final.pth",
         "b8_sitl_student_final.pth.sha256",
         "b8_sitl_student_final.pth.complete",
@@ -696,6 +706,8 @@ def test_step_b1b_smoke_parity_and_prepare_packets(tmp_path: Path) -> None:
         "sitl_pilot_result.json.sha256",
         "sitl_pilot_result.json.complete",
     ]
+    for req_exp in manifest_pilot["required_exports"]:
+        assert (smoke_dir / req_exp).is_file()
     assert manifest_pilot["timeout_minutes"] == rg["runaway_guard_timeout_minutes_2x"]
 
 
@@ -724,6 +736,7 @@ def test_review_answer7_ordinary_striding_no_clone_and_refuse_overwrite(
             len(sim_buf),
             horizon=horizon,
             max_buffer_per_world=oversample_cap,
+            existing_frames=sim_buf,
         )
         if slot is None:
             continue
@@ -1219,3 +1232,639 @@ def test_cross_session_kill_and_resume_via_prepare_and_verified_ledger(
         == res_full["training_set_aliasing_diagnostic"]
     )
     assert res_attempt2["verdict"] == res_full["verdict"]
+
+
+def test_b1_m1_ordinary_roots_dead_unsafe_worlds_suffix47_and_backfill(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify Findings B1 and M1:
+    1. Worlds with many dead or unsafe frames (e.g. only 220 suffix-0-safe ordinary frames out
+       of 5,000) still fill >= 210 candidates and span the full 5,000-frame horizon by actual
+       decision_frame deterministically.
+    2. harvest_probe32_bank scores ordinary candidates on suffixes 4..7, prefers candidates safe
+       under suffixes 0 and 4..7 (n_fail_ordinary == 0), backfills by ascending n_fail_ordinary
+       when a world has fewer than ordinary_per_world fully certified candidates instead of
+       raising, and records per-world certified counts and decile counts.
+    3. harvest_probe32_bank raises RuntimeError only when a world has fewer than
+       ordinary_per_world suffix-0-safe ordinary frames in total."""
+    import research.gpu_sitl.probe_bank as probe_bank_mod
+    from research.gpu_sitl.probe_bank import select_ordinary_buffer_slot
+
+    # 1. Test select_ordinary_buffer_slot on a world where 95.6% of frames are dead/unsafe:
+    # only 220 suffix-0-safe ordinary frames scattered across [0, 5000).
+    horizon = 5000
+    oversample_cap = 252
+    alive_safe_frames = [
+        min(horizon - 1, int(round(i * (horizon - 1) / 219.0))) for i in range(220)
+    ]
+    sim_buf_sparse: list[int] = []
+    for f in alive_safe_frames:
+        slot = select_ordinary_buffer_slot(
+            f,
+            len(sim_buf_sparse),
+            horizon=horizon,
+            max_buffer_per_world=oversample_cap,
+            existing_frames=sim_buf_sparse,
+        )
+        assert slot is not None
+        if slot == len(sim_buf_sparse):
+            sim_buf_sparse.append(f)
+        else:
+            sim_buf_sparse[slot] = f
+    assert len(sim_buf_sparse) == 220 >= 210
+    assert min(sim_buf_sparse) == 0
+    assert max(sim_buf_sparse) == 4999
+
+    # Also test a world with 600 suffix-0-safe ordinary frames clustered unevenly (300 in [0, 600)
+    # and 300 spread across [600, 5000)): buffer fills to 252 and spans all 10 horizon deciles!
+    uneven_frames = list(range(0, 600, 2)) + [
+        600 + int(round(i * 4399 / 299.0)) for i in range(300)
+    ]
+    sim_buf_uneven: list[int] = []
+    for f in uneven_frames:
+        slot = select_ordinary_buffer_slot(
+            f,
+            len(sim_buf_uneven),
+            horizon=horizon,
+            max_buffer_per_world=oversample_cap,
+            existing_frames=sim_buf_uneven,
+        )
+        if slot is None:
+            continue
+        if slot == len(sim_buf_uneven):
+            sim_buf_uneven.append(f)
+        else:
+            sim_buf_uneven[slot] = f
+    assert len(sim_buf_uneven) == oversample_cap
+    for d in range(10):
+        lo, hi = d * 500, (d + 1) * 500
+        cnt_d = sum(1 for f in sim_buf_uneven if lo <= f < hi)
+        assert cnt_d >= 15, f"Decile {d} had only {cnt_d} frames under uneven mortality"
+
+    # 2. Test suffix 4..7 scoring and ascending-n_fail_ordinary backfill in harvest_probe32_bank
+    b8_path, opp_path = resolve_product_checkpoints()
+    if not Path(b8_path).exists() or not Path(opp_path).exists():
+        pytest.skip("b8-s3 or opponent checkpoint not present")
+
+    orig_eval_suf = probe_bank_mod._evaluate_scoring_suffixes_on_snapshots
+
+    def _mock_eval_suf(snapshots, **kwargs):
+        out = orig_eval_suf(snapshots, **kwargs)
+        # For ordinary candidates (where bare_action is safe under s0), assign controlled
+        # n_fail_ordinary values so world 0 has only 1 fully certified (n_fail=0), 1 with n_fail=1,
+        # 1 with n_fail=2, and 1 with n_fail=3, while ordinary_per_world=3 requires backfilling
+        # n_fail=0, 1, 2 (and excluding n_fail=3!).
+        by_ws: dict[int, int] = {}
+        for rec in out:
+            bare_a = int(rec["bare_action"])
+            if bool(rec["safe_mask_s0"][bare_a].item()):
+                ws = int(rec["world_seed"])
+                idx_in_w = by_ws.get(ws, 0)
+                by_ws[ws] = idx_in_w + 1
+                rec["n_fail_ordinary"] = min(4, idx_in_w)
+        return out
+
+    monkeypatch.setattr(probe_bank_mod, "_evaluate_scoring_suffixes_on_snapshots", _mock_eval_suf)
+    probe_backfill_path = tmp_path / "probe_backfill.pt"
+    meta_bf = harvest_probe32_bank(
+        probe_backfill_path,
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+        num_worlds=2,
+        horizon=4,
+        branch_horizon=2,
+        ordinary_per_world=3,
+        harvest_batch_roots=4,
+        dry_run=True,
+    )
+    assert meta_bf["ordinary_roots_count"] == 6
+    assert meta_bf["ordinary_fully_certified_count"] == 2  # 1 per world
+    assert meta_bf["ordinary_backfilled_count"] == 4  # 2 per world (n_fail=1 and n_fail=2)
+    for ws_str, w_cert in meta_bf["per_world_ordinary_certification"].items():
+        assert w_cert["selected_count"] == 3
+        assert w_cert["selected_fully_certified_count"] == 1
+        assert w_cert["selected_backfilled_count"] == 2
+        assert w_cert["selected_n_fail_histogram"]["0"] == 1
+        assert w_cert["selected_n_fail_histogram"]["1"] == 1
+        assert w_cert["selected_n_fail_histogram"]["2"] == 1
+        assert w_cert["selected_n_fail_histogram"]["3"] == 0
+        assert sum(w_cert["decile_counts"].values()) == 3
+
+    # 3. Verify that when a world has fewer than ordinary_per_world (210) suffix-0-safe ordinary
+    # frames in total, non-dry-run harvest_probe32_bank raises RuntimeError.
+    monkeypatch.setattr(probe_bank_mod, "PROBE32_WORLD_COUNT", 1)
+    monkeypatch.setattr(probe_bank_mod, "PROBE32_HORIZON", 2)
+    monkeypatch.setattr(probe_bank_mod, "OPEN_STOP_BRANCH_HORIZON", 2)
+    with pytest.raises(RuntimeError, match="suffix-0-safe ordinary roots"):
+        harvest_probe32_bank(
+            tmp_path / "probe_too_few_s0_ordinary.pt",
+            b8_checkpoint=b8_path,
+            opponent_checkpoint=opp_path,
+            device="cpu",
+            num_worlds=1,
+            horizon=2,
+            branch_horizon=2,
+            ordinary_per_world=210,
+            harvest_batch_roots=2,
+            dry_run=False,
+        )
+
+
+def test_b2_smoke_rescue_rate_ci95_and_under_20_prior_fallback() -> None:
+    """Verify Finding B2:
+    - wilson_rate_ci95 computes valid 95% confidence bounds;
+    - when fewer than 20 rescue frames are observed, compute_pilot_runaway_guard falls back to
+      bounds [0.0006, 0.0024] around the registered prior 0.0012 (or 0.0012 on 0 events) and
+      writes the exact rescue_rate_guard_rule into the result;
+    - when >= 20 rescue frames are observed, compute_pilot_runaway_guard uses the observed rate."""
+    from research.gpu_sitl.smoke import (
+        PRIOR_FALLBACK_LOWER_BOUND,
+        PRIOR_FALLBACK_UPPER_BOUND,
+        REGISTERED_RESCUE_RATE_PRIOR,
+        compute_pilot_runaway_guard,
+        wilson_rate_ci95,
+    )
+
+    ci_0 = wilson_rate_ci95(0, 16000)
+    assert ci_0[0] == 0.0 and 0.0 < ci_0[1] < 0.001
+
+    # Case 1: 0 rescues observed (< 20) -> registered prior 0.0012
+    g0 = compute_pilot_runaway_guard(
+        env_steps_per_sec=100.0,
+        label_batches_per_sec=10.0,
+        updates_per_sec=10.0,
+        measured_online_rescue_rate=0.0,
+        measured_alive_hero_decisions=16000,
+        measured_rescue_frame_count=0,
+    )
+    assert g0["rescue_rate_used_for_guard"] == pytest.approx(REGISTERED_RESCUE_RATE_PRIOR)
+    assert g0["rescue_rate_guard_rule"] == "prior_fallback_under_20_rescues_zero_observed"
+
+    # Case 2: 2 rescues in 16,000 decisions (rate 0.000125 < 0.0006, count 2 < 20) -> lower bound
+    g_low = compute_pilot_runaway_guard(
+        env_steps_per_sec=100.0,
+        label_batches_per_sec=10.0,
+        updates_per_sec=10.0,
+        measured_online_rescue_rate=2.0 / 16000.0,
+        measured_alive_hero_decisions=16000,
+        measured_rescue_frame_count=2,
+    )
+    assert g_low["rescue_rate_used_for_guard"] == pytest.approx(PRIOR_FALLBACK_LOWER_BOUND)
+    assert g_low["rescue_rate_guard_rule"] == "prior_lower_bound_clamped_under_20_rescues"
+
+    # Case 3: 15 rescues in 2,000 decisions (rate 0.0075 > 0.0024, count 15 < 20) -> upper bound
+    g_high = compute_pilot_runaway_guard(
+        env_steps_per_sec=100.0,
+        label_batches_per_sec=10.0,
+        updates_per_sec=10.0,
+        measured_online_rescue_rate=15.0 / 2000.0,
+        measured_alive_hero_decisions=2000,
+        measured_rescue_frame_count=15,
+    )
+    assert g_high["rescue_rate_used_for_guard"] == pytest.approx(PRIOR_FALLBACK_UPPER_BOUND)
+    assert g_high["rescue_rate_guard_rule"] == "prior_upper_bound_clamped_under_20_rescues"
+
+    # Case 4: 25 rescues in 16,000 decisions (count 25 >= 20) -> unclamped observed rate
+    g_obs = compute_pilot_runaway_guard(
+        env_steps_per_sec=100.0,
+        label_batches_per_sec=10.0,
+        updates_per_sec=10.0,
+        measured_online_rescue_rate=25.0 / 16000.0,
+        measured_alive_hero_decisions=16000,
+        measured_rescue_frame_count=25,
+    )
+    assert g_obs["rescue_rate_used_for_guard"] == pytest.approx(25.0 / 16000.0)
+    assert g_obs["rescue_rate_guard_rule"] == "observed_rate_ge_20_rescues"
+    assert len(g_obs["measured_rescue_rate_ci95_wilson"]) == 2
+    assert (
+        g_obs["measured_rescue_rate_ci95_wilson"][0]
+        < (25.0 / 16000.0)
+        < g_obs["measured_rescue_rate_ci95_wilson"][1]
+    )
+
+
+def test_b3_canary_check_accepts_pilot_manifest_against_smoke_receipt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify Finding B3:
+    Build both smoke and pilot manifests via prepare_b1b_packet and run the real
+    research.colab_cli.canary.check (and supervisor.validate) against a synthetic smoke receipt
+    of the exact shape supervisor.py writes."""
+    import subprocess
+    from research.colab_cli import canary as colab_canary
+    from research.colab_cli import supervisor as colab_supervisor
+    from research.gpu_sitl.prepare import ROOT, digest, prepare_b1b_packet
+    from research.gpu_sitl.smoke import run_step_b1b_smoke
+
+    b8_path, opp_path = resolve_product_checkpoints()
+    if not Path(b8_path).exists() or not Path(opp_path).exists():
+        pytest.skip("b8-s3 or opponent checkpoint not present")
+
+    # Allow HEAD on the worktree branch before merge to origin/main so `git show HEAD:job.sh`
+    # resolves the real committed entrypoint in canary.check and supervisor.validate.
+    orig_subproc_run = subprocess.run
+
+    def _allow_head_ancestor(cmd, *args, **kwargs):
+        if isinstance(cmd, list) and cmd[:3] == ["git", "merge-base", "--is-ancestor"]:
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        return orig_subproc_run(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", _allow_head_ancestor)
+
+    smoke_out_dir = tmp_path / "smoke_run_output"
+    smoke_res = run_step_b1b_smoke(
+        smoke_out_dir,
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+        num_envs=4,
+        branch_horizon=2,
+        parity_slice_indices=(0, 8),
+        bench_env_steps=2,
+        bench_label_batches=2,
+        bench_learner_updates=2,
+        dry_run=True,
+    )
+    assert smoke_res["throughput"]["window_max_hero_length"] >= 160
+    assert smoke_res["throughput"]["window_mature_length_ge_160_decisions"] > 0
+
+    pkt_smoke = tmp_path / "pkt_smoke_canary"
+    info_smoke = prepare_b1b_packet(
+        pkt_smoke,
+        commit="HEAD",
+        mode="smoke",
+        output_dir=smoke_out_dir,
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        attempt="canary-01",
+    )
+    smoke_manifest = json.loads(Path(info_smoke["manifest_path"]).read_text(encoding="utf-8"))
+    # Real canary.check on the smoke manifest itself must pass
+    colab_canary.check(smoke_manifest, ROOT)
+
+    # Construct the exact receipt directory layout that research/colab_cli/supervisor.py writes
+    # when the smoke canary completes on A100 (or H100).
+    for hw_kind in ("A100", "H100"):
+        smoke_rcpt_dir = tmp_path / f"smoke_receipt_{hw_kind}"
+        (smoke_rcpt_dir / "exports").mkdir(parents=True, exist_ok=True)
+        for p in smoke_out_dir.iterdir():
+            if p.is_file():
+                (smoke_rcpt_dir / "exports" / p.name).write_bytes(p.read_bytes())
+
+        smoke_manifest_for_hw = dict(smoke_manifest)
+        smoke_manifest_for_hw["output_dir"] = str(smoke_rcpt_dir)
+        smoke_manifest_for_hw["requirements"] = {
+            "gpu": hw_kind,
+            "allowed_gpus": [hw_kind],
+            "min_vcpu": 2,
+            "est_minutes": smoke_manifest["requirements"]["est_minutes"],
+        }
+        saved_smoke_manifest_path = smoke_rcpt_dir / "manifest.json"
+        saved_smoke_manifest_path.write_text(
+            json.dumps(smoke_manifest_for_hw, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        (smoke_rcpt_dir / "hardware.json").write_text(
+            json.dumps(
+                {"hardware": {"kind": hw_kind, "name": f"NVIDIA {hw_kind}"}},
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (smoke_rcpt_dir / "upload-measurement.json").write_text(
+            json.dumps(
+                {
+                    "elapsed_seconds": 1.5,
+                    "transfer_seconds": 0.9,
+                    "source_delivery_seconds": 0.4,
+                    "staging_completed": True,
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        exports_list = [
+            {
+                "path": p.name,
+                "size": p.stat().st_size,
+                "sha256": digest(p),
+            }
+            for p in sorted((smoke_rcpt_dir / "exports").iterdir())
+            if p.is_file()
+        ]
+        gen_id = f"gen-canary-{hw_kind.lower()}-01"
+        transfers_list = [
+            {
+                "direction": "upload",
+                "remote": f"/content/snake-cli/{gen_id}/inputs/{row['dest']}",
+                "status": "verified",
+                "size_bytes": row["size"],
+                "sha256": row["sha256"],
+            }
+            for row in colab_canary.input_inventory(smoke_manifest_for_hw)
+        ]
+        receipt_payload: dict[str, Any] = {
+            "schema": "colab-cli-receipt/v1",
+            "job_id": smoke_manifest_for_hw["job_id"],
+            "commit": smoke_manifest_for_hw["commit"],
+            "generation": gen_id,
+            "manifest_sha256": digest(saved_smoke_manifest_path),
+            "status": "PASS",
+            "stop_verified": True,
+            "error": None,
+            "cleanup_error": None,
+            "failure_class": None,
+            "hardware": {"kind": hw_kind},
+            "exports": exports_list,
+            "transfers": transfers_list,
+            "terminal": {
+                "job_id": smoke_manifest_for_hw["job_id"],
+                "generation": gen_id,
+                "returncode": 0,
+                "status": "completed",
+                "export_scanner": {
+                    "name": "runtime._exports",
+                    "inventory": exports_list,
+                },
+                "canary_observations": [
+                    {
+                        "cuda_decisions": 16384,
+                        "device": "cuda:0",
+                        "package": "research/gpu_sitl",
+                        "caller": "research/gpu_sitl/smoke.py:run_step_b1b_smoke",
+                        "operation": "torch.argmax",
+                        "shape": [256, 6],
+                        "root": f"/content/snake-cli/{gen_id}",
+                    }
+                ],
+            },
+        }
+        receipt_payload["canary_evidence"] = colab_canary.evidence(
+            smoke_manifest_for_hw,
+            receipt_payload,
+            smoke_rcpt_dir,
+            ROOT,
+        )
+        rcpt_file = smoke_rcpt_dir / "receipt.json"
+        rcpt_file.write_text(
+            json.dumps(receipt_payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+        # Now prepare the pilot manifest bound to this smoke canary receipt
+        pkt_pilot = tmp_path / f"pkt_pilot_{hw_kind}"
+        pilot_out_dir = tmp_path / f"pilot_out_{hw_kind}"
+        info_pilot = prepare_b1b_packet(
+            pkt_pilot,
+            commit="HEAD",
+            mode="pilot",
+            output_dir=pilot_out_dir,
+            b8_checkpoint=b8_path,
+            opponent_checkpoint=opp_path,
+            smoke_result_json=smoke_res["result_json_path"],
+            canary_receipt=rcpt_file,
+            attempt=f"pilot-{hw_kind.lower()}-01",
+        )
+        pilot_manifest = json.loads(Path(info_pilot["manifest_path"]).read_text(encoding="utf-8"))
+        assert pilot_manifest["requirements"]["gpu"] == hw_kind
+        assert pilot_manifest["requirements"]["allowed_gpus"] == [hw_kind]
+        assert "prefer" not in pilot_manifest["requirements"]
+
+        # Verify both real colab_canary.check and colab_supervisor.validate accept pilot_manifest!
+        colab_canary.check(pilot_manifest, ROOT)
+        colab_supervisor.validate(pilot_manifest, ROOT)
+
+
+def test_m2_learner_update_pacing_by_unique_rescues_only(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify Finding M2:
+    Learner updates are paced solely by required unique rescue roots (no step-count fallback,
+    no burst of updates after warmup, and no collection step after the last update). Assert the
+    exact collection step at which each learner update fires."""
+    import research.gpu_sitl.train_sitl as train_sitl_mod
+
+    b8_path, opp_path = resolve_product_checkpoints()
+    if not Path(b8_path).exists() or not Path(opp_path).exists():
+        pytest.skip("b8-s3 or opponent checkpoint not present")
+
+    probe_file = tmp_path / "probe_m2.pt"
+    harvest_probe32_bank(
+        probe_file,
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+        num_worlds=2,
+        horizon=4,
+        branch_horizon=2,
+        ordinary_per_world=3,
+        harvest_batch_roots=4,
+        dry_run=True,
+    )
+
+    # Configure a controlled labeler that yields 1 unique rescue root per collection step
+    # (on env 0) and ordinary roots on envs 1..3.
+    # With warmup_rescue_roots=2, min_unique_rescue_roots=8, total_updates=4:
+    # required_unique_rescues_for_update is:
+    #   u=1 -> 2 (reached at collection_steps == 2)
+    #   u=2 -> 4 (reached at collection_steps == 4)
+    #   u=3 -> 6 (reached at collection_steps == 6)
+    #   u=4 -> 8 (reached at collection_steps == 8)
+    step_counter = {"k": 0}
+
+    def _controlled_labeler(sim_eval, pol_eval, *, world_seeds, decisions, **kwargs):
+        step_counter["k"] += 1
+        n = len(world_seeds)
+        safe_mask = torch.ones((n, 6), dtype=torch.bool)
+        unsafe_mask = torch.zeros((n, 6), dtype=torch.bool)
+        rescue_mask = torch.zeros((n,), dtype=torch.bool)
+        ordinary_mask = torch.ones((n,), dtype=torch.bool)
+        bare_actions = torch.ones((n,), dtype=torch.long)
+        a_star_actions = torch.ones((n,), dtype=torch.long)
+        # Env 0 is a rescue root on every step; envs 1..n-1 are ordinary roots
+        safe_mask[0] = torch.tensor([False, True, False, False, False, False])
+        unsafe_mask[0] = torch.tensor([True, False, True, True, True, True])
+        rescue_mask[0] = True
+        ordinary_mask[0] = False
+        bare_actions[0] = 0
+        a_star_actions[0] = 1
+        return {
+            "safe_mask": safe_mask,
+            "unsafe_mask": unsafe_mask,
+            "rescue_mask": rescue_mask,
+            "ordinary_mask": ordinary_mask,
+            "bare_actions": bare_actions,
+            "a_star_actions": a_star_actions,
+            "root_q": torch.zeros((n, 6), dtype=torch.float32),
+        }
+
+    monkeypatch.setattr(train_sitl_mod, "batched_open_stop_h32", _controlled_labeler)
+    res_paced = run_sitl_training(
+        tmp_path / "out_paced",
+        probe_bank_path=probe_file,
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+        num_envs=4,
+        total_updates=4,
+        warmup_rescue_roots=2,
+        min_unique_rescue_roots=8,
+        rescue_batch_size=2,
+        ordinary_batch_size=4,
+        ordinary_uniform_half=2,
+        ordinary_hard_neg_half=2,
+        branch_horizon=2,
+        tripwire_interval=2,
+        max_collection_steps=20,
+        dry_run=True,
+    )
+    schedule = res_paced["update_pacing_schedule"]
+    assert len(schedule) == 4
+    assert [u["update"] for u in schedule] == [1, 2, 3, 4]
+    assert [u["required_unique_rescue_roots"] for u in schedule] == [2, 4, 6, 8]
+    assert [u["unique_mined_rescue_roots"] for u in schedule] == [2, 4, 6, 8]
+    assert [u["collection_steps"] for u in schedule] == [2, 4, 6, 8]
+    # Zero collection steps after the final update (collection_steps == 8)
+    assert res_paced["counts"]["collection_steps"] == 8
+
+
+def test_m3_verdict_precedence_all_four_probe_conditions_and_missing_key_raises() -> None:
+    """Verify Finding M3:
+    1. compute_step_b1b_pilot_verdict uses the exact keys written by evaluate_probe_bank_tripwires
+       and raises KeyError if any required tripwire key is missing.
+    2. At the final update (updates_completed == total_updates), when
+       stop_ego2s_bv8_inputs_insufficient is True, failing any of the four probe fault/drift
+       conditions (decile_tripwire_pass, boost_tripwire_pass, all_q_finite, illegal_action_count)
+       gives STOP_TRIPWIRE_BREACH rather than STOP_EGO2S_BV8_INPUTS_INSUFFICIENT."""
+    from research.gpu_sitl.train_sitl import (
+        REQUIRED_PROBE_TRIPWIRE_KEYS,
+        VERDICT_INPUTS_INSUFFICIENT,
+        VERDICT_PROCEED_TO_GATE_B1,
+        VERDICT_TRIPWIRE_STOP,
+        compute_step_b1b_pilot_verdict,
+    )
+
+    base_tw = {
+        "all_pass": False,
+        "decile_tripwire_pass": True,
+        "boost_tripwire_pass": True,
+        "decisive_rescue_bar_pass": False,
+        "all_q_finite": True,
+        "illegal_action_count": 0,
+    }
+
+    # 1. Missing any required tripwire key must raise KeyError (never default to passing)
+    for key_to_drop in REQUIRED_PROBE_TRIPWIRE_KEYS:
+        broken_tw = dict(base_tw)
+        broken_tw.pop(key_to_drop)
+        with pytest.raises(KeyError):
+            compute_step_b1b_pilot_verdict(
+                runaway_guard_reached=False,
+                updates_completed=1000,
+                total_updates=1000,
+                completed_windows=[{"pass": True}],
+                delivered_boost_band_pass=True,
+                non_finite_loss_count=0,
+                non_finite_q_count=0,
+                non_finite_grad_count=0,
+                illegal_action_count=0,
+                tripwire_history=[broken_tw],
+                tripwire_breached=True,
+                stop_ego2s_bv8_inputs_insufficient=True,
+            )
+
+    # 2. Each of the 4 probe fault/drift conditions failing at final update with
+    # stop_ego2s_bv8_inputs_insufficient=True must yield STOP_TRIPWIRE_BREACH:
+    for failing_override in (
+        {"decile_tripwire_pass": False},
+        {"boost_tripwire_pass": False},
+        {"all_q_finite": False},
+        {"illegal_action_count": 1},
+    ):
+        tw_fail = {**base_tw, **failing_override}
+        verdict = compute_step_b1b_pilot_verdict(
+            runaway_guard_reached=False,
+            updates_completed=1000,
+            total_updates=1000,
+            completed_windows=[{"pass": True}],
+            delivered_boost_band_pass=True,
+            non_finite_loss_count=0,
+            non_finite_q_count=0,
+            non_finite_grad_count=0,
+            illegal_action_count=0,
+            tripwire_history=[tw_fail],
+            tripwire_breached=True,
+            stop_ego2s_bv8_inputs_insufficient=True,
+        )
+        assert verdict == VERDICT_TRIPWIRE_STOP, f"Failed for override {failing_override}"
+
+    # 3. When all 4 fault/drift checks pass at update 1000 and only decisive_rescue_bar_pass
+    # fails alongside stop_ego2s_bv8_inputs_insufficient=True -> STOP_EGO2S_BV8_INPUTS_INSUFFICIENT
+    verdict_aliased = compute_step_b1b_pilot_verdict(
+        runaway_guard_reached=False,
+        updates_completed=1000,
+        total_updates=1000,
+        completed_windows=[{"pass": True}],
+        delivered_boost_band_pass=True,
+        non_finite_loss_count=0,
+        non_finite_q_count=0,
+        non_finite_grad_count=0,
+        illegal_action_count=0,
+        tripwire_history=[base_tw],
+        tripwire_breached=True,
+        stop_ego2s_bv8_inputs_insufficient=True,
+    )
+    assert verdict_aliased == VERDICT_INPUTS_INSUFFICIENT
+
+    # 4. When all checks pass and stop_ego2s_bv8_inputs_insufficient=False -> PROCEED
+    tw_all_pass = {**base_tw, "decisive_rescue_bar_pass": True, "all_pass": True}
+    verdict_pass = compute_step_b1b_pilot_verdict(
+        runaway_guard_reached=False,
+        updates_completed=1000,
+        total_updates=1000,
+        completed_windows=[{"pass": True}],
+        delivered_boost_band_pass=True,
+        non_finite_loss_count=0,
+        non_finite_q_count=0,
+        non_finite_grad_count=0,
+        illegal_action_count=0,
+        tripwire_history=[tw_all_pass],
+        tripwire_breached=False,
+        stop_ego2s_bv8_inputs_insufficient=False,
+    )
+    assert verdict_pass == VERDICT_PROCEED_TO_GATE_B1
+
+
+def test_m1_all_registration_quotes_are_verbatim_with_exact_line_numbers() -> None:
+    """Verify Finding m1:
+    Every string in code or result JSON that claims to quote the registration is a byte-for-byte
+    verbatim substring of docs/research/advice/2026-11-09_live_search_reopen_registration_argon.md
+    at the exact claimed 1-based line number."""
+    from research.gpu_sitl.prepare import REGISTRATION_DOC, ROOT
+    from research.gpu_sitl.train_sitl import (
+        REGISTRATION_VERBATIM_QUOTES,
+        RESCUE_QUOTA_REGISTRATION_QUOTES,
+    )
+
+    reg_file = ROOT / REGISTRATION_DOC
+    reg_lines = reg_file.read_text(encoding="utf-8").splitlines()
+    assert len(REGISTRATION_VERBATIM_QUOTES) >= 3
+    for entry in REGISTRATION_VERBATIM_QUOTES:
+        line_no = int(entry["line"])
+        quote_str = str(entry["quote"])
+        assert 1 <= line_no <= len(reg_lines), f"Invalid line number {line_no}"
+        actual_line = reg_lines[line_no - 1]
+        assert quote_str in actual_line, (
+            f"Quote for {entry['section']} (line {line_no}) is not a verbatim substring of "
+            f"registration line {line_no}:\n  quote:  {quote_str!r}\n  actual: {actual_line!r}"
+        )
+    assert RESCUE_QUOTA_REGISTRATION_QUOTES in reg_lines[143 - 1]
+    assert "5,000 gradient updates" not in RESCUE_QUOTA_REGISTRATION_QUOTES
+    assert "after 5,000 updates" not in RESCUE_QUOTA_REGISTRATION_QUOTES
+    assert "`1,000` balanced learner updates" in RESCUE_QUOTA_REGISTRATION_QUOTES

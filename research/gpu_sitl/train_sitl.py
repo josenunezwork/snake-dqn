@@ -109,17 +109,118 @@ VERDICT_RUNAWAY_GUARD_STOP = "STOP_RUNAWAY_GUARD_REACHED"
 VERDICT_PROCEED_TO_GATE_B1 = "PROCEED_TO_GATE_B1_EVALUATION"
 
 RESCUE_QUOTA_SCORING_METRIC = "world_seed_decision_frame"
-RESCUE_QUOTA_REGISTRATION_QUOTES = (
-    "§2.1 (line 61): 'Every candidate state s (defined by (world_seed, decision_frame) "
-    "for the hero snake slot 0) is evaluated from an identical cloned simulator state "
-    "across legal actions a in A_legal(s)'; "
-    "§3.2 item 1 (line 143): 'Training must accumulate >= 5,000 unique mined rescue roots "
-    "(counting only true rescue roots s in D_rescue^train with a_b8(s) not in A_safe(s) "
-    "and A_safe(s) != empty, just as the < 80.0% diagnostic in §3.1(3) and §3.4 counts "
-    "only true rescue roots in D_rescue^train) and complete 1,000 balanced learner updates "
-    "(after an initial buffer warmup of 512 unique mined rescue roots in D_rescue^train) "
-    "before Gate B1 evaluation.'"
+REGISTRATION_VERBATIM_QUOTES: tuple[dict[str, Any], ...] = (
+    {
+        "section": "§3.1",
+        "line": 116,
+        "quote": (
+            "At the end of `Step B1b` (after training on `>= 5,000` unique mined rescue roots "
+            "under the fixed 50%/50% balanced minibatch rule), evaluate **in-sample training-set "
+            "fit quality** on the student's **OWN mined training rescue roots** "
+            "($\\mathcal{D}_{\\text{rescue}}^{\\text{train}}$, counting only true rescue roots "
+            "where $a_{\\text{b8}}(s) \\notin \\mathcal{A}_{\\text{safe}}(s)$ and "
+            "$\\mathcal{A}_{\\text{safe}}(s) \\neq \\emptyset$) and paired training ordinary "
+            "anchor buffer ($\\mathcal{D}_{\\text{ordinary}}^{\\text{train}}$, where "
+            "$a_{\\text{b8}}(s) \\in \\mathcal{A}_{\\text{safe}}(s)$):"
+        ),
+    },
+    {
+        "section": "§3.3 item 2",
+        "line": 143,
+        "quote": (
+            "Training must accumulate **`>= 5,000` unique mined rescue roots** (counting only "
+            "true rescue roots $s \\in \\mathcal{D}_{\\text{rescue}}^{\\text{train}}$ with "
+            "$a_{\\text{b8}}(s) \\notin \\mathcal{A}_{\\text{safe}}(s)$ and "
+            "$\\mathcal{A}_{\\text{safe}}(s) \\neq \\emptyset$, just as the `< 80.0%` diagnostic "
+            "in §3.1(3) and §3.4 counts only true rescue roots in "
+            "$\\mathcal{D}_{\\text{rescue}}^{\\text{train}}$) and complete **`1,000` balanced "
+            "learner updates** (after an initial buffer warmup of `512` unique mined rescue roots "
+            "in $\\mathcal{D}_{\\text{rescue}}^{\\text{train}}$) before Gate B1 evaluation."
+        ),
+    },
+    {
+        "section": "§3.3 item 4",
+        "line": 156,
+        "quote": (
+            "On untouched 32-world probe bank `t34-gpu-sitl-probe32-20261109-v1` ($H = 5,000$), "
+            "decisive rescue roots and stratified ordinary roots are harvested **once before "
+            "training** from frozen `bare b8-s3` trajectories using the Stage 1B certification "
+            "rule (`suffix 0` + independent scoring `suffixes 4..7`, `n_diff == 0`, as in §3.3 "
+            "One-Look Gate B1 Evaluation item 2 / §3.4 Bar 1)."
+        ),
+    },
 )
+RESCUE_QUOTA_REGISTRATION_QUOTES = REGISTRATION_VERBATIM_QUOTES[1]["quote"]
+
+REQUIRED_PROBE_TRIPWIRE_KEYS: tuple[str, ...] = (
+    "all_pass",
+    "decile_tripwire_pass",
+    "boost_tripwire_pass",
+    "decisive_rescue_bar_pass",
+    "all_q_finite",
+    "illegal_action_count",
+)
+
+
+def compute_step_b1b_pilot_verdict(
+    *,
+    runaway_guard_reached: bool,
+    updates_completed: int,
+    total_updates: int,
+    completed_windows: Sequence[dict[str, Any]],
+    delivered_boost_band_pass: bool,
+    non_finite_loss_count: int,
+    non_finite_q_count: int,
+    non_finite_grad_count: int,
+    illegal_action_count: int,
+    tripwire_history: Sequence[dict[str, Any]],
+    tripwire_breached: bool,
+    stop_ego2s_bv8_inputs_insufficient: bool,
+) -> str:
+    """Resolve Step B1b pilot terminal verdict with strict tripwire key validation.
+
+    Raises :class:`KeyError` if any entry in ``tripwire_history`` is missing a required key
+    produced by :func:`evaluate_probe_bank_tripwires` or if any entry in ``completed_windows``
+    is missing ``"pass"``.
+    """
+    for w in completed_windows:
+        _ = w["pass"]
+    for t in tripwire_history:
+        for req_k in REQUIRED_PROBE_TRIPWIRE_KEYS:
+            _ = t[req_k]
+
+    all_windows_pass = all(bool(w["pass"]) for w in completed_windows)
+    all_probe_tripwires_pass = bool(
+        tripwire_history and all(bool(t["all_pass"]) for t in tripwire_history)
+    )
+    any_probe_fault_or_drift = any(
+        (not bool(t["decile_tripwire_pass"]))
+        or (not bool(t["boost_tripwire_pass"]))
+        or (not bool(t["all_q_finite"]))
+        or (int(t["illegal_action_count"]) > 0)
+        for t in tripwire_history
+    )
+    fault_or_drift_tripwire_failed = bool(
+        int(updates_completed) < int(total_updates)
+        or not all_windows_pass
+        or not bool(delivered_boost_band_pass)
+        or int(non_finite_loss_count) > 0
+        or int(non_finite_q_count) > 0
+        or int(non_finite_grad_count) > 0
+        or int(illegal_action_count) > 0
+        or any_probe_fault_or_drift
+    )
+
+    if runaway_guard_reached:
+        return VERDICT_RUNAWAY_GUARD_STOP
+    if fault_or_drift_tripwire_failed:
+        return VERDICT_TRIPWIRE_STOP
+    if bool(stop_ego2s_bv8_inputs_insufficient):
+        return VERDICT_INPUTS_INSUFFICIENT
+    if tripwire_breached or not all_probe_tripwires_pass:
+        return VERDICT_TRIPWIRE_STOP
+    return VERDICT_PROCEED_TO_GATE_B1
+
 
 DEFAULT_LEARNING_RATE = 3e-5
 DEFAULT_MAX_GRAD_NORM = 10.0
@@ -1265,10 +1366,17 @@ def run_sitl_training(
         optimizer.step()
         updates_completed = int(next_u)
 
+        req_for_u = required_unique_rescues_for_update(
+            updates_completed,
+            warmup_rescue_roots=int(warmup_rescue_roots),
+            min_unique_rescue_roots=int(min_unique_rescue_roots),
+            total_updates=int(total_updates),
+        )
         update_history.append(
             {
                 "update": int(updates_completed),
                 "collection_steps": int(collection_steps),
+                "required_unique_rescue_roots": int(req_for_u),
                 "unique_mined_rescue_roots": len(unique_rescue_keys),
                 "unique_mined_rescue_episodes": len(unique_rescue_episode_keys),
                 "rescue_buffer_size": int(rescue_buf.size),
@@ -1307,14 +1415,8 @@ def run_sitl_training(
             _save_training_checkpoint(f"u{updates_completed:04d}")
             last_ckpt_wall = time.perf_counter()
 
-    max_steps_per_update_after_warmup = max(
-        1, int(max_collection_steps) // max(1, int(total_updates) * 2)
-    )
-
     try:
-        while updates_completed < int(total_updates) or len(unique_rescue_keys) < int(
-            min_unique_rescue_roots
-        ):
+        while updates_completed < int(total_updates):
             if tripwire_breached:
                 break
             if signal_requested["stop"]:
@@ -1336,7 +1438,8 @@ def run_sitl_training(
                     _save_training_checkpoint(f"u{updates_completed:04d}_s{collection_steps:06d}")
                 break
 
-            # Run learner updates if warmup and pacing targets are met
+            # Run learner updates strictly paced by required unique rescue roots (512 at update 1
+            # rising linearly to 5,000 at update 1,000); no step-count fallback.
             while (
                 updates_completed < int(total_updates)
                 and not tripwire_breached
@@ -1354,18 +1457,13 @@ def run_sitl_training(
                     and rescue_buf.size >= 1
                     and ordinary_buf.size >= 1
                 )
-                pacing_ok = (
-                    len(unique_rescue_keys) >= req_rescues
-                    or collection_steps >= next_u * max_steps_per_update_after_warmup
-                )
+                pacing_ok = len(unique_rescue_keys) >= req_rescues
                 if warmup_ok and pacing_ok:
                     _run_single_learner_update(next_u)
                 else:
                     break
 
-            if updates_completed >= int(total_updates) and len(unique_rescue_keys) >= int(
-                min_unique_rescue_roots
-            ):
+            if updates_completed >= int(total_updates):
                 break
             if tripwire_breached:
                 break
@@ -1663,34 +1761,22 @@ def run_sitl_training(
     all_probe_tripwires_pass = bool(
         tripwire_history and all(bool(t["all_pass"]) for t in tripwire_history)
     )
-    any_probe_fault_or_drift = any(
-        not bool(t.get("all_ordinary_deciles_pass", True))
-        or not bool(t.get("boost_ratio_pass", True))
-        or not bool(t.get("q_all_finite", True))
-        or not bool(t.get("all_actions_legal", True))
-        for t in tripwire_history
+    pilot_verdict = compute_step_b1b_pilot_verdict(
+        runaway_guard_reached=bool(runaway_guard_reached),
+        updates_completed=int(updates_completed),
+        total_updates=int(total_updates),
+        completed_windows=completed_windows,
+        delivered_boost_band_pass=bool(delivered_boost_band_pass),
+        non_finite_loss_count=int(non_finite_loss_count),
+        non_finite_q_count=int(non_finite_q_count),
+        non_finite_grad_count=int(non_finite_grad_count),
+        illegal_action_count=int(illegal_action_count),
+        tripwire_history=tripwire_history,
+        tripwire_breached=bool(tripwire_breached),
+        stop_ego2s_bv8_inputs_insufficient=bool(
+            aliasing_diag["stop_ego2s_bv8_inputs_insufficient"]
+        ),
     )
-    fault_or_drift_tripwire_failed = bool(
-        updates_completed < int(total_updates)
-        or not all_windows_pass
-        or not delivered_boost_band_pass
-        or non_finite_loss_count > 0
-        or non_finite_q_count > 0
-        or non_finite_grad_count > 0
-        or illegal_action_count > 0
-        or any_probe_fault_or_drift
-    )
-
-    if runaway_guard_reached:
-        pilot_verdict = VERDICT_RUNAWAY_GUARD_STOP
-    elif fault_or_drift_tripwire_failed:
-        pilot_verdict = VERDICT_TRIPWIRE_STOP
-    elif bool(aliasing_diag["stop_ego2s_bv8_inputs_insufficient"]):
-        pilot_verdict = VERDICT_INPUTS_INSUFFICIENT
-    elif tripwire_breached or not all_probe_tripwires_pass:
-        pilot_verdict = VERDICT_TRIPWIRE_STOP
-    else:
-        pilot_verdict = VERDICT_PROCEED_TO_GATE_B1
 
     elapsed_s = float(time.perf_counter() - t_start)
     result_summary: dict[str, Any] = {
@@ -1751,6 +1837,15 @@ def run_sitl_training(
             "ordinary_buffer_size": int(ordinary_buf.size),
             "ordinary_buffer_total_added": int(ordinary_buf.total_added),
         },
+        "update_pacing_schedule": [
+            {
+                "update": int(u["update"]),
+                "collection_steps": int(u["collection_steps"]),
+                "required_unique_rescue_roots": int(u["required_unique_rescue_roots"]),
+                "unique_mined_rescue_roots": int(u["unique_mined_rescue_roots"]),
+            }
+            for u in update_history
+        ],
         "rescue_quota_scoring": {
             "scored_metric": RESCUE_QUOTA_SCORING_METRIC,
             "scored_count": len(unique_rescue_keys),
@@ -1761,6 +1856,8 @@ def run_sitl_training(
                 len(unique_rescue_episode_keys) >= int(min_unique_rescue_roots)
             ),
             "registration_quote": RESCUE_QUOTA_REGISTRATION_QUOTES,
+            "registration_quote_line": 143,
+            "registration_verbatim_quotes": [dict(q) for q in REGISTRATION_VERBATIM_QUOTES],
         },
         "unconditional_fault_checks": {
             "non_finite_loss_count": int(non_finite_loss_count),
@@ -1813,25 +1910,19 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--ledger", type=Path, default=None)
     parser.add_argument("--input-dir", type=Path, default=None)
     parser.add_argument("--device", type=str, default="cpu")
-    parser.add_argument("--num-envs", type=int, default=REGISTERED_ENVS)
-    parser.add_argument("--total-updates", type=int, default=REGISTERED_TOTAL_UPDATES)
-    parser.add_argument("--warmup-rescue-roots", type=int, default=REGISTERED_WARMUP_RESCUE_ROOTS)
-    parser.add_argument(
-        "--min-unique-rescue-roots", type=int, default=REGISTERED_MIN_UNIQUE_RESCUE_ROOTS
-    )
-    parser.add_argument("--rescue-batch-size", type=int, default=REGISTERED_RESCUE_BATCH_SIZE)
-    parser.add_argument("--ordinary-batch-size", type=int, default=REGISTERED_ORDINARY_BATCH_SIZE)
-    parser.add_argument(
-        "--ordinary-uniform-half", type=int, default=REGISTERED_ORDINARY_UNIFORM_HALF
-    )
-    parser.add_argument(
-        "--ordinary-hard-neg-half", type=int, default=REGISTERED_ORDINARY_HARD_NEG_HALF
-    )
-    parser.add_argument("--branch-horizon", type=int, default=OPEN_STOP_BRANCH_HORIZON)
+    parser.add_argument("--num-envs", type=int, default=None)
+    parser.add_argument("--total-updates", type=int, default=None)
+    parser.add_argument("--warmup-rescue-roots", type=int, default=None)
+    parser.add_argument("--min-unique-rescue-roots", type=int, default=None)
+    parser.add_argument("--rescue-batch-size", type=int, default=None)
+    parser.add_argument("--ordinary-batch-size", type=int, default=None)
+    parser.add_argument("--ordinary-uniform-half", type=int, default=None)
+    parser.add_argument("--ordinary-hard-neg-half", type=int, default=None)
+    parser.add_argument("--branch-horizon", type=int, default=None)
     parser.add_argument("--learning-rate", type=float, default=DEFAULT_LEARNING_RATE)
-    parser.add_argument("--tripwire-interval", type=int, default=REGISTERED_TRIPWIRE_INTERVAL)
-    parser.add_argument("--decision-window-size", type=int, default=REGISTERED_DECISION_WINDOW_SIZE)
-    parser.add_argument("--checkpoint-every-updates", type=int, default=100)
+    parser.add_argument("--tripwire-interval", type=int, default=None)
+    parser.add_argument("--decision-window-size", type=int, default=None)
+    parser.add_argument("--checkpoint-every-updates", type=int, default=None)
     parser.add_argument("--checkpoint-every-seconds", type=float, default=900.0)
     parser.add_argument("--max-collection-steps", type=int, default=200_000)
     parser.add_argument("--max-wall-seconds", type=float, default=None)
@@ -1843,6 +1934,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
+    is_dry = bool(args.dry_run)
     summary = run_sitl_training(
         args.output_dir,
         probe_bank_path=args.probe_bank_path,
@@ -1851,25 +1943,69 @@ def main(argv: Sequence[str] | None = None) -> int:
         ledger_path=args.ledger,
         input_dir=args.input_dir,
         device=args.device,
-        num_envs=args.num_envs,
-        total_updates=args.total_updates,
-        warmup_rescue_roots=args.warmup_rescue_roots,
-        min_unique_rescue_roots=args.min_unique_rescue_roots,
-        rescue_batch_size=args.rescue_batch_size,
-        ordinary_batch_size=args.ordinary_batch_size,
-        ordinary_uniform_half=args.ordinary_uniform_half,
-        ordinary_hard_neg_half=args.ordinary_hard_neg_half,
-        branch_horizon=args.branch_horizon,
+        num_envs=args.num_envs if args.num_envs is not None else (4 if is_dry else REGISTERED_ENVS),
+        total_updates=(
+            args.total_updates
+            if args.total_updates is not None
+            else (4 if is_dry else REGISTERED_TOTAL_UPDATES)
+        ),
+        warmup_rescue_roots=(
+            args.warmup_rescue_roots
+            if args.warmup_rescue_roots is not None
+            else (1 if is_dry else REGISTERED_WARMUP_RESCUE_ROOTS)
+        ),
+        min_unique_rescue_roots=(
+            args.min_unique_rescue_roots
+            if args.min_unique_rescue_roots is not None
+            else (2 if is_dry else REGISTERED_MIN_UNIQUE_RESCUE_ROOTS)
+        ),
+        rescue_batch_size=(
+            args.rescue_batch_size
+            if args.rescue_batch_size is not None
+            else (2 if is_dry else REGISTERED_RESCUE_BATCH_SIZE)
+        ),
+        ordinary_batch_size=(
+            args.ordinary_batch_size
+            if args.ordinary_batch_size is not None
+            else (4 if is_dry else REGISTERED_ORDINARY_BATCH_SIZE)
+        ),
+        ordinary_uniform_half=(
+            args.ordinary_uniform_half
+            if args.ordinary_uniform_half is not None
+            else (2 if is_dry else REGISTERED_ORDINARY_UNIFORM_HALF)
+        ),
+        ordinary_hard_neg_half=(
+            args.ordinary_hard_neg_half
+            if args.ordinary_hard_neg_half is not None
+            else (2 if is_dry else REGISTERED_ORDINARY_HARD_NEG_HALF)
+        ),
+        branch_horizon=(
+            args.branch_horizon
+            if args.branch_horizon is not None
+            else (2 if is_dry else OPEN_STOP_BRANCH_HORIZON)
+        ),
         learning_rate=args.learning_rate,
-        tripwire_interval=args.tripwire_interval,
-        decision_window_size=args.decision_window_size,
-        checkpoint_every_updates=args.checkpoint_every_updates,
+        tripwire_interval=(
+            args.tripwire_interval
+            if args.tripwire_interval is not None
+            else (2 if is_dry else REGISTERED_TRIPWIRE_INTERVAL)
+        ),
+        decision_window_size=(
+            args.decision_window_size
+            if args.decision_window_size is not None
+            else (10 if is_dry else REGISTERED_DECISION_WINDOW_SIZE)
+        ),
+        checkpoint_every_updates=(
+            args.checkpoint_every_updates
+            if args.checkpoint_every_updates is not None
+            else (2 if is_dry else 100)
+        ),
         checkpoint_every_seconds=args.checkpoint_every_seconds,
         max_collection_steps=args.max_collection_steps,
         max_wall_seconds=args.max_wall_seconds,
         seed=args.seed,
         resume=not bool(args.no_resume),
-        dry_run=bool(args.dry_run),
+        dry_run=is_dry,
     )
     print(json.dumps(summary, indent=2, sort_keys=True))
     return 0
