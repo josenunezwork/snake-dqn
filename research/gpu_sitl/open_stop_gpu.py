@@ -13,6 +13,7 @@ Implements Step B1a (``M0-GPU-SITL-Preflight``) from
 
 from __future__ import annotations
 
+import os
 from contextlib import contextmanager
 from typing import Any, Iterator, Sequence
 
@@ -132,7 +133,12 @@ def _cpu_queue_flood(
     *,
     max_steps: int | None = None,
 ) -> torch.Tensor:
-    """CPU queue fallback for ``v8_device._flood``; delegates to CUDA/FakeTensor when not CPU."""
+    """CPU queue fallback for ``v8_device._flood``; raises if ever called on CUDA."""
+    if start.device.type == "cuda":
+        raise RuntimeError(
+            "_cpu_queue_flood must never be invoked on a CUDA tensor; "
+            "CUDA runs must use native flood_cuda kernels"
+        )
     if start.device.type != "cpu" or not v8_device._host_scalar_safe(start):
         return _ORIG_V8_FLOOD(start, blocked, cap, release, max_steps=max_steps)
     h, w = blocked.shape[-2:]
@@ -149,6 +155,91 @@ def _cpu_queue_flood(
     return torch.from_numpy(res)
 
 
+def verify_cuda_native_extensions(device: torch.device | str) -> dict[str, Any]:
+    """Fail closed on CUDA if native ``flood_cuda`` or ``vector_geometry`` is unavailable
+    or if CPU flood overrides are active."""
+    dev = torch.device(device)
+    if dev.type != "cuda":
+        return {
+            "device": str(dev),
+            "cuda_active": False,
+            "flood_cuda_loaded": False,
+            "vector_geometry_loaded": False,
+            "cpu_overrides_absent": bool(
+                v8_device._flood is _ORIG_V8_FLOOD
+                and ego_device._component_sizes is _ORIG_EGO_COMPONENTS
+            ),
+        }
+    if not torch.cuda.is_available() or torch.version.cuda is None:
+        raise RuntimeError("CUDA device requested but torch.cuda.is_available() is False")
+    if (
+        v8_device._flood is not _ORIG_V8_FLOOD
+        or ego_device._component_sizes is not _ORIG_EGO_COMPONENTS
+    ):
+        raise RuntimeError(
+            "CPU flood/component overrides are active while running on a CUDA device; "
+            "silent CPU fallback is forbidden"
+        )
+    geom_env = os.environ.get("GPU_SIM_VECTOR_GEOMETRY", "").strip().lower()
+    flood_env = os.environ.get("GPU_SIM_VECTOR_FLOOD", "").strip().lower()
+    if geom_env not in {"native", "exact"}:
+        raise RuntimeError(
+            f"GPU_SIM_VECTOR_GEOMETRY must be 'native' or 'exact' on CUDA, got {geom_env!r}"
+        )
+    if flood_env != "static":
+        raise RuntimeError(f"GPU_SIM_VECTOR_FLOOD must be 'static' on CUDA, got {flood_env!r}")
+    from research.gpu_sim_spike import flood_cuda, vector_geometry
+
+    flood_ext = flood_cuda._load()
+    vec_ext = vector_geometry._load_exact_extension()
+    if flood_ext is None or vec_ext is None:
+        raise RuntimeError(
+            f"Native CUDA extensions failed to load (flood_cuda={flood_ext!r}, "
+            f"vector_geometry={vec_ext!r}); silent fallback is forbidden"
+        )
+    return {
+        "device": str(dev),
+        "cuda_active": True,
+        "flood_cuda_loaded": True,
+        "vector_geometry_loaded": True,
+        "gpu_sim_vector_geometry": geom_env,
+        "gpu_sim_vector_flood": flood_env,
+        "cpu_overrides_absent": True,
+    }
+
+
+def select_a_star_nb_on_device(
+    root_q_t: torch.Tensor,
+    safe_mask: torch.Tensor,
+    bare_actions: torch.Tensor,
+) -> torch.Tensor:
+    """Compute ``a^*(s)`` on device matching :func:`evaluation_order_nb` (`open-stop-h32-nb`).
+
+    Order of preference among legal certified-safe actions (``safe_mask``):
+    1. ``bare`` action ``a_b8(s)`` if it is certified safe.
+    2. Highest-Q certified-safe non-boost action in ``{0, 1, 2}`` (ties broken by lowest index).
+    3. Highest-Q certified-safe boost action in ``{3, 4, 5}`` (ties broken by lowest index).
+    4. ``-1`` if no legal action is certified safe.
+    """
+    r_count = int(root_q_t.shape[0])
+    device = root_q_t.device
+    row_arange = torch.arange(r_count, device=device, dtype=torch.long)
+    bare_clamped = bare_actions.to(device=device, dtype=torch.long).clamp(0, 5)
+    bare_is_safe = safe_mask[row_arange, bare_clamped]
+    has_safe = safe_mask.any(dim=1)
+
+    safe_nb_mask = safe_mask.clone()
+    safe_nb_mask[:, 3:] = False
+    has_safe_nb = safe_nb_mask.any(dim=1, keepdim=True)
+    effective_safe_mask = torch.where(has_safe_nb, safe_nb_mask, safe_mask)
+    best_safe_nb_act = root_q_t.masked_fill(~effective_safe_mask, -torch.inf).argmax(dim=1)
+    return torch.where(
+        bare_is_safe,
+        bare_clamped,
+        torch.where(has_safe, best_safe_nb_act, torch.full_like(bare_clamped, -1)),
+    )
+
+
 @contextmanager
 def _maybe_cpu_fast_flood(enabled: bool) -> Iterator[None]:
     if not enabled:
@@ -158,6 +249,11 @@ def _maybe_cpu_fast_flood(enabled: bool) -> Iterator[None]:
     prev_comp = ego_device._component_sizes
 
     def _cpu_queue_components(sim: Any, rows: torch.Tensor, ttl: torch.Tensor) -> torch.Tensor:
+        if sim.device.type == "cuda":
+            raise RuntimeError(
+                "_cpu_queue_components must never be invoked on a CUDA simulator; "
+                "CUDA runs must use native flood_cuda.components"
+            )
         if sim.device.type != "cpu" or not ego_device._host_scalar_safe(rows):
             return _ORIG_EGO_COMPONENTS(sim, rows, ttl)
         n_rows, h, w = rows.shape[0], int(sim.grid_h), int(sim.grid_w)
@@ -402,7 +498,7 @@ def sync_runtime_from_cpu(
     device_policy.vector_prepared = bool(vector_prepared)
 
 
-@torch.no_grad()
+@torch.inference_mode()
 def compact_sim_and_policy(
     sim: DeviceSim,
     policy: DevicePolicy,
@@ -419,14 +515,53 @@ def compact_sim_and_policy(
     r2_cache.bump(sim)
 
     rt = policy.vector_runtime
+    if rt is not None:
+        for name in _VECTOR_RUNTIME_ENV_FIELDS:
+            val = getattr(rt, name, None)
+            if isinstance(val, torch.Tensor):
+                setattr(rt, name, val.index_select(0, keep_rows))
+        rt.E = new_e
+        rt.__class__ = FastDeviceVectorRuntime
+
+
+@torch.inference_mode()
+def concat_sims_and_policies(
+    sims: Sequence[DeviceSim],
+    policies: Sequence[DevicePolicy],
+) -> tuple[DeviceSim, DevicePolicy]:
+    """Concatenate multiple ``(sim, policy)`` snapshots along world dimension ``dim=0``."""
+    if not sims or len(sims) != len(policies):
+        raise ValueError("sims and policies must be non-empty sequences of equal length")
+    if len(sims) == 1:
+        out_sim = sims[0].clone()
+        out_pol = policies[0].repeat_interleave(1)
+        if out_pol.vector_runtime is not None:
+            out_pol.vector_runtime.__class__ = FastDeviceVectorRuntime
+        return out_sim, out_pol
+
+    out_sim = sims[0].clone()
+    out_pol = policies[0].repeat_interleave(1)
+    if out_pol.vector_runtime is not None:
+        out_pol.vector_runtime.__class__ = FastDeviceVectorRuntime
+
+    total_e = sum(int(s.E) for s in sims)
+    for name in _ENV_TENSOR_FIELDS:
+        vals = [getattr(s, name, None) for s in sims]
+        if all(isinstance(v, torch.Tensor) for v in vals):
+            setattr(out_sim, name, torch.cat(vals, dim=0))
+    out_sim.E = total_e
+    r2_cache.bump(out_sim)
+
+    out_rt = out_pol.vector_runtime
     for name in _VECTOR_RUNTIME_ENV_FIELDS:
-        val = getattr(rt, name, None)
-        if isinstance(val, torch.Tensor):
-            setattr(rt, name, val.index_select(0, keep_rows))
-    rt.E = new_e
+        vals = [getattr(p.vector_runtime, name, None) for p in policies]
+        if all(isinstance(v, torch.Tensor) for v in vals):
+            setattr(out_rt, name, torch.cat(vals, dim=0))
+    out_rt.E = total_e
+    return out_sim, out_pol
 
 
-@torch.no_grad()
+@torch.inference_mode()
 def evaluate_terminal_openness_device(sim: DeviceSim) -> dict[str, torch.Tensor]:
     """Evaluate the batched ``open-stop`` terminal openness predicate on ``sim.device``.
 
@@ -573,8 +708,10 @@ def batched_open_stop_h32(
     if branch_horizon < 1:
         raise ValueError("branch_horizon must be >= 1")
 
+    if sim.device.type == "cuda":
+        verify_cuda_native_extensions(sim.device)
     with _maybe_cpu_fast_flood(bool(cpu_fast_flood and sim.device.type == "cpu")):
-        return _batched_open_stop_h32_impl(
+        out = _batched_open_stop_h32_impl(
             sim,
             policy,
             world_seeds=world_seeds,
@@ -586,9 +723,11 @@ def batched_open_stop_h32(
             enable_r2=enable_r2,
             return_host_records=return_host_records,
         )
+    with torch.inference_mode(False):
+        return {k: (v.clone() if isinstance(v, torch.Tensor) else v) for k, v in out.items()}
 
 
-@torch.no_grad()
+@torch.inference_mode()
 def _batched_open_stop_h32_impl(
     sim: DeviceSim,
     policy: DevicePolicy,
@@ -762,19 +901,9 @@ def _batched_open_stop_h32_impl(
     bare_is_safe = safe_mask[row_arange, bare_clamped]
     has_safe = safe_mask.any(dim=1)
     has_unsafe = unsafe_mask.any(dim=1)
-    q_safe_masked = root_q_t.masked_fill(~safe_mask, -torch.inf)
-    best_safe_q_act = q_safe_masked.argmax(dim=1)
-    a_star_t = torch.where(
-        bare_is_safe,
-        bare_clamped,
-        torch.where(has_safe, best_safe_q_act, torch.full_like(bare_clamped, -1)),
-    )
+    a_star_t = select_a_star_nb_on_device(root_q_t, safe_mask, bare_clamped)
     rescue_mask = has_safe & (~bare_is_safe) & has_unsafe
-
-    safe_area_masked = torch.where(safe_mask, v8_area_mat, torch.full_like(v8_area_mat, -1))
-    best_area_vals, best_area_act = safe_area_masked.max(dim=1)
-    bare_area_vals = v8_area_mat[row_arange, bare_clamped]
-    ordinary_mask = has_safe & bare_is_safe & has_unsafe & (best_area_vals > bare_area_vals)
+    ordinary_mask = bare_is_safe
 
     roots_out: list[dict[str, Any]] = []
     if return_host_records:
@@ -890,7 +1019,6 @@ def _batched_open_stop_h32_impl(
         "root_q": root_q_t,
         "bare_actions": root_bare_t,
         "a_star_actions": a_star_t,
-        "re_rank_target_actions": best_area_act,
         "rescue_mask": rescue_mask,
         "ordinary_mask": ordinary_mask,
     }
@@ -1078,15 +1206,16 @@ def margin_loss_gradient_check(
 
     q = net(tac, strat, scalars)
     batch_idx = torch.arange(e_count, device=dev, dtype=torch.long)
+    bare_sel = bare_all.index_select(0, selected_rows)
     if a_star is not None:
         astar_full = torch.as_tensor(a_star, dtype=torch.long, device=dev)
         astar_t = astar_full.index_select(0, selected_rows)
         invalid_star = (astar_t < 0) | (astar_t >= 6) | (~safe_sel[batch_idx, astar_t.clamp(0, 5)])
         if bool(invalid_star.any().item()):
-            fallback_star = q.detach().masked_fill(~safe_sel, -torch.inf).argmax(dim=1)
+            fallback_star = select_a_star_nb_on_device(q.detach(), safe_sel, bare_sel)
             astar_t = torch.where(invalid_star, fallback_star, astar_t)
     else:
-        astar_t = q.detach().masked_fill(~safe_sel, -torch.inf).argmax(dim=1)
+        astar_t = select_a_star_nb_on_device(q.detach(), safe_sel, bare_sel)
 
     q_unsafe_masked = q.masked_fill(~unsafe_sel, -torch.inf)
     q_best_unsafe, a_unsafe_t = q_unsafe_masked.max(dim=1)
