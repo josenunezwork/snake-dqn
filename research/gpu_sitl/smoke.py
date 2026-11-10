@@ -942,10 +942,6 @@ def run_step_b1b_smoke(
     if Path(f"{result_file}.complete").is_file():
         raise FileExistsError(f"Refusing to overwrite completed smoke output at {result_file}")
     out_dir.mkdir(parents=True, exist_ok=True)
-    phases_dir = out_dir / "phases"
-    if not is_shakeout:
-        phases_dir.mkdir(parents=True, exist_ok=True)
-
     active_train_namespace = SHAKEOUT_SMOKE_NAMESPACE if is_shakeout else TRAIN_NAMESPACE
     completed_phases_log: list[dict[str, Any]] = []
     phase_seq = 0
@@ -968,7 +964,7 @@ def run_step_b1b_smoke(
         completed_phases_log.append(entry)
         if is_shakeout:
             return
-        partial_path = phases_dir / f"smoke_partial_{phase_seq:02d}_{phase_name}.json"
+        partial_path = out_dir / f"smoke_partial_{phase_seq:02d}_{phase_name}.json"
         if partial_path.exists() or Path(f"{partial_path}.complete").exists():
             raise FileExistsError(
                 f"Refusing to rewrite completed partial smoke file at {partial_path}"

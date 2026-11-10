@@ -4710,7 +4710,7 @@ def test_b1b_smoke_partial_phase_files_timeout_evidence_and_pilot_rejection(
         assert res["ok"] is True
         assert res["partial"] is False
         assert res["status"] == "PASS"
-        partial_files = sorted((out_ok / "phases").glob("smoke_partial_*.json"))
+        partial_files = sorted(out_ok.glob("smoke_partial_*.json"))
         assert len(partial_files) == 13
         prev_elapsed = 0.0
         for idx, pf in enumerate(partial_files, start=1):
@@ -4773,7 +4773,7 @@ def test_b1b_smoke_partial_phase_files_timeout_evidence_and_pilot_rejection(
             {"required_exports": list(SMOKE_REQUIRED_EXPORTS)}, post_records
         )
 
-    last_partial = sorted((fake_out / "phases").glob("smoke_partial_*.json"))[-1]
+    last_partial = sorted(fake_out.glob("smoke_partial_*.json"))[-1]
     with pytest.raises(ValueError, match="partial"):
         prepare_b1b_packet(
             tmp_path / "pkt_reject_partial_name",

@@ -1090,12 +1090,19 @@ def fast_v8_decide(
     )
 
 
+_ORIG_DEVICE_POLICY_EVALUATE = DevicePolicy.evaluate
+_ORIG_DEVICE_POLICY_ACTIONS = DevicePolicy.actions
+
+
 class FastDevicePolicy(DevicePolicy):
     """Bit-identical faster :class:`DevicePolicy` batching all 5 opponent slots per step."""
 
     @torch.inference_mode()
     def evaluate(self, sim: Any) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        if self.reference_bridge is not None:
+        if (
+            self.reference_bridge is not None
+            or DevicePolicy.evaluate is not _ORIG_DEVICE_POLICY_EVALUATE
+        ):
             return super().evaluate(sim)
         e = int(sim.E)
         rows = torch.stack(
@@ -1132,6 +1139,7 @@ class FastDevicePolicy(DevicePolicy):
         s_sim = int(sim.S)
         if (
             self.reference_bridge is not None
+            or DevicePolicy.actions is not _ORIG_DEVICE_POLICY_ACTIONS
             or len(self.opponent_networks) != s_sim - 1
             or any(k is not None for k in self.anchor_kinds)
             or any(net is None for net in self.opponent_networks)
