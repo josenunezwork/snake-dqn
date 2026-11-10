@@ -463,8 +463,7 @@ def harvest_probe32_bank(
 
     t0 = time.perf_counter()
     dev = ensure_cuda_initialized(device)
-    if dev.type == "cuda":
-        verify_cuda_native_extensions(dev)
+    native_extensions = verify_cuda_native_extensions(dev)
 
     is_shakeout = bool(shakeout or namespace_override is not None or seed_override is not None)
     eff_dry_run = bool(dry_run or is_shakeout)
@@ -1088,6 +1087,9 @@ def harvest_probe32_bank(
     meta_summary["elapsed_seconds"] = elapsed_s
     meta_summary["probe_bank_path"] = str(out_path)
     meta_summary["probe_bank_sha256"] = pt_sha256
+    meta_summary["native_extensions"] = native_extensions
+    meta_summary["declared_torch_cuda_arch_list"] = native_extensions.get("torch_cuda_arch_list")
+    meta_summary["effective_build_cuda_arch"] = native_extensions.get("effective_build_cuda_arch")
 
     meta_path = Path(f"{out_path}.meta.json")
     meta_sha256 = write_atomic_with_sha256(

@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import math
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -147,6 +148,69 @@ def write_json(path: Path, value: dict[str, Any]) -> None:
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+_PROBE_TICK_CKPT_RE = re.compile(r"\.t(\d+)\.ckpt\.pt$")
+_SITL_STATE_CKPT_RE = re.compile(r"^sitl_state_(?:sig_)?u(\d+)(?:_s(\d+))?\.pt$")
+
+
+def _probe_tick_ckpt_sort_key(path: Path) -> tuple[int, float]:
+    """Order probe tick checkpoints by parsed tick, with mtime only as last tie-break."""
+    match = _PROBE_TICK_CKPT_RE.search(path.name)
+    parsed_tick = int(match.group(1)) if match is not None else -1
+    return (parsed_tick, float(path.stat().st_mtime))
+
+
+def _load_verified_checkpoint_meta(meta_path: Path) -> dict[str, Any] | None:
+    """Return parsed JSON dict for a verified sitl_state_*.meta.json, or None if incomplete."""
+    if not (
+        meta_path.is_file()
+        and Path(f"{meta_path}.complete").is_file()
+        and Path(f"{meta_path}.sha256").is_file()
+    ):
+        return None
+    verify_file_sha256(meta_path, require_complete=True)
+    obj = json.loads(meta_path.read_text(encoding="utf-8"))
+    return obj if isinstance(obj, dict) else None
+
+
+def _collect_verified_training_checkpoint_metas(
+    ckpt_dir: Path,
+) -> list[tuple[tuple[int, int, float], Path, dict[str, Any]]]:
+    """Collect verified sitl_state_*.meta.json ordered by (updates, steps, mtime)."""
+    entries: list[tuple[tuple[int, int, float], Path, dict[str, Any]]] = []
+    for mf in ckpt_dir.glob("sitl_state_*.meta.json"):
+        m_obj = _load_verified_checkpoint_meta(mf)
+        if m_obj is None:
+            continue
+        key = (
+            int(m_obj.get("updates_completed", -1)),
+            int(m_obj.get("collection_steps", -1)),
+            float(mf.stat().st_mtime),
+        )
+        entries.append((key, mf, m_obj))
+    entries.sort(key=lambda item: item[0], reverse=True)
+    return entries
+
+
+def _training_ckpt_pt_sort_key(
+    cand_pt: Path,
+    meta_by_stem: dict[str, dict[str, Any]],
+) -> tuple[int, int, float]:
+    """Order sitl_state_*.pt by (updates_completed, collection_steps) from meta, then mtime."""
+    m_obj = meta_by_stem.get(cand_pt.stem)
+    if m_obj is not None:
+        return (
+            int(m_obj.get("updates_completed", -1)),
+            int(m_obj.get("collection_steps", -1)),
+            float(cand_pt.stat().st_mtime),
+        )
+    match = _SITL_STATE_CKPT_RE.match(cand_pt.name)
+    if match is not None:
+        updates_val = int(match.group(1))
+        steps_val = int(match.group(2)) if match.group(2) is not None else -1
+        return (updates_val, steps_val, float(cand_pt.stat().st_mtime))
+    return (-1, -1, float(cand_pt.stat().st_mtime))
+
+
 def _stage_prior_attempt_artifacts(
     prior_output_dir: Path,
     pkt_inputs_dir: Path,
@@ -200,35 +264,26 @@ def _stage_prior_attempt_artifacts(
             ckpt_dir = sroot / "checkpoints"
             if not ckpt_dir.is_dir():
                 continue
-            meta_files = sorted(
-                ckpt_dir.glob("sitl_state_*.meta.json"),
-                key=lambda p: p.stat().st_mtime,
-                reverse=True,
-            )
-            for mf in meta_files:
-                if Path(f"{mf}.complete").is_file() and Path(f"{mf}.sha256").is_file():
-                    verify_file_sha256(mf, require_complete=True)
-                    m_obj = json.loads(mf.read_text(encoding="utf-8"))
-                    if m_obj.get("namespace") and m_obj.get("namespace") != TRAIN_NAMESPACE:
-                        raise ValueError(
-                            f"Foreign namespace in checkpoint meta {mf}: "
-                            f"{m_obj.get('namespace')!r}"
-                        )
-                    if m_obj.get("probe_namespace", PROBE32_NAMESPACE) != PROBE32_NAMESPACE:
-                        raise ValueError(
-                            f"Foreign probe_namespace in checkpoint meta {mf}: "
-                            f"{m_obj.get('probe_namespace')!r}"
-                        )
-                    if isinstance(m_obj.get("world_seeds"), list) and m_obj["world_seeds"]:
-                        ledger["world_seeds"] = [int(s) for s in m_obj["world_seeds"]]
-                    for u in m_obj.get("verified_units", []):
-                        if isinstance(u, dict) and not any(
-                            existing.get("sha256") == u.get("sha256")
-                            for existing in ledger["verified_units"]
-                        ):
-                            ledger["verified_units"].append(dict(u))
-                    found_prior_ledger = True
-                    break
+            for _key, mf, m_obj in _collect_verified_training_checkpoint_metas(ckpt_dir):
+                if m_obj.get("namespace") and m_obj.get("namespace") != TRAIN_NAMESPACE:
+                    raise ValueError(
+                        f"Foreign namespace in checkpoint meta {mf}: " f"{m_obj.get('namespace')!r}"
+                    )
+                if m_obj.get("probe_namespace", PROBE32_NAMESPACE) != PROBE32_NAMESPACE:
+                    raise ValueError(
+                        f"Foreign probe_namespace in checkpoint meta {mf}: "
+                        f"{m_obj.get('probe_namespace')!r}"
+                    )
+                if isinstance(m_obj.get("world_seeds"), list) and m_obj["world_seeds"]:
+                    ledger["world_seeds"] = [int(s) for s in m_obj["world_seeds"]]
+                for u in m_obj.get("verified_units", []):
+                    if isinstance(u, dict) and not any(
+                        existing.get("sha256") == u.get("sha256")
+                        for existing in ledger["verified_units"]
+                    ):
+                        ledger["verified_units"].append(dict(u))
+                found_prior_ledger = True
+                break
             if found_prior_ledger:
                 break
 
@@ -267,7 +322,7 @@ def _stage_prior_attempt_artifacts(
             if ckpt_dir.is_dir():
                 tick_ckpts = sorted(
                     ckpt_dir.glob("probe32_bank.pt.t*.ckpt.pt"),
-                    key=lambda p: p.stat().st_mtime,
+                    key=_probe_tick_ckpt_sort_key,
                     reverse=True,
                 )
                 for tc in tick_ckpts:
@@ -333,9 +388,13 @@ def _stage_prior_attempt_artifacts(
             ckpt_dir = sroot / "checkpoints"
             if not ckpt_dir.is_dir():
                 continue
+            verified_metas = _collect_verified_training_checkpoint_metas(ckpt_dir)
+            meta_by_stem: dict[str, dict[str, Any]] = {
+                mf.name[: -len(".meta.json")]: m_obj for _key, mf, m_obj in verified_metas
+            }
             candidates = sorted(
                 ckpt_dir.glob("sitl_state_*.pt"),
-                key=lambda p: p.stat().st_mtime,
+                key=lambda p, m=meta_by_stem: _training_ckpt_pt_sort_key(p, m),
                 reverse=True,
             )
             for cand_pt in candidates:
@@ -540,15 +599,15 @@ def prepare_b1b_packet(
         base_sec = est_minutes * 60.0
         eff_sec = timeout_minutes * 60.0
     elif mode == "shakeout":
-        # Cheap dev-only L4 CUDA shake-out: short-canary <= 20 min, cap <= 1.0 L4 u at 1.54 u/h
-        # (7.5 min base / 15.0 min 2x timeout = 0.385 L4 u).
+        # Cheap dev-only L4 CUDA shake-out: short-canary <= 40 min (<= 30 min canary cap),
+        # cap <= 1.0 L4 u at 1.54 u/h (15.0 min base / 30.0 min 2x timeout = 0.77 L4 u).
         if pinned_hardware is not None and pinned_hardware != "L4":
             raise ValueError(
                 f"--mode shakeout requires requested_gpu='L4', got --gpu={pinned_hardware!r}"
             )
         pinned_hardware = "L4"
-        est_minutes = 7.5
-        timeout_minutes = 15.0
+        est_minutes = 15.0
+        timeout_minutes = 30.0
         a100_unit_cap = round((timeout_minutes * L4_RATE_UNITS_PER_HOUR) / 60.0 + 1e-9, 4)
         job_id = f"t34-gpu-sitl-b1b-shakeout-20261110-{attempt}"
         required_exports = list(SHAKEOUT_REQUIRED_EXPORTS)
@@ -556,8 +615,8 @@ def prepare_b1b_packet(
             "resume_exemption": {
                 "kind": "short-canary",
                 "reason": (
-                    "Step B1b dev-only L4 CUDA shake-out canary (<= 20 min, cap <= 1.0 L4 u); "
-                    "NOT EVIDENCE, no registered namespace read or scored"
+                    "Step B1b dev-only L4 CUDA shake-out canary (<= 30 min, short-canary <= 40 min,"
+                    " cap 0.77 <= 1.0 L4 u); NOT EVIDENCE, no registered namespace read or scored"
                 ),
             }
         }

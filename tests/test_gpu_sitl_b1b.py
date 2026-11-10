@@ -916,11 +916,13 @@ def test_review_answer7_verify_cuda_native_extensions_fails_closed(
     """Verify Review Answer 7(e) and Finding 4:
     verify_cuda_native_extensions('cuda') fails closed when env vars are missing/wrong or
     when flood_cuda._load() or vector_geometry._load_exact_extension() returns None."""
-    from research.gpu_sim_spike import flood_cuda, vector_geometry
+    from research.gpu_sim_spike import event_cuda, flood_cuda, vector_geometry
     from research.gpu_sitl.open_stop_gpu import verify_cuda_native_extensions
 
     monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda _dev=None: (8, 0))
     monkeypatch.setattr(torch.version, "cuda", "12.6")
+    monkeypatch.setattr(event_cuda, "_EXTENSION", object(), raising=False)
 
     # 1. Invalid GPU_SIM_VECTOR_GEOMETRY
     monkeypatch.setenv("GPU_SIM_VECTOR_GEOMETRY", "auto")
@@ -2558,8 +2560,9 @@ def test_prepare_shakeout_manifest_and_pilot_refuses_shakeout_result(
 ) -> None:
     """Verify Requirement A & B:
     1. `prepare_b1b_packet(..., mode='shakeout')` produces an L4 manifest (`gpu='L4'`,
-       `rate_units_per_hour=1.54`, `resume_exemption` `short-canary`, `timeout_minutes <= 20`,
-       `unit_cap <= 1.0`) accepted by `colab_canary.check` and `colab_supervisor.validate`.
+       `rate_units_per_hour=1.54`, `resume_exemption` `short-canary`, `est_minutes=15.0`,
+       `timeout_minutes=30.0 <= 40.0`, `unit_cap=0.77 <= 1.0`) accepted by `colab_canary.check`,
+       `colab_supervisor.validate`, and `dispatch.require_resume_policy`.
     2. `prepare_b1b_packet(..., mode='pilot')` refuses a shake-out result JSON (both under its
        `shakeout_result.json` filename and even if copied/renamed to `smoke_result.json`)."""
     import shutil
@@ -2568,6 +2571,7 @@ def test_prepare_shakeout_manifest_and_pilot_refuses_shakeout_result(
     from research.colab_cli import supervisor as colab_supervisor
     from research.gpu_sitl.preflight import resolve_product_checkpoints
     from research.gpu_sitl.prepare import ROOT, prepare_b1b_packet
+    from tools.ops.dispatch import require_resume_policy
 
     b8_path, opp_path = resolve_product_checkpoints()
     if not Path(b8_path).exists() or not Path(opp_path).exists():
@@ -2587,10 +2591,16 @@ def test_prepare_shakeout_manifest_and_pilot_refuses_shakeout_result(
     manifest = json.loads(Path(info_shake["manifest_path"]).read_text(encoding="utf-8"))
     assert manifest["requirements"]["gpu"] == "L4"
     assert manifest["requirements"]["allowed_gpus"] == ["L4"]
+    assert manifest["requirements"]["est_minutes"] == pytest.approx(15.0)
     assert "prefer" not in manifest["requirements"]
     assert manifest["budget"]["rate_units_per_hour"] == pytest.approx(1.54)
-    assert float(manifest["timeout_minutes"]) <= 20.0
+    assert float(manifest["timeout_minutes"]) == pytest.approx(30.0)
+    assert float(manifest["timeout_minutes"]) <= 40.0
+    assert float(manifest["budget"]["unit_cap"]) == pytest.approx(0.77)
     assert float(manifest["budget"]["unit_cap"]) <= 1.0
+    assert manifest["technical_envelope"]["base_seconds"] == pytest.approx(900.0)
+    assert manifest["technical_envelope"]["effective_seconds"] == pytest.approx(1800.0)
+    assert manifest["technical_envelope"]["registered_a100_unit_cap"] == pytest.approx(0.77)
     assert manifest["resume_exemption"]["kind"] == "short-canary"
     assert "resume" not in manifest
     assert manifest["env"]["GPU_SITL_MODE"] == "shakeout"
@@ -2600,9 +2610,10 @@ def test_prepare_shakeout_manifest_and_pilot_refuses_shakeout_result(
         "shakeout_result.json",
     ]
 
-    # Verify colab_canary.check and colab_supervisor.validate accept the manifest
-    # (using origin/main commit pin for git cat-file / job_device check before local commit)
+    # Verify colab_canary.check, colab_supervisor.validate, and dispatch.require_resume_policy
+    # accept the manifest
     manifest_for_val = dict(manifest)
+    require_resume_policy(manifest_for_val)
     colab_canary.check(manifest_for_val, ROOT)
     colab_supervisor.validate(manifest_for_val, ROOT)
 
@@ -2924,3 +2935,427 @@ def test_required_exports_accepted_by_supervisor_validate_export_inventory_and_r
     validate_export_inventory(manifest_pilot, inv_pilot_final)
     total_exported_bytes = sum(int(e["size"]) for e in inv_pilot_final)
     assert total_exported_bytes < int(manifest_pilot["max_export_bytes"])
+
+
+def test_b1b_smoke_reuses_mature_extension_worlds_state_identical(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Task 1: Verify that building the mature extension worlds once in run_step_b1b_smoke
+    and reusing them after run_mature_cohort_row_subset_parity produces a splice sim/policy
+    state that is tensor-equal to a fresh build_extension_worlds call."""
+    import research.gpu_sitl.smoke as smoke_mod
+    from research.gpu_sitl.open_stop_gpu import (
+        _ENV_TENSOR_FIELDS,
+        _VECTOR_RUNTIME_ENV_FIELDS,
+    )
+    from research.gpu_sitl.preflight import (
+        MATURE_EXTENSION_SPECS,
+        build_extension_worlds,
+        snapshot_worlds_to_device,
+    )
+    from research.gpu_sitl.smoke import (
+        CTDeviceSim,
+        run_mature_cohort_row_subset_parity,
+        run_step_b1b_smoke,
+    )
+
+    b8_path, opp_path = resolve_product_checkpoints()
+    if not Path(b8_path).exists() or not Path(opp_path).exists():
+        pytest.skip("b8-s3 or opponent checkpoint not present")
+
+    slice_indices = (0, 8)
+    specs = [MATURE_EXTENSION_SPECS[i] for i in slice_indices]
+
+    # 1. Build fresh reference worlds and snapshot with vector_prepared=False (splice path)
+    fresh_worlds, fresh_pol_tpl, _ = build_extension_worlds(
+        b8_path,
+        opp_path,
+        specs=specs,
+    )
+    fresh_splice_sim, fresh_splice_pol = snapshot_worlds_to_device(
+        fresh_worlds,
+        fresh_pol_tpl,
+        sim_cls=CTDeviceSim,
+        device=torch.device("cpu"),
+        vector_prepared=False,
+    )
+
+    # 2. Build shared worlds once, pass through run_mature_cohort_row_subset_parity
+    # (which uses vector_prepared=True internally), then snapshot with vector_prepared=False
+    reused_worlds, reused_pol_tpl, reused_meta = build_extension_worlds(
+        b8_path,
+        opp_path,
+        specs=specs,
+    )
+    parity_res = run_mature_cohort_row_subset_parity(
+        b8_path,
+        opp_path,
+        device="cpu",
+        slice_indices=slice_indices,
+        branch_horizon=2,
+        dry_run=True,
+        pre_built_extension_worlds=(reused_worlds, reused_pol_tpl, reused_meta),
+    )
+    assert parity_res["ok"] is True
+
+    reused_splice_sim, reused_splice_pol = snapshot_worlds_to_device(
+        reused_worlds,
+        reused_pol_tpl,
+        sim_cls=CTDeviceSim,
+        device=torch.device("cpu"),
+        vector_prepared=False,
+    )
+
+    # 3. Verify every sim tensor and vector_runtime tensor is bitwise tensor-equal
+    for field_name in _ENV_TENSOR_FIELDS:
+        t_fresh = getattr(fresh_splice_sim, field_name, None)
+        t_reused = getattr(reused_splice_sim, field_name, None)
+        if isinstance(t_fresh, torch.Tensor) and isinstance(t_reused, torch.Tensor):
+            assert torch.equal(t_fresh, t_reused), f"Splice sim tensor mismatch on {field_name}"
+
+    for vr_field in _VECTOR_RUNTIME_ENV_FIELDS:
+        v_fresh = getattr(fresh_splice_pol.vector_runtime, vr_field, None)
+        v_reused = getattr(reused_splice_pol.vector_runtime, vr_field, None)
+        if isinstance(v_fresh, torch.Tensor) and isinstance(v_reused, torch.Tensor):
+            assert torch.equal(
+                v_fresh, v_reused
+            ), f"Splice vector_runtime tensor mismatch on {vr_field}"
+
+    # 4. Verify run_step_b1b_smoke calls build_extension_worlds exactly once
+    build_calls: list[int] = []
+    orig_build = smoke_mod.build_extension_worlds
+
+    def _counting_build(*args: Any, **kwargs: Any) -> Any:
+        build_calls.append(1)
+        return orig_build(*args, **kwargs)
+
+    monkeypatch.setattr(smoke_mod, "build_extension_worlds", _counting_build)
+    smoke_res = run_step_b1b_smoke(
+        tmp_path / "smoke_single_build",
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+        num_envs=4,
+        branch_horizon=2,
+        parity_slice_indices=slice_indices,
+        bench_env_steps=1,
+        bench_label_batches=1,
+        bench_learner_updates=2,
+        dry_run=True,
+    )
+    assert len(build_calls) == 1
+    assert smoke_res["parity_check"]["ok"] is True
+
+
+def test_verify_cuda_native_extensions_scopes_arch_and_keys_cache_dir(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Task 2: Verify verify_cuda_native_extensions keeps validation of the declared/default
+    8.0;8.9;9.0 arch list, scopes TORCH_CUDA_ARCH_LIST to the active device's compute
+    capability from torch.cuda.get_device_capability during cpp_extension.load, keys
+    TORCH_EXTENSIONS_DIR by arch so scoped builds cannot collide with stale multi-arch
+    builds, records declared + effective arch, and fails loudly on unexpected capability."""
+    import os
+
+    import research.gpu_sitl.open_stop_gpu as open_stop_gpu_mod
+    from research.gpu_sim_spike import event_cuda, flood_cuda, vector_geometry
+    from research.gpu_sitl.open_stop_gpu import verify_cuda_native_extensions
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.version, "cuda", "12.6")
+    monkeypatch.setenv("GPU_SIM_VECTOR_GEOMETRY", "native")
+    monkeypatch.setenv("GPU_SIM_VECTOR_FLOOD", "static")
+    monkeypatch.setenv("TORCH_CUDA_ARCH_LIST", "8.0;8.9;9.0")
+    base_ext_dir = tmp_path / "torch_ext_cache"
+    monkeypatch.setenv("TORCH_EXTENSIONS_DIR", str(base_ext_dir))
+
+    seen_load_env: list[tuple[str, str, str]] = []
+
+    def _fake_flood_load() -> object:
+        seen_load_env.append(
+            (
+                "flood",
+                os.environ.get("TORCH_CUDA_ARCH_LIST", ""),
+                os.environ.get("TORCH_EXTENSIONS_DIR", ""),
+            )
+        )
+        return object()
+
+    def _fake_vec_load() -> object:
+        seen_load_env.append(
+            (
+                "vector",
+                os.environ.get("TORCH_CUDA_ARCH_LIST", ""),
+                os.environ.get("TORCH_EXTENSIONS_DIR", ""),
+            )
+        )
+        return object()
+
+    def _fake_event_load() -> object:
+        seen_load_env.append(
+            (
+                "event",
+                os.environ.get("TORCH_CUDA_ARCH_LIST", ""),
+                os.environ.get("TORCH_EXTENSIONS_DIR", ""),
+            )
+        )
+        return object()
+
+    monkeypatch.setattr(flood_cuda, "_load", _fake_flood_load)
+    monkeypatch.setattr(vector_geometry, "_load_exact_extension", _fake_vec_load)
+    monkeypatch.setattr(open_stop_gpu_mod, "_load_event_cuda_extension", _fake_event_load)
+    monkeypatch.setattr(event_cuda, "_EXTENSION", None, raising=False)
+
+    # 1. Capability (8, 0) -> A100: scopes build to "8.0" and gpu_sitl_sm_80
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda _d=None: (8, 0))
+    res_80 = verify_cuda_native_extensions("cuda")
+    assert res_80["declared_torch_cuda_arch_list"] == "8.0;8.9;9.0"
+    assert res_80["torch_cuda_arch_list"] == "8.0;8.9;9.0"
+    assert res_80["effective_build_cuda_arch"] == "8.0"
+    assert res_80["device_capability"] == [8, 0]
+    assert res_80["scoped_torch_extensions_dir"].endswith("gpu_sitl_sm_80")
+    assert res_80["event_cuda_loaded"] is True
+    # During load, TORCH_CUDA_ARCH_LIST was scoped to "8.0"
+    assert len(seen_load_env) == 3
+    for _kind, arch_during_load, ext_dir_during_load in seen_load_env:
+        assert arch_during_load == "8.0"
+        assert ext_dir_during_load.endswith("gpu_sitl_sm_80")
+    # After verify_cuda_native_extensions returns, declared TORCH_CUDA_ARCH_LIST is preserved
+    assert os.environ.get("TORCH_CUDA_ARCH_LIST") == "8.0;8.9;9.0"
+    assert os.environ.get("TORCH_EXTENSIONS_DIR", "").endswith("gpu_sitl_sm_80")
+
+    # 2. Capability (8, 9) -> L4: scopes build to "8.9" and a distinct cache dir gpu_sitl_sm_89
+    seen_load_env.clear()
+    monkeypatch.setenv("TORCH_EXTENSIONS_DIR", str(base_ext_dir))
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda _d=None: (8, 9))
+    res_89 = verify_cuda_native_extensions("cuda")
+    assert res_89["effective_build_cuda_arch"] == "8.9"
+    assert res_89["scoped_torch_extensions_dir"].endswith("gpu_sitl_sm_89")
+    assert res_89["scoped_torch_extensions_dir"] != res_80["scoped_torch_extensions_dir"]
+    for _kind, arch_during_load, ext_dir_during_load in seen_load_env:
+        assert arch_during_load == "8.9"
+        assert ext_dir_during_load.endswith("gpu_sitl_sm_89")
+
+    # 3. Capability (9, 0) -> H100: scopes build to "9.0" and gpu_sitl_sm_90
+    seen_load_env.clear()
+    monkeypatch.setenv("TORCH_EXTENSIONS_DIR", str(base_ext_dir))
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda _d=None: (9, 0))
+    res_90 = verify_cuda_native_extensions("cuda")
+    assert res_90["effective_build_cuda_arch"] == "9.0"
+    assert res_90["scoped_torch_extensions_dir"].endswith("gpu_sitl_sm_90")
+
+    # 4. Unexpected capabilities (e.g. T4 7.5 or A10G 8.6) must fail loudly
+    for bad_cap in ((7, 5), (8, 6), (10, 0)):
+        monkeypatch.setattr(torch.cuda, "get_device_capability", lambda _d=None, c=bad_cap: c)
+        with pytest.raises(RuntimeError, match="Unsupported CUDA compute capability"):
+            verify_cuda_native_extensions("cuda")
+
+    # 5. Missing arch from declared TORCH_CUDA_ARCH_LIST still fails loudly before build
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda _d=None: (8, 0))
+    monkeypatch.setenv("TORCH_CUDA_ARCH_LIST", "8.0;8.9")
+    with pytest.raises(RuntimeError, match="TORCH_CUDA_ARCH_LIST='8.0;8.9' is missing"):
+        verify_cuda_native_extensions("cuda")
+
+
+def test_stage_prior_attempt_artifacts_orders_by_tick_and_updates_steps_before_mtime(
+    tmp_path: Path,
+) -> None:
+    """Task 3 (Review Finding 2): In prepare._stage_prior_attempt_artifacts, choose the latest
+    probe tick checkpoint by parsed tick and the latest training checkpoint by
+    (updates_completed, collection_steps) from its .meta.json, with mtime only as last tie-break."""
+    import os
+
+    from research.gpu_sitl.prepare import _stage_prior_attempt_artifacts
+    from research.gpu_sitl.probe_bank import verify_file_sha256, write_atomic_with_sha256
+    from research.gpu_sitl.seed_check import PROBE32_NAMESPACE, TRAIN_NAMESPACE
+
+    prior_dir = tmp_path / "prior_attempt"
+    ckpt_dir = prior_dir / "checkpoints"
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
+
+    def _write_verified_bytes(path: Path, payload: bytes, mtime: float) -> str:
+        sha = write_atomic_with_sha256(
+            path,
+            lambda tmp, data=payload: Path(tmp).write_bytes(data),
+            write_complete_marker=True,
+        )
+        for p in (path, Path(f"{path}.sha256"), Path(f"{path}.complete")):
+            os.utime(p, (mtime, mtime))
+        return sha
+
+    def _write_verified_json(path: Path, obj: dict[str, Any], mtime: float) -> str:
+        data = (json.dumps(obj, indent=2, sort_keys=True) + "\n").encode("utf-8")
+        return _write_verified_bytes(path, data, mtime)
+
+    # 1. Create probe tick checkpoints with mtimes deliberately in REVERSE order:
+    # t0001 gets newest mtime (3000.0), t0002 gets 2000.0, t0003 gets oldest mtime (1000.0).
+    sha_t1 = _write_verified_bytes(
+        ckpt_dir / "probe32_bank.pt.t0001.ckpt.pt", b"probe-tick-1", mtime=3000.0
+    )
+    sha_t3 = _write_verified_bytes(
+        ckpt_dir / "probe32_bank.pt.t0003.ckpt.pt", b"probe-tick-3", mtime=1000.0
+    )
+    sha_t2 = _write_verified_bytes(
+        ckpt_dir / "probe32_bank.pt.t0002.ckpt.pt", b"probe-tick-2", mtime=2000.0
+    )
+    assert len({sha_t1, sha_t2, sha_t3}) == 3
+
+    # 2. Create training checkpoints where mtimes are deliberately in the WRONG order:
+    # - u0100_s000500: updates=100, steps=500, newest mtime=5000.0
+    # - u0100_s001205: updates=100, steps=1205, middle mtime=4000.0
+    # - u0200_s002100: updates=200, steps=2100, oldest mtime=1500.0
+    ckpt_specs = [
+        ("sitl_state_u0100_s000500", 100, 500, 5000.0, ["unit_u100_s500"]),
+        ("sitl_state_u0100_s001205", 100, 1205, 4000.0, ["unit_u100_s500", "unit_u100_s1205"]),
+        (
+            "sitl_state_u0200_s002100",
+            200,
+            2100,
+            1500.0,
+            ["unit_u100_s500", "unit_u100_s1205", "unit_u200_s2100"],
+        ),
+    ]
+    ckpt_shas: dict[str, str] = {}
+    for stem, upd, steps, mtime, unit_ids in ckpt_specs:
+        pt_path = ckpt_dir / f"{stem}.pt"
+        pt_sha = _write_verified_bytes(pt_path, f"payload-{stem}".encode("utf-8"), mtime=mtime)
+        ckpt_shas[stem] = pt_sha
+        meta_path = ckpt_dir / f"{stem}.meta.json"
+        _write_verified_json(
+            meta_path,
+            {
+                "namespace": TRAIN_NAMESPACE,
+                "probe_namespace": PROBE32_NAMESPACE,
+                "updates_completed": upd,
+                "collection_steps": steps,
+                "sha256": pt_sha,
+                "world_seeds": [11, 22, 33, 44],
+                "verified_units": [{"unit_id": uid, "sha256": f"sha-{uid}"} for uid in unit_ids],
+            },
+            mtime=mtime,
+        )
+
+    # Case A: Stage with all 3 checkpoints present -> must pick t0003 and u0200_s002100
+    pkt_inputs_a = tmp_path / "pkt_a" / "inputs"
+    inputs_list_a: list[dict[str, str]] = []
+    ledger_a: dict[str, Any] = {"verified_units": []}
+    _stage_prior_attempt_artifacts(prior_dir, pkt_inputs_a, inputs_list_a, ledger_a)
+
+    assert ledger_a["probe32_harvest_ckpt"]["sha256"] == sha_t3
+    assert verify_file_sha256(pkt_inputs_a / "probe32_bank.pt.ckpt.pt") == sha_t3
+    assert ledger_a["resume_checkpoint"]["relpath"] == "sitl_state_u0200_s002100.pt"
+    assert ledger_a["resume_checkpoint"]["sha256"] == ckpt_shas["sitl_state_u0200_s002100"]
+    assert [u["unit_id"] for u in ledger_a["verified_units"]][:3] == [
+        "unit_u100_s500",
+        "unit_u100_s1205",
+        "unit_u200_s2100",
+    ]
+
+    # Case B: Remove u0200_s002100 -> must pick u0100_s001205 over u0100_s000500 by collection_steps
+    # even though u0100_s000500 has a newer mtime (5000.0 vs 4000.0)
+    for suffix in (
+        ".pt",
+        ".pt.sha256",
+        ".pt.complete",
+        ".meta.json",
+        ".meta.json.sha256",
+        ".meta.json.complete",
+    ):
+        (ckpt_dir / f"sitl_state_u0200_s002100{suffix}").unlink()
+
+    pkt_inputs_b = tmp_path / "pkt_b" / "inputs"
+    inputs_list_b: list[dict[str, str]] = []
+    ledger_b: dict[str, Any] = {"verified_units": []}
+    _stage_prior_attempt_artifacts(prior_dir, pkt_inputs_b, inputs_list_b, ledger_b)
+    assert ledger_b["resume_checkpoint"]["relpath"] == "sitl_state_u0100_s001205.pt"
+    assert ledger_b["resume_checkpoint"]["sha256"] == ckpt_shas["sitl_state_u0100_s001205"]
+    assert [u["unit_id"] for u in ledger_b["verified_units"]][:2] == [
+        "unit_u100_s500",
+        "unit_u100_s1205",
+    ]
+
+    # Case C: Tie-break by mtime when (updates_completed, collection_steps) are identical
+    tie_stem = "sitl_state_sig_u0100_s001205"
+    tie_sha = _write_verified_bytes(
+        ckpt_dir / f"{tie_stem}.pt", b"payload-tie-newer-mtime", mtime=9000.0
+    )
+    _write_verified_json(
+        ckpt_dir / f"{tie_stem}.meta.json",
+        {
+            "namespace": TRAIN_NAMESPACE,
+            "probe_namespace": PROBE32_NAMESPACE,
+            "updates_completed": 100,
+            "collection_steps": 1205,
+            "sha256": tie_sha,
+            "world_seeds": [11, 22, 33, 44],
+            "verified_units": [{"unit_id": "unit_tie", "sha256": "sha-tie"}],
+        },
+        mtime=9000.0,
+    )
+    pkt_inputs_c = tmp_path / "pkt_c" / "inputs"
+    inputs_list_c: list[dict[str, str]] = []
+    ledger_c: dict[str, Any] = {"verified_units": []}
+    _stage_prior_attempt_artifacts(prior_dir, pkt_inputs_c, inputs_list_c, ledger_c)
+    assert ledger_c["resume_checkpoint"]["relpath"] == f"{tie_stem}.pt"
+    assert ledger_c["resume_checkpoint"]["sha256"] == tie_sha
+
+
+def test_b1b_smoke_emits_per_phase_wall_time_stamps(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Task 5: Verify run_step_b1b_smoke logs per-phase PHASE_START and PHASE_END lines
+    with elapsed_s since process start and phase_s duration."""
+    from research.gpu_sitl.smoke import run_step_b1b_smoke
+
+    b8_path, opp_path = resolve_product_checkpoints()
+    if not Path(b8_path).exists() or not Path(opp_path).exists():
+        pytest.skip("b8-s3 or opponent checkpoint not present")
+
+    run_step_b1b_smoke(
+        tmp_path / "smoke_phase_logs",
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+        num_envs=4,
+        branch_horizon=2,
+        parity_slice_indices=(0, 8),
+        bench_env_steps=1,
+        bench_label_batches=1,
+        bench_learner_updates=2,
+        dry_run=True,
+    )
+    captured = capsys.readouterr().out
+    phase_lines = [
+        line for line in captured.splitlines() if line.startswith("[gpu_sitl.smoke] PHASE_")
+    ]
+    started_phases = [
+        line.split("phase=")[1].split()[0]
+        for line in phase_lines
+        if "PHASE_START" in line and "elapsed_s=" in line
+    ]
+    ended_phases = [
+        line.split("phase=")[1].split()[0]
+        for line in phase_lines
+        if "PHASE_END" in line and "elapsed_s=" in line and "phase_s=" in line
+    ]
+    expected_phases = {
+        "init_and_extensions",
+        "build_mature_extension_worlds",
+        "parity_check",
+        "parity_1_v8_flood",
+        "parity_2_components",
+        "parity_3_vector_runtime",
+        "parity_4_open_stop_h32",
+        "bundle_and_bench_warmup",
+        "bench_1_env_steps",
+        "mature_warmup_and_splice",
+        "bench_2_label_batches_and_rescue_rate",
+        "bench_3_probe32_scoring_suffixes",
+        "bench_4_learner_updates",
+        "write_outputs",
+    }
+    assert expected_phases <= set(started_phases)
+    assert expected_phases <= set(ended_phases)
