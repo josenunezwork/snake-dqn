@@ -13,6 +13,7 @@ Implements Step B1a (``M0-GPU-SITL-Preflight``) from
 
 from __future__ import annotations
 
+import copy
 import os
 from contextlib import contextmanager
 from typing import Any, Iterator, Sequence
@@ -155,10 +156,18 @@ def _cpu_queue_flood(
     return torch.from_numpy(res)
 
 
+def normalize_device(device: torch.device | str) -> torch.device:
+    """Normalize ``cuda`` -> ``cuda:0`` and ``mps`` -> ``mps:0`` for exact device comparison."""
+    dev = torch.device(device)
+    if dev.type in {"cuda", "mps"} and dev.index is None:
+        return torch.device(dev.type, 0)
+    return dev
+
+
 def verify_cuda_native_extensions(device: torch.device | str) -> dict[str, Any]:
     """Fail closed on CUDA if native ``flood_cuda`` or ``vector_geometry`` is unavailable
     or if CPU flood overrides are active."""
-    dev = torch.device(device)
+    dev = normalize_device(device)
     if dev.type != "cuda":
         return {
             "device": str(dev),
@@ -223,6 +232,7 @@ def select_a_star_nb_on_device(
     """
     r_count = int(root_q_t.shape[0])
     device = root_q_t.device
+    safe_mask = safe_mask.to(device=device, dtype=torch.bool)
     row_arange = torch.arange(r_count, device=device, dtype=torch.long)
     bare_clamped = bare_actions.to(device=device, dtype=torch.long).clamp(0, 5)
     bare_is_safe = safe_mask[row_arange, bare_clamped]
@@ -311,6 +321,7 @@ class FastDeviceVectorRuntime(DeviceVectorRuntime):
 
     def _free_space_for_rows(self, sim: Any, rows: torch.Tensor) -> torch.Tensor:
         assert self.params is not None
+        rows = torch.as_tensor(rows, dtype=torch.long, device=self.device).reshape(-1, 2)
         if not len(rows):
             return torch.zeros((0, 3), dtype=torch.float32, device=self.device)
         er, sr = rows[:, 0], rows[:, 1]
@@ -352,12 +363,13 @@ class FastDeviceVectorRuntime(DeviceVectorRuntime):
             starts,
             blocked,
             cap[:, None].expand(n, 3),
-            max_steps=FREE_SPACE_BFS_CAP - 1,
+            max_steps=FREE_SPACE_BFS_CAP,
         )
         return self._normalize_free(count, cap)
 
     def _features_for_rows(self, sim: Any, rows: torch.Tensor) -> torch.Tensor:
         assert self.params is not None
+        rows = torch.as_tensor(rows, dtype=torch.long, device=self.device).reshape(-1, 2)
         fs_rows = self._free_space_for_rows(sim, rows) if self.params.use_free_space else None
         fs_full = None
         if fs_rows is not None:
@@ -498,6 +510,147 @@ def sync_runtime_from_cpu(
     device_policy.vector_prepared = bool(vector_prepared)
 
 
+def move_device_policy_to_device(
+    policy: DevicePolicy,
+    device: str | torch.device,
+    *,
+    e_count: int | None = None,
+) -> DevicePolicy:
+    """Ensure ``policy``, its networks/tables, and ``policy.vector_runtime`` live on ``device``."""
+    target_dev = normalize_device(device)
+    if policy.device != target_dev:
+        policy.device = target_dev
+        policy.b8_network = copy.deepcopy(policy.b8_network).to(target_dev).eval()
+        memo: dict[int, torch.nn.Module] = {}
+        new_nets = []
+        for net in policy.opponent_networks:
+            if net is not None:
+                if id(net) not in memo:
+                    memo[id(net)] = copy.deepcopy(net).to(target_dev).eval()
+                net = memo[id(net)]
+            new_nets.append(net)
+        policy.opponent_networks = tuple(new_nets)
+        policy.anchor_tables = tuple(
+            t.to(target_dev) if isinstance(t, torch.Tensor) else t for t in policy.anchor_tables
+        )
+        if target_dev.type == "cuda":
+            torch.backends.cuda.matmul.allow_tf32 = False
+            torch.backends.cudnn.allow_tf32 = False
+            torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = False
+            torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = False
+            torch.set_float32_matmul_precision("highest")
+
+    rt = policy.vector_runtime
+    if rt is not None:
+        rt.device = target_dev
+        for attr in (
+            *_VECTOR_RUNTIME_ENV_FIELDS,
+            "_cpu_sector_lut",
+            "_free_ratio",
+            "fresh_rows",
+            "carried_rows",
+        ):
+            val = getattr(rt, attr, None)
+            if isinstance(val, torch.Tensor) and val.device != target_dev:
+                target_dtype = (
+                    torch.float32
+                    if target_dev.type == "mps" and val.dtype == torch.float64
+                    else val.dtype
+                )
+                setattr(rt, attr, val.to(device=target_dev, dtype=target_dtype))
+        if (
+            e_count is not None
+            and isinstance(getattr(rt, "controlled", None), torch.Tensor)
+            and int(rt.controlled.shape[0]) != int(e_count)
+        ):
+            src_e = int(rt.controlled.shape[0])
+            keep_rows = torch.arange(int(e_count), device=target_dev, dtype=torch.long) % max(
+                1, src_e
+            )
+            for attr in _VECTOR_RUNTIME_ENV_FIELDS:
+                val = getattr(rt, attr, None)
+                if isinstance(val, torch.Tensor):
+                    setattr(rt, attr, val.index_select(0, keep_rows).clone())
+            rt.E = int(e_count)
+        rt.__class__ = FastDeviceVectorRuntime
+    return policy
+
+
+def assert_sim_and_policy_on_device(
+    sim: DeviceSim,
+    policy: DevicePolicy,
+    expected_device: str | torch.device | None = None,
+) -> None:
+    """Fail closed if any tensor or module in ``sim`` or ``policy`` is off ``expected_device``."""
+    dev = (
+        normalize_device(expected_device)
+        if expected_device is not None
+        else normalize_device(sim.device)
+    )
+    if sim.device != dev:
+        raise RuntimeError(f"sim.device mismatch: expected {dev}, got {sim.device}")
+    for name in _ENV_TENSOR_FIELDS:
+        val = getattr(sim, name, None)
+        if isinstance(val, torch.Tensor) and val.device != dev:
+            raise RuntimeError(f"sim.{name} device mismatch: expected {dev}, got {val.device}")
+    if policy.device != dev:
+        raise RuntimeError(f"policy.device mismatch: expected {dev}, got {policy.device}")
+    for pname, p in policy.b8_network.named_parameters():
+        if p.device != dev:
+            raise RuntimeError(
+                f"policy.b8_network.{pname} device mismatch: expected {dev}, got {p.device}"
+            )
+    for bname, b in policy.b8_network.named_buffers():
+        if b.device != dev:
+            raise RuntimeError(
+                f"policy.b8_network.{bname} device mismatch: expected {dev}, got {b.device}"
+            )
+    for idx, net in enumerate(policy.opponent_networks):
+        if net is None:
+            continue
+        for pname, p in net.named_parameters():
+            if p.device != dev:
+                raise RuntimeError(
+                    f"policy.opponent_networks[{idx}].{pname} device mismatch: "
+                    f"expected {dev}, got {p.device}"
+                )
+        for bname, b in net.named_buffers():
+            if b.device != dev:
+                raise RuntimeError(
+                    f"policy.opponent_networks[{idx}].{bname} device mismatch: "
+                    f"expected {dev}, got {b.device}"
+                )
+    for idx, tbl in enumerate(policy.anchor_tables):
+        if isinstance(tbl, torch.Tensor) and tbl.device != dev:
+            raise RuntimeError(
+                f"policy.anchor_tables[{idx}] device mismatch: expected {dev}, got {tbl.device}"
+            )
+    rt = policy.vector_runtime
+    if rt is not None:
+        if rt.device != dev:
+            raise RuntimeError(
+                f"policy.vector_runtime.device mismatch: expected {dev}, got {rt.device}"
+            )
+        for attr in (
+            *_VECTOR_RUNTIME_ENV_FIELDS,
+            "_cpu_sector_lut",
+            "_free_ratio",
+            "fresh_rows",
+            "carried_rows",
+        ):
+            val = getattr(rt, attr, None)
+            if isinstance(val, torch.Tensor) and val.device != dev:
+                raise RuntimeError(
+                    f"policy.vector_runtime.{attr} device mismatch: "
+                    f"expected {dev}, got {val.device}"
+                )
+        if int(rt.controlled.shape[0]) != int(sim.E):
+            raise RuntimeError(
+                f"policy.vector_runtime.controlled E={int(rt.controlled.shape[0])} "
+                f"!= sim.E={int(sim.E)}"
+            )
+
+
 @torch.inference_mode()
 def compact_sim_and_policy(
     sim: DeviceSim,
@@ -505,12 +658,15 @@ def compact_sim_and_policy(
     keep_rows: torch.Tensor,
 ) -> None:
     """Compact ``sim`` and ``policy`` in-place to the 1-D row indices ``keep_rows``."""
-    keep_rows = keep_rows.to(device=sim.device, dtype=torch.long).reshape(-1)
+    target_dev = normalize_device(sim.device)
+    sim.device = target_dev
+    move_device_policy_to_device(policy, target_dev)
+    keep_rows = keep_rows.to(device=target_dev, dtype=torch.long).reshape(-1)
     new_e = int(keep_rows.numel())
     for name in _ENV_TENSOR_FIELDS:
         val = getattr(sim, name, None)
         if isinstance(val, torch.Tensor):
-            setattr(sim, name, val.index_select(0, keep_rows))
+            setattr(sim, name, val.to(target_dev).index_select(0, keep_rows))
     sim.E = new_e
     r2_cache.bump(sim)
 
@@ -519,9 +675,10 @@ def compact_sim_and_policy(
         for name in _VECTOR_RUNTIME_ENV_FIELDS:
             val = getattr(rt, name, None)
             if isinstance(val, torch.Tensor):
-                setattr(rt, name, val.index_select(0, keep_rows))
+                setattr(rt, name, val.to(target_dev).index_select(0, keep_rows))
         rt.E = new_e
         rt.__class__ = FastDeviceVectorRuntime
+    assert_sim_and_policy_on_device(sim, policy, target_dev)
 
 
 @torch.inference_mode()
@@ -532,23 +689,25 @@ def concat_sims_and_policies(
     """Concatenate multiple ``(sim, policy)`` snapshots along world dimension ``dim=0``."""
     if not sims or len(sims) != len(policies):
         raise ValueError("sims and policies must be non-empty sequences of equal length")
+    target_dev = normalize_device(sims[0].device)
     if len(sims) == 1:
         out_sim = sims[0].clone()
+        out_sim.device = target_dev
         out_pol = policies[0].repeat_interleave(1)
-        if out_pol.vector_runtime is not None:
-            out_pol.vector_runtime.__class__ = FastDeviceVectorRuntime
+        move_device_policy_to_device(out_pol, target_dev, e_count=int(out_sim.E))
+        assert_sim_and_policy_on_device(out_sim, out_pol, target_dev)
         return out_sim, out_pol
 
     out_sim = sims[0].clone()
+    out_sim.device = target_dev
     out_pol = policies[0].repeat_interleave(1)
-    if out_pol.vector_runtime is not None:
-        out_pol.vector_runtime.__class__ = FastDeviceVectorRuntime
+    move_device_policy_to_device(out_pol, target_dev)
 
     total_e = sum(int(s.E) for s in sims)
     for name in _ENV_TENSOR_FIELDS:
         vals = [getattr(s, name, None) for s in sims]
         if all(isinstance(v, torch.Tensor) for v in vals):
-            setattr(out_sim, name, torch.cat(vals, dim=0))
+            setattr(out_sim, name, torch.cat([v.to(target_dev) for v in vals], dim=0))
     out_sim.E = total_e
     r2_cache.bump(out_sim)
 
@@ -556,8 +715,9 @@ def concat_sims_and_policies(
     for name in _VECTOR_RUNTIME_ENV_FIELDS:
         vals = [getattr(p.vector_runtime, name, None) for p in policies]
         if all(isinstance(v, torch.Tensor) for v in vals):
-            setattr(out_rt, name, torch.cat(vals, dim=0))
+            setattr(out_rt, name, torch.cat([v.to(target_dev) for v in vals], dim=0))
     out_rt.E = total_e
+    assert_sim_and_policy_on_device(out_sim, out_pol, target_dev)
     return out_sim, out_pol
 
 
@@ -742,11 +902,12 @@ def _batched_open_stop_h32_impl(
     return_host_records: bool,
 ) -> dict[str, Any]:
     r_count = int(sim.E)
-    device = sim.device
+    device = normalize_device(sim.device)
     root_sim = sim.clone()
+    root_sim.device = device
     root_policy = policy.repeat_interleave(1)
-    if root_policy.vector_runtime is not None:
-        root_policy.vector_runtime.__class__ = FastDeviceVectorRuntime
+    move_device_policy_to_device(root_policy, device, e_count=r_count)
+    assert_sim_and_policy_on_device(root_sim, root_policy, device)
     if enable_r2:
         r2_cache.enable(root_sim)
     if not root_sim._prepared:
@@ -1075,7 +1236,7 @@ def margin_loss_gradient_check(
     freezing ``value.weight`` and ``value.bias`` via :func:`freeze_ego2s_value_head`
     and asserting finite, non-zero gradients on every non-value parameter tensor.
     """
-    dev = torch.device(device)
+    dev = normalize_device(device)
     net = load_ego2s_checkpoint(str(b8_checkpoint), device=dev)
     if not isinstance(net, Ego2sNet):
         raise TypeError(f"Expected Ego2sNet from {b8_checkpoint}, got {type(net)!r}")

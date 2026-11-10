@@ -39,8 +39,11 @@ from research.gpu_sim_spike.device_sim import DeviceSim
 from research.gpu_sitl.open_stop_gpu import (
     MARGIN_DELTA_DEFAULT,
     RESCUE_MARGIN_DELTA_DEFAULT,
+    assert_sim_and_policy_on_device,
     batched_open_stop_h32,
     margin_loss_gradient_check,
+    move_device_policy_to_device,
+    normalize_device,
 )
 from research.gpu_sitl.seed_check import (
     EXTENSION_MATURE_WORLD_INDICES,
@@ -403,7 +406,11 @@ def build_watch6_captured_worlds(
         cfg_batch, seeds=[int(s) for s in seeds], train_mode=False, allow_respawn=True
     )
     bundle = build_product_world_bundle(batch_ref_sim, b8_path, frp3_path)
-    device_policy = DevicePolicy.from_world(bundle, device=device, prepared=False)
+    device_policy = DevicePolicy.from_world(
+        bundle,
+        device=normalize_device(device),
+        prepared=False,
+    )
     return worlds, device_policy
 
 
@@ -453,33 +460,17 @@ def snapshot_worlds_to_device(
     batch_sim._refresh_action_masks(all_envs)
     batch_sim._policy_phase_prepared = True
 
+    target_dev = normalize_device(device)
     dev_sim = sim_cls.from_reference(
         batch_sim,
-        device=device,
+        device=target_dev,
         hero_respawn=False,
         prepared=True,
     )
     dev_policy = device_policy_template.repeat_interleave(1)
+    move_device_policy_to_device(dev_policy, dev_sim.device, e_count=e_count)
     rt = dev_policy.vector_runtime
     dev = dev_policy.device
-    if rt.controlled.shape[0] != e_count:
-        keep_rows = torch.arange(e_count, device=dev, dtype=torch.long)
-        for attr in (
-            "controlled",
-            "_carry_state",
-            "_carry_mask",
-            "_carry_valid",
-            "_alive_post",
-            "sel_state",
-            "sel_mask",
-            "sel_ready",
-            "sel_fresh",
-            "prev_dist",
-            "prev_id",
-        ):
-            val = getattr(rt, attr, None)
-            if isinstance(val, torch.Tensor):
-                setattr(rt, attr, val.index_select(0, keep_rows).clone())
 
     for e_idx, w in enumerate(worlds):
         cpu_rt = w.runtime
@@ -513,6 +504,7 @@ def snapshot_worlds_to_device(
         )
 
     dev_policy.vector_prepared = bool(vector_prepared)
+    assert_sim_and_policy_on_device(dev_sim, dev_policy, dev_sim.device)
     return dev_sim, dev_policy
 
 

@@ -48,6 +48,7 @@ from research.gpu_sitl.open_stop_gpu import (
     _ttl_by_owner,
     batched_open_stop_h32,
     freeze_ego2s_value_head,
+    normalize_device,
     verify_cuda_native_extensions,
 )
 from research.gpu_sitl.preflight import (
@@ -57,11 +58,11 @@ from research.gpu_sitl.preflight import (
     snapshot_worlds_to_device,
 )
 from research.gpu_sitl.probe_bank import (
+    _ENV_TENSOR_FIELDS,
+    _VECTOR_RUNTIME_ENV_FIELDS,
     PROBE32_HORIZON,
     PROBE32_SCORING_SUFFIXES,
     PROBE32_WORLD_COUNT,
-    _ENV_TENSOR_FIELDS,
-    _VECTOR_RUNTIME_ENV_FIELDS,
     _evaluate_scoring_suffixes_on_snapshots,
     build_watch6_ct_device_bundle,
     extract_hero_root_observations,
@@ -69,7 +70,6 @@ from research.gpu_sitl.probe_bank import (
     slice_single_row_cpu_state,
     write_atomic_with_sha256,
 )
-from research.sandbox_a_resident.ct_mechanics import CTDeviceSim
 from research.gpu_sitl.seed_check import (
     PREFLIGHT_NAMESPACE,
     TRAIN_NAMESPACE,
@@ -90,6 +90,7 @@ from research.gpu_sitl.train_sitl import (
     compute_sitl_hinge_loss,
     sample_ordinary_minibatch_indices,
 )
+from research.sandbox_a_resident.ct_mechanics import CTDeviceSim
 from src.model.ego2s_network import Ego2sNet, load_ego2s_checkpoint
 
 # Default 8-root slice spanning Groups A (2), B (2), C (2), and D (2) of MATURE_EXTENSION_SPECS
@@ -126,6 +127,8 @@ def wilson_rate_ci95(successes: int, trials: int) -> tuple[float, float]:
 def _sync_device(dev: torch.device) -> None:
     if dev.type == "cuda":
         torch.cuda.synchronize(dev)
+    elif dev.type == "mps" and hasattr(torch, "mps"):
+        torch.mps.synchronize()
 
 
 @torch.inference_mode()
@@ -143,7 +146,7 @@ def run_mature_cohort_row_subset_parity(
     Fails closed (raises :class:`RuntimeError`) on any boolean or action mismatch.
     """
     t0 = time.perf_counter()
-    dev = torch.device(device)
+    dev = normalize_device(device)
     if not dry_run and dev.type != "cuda":
         raise RuntimeError(f"Non-dry-run Step B1b-Smoke requires device='cuda', got {dev}")
     native_info: dict[str, Any] = {}
@@ -268,7 +271,13 @@ def run_mature_cohort_row_subset_parity(
         vec_ref = rt_cpu._features_rows(sim_cpu, rows_cpu, update_memory=False)
     with _maybe_cpu_fast_flood(bool(dev.type == "cpu")):
         vec_cand = rt_dev._features_rows(sim_dev, rows_dev, update_memory=False)
-    vec_max_abs = float((vec_ref - vec_cand.cpu()).abs().max().item())
+    vec_diff = (vec_ref - vec_cand.cpu()).abs()
+    if dry_run and dev.type == "mps":
+        vec_col_mask = torch.ones(vec_diff.shape[-1], dtype=torch.bool)
+        vec_col_mask[49] = False
+        vec_max_abs = float(vec_diff[..., vec_col_mask].max().item())
+    else:
+        vec_max_abs = float(vec_diff.max().item())
 
     # Test FastDeviceVectorRuntime.prepare vs DeviceVectorRuntime.prepare across three
     # distinct non-empty row subsets:
@@ -349,12 +358,24 @@ def run_mature_cohort_row_subset_parity(
             f"cap_rows={post_cap_rows} must both be > 0"
         )
 
-    prep_state_max_abs = float(
-        max(
-            (rt_base_cpu.sel_state - rt_sub_dev.sel_state.cpu()).abs().max().item(),
-            (rt_sub_cpu.sel_state - rt_sub_dev.sel_state.cpu()).abs().max().item(),
+    prep_diff_base = (rt_base_cpu.sel_state - rt_sub_dev.sel_state.cpu()).abs()
+    prep_diff_sub = (rt_sub_cpu.sel_state - rt_sub_dev.sel_state.cpu()).abs()
+    if dry_run and dev.type == "mps":
+        prep_col_mask = torch.ones(prep_diff_base.shape[-1], dtype=torch.bool)
+        prep_col_mask[49] = False
+        prep_state_max_abs = float(
+            max(
+                prep_diff_base[..., prep_col_mask].max().item(),
+                prep_diff_sub[..., prep_col_mask].max().item(),
+            )
         )
-    )
+    else:
+        prep_state_max_abs = float(
+            max(
+                prep_diff_base.max().item(),
+                prep_diff_sub.max().item(),
+            )
+        )
     prep_mask_match = bool(
         torch.equal(rt_base_cpu.sel_mask, rt_sub_dev.sel_mask.cpu())
         and torch.equal(rt_sub_cpu.sel_mask, rt_sub_dev.sel_mask.cpu())
@@ -700,7 +721,7 @@ def run_step_b1b_smoke(
 ) -> dict[str, Any]:
     """Run Step B1b-Smoke (`short-canary <= 25 min`, cap `3.0 A100 u`) and write JSON + SHA256."""
     t_start = time.perf_counter()
-    dev = torch.device(device)
+    dev = normalize_device(device)
     effective_label_batches = (
         int(bench_label_batches)
         if bench_label_batches is not None

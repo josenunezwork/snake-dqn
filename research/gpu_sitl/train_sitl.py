@@ -47,10 +47,13 @@ from research.gpu_sitl.open_stop_gpu import (
     ORDINARY_MARGIN_DELTA_DEFAULT,
     RESCUE_MARGIN_DELTA_DEFAULT,
     FastDeviceVectorRuntime,
+    assert_sim_and_policy_on_device,
     batched_open_stop_h32,
     compact_sim_and_policy,
     concat_sims_and_policies,
     freeze_ego2s_value_head,
+    move_device_policy_to_device,
+    normalize_device,
     verify_cuda_native_extensions,
 )
 from research.gpu_sitl.preflight import (
@@ -672,7 +675,9 @@ def _capture_sim_and_runtime_state(sim: Any, policy: Any) -> dict[str, Any]:
 
 @torch.inference_mode()
 def _restore_sim_and_runtime_state(sim: Any, policy: Any, state: dict[str, Any]) -> None:
-    dev = sim.device
+    dev = normalize_device(sim.device)
+    sim.device = dev
+    move_device_policy_to_device(policy, dev)
     sim_state = state["sim"]
     for name in _ENV_TENSOR_FIELDS:
         if name in sim_state and isinstance(getattr(sim, name, None), torch.Tensor):
@@ -693,6 +698,7 @@ def _restore_sim_and_runtime_state(sim: Any, policy: Any, state: dict[str, Any])
     rt.E = int(rt_state["E"])
     rt.__class__ = FastDeviceVectorRuntime
     policy.vector_prepared = bool(rt_state["vector_prepared"])
+    assert_sim_and_policy_on_device(sim, policy, dev)
 
 
 def _resolve_staged_input_file(
@@ -762,7 +768,7 @@ def run_sitl_training(
 ) -> dict[str, Any]:
     """Run the Step B1b online GPU SITL training loop (or dry-run on CPU)."""
     t_start = time.perf_counter()
-    dev = torch.device(device)
+    dev = normalize_device(device)
     if dev.type == "cuda":
         verify_cuda_native_extensions(dev)
 
