@@ -153,13 +153,12 @@ def build_watch6_ct_device_bundle(
     return dev_sim, dev_policy
 
 
-@torch.no_grad()
-def extract_hero_root_observations(
+@torch.inference_mode()
+def _extract_hero_root_observations_impl(
     sim: DeviceSim,
     *,
     cpu_fast_flood: bool = True,
 ) -> dict[str, torch.Tensor]:
-    """Extract ``ego2s-bv8`` hero observations and legal masks for all worlds in ``sim``."""
     e_count = int(sim.E)
     dev = sim.device
     if dev.type == "cuda":
@@ -205,7 +204,18 @@ def extract_hero_root_observations(
     }
 
 
-@torch.no_grad()
+def extract_hero_root_observations(
+    sim: DeviceSim,
+    *,
+    cpu_fast_flood: bool = True,
+) -> dict[str, torch.Tensor]:
+    """Extract ``ego2s-bv8`` hero observations and legal masks for all worlds in ``sim``."""
+    out = _extract_hero_root_observations_impl(sim, cpu_fast_flood=cpu_fast_flood)
+    with torch.inference_mode(False):
+        return {k: v.clone() for k, v in out.items()}
+
+
+@torch.inference_mode()
 def _evaluate_scoring_suffixes_on_snapshots(
     snapshots: Sequence[dict[str, Any]],
     *,
@@ -274,7 +284,7 @@ def _evaluate_scoring_suffixes_on_snapshots(
     return out_records
 
 
-@torch.no_grad()
+@torch.inference_mode()
 def harvest_probe32_bank(
     output_path: Path | str,
     *,

@@ -479,7 +479,7 @@ def sync_runtime_from_cpu(
     device_policy.vector_prepared = bool(vector_prepared)
 
 
-@torch.no_grad()
+@torch.inference_mode()
 def compact_sim_and_policy(
     sim: DeviceSim,
     policy: DevicePolicy,
@@ -503,7 +503,7 @@ def compact_sim_and_policy(
     rt.E = new_e
 
 
-@torch.no_grad()
+@torch.inference_mode()
 def concat_sims_and_policies(
     sims: Sequence[DeviceSim],
     policies: Sequence[DevicePolicy],
@@ -540,7 +540,7 @@ def concat_sims_and_policies(
     return out_sim, out_pol
 
 
-@torch.no_grad()
+@torch.inference_mode()
 def evaluate_terminal_openness_device(sim: DeviceSim) -> dict[str, torch.Tensor]:
     """Evaluate the batched ``open-stop`` terminal openness predicate on ``sim.device``.
 
@@ -690,7 +690,7 @@ def batched_open_stop_h32(
     if sim.device.type == "cuda":
         verify_cuda_native_extensions(sim.device)
     with _maybe_cpu_fast_flood(bool(cpu_fast_flood and sim.device.type == "cpu")):
-        return _batched_open_stop_h32_impl(
+        out = _batched_open_stop_h32_impl(
             sim,
             policy,
             world_seeds=world_seeds,
@@ -702,9 +702,14 @@ def batched_open_stop_h32(
             enable_r2=enable_r2,
             return_host_records=return_host_records,
         )
+    with torch.inference_mode(False):
+        return {
+            k: (v.clone() if isinstance(v, torch.Tensor) else v)
+            for k, v in out.items()
+        }
 
 
-@torch.no_grad()
+@torch.inference_mode()
 def _batched_open_stop_h32_impl(
     sim: DeviceSim,
     policy: DevicePolicy,

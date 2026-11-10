@@ -25,6 +25,14 @@ from research.gpu_sitl.probe_bank import (
     load_probe32_bank,
     verify_file_sha256,
 )
+from research.gpu_sitl.train_sitl import (
+    VERDICT_INPUTS_INSUFFICIENT,
+    SitlRingBuffer,
+    compute_sitl_hinge_loss,
+    evaluate_training_set_aliasing_diagnostic,
+    run_sitl_training,
+    sample_ordinary_minibatch_indices,
+)
 from research.gpu_sitl.seed_check import (
     CONTAMINATED_FORBIDDEN_DATA_NAMESPACES,
     PREFLIGHT_NAMESPACE,
@@ -384,3 +392,176 @@ def test_probe32_harvester_and_tripwire_evaluator(tmp_path: Path) -> None:
     assert tw_1000["decisive_rescue_agreement_rate"] == 0.0
     assert tw_1000["decisive_rescue_bar_pass"] is False
     assert tw_1000["all_pass"] is False
+
+
+def test_sitl_hinge_loss_hard_neg_sampler_and_aliasing_diagnostic() -> None:
+    """Verify the pure hinge sum loss, hard-negative priority sampler, and
+    STOP_EGO2S_BV8_INPUTS_INSUFFICIENT aliasing diagnostic."""
+    b8_path, _ = resolve_product_checkpoints()
+    if not Path(b8_path).exists():
+        pytest.skip("b8-s3 checkpoint not present")
+    from research.gpu_sitl.open_stop_gpu import freeze_ego2s_value_head
+    from src.model.ego2s_network import load_ego2s_checkpoint
+
+    device = torch.device("cpu")
+    net = load_ego2s_checkpoint(b8_path, device=device)
+    freeze_ego2s_value_head(net)
+
+    res_buf = SitlRingBuffer(capacity=16)
+    ord_buf = SitlRingBuffer(capacity=16)
+
+    for i in range(8):
+        loc = torch.full((7, 31, 31), i * 10, dtype=torch.uint8)
+        glb = torch.full((4, 37, 37), i * 5, dtype=torch.uint8)
+        sca = torch.zeros((60,), dtype=torch.float32)
+        leg = torch.ones((6,), dtype=torch.bool)
+        with torch.no_grad():
+            q_i = net(loc.unsqueeze(0), glb.unsqueeze(0), sca.unsqueeze(0)).squeeze(0)
+        bare_a = int(q_i.argmax().item())
+        a_star = (bare_a + 1) % 3
+        safe_res = torch.zeros((6,), dtype=torch.bool)
+        safe_res[a_star] = True
+        unsafe_res = leg & (~safe_res)
+        res_buf.add_single(
+            local_u8=loc,
+            global_u8=glb,
+            scalars_f32=sca,
+            legal_mask=leg,
+            safe_mask=safe_res,
+            unsafe_mask=unsafe_res,
+            bare_action=bare_a,
+            a_star_action=a_star,
+            world_seed=100 + i,
+            decision_frame=i,
+        )
+
+        safe_ord = torch.zeros((6,), dtype=torch.bool)
+        safe_ord[bare_a] = True
+        safe_ord[(bare_a + 1) % 6] = True
+        ord_buf.add_single(
+            local_u8=loc,
+            global_u8=glb,
+            scalars_f32=sca,
+            legal_mask=leg,
+            safe_mask=safe_ord,
+            unsafe_mask=leg & (~safe_ord),
+            bare_action=bare_a,
+            a_star_action=bare_a,
+            world_seed=200 + i,
+            decision_frame=i,
+        )
+
+    # At b8-s3 init: student picks bare_a on all rescue roots (0% rescue agreement < 80%)
+    # and picks bare_a on all ordinary states (0% ordinary flips <= 2.0%) -> triggers STOP_EGO2S_BV8_INPUTS_INSUFFICIENT
+    diag = evaluate_training_set_aliasing_diagnostic(
+        net,
+        res_buf,
+        ord_buf,
+        device=device,
+    )
+    assert diag["train_rescue_safe_agreement_rate"] == 0.0
+    assert diag["train_ordinary_flip_rate"] == 0.0
+    assert diag["stop_ego2s_bv8_inputs_insufficient"] is True
+    assert diag["verdict"] == VERDICT_INPUTS_INSUFFICIENT
+
+    # Test pure hinge loss + backward pass with value.* frozen
+    rng = np.random.default_rng(42)
+    ord_idx, hn_stats = sample_ordinary_minibatch_indices(
+        ord_buf,
+        net,
+        rng,
+        uniform_count=4,
+        hard_neg_count=4,
+        device=device,
+    )
+    assert len(ord_idx) == 8
+    assert hn_stats["uniform_sampled"] == 4
+
+    res_batch = res_buf.gather_batch(range(4), device)
+    ord_batch = ord_buf.gather_batch(ord_idx[:4], device)
+    net.train()
+    net.zero_grad(set_to_none=True)
+    loss_dict = compute_sitl_hinge_loss(net, res_batch, ord_batch)
+    assert bool(torch.isfinite(loss_dict["total_loss"]).item()) is True
+    assert float(loss_dict["loss_rescue"].item()) > 0.3002
+    assert abs(float(loss_dict["loss_ordinary"].item()) - 0.0632) < 0.0632 + 1.0
+    loss_dict["total_loss"].backward()
+    assert net.value.weight.grad is None
+    assert net.value.bias.grad is None
+    for name, p in net.named_parameters():
+        if not name.startswith("value."):
+            assert p.grad is not None
+            assert bool(torch.isfinite(p.grad).all().item()) is True
+
+
+def test_sitl_training_dry_run_and_resume_determinism(tmp_path: Path) -> None:
+    """Run dry-run SITL training uninterrupted vs paused+resumed and verify bit-identical results."""
+    b8_path, opp_path = resolve_product_checkpoints()
+    if not Path(b8_path).exists() or not Path(opp_path).exists():
+        pytest.skip("b8-s3 or opponent checkpoint not present")
+
+    probe_file = tmp_path / "shared_probe32_dry.pt"
+    harvest_probe32_bank(
+        probe_file,
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+        num_worlds=2,
+        horizon=4,
+        branch_horizon=2,
+        ordinary_per_world=3,
+        harvest_batch_roots=4,
+        dry_run=True,
+    )
+
+    common_kwargs = dict(
+        probe_bank_path=probe_file,
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+        num_envs=4,
+        total_updates=4,
+        warmup_rescue_roots=1,
+        min_unique_rescue_roots=2,
+        rescue_batch_size=2,
+        ordinary_batch_size=4,
+        ordinary_uniform_half=2,
+        ordinary_hard_neg_half=2,
+        branch_horizon=2,
+        tripwire_interval=2,
+        decision_window_size=10,
+        checkpoint_every_updates=2,
+        seed=20261109,
+        dry_run=True,
+    )
+
+    dir_uninterrupted = tmp_path / "run_uninterrupted"
+    res_full = run_sitl_training(dir_uninterrupted, **common_kwargs)
+    assert res_full["dry_run"] is True
+    assert res_full["evidence_class"] == "DRY_RUN_NON_EVIDENCE"
+    assert res_full["counts"]["updates_completed"] == 4
+    assert res_full["counts"]["unique_mined_rescue_roots"] >= 2
+    assert len(res_full["probe_bank_tripwires"]["history"]) == 2
+    assert Path(res_full["result_json_path"]).is_file()
+    assert verify_file_sha256(res_full["result_json_path"]) == res_full["result_json_sha256"]
+
+    # Run 2 updates, pause, then resume to 4 updates and verify bit-identical result
+    dir_resumed = tmp_path / "run_resumed"
+    res_part1 = run_sitl_training(dir_resumed, stop_after_updates=2, **common_kwargs)
+    assert res_part1["status"] == "PAUSED_FOR_RESUME"
+    assert res_part1["updates_completed"] == 2
+
+    res_part2 = run_sitl_training(dir_resumed, resume=True, **common_kwargs)
+    assert res_part2["resumed_from_checkpoint"] is not None
+    assert res_part2["counts"] == res_full["counts"]
+    assert (
+        res_part2["final_student_checkpoint_sha256"]
+        == res_full["final_student_checkpoint_sha256"]
+    )
+    assert res_part2["update_history"] == res_full["update_history"]
+    assert res_part2["probe_bank_tripwires"] == res_full["probe_bank_tripwires"]
+    assert (
+        res_part2["training_set_aliasing_diagnostic"]
+        == res_full["training_set_aliasing_diagnostic"]
+    )
+    assert res_part2["verdict"] == res_full["verdict"]
