@@ -733,7 +733,24 @@ def prepare_b1b_packet(
                     f"Refusing shake-out result {smoke_res_path} for --mode pilot: "
                     "shake-out outputs are NOT EVIDENCE and cannot size or gate the pilot"
                 )
+            if "partial" in smoke_res_path.name.lower():
+                raise ValueError(
+                    f"Refusing partial smoke result {smoke_res_path} for --mode pilot: "
+                    "partial smoke outputs are diagnostic-only and never count as a PASS"
+                )
             smoke_data = json.loads(smoke_res_path.read_text(encoding="utf-8"))
+            if (
+                bool(smoke_data.get("partial"))
+                or smoke_data.get("ok") is False
+                or smoke_data.get("pass") is False
+                or smoke_data.get("status") == "PARTIAL_IN_PROGRESS"
+                or smoke_data.get("evidence_class") == "PARTIAL_SMOKE_DIAGNOSTIC_NOT_PASS"
+            ):
+                raise ValueError(
+                    f"Refusing partial or non-passing smoke result {smoke_res_path} for "
+                    f"--mode pilot (status={smoke_data.get('status')!r}, "
+                    f"partial={smoke_data.get('partial')!r}, ok={smoke_data.get('ok')!r})"
+                )
             if (
                 smoke_data.get("schema") != "t34-gpu-sitl-b1b-smoke-result/v1"
                 or bool(smoke_data.get("shakeout"))

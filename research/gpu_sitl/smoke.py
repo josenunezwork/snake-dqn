@@ -53,6 +53,7 @@ from research.gpu_sitl.open_stop_gpu import (
     _ttl_by_owner,
     batched_open_stop_h32,
     ensure_cuda_initialized,
+    fast_v8_decide,
     freeze_ego2s_value_head,
     verify_cuda_native_extensions,
 )
@@ -180,6 +181,7 @@ def run_mature_cohort_row_subset_parity(
     dry_run: bool = False,
     pre_built_extension_worlds: tuple[list[Any], Any, list[dict[str, Any]]] | None = None,
     t_process_start: float | None = None,
+    on_phase_complete: Callable[[str, float, dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Compare device native kernels against pure-Torch CPU paths on mature cohort row subsets.
 
@@ -210,6 +212,8 @@ def run_mature_cohort_row_subset_parity(
             Path(b8_path),
             Path(opponent_path),
             specs=selected_specs,
+            cpu_featurizer_backend="python",
+            ego_raster_backend="numpy",
         )
         _log_smoke_phase(
             "PHASE_END",
@@ -274,6 +278,14 @@ def run_mature_cohort_row_subset_parity(
             float(OPEN_STOP_V8_LAMBDA),
             features=True,
         )
+        v8_fast_cand = fast_v8_decide(
+            sim_dev,
+            rows_dev,
+            q_sub_dev,
+            adv_sub_dev,
+            float(OPEN_STOP_V8_LAMBDA),
+            features=True,
+        )
 
     v8_action_match = bool(torch.equal(v8_ref.action, v8_cand.action.cpu()))
     v8_outcome_match = bool(torch.equal(v8_ref.outcome, v8_cand.outcome.cpu()))
@@ -287,6 +299,21 @@ def run_mature_cohort_row_subset_parity(
     v8_feat_max_abs = float(
         (v8_ref.feature_planes() - v8_cand.feature_planes().cpu()).abs().max().item()
     )
+    fast_v8_feat_max_abs = float(
+        (v8_ref.feature_planes() - v8_fast_cand.feature_planes().cpu()).abs().max().item()
+    )
+    fast_v8_parity_ok = bool(
+        torch.equal(v8_ref.action, v8_fast_cand.action.cpu())
+        and torch.equal(v8_ref.outcome, v8_fast_cand.outcome.cpu())
+        and torch.equal(v8_ref.counts, v8_fast_cand.counts.cpu())
+        and torch.equal(v8_ref.area, v8_fast_cand.area.cpu())
+        and torch.equal(v8_ref.cap, v8_fast_cand.cap.cpu())
+        and torch.equal(v8_ref.landing, v8_fast_cand.landing.cpu())
+        and torch.equal(v8_ref.spacious, v8_fast_cand.spacious.cpu())
+        and torch.equal(v8_ref.landing_ok, v8_fast_cand.landing_ok.cpu())
+        and torch.equal(v8_ref.head_risky, v8_fast_cand.head_risky.cpu())
+        and fast_v8_feat_max_abs <= 1e-6
+    )
     v8_parity_ok = bool(
         v8_action_match
         and v8_outcome_match
@@ -298,6 +325,7 @@ def run_mature_cohort_row_subset_parity(
         and v8_landing_ok_match
         and v8_head_risky_match
         and v8_feat_max_abs <= 1e-6
+        and fast_v8_parity_ok
     )
     if not v8_parity_ok:
         raise RuntimeError(
@@ -305,9 +333,17 @@ def run_mature_cohort_row_subset_parity(
             f"action={v8_action_match}, outcome={v8_outcome_match}, counts={v8_counts_match}, "
             f"area={v8_area_match}, cap={v8_cap_match}, landing={v8_landing_match}, "
             f"spacious={v8_spacious_match}, landing_ok={v8_landing_ok_match}, "
-            f"head_risky={v8_head_risky_match}, feat_max_abs={v8_feat_max_abs}"
+            f"head_risky={v8_head_risky_match}, feat_max_abs={v8_feat_max_abs}, "
+            f"fast_v8_parity_ok={fast_v8_parity_ok} (fast_feat_max_abs={fast_v8_feat_max_abs})"
         )
-    _log_smoke_phase("PHASE_END", "parity_1_v8_flood", proc_t0, phase_start=t_p1)
+    t_p1_end = _log_smoke_phase("PHASE_END", "parity_1_v8_flood", proc_t0, phase_start=t_p1)
+    p1_elapsed = max(0.0, t_p1_end - t_p1)
+    if on_phase_complete is not None:
+        on_phase_complete(
+            "parity_1_v8_flood",
+            p1_elapsed,
+            {"ok": v8_parity_ok, "fast_v8_decide_exact_match": fast_v8_parity_ok},
+        )
 
     # 2. Parity Check: flood_cuda.components via ego_device._component_sizes on row subsets
     t_p2 = _log_smoke_phase("PHASE_START", "parity_2_components", proc_t0)
@@ -321,7 +357,10 @@ def run_mature_cohort_row_subset_parity(
             "Step B1b-Smoke parity failure in flood_cuda.components / _component_sizes "
             f"on row subsets: ref={comp_ref.tolist()} vs cand={comp_cand.cpu().tolist()}"
         )
-    _log_smoke_phase("PHASE_END", "parity_2_components", proc_t0, phase_start=t_p2)
+    t_p2_end = _log_smoke_phase("PHASE_END", "parity_2_components", proc_t0, phase_start=t_p2)
+    p2_elapsed = max(0.0, t_p2_end - t_p2)
+    if on_phase_complete is not None:
+        on_phase_complete("parity_2_components", p2_elapsed, {"ok": comp_match})
 
     # 3. Parity Check: vector_geometry.exact_features_rows and FastDeviceVectorRuntime row subsets
     t_p3 = _log_smoke_phase("PHASE_START", "parity_3_vector_runtime", proc_t0)
@@ -461,9 +500,24 @@ def run_mature_cohort_row_subset_parity(
             f"prep_mask_match={prep_mask_match}, fresh_rows={post_fresh_rows}, "
             f"cap_rows={post_cap_rows}"
         )
-    _log_smoke_phase("PHASE_END", "parity_3_vector_runtime", proc_t0, phase_start=t_p3)
+    t_p3_end = _log_smoke_phase("PHASE_END", "parity_3_vector_runtime", proc_t0, phase_start=t_p3)
+    p3_elapsed = max(0.0, t_p3_end - t_p3)
+    if on_phase_complete is not None:
+        on_phase_complete(
+            "parity_3_vector_runtime",
+            p3_elapsed,
+            {
+                "ok": vec_parity_ok,
+                "features_rows_max_abs_diff": vec_max_abs,
+                "partial_prepare_sel_state_max_abs_diff": prep_state_max_abs,
+            },
+        )
 
-    # 4. Parity Check: batched_open_stop_h32 boolean certificates on the mature cohort slice
+    # 4. Parity Check: batched_open_stop_h32 boolean certificates on the mature cohort slice.
+    # Subphases 1-3 above already verify flood_cuda.flood, flood_cuda.components, and
+    # vector_geometry directly against pure-Torch cpu_fast_flood=False; here cpu_fast_flood=True
+    # produces bit-identical CPU integer areas/components while avoiding ~355 s of single-vCPU
+    # 160-step Python/Torch 2D padding wavefront loops across 48 x 32 steps.
     t_p4 = _log_smoke_phase("PHASE_START", "parity_4_open_stop_h32", proc_t0)
     slice_seeds = [int(w.seed) for w in worlds]
     slice_decisions = [int(w.sim.frame[0]) for w in worlds]
@@ -478,7 +532,7 @@ def run_mature_cohort_row_subset_parity(
         namespace=OPEN_STOP_CRN_NAMESPACE,
         compact_dead=True,
         enable_r2=True,
-        cpu_fast_flood=False,
+        cpu_fast_flood=True,
         return_host_records=False,
     )
     cert_cand = batched_open_stop_h32(
@@ -531,7 +585,20 @@ def run_mature_cohort_row_subset_parity(
             f"ordinary_mask={ordinary_mask_match}, bare_actions={bare_actions_match}, "
             f"a_star_actions={a_star_actions_match}"
         )
-    _log_smoke_phase("PHASE_END", "parity_4_open_stop_h32", proc_t0, phase_start=t_p4)
+    t_p4_end = _log_smoke_phase("PHASE_END", "parity_4_open_stop_h32", proc_t0, phase_start=t_p4)
+    p4_elapsed = max(0.0, t_p4_end - t_p4)
+    n_rescue_in_slice = int(cert_ref["rescue_mask"].sum().item())
+    n_ordinary_in_slice = int(cert_ref["ordinary_mask"].sum().item())
+    if on_phase_complete is not None:
+        on_phase_complete(
+            "parity_4_open_stop_h32",
+            p4_elapsed,
+            {
+                "ok": open_stop_parity_ok,
+                "num_rescue_roots_in_slice": n_rescue_in_slice,
+                "num_ordinary_roots_in_slice": n_ordinary_in_slice,
+            },
+        )
 
     return {
         "ok": True,
@@ -558,6 +625,8 @@ def run_mature_cohort_row_subset_parity(
             "landing_ok_match": v8_landing_ok_match,
             "head_risky_match": v8_head_risky_match,
             "feature_planes_max_abs_diff": v8_feat_max_abs,
+            "fast_v8_decide_exact_match": fast_v8_parity_ok,
+            "fast_v8_feature_planes_max_abs_diff": fast_v8_feat_max_abs,
         },
         "flood_cuda_components_row_subset": {
             "ok": comp_match,
@@ -584,8 +653,14 @@ def run_mature_cohort_row_subset_parity(
             "ordinary_mask_exact_match": ordinary_mask_match,
             "bare_actions_exact_match": bare_actions_match,
             "a_star_actions_exact_match": a_star_actions_match,
-            "num_rescue_roots_in_slice": int(cert_ref["rescue_mask"].sum().item()),
-            "num_ordinary_roots_in_slice": int(cert_ref["ordinary_mask"].sum().item()),
+            "num_rescue_roots_in_slice": n_rescue_in_slice,
+            "num_ordinary_roots_in_slice": n_ordinary_in_slice,
+        },
+        "subphase_timings_sec": {
+            "parity_1_v8_flood_sec": float(p1_elapsed),
+            "parity_2_components_sec": float(p2_elapsed),
+            "parity_3_vector_runtime_sec": float(p3_elapsed),
+            "parity_4_open_stop_h32_sec": float(p4_elapsed),
         },
         "elapsed_sec": time.perf_counter() - t0,
     }
@@ -775,6 +850,8 @@ def run_step_b1b_smoke(
     bench_env_steps: int = 32,
     bench_label_batches: int | None = None,
     bench_learner_updates: int = 20,
+    mature_warmup_steps_override: int | None = None,
+    probe_sample_roots_override: int | None = None,
     seed: int = 20261109,
     dry_run: bool = False,
     shakeout: bool = False,
@@ -797,6 +874,18 @@ def run_step_b1b_smoke(
             raise ValueError(
                 f"Non-dry-run Step B1b-Smoke requires E={REGISTERED_ENVS} and "
                 f"H={OPEN_STOP_BRANCH_HORIZON}, got E={num_envs}, H={branch_horizon}"
+            )
+        if mature_warmup_steps_override is not None and int(mature_warmup_steps_override) != int(
+            DEFAULT_CUDA_MATURE_WARMUP_STEPS
+        ):
+            raise ValueError(
+                f"Non-dry-run Step B1b-Smoke requires mature_warmup_steps="
+                f"{DEFAULT_CUDA_MATURE_WARMUP_STEPS}, got {mature_warmup_steps_override}"
+            )
+        if probe_sample_roots_override is not None and int(probe_sample_roots_override) != 64:
+            raise ValueError(
+                f"Non-dry-run Step B1b-Smoke requires probe_sample_roots=64, "
+                f"got {probe_sample_roots_override}"
             )
 
     if is_shakeout:
@@ -833,6 +922,68 @@ def run_step_b1b_smoke(
     if Path(f"{result_file}.complete").is_file():
         raise FileExistsError(f"Refusing to overwrite completed smoke output at {result_file}")
     out_dir.mkdir(parents=True, exist_ok=True)
+    phases_dir = out_dir / "phases"
+    if not is_shakeout:
+        phases_dir.mkdir(parents=True, exist_ok=True)
+
+    active_train_namespace = SHAKEOUT_SMOKE_NAMESPACE if is_shakeout else TRAIN_NAMESPACE
+    completed_phases_log: list[dict[str, Any]] = []
+    phase_seq = 0
+
+    def _record_phase_partial(
+        phase_name: str,
+        phase_elapsed_sec: float,
+        summary: dict[str, Any] | None = None,
+    ) -> None:
+        nonlocal phase_seq
+        phase_seq += 1
+        elapsed_total = max(0.0, time.perf_counter() - t_start)
+        entry = {
+            "phase_index": int(phase_seq),
+            "phase": str(phase_name),
+            "phase_elapsed_sec": float(phase_elapsed_sec),
+            "elapsed_since_start_sec": float(elapsed_total),
+            "summary": dict(summary or {}),
+        }
+        completed_phases_log.append(entry)
+        if is_shakeout:
+            return
+        partial_path = phases_dir / f"smoke_partial_{phase_seq:02d}_{phase_name}.json"
+        if partial_path.exists() or Path(f"{partial_path}.complete").exists():
+            raise FileExistsError(
+                f"Refusing to rewrite completed partial smoke file at {partial_path}"
+            )
+        partial_payload: dict[str, Any] = {
+            "schema": "t34-gpu-sitl-b1b-smoke-partial/v1",
+            "step": "Step B1b-Smoke",
+            "status": "PARTIAL_IN_PROGRESS",
+            "partial": True,
+            "ok": False,
+            "pass": False,
+            "dry_run": bool(is_non_prod),
+            "not_evidence": True,
+            "non_registration_evidence": True,
+            "evidence_class": "PARTIAL_SMOKE_DIAGNOSTIC_NOT_PASS",
+            "device": str(dev),
+            "train_namespace": active_train_namespace,
+            "preflight_namespace": PREFLIGHT_NAMESPACE,
+            "b8_checkpoint_sha256": b8_sha,
+            "opponent_checkpoint_sha256": opp_sha,
+            "phase_index": int(phase_seq),
+            "completed_phase": str(phase_name),
+            "phase_elapsed_sec": float(phase_elapsed_sec),
+            "elapsed_since_start_sec": float(elapsed_total),
+            "phase_summary": dict(summary or {}),
+            "completed_phases": list(completed_phases_log),
+        }
+        write_atomic_with_sha256(
+            partial_path,
+            lambda tmp, p=partial_payload: tmp.write_text(
+                json.dumps(p, indent=2, sort_keys=True, allow_nan=False) + "\n",
+                encoding="utf-8",
+            ),
+            write_complete_marker=True,
+        )
 
     if dev.type == "cuda":
         ensure_cuda_initialized(dev)
@@ -849,6 +1000,15 @@ def run_step_b1b_smoke(
             f"effective_arch={native_extensions.get('effective_build_cuda_arch')}"
         ),
     )
+    _record_phase_partial(
+        "init_and_extensions",
+        init_elapsed,
+        {
+            "device": str(dev),
+            "declared_torch_cuda_arch_list": native_extensions.get("torch_cuda_arch_list"),
+            "effective_build_cuda_arch": native_extensions.get("effective_build_cuda_arch"),
+        },
+    )
 
     # Build the mature extension worlds once and reuse across parity check and mature splice.
     t_ext_build = _log_smoke_phase("PHASE_START", "build_mature_extension_worlds", t_start)
@@ -859,6 +1019,8 @@ def run_step_b1b_smoke(
         b8_path,
         opp_path,
         specs=parity_specs,
+        cpu_featurizer_backend="python",
+        ego_raster_backend="numpy",
     )
     ext_build_elapsed = max(0.0, time.perf_counter() - t_ext_build)
     _log_smoke_phase(
@@ -867,6 +1029,11 @@ def run_step_b1b_smoke(
         t_start,
         phase_start=t_ext_build,
         detail=f"roots={len(ext_worlds_cpu)}",
+    )
+    _record_phase_partial(
+        "build_mature_extension_worlds",
+        ext_build_elapsed,
+        {"roots": len(ext_worlds_cpu), "slice_indices": [int(i) for i in parity_slice_indices]},
     )
 
     # (a) CUDA-vs-CPU parity check on row subsets against pure-Torch paths
@@ -880,7 +1047,9 @@ def run_step_b1b_smoke(
         dry_run=is_non_prod,
         pre_built_extension_worlds=(ext_worlds_cpu, ext_pol_tpl, ext_build_meta),
         t_process_start=t_start,
+        on_phase_complete=_record_phase_partial,
     )
+    parity_total_elapsed = max(0.0, time.perf_counter() - t_par)
     _log_smoke_phase(
         "PHASE_END",
         "parity_check",
@@ -888,13 +1057,20 @@ def run_step_b1b_smoke(
         phase_start=t_par,
         detail=f"ok={parity_report.get('ok')}",
     )
+    _record_phase_partial(
+        "parity_check",
+        parity_total_elapsed,
+        {
+            "ok": bool(parity_report.get("ok")),
+            "subphase_timings_sec": dict(parity_report.get("subphase_timings_sec") or {}),
+        },
+    )
     if not is_non_prod and not bool(parity_report.get("ok")):
         raise RuntimeError(f"Step B1b-Smoke CUDA-vs-CPU parity check failed: {parity_report}")
 
     # (b) Throughput and peak VRAM benchmark at E = num_envs (256 on A100; dev seeds on shakeout)
     t_bundle = _log_smoke_phase("PHASE_START", "bundle_and_bench_warmup", t_start)
     world_seeds = shakeout_smoke_seeds(int(num_envs)) if is_shakeout else train_seeds(int(num_envs))
-    active_train_namespace = SHAKEOUT_SMOKE_NAMESPACE if is_shakeout else TRAIN_NAMESPACE
     assert_allowed_training_seeds(
         namespace=active_train_namespace,
         seeds=world_seeds,
@@ -906,6 +1082,8 @@ def run_step_b1b_smoke(
         opp_path,
         device=dev,
         hero_respawn=True,
+        policy_template=ext_pol_tpl,
+        cpu_featurizer_backend="python",
     )
     student_net = load_ego2s_checkpoint(str(b8_path), device=dev)
     if not isinstance(student_net, Ego2sNet):
@@ -949,6 +1127,11 @@ def run_step_b1b_smoke(
         phase_start=t_bundle,
         detail=f"envs={num_envs}",
     )
+    _record_phase_partial(
+        "bundle_and_bench_warmup",
+        bundle_warmup_elapsed,
+        {"num_envs": int(num_envs), "branch_horizon": int(branch_horizon)},
+    )
 
     # Advance bare b8-s3 on train_seeds(num_envs) into mature mid-game traffic (600 frames on
     # CUDA) and splice mature cohort snapshots (L in [210, 823], L >= 160) BEFORE bench_1_env_steps
@@ -956,7 +1139,9 @@ def run_step_b1b_smoke(
     # rescue-rate statistics exclude spliced PREFLIGHT_NAMESPACE rows.
     t_warm0 = _log_smoke_phase("PHASE_START", "mature_warmup_and_splice", t_start)
     mature_warmup_steps = (
-        0 if dry_run or dev.type != "cuda" else int(DEFAULT_CUDA_MATURE_WARMUP_STEPS)
+        int(mature_warmup_steps_override)
+        if mature_warmup_steps_override is not None
+        else (0 if dry_run or dev.type != "cuda" else int(DEFAULT_CUDA_MATURE_WARMUP_STEPS))
     )
     for _ in range(mature_warmup_steps):
         with torch.inference_mode():
@@ -1021,6 +1206,14 @@ def run_step_b1b_smoke(
         phase_start=t_warm0,
         detail=f"warmup_steps={mature_warmup_steps} spliced={n_mature_splice}",
     )
+    _record_phase_partial(
+        "mature_warmup_and_splice",
+        mature_warmup_elapsed,
+        {
+            "mature_warmup_steps": int(mature_warmup_steps),
+            "mature_spliced_worlds": int(n_mature_splice),
+        },
+    )
 
     # Benchmark 1: env steps/s at E = num_envs on mature mid-game + spliced L >= 160 traffic
     _log_smoke_phase("PHASE_START", "bench_1_env_steps", t_start, detail=f"steps={bench_env_steps}")
@@ -1050,6 +1243,15 @@ def run_step_b1b_smoke(
         t_start,
         phase_start=t_env0,
         detail=f"env_steps_per_sec={env_steps_per_sec:.2f}",
+    )
+    _record_phase_partial(
+        "bench_1_env_steps",
+        env_elapsed,
+        {
+            "bench_env_steps": int(bench_env_steps),
+            "env_steps_per_sec": float(env_steps_per_sec),
+            "hero_decisions_per_sec": float(hero_decisions_per_sec),
+        },
     )
 
     # Re-apply mature splice before Benchmark 2 so label batches also start with alive L >= 160 rows
@@ -1127,21 +1329,20 @@ def run_step_b1b_smoke(
         glb_b = obs_b["global_u8"].detach().cpu()
         sca_b = obs_b["scalars_f32"].detach().cpu()
         leg_b = obs_b["legal_mask"].detach().cpu()
-        alive_b = obs_b["hero_alive"].detach().cpu()
-        len_b = obs_b["hero_length"].detach().cpu()
         safe_b = last_label_res["safe_mask"].detach().cpu()
         unsafe_b = last_label_res["unsafe_mask"].detach().cpu()
-        rescue_b = last_label_res["rescue_mask"].detach().cpu()
-        ordinary_b = last_label_res["ordinary_mask"].detach().cpu()
-        bare_b = last_label_res["bare_actions"].detach().cpu()
-        astar_b = last_label_res["a_star_actions"].detach().cpu()
+        alive_list = obs_b["hero_alive"].detach().cpu().tolist()
+        len_list = obs_b["hero_length"].detach().cpu().tolist()
+        rescue_list = last_label_res["rescue_mask"].detach().cpu().tolist()
+        ordinary_list = last_label_res["ordinary_mask"].detach().cpu().tolist()
+        bare_list = last_label_res["bare_actions"].detach().cpu().tolist()
+        astar_list = last_label_res["a_star_actions"].detach().cpu().tolist()
 
         for e_idx in range(int(num_envs)):
-            is_alive = bool(alive_b[e_idx].item())
-            if not is_alive:
+            if not alive_list[e_idx]:
                 in_rescue_run_by_env[e_idx] = False
                 continue
-            h_len = int(len_b[e_idx].item())
+            h_len = int(len_list[e_idx])
             if window_alive_decisions == 0 or h_len < window_min_hero_length:
                 window_min_hero_length = h_len
             if h_len > window_max_hero_length:
@@ -1153,7 +1354,7 @@ def run_step_b1b_smoke(
             if e_idx < online_env_start:
                 continue
             online_alive_hero_decisions += 1
-            if bool(rescue_b[e_idx].item()):
+            if rescue_list[e_idx]:
                 online_rescue_frame_count += 1
                 if not in_rescue_run_by_env[e_idx]:
                     online_rescue_episode_count += 1
@@ -1165,15 +1366,15 @@ def run_step_b1b_smoke(
                     legal_mask=leg_b[e_idx],
                     safe_mask=safe_b[e_idx],
                     unsafe_mask=unsafe_b[e_idx],
-                    bare_action=int(bare_b[e_idx].item()),
-                    a_star_action=int(astar_b[e_idx].item()),
+                    bare_action=int(bare_list[e_idx]),
+                    a_star_action=int(astar_list[e_idx]),
                     world_seed=int(world_seeds[e_idx]),
                     decision_frame=int(decs_now[e_idx]),
                     hard_neg_tier=0,
                 )
             else:
                 in_rescue_run_by_env[e_idx] = False
-                if bool(ordinary_b[e_idx].item()):
+                if ordinary_list[e_idx]:
                     ordinary_buf.add_single(
                         local_u8=loc_b[e_idx],
                         global_u8=glb_b[e_idx],
@@ -1181,21 +1382,23 @@ def run_step_b1b_smoke(
                         legal_mask=leg_b[e_idx],
                         safe_mask=safe_b[e_idx],
                         unsafe_mask=unsafe_b[e_idx],
-                        bare_action=int(bare_b[e_idx].item()),
-                        a_star_action=int(astar_b[e_idx].item()),
+                        bare_action=int(bare_list[e_idx]),
+                        a_star_action=int(astar_list[e_idx]),
                         world_seed=int(world_seeds[e_idx]),
                         decision_frame=int(decs_now[e_idx]),
                         hard_neg_tier=0,
                     )
         buf_insert_total_elapsed += max(0.0, time.perf_counter() - t_buf_step)
 
-        # Step bare b8-s3 trajectory forward 1 frame for next label batch
+        # Step bare b8-s3 trajectory forward 1 frame for next label batch; reuse
+        # last_label_res["bare_actions"] already evaluated on the prepared root sim.
         with torch.inference_mode():
-            _, _, bare_step_act = policy.evaluate(sim)
+            bare_step_act = last_label_res["bare_actions"]
             sim.step(policy.actions(sim, bare_step_act))
             policy.after_step(sim)
-            for e_idx in range(int(num_envs)):
-                if bool(sim._last_done[e_idx, 0].item()):
+            done_hero_list = sim._last_done[:, 0].detach().cpu().tolist()
+            for e_idx, is_done in enumerate(done_hero_list):
+                if is_done:
                     in_rescue_run_by_env[e_idx] = False
 
     lbl_elapsed = max(1e-9, lbl_total_elapsed)
@@ -1215,6 +1418,7 @@ def run_step_b1b_smoke(
     window_mature_length_ge_160_fraction = float(window_mature_length_ge_160_decisions) / float(
         max(1, window_alive_decisions)
     )
+    b2_phase_elapsed = max(0.0, time.perf_counter() - t_b2_phase)
     _log_smoke_phase(
         "PHASE_END",
         "bench_2_label_batches_and_rescue_rate",
@@ -1225,6 +1429,20 @@ def run_step_b1b_smoke(
             f"rescues={online_rescue_frame_count}/{online_alive_hero_decisions}"
         ),
     )
+    _record_phase_partial(
+        "bench_2_label_batches_and_rescue_rate",
+        b2_phase_elapsed,
+        {
+            "bench_label_batches": int(effective_label_batches),
+            "label_benchmark_sec": float(lbl_elapsed),
+            "buffer_insertion_sec": float(buf_insert_total_elapsed),
+            "label_batches_per_sec": float(label_batches_per_sec),
+            "six_branch_h32_root_labels_per_sec": float(root_labels_per_sec),
+            "measured_alive_hero_decisions": int(online_alive_hero_decisions),
+            "measured_rescue_frame_count": int(online_rescue_frame_count),
+            "measured_rescue_episode_count": int(online_rescue_episode_count),
+        },
+    )
 
     # Benchmark probe32 4-suffix scoring cost per candidate root using CPU 1-row snapshot slicing
     t_b3_phase = _log_smoke_phase("PHASE_START", "bench_3_probe32_scoring_suffixes", t_start)
@@ -1232,25 +1450,46 @@ def run_step_b1b_smoke(
         sim.prepare()
         policy.vector_runtime.prepare(sim)
         policy.vector_prepared = True
-    n_probe_sample = min(int(num_envs), 1 if is_shakeout else (2 if dry_run else 64))
+    default_probe_sample = 1 if is_shakeout else (2 if dry_run else 64)
+    n_probe_sample = min(
+        int(num_envs),
+        max(
+            1,
+            (
+                int(probe_sample_roots_override)
+                if probe_sample_roots_override is not None
+                else default_probe_sample
+            ),
+        ),
+    )
     obs_p = extract_hero_root_observations(sim, cpu_fast_flood=bool(dev.type == "cpu"))
     assert last_label_res is not None
+    p_dec_list = obs_p["decision_frame"][:n_probe_sample].detach().cpu().tolist()
+    p_len_list = obs_p["hero_length"][:n_probe_sample].detach().cpu().tolist()
+    p_loc_cpu = obs_p["local_u8"][:n_probe_sample].detach().cpu()
+    p_glb_cpu = obs_p["global_u8"][:n_probe_sample].detach().cpu()
+    p_sca_cpu = obs_p["scalars_f32"][:n_probe_sample].detach().cpu()
+    p_leg_cpu = obs_p["legal_mask"][:n_probe_sample].detach().cpu()
+    p_safe_cpu = last_label_res["safe_mask"][:n_probe_sample].detach().cpu()
+    p_bare_list = last_label_res["bare_actions"][:n_probe_sample].detach().cpu().tolist()
+    p_astar_list = last_label_res["a_star_actions"][:n_probe_sample].detach().cpu().tolist()
+    p_rootq_cpu = last_label_res["root_q"][:n_probe_sample].detach().cpu()
     sample_snaps: list[dict[str, Any]] = []
     for r_i in range(n_probe_sample):
         sample_snaps.append(
             {
                 "world_seed": int(label_world_seeds[r_i]),
                 "world_index": int(r_i),
-                "decision_frame": int(obs_p["decision_frame"][r_i].item()),
-                "hero_length": int(obs_p["hero_length"][r_i].item()),
-                "local_u8": obs_p["local_u8"][r_i].detach().cpu(),
-                "global_u8": obs_p["global_u8"][r_i].detach().cpu(),
-                "scalars_f32": obs_p["scalars_f32"][r_i].detach().cpu(),
-                "legal_mask": obs_p["legal_mask"][r_i].detach().cpu(),
-                "safe_mask_s0": last_label_res["safe_mask"][r_i].detach().cpu(),
-                "bare_action": int(last_label_res["bare_actions"][r_i].item()),
-                "a_star_action": int(last_label_res["a_star_actions"][r_i].item()),
-                "root_q_b8": last_label_res["root_q"][r_i].detach().cpu(),
+                "decision_frame": int(p_dec_list[r_i]),
+                "hero_length": int(p_len_list[r_i]),
+                "local_u8": p_loc_cpu[r_i],
+                "global_u8": p_glb_cpu[r_i],
+                "scalars_f32": p_sca_cpu[r_i],
+                "legal_mask": p_leg_cpu[r_i],
+                "safe_mask_s0": p_safe_cpu[r_i],
+                "bare_action": int(p_bare_list[r_i]),
+                "a_star_action": int(p_astar_list[r_i]),
+                "root_q_b8": p_rootq_cpu[r_i],
                 "row_state": slice_single_row_cpu_state(sim, policy, r_i),
             }
         )
@@ -1269,6 +1508,7 @@ def run_step_b1b_smoke(
     _sync_device(dev)
     probe_suf_elapsed = max(1e-9, time.perf_counter() - t_probe_suf0)
     probe32_scoring_suffix_sec_per_root = probe_suf_elapsed / float(max(1, n_probe_sample))
+    b3_phase_elapsed = max(0.0, time.perf_counter() - t_b3_phase)
     _log_smoke_phase(
         "PHASE_END",
         "bench_3_probe32_scoring_suffixes",
@@ -1276,15 +1516,25 @@ def run_step_b1b_smoke(
         phase_start=t_b3_phase,
         detail=f"sec_per_root={probe32_scoring_suffix_sec_per_root:.4f}",
     )
+    _record_phase_partial(
+        "bench_3_probe32_scoring_suffixes",
+        b3_phase_elapsed,
+        {
+            "probe_sample_roots": int(n_probe_sample),
+            "probe_scoring_benchmark_sec": float(probe_suf_elapsed),
+            "probe32_scoring_suffix_sec_per_root": float(probe32_scoring_suffix_sec_per_root),
+        },
+    )
 
-    # Benchmark 3: Learner updates/s (128 rescue + 128 ordinary with hard-negative mining)
+    # Benchmark 3: Learner updates/s (128 rescue + 128 ordinary with hard-negative mining).
+    # Reuse obs_p extracted on the unstepped prepared sim above instead of re-running hero obs.
     t_b4_phase = _log_smoke_phase(
         "PHASE_START",
         "bench_4_learner_updates",
         t_start,
         detail=f"updates={bench_learner_updates}",
     )
-    obs_fill = extract_hero_root_observations(sim, cpu_fast_flood=bool(dev.type == "cpu"))
+    obs_fill = obs_p
     loc_fill = obs_fill["local_u8"].detach().cpu()
     glb_fill = obs_fill["global_u8"].detach().cpu()
     sca_fill = obs_fill["scalars_f32"].detach().cpu()
@@ -1369,12 +1619,22 @@ def run_step_b1b_smoke(
     _sync_device(dev)
     upd_elapsed = max(1e-9, time.perf_counter() - t_upd0)
     updates_per_sec = float(bench_learner_updates) / upd_elapsed
+    b4_phase_elapsed = max(0.0, time.perf_counter() - t_b4_phase)
     _log_smoke_phase(
         "PHASE_END",
         "bench_4_learner_updates",
         t_start,
         phase_start=t_b4_phase,
         detail=f"updates_per_sec={updates_per_sec:.2f}",
+    )
+    _record_phase_partial(
+        "bench_4_learner_updates",
+        b4_phase_elapsed,
+        {
+            "bench_learner_updates": int(bench_learner_updates),
+            "learner_benchmark_sec": float(upd_elapsed),
+            "updates_per_sec": float(updates_per_sec),
+        },
     )
 
     # Restore student_net weights to initial b8-s3 after synthetic benchmark updates
@@ -1410,6 +1670,9 @@ def run_step_b1b_smoke(
             else "t34-gpu-sitl-b1b-smoke-result/v1"
         ),
         "step": "Step B1b-Smoke-Shakeout-Subphase" if is_shakeout else "Step B1b-Smoke",
+        "status": "PASS",
+        "ok": True,
+        "partial": False,
         "shakeout": is_shakeout,
         "not_evidence": bool(is_shakeout),
         "evidence_class": (
@@ -1438,6 +1701,7 @@ def run_step_b1b_smoke(
             "bench_env_steps": int(bench_env_steps),
             "bench_label_batches": int(effective_label_batches),
             "bench_learner_updates": int(bench_learner_updates),
+            "probe_sample_roots": int(n_probe_sample),
             "mature_warmup_steps": int(mature_warmup_steps),
             "mature_spliced_worlds": int(n_mature_splice),
             "window_min_hero_length": int(window_min_hero_length),
@@ -1473,6 +1737,7 @@ def run_step_b1b_smoke(
             "probe_scoring_benchmark_sec": float(probe_suf_elapsed),
             "learner_benchmark_sec": float(upd_elapsed),
         },
+        "completed_phases": completed_phases_log,
         "pilot_runaway_guard": runaway_guard,
         "elapsed_sec": time.perf_counter() - t_start,
     }

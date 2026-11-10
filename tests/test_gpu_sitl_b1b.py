@@ -4668,3 +4668,130 @@ def test_verify_cuda_native_extensions_parallel_cold_compile(
     monkeypatch.setattr(osg, "_load_move_cuda_extension", lambda: (calls.append("move"), "ext")[1])
     osg.verify_cuda_native_extensions(torch.device("cuda:0"))
     assert calls == ["flood", "vector", "event", "move"]
+
+
+def test_b1b_smoke_partial_phase_files_timeout_evidence_and_pilot_rejection(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Verify per-phase immutable partial exports survive timeouts and never count as PASS."""
+    import shutil
+
+    from research.colab_cli import runtime as colab_runtime
+    from research.colab_cli import schema as colab_schema
+    from research.gpu_sitl import smoke as smoke_mod
+    from research.gpu_sitl.prepare import SMOKE_REQUIRED_EXPORTS, prepare_b1b_packet
+    from research.gpu_sitl.probe_bank import verify_file_sha256, write_atomic_with_sha256
+
+    assert SMOKE_REQUIRED_EXPORTS == ("smoke_result.json",)
+
+    b8_path, opp_path = resolve_product_checkpoints()
+
+    # 1. Full dry-run smoke on CPU (and MPS if available): 13 create-only partial files + final PASS
+    devices = ["cpu"] + (["mps"] if torch.backends.mps.is_available() else [])
+    cpu_tp: dict[str, Any] | None = None
+    for dev_name in devices:
+        ctx = _mps_readonly_spike_compat() if dev_name == "mps" else contextlib.nullcontext()
+        out_ok = tmp_path / f"smoke_ok_{dev_name}"
+        with ctx:
+            res = smoke_mod.run_step_b1b_smoke(
+                out_ok,
+                b8_checkpoint=b8_path,
+                opponent_checkpoint=opp_path,
+                device=dev_name,
+                num_envs=4,
+                branch_horizon=2,
+                parity_slice_indices=(0, 8),
+                bench_env_steps=2,
+                bench_label_batches=2,
+                bench_learner_updates=2,
+                dry_run=True,
+            )
+        assert res["ok"] is True
+        assert res["partial"] is False
+        assert res["status"] == "PASS"
+        partial_files = sorted((out_ok / "phases").glob("smoke_partial_*.json"))
+        assert len(partial_files) == 13
+        prev_elapsed = 0.0
+        for idx, pf in enumerate(partial_files, start=1):
+            verify_file_sha256(pf, require_complete=True)
+            pdata = json.loads(pf.read_text(encoding="utf-8"))
+            assert pdata["schema"] == "t34-gpu-sitl-b1b-smoke-partial/v1"
+            assert pdata["partial"] is True
+            assert pdata["ok"] is False
+            assert pdata["pass"] is False
+            assert pdata["status"] == "PARTIAL_IN_PROGRESS"
+            assert pdata["not_evidence"] is True
+            assert pdata["phase_index"] == idx
+            assert float(pdata["elapsed_since_start_sec"]) >= prev_elapsed
+            prev_elapsed = float(pdata["elapsed_since_start_sec"])
+        if dev_name == "cpu":
+            cpu_tp = res["throughput"]
+        elif cpu_tp is not None:
+            for key in (
+                "measured_alive_hero_decisions",
+                "measured_rescue_frame_count",
+                "measured_rescue_episode_count",
+                "window_min_hero_length",
+                "window_max_hero_length",
+                "window_mature_length_ge_160_decisions",
+            ):
+                assert res["throughput"][key] == cpu_tp[key], f"CPU vs MPS mismatch on {key}"
+
+    # 2. Simulated timeout mid-run (during bench_3): leaves immutable partial evidence,
+    # never writes smoke_result.json, fails colab_cli required_exports, and is rejected by prepare.
+    fake_root = tmp_path / "colab_root"
+    fake_out = fake_root / "output"
+    scanner_cache: dict[str, Any] = {}
+
+    def _timeout_in_bench_3(*args: Any, **kwargs: Any) -> Any:
+        # Scanner snapshot mid-run before timeout
+        mid_records = colab_runtime._exports(fake_root, 2 * 1024**3, scanner_cache)
+        assert len(mid_records) == 11
+        raise TimeoutError("simulated 22.5 min A100 timeout")
+
+    monkeypatch.setattr(smoke_mod, "_evaluate_scoring_suffixes_on_snapshots", _timeout_in_bench_3)
+    with pytest.raises(TimeoutError, match="22.5 min"):
+        smoke_mod.run_step_b1b_smoke(
+            fake_out,
+            b8_checkpoint=b8_path,
+            opponent_checkpoint=opp_path,
+            device="cpu",
+            num_envs=4,
+            branch_horizon=2,
+            parity_slice_indices=(0, 8),
+            bench_env_steps=1,
+            bench_label_batches=1,
+            bench_learner_updates=1,
+            dry_run=True,
+        )
+    assert not (fake_out / "smoke_result.json").exists()
+    post_records = colab_runtime._exports(fake_root, 2 * 1024**3, scanner_cache)
+    assert len(post_records) == 11
+    with pytest.raises(colab_schema.SchemaError, match="smoke_result.json"):
+        colab_schema.validate_export_inventory(
+            {"required_exports": list(SMOKE_REQUIRED_EXPORTS)}, post_records
+        )
+
+    last_partial = sorted((fake_out / "phases").glob("smoke_partial_*.json"))[-1]
+    with pytest.raises(ValueError, match="partial"):
+        prepare_b1b_packet(
+            tmp_path / "pkt_reject_partial_name",
+            commit="origin/main",
+            mode="pilot",
+            smoke_result_json=last_partial,
+        )
+
+    disguised = tmp_path / "smoke_result.json"
+    write_atomic_with_sha256(
+        disguised,
+        lambda tmp: shutil.copyfile(last_partial, tmp),
+        write_complete_marker=True,
+    )
+    with pytest.raises(ValueError, match="partial|non-passing"):
+        prepare_b1b_packet(
+            tmp_path / "pkt_reject_disguised_partial",
+            commit="origin/main",
+            mode="pilot",
+            smoke_result_json=disguised,
+        )
