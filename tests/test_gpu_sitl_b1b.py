@@ -1454,6 +1454,7 @@ def test_b3_canary_check_accepts_pilot_manifest_against_smoke_receipt(
     research.colab_cli.canary.check (and supervisor.validate) against a synthetic smoke receipt
     of the exact shape supervisor.py writes."""
     import subprocess
+
     from research.colab_cli import canary as colab_canary
     from research.colab_cli import supervisor as colab_supervisor
     from research.gpu_sitl.prepare import ROOT, digest, prepare_b1b_packet
@@ -1868,3 +1869,407 @@ def test_m1_all_registration_quotes_are_verbatim_with_exact_line_numbers() -> No
     assert "5,000 gradient updates" not in RESCUE_QUOTA_REGISTRATION_QUOTES
     assert "after 5,000 updates" not in RESCUE_QUOTA_REGISTRATION_QUOTES
     assert "`1,000` balanced learner updates" in RESCUE_QUOTA_REGISTRATION_QUOTES
+
+
+def test_b1b_smoke_device_placement_and_flood_cap_regression() -> None:
+    """Regression test for the A100 Step B1b-Smoke mixed-device failure in
+    snapshot_worlds_to_device -> rt_dev._features_rows and the flood_cuda max_steps cap."""
+    from research.gpu_sim_spike import r2_cache, v8_device
+    from research.gpu_sim_spike.vector_device import FREE_SPACE_BFS_CAP
+    from research.gpu_sitl.open_stop_gpu import (
+        FastDeviceVectorRuntime,
+        assert_sim_and_policy_on_device,
+        compact_sim_and_policy,
+        concat_sims_and_policies,
+        move_device_policy_to_device,
+        normalize_device,
+    )
+    from research.gpu_sitl.preflight import (
+        MATURE_EXTENSION_SPECS,
+        build_extension_worlds,
+        resolve_product_checkpoints,
+        snapshot_worlds_to_device,
+    )
+
+    b8_path, opp_path = resolve_product_checkpoints()
+    if not Path(b8_path).exists() or not Path(opp_path).exists():
+        pytest.skip("b8-s3 or opponent checkpoint not present")
+
+    assert normalize_device("cpu") == torch.device("cpu")
+    assert normalize_device("cuda") == torch.device("cuda", 0)
+    assert normalize_device("mps") == torch.device("mps", 0)
+
+    worlds, pol_tpl, _ = build_extension_worlds(
+        Path(b8_path),
+        Path(opp_path),
+        specs=MATURE_EXTENSION_SPECS[:2],
+    )
+    assert pol_tpl.device == torch.device("cpu")
+
+    sim_cpu, pol_cpu = snapshot_worlds_to_device(
+        worlds,
+        pol_tpl,
+        device="cpu",
+        vector_prepared=True,
+    )
+    assert_sim_and_policy_on_device(sim_cpu, pol_cpu, "cpu")
+    r2_cache.enable(sim_cpu)
+
+    # Verify FastDeviceVectorRuntime._free_space_for_rows passes max_steps == FREE_SPACE_BFS_CAP
+    # (160) so snakes with length >= 80 never trip flood_cuda.cu's wanted > max_cap watchdog.
+    recorded_flood_calls: list[tuple[int, int]] = []
+    orig_flood = v8_device._flood
+
+    def _spy_flood(start, blocked, cap, release=None, *, max_steps=None):
+        max_wanted = int(cap.max().item()) if cap.numel() > 0 else 0
+        eff_max_steps = int(max_steps) if max_steps is not None else int(v8_device._AREA_MAX)
+        recorded_flood_calls.append((max_wanted, eff_max_steps))
+        assert (
+            max_wanted <= eff_max_steps
+        ), f"flood_cuda.cu watchdog violation: wanted={max_wanted} > max_steps={eff_max_steps}"
+        return orig_flood(start, blocked, cap, release, max_steps=max_steps)
+
+    v8_device._flood = _spy_flood
+    try:
+        rt_sub = pol_cpu.vector_runtime.repeat_interleave(1)
+        rt_sub.__class__ = FastDeviceVectorRuntime
+        rows = torch.tensor([[0, 0], [0, 1], [1, 0], [1, 1]], dtype=torch.long)
+        _ = rt_sub._free_space_for_rows(sim_cpu, rows)
+    finally:
+        v8_device._flood = orig_flood
+
+    assert len(recorded_flood_calls) >= 1
+    for max_wanted, eff_max_steps in recorded_flood_calls:
+        assert eff_max_steps == FREE_SPACE_BFS_CAP
+        assert max_wanted == FREE_SPACE_BFS_CAP
+        assert max_wanted <= eff_max_steps
+
+    # Verify concat_sims_and_policies and compact_sim_and_policy enforce device alignment
+    sim_cat, pol_cat = concat_sims_and_policies([sim_cpu, sim_cpu], [pol_cpu, pol_cpu])
+    assert_sim_and_policy_on_device(sim_cat, pol_cat, "cpu")
+    compact_sim_and_policy(sim_cat, pol_cat, torch.tensor([0, 2], dtype=torch.long))
+    assert_sim_and_policy_on_device(sim_cat, pol_cat, "cpu")
+    assert int(sim_cat.E) == 2
+    assert move_device_policy_to_device(pol_cat, "cpu", e_count=4).vector_runtime.E == 4
+
+
+@pytest.mark.skipif(not torch.backends.mps.is_available(), reason="MPS accelerator not available")
+def test_mps_accelerator_device_placement_shakeout(tmp_path: Path) -> None:
+    """End-to-end MPS accelerator shake-out for snapshot_worlds_to_device, _features_rows,
+    FastDeviceVectorRuntime.observe_step/prepare, batched_open_stop_h32, probe reconstruction,
+    tripwires, learner update, and checkpoint save/restore."""
+    from contextlib import contextmanager
+
+    from research.gpu_sim_spike import ego_device, r2_cache, v8_device
+    from research.gpu_sitl.open_stop_gpu import (
+        _cpu_queue_flood,
+        assert_sim_and_policy_on_device,
+        compact_sim_and_policy,
+        concat_sims_and_policies,
+        freeze_ego2s_value_head,
+        margin_loss_gradient_check,
+        normalize_device,
+    )
+    from research.gpu_sitl.preflight import (
+        MATURE_EXTENSION_SPECS,
+        build_extension_worlds,
+        resolve_product_checkpoints,
+        snapshot_worlds_to_device,
+    )
+    from research.gpu_sitl.probe_bank import (
+        build_watch6_ct_device_bundle,
+        extract_hero_root_observations,
+        reconstruct_batch_from_cpu_row_states,
+        slice_single_row_cpu_state,
+    )
+    from research.gpu_sitl.seed_check import train_seeds
+    from research.gpu_sitl.smoke import run_mature_cohort_row_subset_parity
+    from research.gpu_sitl.train_sitl import (
+        SitlRingBuffer,
+        _capture_sim_and_runtime_state,
+        _restore_sim_and_runtime_state,
+        compute_sitl_hinge_loss,
+        evaluate_training_set_aliasing_diagnostic,
+        sample_ordinary_minibatch_indices,
+    )
+    from src.model.ego2s_network import load_ego2s_checkpoint
+
+    b8_path, opp_path = resolve_product_checkpoints()
+    if not Path(b8_path).exists() or not Path(opp_path).exists():
+        pytest.skip("b8-s3 or opponent checkpoint not present")
+
+    @contextmanager
+    def _mps_op_adapter():
+        orig_zeros, orig_full, orig_empty = torch.zeros, torch.full, torch.empty
+        orig_tensor, orig_as_tensor, orig_arange = torch.tensor, torch.as_tensor, torch.arange
+        orig_to, orig_double = torch.Tensor.to, torch.Tensor.double
+        orig_scatter_reduce_ = torch.Tensor.scatter_reduce_
+        orig_assert_async = torch._assert_async
+        orig_v8_flood = v8_device._flood
+        orig_ego_comp = ego_device._component_sizes
+
+        def _is_mps(dev):
+            return dev is not None and torch.device(dev).type == "mps"
+
+        def _wrap_creation(fn):
+            def wrapped(*args, **kwargs):
+                if _is_mps(kwargs.get("device")) and kwargs.get("dtype") == torch.float64:
+                    kwargs = dict(kwargs, dtype=torch.float32)
+                return fn(*args, **kwargs)
+
+            return wrapped
+
+        def wrapped_as_tensor(data, dtype=None, device=None):
+            if _is_mps(device):
+                if dtype == torch.float64 or (
+                    dtype is None
+                    and (
+                        (isinstance(data, np.ndarray) and data.dtype == np.float64)
+                        or (isinstance(data, torch.Tensor) and data.dtype == torch.float64)
+                    )
+                ):
+                    dtype = torch.float32
+            return orig_as_tensor(data, dtype=dtype, device=device)
+
+        def wrapped_to(self, *args, **kwargs):
+            new_args = list(args)
+            target_mps = (
+                (self.device.type == "mps")
+                or any(isinstance(a, (str, torch.device)) and _is_mps(a) for a in new_args)
+                or _is_mps(kwargs.get("device"))
+            )
+            if target_mps:
+                new_args = [torch.float32 if a == torch.float64 else a for a in new_args]
+                if kwargs.get("dtype") == torch.float64 or (
+                    self.dtype == torch.float64
+                    and "dtype" not in kwargs
+                    and not any(isinstance(a, torch.dtype) for a in new_args)
+                ):
+                    kwargs = dict(kwargs, dtype=torch.float32)
+            return orig_to(self, *new_args, **kwargs)
+
+        def wrapped_double(self, *args, **kwargs):
+            if self.device.type == "mps":
+                return orig_to(self, dtype=torch.float32)
+            return orig_double(self, *args, **kwargs)
+
+        def wrapped_scatter_reduce_(self, dim, index, src, reduce, *, include_self=True):
+            if self.device.type == "mps" and self.dtype == torch.int64:
+                if index.device != self.device or src.device != self.device:
+                    raise RuntimeError(
+                        f"Mixed devices in scatter_reduce_: "
+                        f"{self.device}, {index.device}, {src.device}"
+                    )
+                tmp = orig_to(self, dtype=torch.int32).clone()
+                orig_scatter_reduce_(
+                    tmp,
+                    dim,
+                    index,
+                    orig_to(src, dtype=torch.int32),
+                    reduce,
+                    include_self=include_self,
+                )
+                self.copy_(orig_to(tmp, dtype=torch.int64))
+                return self
+            return orig_scatter_reduce_(self, dim, index, src, reduce, include_self=include_self)
+
+        def wrapped_assert_async(tensor, msg):
+            if isinstance(tensor, torch.Tensor) and tensor.device.type == "mps":
+                if not bool(tensor.all().item()):
+                    raise AssertionError(msg)
+                return
+            return orig_assert_async(tensor, msg)
+
+        def wrapped_v8_flood(start, blocked, cap, release=None, *, max_steps=None):
+            if start.device.type == "mps":
+                if blocked.device != start.device or cap.device != start.device:
+                    raise RuntimeError(
+                        f"Mixed devices in _flood: {start.device}, {blocked.device}, {cap.device}"
+                    )
+                if release is not None and release.device != start.device:
+                    raise RuntimeError(
+                        f"Mixed devices in _flood release: {start.device}, {release.device}"
+                    )
+                return _cpu_queue_flood(
+                    start.cpu(),
+                    blocked.cpu(),
+                    cap.cpu(),
+                    release.cpu() if release is not None else None,
+                    max_steps=max_steps,
+                ).to(device=start.device, dtype=torch.long)
+            return orig_v8_flood(start, blocked, cap, release, max_steps=max_steps)
+
+        def wrapped_ego_comp(sim, rows, ttl):
+            if sim.device.type == "mps":
+                if rows.device != sim.device or ttl.device != sim.device:
+                    raise RuntimeError(
+                        f"Mixed devices in _component_sizes: "
+                        f"{sim.device}, {rows.device}, {ttl.device}"
+                    )
+                n_rows, h, w = rows.shape[0], int(sim.grid_h), int(sim.grid_w)
+                env, snake = rows[:, 0], rows[:, 1]
+                cardinal = ego_device._cardinal(sim)
+                heads, direction = sim.heads()[env, snake], sim.direction[env, snake]
+                rel = torch.arange(3, device=sim.device)[None, :] - 1
+                move = cardinal[(direction[:, None] + rel) % 4]
+                start = heads[:, None, :] + move
+                v_max = h * w
+                blocked = ~(ttl.amax(dim=1) <= 1)
+                blocked_rows = blocked[env][:, None].expand(-1, 3, -1, -1)
+                cap = torch.full((n_rows, 3), v_max, dtype=torch.long, device=sim.device)
+                sizes = wrapped_v8_flood(start, blocked_rows, cap, max_steps=v_max)
+                return torch.where(sim.alive[env, snake, None], sizes, torch.zeros_like(sizes))
+            return orig_ego_comp(sim, rows, ttl)
+
+        torch.zeros = _wrap_creation(orig_zeros)
+        torch.full = _wrap_creation(orig_full)
+        torch.empty = _wrap_creation(orig_empty)
+        torch.tensor = _wrap_creation(orig_tensor)
+        torch.arange = _wrap_creation(orig_arange)
+        torch.as_tensor = wrapped_as_tensor
+        torch.Tensor.to = wrapped_to
+        torch.Tensor.double = wrapped_double
+        torch.Tensor.scatter_reduce_ = wrapped_scatter_reduce_
+        torch._assert_async = wrapped_assert_async
+        v8_device._flood = wrapped_v8_flood
+        ego_device._component_sizes = wrapped_ego_comp
+        try:
+            yield
+        finally:
+            torch.zeros, torch.full, torch.empty = orig_zeros, orig_full, orig_empty
+            torch.tensor, torch.arange, torch.as_tensor = orig_tensor, orig_arange, orig_as_tensor
+            torch.Tensor.to, torch.Tensor.double = orig_to, orig_double
+            torch.Tensor.scatter_reduce_ = orig_scatter_reduce_
+            torch._assert_async = orig_assert_async
+            v8_device._flood = orig_v8_flood
+            ego_device._component_sizes = orig_ego_comp
+
+    dev = normalize_device("mps")
+    assert dev == torch.device("mps", 0)
+
+    with _mps_op_adapter():
+        # 1. Verify that the pre-fix state (CPU rt_dev with MPS sim_dev) would have raised
+        # RuntimeError on starts = heads[..., None, :] + delta, and that the fixed
+        # snapshot_worlds_to_device places both sim_dev and pol_dev on mps:0 and succeeds.
+        worlds, pol_tpl, _ = build_extension_worlds(
+            Path(b8_path),
+            Path(opp_path),
+            specs=MATURE_EXTENSION_SPECS[:2],
+        )
+        sim_mps, pol_mps = snapshot_worlds_to_device(
+            worlds,
+            pol_tpl,
+            device="mps",
+            vector_prepared=True,
+        )
+        assert_sim_and_policy_on_device(sim_mps, pol_mps, dev)
+        r2_cache.enable(sim_mps)
+
+        rows_mps = torch.tensor([[0, 1], [0, 0], [1, 3]], dtype=torch.long, device=dev)
+        # Confirm that calling CPU pol_tpl.vector_runtime._features_rows with MPS sim_mps
+        # reproduces the exact A100 mixed-device RuntimeError:
+        with pytest.raises(RuntimeError, match="Expected all tensors to be on the same device"):
+            pol_tpl.vector_runtime._features_rows(sim_mps, rows_mps, update_memory=False)
+
+        # Whereas the fixed pol_mps.vector_runtime._features_rows runs cleanly on mps:0:
+        feats_mps = pol_mps.vector_runtime._features_rows(sim_mps, rows_mps, update_memory=False)
+        assert feats_mps.device == dev
+        assert feats_mps.shape == (3, 61)
+
+        # 2. Run the full mature cohort row-subset parity path from smoke.py on MPS:
+        parity_rep = run_mature_cohort_row_subset_parity(
+            b8_path,
+            opp_path,
+            device="mps",
+            slice_indices=(0, 1),
+            branch_horizon=2,
+            dry_run=True,
+        )
+        assert parity_rep["ok"] is True
+
+        # 3. Exercise bundle construction, splicing, reconstruction, checkpoint state,
+        # ring buffer sampling, hinge loss, and aliasing diagnostic on MPS:
+        sim_b, pol_b = build_watch6_ct_device_bundle(
+            train_seeds(2),
+            b8_path,
+            opp_path,
+            device="mps",
+            hero_respawn=True,
+        )
+        assert_sim_and_policy_on_device(sim_b, pol_b, dev)
+        sim_cat, pol_cat = concat_sims_and_policies([sim_mps, sim_b], [pol_mps, pol_b])
+        assert_sim_and_policy_on_device(sim_cat, pol_cat, dev)
+        compact_sim_and_policy(sim_cat, pol_cat, torch.tensor([0, 2], device=dev))
+        assert_sim_and_policy_on_device(sim_cat, pol_cat, dev)
+
+        row0 = slice_single_row_cpu_state(sim_cat, pol_cat, 0)
+        row1 = slice_single_row_cpu_state(sim_cat, pol_cat, 1)
+        rec_sim, rec_pol = reconstruct_batch_from_cpu_row_states(
+            [row0, row1],
+            sim_cat,
+            pol_cat,
+            "mps",
+        )
+        assert_sim_and_policy_on_device(rec_sim, rec_pol, dev)
+
+        captured_state = _capture_sim_and_runtime_state(rec_sim, rec_pol)
+        _restore_sim_and_runtime_state(rec_sim, rec_pol, captured_state)
+        assert_sim_and_policy_on_device(rec_sim, rec_pol, dev)
+
+        obs_mps = extract_hero_root_observations(rec_sim, cpu_fast_flood=False)
+        assert obs_mps["local_u8"].device == dev
+        student_mps = load_ego2s_checkpoint(str(b8_path), device=dev)
+        freeze_ego2s_value_head(student_mps)
+        res_buf = SitlRingBuffer(capacity=8)
+        ord_buf = SitlRingBuffer(capacity=8)
+        for i in range(4):
+            res_buf.add_single(
+                local_u8=obs_mps["local_u8"][0],
+                global_u8=obs_mps["global_u8"][0],
+                scalars_f32=obs_mps["scalars_f32"][0],
+                legal_mask=obs_mps["legal_mask"][0],
+                safe_mask=torch.tensor([False, True, False, False, False, False], dtype=torch.bool),
+                unsafe_mask=torch.tensor(
+                    [True, False, True, False, False, False], dtype=torch.bool
+                ),
+                bare_action=0,
+                a_star_action=1,
+                world_seed=100 + i,
+                decision_frame=i,
+            )
+            ord_buf.add_single(
+                local_u8=obs_mps["local_u8"][1],
+                global_u8=obs_mps["global_u8"][1],
+                scalars_f32=obs_mps["scalars_f32"][1],
+                legal_mask=obs_mps["legal_mask"][1],
+                safe_mask=torch.tensor([True, True, False, False, False, False], dtype=torch.bool),
+                unsafe_mask=torch.tensor(
+                    [False, False, True, False, False, False], dtype=torch.bool
+                ),
+                bare_action=0,
+                a_star_action=0,
+                world_seed=200 + i,
+                decision_frame=i,
+            )
+        ord_idx, _ = sample_ordinary_minibatch_indices(
+            ord_buf,
+            student_mps,
+            np.random.default_rng(7),
+            uniform_count=2,
+            hard_neg_count=2,
+            device=dev,
+        )
+        res_batch = res_buf.gather_batch([0, 1], dev)
+        ord_batch = ord_buf.gather_batch(ord_idx[:2], dev)
+        loss_d = compute_sitl_hinge_loss(student_mps, res_batch, ord_batch)
+        assert loss_d["total_loss"].device == dev
+        alias_d = evaluate_training_set_aliasing_diagnostic(
+            student_mps,
+            res_buf,
+            ord_buf,
+            device=dev,
+        )
+        assert "verdict" in alias_d
+
+        grad_check = margin_loss_gradient_check(str(b8_path), sim=rec_sim, device="mps")
+        assert grad_check["all_non_value_grads_finite_and_nonzero"] is True

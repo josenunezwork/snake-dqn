@@ -38,8 +38,11 @@ from research.gpu_sitl.open_stop_gpu import (
     _VECTOR_RUNTIME_ENV_FIELDS,
     FastDeviceVectorRuntime,
     _maybe_cpu_fast_flood,
+    assert_sim_and_policy_on_device,
     batched_open_stop_h32,
     concat_sims_and_policies,
+    move_device_policy_to_device,
+    normalize_device,
     verify_cuda_native_extensions,
 )
 from research.gpu_sitl.preflight import (
@@ -133,7 +136,7 @@ def build_watch6_ct_device_bundle(
     max_capacity: int = 1600,
 ) -> tuple[CTDeviceSim, DevicePolicy]:
     """Initialize a batch of Watch6-v2 ``CTDeviceSim`` worlds and ``DevicePolicy``."""
-    dev = torch.device(device)
+    dev = normalize_device(device)
     if dev.type == "cuda":
         verify_cuda_native_extensions(dev)
     cfg_batch = watch6_v2_config(len(seeds), max_capacity=max_capacity)
@@ -154,6 +157,7 @@ def build_watch6_ct_device_bundle(
         prepared=False,
     )
     r2_cache.enable(dev_sim)
+    assert_sim_and_policy_on_device(dev_sim, dev_policy, dev)
     return dev_sim, dev_policy
 
 
@@ -251,23 +255,24 @@ def reconstruct_batch_from_cpu_row_states(
     row_states: Sequence[dict[str, Any]],
     template_sim: DeviceSim,
     template_pol: DevicePolicy,
-    target_device: torch.device,
+    target_device: torch.device | str,
 ) -> tuple[DeviceSim, DevicePolicy]:
     """Build a ``(batch_sim, batch_pol)`` on ``target_device`` from 1-row CPU state dicts."""
     if not row_states:
         raise ValueError("row_states must be non-empty")
+    target_dev = normalize_device(target_device)
     total_e = len(row_states)
     out_sim = template_sim.clone()
+    out_sim.device = target_dev
     out_pol = template_pol.repeat_interleave(1)
-    if out_pol.vector_runtime is not None:
-        out_pol.vector_runtime.__class__ = FastDeviceVectorRuntime
+    move_device_policy_to_device(out_pol, target_dev)
 
     for name in _ENV_TENSOR_FIELDS:
         if all(name in rs["sim_tensors"] for rs in row_states):
             setattr(
                 out_sim,
                 name,
-                torch.cat([rs["sim_tensors"][name] for rs in row_states], dim=0).to(target_device),
+                torch.cat([rs["sim_tensors"][name] for rs in row_states], dim=0).to(target_dev),
             )
     out_sim.E = total_e
     out_sim._prepared = bool(row_states[0].get("sim_prepared", False))
@@ -279,10 +284,11 @@ def reconstruct_batch_from_cpu_row_states(
             setattr(
                 out_rt,
                 name,
-                torch.cat([rs["rt_tensors"][name] for rs in row_states], dim=0).to(target_device),
+                torch.cat([rs["rt_tensors"][name] for rs in row_states], dim=0).to(target_dev),
             )
     out_rt.E = total_e
     out_pol.vector_prepared = bool(row_states[0].get("vector_prepared", True))
+    assert_sim_and_policy_on_device(out_sim, out_pol, target_dev)
     return out_sim, out_pol
 
 
@@ -450,7 +456,7 @@ def harvest_probe32_bank(
         )
 
     t0 = time.perf_counter()
-    dev = torch.device(device)
+    dev = normalize_device(device)
     if dev.type == "cuda":
         verify_cuda_native_extensions(dev)
 
@@ -1077,7 +1083,7 @@ def evaluate_probe_bank_tripwires(
     (iii) When ``check_decisive_rescue_bar=True`` (at ``update == 1000``), held-out decisive
           rescue agreement ``>= 70.0%`` on the probe bank's certified decisive roots.
     """
-    dev = torch.device(device)
+    dev = normalize_device(device)
     was_training = student_net.training
     student_net.eval()
     try:
