@@ -1426,7 +1426,7 @@ def run_cuda_shakeout(
                 "traceback": tb,
             }
             print(
-                f"[shakeout] FAIL {phase_name} ({el:.2f}s): {type(exc).__name__}: {exc}",
+                f"[shakeout] FAIL {phase_name} ({el:.2f}s): {type(exc).__name__}: {exc}\n{tb}",
                 flush=True,
             )
             phase_reports.append(rec)

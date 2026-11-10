@@ -535,7 +535,10 @@ def harvest_probe32_bank(
         Path(resume_ckpt_path) if resume_ckpt_path is not None else default_ckpt_path
     )
     if active_resume_ckpt.is_file() and Path(f"{active_resume_ckpt}.sha256").is_file():
-        verify_file_sha256(active_resume_ckpt)
+        verify_file_sha256(
+            active_resume_ckpt,
+            require_complete=Path(f"{active_resume_ckpt}.complete").is_file(),
+        )
         ckpt_payload = torch.load(active_resume_ckpt, map_location="cpu", weights_only=False)
         if ckpt_payload.get("namespace") != active_namespace:
             raise ValueError(
@@ -598,10 +601,22 @@ def harvest_probe32_bank(
             "s0_ordinary_seen_by_world": s0_ordinary_seen_by_world,
             "sim_state": sim_state,
         }
+        tick_ckpt_path = (
+            out_path.parent / "checkpoints" / f"{out_path.name}.t{int(completed_tick):04d}.ckpt.pt"
+        )
+        if not tick_ckpt_path.exists() and not Path(f"{tick_ckpt_path}.complete").exists():
+            write_atomic_with_sha256(
+                tick_ckpt_path,
+                lambda tmp: torch.save(ckpt_obj, tmp),
+                write_complete_marker=True,
+            )
         return write_atomic_with_sha256(
             default_ckpt_path,
             lambda tmp: torch.save(ckpt_obj, tmp),
-            write_complete_marker=True,
+            write_complete_marker=bool(
+                int(completed_tick) >= int(horizon)
+                and not Path(f"{default_ckpt_path}.complete").exists()
+            ),
         )
 
     def _flush_pending_suffix0() -> None:

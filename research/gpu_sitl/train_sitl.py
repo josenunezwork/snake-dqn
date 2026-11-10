@@ -29,12 +29,14 @@ Implements the pre-registered online SITL training recipe from
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import math
 import random
 import shutil
 import signal
 import time
+import zlib
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -296,11 +298,7 @@ class SitlRingBuffer:
 
     def state_dict(self) -> dict[str, Any]:
         n = int(self.size)
-        return {
-            "capacity": int(self.capacity),
-            "size": n,
-            "write_ptr": int(self.write_ptr),
-            "total_added": int(self.total_added),
+        tensors_dict = {
             "local_u8": self.local_u8[:n].clone(),
             "global_u8": self.global_u8[:n].clone(),
             "scalars_f32": self.scalars_f32[:n].clone(),
@@ -313,6 +311,15 @@ class SitlRingBuffer:
             "decision_frame": self.decision_frame[:n].clone(),
             "hard_neg_tier": self.hard_neg_tier[:n].clone(),
         }
+        buf = io.BytesIO()
+        torch.save(tensors_dict, buf)
+        return {
+            "capacity": int(self.capacity),
+            "size": n,
+            "write_ptr": int(self.write_ptr),
+            "total_added": int(self.total_added),
+            "compressed_tensors_zlib": zlib.compress(buf.getvalue(), level=1),
+        }
 
     def load_state_dict(self, state: dict[str, Any]) -> None:
         n = int(state["size"])
@@ -322,17 +329,22 @@ class SitlRingBuffer:
         self.write_ptr = int(state["write_ptr"])
         self.total_added = int(state["total_added"])
         if n > 0:
-            self.local_u8[:n].copy_(state["local_u8"])
-            self.global_u8[:n].copy_(state["global_u8"])
-            self.scalars_f32[:n].copy_(state["scalars_f32"])
-            self.legal_mask[:n].copy_(state["legal_mask"])
-            self.safe_mask[:n].copy_(state["safe_mask"])
-            self.unsafe_mask[:n].copy_(state["unsafe_mask"])
-            self.bare_action[:n].copy_(state["bare_action"])
-            self.a_star_action[:n].copy_(state["a_star_action"])
-            self.world_seed[:n].copy_(state["world_seed"])
-            self.decision_frame[:n].copy_(state["decision_frame"])
-            self.hard_neg_tier[:n].copy_(state["hard_neg_tier"])
+            if "compressed_tensors_zlib" in state:
+                raw_bytes = zlib.decompress(state["compressed_tensors_zlib"])
+                t_state = torch.load(io.BytesIO(raw_bytes), map_location="cpu", weights_only=False)
+            else:
+                t_state = state
+            self.local_u8[:n].copy_(t_state["local_u8"])
+            self.global_u8[:n].copy_(t_state["global_u8"])
+            self.scalars_f32[:n].copy_(t_state["scalars_f32"])
+            self.legal_mask[:n].copy_(t_state["legal_mask"])
+            self.safe_mask[:n].copy_(t_state["safe_mask"])
+            self.unsafe_mask[:n].copy_(t_state["unsafe_mask"])
+            self.bare_action[:n].copy_(t_state["bare_action"])
+            self.a_star_action[:n].copy_(t_state["a_star_action"])
+            self.world_seed[:n].copy_(t_state["world_seed"])
+            self.decision_frame[:n].copy_(t_state["decision_frame"])
+            self.hard_neg_tier[:n].copy_(t_state["hard_neg_tier"])
 
     def gather_batch(
         self, indices: Sequence[int] | np.ndarray, device: torch.device
@@ -674,11 +686,20 @@ def _capture_sim_and_runtime_state(sim: Any, policy: Any) -> dict[str, Any]:
         val = getattr(rt, name, None)
         if isinstance(val, torch.Tensor):
             rt_state[name] = val.detach().cpu().clone()
-    return {"sim": sim_state, "vector_runtime": rt_state}
+    raw_obj = {"sim": sim_state, "vector_runtime": rt_state}
+    buf = io.BytesIO()
+    torch.save(raw_obj, buf)
+    return {
+        "E": int(sim.E),
+        "compressed_zlib": zlib.compress(buf.getvalue(), level=1),
+    }
 
 
 @torch.inference_mode()
 def _restore_sim_and_runtime_state(sim: Any, policy: Any, state: dict[str, Any]) -> None:
+    if "compressed_zlib" in state:
+        raw_bytes = zlib.decompress(state["compressed_zlib"])
+        state = torch.load(io.BytesIO(raw_bytes), map_location="cpu", weights_only=False)
     dev = normalize_device(sim.device)
     sim.device = dev
     move_device_policy_to_device(policy, dev)
@@ -926,13 +947,7 @@ def run_sitl_training(
             expected_h_sha = str(staged_hckpt_info["sha256"])
             if sha256_file(cand_hckpt) != expected_h_sha:
                 raise ValueError("Staged probe32 harvest checkpoint SHA256 mismatch")
-            local_hckpt = Path(f"{probe_bank_file}.ckpt.pt")
-            write_atomic_with_sha256(
-                local_hckpt,
-                lambda tmp: shutil.copyfile(cand_hckpt, tmp),
-                write_complete_marker=True,
-            )
-            staged_harvest_ckpt = local_hckpt
+            staged_harvest_ckpt = cand_hckpt
 
     if not probe_bank_file.is_file() or not Path(f"{probe_bank_file}.sha256").is_file():
         harvest_probe32_bank(
@@ -952,6 +967,18 @@ def run_sitl_training(
             shakeout=is_shakeout,
         )
     probe_bank = load_probe32_bank(probe_bank_file, expected_namespace=active_probe_namespace)
+    probe_meta_file = out_dir / f"{probe_bank_file.name}.meta.json"
+    if not probe_meta_file.is_file() or not Path(f"{probe_meta_file}.complete").is_file():
+        meta_to_write = dict(probe_bank["meta"])
+        meta_to_write.setdefault("probe_bank_path", str(probe_bank_file))
+        meta_to_write.setdefault("probe_bank_sha256", probe_bank["verified_sha256"])
+        write_atomic_with_sha256(
+            probe_meta_file,
+            lambda tmp: tmp.write_text(
+                json.dumps(meta_to_write, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            ),
+            write_complete_marker=True,
+        )
     if not eff_dry_run and bool(probe_bank["meta"].get("dry_run", False)):
         raise ValueError("Refusing to use a dry_run probe32 bank for non-dry-run SITL training")
     if probe_bank.get("meta", {}).get("namespace") != active_probe_namespace:
@@ -1053,8 +1080,13 @@ def run_sitl_training(
     latest_ckpt_meta_path = ckpt_dir / "latest_checkpoint.json"
     out_ledger_path = out_dir / "verified-ledger.json"
     resumed_from_checkpoint: str | None = None
+    last_latest_ckpt_info: dict[str, Any] | None = None
 
-    def _write_verified_ledger(latest_ckpt_info: dict[str, Any] | None = None) -> None:
+    def _write_verified_ledger(
+        latest_ckpt_info: dict[str, Any] | None = None,
+        *,
+        mark_complete: bool = False,
+    ) -> None:
         ledger_obj: dict[str, Any] = {
             "schema": "t34-gpu-sitl-verified-ledger/v1",
             "namespace": active_train_namespace,
@@ -1073,15 +1105,16 @@ def run_sitl_training(
             ledger_obj["resume_checkpoint"] = dict(latest_ckpt_info)
         elif loaded_ledger.get("resume_checkpoint") is not None:
             ledger_obj["resume_checkpoint"] = dict(loaded_ledger["resume_checkpoint"])
+        write_comp = bool(mark_complete and not Path(f"{out_ledger_path}.complete").exists())
         write_atomic_with_sha256(
             out_ledger_path,
             lambda tmp: tmp.write_text(
                 json.dumps(ledger_obj, indent=2, sort_keys=True) + "\n", encoding="utf-8"
             ),
-            write_complete_marker=True,
+            write_complete_marker=write_comp,
         )
 
-    _write_verified_ledger(None)
+    _write_verified_ledger(None, mark_complete=False)
 
     def _load_training_checkpoint_file(ckpt_pt_path: Path) -> None:
         nonlocal unique_rescue_keys, unique_rescue_episode_keys
@@ -1156,7 +1189,10 @@ def run_sitl_training(
 
     if resume:
         if latest_ckpt_meta_path.is_file():
-            verify_file_sha256(latest_ckpt_meta_path)
+            verify_file_sha256(
+                latest_ckpt_meta_path,
+                require_complete=Path(f"{latest_ckpt_meta_path}.complete").is_file(),
+            )
             latest_meta = json.loads(latest_ckpt_meta_path.read_text(encoding="utf-8"))
             ckpt_pt_path = Path(latest_meta["checkpoint_path"])
             if not ckpt_pt_path.is_file():
@@ -1194,8 +1230,17 @@ def run_sitl_training(
         signal.signal(signal.SIGUSR1, _on_signal)
 
     def _save_training_checkpoint(tag: str) -> str:
-        nonlocal last_ckpt_state
-        ckpt_file = ckpt_dir / f"sitl_state_{tag}.pt"
+        nonlocal last_ckpt_state, last_latest_ckpt_info
+        eff_tag = tag
+        ckpt_file = ckpt_dir / f"sitl_state_{eff_tag}.pt"
+        if ckpt_file.exists() or Path(f"{ckpt_file}.complete").exists():
+            eff_tag = f"{tag}_s{int(collection_steps):06d}"
+            ckpt_file = ckpt_dir / f"sitl_state_{eff_tag}.pt"
+            seq_idx = 1
+            while ckpt_file.exists() or Path(f"{ckpt_file}.complete").exists():
+                eff_tag = f"{tag}_s{int(collection_steps):06d}_{seq_idx}"
+                ckpt_file = ckpt_dir / f"sitl_state_{eff_tag}.pt"
+                seq_idx += 1
         payload_ckpt = {
             "schema": "t34-gpu-sitl-train-checkpoint/v1",
             "namespace": active_train_namespace,
@@ -1265,10 +1310,10 @@ def run_sitl_training(
             lambda tmp: tmp.write_text(
                 json.dumps(latest_info, indent=2, sort_keys=True) + "\n", encoding="utf-8"
             ),
-            write_complete_marker=True,
+            write_complete_marker=False,
         )
         unit_entry = {
-            "unit_id": f"tag:{tag}",
+            "unit_id": f"tag:{eff_tag}",
             "relpath": f"checkpoints/{ckpt_file.name}",
             "sha256": ckpt_sha,
             "size_bytes": ckpt_size,
@@ -1277,7 +1322,25 @@ def run_sitl_training(
         }
         if not any(u.get("sha256") == ckpt_sha for u in verified_units_ledger):
             verified_units_ledger.append(unit_entry)
-        _write_verified_ledger(latest_info)
+        ckpt_meta_file = ckpt_dir / f"sitl_state_{eff_tag}.meta.json"
+        if not ckpt_meta_file.exists() and not Path(f"{ckpt_meta_file}.complete").exists():
+            immutable_meta = {
+                **latest_info,
+                "namespace": active_train_namespace,
+                "probe_namespace": active_probe_namespace,
+                "world_seeds": [int(s) for s in world_seeds],
+                "verified_units": list(verified_units_ledger),
+            }
+            write_atomic_with_sha256(
+                ckpt_meta_file,
+                lambda tmp: tmp.write_text(
+                    json.dumps(immutable_meta, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                ),
+                write_complete_marker=True,
+            )
+        last_latest_ckpt_info = dict(latest_info)
+        _write_verified_ledger(latest_info, mark_complete=False)
         last_ckpt_state = (int(updates_completed), int(collection_steps))
         return str(ckpt_file)
 
@@ -1447,6 +1510,7 @@ def run_sitl_training(
                     _save_training_checkpoint(
                         f"sig_u{updates_completed:04d}_s{collection_steps:06d}"
                     )
+                _write_verified_ledger(last_latest_ckpt_info, mark_complete=True)
                 raise RuntimeError(
                     "Training interrupted by signal after saving verified checkpoint"
                 )
@@ -1495,6 +1559,7 @@ def run_sitl_training(
                     _save_training_checkpoint(
                         f"sig_u{updates_completed:04d}_s{collection_steps:06d}"
                     )
+                _write_verified_ledger(last_latest_ckpt_info, mark_complete=True)
                 raise RuntimeError(
                     "Training interrupted by signal after saving verified checkpoint"
                 )
@@ -1714,6 +1779,7 @@ def run_sitl_training(
             )
         )
     ) and not runaway_guard_reached:
+        _write_verified_ledger(last_latest_ckpt_info, mark_complete=True)
         return {
             "status": "PAUSED_FOR_RESUME",
             "updates_completed": int(updates_completed),
@@ -1755,6 +1821,7 @@ def run_sitl_training(
         write_complete_marker=True,
     )
     final_state_path = _save_training_checkpoint("final")
+    _write_verified_ledger(last_latest_ckpt_info, mark_complete=True)
 
     # End-of-pilot training-set aliasing diagnostic
     if rescue_buf.size >= 1 and ordinary_buf.size >= 1:

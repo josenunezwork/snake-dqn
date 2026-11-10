@@ -656,8 +656,11 @@ def test_step_b1b_smoke_parity_and_prepare_packets(tmp_path: Path) -> None:
     assert manifest_smoke["budget"]["unit_cap"] == 4.5
     assert manifest_smoke["resume_exemption"]["kind"] == "short-canary"
     assert "resume" not in manifest_smoke
+    assert manifest_smoke["required_exports"] == ["smoke_result.json"]
     for req_exp in manifest_smoke["required_exports"]:
         assert (smoke_dir / req_exp).is_file()
+        assert (smoke_dir / f"{req_exp}.sha256").is_file()
+        assert (smoke_dir / f"{req_exp}.complete").is_file()
     for expected_src in (
         "research/gpu_sitl/open_stop_gpu.py",
         "research/gpu_sitl/seed_check.py",
@@ -695,19 +698,14 @@ def test_step_b1b_smoke_parity_and_prepare_packets(tmp_path: Path) -> None:
     }
     assert manifest_pilot["required_exports"] == [
         "probe32_bank.pt",
-        "probe32_bank.pt.sha256",
-        "probe32_bank.pt.complete",
         "probe32_bank.pt.meta.json",
-        "probe32_bank.pt.meta.json.sha256",
         "b8_sitl_student_final.pth",
-        "b8_sitl_student_final.pth.sha256",
-        "b8_sitl_student_final.pth.complete",
         "sitl_pilot_result.json",
-        "sitl_pilot_result.json.sha256",
-        "sitl_pilot_result.json.complete",
     ]
     for req_exp in manifest_pilot["required_exports"]:
         assert (smoke_dir / req_exp).is_file()
+        assert (smoke_dir / f"{req_exp}.sha256").is_file()
+        assert (smoke_dir / f"{req_exp}.complete").is_file()
     assert manifest_pilot["timeout_minutes"] == rg["runaway_guard_timeout_minutes_2x"]
 
 
@@ -1475,7 +1473,8 @@ def test_b3_canary_check_accepts_pilot_manifest_against_smoke_receipt(
 
     monkeypatch.setattr(subprocess, "run", _allow_head_ancestor)
 
-    smoke_out_dir = tmp_path / "smoke_run_output"
+    smoke_rt_root = tmp_path / "smoke_rt_root"
+    smoke_out_dir = smoke_rt_root / "output"
     smoke_res = run_step_b1b_smoke(
         smoke_out_dir,
         b8_checkpoint=b8_path,
@@ -1549,15 +1548,13 @@ def test_b3_canary_check_accepts_pilot_manifest_against_smoke_receipt(
             + "\n",
             encoding="utf-8",
         )
-        exports_list = [
-            {
-                "path": p.name,
-                "size": p.stat().st_size,
-                "sha256": digest(p),
-            }
-            for p in sorted((smoke_rcpt_dir / "exports").iterdir())
-            if p.is_file()
-        ]
+        from research.colab_cli import runtime as colab_runtime
+
+        exports_list = colab_runtime._exports(
+            smoke_rt_root,
+            int(smoke_manifest_for_hw["max_export_bytes"]),
+            {},
+        )
         gen_id = f"gen-canary-{hw_kind.lower()}-01"
         transfers_list = [
             {
@@ -2438,6 +2435,7 @@ def test_torch_cuda_arch_list_includes_l4_89_a100_80_h100_90(
 def test_cuda_shakeout_end_to_end_and_continues_past_failing_phase(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Verify Requirement B:
     1. `run_cuda_shakeout` runs all 6 phases end-to-end using dev-only seeds, exercises the
@@ -2539,6 +2537,10 @@ def test_cuda_shakeout_end_to_end_and_continues_past_failing_phase(
     )
     rc = smoke_mod.main()
     assert rc == 1
+    captured_out = capsys.readouterr().out
+    assert "[shakeout] FAIL phase_4_b1b_smoke_reduced" in captured_out
+    assert "Traceback (most recent call last):" in captured_out
+    assert "RuntimeError: injected_phase_4_cuda_failure" in captured_out
     fail_json = json.loads((out_fail / "shakeout_result.json").read_text(encoding="utf-8"))
     assert fail_json["ok"] is False
     assert fail_json["verdict"] == "SHAKEOUT_FAIL_NOT_EVIDENCE"
@@ -2596,8 +2598,6 @@ def test_prepare_shakeout_manifest_and_pilot_refuses_shakeout_result(
     assert manifest["evidence_class"] == "SHAKEOUT_NOT_EVIDENCE"
     assert manifest["required_exports"] == [
         "shakeout_result.json",
-        "shakeout_result.json.sha256",
-        "shakeout_result.json.complete",
     ]
 
     # Verify colab_canary.check and colab_supervisor.validate accept the manifest
@@ -2650,3 +2650,277 @@ def test_prepare_shakeout_manifest_and_pilot_refuses_shakeout_result(
             opponent_checkpoint=opp_path,
             smoke_result_json=renamed_as_smoke,
         )
+
+
+def test_required_exports_accepted_by_supervisor_validate_export_inventory_and_runtime_scanner(
+    tmp_path: Path,
+) -> None:
+    """Offline test (Requirement 3) feeding each mode's (`shakeout`, `smoke`, `pilot`) manifest
+    `required_exports` and both:
+    (a) a fake runtime inventory shaped exactly as `research/colab_cli/runtime.py:_exports`
+        produces (payload relative paths only, `{"path", "sha256", "size"}`, no `.sha256` or
+        `.complete` entries), and
+    (b) a real `runtime._exports` scan over the mode's actual job outputs (including stateful
+        multi-checkpoint `cache` polling for `pilot`),
+    directly into the supervisor's real required-export check function
+    `research.colab_cli.schema.validate_export_inventory` (called by
+    `research/colab_cli/supervisor.py:2032`)."""
+    from research.colab_cli.runtime import _exports as runtime_export_scanner
+    from research.colab_cli.schema import SchemaError, validate_export_inventory
+    from research.gpu_sitl.preflight import resolve_product_checkpoints
+    from research.gpu_sitl.prepare import (
+        PILOT_REQUIRED_EXPORTS,
+        SHAKEOUT_REQUIRED_EXPORTS,
+        SMOKE_REQUIRED_EXPORTS,
+        prepare_b1b_packet,
+    )
+    from research.gpu_sitl.smoke import run_cuda_shakeout, run_step_b1b_smoke
+
+    b8_path, opp_path = resolve_product_checkpoints()
+    if not Path(b8_path).exists() or not Path(opp_path).exists():
+        pytest.skip("b8-s3 or opponent checkpoint not present")
+
+    # 1. Build real manifests for all three modes (`shakeout`, `smoke`, `pilot`)
+    info_shake = prepare_b1b_packet(
+        tmp_path / "pkt_shakeout",
+        commit="origin/main",
+        mode="shakeout",
+        output_dir=tmp_path / "out_shakeout_mf",
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        attempt="shake-01",
+    )
+    manifest_shake = json.loads(Path(info_shake["manifest_path"]).read_text(encoding="utf-8"))
+    assert tuple(manifest_shake["required_exports"]) == SHAKEOUT_REQUIRED_EXPORTS
+
+    info_smoke = prepare_b1b_packet(
+        tmp_path / "pkt_smoke",
+        commit="origin/main",
+        mode="smoke",
+        output_dir=tmp_path / "out_smoke_mf",
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        attempt="smoke-01",
+    )
+    manifest_smoke = json.loads(Path(info_smoke["manifest_path"]).read_text(encoding="utf-8"))
+    assert tuple(manifest_smoke["required_exports"]) == SMOKE_REQUIRED_EXPORTS
+
+    info_pilot = prepare_b1b_packet(
+        tmp_path / "pkt_pilot",
+        commit="origin/main",
+        mode="pilot",
+        output_dir=tmp_path / "out_pilot_mf",
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        base_seconds=600.0,
+        attempt="pilot-01",
+    )
+    manifest_pilot = json.loads(Path(info_pilot["manifest_path"]).read_text(encoding="utf-8"))
+    assert tuple(manifest_pilot["required_exports"]) == PILOT_REQUIRED_EXPORTS
+
+    # 2. Feed a fake runtime inventory shaped exactly as `runtime.py:_exports` produces
+    # (payload relative paths only, never `.sha256` or `.complete` sidecars) through the
+    # supervisor's real `validate_export_inventory` function for each mode:
+    fake_inventories_by_mode: dict[str, tuple[dict[str, Any], list[dict[str, Any]]]] = {
+        "shakeout": (
+            manifest_shake,
+            [
+                {
+                    "path": "shakeout_result.json",
+                    "sha256": "a" * 64,
+                    "size": 4096,
+                }
+            ],
+        ),
+        "smoke": (
+            manifest_smoke,
+            [
+                {"path": "b8_sitl_student_final.pth", "sha256": "b" * 64, "size": 6_600_000},
+                {"path": "probe32_bank.pt", "sha256": "c" * 64, "size": 52_000},
+                {"path": "probe32_bank.pt.meta.json", "sha256": "d" * 64, "size": 2_400},
+                {"path": "sitl_pilot_result.json", "sha256": "e" * 64, "size": 1_800},
+                {"path": "smoke_result.json", "sha256": "f" * 64, "size": 5_200},
+            ],
+        ),
+        "pilot": (
+            manifest_pilot,
+            [
+                {"path": "b8_sitl_student_final.pth", "sha256": "1" * 64, "size": 6_600_000},
+                {
+                    "path": "checkpoints/sitl_state_final.meta.json",
+                    "sha256": "2" * 64,
+                    "size": 1_200,
+                },
+                {
+                    "path": "checkpoints/sitl_state_final.pt",
+                    "sha256": "3" * 64,
+                    "size": 22_000_000,
+                },
+                {"path": "probe32_bank.pt", "sha256": "4" * 64, "size": 85_000_000},
+                {"path": "probe32_bank.pt.meta.json", "sha256": "5" * 64, "size": 3_400},
+                {"path": "sitl_pilot_result.json", "sha256": "6" * 64, "size": 18_000},
+                {"path": "verified-ledger.json", "sha256": "7" * 64, "size": 2_100},
+            ],
+        ),
+    }
+
+    for mode_name, (mf, fake_inv) in fake_inventories_by_mode.items():
+        # Must not contain any .sha256 or .complete entries in required_exports or inventory
+        for req_p in mf["required_exports"]:
+            assert not req_p.endswith(
+                (".sha256", ".complete")
+            ), f"{mode_name} required_exports must not contain sidecar {req_p!r}"
+        # Real supervisor required-export check function must accept:
+        validate_export_inventory(mf, fake_inv)
+
+        # Verify that if sidecars were listed in required_exports (the 2fe6b243 bug),
+        # validate_export_inventory raises SchemaError ("required exports absent ..."):
+        first_payload = mf["required_exports"][0]
+        buggy_mf = {
+            **mf,
+            "required_exports": [
+                first_payload,
+                f"{first_payload}.sha256",
+                f"{first_payload}.complete",
+            ],
+        }
+        with pytest.raises(
+            SchemaError,
+            match="required exports absent from runtime scanner inventory",
+        ):
+            validate_export_inventory(buggy_mf, fake_inv)
+
+    # 3. Also run the real `runtime._exports` scanner over actual job outputs for all 3 modes
+    # (including stateful cache polling across multiple checkpoints in `pilot`) and feed the
+    # resulting inventories into `validate_export_inventory`:
+    rt_shake_root = tmp_path / "real_shakeout_rt"
+    out_shake_real = rt_shake_root / "output"
+    run_cuda_shakeout(
+        out_shake_real,
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+    )
+    shake_cache: dict[str, tuple[tuple[Any, ...], dict[str, Any]]] = {}
+    inv_shake = runtime_export_scanner(
+        rt_shake_root,
+        int(manifest_shake["max_export_bytes"]),
+        shake_cache,
+    )
+    assert [e["path"] for e in inv_shake] == ["shakeout_result.json"]
+    validate_export_inventory(manifest_shake, inv_shake)
+
+    rt_smoke_root = tmp_path / "real_smoke_rt"
+    out_smoke_real = rt_smoke_root / "output"
+    run_step_b1b_smoke(
+        out_smoke_real,
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+        num_envs=4,
+        branch_horizon=2,
+        parity_slice_indices=(0, 8),
+        bench_env_steps=1,
+        bench_label_batches=1,
+        bench_learner_updates=2,
+        dry_run=True,
+    )
+    smoke_cache: dict[str, tuple[tuple[Any, ...], dict[str, Any]]] = {}
+    inv_smoke = runtime_export_scanner(
+        rt_smoke_root,
+        int(manifest_smoke["max_export_bytes"]),
+        smoke_cache,
+    )
+    inv_smoke_paths = {e["path"] for e in inv_smoke}
+    assert set(SMOKE_REQUIRED_EXPORTS) <= inv_smoke_paths
+    # Smoke also exports the 4 pilot required exports so canary.check(pilot_manifest) passes
+    assert set(PILOT_REQUIRED_EXPORTS) <= inv_smoke_paths
+    validate_export_inventory(manifest_smoke, inv_smoke)
+
+    # For pilot: simulate periodic runtime._exports polling across multiple checkpoints
+    # with the same stateful `pilot_cache` dict to prove no `.complete` file is ever mutated!
+    rt_pilot_root = tmp_path / "real_pilot_rt"
+    out_pilot_real = rt_pilot_root / "output"
+    pilot_cache: dict[str, tuple[tuple[Any, ...], dict[str, Any]]] = {}
+    run_sitl_training(
+        out_pilot_real,
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+        num_envs=4,
+        total_updates=4,
+        warmup_rescue_roots=1,
+        min_unique_rescue_roots=2,
+        rescue_batch_size=2,
+        ordinary_batch_size=4,
+        ordinary_uniform_half=2,
+        ordinary_hard_neg_half=2,
+        branch_horizon=2,
+        tripwire_interval=2,
+        decision_window_size=10,
+        checkpoint_every_updates=1,
+        seed=20261109,
+        stop_after_updates=2,
+        dry_run=True,
+    )
+    # Poll 1 after pause at update 2
+    inv_pilot_mid = runtime_export_scanner(
+        rt_pilot_root,
+        int(manifest_pilot["max_export_bytes"]),
+        pilot_cache,
+    )
+    assert len(inv_pilot_mid) >= 1
+
+    # Stage into a fresh attempt-2 output dir via prepare_b1b_packet and complete updates 3..4
+    pkt_pilot_retry = tmp_path / "pkt_pilot_retry"
+    rt_retry_root = tmp_path / "real_pilot_retry_rt"
+    out_pilot_retry = rt_retry_root / "output"
+    prepare_b1b_packet(
+        pkt_pilot_retry,
+        commit="origin/main",
+        mode="pilot",
+        output_dir=out_pilot_retry,
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        base_seconds=600.0,
+        prior_output_dir=out_pilot_real,
+        attempt="pilot-02",
+    )
+    retry_cache: dict[str, tuple[tuple[Any, ...], dict[str, Any]]] = {}
+    run_sitl_training(
+        out_pilot_retry,
+        input_dir=pkt_pilot_retry / "inputs",
+        ledger_path=pkt_pilot_retry / "inputs" / "verified-ledger.json",
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+        num_envs=4,
+        total_updates=4,
+        warmup_rescue_roots=1,
+        min_unique_rescue_roots=2,
+        rescue_batch_size=2,
+        ordinary_batch_size=4,
+        ordinary_uniform_half=2,
+        ordinary_hard_neg_half=2,
+        branch_horizon=2,
+        tripwire_interval=2,
+        decision_window_size=10,
+        checkpoint_every_updates=1,
+        seed=20261109,
+        dry_run=True,
+    )
+    inv_pilot_final = runtime_export_scanner(
+        rt_retry_root,
+        int(manifest_pilot["max_export_bytes"]),
+        retry_cache,
+    )
+    # Second poll on same retry_cache must also succeed (immutability check)
+    inv_pilot_final_2 = runtime_export_scanner(
+        rt_retry_root,
+        int(manifest_pilot["max_export_bytes"]),
+        retry_cache,
+    )
+    assert inv_pilot_final == inv_pilot_final_2
+    validate_export_inventory(manifest_pilot, inv_pilot_final)
+    total_exported_bytes = sum(int(e["size"]) for e in inv_pilot_final)
+    assert total_exported_bytes < int(manifest_pilot["max_export_bytes"])
