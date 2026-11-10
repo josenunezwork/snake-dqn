@@ -3,6 +3,7 @@ harvester, online SITL training loop, and smoke entrypoint."""
 
 from __future__ import annotations
 
+import contextlib
 import json
 from pathlib import Path
 from typing import Any
@@ -3863,3 +3864,406 @@ def test_review_smoke_findings_sm1_sm2_sm3_sm4_sm5_sm6_sm7_sm10_sm11_sm12(
     assert shake_res["ok"] is True
     p6 = [p for p in shake_res["phases"] if "phase_6" in p["phase"]][0]
     assert p6["detail"]["deterministic_resume_verified"] is True
+
+
+@contextlib.contextmanager
+def _mps_readonly_spike_compat() -> Any:
+    """Adapt float64 and int64 scatter_reduce_ calls inside read-only gpu_sim_spike on MPS."""
+    orig_zeros, orig_full, orig_empty = torch.zeros, torch.full, torch.empty
+    orig_tensor, orig_as_tensor, orig_arange = torch.tensor, torch.as_tensor, torch.arange
+    orig_to, orig_double = torch.Tensor.to, torch.Tensor.double
+    orig_scatter_reduce_ = torch.Tensor.scatter_reduce_
+    orig_assert_async = torch._assert_async
+
+    def _is_mps(dev: Any) -> bool:
+        return dev is not None and torch.device(dev).type == "mps"
+
+    def _wrap_creation(fn: Any) -> Any:
+        def wrapped(*args: Any, **kwargs: Any) -> Any:
+            if _is_mps(kwargs.get("device")) and kwargs.get("dtype") == torch.float64:
+                kwargs = dict(kwargs, dtype=torch.float32)
+            return fn(*args, **kwargs)
+
+        return wrapped
+
+    def wrapped_as_tensor(data: Any, dtype: Any = None, device: Any = None) -> torch.Tensor:
+        if _is_mps(device):
+            if dtype == torch.float64 or (
+                dtype is None
+                and (
+                    (isinstance(data, np.ndarray) and data.dtype == np.float64)
+                    or (isinstance(data, torch.Tensor) and data.dtype == torch.float64)
+                )
+            ):
+                dtype = torch.float32
+        return orig_as_tensor(data, dtype=dtype, device=device)
+
+    def wrapped_to(self: torch.Tensor, *args: Any, **kwargs: Any) -> torch.Tensor:
+        new_args = list(args)
+        target_mps = (
+            (self.device.type == "mps")
+            or any(isinstance(a, (str, torch.device)) and _is_mps(a) for a in new_args)
+            or _is_mps(kwargs.get("device"))
+        )
+        if target_mps:
+            new_args = [torch.float32 if a == torch.float64 else a for a in new_args]
+            if kwargs.get("dtype") == torch.float64 or (
+                self.dtype == torch.float64
+                and "dtype" not in kwargs
+                and not any(isinstance(a, torch.dtype) for a in new_args)
+            ):
+                kwargs = dict(kwargs, dtype=torch.float32)
+        return orig_to(self, *new_args, **kwargs)
+
+    def wrapped_double(self: torch.Tensor, *args: Any, **kwargs: Any) -> torch.Tensor:
+        if self.device.type == "mps":
+            return orig_to(self, dtype=torch.float32)
+        return orig_double(self, *args, **kwargs)
+
+    def wrapped_scatter_reduce_(
+        self: torch.Tensor,
+        dim: int,
+        index: torch.Tensor,
+        src: torch.Tensor,
+        reduce: str,
+        *,
+        include_self: bool = True,
+    ) -> torch.Tensor:
+        if self.device.type == "mps" and self.dtype == torch.int64:
+            tmp = orig_to(self, dtype=torch.int32).clone()
+            orig_scatter_reduce_(
+                tmp, dim, index, orig_to(src, dtype=torch.int32), reduce, include_self=include_self
+            )
+            self.copy_(orig_to(tmp, dtype=torch.int64))
+            return self
+        return orig_scatter_reduce_(self, dim, index, src, reduce, include_self=include_self)
+
+    def wrapped_assert_async(tensor: torch.Tensor, msg: str) -> None:
+        if isinstance(tensor, torch.Tensor) and tensor.device.type == "mps":
+            if not bool(tensor.all().item()):
+                raise AssertionError(msg)
+            return
+        orig_assert_async(tensor, msg)
+
+    torch.zeros = _wrap_creation(orig_zeros)  # type: ignore[assignment]
+    torch.full = _wrap_creation(orig_full)  # type: ignore[assignment]
+    torch.empty = _wrap_creation(orig_empty)  # type: ignore[assignment]
+    torch.tensor = _wrap_creation(orig_tensor)  # type: ignore[assignment]
+    torch.arange = _wrap_creation(orig_arange)  # type: ignore[assignment]
+    torch.as_tensor = wrapped_as_tensor  # type: ignore[assignment]
+    torch.Tensor.to = wrapped_to  # type: ignore[assignment]
+    torch.Tensor.double = wrapped_double  # type: ignore[assignment]
+    torch.Tensor.scatter_reduce_ = wrapped_scatter_reduce_  # type: ignore[assignment]
+    torch._assert_async = wrapped_assert_async  # type: ignore[assignment]
+    try:
+        yield
+    finally:
+        torch.zeros, torch.full, torch.empty = orig_zeros, orig_full, orig_empty  # type: ignore[assignment]
+        torch.tensor, torch.as_tensor, torch.arange = orig_tensor, orig_as_tensor, orig_arange  # type: ignore[assignment]
+        torch.Tensor.to, torch.Tensor.double = orig_to, orig_double  # type: ignore[assignment]
+        torch.Tensor.scatter_reduce_ = orig_scatter_reduce_  # type: ignore[assignment]
+        torch._assert_async = orig_assert_async  # type: ignore[assignment]
+
+
+def test_ct_device_sim_step_and_reset_bit_identical_cpu_and_mps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Prove optimized CTDeviceSim step + reset_fresh_worlds are 100% bit-identical to the
+    pre-optimization reference implementation across all 28 _ENV_TENSOR_FIELDS on CPU and MPS,
+    and default move_backend='indexed' on CUDA."""
+    from research.gpu_sim_spike import r2_cache
+    from research.gpu_sim_spike.device_sim import PHI_LENGTH_DIVISOR, DeviceSim
+    from research.gpu_sitl.probe_bank import build_watch6_ct_device_bundle
+    from research.sandbox_a_resident.ct_mechanics import _CARDINAL, CTDeviceSim
+    from research.sandbox_a_resident.device_sim import _ENV_TENSOR_FIELDS
+
+    class _ReferenceCTDeviceSim(CTDeviceSim):
+        """Pre-optimization CTDeviceSim methods for before/after bit-identity comparison."""
+
+        def _refill_food_rows(self, active_mask: torch.Tensor) -> None:
+            DeviceSim._refill_food_rows(self, active_mask)
+
+        @torch.inference_mode()
+        def reset_fresh_worlds(self) -> None:
+            pending = ~self.alive & ~self.terminal_slots & (self.respawn_timer <= 0)
+            if not bool(pending.any()):
+                return
+            any_placed = False
+            for sidx in range(self.S):
+                slot_need = pending[:, sidx]
+                if not bool(slot_need.any()):
+                    continue
+                rows = slot_need.nonzero(as_tuple=False).flatten()
+                r2_cache.bump(self)
+                sub = object.__new__(DeviceSim)
+                sub.__dict__ = self.__dict__.copy()
+                for name in _ENV_TENSOR_FIELDS:
+                    value = getattr(self, name, None)
+                    if isinstance(value, torch.Tensor):
+                        setattr(sub, name, value.index_select(0, rows))
+                sub.E = int(rows.numel())
+                sub.exact_mechanics = self.exact_mechanics
+                r2_cache.inherit(sub, self)
+                occupied = sub.occupancy()
+                unplaced = torch.ones(sub.E, dtype=torch.bool, device=self.device)
+                for _ in range(100):
+                    if not bool(unplaced.any()):
+                        break
+                    local_idx = unplaced.nonzero(as_tuple=False).flatten()
+                    global_idx = rows.index_select(0, local_idx)
+                    cand = self._draw_for_rows(global_idx)
+                    cx, cy = cand[:, 0], cand[:, 1]
+                    in_bounds = (cx >= 0) & (cx < self.grid_w) & (cy >= 0) & (cy < self.grid_h)
+                    safe_x = cx.clamp(0, self.grid_w - 1)
+                    safe_y = cy.clamp(0, self.grid_h - 1)
+                    free = in_bounds & (occupied[local_idx, safe_y, safe_x] < 0)
+                    if bool(free.any()):
+                        win_global = global_idx[free]
+                        win_local = local_idx[free]
+                        win_cand = cand[free]
+                        self.bodies[win_global, sidx, 0] = win_cand.to(self.bodies.dtype)
+                        self.head_ptr[win_global, sidx] = 0
+                        self.seg_count[win_global, sidx] = 1
+                        self.length[win_global, sidx] = 1
+                        self.direction[win_global, sidx] = 1
+                        self.alive[win_global, sidx] = True
+                        self.respawn_timer[win_global, sidx] = 0
+                        self.boost_frames[win_global, sidx] = 0
+                        self.frames_since_food[win_global, sidx] = 0
+                        self._reward_prev_length[win_global, sidx] = 1
+                        unplaced[win_local] = False
+                        any_placed = True
+            if any_placed:
+                r2_cache.bump(self)
+
+        @torch.inference_mode()
+        def step(self, actions: torch.Tensor) -> None:
+            actions = actions.long().clamp(0, 5)
+            r2_cache.bump(self)
+            self.prepare()
+            acted, prev_length = self.alive.clone(), self._reward_prev_length.clone()
+            new_dir = (
+                self.direction
+                + torch.where(
+                    actions.remainder(3) == 0, -1, torch.where(actions.remainder(3) == 2, 1, 0)
+                )
+            ) % 4
+            self.direction = torch.where(self.alive, new_dir, self.direction)
+            cardinal = (
+                r2_cache.const(_CARDINAL, torch.long, self.device)
+                if r2_cache.enabled(self)
+                else torch.tensor(_CARDINAL, dtype=torch.long, device=self.device)
+            )
+            delta = cardinal[self.direction]
+            head0 = self.heads()
+            move1 = self.alive
+            head1 = head0 + delta
+            self._push(head1, move1)
+            boost = self.alive & (actions >= 3) & (self.length >= int(self.cfg.min_boost_length))
+            head2 = head1 + delta
+            self._push(head2, boost)
+            self._boosted_this_step = boost
+            self.boost_frames = torch.where(boost, self.boost_frames + 1, self.boost_frames)
+            burn = (
+                boost
+                & (self.boost_frames >= int(self.cfg.boost_length_cost_frames))
+                & (self.length > 1)
+            )
+            self.boost_frames = torch.where(
+                burn, torch.zeros_like(self.boost_frames), self.boost_frames
+            )
+            tail_ring = (self.head_ptr - (self.seg_count - 1).clamp_min(0)) % self.cap
+            e = torch.arange(self.E, device=self.device)[:, None]
+            s = torch.arange(self.S, device=self.device)[None, :]
+            paid_tail = self.bodies[e, s, tail_ring]
+            self.length -= burn.long()
+            extra = burn & (self.seg_count > self.length)
+            self.seg_count -= extra.long()
+            if self.v2:
+                for slot in range(self.S):
+                    self._append_food(
+                        paid_tail[:, slot],
+                        extra[:, slot] & self._in_arena(paid_tail[:, slot]),
+                        True,
+                    )
+            traversed = torch.stack((head1, head2), dim=2)
+            traversed_valid = torch.stack((move1, boost), dim=2)
+            ate = torch.zeros_like(self.alive)
+            ate_corpse = torch.zeros_like(self.alive)
+            eq_any = (traversed[:, :, :, None, :] == self.food_cells[:, None, None, :, :]).all(
+                dim=-1
+            )
+            if bool(
+                (eq_any & self.food_present[:, None, None, :] & traversed_valid[..., None]).any()
+            ):
+                food_slots = torch.arange(self.food_capacity, device=self.device)[None, :]
+                t_idx = torch.arange(2, device=self.device)[None, :]
+                for slot in range(self.S):
+                    eq_s = (traversed[:, slot, :, None, :] == self.food_cells[:, None, :, :]).all(
+                        dim=-1
+                    )
+                    available = (
+                        eq_s & self.food_present[:, None, :] & traversed_valid[:, slot, :, None]
+                    )
+                    by_t = available.any(dim=2)
+                    first_t = by_t.long().argmax(dim=1)
+                    tmask = t_idx == first_t[:, None]
+                    candidates = (available & tmask[:, :, None]).any(dim=1)
+                    has = candidates.any(dim=1) & self.alive[:, slot]
+                    if not bool(has.any()):
+                        continue
+                    chosen = candidates.long().argmax(dim=1)
+                    select = has[:, None] & (food_slots == chosen[:, None])
+                    is_corpse = (select & self.corpse_food).any(dim=1)
+                    ate[:, slot] = has
+                    ate_corpse[:, slot] = is_corpse
+                    self.length[:, slot] += has.long()
+                    self.food_present &= ~select
+                    self.corpse_food &= self.food_present
+                    self._compact_food()
+                    r2_cache.bump(self)
+                    self._refill_food_rows(has)
+                    r2_cache.bump(self)
+            in_arena = ((~traversed_valid) | self._in_arena(traversed)).all(dim=2)
+            body, self_hit, head_pair, body_pair = self._collision_flags_reference(
+                head0, traversed, traversed_valid
+            )
+            death, death_rank, dead, kills, kill_mass = self._resolve_collisions_reference(
+                in_arena, self_hit, head_pair, body_pair
+            )
+            died = dead
+            if bool(died.any().item()):
+                snake_order = death_rank.argsort(dim=1, stable=True)
+                body = body.gather(1, snake_order[:, :, None, None].expand(-1, -1, self.cap, 2))
+                died_ordered = died.gather(1, snake_order)
+                seg_ordered = self.seg_count.gather(1, snake_order)
+                offsets = torch.arange(self.cap, device=self.device)[None, None, :]
+                corpse_mask = died_ordered[..., None] & (offsets < seg_ordered[..., None])
+                if not self.v2:
+                    corpse_mask &= offsets.remainder(2) == 0
+                self._append_many(
+                    body.reshape(self.E, self.S * self.cap, 2),
+                    corpse_mask.reshape(self.E, self.S * self.cap),
+                    self.v2,
+                )
+            phi_prev = prev_length.float() / PHI_LENGTH_DIVISOR
+            phi_new = torch.where(
+                died, torch.zeros_like(phi_prev), self.length.float() / PHI_LENGTH_DIVISOR
+            )
+            self._last_reward = (
+                float(self.cfg.gamma) * phi_new
+                - phi_prev
+                + torch.where(
+                    died,
+                    torch.full_like(phi_new, float(self.cfg.death_value)),
+                    torch.zeros_like(phi_new),
+                )
+                + kill_mass.float() * float(self.cfg.kill_scale)
+            )
+            self.frames_since_food = torch.where(
+                died,
+                self.frames_since_food,
+                torch.where(
+                    ate,
+                    torch.zeros_like(self.frames_since_food),
+                    self.frames_since_food + self.alive.long(),
+                ),
+            )
+            self._reward_prev_length = torch.where(died, self._reward_prev_length, self.length)
+            self.alive &= ~died
+            self.respawn_timer = torch.where(
+                died,
+                torch.full_like(self.respawn_timer, int(self.cfg.frame_rate)),
+                self.respawn_timer,
+            )
+            self._last_done, self._last_death_cause, self._last_kills, self._last_food_ate = (
+                died,
+                death,
+                kills,
+                ate,
+            )
+            self._last_ambient_food_ate = ate & ~ate_corpse
+            self._last_corpse_food_ate = ate_corpse
+            self._last_transition_valid = acted
+            self._prepared = False
+            r2_cache.bump(self)
+
+    b8_path, opp_path = resolve_product_checkpoints()
+    if not Path(b8_path).exists() or not Path(opp_path).exists():
+        pytest.skip("b8-s3 or opponent checkpoint not present")
+
+    # Verify CTDeviceSim.__init__ and CTDeviceSim.from_reference default move_backend="indexed" on CUDA
+    from research.sandbox_a_resident.training_sim import TrainingDeviceSim
+    from src.simd_env.batch_sim import BatchSimConfig
+
+    seen_init_kwargs: list[dict[str, Any]] = []
+    orig_tds_init = TrainingDeviceSim.__init__
+
+    def _spy_tds_init(self: Any, *args: Any, **kwargs: Any) -> None:
+        seen_init_kwargs.append(dict(kwargs))
+        cpu_kwargs = dict(kwargs, device="cpu")
+        orig_tds_init(self, *args, **cpu_kwargs)
+
+    with monkeypatch.context() as mp:
+        mp.setattr(TrainingDeviceSim, "__init__", _spy_tds_init)
+        cuda_init_sim = CTDeviceSim(BatchSimConfig(num_envs=2, num_snakes=6), device="cuda")
+        assert seen_init_kwargs[-1].get("move_backend") == "indexed"
+        assert cuda_init_sim.move_backend == "indexed"
+
+        orig_from_ref = TrainingDeviceSim.from_reference
+
+        def _fake_cuda_from_ref(cls_arg: Any, sim_arg: Any, **kw: Any) -> Any:
+            res_sim = orig_from_ref(sim_arg, device="cpu", repeat=int(kw.get("repeat", 1)))
+            res_sim.capacity_overflow = torch.zeros_like(res_sim.alive)
+            res_sim.device = torch.device("cuda:0")
+            return res_sim
+
+        mp.setattr(TrainingDeviceSim, "from_reference", classmethod(_fake_cuda_from_ref))
+        from src.simd_env.grid_sim import GridBatchSim
+
+        cuda_ref_sim = CTDeviceSim.from_reference(
+            GridBatchSim(BatchSimConfig(num_envs=1, num_snakes=6)),
+            device="cuda",
+        )
+        assert cuda_ref_sim.move_backend == "indexed"
+
+    seeds = preflight_seeds(tuple(range(16)))
+    devices = ["cpu"] + (["mps"] if torch.backends.mps.is_available() else [])
+    for dev_name in devices:
+        ctx = _mps_readonly_spike_compat() if dev_name == "mps" else contextlib.nullcontext()
+        with ctx:
+            dev = torch.device("mps", 0) if dev_name == "mps" else torch.device("cpu")
+            sim_fast, _ = build_watch6_ct_device_bundle(seeds, b8_path, opp_path, device=dev)
+            # Test reset_fresh_worlds bit-identity first
+            sim_fast.alive[::2, :] = False
+            sim_fast.respawn_timer[::2, :] = 0
+            sim_ref_reset = sim_fast.clone()
+            sim_ref_reset.__class__ = _ReferenceCTDeviceSim
+            sim_fast.reset_fresh_worlds()
+            sim_ref_reset.reset_fresh_worlds()
+            for field_name in _ENV_TENSOR_FIELDS:
+                assert torch.equal(
+                    getattr(sim_fast, field_name), getattr(sim_ref_reset, field_name)
+                ), f"[{dev_name}] reset_fresh_worlds mismatch on {field_name}"
+
+            # Exercise boost burn paid_tail corpse drop, food eat/refill, deaths, and respawns
+            sim_fast.length[:, :] = 8
+            sim_fast._reward_prev_length[:, :] = 8
+            sim_fast.boost_frames[:, :] = int(sim_fast.cfg.boost_length_cost_frames) - 1
+            sim_fast.alive[:, 4] = False
+            sim_fast.respawn_timer[:, 4] = 2
+
+            sim_ref = sim_fast.clone()
+            sim_ref.__class__ = _ReferenceCTDeviceSim
+            r2_cache.enable(sim_fast)
+            r2_cache.enable(sim_ref)
+
+            gen = torch.Generator(device="cpu").manual_seed(20261110)
+            for step_i in range(24):
+                act = torch.randint(0, 6, (16, 6), generator=gen, dtype=torch.long).to(dev)
+                sim_fast.step(act)
+                sim_ref.step(act)
+                for field_name in _ENV_TENSOR_FIELDS:
+                    assert torch.equal(
+                        getattr(sim_fast, field_name), getattr(sim_ref, field_name)
+                    ), f"[{dev_name}] step {step_i} mismatch on {field_name}"
