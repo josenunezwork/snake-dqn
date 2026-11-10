@@ -795,8 +795,7 @@ def run_sitl_training(
     """Run the Step B1b online GPU SITL training loop (or dry-run / L4 shake-out)."""
     t_start = time.perf_counter()
     dev = ensure_cuda_initialized(device)
-    if dev.type == "cuda":
-        verify_cuda_native_extensions(dev)
+    native_extensions = verify_cuda_native_extensions(dev)
 
     is_shakeout = bool(shakeout)
     eff_dry_run = bool(dry_run or is_shakeout)
@@ -1900,6 +1899,9 @@ def run_sitl_training(
             aliasing_diag["stop_ego2s_bv8_inputs_insufficient"]
         ),
         "device": str(dev),
+        "native_extensions": native_extensions,
+        "declared_torch_cuda_arch_list": native_extensions.get("torch_cuda_arch_list"),
+        "effective_build_cuda_arch": native_extensions.get("effective_build_cuda_arch"),
         "resumed_from_checkpoint": resumed_from_checkpoint,
         "verified_ledger_path": str(out_ledger_path),
         "b8_checkpoint_sha256": b8_sha,

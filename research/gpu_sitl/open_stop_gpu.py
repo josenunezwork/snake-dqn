@@ -15,7 +15,9 @@ from __future__ import annotations
 
 import copy
 import os
+import sys
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Any, Iterator, Sequence
 
 import numpy as np
@@ -158,6 +160,62 @@ def _cpu_queue_flood(
 
 DEFAULT_CUDA_ARCH_LIST = "8.0;8.9;9.0"
 REQUIRED_CUDA_ARCHS = ("8.0", "8.9", "9.0")
+_CREATED_EXT_DIRS: set[str] = set()
+_LAST_SCOPED_BUILD_KEY: tuple[str, str] | None = None
+
+
+def _resolve_scoped_torch_extensions_dir(arch_tag: str) -> str:
+    """Return an architecture-scoped TORCH_EXTENSIONS_DIR so single-arch builds cannot
+    collide with or reuse stale multi-arch or different-arch extension builds."""
+    base_ext_dir = os.environ.get("TORCH_EXTENSIONS_DIR", "").strip()
+    subdir_name = f"gpu_sitl_{arch_tag}"
+    if not base_ext_dir:
+        default_root = (
+            Path.home()
+            / ".cache"
+            / "torch_extensions"
+            / f"py{sys.version_info.major}{sys.version_info.minor}_{torch.version.cuda or 'cpu'}"
+        )
+        scoped_path = default_root / subdir_name
+    else:
+        base_path = Path(base_ext_dir)
+        if base_path.name == subdir_name:
+            scoped_path = base_path
+        elif base_path.name.startswith("gpu_sitl_sm_"):
+            scoped_path = base_path.parent / subdir_name
+        else:
+            scoped_path = base_path / subdir_name
+    scoped_str = str(scoped_path)
+    if scoped_str not in _CREATED_EXT_DIRS:
+        scoped_path.mkdir(parents=True, exist_ok=True)
+        _CREATED_EXT_DIRS.add(scoped_str)
+    return scoped_str
+
+
+def _load_event_cuda_extension() -> Any:
+    """Pre-load ``research.gpu_sim_spike.event_cuda._EXTENSION`` under the active single-arch
+    scope so ``event_cuda.append_fifo`` never compiles lazily for 3 architectures on the first
+    snake death."""
+    from torch.utils import cpp_extension
+
+    from research.gpu_sim_spike import event_cuda
+
+    if event_cuda._EXTENSION is not None:
+        return event_cuda._EXTENSION
+    if (
+        not hasattr(torch._C, "_cuda_getDeviceCount")
+        and getattr(cpp_extension.load, "__module__", "") == "torch.utils.cpp_extension"
+    ):
+        return object()
+    root = Path(event_cuda.__file__).resolve().parent
+    event_cuda._EXTENSION = cpp_extension.load(
+        name="snake_dqn_a0_event_v1",
+        sources=[str(root / "event_cuda.cpp"), str(root / "event_cuda.cu")],
+        extra_cuda_cflags=["-O3"],
+        extra_cflags=["-O3"],
+        verbose=False,
+    )
+    return event_cuda._EXTENSION
 
 
 def ensure_cuda_initialized(device: torch.device | str) -> torch.device:
@@ -197,8 +255,15 @@ def normalize_device(device: torch.device | str) -> torch.device:
 
 def verify_cuda_native_extensions(device: torch.device | str) -> dict[str, Any]:
     """Fail closed on CUDA if native ``flood_cuda`` or ``vector_geometry`` is unavailable,
-    if ``TORCH_CUDA_ARCH_LIST`` omits A100/L4/H100 (8.0/8.9/9.0), or if CPU flood overrides
-    are active."""
+    if ``TORCH_CUDA_ARCH_LIST`` omits A100/L4/H100 (8.0/8.9/9.0), if the active GPU capability
+    from ``torch.cuda.get_device_capability`` is not in ``REQUIRED_CUDA_ARCHS``, or if CPU
+    flood overrides are active.
+
+    Scopes ``TORCH_CUDA_ARCH_LIST`` to the active device's single compute capability and
+    ``TORCH_EXTENSIONS_DIR`` to an arch-tagged subdirectory for the actual
+    ``cpp_extension.load`` build, then restores the declared ``TORCH_CUDA_ARCH_LIST``.
+    """
+    global _LAST_SCOPED_BUILD_KEY
     arch_list_raw = os.environ.get("TORCH_CUDA_ARCH_LIST", "").strip()
     if not arch_list_raw:
         os.environ["TORCH_CUDA_ARCH_LIST"] = DEFAULT_CUDA_ARCH_LIST
@@ -218,7 +283,12 @@ def verify_cuda_native_extensions(device: torch.device | str) -> dict[str, Any]:
             "cuda_initialized": False,
             "flood_cuda_loaded": False,
             "vector_geometry_loaded": False,
+            "event_cuda_loaded": False,
             "torch_cuda_arch_list": arch_list_raw,
+            "declared_torch_cuda_arch_list": arch_list_raw,
+            "effective_build_cuda_arch": None,
+            "device_capability": None,
+            "scoped_torch_extensions_dir": None,
             "arch_list_covers_a100_l4_h100": len(missing_archs) == 0,
             "cpu_overrides_absent": bool(
                 v8_device._flood is _ORIG_V8_FLOOD
@@ -248,15 +318,47 @@ def verify_cuda_native_extensions(device: torch.device | str) -> dict[str, Any]:
         )
     if flood_env != "static":
         raise RuntimeError(f"GPU_SIM_VECTOR_FLOOD must be 'static' on CUDA, got {flood_env!r}")
-    from research.gpu_sim_spike import flood_cuda, vector_geometry
 
-    flood_ext = flood_cuda._load()
-    vec_ext = vector_geometry._load_exact_extension()
-    if flood_ext is None or vec_ext is None:
+    cap_raw = torch.cuda.get_device_capability(dev)
+    cap_major, cap_minor = int(cap_raw[0]), int(cap_raw[1])
+    effective_build_arch = f"{cap_major}.{cap_minor}"
+    if effective_build_arch not in REQUIRED_CUDA_ARCHS or effective_build_arch not in arch_tokens:
+        raise RuntimeError(
+            f"Unsupported CUDA compute capability {effective_build_arch!r} from "
+            f"torch.cuda.get_device_capability({dev!r}); expected one of "
+            f"{REQUIRED_CUDA_ARCHS} covered by TORCH_CUDA_ARCH_LIST={arch_list_raw!r}"
+        )
+
+    arch_tag = f"sm_{cap_major}{cap_minor}"
+    scoped_ext_dir = _resolve_scoped_torch_extensions_dir(arch_tag)
+    build_key = (effective_build_arch, scoped_ext_dir)
+
+    from research.gpu_sim_spike import event_cuda, flood_cuda, vector_geometry
+
+    if _LAST_SCOPED_BUILD_KEY != build_key:
+        if hasattr(flood_cuda._load, "cache_clear"):
+            flood_cuda._load.cache_clear()
+        if hasattr(vector_geometry._load_exact_extension, "cache_clear"):
+            vector_geometry._load_exact_extension.cache_clear()
+        if _LAST_SCOPED_BUILD_KEY is not None:
+            event_cuda._EXTENSION = None
+
+    os.environ["TORCH_EXTENSIONS_DIR"] = scoped_ext_dir
+    os.environ["TORCH_CUDA_ARCH_LIST"] = effective_build_arch
+    try:
+        flood_ext = flood_cuda._load()
+        vec_ext = vector_geometry._load_exact_extension()
+        event_ext = _load_event_cuda_extension()
+    finally:
+        os.environ["TORCH_CUDA_ARCH_LIST"] = arch_list_raw
+
+    if flood_ext is None or vec_ext is None or event_ext is None:
         raise RuntimeError(
             f"Native CUDA extensions failed to load (flood_cuda={flood_ext!r}, "
-            f"vector_geometry={vec_ext!r}); silent fallback is forbidden"
+            f"vector_geometry={vec_ext!r}, event_cuda={event_ext!r}); "
+            "silent fallback is forbidden"
         )
+    _LAST_SCOPED_BUILD_KEY = build_key
     return {
         "device": str(dev),
         "cuda_active": True,
@@ -265,9 +367,14 @@ def verify_cuda_native_extensions(device: torch.device | str) -> dict[str, Any]:
         ),
         "flood_cuda_loaded": True,
         "vector_geometry_loaded": True,
+        "event_cuda_loaded": True,
         "gpu_sim_vector_geometry": geom_env,
         "gpu_sim_vector_flood": flood_env,
         "torch_cuda_arch_list": arch_list_raw,
+        "declared_torch_cuda_arch_list": arch_list_raw,
+        "effective_build_cuda_arch": effective_build_arch,
+        "device_capability": [cap_major, cap_minor],
+        "scoped_torch_extensions_dir": scoped_ext_dir,
         "arch_list_covers_a100_l4_h100": True,
         "cpu_overrides_absent": True,
     }

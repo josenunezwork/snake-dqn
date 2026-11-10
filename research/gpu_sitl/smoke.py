@@ -148,6 +148,25 @@ def _sync_device(dev: torch.device) -> None:
         torch.mps.synchronize()
 
 
+def _log_smoke_phase(
+    event: str,
+    phase: str,
+    t_process_start: float,
+    *,
+    phase_start: float | None = None,
+    detail: str = "",
+) -> float:
+    now = time.perf_counter()
+    elapsed = now - t_process_start
+    msg = f"[gpu_sitl.smoke] {event} phase={phase} elapsed_s={elapsed:.2f}"
+    if phase_start is not None:
+        msg += f" phase_s={now - phase_start:.2f}"
+    if detail:
+        msg += f" {detail}"
+    print(msg, flush=True)
+    return now
+
+
 @torch.inference_mode()
 def run_mature_cohort_row_subset_parity(
     b8_path: Path | str,
@@ -157,29 +176,46 @@ def run_mature_cohort_row_subset_parity(
     slice_indices: Sequence[int] = DEFAULT_MATURE_SLICE_INDICES,
     branch_horizon: int = OPEN_STOP_BRANCH_HORIZON,
     dry_run: bool = False,
+    pre_built_extension_worlds: tuple[list[Any], Any, list[dict[str, Any]]] | None = None,
+    t_process_start: float | None = None,
 ) -> dict[str, Any]:
     """Compare device native kernels against pure-Torch CPU paths on mature cohort row subsets.
 
     Fails closed (raises :class:`RuntimeError`) on any boolean or action mismatch.
     """
     t0 = time.perf_counter()
+    proc_t0 = t0 if t_process_start is None else float(t_process_start)
     dev = ensure_cuda_initialized(device)
     if not dry_run and dev.type != "cuda":
         raise RuntimeError(f"Non-dry-run Step B1b-Smoke requires device='cuda', got {dev}")
-    native_info: dict[str, Any] = {}
-    if dev.type == "cuda":
-        native_info = verify_cuda_native_extensions(dev)
+    native_info = verify_cuda_native_extensions(dev)
 
     selected_specs = [MATURE_EXTENSION_SPECS[int(i)] for i in slice_indices]
     n_roots = len(selected_specs)
     if n_roots < 2:
         raise ValueError("slice_indices must select at least 2 mature cohort roots")
 
-    worlds, pol_tpl, build_meta = build_extension_worlds(
-        Path(b8_path),
-        Path(opponent_path),
-        specs=selected_specs,
-    )
+    if pre_built_extension_worlds is not None:
+        worlds, pol_tpl, build_meta = pre_built_extension_worlds
+        if len(worlds) != n_roots or len(build_meta) != n_roots:
+            raise ValueError(
+                f"pre_built_extension_worlds length ({len(worlds)}, {len(build_meta)}) "
+                f"must match slice_indices length ({n_roots})"
+            )
+    else:
+        t_ext = _log_smoke_phase("PHASE_START", "parity_build_extension_worlds", proc_t0)
+        worlds, pol_tpl, build_meta = build_extension_worlds(
+            Path(b8_path),
+            Path(opponent_path),
+            specs=selected_specs,
+        )
+        _log_smoke_phase(
+            "PHASE_END",
+            "parity_build_extension_worlds",
+            proc_t0,
+            phase_start=t_ext,
+            detail=f"roots={n_roots}",
+        )
     sim_cpu, pol_cpu = snapshot_worlds_to_device(
         worlds,
         pol_tpl,
@@ -208,6 +244,7 @@ def run_mature_cohort_row_subset_parity(
     n_sub = int(rows_cpu.shape[0])
 
     # 1. Parity Check: flood_cuda.flood via v8_decide(..., features=True) on row subsets
+    t_p1 = _log_smoke_phase("PHASE_START", "parity_1_v8_flood", proc_t0)
     gen = torch.Generator(device="cpu")
     gen.manual_seed(20261109)
     q_sub_cpu = torch.randn((n_sub, 6), generator=gen, dtype=torch.float32)
@@ -268,8 +305,10 @@ def run_mature_cohort_row_subset_parity(
             f"spacious={v8_spacious_match}, landing_ok={v8_landing_ok_match}, "
             f"head_risky={v8_head_risky_match}, feat_max_abs={v8_feat_max_abs}"
         )
+    _log_smoke_phase("PHASE_END", "parity_1_v8_flood", proc_t0, phase_start=t_p1)
 
     # 2. Parity Check: flood_cuda.components via ego_device._component_sizes on row subsets
+    t_p2 = _log_smoke_phase("PHASE_START", "parity_2_components", proc_t0)
     with _maybe_cpu_fast_flood(False):
         comp_ref = ego_device._component_sizes(sim_cpu, rows_cpu, _ttl_by_owner(sim_cpu))
     with _maybe_cpu_fast_flood(bool(dev.type == "cpu")):
@@ -280,8 +319,10 @@ def run_mature_cohort_row_subset_parity(
             "Step B1b-Smoke parity failure in flood_cuda.components / _component_sizes "
             f"on row subsets: ref={comp_ref.tolist()} vs cand={comp_cand.cpu().tolist()}"
         )
+    _log_smoke_phase("PHASE_END", "parity_2_components", proc_t0, phase_start=t_p2)
 
     # 3. Parity Check: vector_geometry.exact_features_rows and FastDeviceVectorRuntime row subsets
+    t_p3 = _log_smoke_phase("PHASE_START", "parity_3_vector_runtime", proc_t0)
     rt_cpu = pol_cpu.vector_runtime
     rt_dev = pol_dev.vector_runtime
     with _maybe_cpu_fast_flood(False):
@@ -418,8 +459,10 @@ def run_mature_cohort_row_subset_parity(
             f"prep_mask_match={prep_mask_match}, fresh_rows={post_fresh_rows}, "
             f"cap_rows={post_cap_rows}"
         )
+    _log_smoke_phase("PHASE_END", "parity_3_vector_runtime", proc_t0, phase_start=t_p3)
 
     # 4. Parity Check: batched_open_stop_h32 boolean certificates on the mature cohort slice
+    t_p4 = _log_smoke_phase("PHASE_START", "parity_4_open_stop_h32", proc_t0)
     slice_seeds = [int(w.seed) for w in worlds]
     slice_decisions = [int(w.sim.frame[0]) for w in worlds]
 
@@ -486,12 +529,15 @@ def run_mature_cohort_row_subset_parity(
             f"ordinary_mask={ordinary_mask_match}, bare_actions={bare_actions_match}, "
             f"a_star_actions={a_star_actions_match}"
         )
+    _log_smoke_phase("PHASE_END", "parity_4_open_stop_h32", proc_t0, phase_start=t_p4)
 
     return {
         "ok": True,
         "device": str(dev),
         "dry_run": bool(dry_run),
         "native_extensions": native_info,
+        "declared_torch_cuda_arch_list": native_info.get("torch_cuda_arch_list"),
+        "effective_build_cuda_arch": native_info.get("effective_build_cuda_arch"),
         "slice_indices": [int(i) for i in slice_indices],
         "num_roots": int(n_roots),
         "num_row_subset_entries": int(n_sub),
@@ -739,6 +785,7 @@ def run_step_b1b_smoke(
 ) -> dict[str, Any]:
     """Run Step B1b-Smoke (`short-canary <= 25 min`, cap `3.0 A100 u`) and write JSON + SHA256."""
     t_start = time.perf_counter()
+    t_init = _log_smoke_phase("PHASE_START", "init_and_extensions", t_start)
     is_shakeout = bool(shakeout)
     is_non_prod = bool(dry_run or is_shakeout)
     dev = ensure_cuda_initialized(device)
@@ -784,8 +831,40 @@ def run_step_b1b_smoke(
     if dev.type == "cuda":
         ensure_cuda_initialized(dev)
         torch.cuda.reset_peak_memory_stats(dev)
+    native_extensions = verify_cuda_native_extensions(dev)
+    init_elapsed = max(0.0, time.perf_counter() - t_init)
+    _log_smoke_phase(
+        "PHASE_END",
+        "init_and_extensions",
+        t_start,
+        phase_start=t_init,
+        detail=(
+            f"device={dev} declared_arch={native_extensions.get('torch_cuda_arch_list')} "
+            f"effective_arch={native_extensions.get('effective_build_cuda_arch')}"
+        ),
+    )
+
+    # Build the mature extension worlds once and reuse across parity check and mature splice.
+    t_ext_build = _log_smoke_phase("PHASE_START", "build_mature_extension_worlds", t_start)
+    parity_specs = [MATURE_EXTENSION_SPECS[int(i)] for i in parity_slice_indices]
+    if len(parity_specs) < 2:
+        raise ValueError("parity_slice_indices must select at least 2 mature cohort roots")
+    ext_worlds_cpu, ext_pol_tpl, ext_build_meta = build_extension_worlds(
+        b8_path,
+        opp_path,
+        specs=parity_specs,
+    )
+    ext_build_elapsed = max(0.0, time.perf_counter() - t_ext_build)
+    _log_smoke_phase(
+        "PHASE_END",
+        "build_mature_extension_worlds",
+        t_start,
+        phase_start=t_ext_build,
+        detail=f"roots={len(ext_worlds_cpu)}",
+    )
 
     # (a) CUDA-vs-CPU parity check on row subsets against pure-Torch paths
+    t_par = _log_smoke_phase("PHASE_START", "parity_check", t_start)
     parity_report = run_mature_cohort_row_subset_parity(
         b8_path,
         opp_path,
@@ -793,9 +872,19 @@ def run_step_b1b_smoke(
         slice_indices=parity_slice_indices,
         branch_horizon=int(branch_horizon),
         dry_run=is_non_prod,
+        pre_built_extension_worlds=(ext_worlds_cpu, ext_pol_tpl, ext_build_meta),
+        t_process_start=t_start,
+    )
+    _log_smoke_phase(
+        "PHASE_END",
+        "parity_check",
+        t_start,
+        phase_start=t_par,
+        detail=f"ok={parity_report.get('ok')}",
     )
 
     # (b) Throughput and peak VRAM benchmark at E = num_envs (256 on A100; dev seeds on shakeout)
+    t_bundle = _log_smoke_phase("PHASE_START", "bundle_and_bench_warmup", t_start)
     world_seeds = shakeout_smoke_seeds(int(num_envs)) if is_shakeout else train_seeds(int(num_envs))
     active_train_namespace = SHAKEOUT_SMOKE_NAMESPACE if is_shakeout else TRAIN_NAMESPACE
     sim, policy = build_watch6_ct_device_bundle(
@@ -839,8 +928,17 @@ def run_step_b1b_smoke(
         sim.step(warm_actions)
         policy.after_step(sim)
     _sync_device(dev)
+    bundle_warmup_elapsed = max(0.0, time.perf_counter() - t_bundle)
+    _log_smoke_phase(
+        "PHASE_END",
+        "bundle_and_bench_warmup",
+        t_start,
+        phase_start=t_bundle,
+        detail=f"envs={num_envs}",
+    )
 
     # Benchmark 1: env steps/s at E = num_envs
+    _log_smoke_phase("PHASE_START", "bench_1_env_steps", t_start, detail=f"steps={bench_env_steps}")
     t_env0 = time.perf_counter()
     for _ in range(int(bench_env_steps)):
         with torch.inference_mode():
@@ -861,11 +959,18 @@ def run_step_b1b_smoke(
     env_elapsed = max(1e-9, time.perf_counter() - t_env0)
     env_steps_per_sec = float(bench_env_steps) / env_elapsed
     hero_decisions_per_sec = float(int(num_envs) * int(bench_env_steps)) / env_elapsed
+    _log_smoke_phase(
+        "PHASE_END",
+        "bench_1_env_steps",
+        t_start,
+        phase_start=t_env0,
+        detail=f"env_steps_per_sec={env_steps_per_sec:.2f}",
+    )
 
     # On CUDA (non-dry-run), advance bare b8-s3 on train_seeds(num_envs) into mature mid-game
     # traffic (600 frames) and splice mature cohort snapshots (L in [210, 823], L >= 160) so the
     # online rescue-rate measurement window covers both mature lengths and natural trajectories.
-    t_warm0 = time.perf_counter()
+    t_warm0 = _log_smoke_phase("PHASE_START", "mature_warmup_and_splice", t_start)
     mature_warmup_steps = (
         0
         if dry_run or dev.type != "cuda"
@@ -882,14 +987,8 @@ def run_step_b1b_smoke(
 
     n_mature_splice = min(len(parity_slice_indices), max(1, int(num_envs) // 2))
     if n_mature_splice > 0:
-        splice_specs = [
-            MATURE_EXTENSION_SPECS[int(i)] for i in parity_slice_indices[:n_mature_splice]
-        ]
-        splice_worlds, splice_pol_tpl, _ = build_extension_worlds(
-            b8_path,
-            opp_path,
-            specs=splice_specs,
-        )
+        splice_worlds = ext_worlds_cpu[:n_mature_splice]
+        splice_pol_tpl = ext_pol_tpl
         splice_sim, splice_pol = snapshot_worlds_to_device(
             splice_worlds,
             splice_pol_tpl,
@@ -922,9 +1021,22 @@ def run_step_b1b_smoke(
             policy.vector_prepared = False
     _sync_device(dev)
     mature_warmup_elapsed = max(0.0, time.perf_counter() - t_warm0)
+    _log_smoke_phase(
+        "PHASE_END",
+        "mature_warmup_and_splice",
+        t_start,
+        phase_start=t_warm0,
+        detail=f"warmup_steps={mature_warmup_steps} spliced={n_mature_splice}",
+    )
 
     # Benchmark 2: 6-branch H=branch_horizon labels/s AND online rescue-root rate on
     # train_seeds(num_envs) under bare b8-s3, plus per-step buffer insertion cost.
+    t_b2_phase = _log_smoke_phase(
+        "PHASE_START",
+        "bench_2_label_batches_and_rescue_rate",
+        t_start,
+        detail=f"batches={effective_label_batches}",
+    )
     res_batch_sz = (
         min(REGISTERED_RESCUE_BATCH_SIZE, max(2, int(num_envs) * 2))
         if dry_run
@@ -1070,8 +1182,19 @@ def run_step_b1b_smoke(
     window_mature_length_ge_160_fraction = float(window_mature_length_ge_160_decisions) / float(
         max(1, online_alive_hero_decisions)
     )
+    _log_smoke_phase(
+        "PHASE_END",
+        "bench_2_label_batches_and_rescue_rate",
+        t_start,
+        phase_start=t_b2_phase,
+        detail=(
+            f"label_batches_per_sec={label_batches_per_sec:.2f} "
+            f"rescues={online_rescue_frame_count}/{online_alive_hero_decisions}"
+        ),
+    )
 
     # Benchmark probe32 4-suffix scoring cost per candidate root using CPU 1-row snapshot slicing
+    t_b3_phase = _log_smoke_phase("PHASE_START", "bench_3_probe32_scoring_suffixes", t_start)
     with torch.inference_mode():
         sim.prepare()
         policy.vector_runtime.prepare(sim)
@@ -1113,8 +1236,21 @@ def run_step_b1b_smoke(
     _sync_device(dev)
     probe_suf_elapsed = max(1e-9, time.perf_counter() - t_probe_suf0)
     probe32_scoring_suffix_sec_per_root = probe_suf_elapsed / float(max(1, n_probe_sample))
+    _log_smoke_phase(
+        "PHASE_END",
+        "bench_3_probe32_scoring_suffixes",
+        t_start,
+        phase_start=t_b3_phase,
+        detail=f"sec_per_root={probe32_scoring_suffix_sec_per_root:.4f}",
+    )
 
     # Benchmark 3: Learner updates/s (128 rescue + 128 ordinary with hard-negative mining)
+    t_b4_phase = _log_smoke_phase(
+        "PHASE_START",
+        "bench_4_learner_updates",
+        t_start,
+        detail=f"updates={bench_learner_updates}",
+    )
     obs_fill = extract_hero_root_observations(sim, cpu_fast_flood=bool(dev.type == "cpu"))
     loc_fill = obs_fill["local_u8"].detach().cpu()
     glb_fill = obs_fill["global_u8"].detach().cpu()
@@ -1189,8 +1325,16 @@ def run_step_b1b_smoke(
     _sync_device(dev)
     upd_elapsed = max(1e-9, time.perf_counter() - t_upd0)
     updates_per_sec = float(bench_learner_updates) / upd_elapsed
+    _log_smoke_phase(
+        "PHASE_END",
+        "bench_4_learner_updates",
+        t_start,
+        phase_start=t_b4_phase,
+        detail=f"updates_per_sec={updates_per_sec:.2f}",
+    )
 
     # Restore student_net weights to initial b8-s3 after synthetic benchmark updates
+    t_out_phase = _log_smoke_phase("PHASE_START", "write_outputs", t_start)
     if dev.type == "cuda":
         ensure_cuda_initialized(dev)
     peak_vram_allocated_mib = (
@@ -1230,6 +1374,9 @@ def run_step_b1b_smoke(
         "dry_run": bool(is_non_prod),
         "non_registration_evidence": bool(is_non_prod),
         "device": str(dev),
+        "native_extensions": native_extensions,
+        "declared_torch_cuda_arch_list": native_extensions.get("torch_cuda_arch_list"),
+        "effective_build_cuda_arch": native_extensions.get("effective_build_cuda_arch"),
         "train_namespace": active_train_namespace,
         "preflight_namespace": PREFLIGHT_NAMESPACE,
         "seed_audit_status": seed_audit["status"],
@@ -1269,7 +1416,10 @@ def run_step_b1b_smoke(
             "peak_vram_reserved_mib": peak_vram_reserved_mib,
         },
         "phase_timings_sec": {
+            "init_and_extensions_sec": float(init_elapsed),
+            "mature_extension_build_sec": float(ext_build_elapsed),
             "parity_check_sec": float(parity_report.get("elapsed_sec", 0.0)),
+            "bundle_and_bench_warmup_sec": float(bundle_warmup_elapsed),
             "env_benchmark_sec": float(env_elapsed),
             "mature_warmup_and_splice_sec": float(mature_warmup_elapsed),
             "label_benchmark_sec": float(lbl_elapsed),
@@ -1339,6 +1489,13 @@ def run_step_b1b_smoke(
                 write_complete_marker=True,
             )
 
+    _log_smoke_phase(
+        "PHASE_END",
+        "write_outputs",
+        t_start,
+        phase_start=t_out_phase,
+        detail=f"total_elapsed_s={result_payload['elapsed_sec']:.2f}",
+    )
     return result_payload
 
 
@@ -1433,6 +1590,7 @@ def run_cuda_shakeout(
             return rec
 
     resolved_dev_holder: dict[str, torch.device] = {"dev": torch.device("cpu")}
+    ext_info_holder: dict[str, dict[str, Any]] = {"info": {}}
 
     def _phase_1_cuda_init() -> dict[str, Any]:
         dev = ensure_cuda_initialized(device)
@@ -1486,18 +1644,25 @@ def run_cuda_shakeout(
                 f"TORCH_CUDA_ARCH_LIST={raw_arch!r} is missing required architectures "
                 f"{missing_archs} (must include 8.0 A100, 8.9 L4, 9.0 H100)"
             )
+        ext_info = verify_cuda_native_extensions(dev)
+        ext_info_holder["info"] = ext_info
         if dev.type == "cuda":
-            ext_info = verify_cuda_native_extensions(dev)
             return {
                 "torch_cuda_arch_list": raw_arch,
+                "declared_torch_cuda_arch_list": ext_info.get("torch_cuda_arch_list"),
+                "effective_build_cuda_arch": ext_info.get("effective_build_cuda_arch"),
+                "scoped_torch_extensions_dir": ext_info.get("scoped_torch_extensions_dir"),
                 "required_archs_present": list(REQUIRED_CUDA_ARCHS),
                 "cuda_native_extensions_verified": True,
                 "extension_info": ext_info,
             }
         return {
             "torch_cuda_arch_list": raw_arch,
+            "declared_torch_cuda_arch_list": ext_info.get("torch_cuda_arch_list"),
+            "effective_build_cuda_arch": ext_info.get("effective_build_cuda_arch"),
             "required_archs_present": list(REQUIRED_CUDA_ARCHS),
             "cuda_native_extensions_verified": False,
+            "extension_info": ext_info,
             "note": f"Non-CUDA device {dev}; verified TORCH_CUDA_ARCH_LIST covers 8.0, 8.9, 9.0",
         }
 
@@ -1777,6 +1942,9 @@ def run_cuda_shakeout(
         "ok": all_ok,
         "verdict": "SHAKEOUT_PASS_NOT_EVIDENCE" if all_ok else "SHAKEOUT_FAIL_NOT_EVIDENCE",
         "device": str(resolved_dev_holder["dev"]),
+        "native_extensions": ext_info_holder["info"],
+        "declared_torch_cuda_arch_list": ext_info_holder["info"].get("torch_cuda_arch_list"),
+        "effective_build_cuda_arch": ext_info_holder["info"].get("effective_build_cuda_arch"),
         "namespaces": {
             "smoke": SHAKEOUT_SMOKE_NAMESPACE,
             "probe": SHAKEOUT_PROBE_NAMESPACE,
