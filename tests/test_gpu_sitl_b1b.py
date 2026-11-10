@@ -1983,7 +1983,7 @@ def test_mps_accelerator_device_placement_shakeout(tmp_path: Path) -> None:
         slice_single_row_cpu_state,
     )
     from research.gpu_sitl.seed_check import train_seeds
-    from research.gpu_sitl.smoke import run_mature_cohort_row_subset_parity
+    from research.gpu_sitl.smoke import run_cuda_shakeout, run_mature_cohort_row_subset_parity
     from research.gpu_sitl.train_sitl import (
         SitlRingBuffer,
         _capture_sim_and_runtime_state,
@@ -2273,3 +2273,380 @@ def test_mps_accelerator_device_placement_shakeout(tmp_path: Path) -> None:
 
         grad_check = margin_loss_gradient_check(str(b8_path), sim=rec_sim, device="mps")
         assert grad_check["all_non_value_grads_finite_and_nonzero"] is True
+
+        # 4. Run full 6-phase run_cuda_shakeout on MPS (mps:0) under the adapter:
+        shake_mps = run_cuda_shakeout(
+            tmp_path / "mps_shakeout_out",
+            b8_checkpoint=b8_path,
+            opponent_checkpoint=opp_path,
+            device="mps",
+        )
+        assert shake_mps["ok"] is True
+        assert shake_mps["verdict"] == "SHAKEOUT_PASS_NOT_EVIDENCE"
+        assert shake_mps["device"] == "mps:0"
+        assert shake_mps["not_evidence"] is True
+
+
+def test_cuda_init_ordering_before_reset_peak_memory_stats_and_all_cuda_calls(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify the root cause of the A100 `RuntimeError: Invalid device argument` crash:
+    When `torch.device('cuda', 0)` has an explicit index `0`, `torch/cuda/memory.py:376`
+    (`reset_peak_memory_stats`) calls `torch._C._cuda_resetPeakMemoryStats(0)` directly without
+    calling `torch.cuda._lazy_init()`. Verify `ensure_cuda_initialized` / `normalize_device`
+    initializes CUDA (`torch.cuda.init()` + `torch.cuda.set_device(dev)`) before any
+    `reset_peak_memory_stats`, `max_memory_allocated`, `max_memory_reserved`, `synchronize`,
+    `get_rng_state_all`, `set_rng_state_all`, or `manual_seed_all` call."""
+    from research.gpu_sitl.open_stop_gpu import ensure_cuda_initialized, normalize_device
+    from research.gpu_sitl.smoke import _sync_device
+
+    state = {"initialized": False, "current_device": -1, "calls": []}
+
+    def _fake_is_available() -> bool:
+        return True
+
+    def _fake_is_initialized() -> bool:
+        return bool(state["initialized"])
+
+    def _fake_init() -> None:
+        state["initialized"] = True
+        state["calls"].append("init")
+
+    def _fake_set_device(dev: Any) -> None:
+        if not state["initialized"]:
+            raise RuntimeError("Invalid device argument: CUDA not initialized before set_device")
+        d = torch.device(dev)
+        if d.index is None or int(d.index) != 0:
+            raise RuntimeError(f"Invalid device argument: {d}")
+        state["current_device"] = int(d.index)
+        state["calls"].append(f"set_device:{d}")
+
+    def _require_init_and_dev0(op_name: str, dev: Any = None) -> int:
+        if not state["initialized"]:
+            raise RuntimeError(
+                f"RuntimeError: Invalid device argument in {op_name} (CUDA caching allocator "
+                "not initialized before explicit device=cuda:0 call)"
+            )
+        if dev is not None:
+            d = torch.device(dev)
+            if d.type != "cuda" or d.index != 0:
+                raise RuntimeError(f"Invalid device argument in {op_name}: {d}")
+        state["calls"].append(op_name)
+        return 0
+
+    monkeypatch.setattr(torch.cuda, "is_available", _fake_is_available)
+    monkeypatch.setattr(torch.cuda, "is_initialized", _fake_is_initialized)
+    monkeypatch.setattr(torch.cuda, "init", _fake_init)
+    monkeypatch.setattr(torch.cuda, "set_device", _fake_set_device)
+    monkeypatch.setattr(
+        torch.cuda,
+        "reset_peak_memory_stats",
+        lambda dev=None: _require_init_and_dev0("reset_peak_memory_stats", dev),
+    )
+    monkeypatch.setattr(
+        torch.cuda,
+        "max_memory_allocated",
+        lambda dev=None: _require_init_and_dev0("max_memory_allocated", dev),
+    )
+    monkeypatch.setattr(
+        torch.cuda,
+        "max_memory_reserved",
+        lambda dev=None: _require_init_and_dev0("max_memory_reserved", dev),
+    )
+    monkeypatch.setattr(
+        torch.cuda,
+        "synchronize",
+        lambda dev=None: _require_init_and_dev0("synchronize", dev),
+    )
+    monkeypatch.setattr(
+        torch.cuda,
+        "get_rng_state_all",
+        lambda: [_require_init_and_dev0("get_rng_state_all")],
+    )
+    monkeypatch.setattr(
+        torch.cuda,
+        "manual_seed_all",
+        lambda s: _require_init_and_dev0(f"manual_seed_all:{s}"),
+    )
+
+    # 1. Confirm that calling reset_peak_memory_stats(torch.device("cuda", 0)) before
+    # ensure_cuda_initialized raises the exact RuntimeError: Invalid device argument:
+    with pytest.raises(RuntimeError, match="Invalid device argument"):
+        torch.cuda.reset_peak_memory_stats(torch.device("cuda", 0))
+
+    # 2. Calling normalize_device("cuda") / ensure_cuda_initialized("cuda") initializes CUDA
+    # first and sets device to cuda:0:
+    dev = normalize_device("cuda")
+    assert dev == torch.device("cuda", 0)
+    assert state["initialized"] is True
+    assert state["current_device"] == 0
+    assert state["calls"][:2] == ["init", "set_device:cuda:0"]
+
+    # 3. Now reset_peak_memory_stats, max_memory_allocated, max_memory_reserved, _sync_device,
+    # and get_rng_state_all all succeed on dev:
+    torch.cuda.reset_peak_memory_stats(dev)
+    torch.cuda.max_memory_allocated(dev)
+    torch.cuda.max_memory_reserved(dev)
+    _sync_device(dev)
+    torch.cuda.get_rng_state_all()
+
+    # 4. Also verify that if _sync_device(torch.device("cuda", 0)) is called on a fresh
+    # uninitialized state, it initializes CUDA before calling torch.cuda.synchronize:
+    state["initialized"] = False
+    state["calls"].clear()
+    _sync_device(torch.device("cuda", 0))
+    assert state["initialized"] is True
+    assert state["calls"] == ["init", "set_device:cuda:0", "synchronize"]
+
+    # 5. Verify ensure_cuda_initialized("cuda:0") is idempotent when already initialized:
+    ensure_cuda_initialized("cuda:0")
+    assert state["initialized"] is True
+
+
+def test_torch_cuda_arch_list_includes_l4_89_a100_80_h100_90(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify TORCH_CUDA_ARCH_LIST covers L4 (8.9), A100 (8.0), and H100 (9.0) in both
+    verify_cuda_native_extensions and research/gpu_sitl/job.sh."""
+    from research.gpu_sitl.open_stop_gpu import (
+        DEFAULT_CUDA_ARCH_LIST,
+        REQUIRED_CUDA_ARCHS,
+        verify_cuda_native_extensions,
+    )
+    from research.gpu_sitl.prepare import ROOT
+
+    assert DEFAULT_CUDA_ARCH_LIST == "8.0;8.9;9.0"
+    assert set(REQUIRED_CUDA_ARCHS) == {"8.0", "8.9", "9.0"}
+
+    job_sh_text = (ROOT / "research" / "gpu_sitl" / "job.sh").read_text(encoding="utf-8")
+    assert 'TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-8.0;8.9;9.0}"' in job_sh_text
+    assert 'elif [ "$MODE" = "shakeout" ]; then' in job_sh_text
+
+    # Verify verify_cuda_native_extensions rejects a TORCH_CUDA_ARCH_LIST missing 8.9 (L4)
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "is_initialized", lambda: True)
+    monkeypatch.setattr(torch.cuda, "set_device", lambda d: None)
+    monkeypatch.setattr(torch.version, "cuda", "12.6")
+    monkeypatch.setenv("GPU_SIM_VECTOR_GEOMETRY", "native")
+    monkeypatch.setenv("GPU_SIM_VECTOR_FLOOD", "static")
+    monkeypatch.setenv("TORCH_CUDA_ARCH_LIST", "8.0;9.0")
+    with pytest.raises(RuntimeError, match="missing required GPU architectures"):
+        verify_cuda_native_extensions("cuda")
+
+
+def test_cuda_shakeout_end_to_end_and_continues_past_failing_phase(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify Requirement B:
+    1. `run_cuda_shakeout` runs all 6 phases end-to-end using dev-only seeds, exercises the
+       mature cohort splice with length >= 80 snakes (flood cap 160), harvests a tiny dev
+       probe bank, runs tiny SITL training with tripwire evaluation + checkpoint save + resume,
+       and writes `shakeout_result.json` labelled `NOT EVIDENCE` (never `smoke_result.json`).
+    2. When a mid-run phase fails, `run_cuda_shakeout` records the failure + traceback in
+       `shakeout_result.json`, continues to execute subsequent phases, and `smoke.main()`
+       returns non-zero (`1`)."""
+    import research.gpu_sitl.smoke as smoke_mod
+    from research.gpu_sitl.preflight import resolve_product_checkpoints
+    from research.gpu_sitl.seed_check import (
+        PROBE32_NAMESPACE,
+        SCREEN_NAMESPACE,
+        SELECTIVITY_NAMESPACE,
+        SHAKEOUT_PROBE_NAMESPACE,
+        SHAKEOUT_SMOKE_NAMESPACE,
+        SHAKEOUT_TRAIN_NAMESPACE,
+        TRAIN_NAMESPACE,
+    )
+    from research.gpu_sitl.smoke import run_cuda_shakeout
+
+    b8_path, opp_path = resolve_product_checkpoints()
+    if not Path(b8_path).exists() or not Path(opp_path).exists():
+        pytest.skip("b8-s3 or opponent checkpoint not present")
+
+    out_pass = tmp_path / "shakeout_pass"
+    res = run_cuda_shakeout(
+        out_pass,
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+    )
+    assert res["ok"] is True
+    assert res["verdict"] == "SHAKEOUT_PASS_NOT_EVIDENCE"
+    assert res["schema"] == "t34-gpu-sitl-cuda-shakeout-result/v1"
+    assert res["not_evidence"] is True
+    assert res["evidence_class"] == "SHAKEOUT_NOT_EVIDENCE"
+    assert res["failed_phases"] == []
+    assert len(res["phases"]) == 6
+    assert all(p["ok"] is True and p["status"] == "PASS" for p in res["phases"])
+
+    # Verify mature cohort splice exercised length >= 80 and flood cap 160 in Phase 4
+    p4_detail = res["phases"][3]["detail"]
+    assert p4_detail["mature_spliced_worlds"] >= 1
+    assert p4_detail["window_max_hero_length"] >= 80
+    assert p4_detail["window_mature_length_ge_160_decisions"] >= 1
+
+    # Verify Phase 5 harvested dev probe bank and default registered loader refused it
+    p5_detail = res["phases"][4]["detail"]
+    assert p5_detail["namespace"] == SHAKEOUT_PROBE_NAMESPACE
+    assert p5_detail["not_evidence"] is True
+    assert p5_detail["refused_by_registered_probe32_loader"] is True
+
+    # Verify Phase 6 paused, saved checkpoint, resumed, and evaluated tripwires on dev namespaces
+    p6_detail = res["phases"][5]["detail"]
+    assert p6_detail["namespace"] == SHAKEOUT_TRAIN_NAMESPACE
+    assert p6_detail["probe_namespace"] == SHAKEOUT_PROBE_NAMESPACE
+    assert p6_detail["not_evidence"] is True
+    assert p6_detail["paused_at_updates"] == 1
+    assert p6_detail["final_updates_completed"] == 2
+    assert p6_detail["tripwire_evaluations"] >= 1
+
+    # Verify only shakeout_result.json (+ sidecars) exists in out_pass; never smoke_result.json
+    assert (out_pass / "shakeout_result.json").is_file()
+    assert (out_pass / "shakeout_result.json.sha256").is_file()
+    assert (out_pass / "shakeout_result.json.complete").is_file()
+    assert not (out_pass / "smoke_result.json").exists()
+    assert set(res["namespaces"].values()) == {
+        SHAKEOUT_SMOKE_NAMESPACE,
+        SHAKEOUT_PROBE_NAMESPACE,
+        SHAKEOUT_TRAIN_NAMESPACE,
+    }
+    assert set(res["namespaces"].values()).isdisjoint(
+        {SELECTIVITY_NAMESPACE, SCREEN_NAMESPACE, PROBE32_NAMESPACE, TRAIN_NAMESPACE}
+    )
+
+    # 2. Inject a failure in Phase 4 and verify Phases 5 and 6 still execute and pass,
+    # traceback is recorded, and CLI main() returns exit code 1.
+    def _boom_smoke(*args, **kwargs):
+        raise RuntimeError("injected_phase_4_cuda_failure")
+
+    monkeypatch.setattr(smoke_mod, "run_step_b1b_smoke", _boom_smoke)
+    out_fail = tmp_path / "shakeout_partial_fail"
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "smoke.py",
+            "--shakeout",
+            "--device",
+            "cpu",
+            "--output-dir",
+            str(out_fail),
+            "--b8-checkpoint",
+            str(b8_path),
+            "--opponent-checkpoint",
+            str(opp_path),
+        ],
+    )
+    rc = smoke_mod.main()
+    assert rc == 1
+    fail_json = json.loads((out_fail / "shakeout_result.json").read_text(encoding="utf-8"))
+    assert fail_json["ok"] is False
+    assert fail_json["verdict"] == "SHAKEOUT_FAIL_NOT_EVIDENCE"
+    assert fail_json["failed_phases"] == ["phase_4_b1b_smoke_reduced"]
+    by_phase = {p["phase"]: p for p in fail_json["phases"]}
+    assert by_phase["phase_4_b1b_smoke_reduced"]["ok"] is False
+    assert "injected_phase_4_cuda_failure" in by_phase["phase_4_b1b_smoke_reduced"]["traceback"]
+    # Phases 5 and 6 still ran after Phase 4 failed and both passed!
+    assert by_phase["phase_5_tiny_probe_harvest"]["ok"] is True
+    assert by_phase["phase_6_tiny_sitl_training_and_resume"]["ok"] is True
+
+
+def test_prepare_shakeout_manifest_and_pilot_refuses_shakeout_result(
+    tmp_path: Path,
+) -> None:
+    """Verify Requirement A & B:
+    1. `prepare_b1b_packet(..., mode='shakeout')` produces an L4 manifest (`gpu='L4'`,
+       `rate_units_per_hour=1.54`, `resume_exemption` `short-canary`, `timeout_minutes <= 20`,
+       `unit_cap <= 1.0`) accepted by `colab_canary.check` and `colab_supervisor.validate`.
+    2. `prepare_b1b_packet(..., mode='pilot')` refuses a shake-out result JSON (both under its
+       `shakeout_result.json` filename and even if copied/renamed to `smoke_result.json`)."""
+    import shutil
+
+    from research.colab_cli import canary as colab_canary
+    from research.colab_cli import supervisor as colab_supervisor
+    from research.gpu_sitl.preflight import resolve_product_checkpoints
+    from research.gpu_sitl.prepare import ROOT, prepare_b1b_packet
+
+    b8_path, opp_path = resolve_product_checkpoints()
+    if not Path(b8_path).exists() or not Path(opp_path).exists():
+        pytest.skip("b8-s3 or opponent checkpoint not present")
+
+    pkt_shake = tmp_path / "pkt_shakeout"
+    out_shake = tmp_path / "out_shakeout"
+    info_shake = prepare_b1b_packet(
+        pkt_shake,
+        commit="HEAD",
+        mode="shakeout",
+        output_dir=out_shake,
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        attempt="shakeout-01",
+    )
+    manifest = json.loads(Path(info_shake["manifest_path"]).read_text(encoding="utf-8"))
+    assert manifest["requirements"]["gpu"] == "L4"
+    assert manifest["requirements"]["allowed_gpus"] == ["L4"]
+    assert "prefer" not in manifest["requirements"]
+    assert manifest["budget"]["rate_units_per_hour"] == pytest.approx(1.54)
+    assert float(manifest["timeout_minutes"]) <= 20.0
+    assert float(manifest["budget"]["unit_cap"]) <= 1.0
+    assert manifest["resume_exemption"]["kind"] == "short-canary"
+    assert "resume" not in manifest
+    assert manifest["env"]["GPU_SITL_MODE"] == "shakeout"
+    assert manifest["not_evidence"] is True
+    assert manifest["evidence_class"] == "SHAKEOUT_NOT_EVIDENCE"
+    assert manifest["required_exports"] == [
+        "shakeout_result.json",
+        "shakeout_result.json.sha256",
+        "shakeout_result.json.complete",
+    ]
+
+    # Verify colab_canary.check and colab_supervisor.validate accept the manifest
+    # (using origin/main commit pin for git cat-file / job_device check before local commit)
+    manifest_for_val = dict(manifest)
+    colab_canary.check(manifest_for_val, ROOT)
+    colab_supervisor.validate(manifest_for_val, ROOT)
+
+    # Create a shakeout_result.json (even containing a fake pilot_runaway_guard block) and verify
+    # prepare_b1b_packet(mode="pilot") refuses it both by filename and by schema / not_evidence tag.
+    fake_shakeout_json = tmp_path / "shakeout_result.json"
+    fake_shakeout_payload = {
+        "schema": "t34-gpu-sitl-cuda-shakeout-result/v1",
+        "mode": "shakeout",
+        "shakeout": True,
+        "not_evidence": True,
+        "evidence_class": "SHAKEOUT_NOT_EVIDENCE",
+        "pilot_runaway_guard": {
+            "base_estimate_seconds": 600.0,
+            "base_estimate_minutes": 10.0,
+            "runaway_guard_timeout_minutes_2x": 20,
+            "runaway_guard_timeout_seconds_2x": 1200.0,
+            "runaway_guard_a100_units_2x_at_8p00_broker": 2.67,
+            "runaway_guard_max_collection_steps_2x": 1000,
+        },
+    }
+    fake_shakeout_json.write_text(
+        json.dumps(fake_shakeout_payload, indent=2) + "\n", encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="Refusing shake-out result"):
+        prepare_b1b_packet(
+            tmp_path / "pkt_pilot_refuse_name",
+            commit="origin/main",
+            mode="pilot",
+            output_dir=tmp_path / "out_pilot_refuse_name",
+            b8_checkpoint=b8_path,
+            opponent_checkpoint=opp_path,
+            smoke_result_json=fake_shakeout_json,
+        )
+
+    renamed_as_smoke = tmp_path / "smoke_result.json"
+    shutil.copyfile(fake_shakeout_json, renamed_as_smoke)
+    with pytest.raises(ValueError, match="Refusing non-smoke or NOT EVIDENCE result"):
+        prepare_b1b_packet(
+            tmp_path / "pkt_pilot_refuse_schema",
+            commit="origin/main",
+            mode="pilot",
+            output_dir=tmp_path / "out_pilot_refuse_schema",
+            b8_checkpoint=b8_path,
+            opponent_checkpoint=opp_path,
+            smoke_result_json=renamed_as_smoke,
+        )

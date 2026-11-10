@@ -41,6 +41,7 @@ from research.gpu_sitl.open_stop_gpu import (
     assert_sim_and_policy_on_device,
     batched_open_stop_h32,
     concat_sims_and_policies,
+    ensure_cuda_initialized,
     move_device_policy_to_device,
     normalize_device,
     verify_cuda_native_extensions,
@@ -54,8 +55,10 @@ from research.gpu_sitl.preflight import (
 from research.gpu_sitl.seed_check import (
     PROBE32_NAMESPACE,
     PROBE32_WORLD_COUNT,
+    SHAKEOUT_PROBE_NAMESPACE,
     audit_b1b_seeds,
     probe32_seeds,
+    shakeout_probe_seeds,
 )
 from research.sandbox_a_resident.ct_mechanics import CTDeviceSim
 from research.watch_replay.open_stop import (
@@ -445,6 +448,9 @@ def harvest_probe32_bank(
     resume_ckpt_path: Path | str | None = None,
     cpu_fast_flood: bool = True,
     dry_run: bool = False,
+    shakeout: bool = False,
+    namespace_override: str | None = None,
+    seed_override: Sequence[int] | None = None,
 ) -> dict[str, Any]:
     """Harvest ``t34-gpu-sitl-probe32-20261109-v1`` before training and write ``.sha256``."""
     out_path = Path(output_path)
@@ -456,11 +462,23 @@ def harvest_probe32_bank(
         )
 
     t0 = time.perf_counter()
-    dev = normalize_device(device)
+    dev = ensure_cuda_initialized(device)
     if dev.type == "cuda":
         verify_cuda_native_extensions(dev)
 
-    if not dry_run:
+    is_shakeout = bool(shakeout or namespace_override is not None or seed_override is not None)
+    eff_dry_run = bool(dry_run or is_shakeout)
+    active_namespace = str(
+        namespace_override
+        if namespace_override is not None
+        else (SHAKEOUT_PROBE_NAMESPACE if is_shakeout else PROBE32_NAMESPACE)
+    )
+    if is_shakeout and active_namespace == PROBE32_NAMESPACE:
+        raise ValueError(
+            f"Shake-out probe harvest must never use registered namespace {PROBE32_NAMESPACE!r}"
+        )
+
+    if not eff_dry_run:
         if (
             int(num_worlds) != PROBE32_WORLD_COUNT
             or int(horizon) != PROBE32_HORIZON
@@ -487,7 +505,12 @@ def harvest_probe32_bank(
     b8_path = Path(b8_checkpoint)
     opp_path = Path(opponent_checkpoint)
 
-    seeds = probe32_seeds(int(num_worlds))
+    if seed_override is not None:
+        seeds = [int(s) for s in seed_override]
+    elif is_shakeout:
+        seeds = shakeout_probe_seeds(int(num_worlds))
+    else:
+        seeds = probe32_seeds(int(num_worlds))
     sim, policy = build_watch6_ct_device_bundle(
         seeds,
         b8_path,
@@ -514,7 +537,7 @@ def harvest_probe32_bank(
     if active_resume_ckpt.is_file() and Path(f"{active_resume_ckpt}.sha256").is_file():
         verify_file_sha256(active_resume_ckpt)
         ckpt_payload = torch.load(active_resume_ckpt, map_location="cpu", weights_only=False)
-        if ckpt_payload.get("namespace") != PROBE32_NAMESPACE:
+        if ckpt_payload.get("namespace") != active_namespace:
             raise ValueError(
                 f"Probe harvest checkpoint namespace mismatch: {ckpt_payload.get('namespace')!r}"
             )
@@ -565,7 +588,7 @@ def harvest_probe32_bank(
         }
         ckpt_obj = {
             "schema": "t34-gpu-sitl-probe32-harvest-ckpt/v1",
-            "namespace": PROBE32_NAMESPACE,
+            "namespace": active_namespace,
             "world_seeds": [int(s) for s in seeds],
             "completed_tick": int(completed_tick),
             "horizon": int(horizon),
@@ -695,16 +718,16 @@ def harvest_probe32_bank(
 
     for ws in seeds:
         n_s0_ord = len(s0_ordinary_by_world[int(ws)])
-        if not dry_run and n_s0_ord < int(ordinary_per_world):
+        if not eff_dry_run and n_s0_ord < int(ordinary_per_world):
             raise RuntimeError(
                 f"World {ws} yielded only {n_s0_ord} < {ordinary_per_world} "
                 "suffix-0-safe ordinary roots"
             )
 
-    # In dry_run mode with tiny horizon, if 0 natural candidate rescue roots were encountered,
-    # include a mature rescue spec from MATURE_EXTENSION_SPECS (bound to seeds[0] in
-    # PROBE32_NAMESPACE) so the dry-run exercises rescue certification and tripwire paths.
-    if dry_run and not candidate_rescue_snapshots:
+    # In dry_run / shakeout mode with tiny horizon, if 0 natural candidate rescue roots were
+    # encountered, include a mature rescue spec from MATURE_EXTENSION_SPECS (bound to seeds[0]
+    # in active_namespace) so the run exercises rescue certification and tripwire paths.
+    if eff_dry_run and not candidate_rescue_snapshots:
         ext_worlds, ext_pol_tpl, _ = build_extension_worlds(
             b8_path,
             opp_path,
@@ -762,12 +785,12 @@ def harvest_probe32_bank(
         cpu_fast_flood=cpu_fast_flood,
     )
     decisive_rescue_roots = [r for r in scored_rescue if int(r["n_diff_rescue"]) == 0]
-    if dry_run and not decisive_rescue_roots and scored_rescue:
-        # In dry-run with short branch_horizon, ensure at least 1 decisive root for pipeline check
+    if eff_dry_run and not decisive_rescue_roots and scored_rescue:
+        # In dry-run/shakeout with short branch_horizon, ensure at least 1 decisive root
         fallback_rec = dict(scored_rescue[0])
         fallback_rec["consensus_safe_mask"] = fallback_rec["safe_mask_s0"].clone()
         decisive_rescue_roots = [fallback_rec]
-    if not dry_run and not decisive_rescue_roots:
+    if not eff_dry_run and not decisive_rescue_roots:
         raise RuntimeError(
             "Zero Stage 1B certified decisive rescue roots harvested on probe32 bank"
         )
@@ -995,10 +1018,18 @@ def harvest_probe32_bank(
     ordinary_backfilled_total = int(ordinary_pack["count"]) - int(ordinary_fully_certified_total)
 
     meta_summary: dict[str, Any] = {
-        "schema": "t34-gpu-sitl-probe32-bank/v1",
-        "namespace": PROBE32_NAMESPACE,
-        "dry_run": bool(dry_run),
-        "evidence_class": "DRY_RUN_NON_EVIDENCE" if dry_run else "REGISTERED_PROBE32_BANK",
+        "schema": (
+            "t34-gpu-sitl-shakeout-probe-bank/v1" if is_shakeout else "t34-gpu-sitl-probe32-bank/v1"
+        ),
+        "namespace": active_namespace,
+        "dry_run": bool(eff_dry_run),
+        "shakeout": bool(is_shakeout),
+        "not_evidence": bool(eff_dry_run or is_shakeout),
+        "evidence_class": (
+            "SHAKEOUT_NOT_EVIDENCE"
+            if is_shakeout
+            else ("DRY_RUN_NON_EVIDENCE" if dry_run else "REGISTERED_PROBE32_BANK")
+        ),
         "num_worlds": int(num_worlds),
         "world_seeds": [int(s) for s in seeds],
         "horizon": int(horizon),
@@ -1055,12 +1086,26 @@ def harvest_probe32_bank(
     return meta_summary
 
 
-def load_probe32_bank(path: Path | str) -> dict[str, Any]:
+def load_probe32_bank(
+    path: Path | str,
+    *,
+    expected_namespace: str = PROBE32_NAMESPACE,
+) -> dict[str, Any]:
     """Verify ``<path>.sha256`` and load the harvested probe bank."""
     digest = verify_file_sha256(path)
     payload = torch.load(Path(path), map_location="cpu", weights_only=False)
     if not isinstance(payload, dict) or "meta" not in payload:
         raise ValueError(f"Invalid probe32 bank payload in {path}")
+    actual_ns = payload["meta"].get("namespace")
+    if actual_ns != expected_namespace:
+        raise ValueError(
+            f"Probe bank namespace mismatch in {path}: expected {expected_namespace!r}, "
+            f"got {actual_ns!r}"
+        )
+    if expected_namespace == PROBE32_NAMESPACE and payload["meta"].get("shakeout"):
+        raise ValueError(
+            f"Refusing to load shake-out (NOT EVIDENCE) probe bank {path} as registered probe32"
+        )
     payload["verified_sha256"] = digest
     return payload
 
@@ -1083,7 +1128,7 @@ def evaluate_probe_bank_tripwires(
     (iii) When ``check_decisive_rescue_bar=True`` (at ``update == 1000``), held-out decisive
           rescue agreement ``>= 70.0%`` on the probe bank's certified decisive roots.
     """
-    dev = normalize_device(device)
+    dev = ensure_cuda_initialized(device)
     was_training = student_net.training
     student_net.eval()
     try:

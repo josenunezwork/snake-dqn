@@ -156,24 +156,70 @@ def _cpu_queue_flood(
     return torch.from_numpy(res)
 
 
-def normalize_device(device: torch.device | str) -> torch.device:
-    """Normalize ``cuda`` -> ``cuda:0`` and ``mps`` -> ``mps:0`` for exact device comparison."""
+DEFAULT_CUDA_ARCH_LIST = "8.0;8.9;9.0"
+REQUIRED_CUDA_ARCHS = ("8.0", "8.9", "9.0")
+
+
+def ensure_cuda_initialized(device: torch.device | str) -> torch.device:
+    """Normalize ``device`` and initialize CUDA + ``CUDACachingAllocator`` when targeting CUDA.
+
+    In PyTorch 2.9 (`torch/cuda/memory.py:374-376`, `torch/_utils.py:831-875`),
+    ``torch.cuda.reset_peak_memory_stats(dev)`` calls ``_get_device_index(dev, optional=True)``.
+    When ``dev`` carries an explicit index (``torch.device('cuda', 0)``), ``_get_device_index``
+    returns ``0`` directly without calling ``_get_current_device_index()`` ->
+    ``torch.cuda.current_device()`` -> ``torch.cuda._lazy_init()``. Calling
+    ``torch._C._cuda_resetPeakMemoryStats(0)`` before ``torch._C._cuda_init()`` then fails in
+    ``CUDACachingAllocator::resetPeakStats`` with ``RuntimeError: Invalid device argument``
+    because ``device_allocator`` is still empty. Initializing CUDA here before any indexed
+    device/memory/RNG call prevents that failure across smoke, harvest, and pilot paths.
+    """
     dev = torch.device(device)
     if dev.type in {"cuda", "mps"} and dev.index is None:
-        return torch.device(dev.type, 0)
+        dev = torch.device(dev.type, 0)
+    if dev.type == "cuda" and torch.cuda.is_available():
+        if (
+            hasattr(torch._C, "_cuda_getDeviceCount")
+            or getattr(torch.cuda.init, "__module__", "") != "torch.cuda"
+        ):
+            torch.cuda.init()
+            if (
+                hasattr(torch._C, "_cuda_setDevice")
+                or getattr(torch.cuda.set_device, "__module__", "") != "torch.cuda"
+            ):
+                torch.cuda.set_device(dev)
     return dev
 
 
+def normalize_device(device: torch.device | str) -> torch.device:
+    """Normalize ``cuda`` -> ``cuda:0`` and ``mps`` -> ``mps:0`` and initialize CUDA if active."""
+    return ensure_cuda_initialized(device)
+
+
 def verify_cuda_native_extensions(device: torch.device | str) -> dict[str, Any]:
-    """Fail closed on CUDA if native ``flood_cuda`` or ``vector_geometry`` is unavailable
-    or if CPU flood overrides are active."""
-    dev = normalize_device(device)
+    """Fail closed on CUDA if native ``flood_cuda`` or ``vector_geometry`` is unavailable,
+    if ``TORCH_CUDA_ARCH_LIST`` omits A100/L4/H100 (8.0/8.9/9.0), or if CPU flood overrides
+    are active."""
+    arch_list_raw = os.environ.get("TORCH_CUDA_ARCH_LIST", "").strip()
+    if not arch_list_raw:
+        os.environ["TORCH_CUDA_ARCH_LIST"] = DEFAULT_CUDA_ARCH_LIST
+        arch_list_raw = DEFAULT_CUDA_ARCH_LIST
+    arch_tokens = {
+        tok.strip().removesuffix("+PTX")
+        for part in arch_list_raw.replace(",", ";").split(";")
+        for tok in part.split()
+        if tok.strip()
+    }
+    missing_archs = [arch for arch in REQUIRED_CUDA_ARCHS if arch not in arch_tokens]
+    dev = ensure_cuda_initialized(device)
     if dev.type != "cuda":
         return {
             "device": str(dev),
             "cuda_active": False,
+            "cuda_initialized": False,
             "flood_cuda_loaded": False,
             "vector_geometry_loaded": False,
+            "torch_cuda_arch_list": arch_list_raw,
+            "arch_list_covers_a100_l4_h100": len(missing_archs) == 0,
             "cpu_overrides_absent": bool(
                 v8_device._flood is _ORIG_V8_FLOOD
                 and ego_device._component_sizes is _ORIG_EGO_COMPONENTS
@@ -181,6 +227,11 @@ def verify_cuda_native_extensions(device: torch.device | str) -> dict[str, Any]:
         }
     if not torch.cuda.is_available() or torch.version.cuda is None:
         raise RuntimeError("CUDA device requested but torch.cuda.is_available() is False")
+    if missing_archs:
+        raise RuntimeError(
+            f"TORCH_CUDA_ARCH_LIST={arch_list_raw!r} is missing required GPU architectures "
+            f"{missing_archs} (must cover A100 8.0, L4 8.9, and H100 9.0)"
+        )
     if (
         v8_device._flood is not _ORIG_V8_FLOOD
         or ego_device._component_sizes is not _ORIG_EGO_COMPONENTS
@@ -209,10 +260,15 @@ def verify_cuda_native_extensions(device: torch.device | str) -> dict[str, Any]:
     return {
         "device": str(dev),
         "cuda_active": True,
+        "cuda_initialized": bool(
+            torch.cuda.is_initialized() if hasattr(torch._C, "_cuda_getDeviceCount") else True
+        ),
         "flood_cuda_loaded": True,
         "vector_geometry_loaded": True,
         "gpu_sim_vector_geometry": geom_env,
         "gpu_sim_vector_flood": flood_env,
+        "torch_cuda_arch_list": arch_list_raw,
+        "arch_list_covers_a100_l4_h100": True,
         "cpu_overrides_absent": True,
     }
 

@@ -28,6 +28,11 @@ PROBE32_NAMESPACE = "t34-gpu-sitl-probe32-20261109-v1"
 SELECTIVITY_NAMESPACE = "t34-gpu-sitl-selectivity-20261109-v1"
 SCREEN_NAMESPACE = "t34-gpu-sitl-screen-20261109-v1"
 
+# Dev-only namespaces for the L4 CUDA shake-out (NOT EVIDENCE; never overlap registered namespaces)
+SHAKEOUT_SMOKE_NAMESPACE = "gpu-sitl-shakeout-smoke-dev-20261110-v1"
+SHAKEOUT_PROBE_NAMESPACE = "gpu-sitl-shakeout-probe-dev-20261110-v1"
+SHAKEOUT_TRAIN_NAMESPACE = "gpu-sitl-shakeout-train-dev-20261110-v1"
+
 TRAIN_WORLD_COUNT = 256
 PROBE32_WORLD_COUNT = 32
 SELECTIVITY_WORLD_COUNT = 48
@@ -86,6 +91,96 @@ def selectivity_seeds(count: int = SELECTIVITY_WORLD_COUNT) -> list[int]:
 def screen_seeds(count: int = SCREEN_WORLD_COUNT) -> list[int]:
     """Return deterministic one-look closed-loop screen world seeds for :data:`SCREEN_NAMESPACE`."""
     return namespace_seeds(SCREEN_NAMESPACE, count)
+
+
+def shakeout_smoke_seeds(count: int = 8) -> list[int]:
+    """Return dev-only world seeds for the CUDA shake-out smoke sub-phase (NOT EVIDENCE)."""
+    return namespace_seeds(SHAKEOUT_SMOKE_NAMESPACE, count)
+
+
+def shakeout_probe_seeds(count: int = 2) -> list[int]:
+    """Return dev-only world seeds for the CUDA shake-out probe harvest sub-phase (NOT EVIDENCE)."""
+    return namespace_seeds(SHAKEOUT_PROBE_NAMESPACE, count)
+
+
+def shakeout_train_seeds(count: int = 4) -> list[int]:
+    """Return dev-only world seeds for the CUDA shake-out training sub-phase (NOT EVIDENCE)."""
+    return namespace_seeds(SHAKEOUT_TRAIN_NAMESPACE, count)
+
+
+def audit_shakeout_seeds(
+    *,
+    smoke_count: int = 16,
+    probe_count: int = 8,
+    train_count: int = 16,
+    smoke_envs: int | None = None,
+    probe_worlds: int | None = None,
+    train_envs: int | None = None,
+    index_horizon: int = AUDIT_INDEX_RANGE,
+) -> dict[str, Any]:
+    """Verify dev shake-out seeds are disjoint from each other and all registered namespaces."""
+    n_smoke = int(smoke_envs) if smoke_envs is not None else int(smoke_count)
+    n_probe = int(probe_worlds) if probe_worlds is not None else int(probe_count)
+    n_train = int(train_envs) if train_envs is not None else int(train_count)
+    s_smoke = set(shakeout_smoke_seeds(n_smoke))
+    s_probe = set(shakeout_probe_seeds(n_probe))
+    s_train = set(shakeout_train_seeds(n_train))
+    dev_union = s_smoke | s_probe | s_train
+
+    forbidden_registered: dict[str, set[int]] = {
+        TRAIN_NAMESPACE: set(
+            namespace_seeds(TRAIN_NAMESPACE, max(TRAIN_WORLD_COUNT, index_horizon))
+        ),
+        PROBE32_NAMESPACE: set(
+            namespace_seeds(PROBE32_NAMESPACE, max(PROBE32_WORLD_COUNT, index_horizon))
+        ),
+        SELECTIVITY_NAMESPACE: set(
+            namespace_seeds(SELECTIVITY_NAMESPACE, max(SELECTIVITY_WORLD_COUNT, index_horizon))
+        ),
+        SCREEN_NAMESPACE: set(
+            namespace_seeds(SCREEN_NAMESPACE, max(SCREEN_WORLD_COUNT, index_horizon))
+        ),
+    }
+    known_by_source = collect_known_repository_seeds(index_horizon=index_horizon)
+    overlaps: dict[str, list[int]] = {}
+    if s_smoke & s_probe:
+        overlaps["shakeout_smoke_vs_probe"] = sorted(s_smoke & s_probe)
+    if s_smoke & s_train:
+        overlaps["shakeout_smoke_vs_train"] = sorted(s_smoke & s_train)
+    if s_probe & s_train:
+        overlaps["shakeout_probe_vs_train"] = sorted(s_probe & s_train)
+    for ns, r_seeds in forbidden_registered.items():
+        hit = sorted(dev_union & r_seeds)
+        if hit:
+            overlaps[f"registered:{ns}"] = hit
+    for src, k_seeds in known_by_source.items():
+        hit = sorted(dev_union & k_seeds)
+        if hit:
+            overlaps[f"repo:{src}"] = hit
+    ok = (
+        len(s_smoke) == n_smoke
+        and len(s_probe) == n_probe
+        and len(s_train) == n_train
+        and len(dev_union) == (n_smoke + n_probe + n_train)
+        and not overlaps
+    )
+    return {
+        "ok": bool(ok),
+        "status": "PASS_ZERO_COLLISIONS" if ok else "FAIL_COLLISION_FOUND",
+        "not_evidence": True,
+        "shakeout_namespaces": {
+            "smoke": SHAKEOUT_SMOKE_NAMESPACE,
+            "probe": SHAKEOUT_PROBE_NAMESPACE,
+            "train": SHAKEOUT_TRAIN_NAMESPACE,
+        },
+        "forbidden_registered_namespaces_untouched": [
+            SELECTIVITY_NAMESPACE,
+            SCREEN_NAMESPACE,
+            PROBE32_NAMESPACE,
+            TRAIN_NAMESPACE,
+        ],
+        "overlaps": overlaps,
+    }
 
 
 def collect_known_repository_seeds(index_horizon: int = AUDIT_INDEX_RANGE) -> dict[str, set[int]]:

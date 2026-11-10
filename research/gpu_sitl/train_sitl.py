@@ -51,6 +51,7 @@ from research.gpu_sitl.open_stop_gpu import (
     batched_open_stop_h32,
     compact_sim_and_policy,
     concat_sims_and_policies,
+    ensure_cuda_initialized,
     freeze_ego2s_value_head,
     move_device_policy_to_device,
     normalize_device,
@@ -74,8 +75,11 @@ from research.gpu_sitl.probe_bank import (
 )
 from research.gpu_sitl.seed_check import (
     PROBE32_NAMESPACE,
+    SHAKEOUT_PROBE_NAMESPACE,
+    SHAKEOUT_TRAIN_NAMESPACE,
     TRAIN_NAMESPACE,
     audit_b1b_seeds,
+    shakeout_train_seeds,
     train_seeds,
 )
 from research.sandbox_a_resident.device_sim import _ENV_TENSOR_FIELDS
@@ -765,12 +769,18 @@ def run_sitl_training(
     stop_after_updates: int | None = None,
     stop_after_collection_steps: int | None = None,
     dry_run: bool = False,
+    shakeout: bool = False,
 ) -> dict[str, Any]:
-    """Run the Step B1b online GPU SITL training loop (or dry-run on CPU)."""
+    """Run the Step B1b online GPU SITL training loop (or dry-run / L4 shake-out)."""
     t_start = time.perf_counter()
-    dev = normalize_device(device)
+    dev = ensure_cuda_initialized(device)
     if dev.type == "cuda":
         verify_cuda_native_extensions(dev)
+
+    is_shakeout = bool(shakeout)
+    eff_dry_run = bool(dry_run or is_shakeout)
+    active_train_namespace = SHAKEOUT_TRAIN_NAMESPACE if is_shakeout else TRAIN_NAMESPACE
+    active_probe_namespace = SHAKEOUT_PROBE_NAMESPACE if is_shakeout else PROBE32_NAMESPACE
 
     if int(ordinary_uniform_half) + int(ordinary_hard_neg_half) != int(ordinary_batch_size):
         raise ValueError(
@@ -778,7 +788,7 @@ def run_sitl_training(
             f"({ordinary_hard_neg_half}) must equal ordinary_batch_size ({ordinary_batch_size})"
         )
 
-    if not dry_run:
+    if not eff_dry_run:
         if (
             int(num_envs) != REGISTERED_ENVS
             or int(total_updates) != REGISTERED_TOTAL_UPDATES
@@ -832,7 +842,7 @@ def run_sitl_training(
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     in_dir = Path(input_dir) if input_dir is not None else None
 
-    world_seeds = train_seeds(int(num_envs))
+    world_seeds = shakeout_train_seeds(int(num_envs)) if is_shakeout else train_seeds(int(num_envs))
 
     # Resolve and validate verified-ledger.json if present (for cross-session Colab resume)
     active_ledger_file: Path | None = None
@@ -852,15 +862,15 @@ def run_sitl_training(
         loaded_ledger = json.loads(active_ledger_file.read_text(encoding="utf-8"))
         if not isinstance(loaded_ledger, dict):
             raise ValueError(f"Invalid verified ledger at {active_ledger_file}")
-        if loaded_ledger.get("namespace") != TRAIN_NAMESPACE:
+        if loaded_ledger.get("namespace") != active_train_namespace:
             raise ValueError(
                 f"Refusing foreign training namespace in ledger {active_ledger_file}: "
-                f"expected {TRAIN_NAMESPACE!r}, got {loaded_ledger.get('namespace')!r}"
+                f"expected {active_train_namespace!r}, got {loaded_ledger.get('namespace')!r}"
             )
-        if loaded_ledger.get("probe_namespace", PROBE32_NAMESPACE) != PROBE32_NAMESPACE:
+        if loaded_ledger.get("probe_namespace", active_probe_namespace) != active_probe_namespace:
             raise ValueError(
                 f"Refusing foreign probe namespace in ledger {active_ledger_file}: "
-                f"expected {PROBE32_NAMESPACE!r}, got {loaded_ledger.get('probe_namespace')!r}"
+                f"expected {active_probe_namespace!r}, got {loaded_ledger.get('probe_namespace')!r}"
             )
         ledger_seeds = loaded_ledger.get("world_seeds")
         if ledger_seeds and [int(s) for s in ledger_seeds] != [int(s) for s in world_seeds]:
@@ -872,7 +882,7 @@ def run_sitl_training(
 
     # Harvest or load probe32 bank before training starts
     if probe_bank_path is None:
-        probe_bank_path = out_dir / "probe32_bank.pt"
+        probe_bank_path = out_dir / ("shakeout_probe_bank.pt" if is_shakeout else "probe32_bank.pt")
     probe_bank_file = Path(probe_bank_path)
 
     if resume and (
@@ -930,22 +940,23 @@ def run_sitl_training(
             b8_checkpoint=b8_path,
             opponent_checkpoint=opp_path,
             device=dev,
-            num_worlds=min(4, int(num_envs)) if dry_run else 32,
-            horizon=6 if dry_run else 5000,
+            num_worlds=min(4, int(num_envs)) if eff_dry_run else 32,
+            horizon=6 if eff_dry_run else 5000,
             branch_horizon=int(branch_horizon),
-            ordinary_per_world=4 if dry_run else 210,
+            ordinary_per_world=4 if eff_dry_run else 210,
             harvest_batch_roots=max(4, int(num_envs)),
             checkpoint_every_seconds=float(checkpoint_every_seconds),
             resume_ckpt_path=staged_harvest_ckpt,
             cpu_fast_flood=cpu_fast_flood,
-            dry_run=dry_run,
+            dry_run=eff_dry_run,
+            shakeout=is_shakeout,
         )
-    probe_bank = load_probe32_bank(probe_bank_file)
-    if not dry_run and bool(probe_bank["meta"].get("dry_run", False)):
+    probe_bank = load_probe32_bank(probe_bank_file, expected_namespace=active_probe_namespace)
+    if not eff_dry_run and bool(probe_bank["meta"].get("dry_run", False)):
         raise ValueError("Refusing to use a dry_run probe32 bank for non-dry-run SITL training")
-    if probe_bank.get("meta", {}).get("namespace") != PROBE32_NAMESPACE:
+    if probe_bank.get("meta", {}).get("namespace") != active_probe_namespace:
         raise ValueError(
-            f"probe_bank namespace must be {PROBE32_NAMESPACE!r}, "
+            f"probe_bank namespace must be {active_probe_namespace!r}, "
             f"got {probe_bank.get('meta', {}).get('namespace')!r}"
         )
     probe_seed_set: set[int] = {int(s) for s in probe_bank.get("meta", {}).get("world_seeds", [])}
@@ -968,6 +979,7 @@ def run_sitl_training(
     np.random.seed(int(seed) & 0xFFFF_FFFF)
     torch.manual_seed(int(seed))
     if dev.type == "cuda":
+        ensure_cuda_initialized(dev)
         torch.cuda.manual_seed_all(int(seed))
     rng = np.random.default_rng(int(seed))
 
@@ -978,10 +990,10 @@ def run_sitl_training(
         device=dev,
         hero_respawn=True,
     )
-    if dry_run and int(num_envs) >= 2:
-        # In dry-run mode (CPU, 0 u), seed the first min(2, num_envs // 2) worlds from
+    if eff_dry_run and int(num_envs) >= 2:
+        # In dry-run / shake-out mode, seed the first min(2, num_envs // 2) worlds from
         # MATURE_EXTENSION_SPECS[9:9+n_door] (disjoint from MATURE_EXTENSION_SPECS[0] used in
-        # probe_bank.py dry-run) so a tiny dry-run horizon mines rescue and ordinary roots.
+        # probe_bank.py dry-run) so a tiny horizon mines rescue and ordinary roots with L >= 80.
         n_door = min(2, int(num_envs) // 2)
         ext_worlds, ext_pol_tpl, _ = build_extension_worlds(
             b8_path,
@@ -1045,8 +1057,8 @@ def run_sitl_training(
     def _write_verified_ledger(latest_ckpt_info: dict[str, Any] | None = None) -> None:
         ledger_obj: dict[str, Any] = {
             "schema": "t34-gpu-sitl-verified-ledger/v1",
-            "namespace": TRAIN_NAMESPACE,
-            "probe_namespace": PROBE32_NAMESPACE,
+            "namespace": active_train_namespace,
+            "probe_namespace": active_probe_namespace,
             "world_seeds": [int(s) for s in world_seeds],
             "unit_kind": "update",
             "skip_verified": True,
@@ -1081,7 +1093,7 @@ def run_sitl_training(
         nonlocal tripwire_breached, tripwire_breach_reason, resumed_from_checkpoint
 
         state = torch.load(ckpt_pt_path, map_location="cpu", weights_only=False)
-        if state.get("namespace") != TRAIN_NAMESPACE:
+        if state.get("namespace") != active_train_namespace:
             raise ValueError(
                 f"Refusing to resume SITL checkpoint with foreign namespace: "
                 f"{state.get('namespace')!r}"
@@ -1138,6 +1150,7 @@ def run_sitl_training(
         rng.bit_generator.state = state["np_rng_state"]
         torch.set_rng_state(state["torch_cpu_rng_state"])
         if dev.type == "cuda" and state.get("torch_cuda_rng_state") is not None:
+            ensure_cuda_initialized(dev)
             torch.cuda.set_rng_state_all(state["torch_cuda_rng_state"])
         resumed_from_checkpoint = str(ckpt_pt_path)
 
@@ -1185,8 +1198,10 @@ def run_sitl_training(
         ckpt_file = ckpt_dir / f"sitl_state_{tag}.pt"
         payload_ckpt = {
             "schema": "t34-gpu-sitl-train-checkpoint/v1",
-            "namespace": TRAIN_NAMESPACE,
-            "dry_run": bool(dry_run),
+            "namespace": active_train_namespace,
+            "dry_run": bool(eff_dry_run),
+            "shakeout": bool(is_shakeout),
+            "not_evidence": bool(eff_dry_run or is_shakeout),
             "b8_checkpoint_sha256": b8_sha,
             "opponent_checkpoint_sha256": opp_sha,
             "probe_bank_sha256": probe_bank["verified_sha256"],
@@ -1223,7 +1238,9 @@ def run_sitl_training(
             "np_rng_state": rng.bit_generator.state,
             "torch_cpu_rng_state": torch.get_rng_state(),
             "torch_cuda_rng_state": (
-                torch.cuda.get_rng_state_all() if dev.type == "cuda" else None
+                (ensure_cuda_initialized(dev), torch.cuda.get_rng_state_all())[1]
+                if dev.type == "cuda"
+                else None
             ),
         }
         ckpt_sha = write_atomic_with_sha256(
@@ -1711,15 +1728,23 @@ def run_sitl_training(
     _flush_decision_window(is_partial_final=True)
 
     # Save final student checkpoint in served Ego2sNet format + full resumable state
-    final_student_ckpt = out_dir / "b8_sitl_student_final.pth"
+    final_student_ckpt = out_dir / (
+        "shakeout_student_final.pth" if is_shakeout else "b8_sitl_student_final.pth"
+    )
     write_atomic_with_sha256(
         final_student_ckpt,
         lambda tmp: save_ego2s_checkpoint(
             tmp,
             student_net,
             meta={
-                "study": "t34-gpu-sitl-b1b-20261109",
-                "namespace": TRAIN_NAMESPACE,
+                "study": (
+                    "t34-gpu-sitl-b1b-shakeout-not-evidence"
+                    if is_shakeout
+                    else "t34-gpu-sitl-b1b-20261109"
+                ),
+                "namespace": active_train_namespace,
+                "shakeout": is_shakeout,
+                "not_evidence": bool(is_shakeout or dry_run),
                 "dry_run": bool(dry_run),
                 "updates_completed": int(updates_completed),
                 "unique_mined_rescue_roots": len(unique_rescue_keys),
@@ -1786,12 +1811,20 @@ def run_sitl_training(
 
     elapsed_s = float(time.perf_counter() - t_start)
     result_summary: dict[str, Any] = {
-        "schema": "t34-gpu-sitl-b1b-pilot-result/v1",
-        "namespace": TRAIN_NAMESPACE,
+        "schema": (
+            "t34-gpu-sitl-shakeout-train-subresult/v1"
+            if is_shakeout
+            else "t34-gpu-sitl-b1b-pilot-result/v1"
+        ),
+        "namespace": active_train_namespace,
         "probe_namespace": probe_bank["meta"]["namespace"],
+        "shakeout": is_shakeout,
+        "not_evidence": bool(is_shakeout or dry_run),
         "dry_run": bool(dry_run),
         "evidence_class": (
-            "DRY_RUN_NON_EVIDENCE" if dry_run else "REGISTERED_STEP_B1B_PILOT_EVIDENCE"
+            "SHAKEOUT_NOT_EVIDENCE"
+            if is_shakeout
+            else ("DRY_RUN_NON_EVIDENCE" if dry_run else "REGISTERED_STEP_B1B_PILOT_EVIDENCE")
         ),
         "verdict": pilot_verdict,
         "runaway_guard_reached": bool(runaway_guard_reached),
@@ -1892,7 +1925,9 @@ def run_sitl_training(
         "elapsed_seconds": elapsed_s,
     }
 
-    result_json_path = out_dir / "sitl_pilot_result.json"
+    result_json_path = out_dir / (
+        "shakeout_sitl_subresult.json" if is_shakeout else "sitl_pilot_result.json"
+    )
     result_sha = write_atomic_with_sha256(
         result_json_path,
         lambda tmp: tmp.write_text(
