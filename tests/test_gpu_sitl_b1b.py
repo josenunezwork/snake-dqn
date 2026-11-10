@@ -2560,8 +2560,9 @@ def test_prepare_shakeout_manifest_and_pilot_refuses_shakeout_result(
 ) -> None:
     """Verify Requirement A & B:
     1. `prepare_b1b_packet(..., mode='shakeout')` produces an L4 manifest (`gpu='L4'`,
-       `rate_units_per_hour=1.54`, `resume_exemption` `short-canary`, `timeout_minutes <= 20`,
-       `unit_cap <= 1.0`) accepted by `colab_canary.check` and `colab_supervisor.validate`.
+       `rate_units_per_hour=1.54`, `resume_exemption` `short-canary`, `est_minutes=15.0`,
+       `timeout_minutes=30.0 <= 40.0`, `unit_cap=0.77 <= 1.0`) accepted by `colab_canary.check`,
+       `colab_supervisor.validate`, and `dispatch.require_resume_policy`.
     2. `prepare_b1b_packet(..., mode='pilot')` refuses a shake-out result JSON (both under its
        `shakeout_result.json` filename and even if copied/renamed to `smoke_result.json`)."""
     import shutil
@@ -2570,6 +2571,7 @@ def test_prepare_shakeout_manifest_and_pilot_refuses_shakeout_result(
     from research.colab_cli import supervisor as colab_supervisor
     from research.gpu_sitl.preflight import resolve_product_checkpoints
     from research.gpu_sitl.prepare import ROOT, prepare_b1b_packet
+    from tools.ops.dispatch import require_resume_policy
 
     b8_path, opp_path = resolve_product_checkpoints()
     if not Path(b8_path).exists() or not Path(opp_path).exists():
@@ -2589,10 +2591,16 @@ def test_prepare_shakeout_manifest_and_pilot_refuses_shakeout_result(
     manifest = json.loads(Path(info_shake["manifest_path"]).read_text(encoding="utf-8"))
     assert manifest["requirements"]["gpu"] == "L4"
     assert manifest["requirements"]["allowed_gpus"] == ["L4"]
+    assert manifest["requirements"]["est_minutes"] == pytest.approx(15.0)
     assert "prefer" not in manifest["requirements"]
     assert manifest["budget"]["rate_units_per_hour"] == pytest.approx(1.54)
-    assert float(manifest["timeout_minutes"]) <= 20.0
+    assert float(manifest["timeout_minutes"]) == pytest.approx(30.0)
+    assert float(manifest["timeout_minutes"]) <= 40.0
+    assert float(manifest["budget"]["unit_cap"]) == pytest.approx(0.77)
     assert float(manifest["budget"]["unit_cap"]) <= 1.0
+    assert manifest["technical_envelope"]["base_seconds"] == pytest.approx(900.0)
+    assert manifest["technical_envelope"]["effective_seconds"] == pytest.approx(1800.0)
+    assert manifest["technical_envelope"]["registered_a100_unit_cap"] == pytest.approx(0.77)
     assert manifest["resume_exemption"]["kind"] == "short-canary"
     assert "resume" not in manifest
     assert manifest["env"]["GPU_SITL_MODE"] == "shakeout"
@@ -2602,9 +2610,10 @@ def test_prepare_shakeout_manifest_and_pilot_refuses_shakeout_result(
         "shakeout_result.json",
     ]
 
-    # Verify colab_canary.check and colab_supervisor.validate accept the manifest
-    # (using origin/main commit pin for git cat-file / job_device check before local commit)
+    # Verify colab_canary.check, colab_supervisor.validate, and dispatch.require_resume_policy
+    # accept the manifest
     manifest_for_val = dict(manifest)
+    require_resume_policy(manifest_for_val)
     colab_canary.check(manifest_for_val, ROOT)
     colab_supervisor.validate(manifest_for_val, ROOT)
 

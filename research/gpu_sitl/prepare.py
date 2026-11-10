@@ -599,15 +599,15 @@ def prepare_b1b_packet(
         base_sec = est_minutes * 60.0
         eff_sec = timeout_minutes * 60.0
     elif mode == "shakeout":
-        # Cheap dev-only L4 CUDA shake-out: short-canary <= 20 min, cap <= 1.0 L4 u at 1.54 u/h
-        # (7.5 min base / 15.0 min 2x timeout = 0.385 L4 u).
+        # Cheap dev-only L4 CUDA shake-out: short-canary <= 40 min (<= 30 min canary cap),
+        # cap <= 1.0 L4 u at 1.54 u/h (15.0 min base / 30.0 min 2x timeout = 0.77 L4 u).
         if pinned_hardware is not None and pinned_hardware != "L4":
             raise ValueError(
                 f"--mode shakeout requires requested_gpu='L4', got --gpu={pinned_hardware!r}"
             )
         pinned_hardware = "L4"
-        est_minutes = 7.5
-        timeout_minutes = 15.0
+        est_minutes = 15.0
+        timeout_minutes = 30.0
         a100_unit_cap = round((timeout_minutes * L4_RATE_UNITS_PER_HOUR) / 60.0 + 1e-9, 4)
         job_id = f"t34-gpu-sitl-b1b-shakeout-20261110-{attempt}"
         required_exports = list(SHAKEOUT_REQUIRED_EXPORTS)
@@ -615,8 +615,8 @@ def prepare_b1b_packet(
             "resume_exemption": {
                 "kind": "short-canary",
                 "reason": (
-                    "Step B1b dev-only L4 CUDA shake-out canary (<= 20 min, cap <= 1.0 L4 u); "
-                    "NOT EVIDENCE, no registered namespace read or scored"
+                    "Step B1b dev-only L4 CUDA shake-out canary (<= 30 min, short-canary <= 40 min,"
+                    " cap 0.77 <= 1.0 L4 u); NOT EVIDENCE, no registered namespace read or scored"
                 ),
             }
         }
