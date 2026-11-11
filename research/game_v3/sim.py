@@ -521,12 +521,14 @@ class GameV3Sim:
 
     @property
     def occ_subtick_4x(self) -> torch.Tensor:
-        """Return ``(E, G4, G4, N)`` on ``self.device`` (view if 1 block, else concatenated copy).
+        """Return ``(E, G4, G4, N)`` on ``self.device`` (view if 1 block, else full device copy).
 
-        When ``self.E <= self.env_block_size`` (single shard), returns the underlying block view
-        with zero allocation. When sharded across multiple ``_occ_4x_blocks`` (e.g. ``E > 256``),
-        concatenates the shards onto ``self.device``; performance-critical callers should iterate
-        ``_occ_4x_blocks`` or call :meth:`occ_4x_slice` to avoid materializing a full copy.
+        Debug/test use only on multi-block sims (``len(self._occ_4x_blocks) > 1``, e.g.
+        ``E > 256``): when sharded across multiple ``_occ_4x_blocks``, ``torch.cat`` allocates
+        and materializes a full concatenated device copy (mutations to that copy do not write
+        back to ``_occ_4x_blocks``). When ``self.E <= self.env_block_size`` (single shard),
+        returns the underlying block view with zero allocation. Production code paths iterate
+        ``_occ_4x_blocks`` directly or call :meth:`occ_4x_slice`.
         """
         if len(self._occ_4x_blocks) == 1:
             return self._occ_4x_blocks[0]
@@ -536,6 +538,7 @@ class GameV3Sim:
                 f"occ_subtick_4x has {total_elems} elements (>= 2^31 MPS limit); "
                 "use _occ_4x_blocks or occ_4x_slice() instead"
             )
+        # Multi-block debug/test fallback: materializes a full concatenated copy on self.device.
         return torch.cat(self._occ_4x_blocks, dim=0)
 
     def occ_4x_slice(self, e0: int, e1: int) -> torch.Tensor:
@@ -1181,7 +1184,9 @@ class GameV3Sim:
                 shift_val = max(0, safe_min - 1)
             else:
                 min_active = int(
-                    torch.where(self.alive, self.oldest_active_subtick, frontier_st).amin().item()
+                    torch.where(self.alive, self.oldest_active_subtick.to(torch.int64), frontier_st)
+                    .amin()
+                    .item()
                 )
                 shift_val = max(0, min_active - 1)
         else:
@@ -1189,7 +1194,9 @@ class GameV3Sim:
             if shift_val < 0:
                 raise ValueError(f"shift must be >= 0, got {shift_val}")
             min_active = int(
-                torch.where(self.alive, self.oldest_active_subtick, frontier_st).amin().item()
+                torch.where(self.alive, self.oldest_active_subtick.to(torch.int64), frontier_st)
+                .amin()
+                .item()
             )
             if shift_val >= min_active:
                 raise ValueError(
@@ -1199,10 +1206,19 @@ class GameV3Sim:
         if shift_val == 0:
             return 0
 
+        int32_max = (1 << 31) - 1
+        if shift_val > int32_max:
+            raise ValueError(f"shift ({shift_val}) exceeds signed int32 max ({int32_max})")
+        new_sentinel = max(2, frontier_st - shift_val)
+        if not (2 <= new_sentinel <= int32_max):
+            raise ValueError(
+                f"new_sentinel ({new_sentinel}) out of signed int32 range [2, {int32_max}] "
+                f"(frontier_st={frontier_st}, shift={shift_val})"
+            )
+
         self.ring_subtick.clamp_min_(shift_val)
         self.ring_subtick.sub_(shift_val)
 
-        new_sentinel = max(2, frontier_st - shift_val)
         dead = ~self.alive
         self.oldest_active_subtick.masked_fill_(dead, shift_val)
         self.oldest_active_subtick.sub_(shift_val)

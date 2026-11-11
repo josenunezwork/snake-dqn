@@ -1,0 +1,2 @@
+# CUDA torch and numpy are installed/pinned by the qualified Colab CLI bootstrap.
+psutil>=5.9,<8

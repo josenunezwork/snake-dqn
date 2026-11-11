@@ -195,3 +195,41 @@ def food_seeking_actions(sim: GameV3Sim, *, stream_offset: int = 1000) -> torch.
         boost, torch.full_like(steer, NUM_TURN_LEVELS), torch.zeros_like(steer)
     )
     return torch.where(sim.alive, actions, torch.full_like(actions, 2))
+
+
+_CARDINAL6_ACTION_MAP: tuple[int, ...] = (0, 2, 4, 5, 7, 9)
+
+
+def cardinal6_safe_actions(sim: GameV3Sim, *, stream_offset: int = 2000) -> torch.Tensor:
+    """Choose deterministic 6-cardinal actions ``{L, S, R} x {normal, boost}`` on device.
+
+    Scores the classic 6-action subset ``[0, 2, 4, 5, 7, 9]`` in an ``(E, N, 6)`` integer
+    tensor and selects via ``argmax(dim=-1)`` with zero host syncs.
+    """
+    safety5 = _evaluate_arc_safety_int(sim)
+    cardinal_idx = torch.tensor([0, 2, 4], dtype=torch.int64, device=sim.device)
+    safety3 = safety5.index_select(2, cardinal_idx)
+
+    n_cardinal = 6
+    base_slot = (
+        int(stream_offset)
+        + torch.arange(sim.N * n_cardinal, dtype=torch.int64, device=sim.device)[None, :]
+    )
+    draws6 = rng_int_torch(
+        sim.seeds[:, None], sim.world_ticks[:, None] + 1, PURPOSE_SCRIPTED, base_slot, 1000
+    ).view(sim.E, sim.N, n_cardinal)
+
+    max_safety = len(_SAFETY_HORIZONS_INT)
+    boost_ok = (
+        sim.alive[:, :, None]
+        & (sim.length[:, :, None] > int(sim.cfg.min_boost_length) + 4)
+        & (safety3 >= max_safety)
+    )
+    normal_scores = safety3.to(torch.int64) * 10_000 + draws6[:, :, :3]
+    boost_raw = safety3.to(torch.int64) * 10_000 + draws6[:, :, 3:] + 50
+    boost_scores = torch.where(boost_ok, boost_raw, torch.full_like(boost_raw, -1_000_000))
+    scores6 = torch.cat((normal_scores, boost_scores), dim=-1)
+    choice6 = scores6.argmax(dim=-1)
+    action_map = torch.tensor(_CARDINAL6_ACTION_MAP, dtype=torch.int64, device=sim.device)
+    actions = action_map[choice6]
+    return torch.where(sim.alive, actions, torch.full_like(actions, 2))
