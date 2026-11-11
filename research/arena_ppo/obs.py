@@ -43,9 +43,10 @@ CH_ENEMY_LENGTH = 11
 CH_BOOST_FLAGS = 12
 
 _CARDINAL_NP = np.array([(0, -1), (1, 0), (0, 1), (-1, 0)], dtype=np.int64)
-_EGO_OFFSET_CACHE: dict[tuple[str, int | None], tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = (
-    {}
-)
+_EGO_OFFSET_CACHE: dict[
+    tuple[str, int | None, int], tuple[torch.Tensor, torch.Tensor, torch.Tensor]
+] = {}
+_ARENA_BORDER_CACHE: dict[tuple[str, int | None, int, int], torch.Tensor] = {}
 
 
 @dataclass(frozen=True)
@@ -57,24 +58,30 @@ class ArenaEgoObs:
     scalars: torch.Tensor
 
 
-def _ego_tables(device: torch.device) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+def _ego_tables(
+    device: torch.device, ego_crop_size: int = EGO_CROP_SIZE
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Return cached `(dcol, drow, cardinal_f32)` tables on `device`.
 
     For heading ``h`` with forward unit vector ``(fx, fy) = CARDINAL[h]`` and
     rightward unit vector ``(rx, ry) = (-fy, fx)`` in screen coordinates (`+x` right,
-    `+y` down), ego pixel ``(r, c)`` lies ``ahead = EGO_HEAD_ROW - r`` cells forward
-    and ``lateral = c - EGO_HEAD_COL`` cells to the right.
+    `+y` down), ego pixel ``(r, c)`` lies ``ahead = head_row - r`` cells forward
+    and ``lateral = c - head_col`` cells to the right.
     """
-    key = (device.type, device.index)
+    crop = int(ego_crop_size)
+    if crop < 3 or crop % 2 != 1:
+        raise ValueError(f"ego_crop_size must be an odd integer >= 3, got {ego_crop_size}")
+    key = (device.type, device.index, crop)
     cached = _EGO_OFFSET_CACHE.get(key)
     if cached is not None:
         return cached
 
-    coords = np.arange(EGO_CROP_SIZE, dtype=np.int64)
-    ahead = (EGO_HEAD_ROW - coords)[:, None]
-    lateral = (coords - EGO_HEAD_COL)[None, :]
-    dcol_np = np.empty((4, EGO_CROP_SIZE * EGO_CROP_SIZE), dtype=np.int64)
-    drow_np = np.empty((4, EGO_CROP_SIZE * EGO_CROP_SIZE), dtype=np.int64)
+    head_rc = crop // 2
+    coords = np.arange(crop, dtype=np.int64)
+    ahead = (head_rc - coords)[:, None]
+    lateral = (coords - head_rc)[None, :]
+    dcol_np = np.empty((4, crop * crop), dtype=np.int64)
+    drow_np = np.empty((4, crop * crop), dtype=np.int64)
     for h_idx, (fx, fy) in enumerate(_CARDINAL_NP.tolist()):
         rx, ry = -fy, fx
         dcol_np[h_idx] = (ahead * fx + lateral * rx).ravel()
@@ -85,6 +92,22 @@ def _ego_tables(device: torch.device) -> tuple[torch.Tensor, torch.Tensor, torch
     cardinal_f32 = torch.as_tensor(_CARDINAL_NP, dtype=torch.float32, device=device)
     _EGO_OFFSET_CACHE[key] = (dcol, drow, cardinal_f32)
     return dcol, drow, cardinal_f32
+
+
+def _arena_wall_border(grid_h: int, grid_w: int, device: torch.device) -> torch.Tensor:
+    """Return cached 1D `(grid_h * grid_w,)` float32 1-cell perimeter border mask."""
+    key = (device.type, device.index, int(grid_h), int(grid_w))
+    cached = _ARENA_BORDER_CACHE.get(key)
+    if cached is not None:
+        return cached
+    plane = torch.zeros((int(grid_h), int(grid_w)), dtype=torch.float32, device=device)
+    plane[0, :] = 1.0
+    plane[-1, :] = 1.0
+    plane[:, 0] = 1.0
+    plane[:, -1] = 1.0
+    flat = plane.reshape(-1).contiguous()
+    _ARENA_BORDER_CACHE[key] = flat
+    return flat
 
 
 def _prefix_suffix_enemy_max_i32(per_snake: torch.Tensor) -> torch.Tensor:
@@ -120,6 +143,7 @@ def build_arena_ego_obs_from_tensors(
     min_boost_length: int = 5,
     grid_h: int = ARENA_GRID_H,
     grid_w: int = ARENA_GRID_W,
+    ego_crop_size: int = EGO_CROP_SIZE,
     ring_chunk: int = 512,
     seat_mask: torch.Tensor | None = None,
 ) -> ArenaEgoObs:
@@ -153,8 +177,10 @@ def build_arena_ego_obs_from_tensors(
     """
     device = alive.device
     num_envs, num_snakes = int(alive.shape[0]), int(alive.shape[1])
-    board_n = int(grid_h) * int(grid_w)
-    dcol_table, drow_table, cardinal_f32 = _ego_tables(device)
+    gh, gw = int(grid_h), int(grid_w)
+    crop = int(ego_crop_size)
+    board_n = gh * gw
+    dcol_table, drow_table, cardinal_f32 = _ego_tables(device, ego_crop_size=crop)
 
     per_snake_ttl = torch.zeros((num_envs, num_snakes, board_n), dtype=torch.int32, device=device)
     seg_i32 = seg_count.to(torch.int32)
@@ -256,6 +282,7 @@ def build_arena_ego_obs_from_tensors(
     )
     arena_flat[:, :, CH_FOOD_AMBIENT, :] = amb_plane_i32.to(torch.float32)[:, None, :]
     arena_flat[:, :, CH_FOOD_CORPSE, :] = corpse_plane_i32.to(torch.float32)[:, None, :]
+    arena_flat[:, :, CH_WALL, :] = _arena_wall_border(gh, gw, device)[None, None, :]
 
     # Per-snake head channels (`O(E * S)` single-cell updates, zero host syncs)
     env_idx = torch.arange(num_envs, device=device)
@@ -323,8 +350,8 @@ def build_arena_ego_obs_from_tensors(
                 inb_c, len_norm_f32[:, j_slot], arena_flat[env_idx, s_slot, CH_ENEMY_LENGTH, flat_c]
             )
 
-    # Zero out dead seats across all channels
-    arena_flat = torch.where(alive[:, :, None, None], arena_flat, torch.zeros_like(arena_flat))
+    # Zero out dead seats across all channels in-place (avoids 2x multi-GB allocations)
+    arena_flat.masked_fill_(~alive[:, :, None, None], 0.0)
 
     total_rows = num_envs * num_snakes
     arena_rows_flat = arena_flat.reshape(total_rows, NUM_OBS_CHANNELS, board_n)
@@ -342,19 +369,15 @@ def build_arena_ego_obs_from_tensors(
 
     n_out = int(alive_rows.shape[0])
 
-    # Heading-aligned 47x47 ego crop via single gather from `arena_rows_flat`
+    # Heading-aligned ego crop via single gather from `arena_rows_flat`
     wx = heads_rows[:, 0:1] + dcol_table[dirs_rows]
     wy = heads_rows[:, 1:2] + drow_table[dirs_rows]
-    ego_inb = (wx >= 0) & (wx < grid_w) & (wy >= 0) & (wy < grid_h)
-    ego_idx = wy.clamp(0, grid_h - 1) * grid_w + wx.clamp(0, grid_w - 1)
+    ego_inb = (wx >= 0) & (wx < gw) & (wy >= 0) & (wy < gh)
+    ego_idx = wy.clamp(0, gh - 1) * gw + wx.clamp(0, gw - 1)
 
     ego_flat = arena_rows_flat.gather(2, ego_idx[:, None, :].expand(-1, NUM_OBS_CHANNELS, -1))
-    ego_flat = torch.where(ego_inb[:, None, :], ego_flat, torch.zeros_like(ego_flat))
-    ego_flat[:, CH_WALL, :] = torch.where(
-        alive_rows[:, None] & (~ego_inb),
-        torch.ones_like(ego_flat[:, CH_WALL, :]),
-        ego_flat[:, CH_WALL, :],
-    )
+    ego_flat.masked_fill_(~ego_inb[:, None, :], 0.0)
+    ego_flat[:, CH_WALL, :] = (alive_rows[:, None] & (~ego_inb)).to(torch.float32)
 
     # Rotate allocentric enemy `(dx, dy)` into the heading-aligned ego screen frame:
     # forward = `(fx, fy)` maps to `(0, -1)` (up); right = `(-fy, fx)` maps to `(+1, 0)`.
@@ -368,7 +391,7 @@ def build_arena_ego_obs_from_tensors(
     # Normalize `-0.0` to `+0.0` for bit-exact parity across backends
     ego_flat[:, CH_ENEMY_HEAD_DX, :] = ego_dx + 0.0
     ego_flat[:, CH_ENEMY_HEAD_DY, :] = ego_dy + 0.0
-    ego_flat = torch.where(alive_rows[:, None, None], ego_flat, torch.zeros_like(ego_flat))
+    ego_flat.masked_fill_(~alive_rows[:, None, None], 0.0)
 
     # Scalars `(N, 6)`: `[length / 2048, boost_available, heading_one_hot(4)]`
     len_scalar = (length_rows.to(torch.float32) * INV_NORM_DIVISOR).unsqueeze(1)
@@ -377,10 +400,10 @@ def build_arena_ego_obs_from_tensors(
     )
     heading_oh = F.one_hot(dirs_rows, num_classes=4).to(torch.float32)
     scalars = torch.cat((len_scalar, boost_avail, heading_oh), dim=1)
-    scalars = torch.where(alive_rows[:, None], scalars, torch.zeros_like(scalars))
+    scalars.masked_fill_(~alive_rows[:, None], 0.0)
 
-    arena_out = arena_rows_flat.reshape(n_out, NUM_OBS_CHANNELS, grid_h, grid_w)
-    ego_out = ego_flat.reshape(n_out, NUM_OBS_CHANNELS, EGO_CROP_SIZE, EGO_CROP_SIZE)
+    arena_out = arena_rows_flat.reshape(n_out, NUM_OBS_CHANNELS, gh, gw)
+    ego_out = ego_flat.reshape(n_out, NUM_OBS_CHANNELS, crop, crop)
     assert scalars.shape == (n_out, SCALAR_DIM)
     return ArenaEgoObs(arena=arena_out, ego=ego_out, scalars=scalars)
 
@@ -389,6 +412,7 @@ def build_arena_ego_obs_gpu(
     train_sim: TrainSim,
     *,
     env_slice: slice | None = None,
+    ego_crop_size: int = EGO_CROP_SIZE,
     ring_chunk: int = 512,
 ) -> ArenaEgoObs:
     """Build `(arena, ego, scalars)` directly from a prepared ``TrainSim`` on device.
@@ -396,6 +420,7 @@ def build_arena_ego_obs_gpu(
     Args:
         train_sim: Prepared ``TrainSim`` wrapper.
         env_slice: Optional slice along world axis ``0 .. E`` for chunked forward passes.
+        ego_crop_size: Odd heading-aligned ego crop side length (`47` default).
         ring_chunk: Ring buffer segment scan chunk size.
 
     Returns:
@@ -419,6 +444,7 @@ def build_arena_ego_obs_gpu(
         min_boost_length=train_sim.min_boost_length,
         grid_h=train_sim.grid_h,
         grid_w=train_sim.grid_w,
+        ego_crop_size=ego_crop_size,
         ring_chunk=ring_chunk,
     )
 
@@ -427,6 +453,8 @@ def build_arena_ego_obs_cpu(
     ref_sim: Any,
     prev_heads: np.ndarray,
     prev_alive: np.ndarray,
+    *,
+    ego_crop_size: int = EGO_CROP_SIZE,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Build exact NumPy CPU reference `(arena, ego, scalars)` from `GridBatchSim` or arrays.
 
@@ -505,17 +533,23 @@ def build_arena_ego_obs_cpu(
     num_envs, num_snakes, cap, _ = bodies.shape
     grid_h = int(ref_sim.grid_h)
     grid_w = int(ref_sim.grid_w)
+    crop = int(ego_crop_size)
+    head_rc = crop // 2
     min_boost_length = int(ref_sim.cfg.min_boost_length)
 
     arena = np.zeros((num_envs, num_snakes, NUM_OBS_CHANNELS, grid_h, grid_w), dtype=np.float32)
-    ego = np.zeros(
-        (num_envs, num_snakes, NUM_OBS_CHANNELS, EGO_CROP_SIZE, EGO_CROP_SIZE), dtype=np.float32
-    )
+    ego = np.zeros((num_envs, num_snakes, NUM_OBS_CHANNELS, crop, crop), dtype=np.float32)
     scalars = np.zeros((num_envs, num_snakes, SCALAR_DIM), dtype=np.float32)
 
-    coords = np.arange(EGO_CROP_SIZE, dtype=np.int64)
-    ahead = (EGO_HEAD_ROW - coords)[:, None]
-    lateral = (coords - EGO_HEAD_COL)[None, :]
+    wall_plane = np.zeros((grid_h, grid_w), dtype=np.float32)
+    wall_plane[0, :] = 1.0
+    wall_plane[-1, :] = 1.0
+    wall_plane[:, 0] = 1.0
+    wall_plane[:, -1] = 1.0
+
+    coords = np.arange(crop, dtype=np.int64)
+    ahead = (head_rc - coords)[:, None]
+    lateral = (coords - head_rc)[None, :]
 
     has_device_food = isinstance(getattr(ref_sim, "food_present", None), torch.Tensor)
     if has_device_food:
@@ -580,6 +614,7 @@ def build_arena_ego_obs_cpu(
             )
             arena[env, s_slot, CH_FOOD_AMBIENT] = amb_plane
             arena[env, s_slot, CH_FOOD_CORPSE] = corpse_plane
+            arena[env, s_slot, CH_WALL] = wall_plane
 
             for j_slot in range(num_snakes):
                 if not alive[env, j_slot]:
@@ -647,6 +682,6 @@ def build_arena_ego_obs_cpu(
     total = num_envs * num_snakes
     return (
         arena.reshape(total, NUM_OBS_CHANNELS, grid_h, grid_w),
-        ego.reshape(total, NUM_OBS_CHANNELS, EGO_CROP_SIZE, EGO_CROP_SIZE),
+        ego.reshape(total, NUM_OBS_CHANNELS, crop, crop),
         scalars.reshape(total, SCALAR_DIM),
     )

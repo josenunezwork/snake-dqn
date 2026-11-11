@@ -160,3 +160,94 @@ def test_obs_cpu_from_gridbatchsim_matches_gpu_and_ordered_bodies() -> None:
         assert torch.equal(obs_ord.scalars, obs_dev.scalars)
         assert (obs_dev.ego[:, CH_OWN_HEAD_CURR, 23, 23] == sim.alive.reshape(-1).float()).all()
         assert (obs_dev.arena[:, CH_ENEMY_HEAD_CURR].sum(dim=(1, 2)) >= 0).all()
+
+
+def test_minor3_arena_wall_channel_border_and_ego_wall_exclusivity() -> None:
+    """Regression MINOR 3: arena CH_WALL marks 1-cell perimeter; ego CH_WALL is OOB-only."""
+    train_sim = TrainSim.create(4, device="cpu", seed=17, max_capacity=128)
+    train_sim.prepare()
+    # Kill one seat to verify dead seats remain all-zero on arena CH_WALL too.
+    train_sim.sim.alive[0, 2] = False
+    # Place seat (0, 0) right at (x=1, y=1) so its 47x47 ego crop sees both perimeter & OOB cells.
+    train_sim.sim.bodies[0, 0, train_sim.sim.head_ptr[0, 0]] = torch.tensor(
+        [1, 1], dtype=torch.long
+    )
+
+    obs = build_arena_ego_obs_gpu(train_sim)
+    alive_flat = train_sim.sim.alive.reshape(-1)
+    for row_idx in range(obs.arena.shape[0]):
+        wall = obs.arena[row_idx, CH_WALL]
+        if bool(alive_flat[row_idx].item()):
+            assert (wall[0, :] == 1.0).all()
+            assert (wall[-1, :] == 1.0).all()
+            assert (wall[:, 0] == 1.0).all()
+            assert (wall[:, -1] == 1.0).all()
+            assert (wall[1:-1, 1:-1] == 0.0).all()
+        else:
+            assert (wall == 0.0).all()
+            assert (obs.ego[row_idx] == 0.0).all()
+
+    arena_cpu, ego_cpu, scalars_cpu = build_arena_ego_obs_cpu(
+        train_sim.sim,
+        train_sim.prev_heads.numpy(),
+        train_sim.prev_alive.numpy(),
+    )
+    assert np.array_equal(obs.arena.numpy(), arena_cpu)
+    assert np.array_equal(obs.ego.numpy(), ego_cpu)
+    assert np.array_equal(obs.scalars.numpy(), scalars_cpu)
+    # Seat (0, 0) at (1, 1) facing right (dir=1): head at ego (23, 23); left of head (col=22) is
+    # y=0 (in-bounds perimeter -> ego CH_WALL must be 0.0!), col=21 is y=-1 (OOB -> CH_WALL == 1.0).
+    assert float(obs.ego[0, CH_WALL, 23, 22].item()) == 0.0
+    assert float(obs.ego[0, CH_WALL, 23, 21].item()) == 1.0
+
+
+def test_m1_obs_avoids_large_float32_zeros_like_copies(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regression M1: obs builder masks in-place without multi-tensor float32 zeros_like copies."""
+    orig_zeros_like = torch.zeros_like
+    float_zeros_like_elems: list[int] = []
+
+    def _tracked_zeros_like(tensor: torch.Tensor, *args: object, **kwargs: object) -> torch.Tensor:
+        out = orig_zeros_like(tensor, *args, **kwargs)
+        if out.dtype == torch.float32:
+            float_zeros_like_elems.append(int(out.numel()))
+        return out
+
+    monkeypatch.setattr(torch, "zeros_like", _tracked_zeros_like)
+    train_sim = TrainSim.create(8, device="cpu", seed=33, max_capacity=128)
+    train_sim.prepare()
+    _ = build_arena_ego_obs_gpu(train_sim)
+    assert float_zeros_like_elems == []
+
+
+def test_parameterized_obs_gpu_equals_cpu_custom_board_and_snakes() -> None:
+    """Coordinator #7: verify exact GPU==CPU obs at custom (48x64, S=4) and S=1."""
+    train_sim = TrainSim.create(
+        8, device="cpu", seed=9001, grid_h=48, grid_w=64, num_snakes=4, max_capacity=192
+    )
+    gen = torch.Generator(device="cpu").manual_seed(77)
+    for _ in range(15):
+        train_sim.prepare()
+        gpu_obs = build_arena_ego_obs_gpu(train_sim)
+        cpu_arena, cpu_ego, cpu_scalars = build_arena_ego_obs_cpu(
+            train_sim.sim,
+            train_sim.prev_heads.numpy(),
+            train_sim.prev_alive.numpy(),
+        )
+        assert gpu_obs.arena.shape == (32, NUM_OBS_CHANNELS, 48, 64)
+        assert gpu_obs.ego.shape == (32, NUM_OBS_CHANNELS, EGO_CROP_SIZE, EGO_CROP_SIZE)
+        assert np.array_equal(gpu_obs.arena.numpy(), cpu_arena)
+        assert np.array_equal(gpu_obs.ego.numpy(), cpu_ego)
+        assert np.array_equal(gpu_obs.scalars.numpy(), cpu_scalars)
+        train_sim.step(torch.randint(0, 6, (8, 4), generator=gen, dtype=torch.long))
+
+    solo_sim = TrainSim.create(
+        2, device="cpu", seed=12, grid_h=32, grid_w=40, num_snakes=1, max_capacity=64
+    )
+    solo_sim.prepare()
+    solo_obs = build_arena_ego_obs_gpu(solo_sim)
+    solo_a, solo_e, solo_s = build_arena_ego_obs_cpu(
+        solo_sim.sim, solo_sim.prev_heads.numpy(), solo_sim.prev_alive.numpy()
+    )
+    assert np.array_equal(solo_obs.arena.numpy(), solo_a)
+    assert np.array_equal(solo_obs.ego.numpy(), solo_e)
+    assert np.array_equal(solo_obs.scalars.numpy(), solo_s)
