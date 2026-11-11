@@ -8,6 +8,7 @@ __all__ = [
     "ARENA_GRID_W",
     "EGO_CROP_SIZE",
     "SCALAR_DIM",
+    "WORLD_ARENA_CHANNELS",
 ]
 
 ARENA_GRID_H = 83
@@ -28,4 +29,15 @@ ARENA_CHANNELS = (
     "wall",
     "enemy_length",
     "boost_flags",
+)
+WORLD_ARENA_CHANNELS = (
+    "body_ttl",
+    "head_curr",
+    "head_dx",
+    "head_dy",
+    "head_length",
+    "boost_flags",
+    "food_ambient",
+    "food_corpse",
+    "wall",
 )

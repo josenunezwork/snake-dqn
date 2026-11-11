@@ -20,6 +20,7 @@ from research.arena_ppo.runtime import (
 )
 from research.arena_ppo.sim import (
     _SIM_STATE_TENSORS,
+    LateStateReservoir,
     TrainSim,
     arena_v2_config,
     derive_arena_world_seeds,
@@ -375,3 +376,181 @@ def test_parameterized_board_size_and_snake_count_trainsim() -> None:
             [choose_anchor(ref, slot, "greedy_food") for slot in range(4)], dim=1
         )
         assert torch.equal(vec_g, oracle_g)
+
+
+def test_minor8_r3_reset_worlds_matches_fresh_create_and_prepare_exact() -> None:
+    """MINOR 8: reset_worlds matches fresh create()+prepare() bit-for-bit incl. frame-1 food."""
+    # Tight 12x12 board with 4 snakes so initial food placement & frame-1 _maintain_food interact
+    sim = TrainSim.create(4, device="cpu", seed=2026, grid_h=12, grid_w=12, num_snakes=4)
+    gen = torch.Generator(device="cpu").manual_seed(8080)
+    sim.prepare()
+    sim.sim.length[:] = 8
+    sim.sim._reward_prev_length.copy_(sim.sim.length)
+    for _ in range(12):
+        # Include boost actions (3..5) so _boosted_this_step, _last_died, _last_ate get dirty
+        sim.step(torch.randint(0, 6, (4, 4), generator=gen, dtype=torch.long))
+    sim.prepare()
+
+    # Force dirty step flags before reset_worlds to verify they are cleared on reset rows
+    sim.sim._boosted_this_step[:] = True
+    sim.sim._last_done[:] = True
+    sim.sim._last_kills[:] = 5
+
+    non_hit_before = {
+        name: getattr(sim.sim, name)[[1, 3]].clone()
+        for name in _SIM_STATE_TENSORS
+        if getattr(sim.sim, name).ndim >= 1 and getattr(sim.sim, name).shape[0] == 4
+    }
+
+    hit = torch.tensor([True, False, True, False], dtype=torch.bool)
+    pre_keys = sim.sim.rng_key[[0, 2]].clone()
+    pre_counters = sim.sim.rng_counter[[0, 2]].clone()
+    sim.reset_worlds(hit)
+
+    # Build a fresh reference TrainSim initialized with those pre-reset RNG streams + prepare()
+    fresh = TrainSim.create(2, device="cpu", seed=1, grid_h=12, grid_w=12, num_snakes=4)
+    fresh.sim.rng_key.copy_(pre_keys)
+    fresh.sim.rng_counter.copy_(pre_counters)
+    fresh.sim.alive.fill_(False)
+    fresh.sim.respawn_timer.zero_()
+    fresh.sim.seg_count.zero_()
+    fresh.sim.length.fill_(1)
+    fresh.sim.food_present.fill_(False)
+    fresh.sim.corpse_food.fill_(False)
+    fresh.sim.food_count.zero_()
+    fresh.sim._respawn_exact()
+    fresh.sim._refill_food_rows(torch.ones((2,), dtype=torch.bool))
+    fresh.sim.frame.zero_()
+    fresh.sim._prepared = False
+    fresh.prepare()
+
+    for name in _SIM_STATE_TENSORS:
+        got = getattr(sim.sim, name)
+        exp = getattr(fresh.sim, name)
+        if got.ndim >= 1 and got.shape[0] == 4:
+            assert torch.equal(
+                got[[0, 2]], exp
+            ), f"reset_worlds mismatch vs create()+prepare() on {name}"
+            assert torch.equal(got[[1, 3]], non_hit_before[name]), f"non-hit rows mutated on {name}"
+
+    assert not bool(sim.prev_alive[[0, 2]].any().item())
+    assert int(sim.prev_heads[[0, 2]].abs().sum().item()) == 0
+    assert not bool(sim.sim._boosted_this_step[[0, 2]].any().item())
+
+
+def test_minor11a_r3_state_dict_gathers_live_bodies_on_device_before_cpu_copy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """MINOR 11a: TrainSim.state_dict must gather/cast to int16 BEFORE calling Tensor.cpu()."""
+    sim = TrainSim.create(4, device="cpu", seed=71, max_capacity=512)
+    sim.prepare()
+    for _ in range(5):
+        sim.step(torch.ones((4, 6), dtype=torch.long))
+
+    orig_cpu = torch.Tensor.cpu
+    copied_shapes_dtypes: list[tuple[tuple[int, ...], torch.dtype]] = []
+
+    def _spy_cpu(self: torch.Tensor, *args: Any, **kwargs: Any) -> torch.Tensor:
+        copied_shapes_dtypes.append((tuple(self.shape), self.dtype))
+        return orig_cpu(self, *args, **kwargs)
+
+    monkeypatch.setattr(torch.Tensor, "cpu", _spy_cpu)
+    sd = sim.state_dict()
+    assert sd["bodies_live_i16"].shape[2] < 32
+    # Full int64 bodies tensor has shape (4, 6, 512, 2) and dtype int64; must NEVER hit .cpu()!
+    assert ((4, 6, 512, 2), torch.int64) not in copied_shapes_dtypes
+
+
+def test_late_state_reservoir_harvest_restore_and_exact_mechanics_continuation() -> None:
+    """Feature (c): GPU reservoir harvests >= threshold worlds and restored worlds step exact."""
+    sim = TrainSim.create(6, device="cpu", seed=20261110, max_capacity=256)
+    reservoir = LateStateReservoir(
+        max_size=4,
+        min_length=600,
+        num_snakes=sim.S,
+        max_capacity=sim.cap,
+        food_capacity=sim.sim.food_capacity,
+        device=sim.device,
+        seed=99,
+    )
+    assert reservoir.nbytes() > 0
+
+    sim.prepare()
+    # Below threshold (max length = 599): nothing harvested
+    sim.sim.length[:] = 12
+    sim.sim.length[0, 0] = 599
+    assert reservoir.harvest(sim) == 0
+    assert reservoir.size == 0
+
+    # Step several ticks with mature lengths & boosts so corpses, trail food, and ring ptrs are rich
+    gen = torch.Generator(device="cpu").manual_seed(12345)
+    for _ in range(8):
+        sim.step(torch.randint(0, 6, (6, 6), generator=gen, dtype=torch.long))
+    sim.prepare()
+    sim.sim.length[1, 2] = 600
+    sim.sim.length[4, 0] = 725
+    sim.sim._reward_prev_length.copy_(sim.sim.length)
+
+    added = reservoir.harvest(sim)
+    assert added == 2
+    assert reservoir.size == 2
+
+    # Round-trip reservoir state_dict
+    res_sd = reservoir.state_dict()
+    reservoir_reloaded = LateStateReservoir(
+        max_size=4,
+        min_length=600,
+        num_snakes=sim.S,
+        max_capacity=sim.cap,
+        food_capacity=sim.sim.food_capacity,
+        device=sim.device,
+        seed=1,
+    )
+    reservoir_reloaded.load_state_dict(res_sd)
+    assert reservoir_reloaded.size == 2
+
+    non_hit_snapshot = {
+        name: getattr(sim.sim, name)[[0, 2, 5]].clone()
+        for name in _SIM_STATE_TENSORS
+        if getattr(sim.sim, name).ndim >= 1 and getattr(sim.sim, name).shape[0] == 6
+    }
+
+    hit = torch.tensor([False, True, False, True, True, False], dtype=torch.bool)
+    n_restored, n_fresh = reservoir_reloaded.reset_or_restore_worlds(sim, hit, restore_prob=1.0)
+    assert (n_restored, n_fresh) == (3, 0)
+    assert int((sim.sim.length[[1, 3, 4]].max(dim=1).values >= 600).sum().item()) == 3
+    assert (sim.sim.frame[[1, 3, 4]] == 1).all()
+
+    for name, snap in non_hit_snapshot.items():
+        assert torch.equal(getattr(sim.sim, name)[[0, 2, 5]], snap), f"non-hit mutated on {name}"
+
+    # Prove restored worlds continue with bit-exact DeviceSim mechanics over 40 ticks
+    ref_cfg = arena_v2_config(6, max_capacity=256)
+    ref = DeviceSim(
+        ref_cfg,
+        device="cpu",
+        train_mode=False,
+        allow_respawn=True,
+        cap=256,
+        move_backend="reference",
+        hero_respawn=True,
+        exact_mechanics=True,
+    )
+    for name in _SIM_STATE_TENSORS:
+        setattr(ref, name, getattr(sim.sim, name).clone())
+    ref._prepared = bool(sim.sim._prepared)
+
+    for tick in range(40):
+        act = torch.randint(0, 6, (6, 6), generator=gen, dtype=torch.long)
+        ref.step(act)
+        sim.step(act)
+        if (tick + 1) % 10 == 0:
+            for name in _SIM_STATE_TENSORS:
+                exp = getattr(ref, name)
+                got = getattr(sim.sim, name)
+                if exp.is_floating_point():
+                    assert torch.allclose(exp, got, atol=1e-6, rtol=0.0)
+                else:
+                    assert torch.equal(
+                        exp, got
+                    ), f"Restored world mechanics diverged on {name}@{tick}"
