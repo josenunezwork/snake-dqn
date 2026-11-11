@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import os
+import signal
 from pathlib import Path
+from typing import Any
 
 import pytest
 import torch
 
+from research.arena_ppo import runtime as arena_runtime
 from research.arena_ppo.runtime import (
+    SignalStopFlag,
+    preload_native_sim_extensions,
     verify_completed_artifact,
     write_create_only_artifact,
     write_create_only_json,
@@ -17,7 +23,9 @@ from research.arena_ppo.sim import (
     TrainSim,
     arena_v2_config,
     derive_arena_world_seeds,
+    verify_indexed_vs_reference_parity,
 )
+from research.gpu_sim_spike import event_cuda, move_cuda
 from research.gpu_sim_spike.anchors_device import choose_anchor
 from research.gpu_sim_spike.device_sim import DeviceSim
 
@@ -193,6 +201,10 @@ def test_trainsim_state_dict_roundtrip_and_immutable_artifacts(tmp_path: Path) -
         sim_a.step(torch.randint(0, 6, (8, 6), generator=gen, dtype=torch.long))
 
     saved = sim_a.state_dict()
+    assert "bodies_live_i16" in saved
+    assert saved["bodies_live_i16"].dtype == torch.int16
+    full_i64_bytes = 8 * 6 * 256 * 2 * 8
+    assert saved["bodies_live_i16"].numel() * 2 < full_i64_bytes // 10
     sim_b = TrainSim.create(8, device="cpu", seed=1, max_capacity=256)
     sim_b.load_state_dict(saved)
 
@@ -209,3 +221,157 @@ def test_trainsim_state_dict_roundtrip_and_immutable_artifacts(tmp_path: Path) -
     assert verify_completed_artifact(out_json) == digest
     with pytest.raises(FileExistsError):
         write_create_only_artifact(out_json, b"{}")
+
+
+def test_b1_preload_native_sim_extensions_monkeypatched_cuda(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Regression B1: preload_native_sim_extensions calls move_cuda._extension & event_cuda load."""
+    calls: list[str] = []
+
+    class _FakeCudaDevice:
+        type = "cuda"
+        index = 0
+
+    monkeypatch.setattr(arena_runtime, "ensure_cuda_initialized", lambda dev: calls.append("init"))
+    monkeypatch.setattr(arena_runtime, "synchronize_device", lambda dev: calls.append("sync"))
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda dev: (8, 9))
+    monkeypatch.setattr(torch.cuda, "get_device_name", lambda dev: "Fake L4")
+    monkeypatch.setenv("TORCH_EXTENSIONS_DIR", str(tmp_path / "ext"))
+
+    monkeypatch.setattr(move_cuda, "_extension", lambda: calls.append("move_ext") or object())
+    monkeypatch.setattr(event_cuda, "_EXTENSION", None)
+
+    import torch.utils.cpp_extension as cpp_ext
+
+    def _fake_load(
+        *,
+        name: str,
+        sources: list[str],
+        extra_cuda_cflags: list[str],
+        extra_cflags: list[str],
+        verbose: bool,
+    ) -> Any:
+        calls.append(f"load:{name}")
+        assert any(src.endswith("event_cuda.cpp") for src in sources)
+        assert any(src.endswith("event_cuda.cu") for src in sources)
+        return {"loaded": name}
+
+    monkeypatch.setattr(cpp_ext, "load", _fake_load)
+
+    meta = preload_native_sim_extensions(_FakeCudaDevice())  # type: ignore[arg-type]
+    assert meta["arch"] == "8.9"
+    assert os.environ["TORCH_CUDA_ARCH_LIST"] == "8.9"
+    assert "move_ext" in calls
+    assert "load:snake_dqn_a0_event_v1" in calls
+    assert event_cuda._EXTENSION == {"loaded": "snake_dqn_a0_event_v1"}
+    monkeypatch.setattr(event_cuda, "_EXTENSION", None)
+
+
+def test_minor4_step_info_does_not_alias_live_sim_tensors() -> None:
+    """Regression MINOR 4: StepInfo.survived and post_length do not alias live sim state."""
+    sim = TrainSim.create(4, device="cpu", seed=123, max_capacity=128)
+    sim.prepare()
+    # Force snake (0, 0) onto right border facing right so stepping straight kills it on the wall.
+    sim.sim.bodies[0, 0, sim.sim.head_ptr[0, 0]] = torch.tensor(
+        [sim.grid_w - 1, 10], dtype=torch.long
+    )
+    sim.sim.direction[0, 0] = 1
+    sim.sim.length[0, 0] = 9
+
+    info = sim.step(torch.ones((4, 6), dtype=torch.long))
+    assert not bool(info.survived[0, 0].item())
+    assert int(info.post_length[0, 0].item()) == 9
+    survived_snapshot = info.survived.clone()
+    length_snapshot = info.post_length.clone()
+
+    # Subsequent prepare/step decrements respawn timer and respawns seat (0, 0) in-place!
+    sim.step(torch.ones((4, 6), dtype=torch.long))
+    sim.prepare()
+    assert bool(sim.sim.alive[0, 0].item()), "seat (0, 0) should have respawned in live sim"
+    assert int(sim.sim.length[0, 0].item()) == 1
+
+    # StepInfo from the earlier step must remain completely unmutated.
+    assert torch.equal(info.survived, survived_snapshot)
+    assert torch.equal(info.post_length, length_snapshot)
+
+
+def test_minor5_capacity_overflow_checked_and_saved() -> None:
+    """Regression MINOR 5: capacity_overflow is in _SIM_STATE_TENSORS, saved, and raises."""
+    assert "capacity_overflow" in _SIM_STATE_TENSORS
+    sim = TrainSim.create(2, device="cpu", seed=7, max_capacity=6)
+    sim.assert_no_capacity_overflow()
+    sim.prepare()
+    sim.sim.length[:] = 10
+    for _ in range(8):
+        sim.step(torch.ones((2, 6), dtype=torch.long))
+
+    assert bool(sim.sim.capacity_overflow.any().item())
+    with pytest.raises(RuntimeError, match="capacity_overflow"):
+        sim.assert_no_capacity_overflow()
+
+    saved = sim.state_dict()
+    sim2 = TrainSim.create(2, device="cpu", seed=8, max_capacity=6)
+    sim2.assert_no_capacity_overflow()
+    sim2.load_state_dict(saved)
+    with pytest.raises(RuntimeError, match="capacity_overflow"):
+        sim2.assert_no_capacity_overflow()
+
+
+def test_minor8_indexed_vs_reference_collision_parity() -> None:
+    """Regression MINOR 8: verify_indexed_vs_reference_parity checks 4x100 mature worlds."""
+    report = verify_indexed_vs_reference_parity("cpu", num_envs=4, ticks=100, seed=20261110)
+    assert report["status"] == "PASS"
+    assert report["total_deaths"] > 0
+    assert report["total_boosts"] > 0
+
+
+def test_signal_stop_flag_real_sigusr1() -> None:
+    """Verify SignalStopFlag catches a real os.kill(os.getpid(), SIGUSR1)."""
+    if not hasattr(signal, "SIGUSR1"):
+        pytest.skip("SIGUSR1 unavailable on platform")
+    with SignalStopFlag() as stop_flag:
+        assert not stop_flag.stopped
+        os.kill(os.getpid(), signal.SIGUSR1)
+        assert stop_flag.stopped
+        assert stop_flag.signal_name == "SIGUSR1"
+
+
+def test_parameterized_board_size_and_snake_count_trainsim() -> None:
+    """Coordinator #7: verify custom (grid_h=48, grid_w=64, num_snakes=4) parity vs DeviceSim."""
+    cfg = arena_v2_config(8, grid_h=48, grid_w=64, num_snakes=4, max_capacity=256)
+    assert cfg.game_height == 480
+    assert cfg.game_width == 640
+    assert cfg.num_snakes == 4
+
+    train_sim = TrainSim.create(
+        8, device="cpu", seed=4242, grid_h=48, grid_w=64, num_snakes=4, max_capacity=256
+    )
+    ref = DeviceSim(
+        cfg,
+        device="cpu",
+        train_mode=False,
+        allow_respawn=True,
+        cap=cfg.max_capacity,
+        move_backend="reference",
+        hero_respawn=True,
+        exact_mechanics=True,
+    )
+    for name in _SIM_STATE_TENSORS:
+        if hasattr(train_sim.sim, name):
+            setattr(ref, name, getattr(train_sim.sim, name).clone())
+    ref._prepared = bool(train_sim.sim._prepared)
+
+    gen = torch.Generator(device="cpu").manual_seed(909)
+    for _ in range(40):
+        act = torch.randint(0, 6, (8, 4), generator=gen, dtype=torch.long)
+        ref.step(act)
+        info = train_sim.step(act)
+        assert info.reward.shape == (8, 4)
+        ref.prepare()
+        train_sim.prepare()
+        vec_g = train_sim.scripted_greedy_food_actions(chunk_envs=3)
+        oracle_g = torch.stack(
+            [choose_anchor(ref, slot, "greedy_food") for slot in range(4)], dim=1
+        )
+        assert torch.equal(vec_g, oracle_g)

@@ -6,7 +6,9 @@ import datetime as dt
 import hashlib
 import json
 import os
+import signal
 import tempfile
+import time
 from pathlib import Path
 from typing import Any, Callable
 
@@ -105,8 +107,18 @@ def preload_native_sim_extensions(device: torch.device) -> dict[str, Any]:
 
     from research.gpu_sim_spike import event_cuda, move_cuda
 
-    move_cuda._load()
-    event_cuda._load()
+    move_cuda._extension()
+    if event_cuda._EXTENSION is None:
+        from torch.utils.cpp_extension import load
+
+        spike_root = Path(event_cuda.__file__).resolve().parent
+        event_cuda._EXTENSION = load(
+            name="snake_dqn_a0_event_v1",
+            sources=[str(spike_root / "event_cuda.cpp"), str(spike_root / "event_cuda.cu")],
+            extra_cuda_cflags=["-O3"],
+            extra_cflags=["-O3"],
+            verbose=False,
+        )
     synchronize_device(device)
     return {
         "device_type": "cuda",
@@ -274,3 +286,58 @@ def verify_completed_artifact(path: Path | str) -> str:
             f"SHA-256 mismatch for {target}: expected {expected!r}, observed {actual!r}"
         )
     return actual
+
+
+def remove_completed_artifact(path: Path | str) -> None:
+    """Remove a completed artifact payload together with its sidecars if present.
+
+    Args:
+        path: Target payload path whose ``.complete``, ``.sha256``, and payload
+            should be removed (unlink order: ``.complete`` first so partial states
+            never look complete).
+    """
+    target = Path(path)
+    for candidate in (
+        Path(f"{target}.complete"),
+        Path(f"{target}.sha256"),
+        target,
+    ):
+        candidate.unlink(missing_ok=True)
+
+
+class SignalStopFlag:
+    """Context manager installing ``SIGUSR1`` and ``SIGTERM`` cooperative stop flags."""
+
+    def __init__(self) -> None:
+        self.signal_name: str | None = None
+        self.signal_number: int | None = None
+        self.received_monotonic: float | None = None
+        self._previous_handlers: dict[int, Any] = {}
+
+    @property
+    def stopped(self) -> bool:
+        """Return True once ``SIGUSR1`` or ``SIGTERM`` has been received."""
+        return self.signal_name is not None
+
+    def _handle(self, signum: int, _frame: Any) -> None:
+        if self.signal_name is None:
+            try:
+                self.signal_name = signal.Signals(signum).name
+            except ValueError:
+                self.signal_name = str(signum)
+            self.signal_number = int(signum)
+            self.received_monotonic = time.monotonic()
+
+    def __enter__(self) -> "SignalStopFlag":
+        signals_to_catch: list[int] = [signal.SIGTERM]
+        if hasattr(signal, "SIGUSR1"):
+            signals_to_catch.append(signal.SIGUSR1)
+        for sig in signals_to_catch:
+            self._previous_handlers[sig] = signal.getsignal(sig)
+            signal.signal(sig, self._handle)
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        for sig, prev in self._previous_handlers.items():
+            signal.signal(sig, prev)
+        self._previous_handlers.clear()
