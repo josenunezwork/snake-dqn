@@ -265,3 +265,66 @@ def test_mps_benchmark_entrypoint_writes_valid_json(
     assert case["memory"]["footprint_mib_per_world"] > 0.0
     assert set(case["stage_ms_per_tick"].keys()) == set(STAGE_ORDER)
     assert summary == loaded
+
+
+def test_mps_multi_block_env_chunking_parity_past_256_envs() -> None:
+    """Verify 256-env block slicing in stamp & obs matches CPU bit-for-bit at E=300 (>256)."""
+    cfg = GameV3Config(arena_radius=60.0, num_snakes=24, ambient_food_density=0.015)
+    num_envs = 300
+    seeds = [9000 + e for e in range(num_envs)]
+    sim_mps = GameV3Sim(cfg, num_envs=num_envs, device="mps", seeds=seeds)
+    sim_cpu = GameV3Sim(cfg, num_envs=num_envs, device="cpu", seeds=seeds)
+
+    # Sparse mask spanning env 0, env 255, env 256, and env 299 across block boundaries.
+    mask_cpu = torch.zeros((num_envs, cfg.num_snakes), dtype=torch.bool)
+    for e_idx in (0, 127, 255, 256, 299):
+        mask_cpu[e_idx, :8] = True
+    mask_mps = mask_cpu.to("mps")
+
+    for _ in range(12):
+        act_cpu = food_seeking_actions(sim_cpu)
+        act_mps = food_seeking_actions(sim_mps)
+        assert torch.equal(act_mps.cpu(), act_cpu)
+        sim_cpu.step(act_cpu)
+        sim_mps.step(act_mps)
+
+    _assert_mps_equals_cpu_bitwise(sim_mps, sim_cpu, 12)
+    obs_all_mps = build_obs(sim_mps)
+    obs_all_cpu = build_obs(sim_cpu)
+    assert torch.equal(obs_all_mps.raster_s1.cpu(), obs_all_cpu.raster_s1)
+    assert torch.equal(obs_all_mps.raster_s4.cpu(), obs_all_cpu.raster_s4)
+    assert torch.equal(obs_all_mps.raster_s16.cpu(), obs_all_cpu.raster_s16)
+    assert torch.equal(
+        obs_all_mps.scalars.cpu().view(torch.uint32), obs_all_cpu.scalars.view(torch.uint32)
+    )
+
+    obs_sub_mps = build_obs(sim_mps, learner_mask=mask_mps)
+    assert torch.equal(obs_sub_mps.raster_s1.cpu(), obs_all_cpu.raster_s1[mask_cpu])
+    assert torch.equal(obs_sub_mps.raster_s4.cpu(), obs_all_cpu.raster_s4[mask_cpu])
+    assert torch.equal(obs_sub_mps.raster_s16.cpu(), obs_all_cpu.raster_s16[mask_cpu])
+    assert torch.equal(
+        obs_sub_mps.scalars.cpu().view(torch.uint32),
+        obs_all_cpu.scalars[mask_cpu].view(torch.uint32),
+    )
+
+    # Also verify state_dict / load_state_dict round-trip across >256-env sharded occ_4x.
+    ckpt = sim_mps.state_dict()
+    sim_mps_restored = GameV3Sim(cfg, num_envs=num_envs, device="mps", seeds=[0] * num_envs)
+    sim_mps_restored.load_state_dict(ckpt)
+    _assert_mps_equals_cpu_bitwise(sim_mps_restored, sim_cpu, 12)
+
+
+def test_mps_large_int64_scalar_q10_div_avoids_mps_abs_float32_cast() -> None:
+    """Regression guard: boundary ego Q10 division stays bit-exact past 2^24 on MPS."""
+    from research.game_v3.obs import _signed_div_q10_torch
+
+    # Exact case where |num| = 229,277,429,760 > 2^24: MPS Tensor.abs() rounds via float32
+    # to 229,277,433,856 and wrongly produces -1024 instead of -1023.
+    nums_cpu = torch.tensor(
+        [-229_277_429_760, 229_277_429_760, -5_000_000_000_001], dtype=torch.int64
+    )
+    dens_cpu = torch.tensor([223_903_744, 223_903_744, 5_000_000_000_000], dtype=torch.int64)
+    got_cpu = _signed_div_q10_torch(nums_cpu, dens_cpu)
+    got_mps = _signed_div_q10_torch(nums_cpu.to("mps"), dens_cpu.to("mps")).cpu()
+    assert got_cpu.tolist() == [-1023, 1023, -1]
+    assert torch.equal(got_mps, got_cpu)

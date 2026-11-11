@@ -118,6 +118,9 @@ class ObservationBatch:
     action_mask: torch.Tensor
     _learner_env_idx: torch.Tensor | None = field(default=None, repr=False, compare=False)
     _learner_slot_idx: torch.Tensor | None = field(default=None, repr=False, compare=False)
+    _learner_chunks: tuple[tuple[int, int, int, int], ...] | None = field(
+        default=None, repr=False, compare=False
+    )
 
 
 @dataclass
@@ -129,6 +132,29 @@ class ReferenceObservation:
     raster_s16: np.ndarray
     scalars: np.ndarray
     action_mask: np.ndarray
+
+
+def _build_learner_chunks_from_env_np(
+    env_np: np.ndarray,
+    env_block: int,
+    max_learners: int,
+) -> tuple[tuple[int, int, int, int], ...]:
+    """Partition monotonic learner env indices into ``(e0, e1, m0, m1)`` chunks ``< 2^30``."""
+    m_total = int(env_np.shape[0])
+    if m_total == 0:
+        return ()
+    chunks: list[tuple[int, int, int, int]] = []
+    m0 = 0
+    while m0 < m_total:
+        e0 = int(env_np[m0])
+        blk_end = ((e0 // env_block) + 1) * env_block
+        limit_m = min(m_total, m0 + max_learners)
+        hi_m = int(np.searchsorted(env_np, blk_end, side="left"))
+        m1 = min(limit_m, max(m0 + 1, hi_m))
+        e1 = int(env_np[m1 - 1]) + 1
+        chunks.append((e0, e1, m0, m1))
+        m0 = m1
+    return tuple(chunks)
 
 
 class _ObsStaticCache:
@@ -159,6 +185,8 @@ class _ObsStaticCache:
         self.head_dx_u8 = torch.as_tensor(dx_u8_np, device=dev)
         self.head_dy_u8 = torch.as_tensor(dy_u8_np, device=dev)
 
+        self.env_block: int = sim.env_block_size
+
         self.all_env_idx = (
             torch.arange(sim.E, dtype=torch.int64, device=dev)[:, None]
             .expand(sim.E, sim.N)
@@ -169,6 +197,10 @@ class _ObsStaticCache:
             .expand(sim.E, sim.N)
             .reshape(-1)
         )
+        all_env_np = np.repeat(np.arange(sim.E, dtype=np.int64), sim.N)
+        self.all_chunks: tuple[tuple[int, int, int, int], ...] = _build_learner_chunks_from_env_np(
+            all_env_np, self.env_block, OBS_LEARNER_CHUNK
+        )
         self.eye_n = torch.eye(sim.N, dtype=torch.bool, device=dev)
         self.tril_nn = torch.tril(
             torch.ones((sim.N, sim.N), dtype=torch.bool, device=dev), diagonal=-1
@@ -178,6 +210,7 @@ class _ObsStaticCache:
         self.last_mask_key: tuple[int, int] | None = None
         self.last_mask_env_idx: torch.Tensor | None = None
         self.last_mask_slot_idx: torch.Tensor | None = None
+        self.last_mask_chunks: tuple[tuple[int, int, int, int], ...] | None = None
 
 
 _OBS_CACHE: weakref.WeakKeyDictionary[GameV3Sim, _ObsStaticCache] = weakref.WeakKeyDictionary()
@@ -195,7 +228,7 @@ def _resolve_learner_indices(
     sim: GameV3Sim,
     cache: _ObsStaticCache,
     learner_mask: torch.Tensor,
-) -> tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor, tuple[tuple[int, int, int, int], ...]]:
     if learner_mask.dtype != torch.bool or learner_mask.shape != (sim.E, sim.N):
         raise ValueError(
             f"learner_mask must be bool of shape ({sim.E}, {sim.N}), "
@@ -209,16 +242,21 @@ def _resolve_learner_indices(
         cache.last_mask_key == key
         and cache.last_mask_env_idx is not None
         and cache.last_mask_slot_idx is not None
+        and cache.last_mask_chunks is not None
     ):
-        return cache.last_mask_env_idx, cache.last_mask_slot_idx
+        return cache.last_mask_env_idx, cache.last_mask_slot_idx, cache.last_mask_chunks
 
     nz = torch.nonzero(learner_mask, as_tuple=False)
     env_idx = nz[:, 0].contiguous()
     slot_idx = nz[:, 1].contiguous()
+    chunks = _build_learner_chunks_from_env_np(
+        env_idx.detach().cpu().numpy(), cache.env_block, OBS_LEARNER_CHUNK
+    )
     cache.last_mask_key = key
     cache.last_mask_env_idx = env_idx
     cache.last_mask_slot_idx = slot_idx
-    return env_idx, slot_idx
+    cache.last_mask_chunks = chunks
+    return env_idx, slot_idx, chunks
 
 
 def allocate_obs_batch(
@@ -232,8 +270,9 @@ def allocate_obs_batch(
         lead: tuple[int, ...] = (sim.E, sim.N)
         env_idx: torch.Tensor | None = None
         slot_idx: torch.Tensor | None = None
+        chunks: tuple[tuple[int, int, int, int], ...] | None = cache.all_chunks
     else:
-        env_idx, slot_idx = _resolve_learner_indices(sim, cache, learner_mask)
+        env_idx, slot_idx, chunks = _resolve_learner_indices(sim, cache, learner_mask)
         lead = (int(env_idx.shape[0]),)
 
     return ObservationBatch(
@@ -250,6 +289,7 @@ def allocate_obs_batch(
         action_mask=torch.empty((*lead, NUM_ACTIONS), dtype=torch.bool, device=sim.device),
         _learner_env_idx=env_idx,
         _learner_slot_idx=slot_idx,
+        _learner_chunks=chunks,
     )
 
 
@@ -282,7 +322,6 @@ def _splat_heads_u8_torch(
 ) -> torch.Tensor:
     """Project and splat 4 uint8 enemy head channels ``(M_c, 4, S, S)`` for learner chunk."""
     m_cnt = obs_alive.shape[0]
-    n_cnt = enemy_alive.shape[1]
     num_pix = raster_size * raster_size
     half_sz_fp = (raster_size // 2) * scale_fp
     angle_mask = angle_steps - 1
@@ -321,23 +360,33 @@ def _splat_heads_u8_torch(
     rel_ang = ((obs_theta[:, None] - enemy_theta) & angle_mask).to(torch.int64)
     dx_u8 = cache.head_dx_u8[rel_ang]
     dy_u8 = cache.head_dy_u8[rel_ang]
-    b_u8 = enemy_boost.to(torch.uint8) * 255
-    z_u8 = torch.zeros((1,), dtype=torch.uint8, device=obs_pos.device)
 
-    src_4 = torch.stack(
+    # Pack the 4 disjoint uint8 head channels into a single non-negative int32 (<= 0x01FFFFFF)
+    # so 1D int32 index_put_(accumulate=True) avoids uint8 3D scatter_add_ overhead on MPS.
+    packed = (
+        enemy_bucket.to(torch.int32)
+        | (dx_u8.to(torch.int32) << 8)
+        | (dy_u8.to(torch.int32) << 16)
+        | (enemy_boost.to(torch.int32) << 24)
+    )
+    z_i32 = torch.zeros((1,), dtype=torch.int32, device=obs_pos.device)
+    src_flat = torch.where(keep, packed, z_i32).reshape(-1)
+    row_base = torch.arange(m_cnt, dtype=torch.int64, device=obs_pos.device)[:, None] * num_pix
+    flat_pix = (row_base + pix).reshape(-1)
+
+    buf_i32 = torch.zeros((m_cnt * num_pix,), dtype=torch.int32, device=obs_pos.device)
+    buf_i32.index_put_((flat_pix,), src_flat, accumulate=True)
+    buf_2d = buf_i32.view(m_cnt, raster_size, raster_size)
+
+    return torch.stack(
         (
-            torch.where(keep, enemy_bucket, z_u8),
-            torch.where(keep, dx_u8, z_u8),
-            torch.where(keep, dy_u8, z_u8),
-            torch.where(keep, b_u8, z_u8),
+            (buf_2d & 255).to(torch.uint8),
+            ((buf_2d >> 8) & 255).to(torch.uint8),
+            ((buf_2d >> 16) & 255).to(torch.uint8),
+            ((buf_2d >> 24) & 1).to(torch.uint8) * 255,
         ),
         dim=1,
     )
-    pix_4 = pix[:, None, :].expand(m_cnt, 4, n_cnt)
-
-    buf = torch.zeros((m_cnt, 4, num_pix), dtype=torch.uint8, device=obs_pos.device)
-    buf.scatter_add_(2, pix_4, src_4)
-    return buf.view(m_cnt, 4, raster_size, raster_size)
 
 
 def _fill_scale_raster_learners_torch(
@@ -347,12 +396,12 @@ def _fill_scale_raster_learners_torch(
     scale_idx: int,
     env_idx: torch.Tensor,
     slot_idx: torch.Tensor,
+    chunks: tuple[tuple[int, int, int, int], ...],
     size_bucket_t0: torch.Tensor,
     size_bucket_t1: torch.Tensor,
 ) -> None:
     """Populate all 13 uint8 channels of ``dst_flat`` ``(M, 13, S, S)`` for learner rows."""
-    m_total = int(env_idx.shape[0])
-    if m_total == 0:
+    if not chunks:
         return
 
     cfg = sim.cfg
@@ -365,24 +414,13 @@ def _fill_scale_raster_learners_torch(
     ego_x_2x = cache.ego_x_2x[scale_idx]
     ego_y_2x = cache.ego_y_2x[scale_idx]
 
-    occ_hi_1d = sim.occ_hi.view(-1)
-    occ_lo_1d = sim.occ_lo.view(-1)
-    occ_4x_2d = sim.occ_subtick_4x.view(-1, sim.N)
-    occ_16x_2d = sim.occ_subtick_16x.view(-1, sim.N)
-    amb_1x_1d = sim.ambient_grid.view(-1)
-    cor_1x_1d = sim.corpse_grid.view(-1)
-    amb_4x_1d = sim.ambient_grid_4x.view(-1)
-    cor_4x_1d = sim.corpse_grid_4x.view(-1)
-    amb_16x_1d = sim.ambient_grid_16x.view(-1)
-    cor_16x_1d = sim.corpse_grid_16x.view(-1)
-
     z_u8 = torch.zeros((1,), dtype=torch.uint8, device=sim.device)
     max_u8 = torch.full((1,), 255, dtype=torch.uint8, device=sim.device)
 
-    for m0 in range(0, m_total, OBS_LEARNER_CHUNK):
-        m1 = min(m0 + OBS_LEARNER_CHUNK, m_total)
+    for e0, e1, m0, m1 in chunks:
         mc = m1 - m0
         le = env_idx[m0:m1]
+        le_local = le - e0
         ln = slot_idx[m0:m1]
         ln_i32 = ln.to(torch.int32)
 
@@ -435,15 +473,17 @@ def _fill_scale_raster_learners_torch(
             gx_c = gx.clamp(0, sim.G - 1).to(torch.int64)
             gy_c = gy.clamp(0, sim.G - 1).to(torch.int64)
             del gx, gy
-            g_idx = (le[:, None, None] * (sim.G * sim.G) + gy_c * sim.G + gx_c).view(-1)
+            g_idx = (le_local[:, None, None] * (sim.G * sim.G) + gy_c * sim.G + gx_c).view(-1)
             del gx_c, gy_c
 
-            v_hi = occ_hi_1d.index_select(0, g_idx).view(mc, num_pix)
+            occ_hi_sub = sim.occ_hi[e0:e1].view(-1)
+            v_hi = occ_hi_sub.index_select(0, g_idx).view(mc, num_pix)
             ow_hi = v_hi & 63
             ow_hi_i64 = ow_hi.clamp(0, sim.N - 1).to(torch.int64)
             act_hi = in_flat & (v_hi >= 0) & ((v_hi >> 6) >= oldest_e.gather(1, ow_hi_i64))
 
-            v_lo = occ_lo_1d.index_select(0, g_idx).view(mc, num_pix)
+            occ_lo_sub = sim.occ_lo[e0:e1].view(-1)
+            v_lo = occ_lo_sub.index_select(0, g_idx).view(mc, num_pix)
             ow_lo = 63 - (v_lo & 63)
             ow_lo_i64 = ow_lo.clamp(0, sim.N - 1).to(torch.int64)
             act_lo = in_flat & (v_lo >= 0) & ((v_lo >> 6) >= oldest_e.gather(1, ow_lo_i64))
@@ -457,17 +497,20 @@ def _fill_scale_raster_learners_torch(
             ch_enemy = torch.maximum(eb_hi, eb_lo).view(mc, sz, sz)
             del v_hi, v_lo, ow_hi, ow_lo, act_hi, act_lo, eb_hi, eb_lo
 
-            amb_m = amb_1x_1d.index_select(0, g_idx).view(mc, sz, sz).clamp(0, _FOOD_LUT_MAX)
-            cor_m = cor_1x_1d.index_select(0, g_idx).view(mc, sz, sz).clamp(0, _FOOD_LUT_MAX)
+            amb_1x_sub = sim.ambient_grid[e0:e1].view(-1)
+            cor_1x_sub = sim.corpse_grid[e0:e1].view(-1)
+            amb_m = amb_1x_sub.index_select(0, g_idx).view(mc, sz, sz).clamp(0, _FOOD_LUT_MAX)
+            cor_m = cor_1x_sub.index_select(0, g_idx).view(mc, sz, sz).clamp(0, _FOOD_LUT_MAX)
             del g_idx
         elif scale_idx == 1:
             gx4 = (gx >> 2).clamp(0, sim.G4 - 1).to(torch.int64)
             gy4 = (gy >> 2).clamp(0, sim.G4 - 1).to(torch.int64)
             del gx, gy
-            g_idx4 = (le[:, None, None] * (sim.G4 * sim.G4) + gy4 * sim.G4 + gx4).view(-1)
+            g_idx4 = (le_local[:, None, None] * (sim.G4 * sim.G4) + gy4 * sim.G4 + gx4).view(-1)
             del gx4, gy4
 
-            st_n = occ_4x_2d.index_select(0, g_idx4).view(mc, num_pix, sim.N)
+            occ_4x_sub = sim.occ_4x_slice(e0, e1).view(-1, sim.N)
+            st_n = occ_4x_sub.index_select(0, g_idx4).view(mc, num_pix, sim.N)
             act_n = in_flat[:, :, None] & (st_n >= oldest_e[:, None, :])
             del st_n
 
@@ -480,17 +523,22 @@ def _fill_scale_raster_learners_torch(
             )
             del act_n, own_act
 
-            amb_m = amb_4x_1d.index_select(0, g_idx4).view(mc, sz, sz).clamp(0, _FOOD_LUT_MAX)
-            cor_m = cor_4x_1d.index_select(0, g_idx4).view(mc, sz, sz).clamp(0, _FOOD_LUT_MAX)
+            amb_4x_sub = sim.ambient_grid_4x[e0:e1].view(-1)
+            cor_4x_sub = sim.corpse_grid_4x[e0:e1].view(-1)
+            amb_m = amb_4x_sub.index_select(0, g_idx4).view(mc, sz, sz).clamp(0, _FOOD_LUT_MAX)
+            cor_m = cor_4x_sub.index_select(0, g_idx4).view(mc, sz, sz).clamp(0, _FOOD_LUT_MAX)
             del g_idx4
         else:
             gx16 = (gx >> 4).clamp(0, sim.G16 - 1).to(torch.int64)
             gy16 = (gy >> 4).clamp(0, sim.G16 - 1).to(torch.int64)
             del gx, gy
-            g_idx16 = (le[:, None, None] * (sim.G16 * sim.G16) + gy16 * sim.G16 + gx16).view(-1)
+            g_idx16 = (le_local[:, None, None] * (sim.G16 * sim.G16) + gy16 * sim.G16 + gx16).view(
+                -1
+            )
             del gx16, gy16
 
-            st_n = occ_16x_2d.index_select(0, g_idx16).view(mc, num_pix, sim.N)
+            occ_16x_sub = sim.occ_subtick_16x[e0:e1].view(-1, sim.N)
+            st_n = occ_16x_sub.index_select(0, g_idx16).view(mc, num_pix, sim.N)
             act_n = in_flat[:, :, None] & (st_n >= oldest_e[:, None, :])
             del st_n
 
@@ -503,8 +551,10 @@ def _fill_scale_raster_learners_torch(
             )
             del act_n, own_act
 
-            amb_m = amb_16x_1d.index_select(0, g_idx16).view(mc, sz, sz).clamp(0, _FOOD_LUT_MAX)
-            cor_m = cor_16x_1d.index_select(0, g_idx16).view(mc, sz, sz).clamp(0, _FOOD_LUT_MAX)
+            amb_16x_sub = sim.ambient_grid_16x[e0:e1].view(-1)
+            cor_16x_sub = sim.corpse_grid_16x[e0:e1].view(-1)
+            amb_m = amb_16x_sub.index_select(0, g_idx16).view(mc, sz, sz).clamp(0, _FOOD_LUT_MAX)
+            cor_m = cor_16x_sub.index_select(0, g_idx16).view(mc, sz, sz).clamp(0, _FOOD_LUT_MAX)
             del g_idx16
 
         ch_amb = torch.where(in_grid, cache.amb_lut[amb_m.to(torch.int64)], z_u8)
@@ -562,8 +612,14 @@ def _fill_scale_raster_learners_torch(
 
 
 def _signed_div_q10_torch(num: torch.Tensor, denom: torch.Tensor) -> torch.Tensor:
-    """Compute signedtrunc(num / denom) clamped to [-1024, +1024] using floor on abs."""
-    abs_q = torch.div(num.abs(), denom, rounding_mode="floor").clamp_max(1024)
+    """Compute signed trunc(num / denom) clamped to [-1024, +1024] without Tensor.abs().
+
+    Note: PyTorch MPS lowers integer ``Tensor.abs()`` through ``float32`` (corrupting
+    values ``|x| > 2**24``), whereas ``torch.where(num >= 0, num, -num)`` + integer
+    ``rounding_mode="floor"`` is 64-bit exact across CPU, MPS, and CUDA.
+    """
+    abs_num = torch.where(num >= 0, num, -num)
+    abs_q = torch.div(abs_num, denom, rounding_mode="floor").clamp_max(1024)
     return torch.where(num >= 0, abs_q, -abs_q)
 
 
@@ -592,13 +648,19 @@ def build_obs(
     if learner_mask is None:
         env_idx = cache.all_env_idx
         slot_idx = cache.all_slot_idx
+        chunks = cache.all_chunks
         m_cnt = sim.E * sim.N
-    elif batch._learner_env_idx is not None and batch._learner_slot_idx is not None:
+    elif (
+        batch._learner_env_idx is not None
+        and batch._learner_slot_idx is not None
+        and batch._learner_chunks is not None
+    ):
         env_idx = batch._learner_env_idx
         slot_idx = batch._learner_slot_idx
+        chunks = batch._learner_chunks
         m_cnt = int(env_idx.shape[0])
     else:
-        env_idx, slot_idx = _resolve_learner_indices(sim, cache, learner_mask)
+        env_idx, slot_idx, chunks = _resolve_learner_indices(sim, cache, learner_mask)
         m_cnt = int(env_idx.shape[0])
 
     len_all_i64 = sim.length.clamp(0, cfg.max_length).to(torch.int64)
@@ -612,13 +674,13 @@ def build_obs(
     r16_flat = batch.raster_s16.view(m_cnt, NUM_RASTER_CHANNELS, s16_sz, s16_sz)
 
     _fill_scale_raster_learners_torch(
-        r1_flat, sim, cache, 0, env_idx, slot_idx, size_bucket_t0, size_bucket_t1
+        r1_flat, sim, cache, 0, env_idx, slot_idx, chunks, size_bucket_t0, size_bucket_t1
     )
     _fill_scale_raster_learners_torch(
-        r4_flat, sim, cache, 1, env_idx, slot_idx, size_bucket_t0, size_bucket_t1
+        r4_flat, sim, cache, 1, env_idx, slot_idx, chunks, size_bucket_t0, size_bucket_t1
     )
     _fill_scale_raster_learners_torch(
-        r16_flat, sim, cache, 2, env_idx, slot_idx, size_bucket_t0, size_bucket_t1
+        r16_flat, sim, cache, 2, env_idx, slot_idx, chunks, size_bucket_t0, size_bucket_t1
     )
 
     sc_flat = batch.scalars.view(m_cnt, NUM_SCALAR_FEATURES)

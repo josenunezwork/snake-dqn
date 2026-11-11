@@ -59,7 +59,6 @@ def _clear_world(sim: GameV3Sim) -> None:
     sim.occ_lo.fill_(-1)
     sim.occ_subtick_4x.fill_(-1)
     sim.occ_subtick_16x.fill_(-1)
-    sim._claim_grid.fill_(sim.N)
 
     sim.ambient_grid.zero_()
     sim.ambient_grid_4x.zero_()

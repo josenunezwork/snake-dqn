@@ -118,6 +118,43 @@ def _build_static_tables(cfg: GameV3Config, device: torch.device) -> dict[str, A
                     if pts_i & shifted_j:
                         overlap_lut_np[ti, tj, dgx + max_diam, dgy + max_diam] = True
 
+    max_r_sq_val = int(max(unique_r_sq))
+    r_sq_to_tier_np = np.zeros(max_r_sq_val + 1, dtype=np.int64)
+    for val, idx in tier_map.items():
+        r_sq_to_tier_np[int(val)] = idx
+
+    # Deduplicated 4x and 16x block stencils per (tier, gy_mod, gx_mod) so coarse
+    # pyramid updates have strictly unique block indices per (env, slot, subpoint).
+    d4_min, d4_max = (-max_r_cells) >> 2, (3 + max_r_cells) >> 2
+    d4_pairs = [
+        (dy4, dx4) for dy4 in range(d4_min, d4_max + 1) for dx4 in range(d4_min, d4_max + 1)
+    ]
+    d4_idx_map = {pair: idx for idx, pair in enumerate(d4_pairs)}
+    disc_4x_dy_np = np.array([p[0] for p in d4_pairs], dtype=np.int32)
+    disc_4x_dx_np = np.array([p[1] for p in d4_pairs], dtype=np.int32)
+    disc_4x_mask_np = np.zeros((num_tiers, 4, 4, len(d4_pairs)), dtype=bool)
+    for ti in range(num_tiers):
+        for ry in range(4):
+            for rx in range(4):
+                for dx, dy in tier_masks[ti]:
+                    k4 = d4_idx_map[((ry + dy) >> 2, (rx + dx) >> 2)]
+                    disc_4x_mask_np[ti, ry, rx, k4] = True
+
+    d16_min, d16_max = (-max_r_cells) >> 4, (15 + max_r_cells) >> 4
+    d16_pairs = [
+        (dy16, dx16) for dy16 in range(d16_min, d16_max + 1) for dx16 in range(d16_min, d16_max + 1)
+    ]
+    d16_idx_map = {pair: idx for idx, pair in enumerate(d16_pairs)}
+    disc_16x_dy_np = np.array([p[0] for p in d16_pairs], dtype=np.int32)
+    disc_16x_dx_np = np.array([p[1] for p in d16_pairs], dtype=np.int32)
+    disc_16x_mask_np = np.zeros((num_tiers, 16, 16, len(d16_pairs)), dtype=bool)
+    for ti in range(num_tiers):
+        for ry in range(16):
+            for rx in range(16):
+                for dx, dy in tier_masks[ti]:
+                    k16 = d16_idx_map[((ry + dy) >> 4, (rx + dx) >> 4)]
+                    disc_16x_mask_np[ti, ry, rx, k16] = True
+
     # Candidate cell stencil for exact integer squared-distance food pickup.
     max_eat_r_cells = int(math.ceil((cfg.food_pickup_mult * cfg.max_body_radius) / c)) + 1
     eat_offsets: list[tuple[int, int, int]] = []
@@ -156,15 +193,23 @@ def _build_static_tables(cfg: GameV3Config, device: torch.device) -> dict[str, A
         "cos_table": torch.as_tensor(cos_np, device=device),
         "fallback_spawns": torch.as_tensor(fb_np, device=device),
         "r_tier_table": torch.as_tensor(r_tier_np, device=device),
+        "r_sq_to_tier": torch.as_tensor(r_sq_to_tier_np, device=device),
         "disc_dx": torch.as_tensor(disc_dx_np, device=device),
         "disc_dy": torch.as_tensor(disc_dy_np, device=device),
         "disc_dist_sq": torch.as_tensor(disc_dist_sq_np, device=device),
+        "disc_4x_dx": torch.as_tensor(disc_4x_dx_np, device=device),
+        "disc_4x_dy": torch.as_tensor(disc_4x_dy_np, device=device),
+        "disc_4x_mask": torch.as_tensor(disc_4x_mask_np, device=device),
+        "disc_16x_dx": torch.as_tensor(disc_16x_dx_np, device=device),
+        "disc_16x_dy": torch.as_tensor(disc_16x_dy_np, device=device),
+        "disc_16x_mask": torch.as_tensor(disc_16x_mask_np, device=device),
         "overlap_lut": torch.as_tensor(overlap_lut_np, device=device),
         "eat_dx": torch.as_tensor(eat_dx_np, device=device),
         "eat_dy": torch.as_tensor(eat_dy_np, device=device),
         "clear_dx": torch.as_tensor(clear_dx_np, device=device),
         "clear_dy": torch.as_tensor(clear_dy_np, device=device),
         "max_diam": max_diam,
+        "max_eat_r_cells": max_eat_r_cells,
         "r_clear": r_clear,
         "spawn_wall_sq_fp": spawn_wall_sq_fp,
         "food_wall_sq_fp": food_wall_sq_fp,
@@ -218,6 +263,7 @@ class GameV3Sim:
         self._radius_fp_table: torch.Tensor = tables["radius_fp"]
         self._r_sq_table: torch.Tensor = tables["r_sq_cells"]
         self._r_tier_table: torch.Tensor = tables["r_tier_table"]
+        self._r_sq_to_tier: torch.Tensor = tables["r_sq_to_tier"]
         self._pickup_r_fp_table: torch.Tensor = tables["pickup_r_fp"]
         self._pickup_r_sq_fp_table: torch.Tensor = tables["pickup_r_sq_fp"]
         self._wall_limit_sq_fp_table: torch.Tensor = tables["wall_limit_sq_fp"]
@@ -231,12 +277,19 @@ class GameV3Sim:
         self._disc_dx: torch.Tensor = tables["disc_dx"]
         self._disc_dy: torch.Tensor = tables["disc_dy"]
         self._disc_dist_sq: torch.Tensor = tables["disc_dist_sq"]
+        self._disc_4x_dx: torch.Tensor = tables["disc_4x_dx"]
+        self._disc_4x_dy: torch.Tensor = tables["disc_4x_dy"]
+        self._disc_4x_mask: torch.Tensor = tables["disc_4x_mask"]
+        self._disc_16x_dx: torch.Tensor = tables["disc_16x_dx"]
+        self._disc_16x_dy: torch.Tensor = tables["disc_16x_dy"]
+        self._disc_16x_mask: torch.Tensor = tables["disc_16x_mask"]
         self._overlap_lut: torch.Tensor = tables["overlap_lut"]
         self._eat_dx: torch.Tensor = tables["eat_dx"]
         self._eat_dy: torch.Tensor = tables["eat_dy"]
         self._clear_dx: torch.Tensor = tables["clear_dx"]
         self._clear_dy: torch.Tensor = tables["clear_dy"]
         self._max_diam: int = int(tables["max_diam"])
+        self._max_eat_r_cells: int = int(tables["max_eat_r_cells"])
         self._r_clear: int = int(tables["r_clear"])
         self._spawn_wall_sq_fp: int = int(tables["spawn_wall_sq_fp"])
         self._food_wall_sq_fp: int = int(tables["food_wall_sq_fp"])
@@ -324,8 +377,8 @@ class GameV3Sim:
         # Order-independent dual-bound occupancy grids at 1x:
         # - occ_hi stores max((subtick << 6) | slot_id)
         # - occ_lo stores max((subtick << 6) | (63 - slot_id))
-        # Both updated exclusively via commutative scatter_reduce_("amax") so slot write
-        # order never affects results and own body never hides an enemy on the same cell.
+        # Updated via commutative max delta updates so slot write order never affects
+        # results and own body never hides an enemy sharing the same cell.
         self.occ_hi = torch.full(
             (self.E, self.G, self.G), -1, dtype=torch.int32, device=self.device
         )
@@ -334,16 +387,21 @@ class GameV3Sim:
         )
         # Exact max-pooled coarse body occupancy pyramids: (E, G4, G4, N) & (E, G16, G16, N)
         # stored N-last so ego-pixel index_select(0, ...) reads contiguous N-element vectors.
-        self.occ_subtick_4x = torch.full(
-            (self.E, self.G4, self.G4, self.N), -1, dtype=torch.int32, device=self.device
-        )
+        # Shard occ_subtick_4x into <=256-env blocks so every tensor stays strictly < INT_MAX
+        # elements on MPSGraph even at E >= 1024.
+        max_per_env = max(1, self.G * self.G, self.G4 * self.G4 * self.N)
+        self.env_block_size: int = min(256, max(1, (1 << 30) // max_per_env))
+        self._occ_4x_blocks: list[torch.Tensor] = [
+            torch.full(
+                (min(self.E, e0 + self.env_block_size) - e0, self.G4, self.G4, self.N),
+                -1,
+                dtype=torch.int32,
+                device=self.device,
+            )
+            for e0 in range(0, self.E, self.env_block_size)
+        ]
         self.occ_subtick_16x = torch.full(
             (self.E, self.G16, self.G16, self.N), -1, dtype=torch.int32, device=self.device
-        )
-
-        # Scratch grid for contested-pellet tie-breaking (lowest surviving slot wins).
-        self._claim_grid = torch.full(
-            (self.E, self.G * self.G), self.N, dtype=torch.int32, device=self.device
         )
 
         # Incremental count/mass-pooled food grids (1x, 4x, 16x) in int32.
@@ -395,6 +453,20 @@ class GameV3Sim:
         """Number of discrete actions exposed by the simulator (10)."""
         return NUM_ACTIONS
 
+    @property
+    def occ_subtick_4x(self) -> torch.Tensor:
+        """Return ``(E, G4, G4, N)`` view when single-block, or CPU concatenation across blocks."""
+        if len(self._occ_4x_blocks) == 1:
+            return self._occ_4x_blocks[0]
+        return torch.cat([blk.detach().cpu() for blk in self._occ_4x_blocks], dim=0)
+
+    def occ_4x_slice(self, e0: int, e1: int) -> torch.Tensor:
+        """Return a view into the single ``_occ_4x_blocks`` shard containing ``[e0:e1]``."""
+        bs = self.env_block_size
+        b_idx = e0 // bs
+        b_off = e0 - b_idx * bs
+        return self._occ_4x_blocks[b_idx][b_off : b_off + (e1 - e0)]
+
     def set_stage_timing(self, enabled: bool) -> None:
         """Enable or disable synchronized per-stage wall-clock timing."""
         self._timing_enabled = bool(enabled)
@@ -439,6 +511,104 @@ class GameV3Sim:
         act_lo = (val_lo >= 0) & ((val_lo >> 6) >= oldest_subtick.gather(1, ow_lo))
         return (act_hi | act_lo).view_as(flat_idx)
 
+    def _stamp_slice_point(
+        self,
+        e0: int,
+        e1: int,
+        gx_p: torch.Tensor,
+        gy_p: torch.Tensor,
+        r_sq_p: torch.Tensor,
+        act_p: torch.Tensor,
+        st_p: torch.Tensor,
+        slot_ids: torch.Tensor,
+    ) -> None:
+        """Stamp one subpoint ``(eb, S)`` of pairwise-disjoint discs into ``[e0:e1]``."""
+        eb = e1 - e0
+        env_local = torch.arange(eb, dtype=torch.int64, device=self.device)[:, None, None]
+        z_i32 = torch.zeros((1,), dtype=torch.int32, device=self.device)
+
+        # 1. Fine 1x dual-bound grids (occ_hi & occ_lo).
+        sx = gx_p[..., None] + self._disc_dx[None, None, :]
+        sy = gy_p[..., None] + self._disc_dy[None, None, :]
+        valid_1x = (
+            act_p[..., None]
+            & (sx >= 0)
+            & (sx < self.G)
+            & (sy >= 0)
+            & (sy < self.G)
+            & (self._disc_dist_sq[None, None, :] <= r_sq_p[..., None])
+        )
+        sx_c = sx.clamp(0, self.G - 1).to(torch.int64)
+        sy_c = sy.clamp(0, self.G - 1).to(torch.int64)
+        idx_1x = (env_local * (self.G * self.G) + sy_c * self.G + sx_c).reshape(-1)
+        valid_1x_flat = valid_1x.reshape(-1)
+
+        st_shift = (st_p << 6)[..., None]
+        sid_3d = slot_ids[..., None]
+        cand_hi = (st_shift | sid_3d).expand_as(sx).reshape(-1)
+        cand_lo = (st_shift | (63 - sid_3d)).expand_as(sx).reshape(-1)
+
+        occ_hi_1d = self.occ_hi[e0:e1].view(-1)
+        cur_hi = occ_hi_1d.index_select(0, idx_1x)
+        delta_hi = torch.where(valid_1x_flat, torch.maximum(cur_hi, cand_hi) - cur_hi, z_i32)
+        occ_hi_1d.index_put_((idx_1x,), delta_hi, accumulate=True)
+
+        occ_lo_1d = self.occ_lo[e0:e1].view(-1)
+        cur_lo = occ_lo_1d.index_select(0, idx_1x)
+        delta_lo = torch.where(valid_1x_flat, torch.maximum(cur_lo, cand_lo) - cur_lo, z_i32)
+        occ_lo_1d.index_put_((idx_1x,), delta_lo, accumulate=True)
+
+        # 2. Deduplicated 4x max-pooled per-snake subtick pyramid (N-last).
+        tier = self._r_sq_to_tier[r_sq_p.clamp_min(0).to(torch.int64)]
+        mask_4x = self._disc_4x_mask[tier, (gy_p & 3).to(torch.int64), (gx_p & 3).to(torch.int64)]
+        gx4 = (gx_p >> 2)[..., None] + self._disc_4x_dx[None, None, :]
+        gy4 = (gy_p >> 2)[..., None] + self._disc_4x_dy[None, None, :]
+        valid_4x = (
+            act_p[..., None] & mask_4x & (gx4 >= 0) & (gx4 < self.G4) & (gy4 >= 0) & (gy4 < self.G4)
+        )
+        gx4_c = gx4.clamp(0, self.G4 - 1).to(torch.int64)
+        gy4_c = gy4.clamp(0, self.G4 - 1).to(torch.int64)
+        sid_i64 = sid_3d.to(torch.int64)
+        idx_4x = (
+            (env_local * (self.G4 * self.G4) + gy4_c * self.G4 + gx4_c) * self.N + sid_i64
+        ).reshape(-1)
+        cand_st4 = st_p[..., None].expand_as(gx4).reshape(-1)
+
+        occ_4x_1d = self.occ_4x_slice(e0, e1).view(-1)
+        cur_4x = occ_4x_1d.index_select(0, idx_4x)
+        delta_4x = torch.where(
+            valid_4x.reshape(-1), torch.maximum(cur_4x, cand_st4) - cur_4x, z_i32
+        )
+        occ_4x_1d.index_put_((idx_4x,), delta_4x, accumulate=True)
+
+        # 3. Deduplicated 16x max-pooled per-snake subtick pyramid (N-last).
+        mask_16x = self._disc_16x_mask[
+            tier, (gy_p & 15).to(torch.int64), (gx_p & 15).to(torch.int64)
+        ]
+        gx16 = (gx_p >> 4)[..., None] + self._disc_16x_dx[None, None, :]
+        gy16 = (gy_p >> 4)[..., None] + self._disc_16x_dy[None, None, :]
+        valid_16x = (
+            act_p[..., None]
+            & mask_16x
+            & (gx16 >= 0)
+            & (gx16 < self.G16)
+            & (gy16 >= 0)
+            & (gy16 < self.G16)
+        )
+        gx16_c = gx16.clamp(0, self.G16 - 1).to(torch.int64)
+        gy16_c = gy16.clamp(0, self.G16 - 1).to(torch.int64)
+        idx_16x = (
+            (env_local * (self.G16 * self.G16) + gy16_c * self.G16 + gx16_c) * self.N + sid_i64
+        ).reshape(-1)
+        cand_st16 = st_p[..., None].expand_as(gx16).reshape(-1)
+
+        occ_16x_1d = self.occ_subtick_16x[e0:e1].view(-1)
+        cur_16x = occ_16x_1d.index_select(0, idx_16x)
+        delta_16x = torch.where(
+            valid_16x.reshape(-1), torch.maximum(cur_16x, cand_st16) - cur_16x, z_i32
+        )
+        occ_16x_1d.index_put_((idx_16x,), delta_16x, accumulate=True)
+
     def _stamp_discs(
         self,
         gx: torch.Tensor,
@@ -448,18 +618,17 @@ class GameV3Sim:
         subtick: torch.Tensor,
         *,
         slot_order: torch.Tensor | None = None,
+        disjoint_slots: bool = False,
     ) -> None:
         """Order-independently stamp body discs into 1x (occ_hi/occ_lo), 4x, and 16x pyramids.
 
-        Args:
-            gx: Int32 cell x tensor of shape ``(E, N, P)`` (``P >= 1`` points per snake).
-            gy: Int32 cell y tensor of shape ``(E, N, P)``.
-            r_sq: Int32 squared cell radius tensor of shape ``(E, N, P)``.
-            active: Bool validity tensor of shape ``(E, N, P)``.
-            subtick: Int32 subtick sequence tensor of shape ``(E, N, P)``.
-            slot_order: Optional permutation ``(N,)`` of ``0..N-1`` to verify slot-write
-                order independence in tests.
+        Uses ``256``-env chunked ``index_select`` + associative/commutative ``torch.maximum``
+        + ``1D index_put_(accumulate=True)`` delta updates so every tensor stays strictly
+        under ``2^31`` elements and avoids MPS full-grid ``scatter_reduce_`` copies.
         """
+        r_sq = r_sq.expand_as(gx)
+        active = active.expand_as(gx)
+        subtick = subtick.expand_as(gx)
         if slot_order is not None:
             perm = slot_order.to(device=self.device, dtype=torch.int64)
             gx = gx.index_select(1, perm)
@@ -471,40 +640,41 @@ class GameV3Sim:
         else:
             slot_ids = self._snake_ids
 
-        sx = gx[..., None] + self._disc_dx[None, None, None, :]
-        sy = gy[..., None] + self._disc_dy[None, None, None, :]
-        in_b = (sx >= 0) & (sx < self.G) & (sy >= 0) & (sy < self.G)
-        in_r = self._disc_dist_sq[None, None, None, :] <= r_sq[..., None]
-        valid = active[..., None] & in_b & in_r
+        p_cnt = int(gx.shape[2])
+        n_cnt = int(gx.shape[1])
+        env_block = self.env_block_size
 
-        sx_c = sx.clamp(0, self.G - 1).to(torch.int64)
-        sy_c = sy.clamp(0, self.G - 1).to(torch.int64)
-        flat_1x = (sy_c * self.G + sx_c).reshape(self.E, -1)
-
-        st_shifted = subtick[..., None] << 6
-        sid = slot_ids[:, :, None, None]
-        neg_one = torch.full((1,), -1, dtype=torch.int32, device=self.device)
-
-        src_hi = torch.where(valid, st_shifted | sid, neg_one).reshape(self.E, -1)
-        src_lo = torch.where(valid, st_shifted | (63 - sid), neg_one).reshape(self.E, -1)
-        self.occ_hi.view(self.E, -1).scatter_reduce_(
-            1, flat_1x, src_hi, reduce="amax", include_self=True
-        )
-        self.occ_lo.view(self.E, -1).scatter_reduce_(
-            1, flat_1x, src_lo, reduce="amax", include_self=True
-        )
-
-        # Stamp per-snake 4x and 16x max-pooled subtick pyramids (N-last contiguous layout).
-        src_st = torch.where(valid, subtick[..., None].expand_as(sx), neg_one).reshape(self.E, -1)
-        sid_i64 = sid.to(torch.int64)
-        flat_4x_n = (((sy_c >> 2) * self.G4 + (sx_c >> 2)) * self.N + sid_i64).reshape(self.E, -1)
-        flat_16x_n = (((sy_c >> 4) * self.G16 + (sx_c >> 4)) * self.N + sid_i64).reshape(self.E, -1)
-        self.occ_subtick_4x.view(self.E, -1).scatter_reduce_(
-            1, flat_4x_n, src_st, reduce="amax", include_self=True
-        )
-        self.occ_subtick_16x.view(self.E, -1).scatter_reduce_(
-            1, flat_16x_n, src_st, reduce="amax", include_self=True
-        )
+        if disjoint_slots and slot_order is None:
+            for e0 in range(0, self.E, env_block):
+                e1 = min(self.E, e0 + env_block)
+                sids = slot_ids.expand(e1 - e0, n_cnt)
+                for p in range(p_cnt):
+                    self._stamp_slice_point(
+                        e0,
+                        e1,
+                        gx[e0:e1, :, p],
+                        gy[e0:e1, :, p],
+                        r_sq[e0:e1, :, p],
+                        active[e0:e1, :, p],
+                        subtick[e0:e1, :, p],
+                        sids,
+                    )
+        else:
+            for e0 in range(0, self.E, env_block):
+                e1 = min(self.E, e0 + env_block)
+                for col in range(n_cnt):
+                    sid_col = slot_ids[:, col : col + 1].expand(e1 - e0, 1)
+                    for p in range(p_cnt):
+                        self._stamp_slice_point(
+                            e0,
+                            e1,
+                            gx[e0:e1, col : col + 1, p],
+                            gy[e0:e1, col : col + 1, p],
+                            r_sq[e0:e1, col : col + 1, p],
+                            active[e0:e1, col : col + 1, p],
+                            subtick[e0:e1, col : col + 1, p],
+                            sid_col,
+                        )
 
     def _spawn_ambient_batch(
         self,
@@ -588,9 +758,9 @@ class GameV3Sim:
 
         self.occ_hi.fill_(-1)
         self.occ_lo.fill_(-1)
-        self.occ_subtick_4x.fill_(-1)
+        for blk in self._occ_4x_blocks:
+            blk.fill_(-1)
         self.occ_subtick_16x.fill_(-1)
-        self._claim_grid.fill_(self.N)
 
         self.ambient_grid.zero_()
         self.ambient_grid_4x.zero_()
@@ -713,6 +883,7 @@ class GameV3Sim:
             init_r_sq[:, :, None],
             placed_alive[:, :, None],
             torch.ones((self.E, self.N, 1), dtype=torch.int32, device=self.device),
+            disjoint_slots=True,
         )
         self.total_spawned_snake_mass = placed_alive.to(torch.int64).sum(dim=1) * int(
             self.cfg.start_length
@@ -920,8 +1091,10 @@ class GameV3Sim:
                     vi[:, :, None]
                     & vj[:, None, :]
                     & self._not_eye_nn
-                    & (dgx.abs() <= self._max_diam)
-                    & (dgy.abs() <= self._max_diam)
+                    & (dgx >= -self._max_diam)
+                    & (dgx <= self._max_diam)
+                    & (dgy >= -self._max_diam)
+                    & (dgy <= self._max_diam)
                 )
                 dgx_idx = (dgx + self._max_diam).clamp(0, 2 * self._max_diam).to(torch.int64)
                 dgy_idx = (dgy + self._max_diam).clamp(0, 2 * self._max_diam).to(torch.int64)
@@ -1074,6 +1247,7 @@ class GameV3Sim:
             r_sq[:, :, None].expand_as(pt_gx),
             surv_pt_valid,
             pt_subtick,
+            disjoint_slots=True,
         )
 
         if timed:
@@ -1092,8 +1266,8 @@ class GameV3Sim:
 
         cx_fp = ((ex_k - self.half_grid) << FP_SHIFT) + FP_HALF
         cy_fp = ((ey_k - self.half_grid) << FP_SHIFT) + FP_HALF
-        dx_eat = (cx_fp - self.head_pos[:, :, 0, None]).clamp(-32768, 32767)
-        dy_eat = (cy_fp - self.head_pos[:, :, 1, None]).clamp(-32768, 32767)
+        dx_eat = (cx_fp - self.head_pos[:, :, 0, None]).clamp(-32000, 32000)
+        dy_eat = (cy_fp - self.head_pos[:, :, 1, None]).clamp(-32000, 32000)
         pickup_r_sq = self._pickup_r_sq_fp_table[len_idx]
         can_eat_k = (
             survives[:, :, None]
@@ -1101,20 +1275,36 @@ class GameV3Sim:
             & ((dx_eat * dx_eat + dy_eat * dy_eat) <= pickup_r_sq[:, :, None])
         )
 
+        # Pairwise lowest-slot tie-break (0-byte grid-free): slot i loses cell c iff
+        # any surviving slot j < i also has c within pickup_r_sq[j].
+        # Avoid Tensor.abs() on integers (MPS routes integer abs through float32).
+        max_sep_fp = int(2 * (self._max_eat_r_cells + 1)) << FP_SHIFT
+        hx_all = self.head_pos[:, :, 0]
+        hy_all = self.head_pos[:, :, 1]
+        dhx_pair = hx_all[:, :, None] - hx_all[:, None, :]
+        dhy_pair = hy_all[:, :, None] - hy_all[:, None, :]
+        near_lower = (
+            survives[:, :, None]
+            & survives[:, None, :]
+            & self._tril_nn
+            & (dhx_pair >= -max_sep_fp)
+            & (dhx_pair <= max_sep_fp)
+            & (dhy_pair >= -max_sep_fp)
+            & (dhy_pair <= max_sep_fp)
+        )
+        blocked_by_lower = torch.zeros_like(can_eat_k)
+        for j0 in range(0, self.N - 1, 8):
+            j1 = min(self.N - 1, j0 + 8)
+            nl_blk = near_lower[:, :, None, j0:j1]
+            dx_j = (cx_fp[:, :, :, None] - hx_all[:, None, None, j0:j1]).clamp(-32000, 32000)
+            dy_j = (cy_fp[:, :, :, None] - hy_all[:, None, None, j0:j1]).clamp(-32000, 32000)
+            hit_j = nl_blk & ((dx_j * dx_j + dy_j * dy_j) <= pickup_r_sq[:, None, None, j0:j1])
+            blocked_by_lower = blocked_by_lower | hit_j.any(dim=-1)
+        won_eat_k = can_eat_k & (~blocked_by_lower)
+
         ex_c = ex_k.clamp(0, self.G - 1).to(torch.int64)
         ey_c = ey_k.clamp(0, self.G - 1).to(torch.int64)
         flat_eat = (ey_c * self.G + ex_c).view(self.E, -1)
-
-        claim_src = torch.where(
-            can_eat_k,
-            self._snake_ids[:, :, None].expand_as(ex_k),
-            torch.full_like(ex_k, self.N),
-        ).view(self.E, -1)
-        self._claim_grid.scatter_reduce_(1, flat_eat, claim_src, reduce="amin", include_self=True)
-        winner_k = self._claim_grid.gather(1, flat_eat).view_as(ex_k)
-        won_eat_k = can_eat_k & (winner_k == self._snake_ids[:, :, None])
-        # Reset touched claim cells back to N in O(E * N * K_eat).
-        self._claim_grid.scatter_(1, flat_eat, torch.full_like(claim_src, self.N))
 
         won_flat = won_eat_k.view(self.E, -1)
         amb_flat = self.ambient_grid.view(self.E, -1)
@@ -1332,6 +1522,7 @@ class GameV3Sim:
             spawn_r_sq[:, :, None],
             spawn_now[:, :, None],
             torch.full((self.E, self.N, 1), spawn_st, dtype=torch.int32, device=self.device),
+            disjoint_slots=True,
         )
         self.total_spawned_snake_mass = self.total_spawned_snake_mass + spawn_now.to(
             torch.int64
@@ -1452,5 +1643,12 @@ class GameV3Sim:
         self.tick = int(state["tick"])
         tensors = state["tensors"]
         for name, tensor in tensors.items():
-            dst = getattr(self, name)
-            dst.copy_(tensor.to(device=self.device, dtype=dst.dtype))
+            if name == "occ_subtick_4x":
+                bs = self.env_block_size
+                for b_idx, blk in enumerate(self._occ_4x_blocks):
+                    e0 = b_idx * bs
+                    e1 = e0 + int(blk.shape[0])
+                    blk.copy_(tensor[e0:e1].to(device=self.device, dtype=blk.dtype))
+            else:
+                dst = getattr(self, name)
+                dst.copy_(tensor.to(device=self.device, dtype=dst.dtype))

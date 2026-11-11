@@ -49,6 +49,11 @@ def _tensor_bytes_of_sim_and_obs(sim: GameV3Sim, obs: ObservationBatch | None) -
         if isinstance(val, torch.Tensor) and val.data_ptr() not in seen:
             seen.add(val.data_ptr())
             total += val.numel() * val.element_size()
+        elif isinstance(val, (list, tuple)):
+            for item in val:
+                if isinstance(item, torch.Tensor) and item.data_ptr() not in seen:
+                    seen.add(item.data_ptr())
+                    total += item.numel() * item.element_size()
     if obs is not None:
         for t in (obs.raster_s1, obs.raster_s4, obs.raster_s16, obs.scalars, obs.action_mask):
             if t.data_ptr() not in seen:
