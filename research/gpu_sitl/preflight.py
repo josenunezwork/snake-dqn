@@ -1914,6 +1914,8 @@ def finalize_extension_preflight(
     )
 
     seed_audit = audit_preflight_seeds()
+    if not seed_audit["ok"]:
+        raise RuntimeError(f"Seed audit failed for {PREFLIGHT_NAMESPACE}: {seed_audit}")
     comp = frozen_cohort["cpu_reference_composition"]
 
     part1_bool_pass = bool(summary_matched["agreed_certificates"] >= EXT_MATCHED_RNG_CERT_AGREE_MIN)
