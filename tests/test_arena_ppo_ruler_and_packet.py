@@ -506,7 +506,9 @@ def test_prepare_three_modes_l4_a100_t4_rejected_and_offline_supervisor_validate
     mf_canary_a100 = json.loads(Path(canary_a100["manifest_path"]).read_text(encoding="utf-8"))
 
     for mf in (mf_canary_l4, mf_canary_a100):
-        assert mf["timeout_minutes"] == 28.0
+        assert mf["timeout_minutes"] == 30.0
+        assert mf["requirements"]["est_minutes"] == 15.0
+        assert mf["env"]["ARENA_PPO_MAX_WALL_SECONDS"] == "720"
         assert mf["env"]["SNAKE_COLAB_CANARY"] == "1"
         colab_schema.validate_manifest(mf)
         ops_dispatch.require_resume_policy(mf)
@@ -1000,23 +1002,23 @@ def test_m1_ruler_isolates_non_oom_cell_and_bench_errors_and_canary_probes_all_a
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """M1: per-cell/per-bench non-OOM isolation, exit 0 if >=1 cell succeeds, 3-arch canary."""
-    # 1. Verify prepare.py canary docstring and exemption reason match 14/28 (not <= 12 min)
+    # 1. Verify prepare.py canary docstring and exemption reason match 15/30 (not <= 12 min)
     assert prepare_arena_ppo_packet.__doc__ is not None
     assert "<= 12 min" not in prepare_arena_ppo_packet.__doc__
-    assert "14 min" in prepare_arena_ppo_packet.__doc__
-    assert "28 min" in prepare_arena_ppo_packet.__doc__
+    assert "15 min" in prepare_arena_ppo_packet.__doc__
+    assert "30 min" in prepare_arena_ppo_packet.__doc__
     pkt_c = prepare_arena_ppo_packet(
-        tmp_path / "pkt_canary_14_28",
+        tmp_path / "pkt_canary_15_30",
         commit="HEAD",
         mode="canary",
         gpu="L4",
-        output_dir=tmp_path / "out_canary_14_28",
+        output_dir=tmp_path / "out_canary_15_30",
         allow_unmerged_commit=True,
     )
     mf_c = json.loads(Path(pkt_c["manifest_path"]).read_text(encoding="utf-8"))
     reason_text = mf_c["resume_exemption"]["reason"]
     assert "<= 12 min" not in reason_text
-    assert "14 min" in reason_text and "28 min" in reason_text
+    assert "15 min" in reason_text and "30 min" in reason_text
 
     # 2. Non-OOM exceptions in batch6_forward (ego_only) and in cells (ego_only collection,
     # per_seat integrated) must NOT abort shared_trunk; CLI exits 0 and ruler_result.json PASSes.
@@ -1466,15 +1468,15 @@ def test_minor3_continuation_canary_verifies_staged_checkpoint_without_rollout_b
         )
 
 
-def test_task_a_ruler_amp_cells_comparisons_and_short_l4_prepare(
+def test_task_a_ruler_fp32_cells_comparisons_and_short_l4_prepare(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Task A.1/A.3/A.4: ruler `_amp` cells, per-cell & paired metrics, and short L4 prepare CLI."""
+    """Default bf16 plain cells + `_fp32` cells, paired comparisons, and short L4 prepare CLI."""
     from research.arena_ppo import prepare as prepare_mod
 
-    out_amp = tmp_path / "ruler_amp_out"
+    out_dual = tmp_path / "ruler_dual_precision_out"
     res = run_ruler(
-        output_dir=out_amp,
+        output_dir=out_dual,
         device="cpu",
         envs_list=[2],
         net_sizes=["S"],
@@ -1487,48 +1489,51 @@ def test_task_a_ruler_amp_cells_comparisons_and_short_l4_prepare(
         minibatch_size=24,
         actor_chunk_envs=2,
         max_capacity=64,
-        include_amp=True,
+        include_fp32=True,
         include_one_epoch_cell=False,
         include_best_compile=False,
         measure_larger_minibatch=False,
         seed=314,
     )
-    assert verify_completed_artifact(out_amp / "ruler_result.json")
+    assert verify_completed_artifact(out_dual / "ruler_result.json")
     assert res["stopped_reason"] == "completed"
+    assert res["amp"] is True
+    assert res["include_fp32"] is True
     cell_ids = [c["cell_id"] for c in res["cells"]]
     assert cell_ids == [
         "E2_ego_only_S",
-        "E2_ego_only_S_amp",
+        "E2_ego_only_S_fp32",
         "E2_shared_trunk_S",
-        "E2_shared_trunk_S_amp",
+        "E2_shared_trunk_S_fp32",
     ]
     for c in res["cells"]:
-        assert verify_completed_artifact(out_amp / "cells" / f"{c['cell_id']}.json")
-        assert c["amp"] is c["cell_id"].endswith("_amp")
+        assert verify_completed_artifact(out_dual / "cells" / f"{c['cell_id']}.json")
+        assert c["amp"] is (not c["cell_id"].endswith("_fp32"))
+        assert c["is_fp32_probe"] is c["cell_id"].endswith("_fp32")
         assert c["learner_rows_per_sec"] > 0.0
         assert c["integrated_agent_steps_per_sec"] > 0.0
         assert isinstance(c["epoch0_approx_kl"], float)
         assert isinstance(c["value_loss"], float)
 
-    comps = res["amp_comparisons"]
+    comps = res["precision_comparisons"]
     assert len(comps) == 2
-    assert [(x["base_cell_id"], x["amp_cell_id"]) for x in comps] == [
-        ("E2_ego_only_S", "E2_ego_only_S_amp"),
-        ("E2_shared_trunk_S", "E2_shared_trunk_S_amp"),
+    assert [(x["default_cell_id"], x["fp32_cell_id"]) for x in comps] == [
+        ("E2_ego_only_S", "E2_ego_only_S_fp32"),
+        ("E2_shared_trunk_S", "E2_shared_trunk_S_fp32"),
     ]
     for comp in comps:
-        assert comp["base_learner_rows_per_sec"] > 0.0
         assert comp["amp_learner_rows_per_sec"] > 0.0
+        assert comp["fp32_learner_rows_per_sec"] > 0.0
         assert comp["learner_speedup_ratio"] > 0.0
-        assert comp["base_integrated_agent_steps_per_sec"] > 0.0
         assert comp["amp_integrated_agent_steps_per_sec"] > 0.0
+        assert comp["fp32_integrated_agent_steps_per_sec"] > 0.0
         assert comp["integrated_speedup_ratio"] > 0.0
-        assert isinstance(comp["base_epoch0_approx_kl"], float)
         assert isinstance(comp["amp_epoch0_approx_kl"], float)
-        assert isinstance(comp["base_value_loss"], float)
+        assert isinstance(comp["fp32_epoch0_approx_kl"], float)
         assert isinstance(comp["amp_value_loss"], float)
+        assert isinstance(comp["fp32_value_loss"], float)
 
-    # Short E=2048 baseline vs `_amp` ruler packet via prepare.py CLI bound to L4 canary receipt
+    # Short E=2048 default (`bf16`) vs `_fp32` ruler packet via prepare.py CLI (< 25 min)
     canary_pkt = prepare_arena_ppo_packet(
         tmp_path / "pkt_canary_for_short_ruler",
         commit="HEAD",
@@ -1540,8 +1545,8 @@ def test_task_a_ruler_amp_cells_comparisons_and_short_l4_prepare(
     canary_mf = json.loads(Path(canary_pkt["manifest_path"]).read_text(encoding="utf-8"))
     rcpt_short = _build_synthetic_canary_receipt(canary_mf, "L4")
 
-    pkt_ruler_dir = tmp_path / "pkt_short_ruler_amp"
-    out_ruler_dir = tmp_path / "out_short_ruler_amp"
+    pkt_ruler_dir = tmp_path / "pkt_short_ruler_fp32"
+    out_ruler_dir = tmp_path / "out_short_ruler_fp32"
     monkeypatch.setattr(
         sys,
         "argv",
@@ -1561,7 +1566,7 @@ def test_task_a_ruler_amp_cells_comparisons_and_short_l4_prepare(
             "2048",
             "--ruler-nets",
             "S",
-            "--include-amp",
+            "--include-fp32",
             "--no-one-epoch-cell",
             "--no-best-compile",
             "--no-larger-minibatch",
@@ -1586,33 +1591,51 @@ def test_task_a_ruler_amp_cells_comparisons_and_short_l4_prepare(
     assert env["ARENA_PPO_RULER_ARCHS"] == "ego_only,shared_trunk"
     assert env["ARENA_PPO_RULER_ENVS"] == "2048"
     assert env["ARENA_PPO_RULER_NETS"] == "S"
-    assert env["ARENA_PPO_INCLUDE_AMP"] == "1"
+    assert env["ARENA_PPO_AMP"] == "1"
+    assert env["ARENA_PPO_INCLUDE_FP32"] == "1"
     assert env["ARENA_PPO_NO_ONE_EPOCH_CELL"] == "1"
     assert env["ARENA_PPO_NO_BEST_COMPILE"] == "1"
     assert env["ARENA_PPO_NO_LARGER_MINIBATCH"] == "1"
 
-    # Train packet with --amp sets cfg["amp"] is True and ARENA_PPO_AMP=1
-    pkt_train_amp = prepare_arena_ppo_packet(
-        tmp_path / "pkt_train_amp",
+    # Train packet defaults to amp=True (ARENA_PPO_AMP=1), and --no-amp turns it off (0)
+    pkt_train_def = prepare_arena_ppo_packet(
+        tmp_path / "pkt_train_default_amp",
         commit="HEAD",
         mode="train",
         gpu="L4",
         hours=2.0,
-        amp=True,
         canary_receipt=rcpt_short,
-        output_dir=tmp_path / "out_train_amp",
+        output_dir=tmp_path / "out_train_default_amp",
         allow_unmerged_commit=True,
     )
-    mf_train = json.loads(Path(pkt_train_amp["manifest_path"]).read_text(encoding="utf-8"))
-    colab_supervisor.validate(mf_train)
-    assert mf_train["env"]["ARENA_PPO_AMP"] == "1"
-    assert json.loads(mf_train["env"]["ARENA_PPO_CONFIG_JSON"])["amp"] is True
+    mf_train_def = json.loads(Path(pkt_train_def["manifest_path"]).read_text(encoding="utf-8"))
+    colab_supervisor.validate(mf_train_def)
+    assert mf_train_def["env"]["ARENA_PPO_AMP"] == "1"
+    cfg_def = json.loads(mf_train_def["env"]["ARENA_PPO_CONFIG_JSON"])
+    assert cfg_def["amp"] is True and cfg_def["use_bf16_autocast"] is True
+
+    pkt_train_fp32 = prepare_arena_ppo_packet(
+        tmp_path / "pkt_train_fp32",
+        commit="HEAD",
+        mode="train",
+        gpu="L4",
+        hours=2.0,
+        amp=False,
+        canary_receipt=rcpt_short,
+        output_dir=tmp_path / "out_train_fp32",
+        allow_unmerged_commit=True,
+    )
+    mf_train_fp32 = json.loads(Path(pkt_train_fp32["manifest_path"]).read_text(encoding="utf-8"))
+    colab_supervisor.validate(mf_train_fp32)
+    assert mf_train_fp32["env"]["ARENA_PPO_AMP"] == "0"
+    cfg_fp32 = json.loads(mf_train_fp32["env"]["ARENA_PPO_CONFIG_JSON"])
+    assert cfg_fp32["amp"] is False and cfg_fp32["use_bf16_autocast"] is False
 
 
-def test_task_b1_and_a3_canary_3arch_train_late_reset_resume_and_cuda_amp_probe(
+def test_task_b1_and_a3_canary_3arch_train_late_reset_resume_and_cuda_fp32_probe(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Task B.1 + A.3: 3-design canary train w/ time-limit + reservoir + resume + AMP probe."""
+    """3-design canary train w/ time-limit + reservoir + resume + dual-precision CUDA probe."""
     canary_out = tmp_path / "canary_3arch_out"
     suite = run_canary_suite(
         output_dir=canary_out,
@@ -1623,15 +1646,17 @@ def test_task_b1_and_a3_canary_3arch_train_late_reset_resume_and_cuda_amp_probe(
     )
     assert verify_completed_artifact(canary_out / "canary_checks.json")
     checks = json.loads((canary_out / "canary_checks.json").read_text(encoding="utf-8"))
-    assert checks["amp_canary_probe"]["executed"] is False
-    assert "CUDA" in checks["amp_canary_probe"]["skipped_reason"]
-    assert suite["amp_canary_probe"] == checks["amp_canary_probe"]
+    assert checks["fp32_canary_probe"]["executed"] is False
+    assert "CUDA" in checks["fp32_canary_probe"]["skipped_reason"]
+    assert suite["fp32_canary_probe"] == checks["fp32_canary_probe"]
 
     assert set(suite["train_by_arch"].keys()) == {"ego_only", "per_seat", "shared_trunk"}
     for arch in ("ego_only", "per_seat", "shared_trunk"):
         tr = suite["train_by_arch"][arch]
         assert tr["updates_completed"] == 2
         assert tr["resumed_from_checkpoint"] is True
+        assert tr["config"]["amp"] is True
+        assert tr["config"]["use_bf16_autocast"] is True
         assert tr["config"]["max_world_frames"] == 4
         assert tr["config"]["late_reset_enabled"] is True
         assert tr["config"]["late_reset_min_length"] == 1
@@ -1639,10 +1664,10 @@ def test_task_b1_and_a3_canary_3arch_train_late_reset_resume_and_cuda_amp_probe(
         assert tr["total_harvested"] >= 1, f"{arch} did not harvest into late-state reservoir"
         assert tr["total_restored"] >= 1, f"{arch} did not restore from late-state reservoir"
 
-    # Enable CUDA `_amp` canary probe gate to verify `_amp` cells are executed and checked
-    assert ruler_mod._canary_runs_amp_probe(torch.device("cpu")) is False
-    assert ruler_mod._canary_runs_amp_probe(torch.device("cuda", 0)) is True
-    monkeypatch.setattr(ruler_mod, "_canary_runs_amp_probe", lambda _dev: True)
+    # Enable CUDA `_fp32` canary probe gate to verify both default and `_fp32` cells execute
+    assert ruler_mod._canary_runs_fp32_probe(torch.device("cpu")) is False
+    assert ruler_mod._canary_runs_fp32_probe(torch.device("cuda", 0)) is True
+    monkeypatch.setattr(ruler_mod, "_canary_runs_fp32_probe", lambda _dev: True)
 
     canary_cuda_out = tmp_path / "canary_cuda_sim_out"
     suite_cuda = run_canary_suite(
@@ -1652,33 +1677,33 @@ def test_task_b1_and_a3_canary_3arch_train_late_reset_resume_and_cuda_amp_probe(
         rollout_len=4,
         seed=2026,
     )
-    assert suite_cuda["amp_canary_probe"]["executed"] is True
-    assert suite_cuda["amp_canary_probe"]["amp_cell_ids"] == [
-        "E4_ego_only_S_amp",
-        "E4_shared_trunk_S_amp",
-        "E4_per_seat_S_amp",
+    assert suite_cuda["fp32_canary_probe"]["executed"] is True
+    assert suite_cuda["fp32_canary_probe"]["fp32_cell_ids"] == [
+        "E4_ego_only_S_fp32",
+        "E4_shared_trunk_S_fp32",
+        "E4_per_seat_S_fp32",
     ]
     assert suite_cuda["ruler_result"]["succeeded_cell_ids"] == [
         "E4_ego_only_S",
-        "E4_ego_only_S_amp",
+        "E4_ego_only_S_fp32",
         "E4_shared_trunk_S",
-        "E4_shared_trunk_S_amp",
+        "E4_shared_trunk_S_fp32",
         "E4_per_seat_S",
-        "E4_per_seat_S_amp",
+        "E4_per_seat_S_fp32",
     ]
 
-    # Verify a failure specifically inside an `_amp` cell aborts the CUDA canary loudly
+    # Verify a failure specifically inside a secondary `_fp32` cell aborts the CUDA canary loudly
     orig_integ = ruler_mod._measure_integrated_cell
 
-    def _fail_amp_cell(**kw: Any) -> dict[str, Any]:
-        if kw.get("amp") and kw.get("net_arch") == "shared_trunk":
-            raise RuntimeError("synthetic CUDA autocast dtype mismatch in shared_trunk _amp")
+    def _fail_fp32_cell(**kw: Any) -> dict[str, Any]:
+        if (not kw.get("amp")) and kw.get("net_arch") == "shared_trunk":
+            raise RuntimeError("synthetic failure in shared_trunk _fp32")
         return orig_integ(**kw)
 
-    monkeypatch.setattr(ruler_mod, "_measure_integrated_cell", _fail_amp_cell)
-    with pytest.raises(RuntimeError, match="E4_shared_trunk_S_amp"):
+    monkeypatch.setattr(ruler_mod, "_measure_integrated_cell", _fail_fp32_cell)
+    with pytest.raises(RuntimeError, match="E4_shared_trunk_S_fp32"):
         run_canary_suite(
-            output_dir=tmp_path / "canary_cuda_amp_fail",
+            output_dir=tmp_path / "canary_cuda_fp32_fail",
             device="cpu",
             num_envs=4,
             rollout_len=4,

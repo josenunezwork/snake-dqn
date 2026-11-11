@@ -417,7 +417,7 @@ def measure_batch6_forward_ms(
     warmup_iters: int = 10,
     bench_iters: int = 40,
     compile_model: bool = False,
-    amp: bool = False,
+    amp: bool = True,
 ) -> dict[str, Any]:
     """Measure single-world (`batch = num_snakes`) policy `act` latency and exact ATen FLOPs."""
     flops_info = measure_model_flops_per_row(
@@ -517,7 +517,7 @@ def _measure_collection_only_once(
     actor_chunk_envs: int,
     max_capacity: int,
     compile_model: bool,
-    amp: bool = False,
+    amp: bool = True,
     seed: int,
     should_stop: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
@@ -676,7 +676,7 @@ def _measure_collection_only_cell(
     actor_chunk_envs: int,
     max_capacity: int,
     compile_model: bool,
-    amp: bool = False,
+    amp: bool = True,
     seed: int,
     should_stop: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
@@ -741,7 +741,7 @@ def _measure_integrated_once(
     actor_chunk_envs: int,
     max_capacity: int,
     compile_model: bool,
-    amp: bool = False,
+    amp: bool = True,
     measure_larger_minibatch: bool,
     seed: int,
     should_stop: Callable[[], bool] | None = None,
@@ -1144,7 +1144,7 @@ def _measure_integrated_cell(
     actor_chunk_envs: int,
     max_capacity: int,
     compile_model: bool,
-    amp: bool = False,
+    amp: bool = True,
     measure_larger_minibatch: bool,
     seed: int,
     should_stop: Callable[[], bool] | None = None,
@@ -1224,7 +1224,7 @@ def _best_completed_env_for_variant(
             or c.get("net_size") != net_sz
             or bool(c.get("compile_model"))
             or bool(c.get("is_one_epoch_probe"))
-            or bool(c.get("is_amp_probe"))
+            or bool(c.get("is_fp32_probe"))
         ):
             continue
         integ = c.get("integrated")
@@ -1300,11 +1300,11 @@ def _format_cell_id(
     multi_arch_naming: bool,
     is_extra_compile: bool,
     is_one_epoch_probe: bool,
-    is_amp_probe: bool = False,
+    is_fp32_probe: bool = False,
 ) -> str:
     stem = f"E{num_envs}_{net_arch}_{net_sz}" if multi_arch_naming else f"E{num_envs}_{net_sz}"
-    if is_amp_probe:
-        stem = f"{stem}_amp"
+    if is_fp32_probe:
+        stem = f"{stem}_fp32"
     if is_one_epoch_probe:
         stem = f"{stem}_ep1"
     if is_extra_compile:
@@ -1334,8 +1334,8 @@ def run_ruler(
     max_capacity: int = 1600,
     compile_model: bool = False,
     include_best_compile: bool = True,
-    amp: bool = False,
-    include_amp: bool = False,
+    amp: bool = True,
+    include_fp32: bool = False,
     measure_larger_minibatch: bool = True,
     max_wall_seconds: float | None = None,
     disable_projection_skip: bool = False,
@@ -1348,7 +1348,7 @@ def run_ruler(
     if result_path.exists():
         raise FileExistsError(f"Refusing to overwrite existing {result_path}")
 
-    effective_base_amp = bool(amp and not include_amp)
+    effective_base_amp = True if include_fp32 else bool(amp)
     multi_arch_naming = net_archs is not None
     resolved_archs: list[NetArch] = (
         [a for a in net_archs] if net_archs is not None else ["per_seat"]
@@ -1368,7 +1368,7 @@ def run_ruler(
         net_archs=resolved_archs,
         net_sizes=list(net_sizes),
         amp=effective_base_amp,
-        include_amp=bool(include_amp),
+        include_fp32=bool(include_fp32),
     )
     ensure_cuda_initialized(resolved_dev)
     configure_determinism(False)
@@ -1432,7 +1432,7 @@ def run_ruler(
         should_stop = lambda: stop_flag.stopped  # noqa: E731
         try:
             bench_amp_modes: tuple[tuple[bool, str], ...] = (
-                ((False, ""), (True, "_amp")) if include_amp else ((effective_base_amp, ""),)
+                ((True, ""), (False, "_fp32")) if include_fp32 else ((effective_base_amp, ""),)
             )
             for net_arch in resolved_archs:
                 if fatal_cuda_stop_info is not None:
@@ -1540,7 +1540,7 @@ def run_ruler(
 
             # Pending tuple:
             # (num_envs, net_arch, net_sz, compile_model, cell_ppo_epochs,
-            #  is_ep1, cell_amp, is_amp_probe)
+            #  is_ep1, cell_amp, is_fp32_probe)
             pending: list[tuple[int, NetArch, NetSize, bool, int, bool, bool, bool]] = []
             for e, arch, nz in ordered_base:
                 pending.append(
@@ -1555,9 +1555,9 @@ def run_ruler(
                         False,
                     )
                 )
-                if include_amp:
+                if include_fp32:
                     pending.append(
-                        (e, arch, nz, bool(compile_model), int(ppo_epochs), False, True, True)
+                        (e, arch, nz, bool(compile_model), int(ppo_epochs), False, False, True)
                     )
                 if ep1_target is not None and (e, arch, nz) == ep1_target:
                     pending.append(
@@ -1570,7 +1570,7 @@ def run_ruler(
                 trigger_id: str,
                 trigger_err: str,
             ) -> None:
-                for r_e, r_arch, r_sz, r_comp, r_ep, r_ep1, r_amp, r_amp_probe in rem_items:
+                for r_e, r_arch, r_sz, r_comp, r_ep, r_ep1, r_amp, r_fp32_probe in rem_items:
                     r_cid = _format_cell_id(
                         num_envs=r_e,
                         net_arch=r_arch,
@@ -1578,7 +1578,7 @@ def run_ruler(
                         multi_arch_naming=multi_arch_naming,
                         is_extra_compile=bool(r_comp and not compile_model),
                         is_one_epoch_probe=r_ep1,
-                        is_amp_probe=r_amp_probe,
+                        is_fp32_probe=r_fp32_probe,
                     )
                     skipped_cells.append(
                         {
@@ -1589,7 +1589,7 @@ def run_ruler(
                             "ppo_epochs": int(r_ep),
                             "is_one_epoch_probe": bool(r_ep1),
                             "amp": bool(r_amp),
-                            "is_amp_probe": bool(r_amp_probe),
+                            "is_fp32_probe": bool(r_fp32_probe),
                             "compile_model": bool(r_comp),
                             "reason": "stopped_after_cuda_error",
                             "trigger_cell_id": trigger_id,
@@ -1623,11 +1623,11 @@ def run_ruler(
                     cell_epochs,
                     is_ep1,
                     cell_amp,
-                    is_amp_probe,
+                    is_fp32_probe,
                 ) = pending[idx]
                 idx += 1
                 is_extra_compile = bool(cell_compile and not compile_model)
-                is_base_cell = not is_extra_compile and not is_ep1 and not is_amp_probe
+                is_base_cell = not is_extra_compile and not is_ep1 and not is_fp32_probe
                 cell_id = _format_cell_id(
                     num_envs=num_envs,
                     net_arch=net_arch,
@@ -1635,12 +1635,12 @@ def run_ruler(
                     multi_arch_naming=multi_arch_naming,
                     is_extra_compile=is_extra_compile,
                     is_one_epoch_probe=is_ep1,
-                    is_amp_probe=is_amp_probe,
+                    is_fp32_probe=is_fp32_probe,
                 )
                 base_bkey = f"{net_arch}_{net_sz}" if multi_arch_naming else net_sz
                 bkey = (
-                    f"{base_bkey}_amp"
-                    if (is_amp_probe and f"{base_bkey}_amp" in batch6_bench)
+                    f"{base_bkey}_fp32"
+                    if (is_fp32_probe and f"{base_bkey}_fp32" in batch6_bench)
                     else base_bkey
                 )
 
@@ -1698,7 +1698,7 @@ def run_ruler(
                                 "ppo_epochs": int(cell_epochs),
                                 "is_one_epoch_probe": bool(is_ep1),
                                 "amp": bool(cell_amp),
-                                "is_amp_probe": bool(is_amp_probe),
+                                "is_fp32_probe": bool(is_fp32_probe),
                                 "compile_model": bool(cell_compile),
                                 "reason": skip_reason,
                                 "elapsed_wall_seconds": round(elapsed_now, 4),
@@ -1769,7 +1769,7 @@ def run_ruler(
                         "ppo_epochs": int(cell_epochs),
                         "is_one_epoch_probe": bool(is_ep1),
                         "amp": bool(cell_amp),
-                        "is_amp_probe": bool(is_amp_probe),
+                        "is_fp32_probe": bool(is_fp32_probe),
                         "compile_model": bool(cell_compile),
                         "burnin_ticks": int(burnin_ticks),
                         "parameter_count": bench_meta.get("parameter_count"),
@@ -1985,7 +1985,7 @@ def run_ruler(
                         and "error" not in cell_record
                         and not cell_compile
                         and not is_ep1
-                        and not is_amp_probe
+                        and not is_fp32_probe
                     ):
                         sec_per_env_by_variant[vkey] = cell_wall / float(max(1, num_envs))
                     elif (
@@ -2174,7 +2174,7 @@ def run_ruler(
                         c
                         for c in cells
                         if not c.get("is_one_epoch_probe")
-                        and not c.get("is_amp_probe")
+                        and not c.get("is_fp32_probe")
                         and not c.get("compile_model")
                         and _cell_succeeded(c)
                         and c.get("num_envs") == ep1_c.get("num_envs")
@@ -2201,76 +2201,76 @@ def run_ruler(
                             ].get("learner", 0.0),
                         }
 
-                amp_comparisons: list[dict[str, Any]] = []
-                for amp_c in cells:
-                    if not amp_c.get("is_amp_probe") or not _cell_succeeded(amp_c):
+                precision_comparisons: list[dict[str, Any]] = []
+                for fp32_c in cells:
+                    if not fp32_c.get("is_fp32_probe") or not _cell_succeeded(fp32_c):
                         continue
                     base_matches = [
                         c
                         for c in cells
-                        if not c.get("is_amp_probe")
+                        if not c.get("is_fp32_probe")
                         and not c.get("is_one_epoch_probe")
-                        and bool(c.get("compile_model")) == bool(amp_c.get("compile_model"))
+                        and bool(c.get("compile_model")) == bool(fp32_c.get("compile_model"))
                         and _cell_succeeded(c)
-                        and c.get("num_envs") == amp_c.get("num_envs")
-                        and c.get("net_arch") == amp_c.get("net_arch")
-                        and c.get("net_size") == amp_c.get("net_size")
-                        and c.get("ppo_epochs") == amp_c.get("ppo_epochs")
+                        and c.get("num_envs") == fp32_c.get("num_envs")
+                        and c.get("net_arch") == fp32_c.get("net_arch")
+                        and c.get("net_size") == fp32_c.get("net_size")
+                        and c.get("ppo_epochs") == fp32_c.get("ppo_epochs")
                     ]
                     if not base_matches:
                         continue
-                    base_c = base_matches[0]
-                    base_integ = base_c["integrated"]
+                    amp_c = base_matches[0]
                     amp_integ = amp_c["integrated"]
-                    base_l_rps = float(
-                        base_integ.get(
-                            "learner_rows_per_sec",
-                            base_integ["learner_default_minibatch"]["learner_rows_per_sec"],
-                        )
-                    )
+                    fp32_integ = fp32_c["integrated"]
                     amp_l_rps = float(
                         amp_integ.get(
                             "learner_rows_per_sec",
                             amp_integ["learner_default_minibatch"]["learner_rows_per_sec"],
                         )
                     )
-                    base_i_sps = float(base_integ["agent_steps_per_sec"])
-                    amp_i_sps = float(amp_integ["agent_steps_per_sec"])
-                    base_c_sps = (
-                        float(base_c["collection_only"]["agent_steps_per_sec"])
-                        if isinstance(base_c.get("collection_only"), dict)
-                        and "agent_steps_per_sec" in base_c["collection_only"]
-                        else None
+                    fp32_l_rps = float(
+                        fp32_integ.get(
+                            "learner_rows_per_sec",
+                            fp32_integ["learner_default_minibatch"]["learner_rows_per_sec"],
+                        )
                     )
+                    amp_i_sps = float(amp_integ["agent_steps_per_sec"])
+                    fp32_i_sps = float(fp32_integ["agent_steps_per_sec"])
                     amp_c_sps = (
                         float(amp_c["collection_only"]["agent_steps_per_sec"])
                         if isinstance(amp_c.get("collection_only"), dict)
                         and "agent_steps_per_sec" in amp_c["collection_only"]
                         else None
                     )
-                    amp_comparisons.append(
+                    fp32_c_sps = (
+                        float(fp32_c["collection_only"]["agent_steps_per_sec"])
+                        if isinstance(fp32_c.get("collection_only"), dict)
+                        and "agent_steps_per_sec" in fp32_c["collection_only"]
+                        else None
+                    )
+                    precision_comparisons.append(
                         {
-                            "base_cell_id": base_c["cell_id"],
-                            "amp_cell_id": amp_c["cell_id"],
-                            "num_envs": int(base_c["num_envs"]),
-                            "net_arch": base_c.get("net_arch"),
-                            "net_size": base_c.get("net_size"),
-                            "ppo_epochs": int(base_c["ppo_epochs"]),
-                            "base_learner_rows_per_sec": base_l_rps,
+                            "default_cell_id": amp_c["cell_id"],
+                            "fp32_cell_id": fp32_c["cell_id"],
+                            "num_envs": int(amp_c["num_envs"]),
+                            "net_arch": amp_c.get("net_arch"),
+                            "net_size": amp_c.get("net_size"),
+                            "ppo_epochs": int(amp_c["ppo_epochs"]),
                             "amp_learner_rows_per_sec": amp_l_rps,
-                            "learner_speedup_ratio": round(amp_l_rps / max(1e-9, base_l_rps), 4),
-                            "base_integrated_agent_steps_per_sec": base_i_sps,
+                            "fp32_learner_rows_per_sec": fp32_l_rps,
+                            "learner_speedup_ratio": round(amp_l_rps / max(1e-9, fp32_l_rps), 4),
                             "amp_integrated_agent_steps_per_sec": amp_i_sps,
-                            "integrated_speedup_ratio": round(amp_i_sps / max(1e-9, base_i_sps), 4),
-                            "base_collection_agent_steps_per_sec": base_c_sps,
+                            "fp32_integrated_agent_steps_per_sec": fp32_i_sps,
+                            "integrated_speedup_ratio": round(amp_i_sps / max(1e-9, fp32_i_sps), 4),
                             "amp_collection_agent_steps_per_sec": amp_c_sps,
-                            "base_epoch0_approx_kl": base_integ["epoch0_approx_kl"],
+                            "fp32_collection_agent_steps_per_sec": fp32_c_sps,
                             "amp_epoch0_approx_kl": amp_integ["epoch0_approx_kl"],
-                            "base_value_loss": base_integ.get(
-                                "value_loss", base_integ["ppo_stats"]["value_loss"]
-                            ),
+                            "fp32_epoch0_approx_kl": fp32_integ["epoch0_approx_kl"],
                             "amp_value_loss": amp_integ.get(
                                 "value_loss", amp_integ["ppo_stats"]["value_loss"]
+                            ),
+                            "fp32_value_loss": fp32_integ.get(
+                                "value_loss", fp32_integ["ppo_stats"]["value_loss"]
                             ),
                         }
                     )
@@ -2308,7 +2308,7 @@ def run_ruler(
                     "total_vram_bytes": total_vram_bytes,
                     "native_extensions": ext_info,
                     "amp": bool(effective_base_amp),
-                    "include_amp": bool(include_amp),
+                    "include_fp32": bool(include_fp32),
                     "compile_model": bool(compile_model),
                     "include_best_compile": bool(include_best_compile),
                     "include_one_epoch_cell": bool(include_one_epoch_cell),
@@ -2329,13 +2329,13 @@ def run_ruler(
                         "rollout_len": int(rollout_len),
                         "ppo_epochs": int(ppo_epochs),
                         "amp": bool(effective_base_amp),
-                        "include_amp": bool(include_amp),
+                        "include_fp32": bool(include_fp32),
                         "include_one_epoch_cell": bool(include_one_epoch_cell),
                         "measure_larger_minibatch": bool(measure_larger_minibatch),
                         "per_variant_defaults": learner_defaults,
                     },
                     "one_epoch_comparison": one_epoch_comparison,
-                    "amp_comparisons": amp_comparisons,
+                    "precision_comparisons": precision_comparisons,
                     "max_capacity": int(max_capacity),
                     "max_wall_seconds": max_wall_seconds,
                     "batch6_forward": batch6_bench,
@@ -2370,8 +2370,8 @@ def run_ruler(
     return out_result
 
 
-def _canary_runs_amp_probe(device: torch.device) -> bool:
-    """Return True when ``run_canary_suite`` should run one tiny ``_amp`` cell per design."""
+def _canary_runs_fp32_probe(device: torch.device) -> bool:
+    """Return True when ``run_canary_suite`` should run both default AMP and ``_fp32`` cells."""
     return device.type == "cuda"
 
 
@@ -2464,14 +2464,14 @@ def run_canary_suite(
                 }
 
     # 3. Tiny REAL ruler probing ONE cell of EACH arch (ego_only, shared_trunk, per_seat;
-    # smallest E, a few ticks, single learner minibatch), plus one tiny `_amp` cell per arch
-    # on CUDA devices so any CUDA-only autocast failure surfaces before a long run.
+    # smallest E, a few ticks, single learner minibatch) under default precision (bf16 ON on
+    # CUDA), plus one tiny `_fp32` cell per arch on CUDA so both precision paths are verified.
     canary_ruler_envs = max(1, min(int(num_envs), 4))
     canary_ruler_rollout = max(2, min(int(rollout_len), 4))
     canary_ruler_rows = canary_ruler_rollout * canary_ruler_envs * DEFAULT_NUM_SNAKES
-    run_amp_canary = _canary_runs_amp_probe(resolved_dev)
+    run_fp32_canary = _canary_runs_fp32_probe(resolved_dev)
     ruler_budget = (
-        max(30.0, (float(max_wall_seconds) - (time.monotonic() - wall_t0)) * 0.45)
+        max(30.0, (float(max_wall_seconds) - (time.monotonic() - wall_t0)) * 0.65)
         if max_wall_seconds is not None
         else None
     )
@@ -2493,8 +2493,8 @@ def run_canary_suite(
         max_capacity=256,
         compile_model=False,
         include_best_compile=False,
-        amp=False,
-        include_amp=run_amp_canary,
+        amp=True,
+        include_fp32=run_fp32_canary,
         measure_larger_minibatch=False,
         max_wall_seconds=ruler_budget,
         disable_projection_skip=True,
@@ -2504,17 +2504,17 @@ def run_canary_suite(
     succeeded_base_archs = {
         str(c.get("net_arch"))
         for c in ruler_res.get("cells", [])
-        if not c.get("is_amp_probe") and str(c.get("cell_id")) in succeeded_id_set
+        if not c.get("is_fp32_probe") and str(c.get("cell_id")) in succeeded_id_set
     }
-    succeeded_amp_archs = {
+    succeeded_fp32_archs = {
         str(c.get("net_arch"))
         for c in ruler_res.get("cells", [])
-        if c.get("is_amp_probe") and str(c.get("cell_id")) in succeeded_id_set
+        if c.get("is_fp32_probe") and str(c.get("cell_id")) in succeeded_id_set
     }
     missing_archs = [arch for arch in DEFAULT_RULER_ARCHS if arch not in succeeded_base_archs]
-    if run_amp_canary:
+    if run_fp32_canary:
         missing_archs.extend(
-            f"{arch}_amp" for arch in DEFAULT_RULER_ARCHS if arch not in succeeded_amp_archs
+            f"{arch}_fp32" for arch in DEFAULT_RULER_ARCHS if arch not in succeeded_fp32_archs
         )
     skipped_entries = ruler_res.get("skipped_cells") or []
     if (
@@ -2523,7 +2523,7 @@ def run_canary_suite(
         or ruler_res.get("oom_cell_ids")
         or skipped_entries
         or succeeded_base_archs != set(DEFAULT_RULER_ARCHS)
-        or (run_amp_canary and succeeded_amp_archs != set(DEFAULT_RULER_ARCHS))
+        or (run_fp32_canary and succeeded_fp32_archs != set(DEFAULT_RULER_ARCHS))
     ):
         skipped_desc = (
             ", ".join(
@@ -2540,31 +2540,31 @@ def run_canary_suite(
             f"missing designs: {missing_desc}; skipped cells: {skipped_desc}"
         )
 
-    if run_amp_canary:
-        amp_cell_ids = [
+    if run_fp32_canary:
+        fp32_cell_ids = [
             str(c["cell_id"])
             for c in ruler_res.get("cells", [])
-            if c.get("is_amp_probe") and str(c.get("cell_id")) in succeeded_id_set
+            if c.get("is_fp32_probe") and str(c.get("cell_id")) in succeeded_id_set
         ]
-        amp_canary_probe: dict[str, Any] = {
+        fp32_canary_probe: dict[str, Any] = {
             "executed": True,
             "device": str(resolved_dev),
-            "amp_cell_ids": amp_cell_ids,
+            "fp32_cell_ids": fp32_cell_ids,
             "skipped_reason": None,
         }
-        phase_stamp("canary_amp_probe", "END", amp_cell_ids=amp_cell_ids)
+        phase_stamp("canary_fp32_probe", "END", fp32_cell_ids=fp32_cell_ids)
     else:
         skip_note = (
-            f"Skipped CUDA _amp canary cells on non-CUDA device '{resolved_dev}': "
-            "CUDA torch.autocast mixed precision is off on CPU/MPS."
+            f"Skipped separate _fp32 canary cells on non-CUDA device '{resolved_dev}': "
+            "base cells already execute in pure float32 on CPU/MPS."
         )
-        amp_canary_probe = {
+        fp32_canary_probe = {
             "executed": False,
             "device": str(resolved_dev),
-            "amp_cell_ids": [],
+            "fp32_cell_ids": [],
             "skipped_reason": skip_note,
         }
-        phase_stamp("canary_amp_probe", "SKIP", device=str(resolved_dev), note=skip_note)
+        phase_stamp("canary_fp32_probe", "SKIP", device=str(resolved_dev), note=skip_note)
 
     # 4. Tiny REAL 2-update training step for EACH of the 3 designs (`ego_only`, `per_seat`,
     # `shared_trunk`) with small `max_world_frames` (~4) and `late_reset_enabled=True,
@@ -2726,7 +2726,7 @@ def run_canary_suite(
         {
             "schema": "arena-ppo-canary-checks/v1",
             "device": str(resolved_dev),
-            "amp_canary_probe": amp_canary_probe,
+            "fp32_canary_probe": fp32_canary_probe,
             "train_by_arch": train_by_arch,
         },
     )
@@ -2739,7 +2739,7 @@ def run_canary_suite(
     return {
         "indexed_parity": parity_res,
         "staged_input_verification": staged_verification,
-        "amp_canary_probe": amp_canary_probe,
+        "fp32_canary_probe": fp32_canary_probe,
         "ruler_result": ruler_res,
         "train_by_arch": train_by_arch,
         "train_result": train_res,
@@ -2819,17 +2819,38 @@ def main() -> int:
     parser.add_argument("--max-capacity", type=int, default=1600)
     parser.add_argument("--compile", action="store_true")
     parser.add_argument("--no-best-compile", action="store_true")
-    parser.add_argument(
+    env_amp = os.environ.get("ARENA_PPO_AMP")
+    default_ruler_amp = (
+        (env_amp.lower() in {"1", "true"})
+        if env_amp in {"0", "1", "false", "true", "False", "True"}
+        else True
+    )
+    amp_group = parser.add_mutually_exclusive_group()
+    amp_group.add_argument(
         "--amp",
+        dest="amp",
         action="store_true",
-        default=os.environ.get("ARENA_PPO_AMP", "0") == "1",
-        help="Enable opt-in CUDA mixed precision (`torch.autocast`) on base ruler cells.",
+        default=default_ruler_amp,
+        help=(
+            "Enable CUDA mixed precision on base ruler cells "
+            "(DEFAULT ON: bf16 autocast on Ampere/Ada/Hopper, fp16+GradScaler else)."
+        ),
+    )
+    amp_group.add_argument(
+        "--no-amp",
+        "--fp32",
+        dest="amp",
+        action="store_false",
+        help="Disable CUDA mixed precision on base ruler cells (pure float32).",
     )
     parser.add_argument(
-        "--include-amp",
+        "--include-fp32",
         action="store_true",
-        default=os.environ.get("ARENA_PPO_INCLUDE_AMP", "0") == "1",
-        help="Measure both fp32 baseline (`E...`) and `_amp` (`E..._amp`) cells for comparison.",
+        default=os.environ.get("ARENA_PPO_INCLUDE_FP32", "0") == "1",
+        help=(
+            "Measure both default mixed-precision (`E...`, bf16 ON on CUDA) and pure float32 "
+            "(`E..._fp32`) cells in one ruler run."
+        ),
     )
     parser.add_argument("--no-larger-minibatch", action="store_true")
     parser.add_argument("--seed", type=int, default=20261110)
@@ -2879,7 +2900,7 @@ def main() -> int:
         compile_model=bool(args.compile),
         include_best_compile=not bool(args.no_best_compile),
         amp=bool(args.amp),
-        include_amp=bool(args.include_amp),
+        include_fp32=bool(args.include_fp32),
         measure_larger_minibatch=not bool(args.no_larger_minibatch),
         max_wall_seconds=args.max_wall_seconds,
         seed=args.seed,

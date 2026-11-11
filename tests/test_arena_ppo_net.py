@@ -156,13 +156,15 @@ def test_m1_per_net_defaults_and_minor10_bf16_fallback_and_caching(
     assert default_minibatch_size("M", net_arch="per_seat") == 768
 
     fake_cuda = torch.device("cuda", 0)
-    # Default is opt-in OFF (`use_bf16_autocast=False`) across all 3 network configs
-    net_default = ArenaNet(ArenaNetConfig.from_size("S"))
-    assert net_default.cfg.use_bf16_autocast is False
-    assert SharedTrunkNetConfig.from_size("S").use_bf16_autocast is False
-    assert EgoOnlyNetConfig.from_size("S").use_bf16_autocast is False
-    assert getattr(net_default._autocast_ctx(fake_cuda), "fast_dtype", None) is None
-    assert net_default.uses_fp16_grad_scaler(fake_cuda) is False
+    # Default is ON (`use_bf16_autocast=True`) across all 3 network configs; `False` opts out
+    assert ArenaNetConfig.from_size("S").use_bf16_autocast is True
+    assert SharedTrunkNetConfig.from_size("S").use_bf16_autocast is True
+    assert EgoOnlyNetConfig.from_size("S").use_bf16_autocast is True
+    assert build_arena_model("shared_trunk", "S").cfg.use_bf16_autocast is True
+    net_off = ArenaNet(ArenaNetConfig.from_size("S", use_bf16_autocast=False))
+    assert net_off.cfg.use_bf16_autocast is False
+    assert getattr(net_off._autocast_ctx(fake_cuda), "fast_dtype", None) is None
+    assert net_off.uses_fp16_grad_scaler(fake_cuda) is False
 
     calls_fp16 = {"n": 0}
 
@@ -566,3 +568,47 @@ def test_amp_cpu_fallback_channels_last_and_evaluate_actions_skip_value_bit_iden
     assert torch.equal(ent_off, ent_on) and ent_on.dtype == torch.float32
     assert torch.equal(vl_off, vl_on) and vl_on.dtype == torch.float32
     assert torch.equal(al_off, al_on) and al_on.dtype == torch.float32
+
+    # Prove evaluate_actions (compute_value=False) produces bit-identical backward gradients
+    # to computing full forward(compute_value=True) on the learner loss.
+    m_grad_full = build_arena_model(net_arch, "S", amp=False).train()  # type: ignore[arg-type]
+    m_grad_skip = build_arena_model(net_arch, "S", amp=False).train()  # type: ignore[arg-type]
+    m_grad_skip.load_state_dict(m_grad_full.state_dict())
+    if isinstance(m_grad_full, ArenaNet):
+        assert isinstance(m_grad_skip, ArenaNet)
+        out_full = m_grad_full.forward(
+            arena, ego, scalars, legal_mask=legal_mask, compute_value=True
+        )
+        lp_g_skip, ent_g_skip, vl_g_skip, al_g_skip = m_grad_skip.evaluate_actions(
+            arena, ego, scalars, legal_mask, actions
+        )
+    else:
+        out_full = m_grad_full.forward(  # type: ignore[arg-type]
+            obs, legal_mask=legal_mask, compute_value=True
+        )
+        lp_g_skip, ent_g_skip, vl_g_skip, al_g_skip = m_grad_skip.evaluate_actions(
+            obs, legal_mask, actions
+        )  # type: ignore[arg-type]
+    lpa = torch.nn.functional.log_softmax(out_full.masked_logits, dim=-1)
+    pa = torch.nn.functional.softmax(out_full.masked_logits, dim=-1)
+    lp_g_full = lpa.gather(1, actions.unsqueeze(1)).squeeze(1)
+    ent_g_full = -(pa * lpa).masked_fill(pa <= 1e-12, 0.0).sum(dim=-1)
+    loss_full = (
+        -lp_g_full.mean()
+        - 0.01 * ent_g_full.mean()
+        + 0.5 * out_full.value_logits.square().mean()
+        + 0.1 * out_full.aux_logits.square().mean()
+    )
+    loss_skip = (
+        -lp_g_skip.mean()
+        - 0.01 * ent_g_skip.mean()
+        + 0.5 * vl_g_skip.square().mean()
+        + 0.1 * al_g_skip.square().mean()
+    )
+    loss_full.backward()
+    loss_skip.backward()
+    for (name, p_full), (_, p_skip) in zip(
+        m_grad_full.named_parameters(), m_grad_skip.named_parameters()
+    ):
+        assert p_full.grad is not None and p_skip.grad is not None
+        assert torch.equal(p_full.grad, p_skip.grad), f"Gradient mismatch on {name}"

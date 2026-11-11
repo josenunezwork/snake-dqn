@@ -138,9 +138,9 @@ class ArenaPPOConfig:
     seed: int = 20261110
     deterministic: bool = False
     compile_model: bool = False
-    amp: bool = False
+    amp: bool | None = None  # type: ignore[assignment]
     use_channels_last: bool = True
-    use_bf16_autocast: bool = False
+    use_bf16_autocast: bool | None = None  # type: ignore[assignment]
     checkpoint_interval_sec: float = 1200.0
     checkpoint_every_updates: int = 0
     keep_periodic_checkpoints: int = 3
@@ -160,8 +160,14 @@ class ArenaPPOConfig:
             raise ValueError(
                 f"Unsupported net_arch {self.net_arch!r}; expected one of {VALID_NET_ARCHS}"
             )
-        object.__setattr__(self, "amp", bool(self.amp))
-        object.__setattr__(self, "use_bf16_autocast", bool(self.amp))
+        if self.amp is not None:
+            eff_amp = bool(self.amp)
+        elif self.use_bf16_autocast is not None:
+            eff_amp = bool(self.use_bf16_autocast)
+        else:
+            eff_amp = True
+        object.__setattr__(self, "amp", eff_amp)
+        object.__setattr__(self, "use_bf16_autocast", eff_amp)
         if self.minibatch_size is None:
             object.__setattr__(
                 self,
@@ -1760,6 +1766,12 @@ class ArenaPPOTrainer:
         for group in self.optimizer.param_groups:
             if "fused" in group or use_fused_now:
                 group["fused"] = use_fused_now
+            needs_dev_step = use_fused_now or bool(group.get("capturable", False))
+            for p in group["params"]:
+                p_state = self.optimizer.state.get(p)
+                if isinstance(p_state, dict) and torch.is_tensor(p_state.get("step")):
+                    target_dev = p.device if needs_dev_step else torch.device("cpu")
+                    p_state["step"] = p_state["step"].to(device=target_dev, dtype=torch.float32)
         if self.grad_scaler.is_enabled() and isinstance(ckpt.get("grad_scaler_state_dict"), dict):
             self.grad_scaler.load_state_dict(ckpt["grad_scaler_state_dict"])
         self.sim.load_state_dict(ckpt["sim_state_dict"])
@@ -2213,6 +2225,20 @@ def run_training_job(
                 log_writer.append(_format_update_log_record(metrics))
 
                 now_wall = time.monotonic()
+                phase_stamp(
+                    "train_update",
+                    "END",
+                    update_idx=int(metrics.update_idx),
+                    agent_steps=int(metrics.agent_steps_collected),
+                    steps_per_sec=round(float(metrics.steps_per_sec), 2),
+                    mean_length=round(float(metrics.mean_length), 3),
+                    p95_length=round(float(metrics.p95_length), 3),
+                    mean_episode_return=round(float(metrics.mean_episode_return), 4),
+                    deaths_per_1k_agent_steps=round(float(metrics.deaths_per_1k_agent_steps), 3),
+                    entropy=round(float(metrics.entropy), 5),
+                    approx_kl=round(float(metrics.approx_kl), 6),
+                    elapsed_sec=round(now_wall - wall_start, 2),
+                )
                 due_wall = (now_wall - trainer._last_checkpoint_wall) >= float(
                     cfg.checkpoint_interval_sec
                 )
@@ -2489,15 +2515,16 @@ def main() -> int:
         action="store_true",
         default=None,
         help=(
-            "Enable opt-in CUDA mixed precision "
-            "(bf16 on Ampere/Ada/Hopper, fp16+GradScaler else)."
+            "Enable CUDA mixed precision (DEFAULT ON: bf16 autocast on Ampere/Ada/Hopper, "
+            "fp16+GradScaler else; pure float32 on CPU/MPS)."
         ),
     )
     amp_group.add_argument(
         "--no-amp",
+        "--fp32",
         dest="amp",
         action="store_false",
-        help="Disable CUDA mixed precision (fp32 everywhere).",
+        help="Disable CUDA mixed precision and run pure float32 everywhere.",
     )
     args = parser.parse_args()
 

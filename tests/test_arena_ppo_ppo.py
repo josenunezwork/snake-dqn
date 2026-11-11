@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import math
 import os
@@ -1266,9 +1267,12 @@ def test_minor6_max_world_frames_checks_host_bound_once_per_rollout(
 def test_task_a4_amp_off_bit_identical_cpu_fallback_and_grad_scaler_roundtrip(
     tmp_path: Path, net_arch: NetArch
 ) -> None:
-    """Task A.4: amp=False default is pure fp32; amp=True falls back bit-identically on CPU."""
-    assert ArenaPPOConfig().amp is False
-    assert ArenaPPOConfig().use_bf16_autocast is False
+    """Default amp=True (CUDA bf16 ON), amp=False pure fp32, max_seg & flat targets exact."""
+    assert ArenaPPOConfig().amp is True
+    assert ArenaPPOConfig().use_bf16_autocast is True
+    assert ArenaPPOConfig(amp=False).amp is False
+    assert ArenaPPOConfig(amp=False).use_bf16_autocast is False
+    assert ArenaPPOConfig(use_bf16_autocast=False).amp is False
 
     base_kw: dict[str, Any] = dict(
         net_arch=net_arch,
@@ -1276,7 +1280,7 @@ def test_task_a4_amp_off_bit_identical_cpu_fallback_and_grad_scaler_roundtrip(
         num_envs=2,
         rollout_len=4,
         ppo_epochs=2,
-        minibatch_size=12,
+        minibatch_size=6,
         actor_chunk_envs=2,
         max_capacity=64,
         seed=20261112,
@@ -1285,6 +1289,51 @@ def test_task_a4_amp_off_bit_identical_cpu_fallback_and_grad_scaler_roundtrip(
     tr_off = ArenaPPOTrainer(ArenaPPOConfig(**base_kw, amp=False), device="cpu")
     assert tr_off.grad_scaler.is_enabled() is False
     m_off = tr_off.step_update()
+
+    # Prove pre-flattened learner targets (`index_select(0, flat_wt)`) match old `[t_idx, e_idx]`
+    buf = tr_off.buffer
+    total_wt = buf.T * buf.E
+    perm = torch.tensor([5, 0, 7, 2, 1, 6, 3, 4], dtype=torch.long)
+    actions_wt = buf.actions.reshape(total_wt, buf.S).to(torch.long)
+    old_lp_wt = buf.log_probs.reshape(total_wt, buf.S)
+    returns_wt = buf.returns.reshape(total_wt, buf.S)
+    aux_targets_wt = buf.aux_targets.reshape(total_wt, buf.S, 3)
+    valid_all = buf.acted & buf.learner_mask
+    v_sum = valid_all.to(torch.float32).sum()
+    adv_mean = (buf.advantages * valid_all.to(torch.float32)).sum() / v_sum.clamp_min(1.0)
+    adv_sq = (
+        (buf.advantages - adv_mean).square() * valid_all.to(torch.float32)
+    ).sum() / v_sum.clamp_min(1.0)
+    norm_adv_wt = (
+        torch.where(valid_all, (buf.advantages - adv_mean) * torch.rsqrt(adv_sq + 1e-8), 0.0)
+    ).reshape(total_wt, buf.S)
+    for start in range(0, total_wt, 2):
+        flat_wt = perm[start : start + 2]
+        t_idx = flat_wt // buf.E
+        e_idx = flat_wt % buf.E
+        assert torch.equal(
+            actions_wt.index_select(0, flat_wt).reshape(-1),
+            buf.actions[t_idx, e_idx].reshape(-1).to(torch.long),
+        )
+        assert torch.equal(
+            old_lp_wt.index_select(0, flat_wt).reshape(-1),
+            buf.log_probs[t_idx, e_idx].reshape(-1),
+        )
+        assert torch.equal(
+            returns_wt.index_select(0, flat_wt).reshape(-1),
+            buf.returns[t_idx, e_idx].reshape(-1),
+        )
+        assert torch.equal(
+            aux_targets_wt.index_select(0, flat_wt).reshape(-1, 3),
+            buf.aux_targets[t_idx, e_idx].reshape(-1, 3),
+        )
+        old_mb_valid = (buf.acted[t_idx, e_idx] & buf.learner_mask[t_idx, e_idx]).reshape(-1)
+        old_mb_adv = torch.where(
+            old_mb_valid,
+            (buf.advantages[t_idx, e_idx].reshape(-1) - adv_mean) * torch.rsqrt(adv_sq + 1e-8),
+            0.0,
+        )
+        assert torch.equal(norm_adv_wt.index_select(0, flat_wt).reshape(-1), old_mb_adv)
 
     tr_on_cpu = ArenaPPOTrainer(ArenaPPOConfig(**base_kw, amp=True), device="cpu")
     assert tr_on_cpu.grad_scaler.is_enabled() is False
@@ -1533,3 +1582,264 @@ def test_task_b5_resume_from_pending_late_restore_bit_identical_and_staged_valid
     )
     with pytest.raises(ValueError, match="Invalid pending_late_restore"):
         ppo_mod.verify_staged_checkpoint(bad_dtype_ckpt, device="cpu", verify_markers=False)
+
+
+def test_live_466d5966_checkpoint_config_loads_and_continues_identically(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Old 466d5966 checkpoints (use_bf16_autocast=True, no 'amp' key) load and continue cleanly."""
+    from research.arena_ppo.prepare import prepare_arena_ppo_packet
+    from research.arena_ppo.runtime import write_create_only_artifact, write_create_only_json
+
+    old_466d5966_cfg_dict: dict[str, Any] = {
+        "net_arch": "shared_trunk",
+        "net_size": "S",
+        "num_envs": 2,
+        "num_snakes": 6,
+        "grid_h": 83,
+        "grid_w": 145,
+        "rollout_len": 4,
+        "gamma": 0.999,
+        "gae_lambda": 0.97,
+        "lr": 3.0e-4,
+        "adam_eps": 1.0e-5,
+        "weight_decay": 0.0,
+        "clip_ratio": 0.2,
+        "ppo_epochs": 1,
+        "minibatch_size": 12,
+        "entropy_coef": 0.01,
+        "value_coef": 0.5,
+        "aux_coef": 0.1,
+        "max_grad_norm": 1.0,
+        "normalize_advantages": True,
+        "actor_chunk_envs": 2,
+        "ring_chunk": 64,
+        "max_capacity": 64,
+        "max_world_frames": 0,
+        "total_updates": 2,
+        "seed": 4665966,
+        "deterministic": True,
+        "compile_model": False,
+        "use_channels_last": True,
+        "use_bf16_autocast": True,
+        "checkpoint_interval_sec": 1200.0,
+        "checkpoint_every_updates": 1,
+        "keep_periodic_checkpoints": 3,
+        "max_update_seconds": 1200.0,
+        "output_publish_interval_sec": 1800.0,
+        "eval_every_updates": 0,
+        "log_rotate_every_updates": 64,
+        "log_rotate_every_seconds": 900.0,
+        "late_reset_enabled": False,
+        "late_reset_min_length": 600,
+        "late_reset_prob": 0.5,
+        "late_reset_reservoir_size": 64,
+    }
+    assert "amp" not in old_466d5966_cfg_dict
+
+    loaded_cfg = ArenaPPOConfig.from_dict(old_466d5966_cfg_dict)
+    assert loaded_cfg.amp is True
+    assert loaded_cfg.use_bf16_autocast is True
+
+    # Run 2 uninterrupted updates for exact continuation reference
+    unint = ArenaPPOTrainer(loaded_cfg, device="cpu")
+    _ = unint.step_update()
+    m2_unint = unint.step_update()
+
+    # Build an exact 466d5966-shaped checkpoint at update 1:
+    # - config has `"use_bf16_autocast": True` and NO `"amp"` key
+    # - NO `"grad_scaler_state_dict"` key
+    # - `"counters"` has NO `"time_limit_resets"` key
+    # - `optimizer_state_dict` has unfused `"fused": None` + CPU `step` tensors
+    part1 = ArenaPPOTrainer(loaded_cfg, device="cpu")
+    _ = part1.step_update()
+    raw_ckpt = part1.checkpoint_dict()
+    raw_ckpt["config"] = dict(old_466d5966_cfg_dict)
+    assert "amp" not in raw_ckpt["config"]
+    raw_ckpt.pop("grad_scaler_state_dict", None)
+    raw_ckpt["counters"].pop("time_limit_resets", None)
+    for grp in raw_ckpt["optimizer_state_dict"]["param_groups"]:
+        grp["fused"] = None
+    for st in raw_ckpt["optimizer_state_dict"]["state"].values():
+        if isinstance(st, dict) and "step" in st:
+            st["step"] = torch.tensor(float(st["step"]), dtype=torch.float32, device="cpu")
+    raw_ckpt["reason"] = "periodic"
+
+    prior_out = tmp_path / "live_466d5966_out"
+    ckpt_dir = prior_out / "checkpoints"
+    ckpt_pt = ckpt_dir / "ckpt_u0000001.pt"
+    pt_sha = write_create_only_artifact(ckpt_pt, lambda tmp: torch.save(raw_ckpt, tmp))
+    write_create_only_json(
+        ckpt_pt.with_suffix(".meta.json"),
+        {
+            "schema": ppo_mod.ARENA_PPO_SCHEMA,
+            "namespace": ppo_mod.ARENA_PPO_NAMESPACE,
+            "reason": "periodic",
+            "checkpoint_file": ckpt_pt.name,
+            "checkpoint_sha256": pt_sha,
+            "updates_completed": 1,
+            "agent_steps_collected": int(part1.agent_steps_collected),
+            "world_steps_collected": int(part1.world_steps_collected),
+            "canary_export_probe": False,
+        },
+    )
+
+    info = ppo_mod.verify_staged_checkpoint(ckpt_pt, device="cpu", verify_markers=True)
+    assert info["updates_completed"] == 1
+
+    # Stage via prepare_arena_ppo_packet -> preserves amp=True / use_bf16_autocast=True
+    pkt = prepare_arena_ppo_packet(
+        tmp_path / "pkt_resume_466d5966",
+        commit="HEAD",
+        mode="train",
+        gpu="L4",
+        hours=2.0,
+        prior_output_dir=prior_out,
+        prior_kind="checkpoint",
+        output_dir=tmp_path / "out_resume_466d5966",
+        allow_unmerged_commit=True,
+    )
+    mf = json.loads(Path(pkt["manifest_path"]).read_text(encoding="utf-8"))
+    assert mf["env"]["ARENA_PPO_AMP"] == "1"
+    staged_cfg_env = json.loads(mf["env"]["ARENA_PPO_CONFIG_JSON"])
+    assert staged_cfg_env["amp"] is True
+    assert staged_cfg_env["use_bf16_autocast"] is True
+
+    # Load into new ArenaPPOTrainer (default amp=True) and continue update 2 bit-identically
+    resumed = ArenaPPOTrainer(ArenaPPOConfig(**{**loaded_cfg.to_dict()}), device="cpu")
+    resumed.load_checkpoint(ckpt_pt)
+    assert resumed.cfg.amp is True and resumed.cfg.use_bf16_autocast is True
+    m2_res = resumed.step_update()
+    assert m2_res.policy_loss == m2_unint.policy_loss
+    assert m2_res.value_loss == m2_unint.value_loss
+    for k, v_u in unint.model.state_dict().items():
+        assert torch.equal(v_u, resumed.model.state_dict()[k]), f"466d5966 resume diff on {k}"
+
+    # Also verify `step` tensor device/dtype normalization on load_checkpoint (both non-fused CPU
+    # and capturable/fused `needs_dev_step=True` branches)
+    capturable_ckpt = copy.deepcopy(raw_ckpt)
+    for grp in capturable_ckpt["optimizer_state_dict"]["param_groups"]:
+        grp["capturable"] = True
+    cap_pt = tmp_path / "capturable_466d5966.pt"
+    torch.save(capturable_ckpt, cap_pt)
+    cap_trainer = ArenaPPOTrainer(loaded_cfg, device="cpu")
+    cap_trainer.load_checkpoint(cap_pt, verify_markers=False)
+    checked_steps = 0
+    for grp in cap_trainer.optimizer.param_groups:
+        for p in grp["params"]:
+            st = cap_trainer.optimizer.state.get(p)
+            if isinstance(st, dict) and "step" in st:
+                assert st["step"].dtype == torch.float32
+                assert st["step"].device == p.device
+                checked_steps += 1
+    assert checked_steps > 0
+
+
+def test_per_update_arena_ppo_phase_progress_line_zero_extra_syncs(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """run_training_job emits one ARENA_PPO_PHASE train_update line/update with 0 extra syncs."""
+    cfg = ArenaPPOConfig(
+        net_arch="ego_only",
+        net_size="S",
+        num_envs=2,
+        rollout_len=4,
+        ppo_epochs=1,
+        minibatch_size=12,
+        actor_chunk_envs=2,
+        max_capacity=64,
+        total_updates=3,
+        checkpoint_interval_sec=9999.0,
+        checkpoint_every_updates=0,
+        output_publish_interval_sec=9999.0,
+        seed=909,
+        deterministic=True,
+    )
+
+    # Measure baseline Tensor.item() calls inside a bare step_update()
+    orig_item = torch.Tensor.item
+    sync_counter = {"n": 0}
+
+    def _count_item(self: torch.Tensor) -> Any:
+        sync_counter["n"] += 1
+        return orig_item(self)
+
+    bare_trainer = ArenaPPOTrainer(cfg, device="cpu")
+    monkeypatch.setattr(torch.Tensor, "item", _count_item)
+    sync_counter["n"] = 0
+    _ = bare_trainer.step_update()
+    bare_syncs_per_update = sync_counter["n"]
+    monkeypatch.setattr(torch.Tensor, "item", orig_item)
+
+    # Count Tensor.item() calls inside run_training_job's per-update loop outside step_update
+    orig_step = ArenaPPOTrainer.step_update
+    outside_step_syncs = {"n": 0}
+
+    def _wrapped_step(
+        self: ArenaPPOTrainer, *, should_stop: Any = None
+    ) -> ppo_mod.PPOUpdateMetrics:
+        monkeypatch.setattr(torch.Tensor, "item", orig_item)
+        try:
+            return orig_step(self, should_stop=should_stop)
+        finally:
+            monkeypatch.setattr(
+                torch.Tensor,
+                "item",
+                lambda t: (
+                    outside_step_syncs.__setitem__("n", outside_step_syncs["n"] + 1) or orig_item(t)
+                ),
+            )
+
+    monkeypatch.setattr(ArenaPPOTrainer, "step_update", _wrapped_step)
+    capsys.readouterr()
+    out_dir = tmp_path / "progress_line_out"
+    work_dir = tmp_path / "progress_line_work"
+    res = ppo_mod.run_training_job(
+        cfg=cfg,
+        output_dir=out_dir,
+        work_dir=work_dir,
+        device="cpu",
+        step_hook=lambda _tr, _u: monkeypatch.setattr(torch.Tensor, "item", orig_item),
+    )
+    monkeypatch.setattr(torch.Tensor, "item", orig_item)
+    assert res["updates_completed"] == 3
+    assert bare_syncs_per_update >= 0
+    assert outside_step_syncs["n"] == 0, "Per-update progress line introduced extra Tensor.item()!"
+
+    stdout = capsys.readouterr().out
+    phase_records = [
+        json.loads(line[len("ARENA_PPO_PHASE ") :])
+        for line in stdout.splitlines()
+        if line.startswith("ARENA_PPO_PHASE ")
+    ]
+    start_idx = next(
+        i
+        for i, r in enumerate(phase_records)
+        if r["phase"] == "train_loop" and r["event"] == "START"
+    )
+    end_idx = next(
+        i for i, r in enumerate(phase_records) if r["phase"] == "train_loop" and r["event"] == "END"
+    )
+    loop_records = phase_records[start_idx + 1 : end_idx]
+    update_records = [r for r in loop_records if r["phase"] == "train_update"]
+    assert len(update_records) == 3
+    assert [r["update_idx"] for r in update_records] == [1, 2, 3]
+
+    required_keys = {
+        "update_idx",
+        "agent_steps",
+        "steps_per_sec",
+        "mean_length",
+        "p95_length",
+        "mean_episode_return",
+        "deaths_per_1k_agent_steps",
+        "entropy",
+        "approx_kl",
+        "elapsed_sec",
+    }
+    for idx, rec in enumerate(update_records, start=1):
+        assert rec["event"] == "END"
+        assert required_keys.issubset(rec.keys())
+        assert rec["agent_steps"] == idx * 2 * 4 * 6
+        assert rec["steps_per_sec"] > 0.0
+        assert rec["elapsed_sec"] >= 0.0

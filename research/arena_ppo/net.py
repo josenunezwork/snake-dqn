@@ -305,7 +305,7 @@ class ArenaNetConfig:
     token_grid_h: int = (ARENA_GRID_H + 7) // 8
     token_grid_w: int = (ARENA_GRID_W + 7) // 8
     use_channels_last: bool = True
-    use_bf16_autocast: bool = False
+    use_bf16_autocast: bool = True
 
     @classmethod
     def from_size(
@@ -317,7 +317,7 @@ class ArenaNetConfig:
         token_grid_h: int | None = None,
         token_grid_w: int | None = None,
         use_channels_last: bool = True,
-        use_bf16_autocast: bool = False,
+        use_bf16_autocast: bool = True,
     ) -> "ArenaNetConfig":
         """Construct preset configuration for ``"S"`` (~1M params) or ``"M"`` (~5M params)."""
         resolved_th = (
@@ -750,7 +750,7 @@ class SharedTrunkNetConfig:
     token_grid_h: int = (ARENA_GRID_H + 7) // 8
     token_grid_w: int = (ARENA_GRID_W + 7) // 8
     use_channels_last: bool = True
-    use_bf16_autocast: bool = False
+    use_bf16_autocast: bool = True
 
     @classmethod
     def from_size(
@@ -762,7 +762,7 @@ class SharedTrunkNetConfig:
         token_grid_h: int | None = None,
         token_grid_w: int | None = None,
         use_channels_last: bool = True,
-        use_bf16_autocast: bool = False,
+        use_bf16_autocast: bool = True,
     ) -> "SharedTrunkNetConfig":
         """Construct ``SharedTrunkArenaNet`` preset (`S` ~1.05M params, `M` ~4.95M params)."""
         resolved_th = (
@@ -1236,7 +1236,7 @@ class EgoOnlyNetConfig:
     token_grid_h: int = (ARENA_GRID_H + 7) // 8
     token_grid_w: int = (ARENA_GRID_W + 7) // 8
     use_channels_last: bool = True
-    use_bf16_autocast: bool = False
+    use_bf16_autocast: bool = True
 
     @classmethod
     def from_size(
@@ -1248,7 +1248,7 @@ class EgoOnlyNetConfig:
         token_grid_h: int | None = None,
         token_grid_w: int | None = None,
         use_channels_last: bool = True,
-        use_bf16_autocast: bool = False,
+        use_bf16_autocast: bool = True,
     ) -> "EgoOnlyNetConfig":
         """Construct ``EgoOnlyArenaNet`` preset matching ``SharedTrunkArenaNet`` ego/fuse widths."""
         resolved_th = (
@@ -1581,7 +1581,7 @@ def build_arena_model(
     grid_h: int = ARENA_GRID_H,
     grid_w: int = ARENA_GRID_W,
     use_channels_last: bool = True,
-    use_bf16_autocast: bool = False,
+    use_bf16_autocast: bool = True,
     amp: bool | None = None,
     compile_model: bool = False,
     compile_mode: str = "default",
