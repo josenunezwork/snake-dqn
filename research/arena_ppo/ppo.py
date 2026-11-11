@@ -1,4 +1,13 @@
-"""GPU-resident clipped PPO self-play learner with compact rollout tape and verified resume."""
+"""GPU-resident clipped PPO self-play learner with compact rollout tape and verified resume.
+
+Determinism note:
+- On CPU with ``deterministic=True``, checkpoint save + ``load_checkpoint`` produces
+  bit-identical continuation trajectories (`resumed == uninterrupted` across model
+  parameters, AdamW moments, simulator tensors, and RNG streams).
+- On CUDA with default ``deterministic=False`` (`cudnn.benchmark=True`, `bf16` autocast,
+  `scatter_reduce_` / atomic kernels), resumed runs restore exact state and RNG streams
+  for training continuity, while minor floating-point order non-determinism is expected.
+"""
 
 from __future__ import annotations
 
@@ -7,11 +16,10 @@ import dataclasses
 import json
 import os
 import random
-import signal
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 import torch
@@ -22,28 +30,51 @@ from research.arena_ppo.net import (
     ArenaNet,
     ArenaNetConfig,
     NetSize,
+    default_actor_chunk_envs,
+    default_minibatch_size,
     symlog_two_hot_loss,
 )
 from research.arena_ppo.obs import build_arena_ego_obs_from_tensors, build_arena_ego_obs_gpu
 from research.arena_ppo.runtime import (
+    SignalStopFlag,
     configure_determinism,
     ensure_cuda_initialized,
     normalize_device,
     phase_stamp,
     preload_native_sim_extensions,
+    remove_completed_artifact,
+    sha256_file,
     synchronize_device,
     verify_completed_artifact,
     write_create_only_artifact,
     write_create_only_json,
 )
 from research.arena_ppo.sim import (
+    DEFAULT_GRID_H,
+    DEFAULT_GRID_W,
+    DEFAULT_NUM_SNAKES,
     OPPONENT_KIND_SCRIPTED,
     OPPONENT_KIND_SNAPSHOT,
     TrainSim,
+    arena_v2_config,
 )
 
 ARENA_PPO_SCHEMA = "arena-ppo-stage1/v1"
 ARENA_PPO_NAMESPACE = "arena_ppo_stage1_scratch_v2_20261110"
+SUPERVISOR_GRACE_SAVE_LIMIT_SEC = 10.0
+_RESUME_MUTABLE_CONFIG_KEYS: frozenset[str] = frozenset(
+    {
+        "total_updates",
+        "checkpoint_interval_sec",
+        "checkpoint_every_updates",
+        "keep_periodic_checkpoints",
+        "max_update_seconds",
+    }
+)
+
+
+class StopRequestedError(RuntimeError):
+    """Raised when cooperative signal stop (`SIGUSR1`/`SIGTERM`) interrupts an update."""
 
 
 @dataclass(frozen=True)
@@ -52,6 +83,9 @@ class ArenaPPOConfig:
 
     net_size: NetSize = "S"
     num_envs: int = 1024
+    num_snakes: int = DEFAULT_NUM_SNAKES
+    grid_h: int = DEFAULT_GRID_H
+    grid_w: int = DEFAULT_GRID_W
     rollout_len: int = 256
     gamma: float = 0.999
     gae_lambda: float = 0.97
@@ -60,13 +94,13 @@ class ArenaPPOConfig:
     weight_decay: float = 0.0
     clip_ratio: float = 0.2
     ppo_epochs: int = 2
-    minibatch_size: int = 1536
+    minibatch_size: int | None = None
     entropy_coef: float = 0.01
     value_coef: float = 0.5
     aux_coef: float = 0.1
     max_grad_norm: float = 1.0
     normalize_advantages: bool = True
-    actor_chunk_envs: int = 1024
+    actor_chunk_envs: int | None = None
     ring_chunk: int = 512
     max_capacity: int = 1600
     max_world_frames: int = 0
@@ -78,6 +112,18 @@ class ArenaPPOConfig:
     use_bf16_autocast: bool = True
     checkpoint_interval_sec: float = 1200.0
     checkpoint_every_updates: int = 0
+    keep_periodic_checkpoints: int = 3
+    max_update_seconds: float = 1200.0
+
+    def __post_init__(self) -> None:
+        if self.minibatch_size is None:
+            object.__setattr__(self, "minibatch_size", default_minibatch_size(self.net_size))
+        if self.actor_chunk_envs is None:
+            object.__setattr__(self, "actor_chunk_envs", default_actor_chunk_envs(self.net_size))
+        if int(self.keep_periodic_checkpoints) < 1:
+            raise ValueError(
+                f"keep_periodic_checkpoints must be >= 1, got {self.keep_periodic_checkpoints}"
+            )
 
     def to_dict(self) -> dict[str, Any]:
         """Convert dataclass to JSON-serializable dictionary."""
@@ -162,8 +208,9 @@ class CompactRolloutBuffer:
         self.direction = torch.zeros(tes, dtype=torch.uint8, device=device)
         self.prev_heads = torch.zeros((self.T, self.E, self.S, 2), dtype=torch.int16, device=device)
 
+        food_coord_dtype = torch.uint8 if max(self.grid_w, self.grid_h) <= 256 else torch.int16
         self.food_xy = torch.zeros(
-            (self.T, self.E, self.food_capacity, 2), dtype=torch.uint8, device=device
+            (self.T, self.E, self.food_capacity, 2), dtype=food_coord_dtype, device=device
         )
         # 0 = absent, 1 = ambient, 2 = corpse
         self.food_kind = torch.zeros(
@@ -238,8 +285,8 @@ class CompactRolloutBuffer:
         fx = sim.food_cells[..., 0]
         fy = sim.food_cells[..., 1]
         live_f = sim.food_present & (fx >= 0) & (fx < self.grid_w) & (fy >= 0) & (fy < self.grid_h)
-        self.food_xy[t, ..., 0] = fx.clamp(0, 255).to(torch.uint8)
-        self.food_xy[t, ..., 1] = fy.clamp(0, 255).to(torch.uint8)
+        self.food_xy[t, ..., 0] = fx.clamp(0, max(0, self.grid_w - 1)).to(self.food_xy.dtype)
+        self.food_xy[t, ..., 1] = fy.clamp(0, max(0, self.grid_h - 1)).to(self.food_xy.dtype)
         self.food_kind[t] = torch.where(
             live_f & sim.corpse_food,
             self._two_u8,
@@ -381,19 +428,90 @@ class PPOUpdateMetrics:
     aux_loss: float
     entropy: float
     approx_kl: float
+    epoch0_approx_kl: float
     clip_fraction: float
     grad_norm: float
     collect_sec: float
     learn_sec: float
 
 
+def estimate_checkpoint_bytes(cfg: ArenaPPOConfig) -> int:
+    """Estimate conservative upper-bound size in bytes of one ``ckpt_*.pt`` file.
+
+    Accounts for ``ArenaNet`` parameters + AdamW first/second moments (`16 B/param`
+    including optional snapshot weights), compact live-window ``int16`` ``bodies`` at
+    realistic upper occupancy (`min(max_capacity, 400)` segments per snake on average,
+    bounded by ``max_capacity``), ``int16`` food coordinates, and Torch zip metadata.
+
+    Args:
+        cfg: ``ArenaPPOConfig`` describing model and world dimensions.
+
+    Returns:
+        Estimated checkpoint size in bytes.
+    """
+    approx_params = 1_050_000 if cfg.net_size == "S" else 5_100_000
+    model_and_opt_bytes = approx_params * 16
+    sim_cfg = arena_v2_config(
+        int(cfg.num_envs),
+        grid_h=int(cfg.grid_h),
+        grid_w=int(cfg.grid_w),
+        num_snakes=int(cfg.num_snakes),
+        max_capacity=int(cfg.max_capacity),
+    )
+    est_live_seg = min(int(cfg.max_capacity), 400)
+    bodies_i16_bytes = int(cfg.num_envs) * int(cfg.num_snakes) * est_live_seg * 2 * 2
+    food_cap = int(sim_cfg.max_food) * 2
+    misc_sim_bytes = int(cfg.num_envs) * (food_cap * 6 + int(cfg.num_snakes) * 160 + 64)
+    overhead_bytes = 8 * 1024 * 1024
+    return int(model_and_opt_bytes + bodies_i16_bytes + misc_sim_bytes + overhead_bytes)
+
+
+def estimate_max_export_bytes(
+    cfg: ArenaPPOConfig,
+    *,
+    measured_checkpoint_bytes: int | None = None,
+) -> int:
+    """Compute bounded ``max_export_bytes`` from checkpoint size and retention count.
+
+    Retains ``cfg.keep_periodic_checkpoints`` periodic checkpoints plus ``final.pt``,
+    one optional ``ckpt_sig_*.pt``, ``arena_ppo_weights.pth``, and JSON telemetry.
+
+    Args:
+        cfg: Training configuration.
+        measured_checkpoint_bytes: Optional empirically measured single-checkpoint size.
+
+    Returns:
+        Positive byte cap ``<= 2 GiB`` (`2,147,483,648` supervisor ceiling).
+    """
+    ckpt_bytes = (
+        int(measured_checkpoint_bytes)
+        if measured_checkpoint_bytes is not None and int(measured_checkpoint_bytes) > 0
+        else estimate_checkpoint_bytes(cfg)
+    )
+    approx_params = 1_050_000 if cfg.net_size == "S" else 5_100_000
+    eval_weights_bytes = approx_params * 4 + 2 * 1024 * 1024
+    retained_ckpts = int(cfg.keep_periodic_checkpoints) + 2
+    raw_total = retained_ckpts * ckpt_bytes + eval_weights_bytes + 16 * 1024 * 1024
+    with_margin = max(64 * 1024 * 1024, int(raw_total * 1.25))
+    supervisor_ceiling = 2 * 1024 * 1024 * 1024
+    if with_margin > supervisor_ceiling:
+        if raw_total > supervisor_ceiling:
+            raise ValueError(
+                f"Estimated retained exports ({raw_total} B) exceed 2 GiB supervisor ceiling; "
+                "reduce num_envs or keep_periodic_checkpoints."
+            )
+        return supervisor_ceiling
+    return with_margin
+
+
 def find_newest_verified_checkpoint(ckpt_dir: Path | str) -> Path | None:
     """Return the newest verified non-probe checkpoint in `ckpt_dir`, or None.
 
-    Verifies `.complete` + `.sha256` digests and refuses `canary_export_probe` stubs.
+    Verifies `.complete` + `.sha256` digests, skips corrupt or partially written
+    candidates without aborting the scan, and refuses `canary_export_probe` stubs.
 
     Args:
-        ckpt_dir: Directory containing `ckpt_u*.pt` checkpoints.
+        ckpt_dir: Directory containing `ckpt_*.pt` checkpoints.
 
     Returns:
         Path to newest verified checkpoint `.pt` file, or ``None`` if none exist.
@@ -406,28 +524,72 @@ def find_newest_verified_checkpoint(ckpt_dir: Path | str) -> Path | None:
     for pt_path in directory.glob("ckpt_*.pt"):
         if not (Path(f"{pt_path}.complete").is_file() and Path(f"{pt_path}.sha256").is_file()):
             continue
-        verify_completed_artifact(pt_path)
-        meta_path = pt_path.with_suffix(".meta.json")
-        updates = -1
-        if (
-            meta_path.is_file()
-            and Path(f"{meta_path}.complete").is_file()
-            and Path(f"{meta_path}.sha256").is_file()
-        ):
-            verify_completed_artifact(meta_path)
-            meta = json.loads(meta_path.read_text(encoding="utf-8"))
-            if bool(meta.get("canary_export_probe")):
-                continue
-            updates = int(meta.get("updates_completed", -1))
-        else:
-            stem_digits = "".join(ch for ch in pt_path.stem if ch.isdigit())
-            updates = int(stem_digits) if stem_digits else -1
-        candidates.append((updates, float(pt_path.stat().st_mtime), pt_path))
+        try:
+            verify_completed_artifact(pt_path)
+            meta_path = pt_path.with_suffix(".meta.json")
+            updates = -1
+            if (
+                meta_path.is_file()
+                and Path(f"{meta_path}.complete").is_file()
+                and Path(f"{meta_path}.sha256").is_file()
+            ):
+                verify_completed_artifact(meta_path)
+                meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                if not isinstance(meta, dict) or bool(meta.get("canary_export_probe")):
+                    continue
+                updates = int(meta.get("updates_completed", -1))
+            else:
+                stem_digits = "".join(ch for ch in pt_path.stem if ch.isdigit())
+                updates = int(stem_digits) if stem_digits else -1
+            candidates.append((updates, float(pt_path.stat().st_mtime), pt_path))
+        except (OSError, ValueError, RuntimeError, json.JSONDecodeError, KeyError, TypeError):
+            continue
 
     if not candidates:
         return None
     candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
     return candidates[0][2]
+
+
+def prune_old_periodic_checkpoints(ckpt_dir: Path | str, *, keep: int = 3) -> list[str]:
+    """Keep only the newest ``keep`` verified periodic ``ckpt_u*.pt`` files on disk.
+
+    Never deletes ``ckpt_sig_*.pt`` or ``final.pt``.
+
+    Args:
+        ckpt_dir: Checkpoint directory.
+        keep: Number of newest periodic checkpoints to retain (`>= 1`).
+
+    Returns:
+        List of pruned checkpoint filenames.
+    """
+    keep_n = max(1, int(keep))
+    directory = Path(ckpt_dir)
+    if not directory.is_dir():
+        return []
+
+    periodic: list[tuple[int, float, Path]] = []
+    for pt_path in directory.glob("ckpt_u*.pt"):
+        if pt_path.name.startswith("ckpt_sig_"):
+            continue
+        if not (Path(f"{pt_path}.complete").is_file() and Path(f"{pt_path}.sha256").is_file()):
+            continue
+        try:
+            verify_completed_artifact(pt_path)
+            stem_digits = "".join(ch for ch in pt_path.stem if ch.isdigit())
+            updates = int(stem_digits) if stem_digits else -1
+            periodic.append((updates, float(pt_path.stat().st_mtime), pt_path))
+        except (OSError, ValueError):
+            continue
+
+    periodic.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    pruned: list[str] = []
+    for _, _, old_pt in periodic[keep_n:]:
+        old_meta = old_pt.with_suffix(".meta.json")
+        remove_completed_artifact(old_meta)
+        remove_completed_artifact(old_pt)
+        pruned.append(old_pt.name)
+    return pruned
 
 
 class ArenaPPOTrainer:
@@ -482,6 +644,9 @@ class ArenaPPOTrainer:
                 cfg.num_envs,
                 device=self.device,
                 seed=cfg.seed,
+                grid_h=cfg.grid_h,
+                grid_w=cfg.grid_w,
+                num_snakes=cfg.num_snakes,
                 max_capacity=cfg.max_capacity,
             )
 
@@ -581,7 +746,7 @@ class ArenaPPOTrainer:
         return values
 
     def _maybe_apply_world_time_limits(self, t: int, survived: torch.Tensor) -> None:
-        """Handle optional `max_world_frames` world resets with pre-reset value bootstrap."""
+        """Handle optional `max_world_frames` world resets with prepared `s_{t+1}` bootstrap."""
         max_frames = int(self.cfg.max_world_frames)
         if max_frames <= 0:
             self.buffer.truncated[t].zero_()
@@ -594,7 +759,9 @@ class ArenaPPOTrainer:
             self.buffer.trunc_bootstrap[t].zero_()
             return
 
-        # Compute pre-reset bootstrap values before resetting hit worlds
+        # Prepare s_{t+1} across all worlds in exact v2 order first; subsequent prepare()
+        # at t + 1 (or rollout cut) is an idempotent no-op, keeping ~hit worlds byte-identical.
+        self.sim.prepare()
         with torch.no_grad():
             pre_reset_vals = self._bootstrap_values_chunked()
         trunc_mask = hit[:, None] & survived
@@ -603,28 +770,19 @@ class ArenaPPOTrainer:
             trunc_mask, pre_reset_vals, torch.zeros_like(pre_reset_vals)
         )
 
-        # Reset hit worlds on device
-        sim = self.sim.sim
-        sim.alive[hit] = False
-        sim.respawn_timer[hit] = 0
-        sim.seg_count[hit] = 0
-        sim.length[hit] = 1
-        sim.boost_frames[hit] = 0
-        sim.frames_since_food[hit] = 0
-        sim._reward_prev_length[hit] = 1
-        sim._boosted_this_step[hit] = False
-        sim.food_present[hit] = False
-        sim.corpse_food[hit] = False
-        sim.food_count[hit] = 0
-        sim.frame[hit] = 0
-        self.sim.prev_alive[hit] = False
-        self.sim.prev_heads[hit] = 0
-        sim._respawn_exact()
-        sim._refill_food_rows(hit)
+        # Reset only hit worlds onto prepared frame-1 state without touching ~hit worlds.
+        self.sim.reset_worlds(hit)
 
     @torch.no_grad()
-    def collect_rollout(self) -> float:
-        """Collect `T` ticks across `E * 6` seats into `self.buffer`.
+    def collect_rollout(
+        self,
+        *,
+        should_stop: Callable[[], bool] | None = None,
+    ) -> float:
+        """Collect `T` ticks across `E * S` seats into `self.buffer`.
+
+        Args:
+            should_stop: Optional cooperative stop predicate checked every tick.
 
         Returns:
             Elapsed wall seconds spent in rollout collection + GAE computation.
@@ -632,6 +790,8 @@ class ArenaPPOTrainer:
         self.model.eval()
         t0 = time.perf_counter()
         for t in range(self.cfg.rollout_len):
+            if should_stop is not None and should_stop():
+                raise StopRequestedError("Signal stop requested during rollout collection")
             self.sim.prepare()
             self.buffer.record_pre_step(t, self.sim)
             legal_mask = self.sim.legal_action_mask()
@@ -664,6 +824,8 @@ class ArenaPPOTrainer:
             self.buffer.learner_mask[t] = info.learner_mask
             self._maybe_apply_world_time_limits(t, info.survived)
 
+        self.sim.assert_no_capacity_overflow()
+
         # Rollout-cut bootstrap on state `T`
         self.sim.prepare()
         last_values = self._bootstrap_values_chunked()
@@ -678,8 +840,13 @@ class ArenaPPOTrainer:
         self.agent_steps_collected += self.cfg.rollout_len * self.sim.E * self.sim.S
         return elapsed
 
-    def ppo_update(self) -> tuple[dict[str, float], float]:
+    def ppo_update(
+        self,
+        *,
+        should_stop: Callable[[], bool] | None = None,
+    ) -> tuple[dict[str, float], float]:
         """Run `ppo_epochs` of minibatch clipped PPO + symlog two-hot value + aux BCE updates."""
+        assert self.cfg.minibatch_size is not None
         self.model.train()
         t0 = time.perf_counter()
 
@@ -696,20 +863,26 @@ class ArenaPPOTrainer:
 
         total_world_ticks = self.cfg.rollout_len * self.sim.E
         mb_worlds = max(1, min(total_world_ticks, int(self.cfg.minibatch_size) // self.sim.S))
+        vmin = float(self.model.cfg.value_symlog_min)
+        vmax = float(self.model.cfg.value_symlog_max)
 
         policy_loss_acc = torch.zeros((), dtype=torch.float32, device=self.device)
         value_loss_acc = torch.zeros((), dtype=torch.float32, device=self.device)
         aux_loss_acc = torch.zeros((), dtype=torch.float32, device=self.device)
         entropy_acc = torch.zeros((), dtype=torch.float32, device=self.device)
         kl_acc = torch.zeros((), dtype=torch.float32, device=self.device)
+        epoch0_kl_acc = torch.zeros((), dtype=torch.float32, device=self.device)
         clip_acc = torch.zeros((), dtype=torch.float32, device=self.device)
         grad_norm_acc = torch.zeros((), dtype=torch.float32, device=self.device)
         num_batches = 0
+        epoch0_batches = 0
 
-        for _ in range(self.cfg.ppo_epochs):
+        for epoch_idx in range(self.cfg.ppo_epochs):
             perm_cpu = torch.randperm(total_world_ticks, generator=self.perm_gen)
             perm = perm_cpu.to(device=self.device, dtype=torch.long)
             for start in range(0, total_world_ticks, mb_worlds):
+                if should_stop is not None and should_stop():
+                    raise StopRequestedError("Signal stop requested during learner minibatch")
                 flat_wt = perm[start : start + mb_worlds]
                 t_idx = torch.div(flat_wt, self.sim.E, rounding_mode="floor")
                 e_idx = flat_wt.remainder(self.sim.E)
@@ -745,7 +918,13 @@ class ArenaPPOTrainer:
                 )
                 pg_loss = -(torch.minimum(surr1, surr2) * valid_f).sum() / valid_count
 
-                v_loss_rows = symlog_two_hot_loss(val_logits, mb_returns, self.model.value_support)
+                v_loss_rows = symlog_two_hot_loss(
+                    val_logits,
+                    mb_returns,
+                    self.model.value_support,
+                    vmin=vmin,
+                    vmax=vmax,
+                )
                 v_loss = (v_loss_rows * valid_f).sum() / valid_count
 
                 ent_mean = (entropy * valid_f).sum() / valid_count
@@ -781,6 +960,9 @@ class ArenaPPOTrainer:
                     aux_loss_acc += aux_loss.detach()
                     entropy_acc += ent_mean.detach()
                     kl_acc += approx_kl.detach()
+                    if epoch_idx == 0:
+                        epoch0_kl_acc += approx_kl.detach()
+                        epoch0_batches += 1
                     clip_acc += clipped.detach()
                     grad_norm_acc += torch.as_tensor(
                         grad_norm, dtype=torch.float32, device=self.device
@@ -791,6 +973,7 @@ class ArenaPPOTrainer:
         elapsed = time.perf_counter() - t0
         self.updates_completed += 1
         inv_b = 1.0 / float(max(1, num_batches))
+        inv_e0 = 1.0 / float(max(1, epoch0_batches))
         stats_gpu = (
             torch.stack(
                 (
@@ -799,6 +982,7 @@ class ArenaPPOTrainer:
                     aux_loss_acc * inv_b,
                     entropy_acc * inv_b,
                     kl_acc * inv_b,
+                    epoch0_kl_acc * inv_e0,
                     clip_acc * inv_b,
                     grad_norm_acc * inv_b,
                 )
@@ -814,16 +998,21 @@ class ArenaPPOTrainer:
                 "aux_loss": float(stats_gpu[2]),
                 "entropy": float(stats_gpu[3]),
                 "approx_kl": float(stats_gpu[4]),
-                "clip_fraction": float(stats_gpu[5]),
-                "grad_norm": float(stats_gpu[6]),
+                "epoch0_approx_kl": float(stats_gpu[5]),
+                "clip_fraction": float(stats_gpu[6]),
+                "grad_norm": float(stats_gpu[7]),
             },
             elapsed,
         )
 
-    def step_update(self) -> PPOUpdateMetrics:
+    def step_update(
+        self,
+        *,
+        should_stop: Callable[[], bool] | None = None,
+    ) -> PPOUpdateMetrics:
         """Execute one full `collect_rollout()` + `ppo_update()` iteration."""
-        collect_sec = self.collect_rollout()
-        stats, learn_sec = self.ppo_update()
+        collect_sec = self.collect_rollout(should_stop=should_stop)
+        stats, learn_sec = self.ppo_update(should_stop=should_stop)
 
         with torch.no_grad():
             valid_mask = self.buffer.acted & self.buffer.learner_mask
@@ -847,6 +1036,7 @@ class ArenaPPOTrainer:
             aux_loss=stats["aux_loss"],
             entropy=stats["entropy"],
             approx_kl=stats["approx_kl"],
+            epoch0_approx_kl=stats["epoch0_approx_kl"],
             clip_fraction=stats["clip_fraction"],
             grad_norm=stats["grad_norm"],
             collect_sec=collect_sec,
@@ -936,6 +1126,19 @@ class ArenaPPOTrainer:
             raise ValueError(
                 f"Foreign checkpoint namespace {ckpt.get('namespace')!r} at {ckpt_path}"
             )
+        ckpt_cfg_raw = ckpt.get("config")
+        if not isinstance(ckpt_cfg_raw, dict):
+            raise ValueError(f"Checkpoint missing config dictionary at {ckpt_path}")
+        ckpt_cfg = ArenaPPOConfig.from_dict(ckpt_cfg_raw).to_dict()
+        curr_cfg = self.cfg.to_dict()
+        for key in sorted(set(ckpt_cfg) | set(curr_cfg)):
+            if key in _RESUME_MUTABLE_CONFIG_KEYS:
+                continue
+            if ckpt_cfg.get(key) != curr_cfg.get(key):
+                raise ValueError(
+                    f"Checkpoint config mismatch on {key!r}: "
+                    f"ckpt={ckpt_cfg.get(key)!r} vs current={curr_cfg.get(key)!r}"
+                )
 
         self.model.load_state_dict(ckpt["model_state_dict"])
         if ckpt.get("snapshot_state_dict") is not None and self.snapshot_model is not None:
@@ -970,6 +1173,7 @@ def run_training_job(
     input_dir: Path | None = None,
     ledger_path: Path | None = None,
     max_wall_seconds: float | None = None,
+    step_hook: Callable[[ArenaPPOTrainer, int], None] | None = None,
 ) -> dict[str, Any]:
     """Run Stage 1 PPO training with signal-safe checkpointing, resume, and verified exports."""
     resolved_dev = normalize_device(device)
@@ -1006,39 +1210,49 @@ def run_training_job(
         native_extensions=ext_info,
     )
 
-    stop_signal: list[str] = []
-    prev_sigterm = signal.getsignal(signal.SIGTERM)
-    prev_sigusr1 = getattr(signal, "SIGUSR1", None)
-    old_usr1 = signal.getsignal(prev_sigusr1) if prev_sigusr1 is not None else None
-
-    def _on_signal(signum: int, _frame: Any) -> None:
-        sig_name = signal.Signals(signum).name
-        stop_signal.append(sig_name)
-
-    signal.signal(signal.SIGTERM, _on_signal)
-    if prev_sigusr1 is not None:
-        signal.signal(prev_sigusr1, _on_signal)
-
     wall_start = time.monotonic()
     last_metrics: dict[str, Any] = {}
+    last_update_sec: float = 0.0
+    last_ckpt_save_sec: float = 1.0
+    aborted_mid_update = False
     stopped_reason = "completed_target_updates"
-    try:
+    pruned_checkpoints: list[str] = []
+
+    with SignalStopFlag() as stop_flag:
         phase_stamp("train_loop", "START", target_updates=cfg.total_updates)
         while trainer.updates_completed < cfg.total_updates:
-            if stop_signal:
-                stopped_reason = f"signal:{stop_signal[-1]}"
+            if stop_flag.stopped:
+                stopped_reason = f"signal:{stop_flag.signal_name}"
                 sig_ckpt = ckpt_out_dir / f"ckpt_sig_u{trainer.updates_completed:07d}.pt"
-                if not sig_ckpt.exists():
+                if not sig_ckpt.exists() and last_ckpt_save_sec <= SUPERVISOR_GRACE_SAVE_LIMIT_SEC:
+                    t_save = time.monotonic()
                     trainer.save_checkpoint(sig_ckpt, reason=stopped_reason)
+                    last_ckpt_save_sec = time.monotonic() - t_save
                 break
 
             elapsed_wall = time.monotonic() - wall_start
-            if max_wall_seconds is not None and elapsed_wall >= float(max_wall_seconds):
-                stopped_reason = "wall_budget_guard"
+            if max_wall_seconds is not None:
+                budget = float(max_wall_seconds)
+                export_reserve_sec = max(5.0, 2.5 * last_ckpt_save_sec)
+                if elapsed_wall >= budget:
+                    stopped_reason = "wall_budget_guard"
+                    break
+                if (
+                    last_update_sec > 0.0
+                    and (elapsed_wall + 1.5 * last_update_sec + export_reserve_sec) > budget
+                ):
+                    stopped_reason = "wall_budget_projected_guard"
+                    break
+
+            try:
+                metrics = trainer.step_update(should_stop=lambda: stop_flag.stopped)
+            except StopRequestedError:
+                aborted_mid_update = True
+                stopped_reason = f"signal:{stop_flag.signal_name or 'INTERRUPTED'}"
                 break
 
-            metrics = trainer.step_update()
             last_metrics = asdict(metrics)
+            last_update_sec = float(metrics.collect_sec + metrics.learn_sec)
 
             now_wall = time.monotonic()
             due_wall = (now_wall - trainer._last_checkpoint_wall) >= float(
@@ -1048,29 +1262,59 @@ def run_training_job(
                 cfg.checkpoint_every_updates > 0
                 and trainer.updates_completed % cfg.checkpoint_every_updates == 0
             )
-            if due_wall or due_updates:
+            over_max_update = cfg.max_update_seconds > 0.0 and last_update_sec > float(
+                cfg.max_update_seconds
+            )
+            if due_wall or due_updates or over_max_update:
                 periodic_path = ckpt_out_dir / f"ckpt_u{trainer.updates_completed:07d}.pt"
                 if not periodic_path.exists():
                     phase_stamp("checkpoint", "START", update=trainer.updates_completed)
+                    t_save = time.monotonic()
                     trainer.save_checkpoint(periodic_path, reason="periodic")
-                    phase_stamp("checkpoint", "END", update=trainer.updates_completed)
+                    last_ckpt_save_sec = time.monotonic() - t_save
+                    verify_completed_artifact(periodic_path)
+                    pruned_checkpoints.extend(
+                        prune_old_periodic_checkpoints(
+                            ckpt_out_dir, keep=cfg.keep_periodic_checkpoints
+                        )
+                    )
+                    phase_stamp(
+                        "checkpoint",
+                        "END",
+                        update=trainer.updates_completed,
+                        save_sec=round(last_ckpt_save_sec, 4),
+                    )
+
+            if over_max_update:
+                raise RuntimeError(
+                    f"Measured PPO update took {last_update_sec:.1f}s > "
+                    f"max_update_seconds={cfg.max_update_seconds:.1f}s; refusing next update "
+                    "to preserve <= 45 min interruption loss bound."
+                )
+
+            if step_hook is not None:
+                step_hook(trainer, trainer.updates_completed)
 
         phase_stamp(
             "train_loop",
             "END",
             updates_completed=trainer.updates_completed,
             stopped_reason=stopped_reason,
+            aborted_mid_update=aborted_mid_update,
         )
-    finally:
-        signal.signal(signal.SIGTERM, prev_sigterm)
-        if prev_sigusr1 is not None and old_usr1 is not None:
-            signal.signal(prev_sigusr1, old_usr1)
 
-    phase_stamp("train_export", "START")
-    final_ckpt_path = ckpt_out_dir / "final.pt"
-    final_ckpt_sha, _ = trainer.save_checkpoint(final_ckpt_path, reason=stopped_reason)
-    weights_path = output_dir / "arena_ppo_weights.pth"
-    weights_sha = trainer.save_eval_weights(weights_path)
+    phase_stamp("train_export", "START", aborted_mid_update=aborted_mid_update)
+    final_ckpt_sha: str | None = None
+    weights_sha: str | None = None
+    is_signal_stop = stopped_reason.startswith("signal:")
+    write_final_exports = (not aborted_mid_update) and (
+        (not is_signal_stop) or (last_ckpt_save_sec <= SUPERVISOR_GRACE_SAVE_LIMIT_SEC)
+    )
+    if write_final_exports:
+        final_ckpt_path = ckpt_out_dir / "final.pt"
+        final_ckpt_sha, _ = trainer.save_checkpoint(final_ckpt_path, reason=stopped_reason)
+        weights_path = output_dir / "arena_ppo_weights.pth"
+        weights_sha = trainer.save_eval_weights(weights_path)
 
     result = {
         "schema": "arena-ppo-train-result/v1",
@@ -1081,10 +1325,14 @@ def run_training_job(
         "parameter_count": trainer.model.parameter_count(),
         "resumed_from": resumed_from,
         "stopped_reason": stopped_reason,
+        "aborted_mid_update": bool(aborted_mid_update),
         "updates_completed": trainer.updates_completed,
         "agent_steps_collected": trainer.agent_steps_collected,
         "world_steps_collected": trainer.world_steps_collected,
         "wall_seconds": round(time.monotonic() - wall_start, 4),
+        "last_update_seconds": round(last_update_sec, 4),
+        "last_checkpoint_save_seconds": round(last_ckpt_save_sec, 4),
+        "pruned_periodic_checkpoints": pruned_checkpoints,
         "last_update_metrics": last_metrics,
         "final_checkpoint_sha256": final_ckpt_sha,
         "eval_weights_sha256": weights_sha,
@@ -1096,8 +1344,6 @@ def run_training_job(
 
 def hashlib_sha(path: Path) -> str:
     """Return SHA-256 hex digest of `path`."""
-    from research.arena_ppo.runtime import sha256_file
-
     return sha256_file(path)
 
 
