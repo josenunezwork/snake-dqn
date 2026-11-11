@@ -15,16 +15,16 @@ import sys
 import time
 import uuid
 from collections import Counter
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, Iterator
 
 if __package__:
     from . import auto_retry
-    from .qualification import OPS, save
+    from .qualification import OPS, commit_transport_cap, save
 else:
     import auto_retry
-    from qualification import OPS, save
+    from qualification import OPS, commit_transport_cap, save
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
@@ -34,19 +34,19 @@ if str(ROOT) not in sys.path:
 from research.colab_cli.accounting import (  # noqa: E402
     ACCOUNT_ASSIGNMENT_CAP,
     ACCOUNT_TYPE_CAPS,
+    LEGACY_ACCOUNT_ASSIGNMENT_CAP,
 )
 
 # Measured 2026-11-10 (/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/limits-probe):
-# Colab allows 3 concurrent runtimes per GPU type (3 L4 + 3 T4 + 3 G4 + 3 A100 = 12 GPUs;
-# 4th of each refused "Allocation refused (precondition failed)"; H100 assumed 3) plus 5
-# CPU-only sessions (2026-11-02), with ACCOUNT_ASSIGNMENT_CAP=20 as a runaway guard.
+# 3 L4 + 3 T4 + 3 G4 + 3 A100 = 12 concurrent GPU sessions; CPU-only = 5 and 3 T4 + 5 CPU = 8
+# measured 2026-11-02; H100 = 1 until probed; ACCOUNT_ASSIGNMENT_CAP = 12 total ceiling.
 ACCOUNT_L4_CAP = ACCOUNT_TYPE_CAPS["L4"]
 ACCOUNT_GPU_SUBCAPS: dict[str, int] = dict(ACCOUNT_TYPE_CAPS)
 _CAPACITY_REFUSALS = frozenset(
     {
         *(
             f"REFUSE: account-wide assignment cap {cap} (including notebooks)"
-            for cap in (ACCOUNT_ASSIGNMENT_CAP, 6, 3)
+            for cap in (ACCOUNT_ASSIGNMENT_CAP, LEGACY_ACCOUNT_ASSIGNMENT_CAP, 3)
         ),
         *(
             f"REFUSE: account {hw} assignment cap {cap} (including notebooks)"
@@ -498,13 +498,13 @@ def provider_sessions() -> dict[str, str]:
         if not line.strip() or line.startswith("[colab]"):
             continue
         match = re.fullmatch(
-            r"\[.*?\]\s+(\S+)\s+\| Hardware:\s*([^|]+?)(?:\s+\|.*)?",
+            r"\[([^\]]+)\]\s+(\S+)\s+\| Hardware:[ \t]*([^|\n]*?)[ \t]*(?:\|.*)?",
             line.strip(),
         )
-        hardware = match[2].strip().upper() if match is not None else ""
-        if match is None or not hardware or match[1] in endpoints:
+        hardware = match[3].strip().upper() if match is not None else ""
+        if match is None or hardware not in ACCOUNT_TYPE_CAPS or match[2] in endpoints:
             raise ValueError("unrecognized account sessions inventory")
-        endpoints[match[1]] = hardware
+        endpoints[match[2]] = hardware
     if not endpoints:
         # colab-cli 0.7.4 prints nothing when idle; accept only a corroborated zero count.
         usage = subprocess.run(
@@ -680,30 +680,228 @@ def accelerator_occupancy(
     return counts
 
 
+def _manifest_commit(path: Path, prepare_command: Sequence[str] = ()) -> str | None:
+    """Read pinned commit SHA from a manifest or its unsealed prepare template."""
+    candidates = [
+        path,
+        path.with_suffix(".pending.json"),
+        path.with_name(f"{path.stem}-unsealed.json"),
+        path.with_suffix(".template.json"),
+        path.with_name(f"{path.stem}-template.json"),
+    ]
+    if "--template" in prepare_command:
+        idx = list(prepare_command).index("--template")
+        if idx + 1 < len(prepare_command):
+            candidates.append(Path(prepare_command[idx + 1]))
+    for candidate in candidates:
+        if candidate.is_file():
+            with contextlib.suppress(OSError, ValueError):
+                data = auto_retry.read(candidate)
+                if isinstance(data, Mapping):
+                    commit = data.get("commit")
+                    if isinstance(commit, str) and re.fullmatch(r"[0-9a-f]{40}", commit):
+                        return commit
+    return None
+
+
+def _row_commit_and_broker(row: Mapping[str, Any]) -> tuple[str | None, Path | None]:
+    """Extract (commit, broker) for a queue row without mutating state."""
+    broker: Path | None = None
+    manifest_path: Path | None = None
+    with contextlib.suppress(ValueError, KeyError, TypeError):
+        _, manifest_path, broker, _ = dispatch_parts(list(row["argv"]))
+    manifest_field = row.get("manifest")
+    if isinstance(manifest_field, str) and manifest_field:
+        manifest_path = Path(manifest_field)
+    commit = (
+        _manifest_commit(manifest_path, row.get("prepare_command", ()))
+        if manifest_path is not None
+        else None
+    )
+    return commit, broker
+
+
+def _row_is_legacy_cap6(row: Mapping[str, Any], ops: Path) -> bool:
+    """Return True when row is bound to a transport tree whose total cap is <= 6."""
+    commit, broker = _row_commit_and_broker(row)
+    if commit is None:
+        return False
+    cap = commit_transport_cap(
+        commit,
+        ops=ops,
+        repos=(broker,) if broker is not None else (),
+    )
+    return cap is not None and cap <= LEGACY_ACCOUNT_ASSIGNMENT_CAP
+
+
+def effective_account_assignment_cap(
+    ops: Path,
+    *,
+    observed: Mapping[str, Mapping[str, Any]] | None = None,
+    queue: Mapping[str, Any] | None = None,
+    repos: Iterable[Path] = (),
+    incoming_commits: Iterable[Any] = (),
+) -> int:
+    """Keep total assignments <= 6 while any observed active job uses a cap<=6 transport tree."""
+    repo_list = list(repos)
+    commits_to_check: list[tuple[Any, tuple[Path, ...]]] = [
+        (commit, tuple(repo_list)) for commit in incoming_commits
+    ]
+    if observed is None:
+        if (ops / "manifests").is_dir():
+            try:
+                observed = observations(ops)
+            except (OSError, ValueError):
+                observed = {}
+                for manifest_file in sorted((ops / "manifests").glob("*.json")):
+                    if manifest_file.name.endswith(".live.json"):
+                        continue
+                    stem = manifest_file.stem
+                    log_file = ops / "logs" / f"{stem}.log"
+                    if not log_file.is_file():
+                        continue
+                    with contextlib.suppress(OSError, ValueError):
+                        mval = auto_retry.read(manifest_file)
+                        if not isinstance(mval, Mapping):
+                            continue
+                        out_path = Path(str(mval.get("output_dir", "")))
+                        exited = bool(re.search(r"^EXIT=\d+$", log_file.read_text(), re.MULTILINE))
+                        rec_file = out_path / "receipt.json"
+                        rec = auto_retry.read(rec_file) if rec_file.is_file() else None
+                        stopped = isinstance(rec, Mapping) and rec.get("stop_verified") is True
+                        never_started = exited and not out_path.exists()
+                        observed[stem] = {
+                            "active": not (exited and (stopped or never_started)),
+                            "manifest": str(manifest_file),
+                        }
+        else:
+            observed = {}
+    for state in observed.values():
+        if state.get("active") and isinstance(state.get("manifest"), str):
+            commit = _manifest_commit(Path(state["manifest"]))
+            if commit is not None:
+                commits_to_check.append((commit, tuple(repo_list)))
+    if queue is None and (ops / "ready-queue.json").is_file():
+        with contextlib.suppress(OSError, ValueError):
+            loaded = auto_retry.read(ops / "ready-queue.json")
+            if isinstance(loaded, Mapping):
+                queue = loaded
+    if isinstance(queue, Mapping) and isinstance(queue.get("jobs"), list):
+        occupied = {name for name, state in observed.items() if state.get("active")}
+        for row in queue["jobs"]:
+            if not isinstance(row, Mapping):
+                continue
+            pending = row.get("status") in {"DISPATCHING", "LAUNCHED"} or (
+                row.get("status") == "HELD" and row.get("dispatch_attempted")
+            )
+            if not pending:
+                continue
+            with contextlib.suppress(KeyError, IndexError, TypeError):
+                current_name, state = current_observation(dict(observed), row["argv"][1])
+                if state is not None and current_name not in occupied:
+                    continue
+            commit, broker = _row_commit_and_broker(row)
+            if commit is not None:
+                extra = (*repo_list, broker) if broker is not None else tuple(repo_list)
+                commits_to_check.append((commit, extra))
+    for active_path in sorted((Path.home() / ".config/colab-cli/snake").glob("active-*.json")):
+        with contextlib.suppress(OSError, ValueError):
+            record = auto_retry.read(active_path)
+            if not isinstance(record, Mapping):
+                continue
+            rec_commit = record.get("commit")
+            if isinstance(rec_commit, str):
+                commits_to_check.append((rec_commit, tuple(repo_list)))
+            out_dir = record.get("output")
+            if isinstance(out_dir, str) and out_dir:
+                out_commit = _manifest_commit(Path(out_dir) / "manifest.json")
+                if out_commit is not None:
+                    commits_to_check.append((out_commit, tuple(repo_list)))
+    for commit, candidate_repos in commits_to_check:
+        cap = commit_transport_cap(commit, ops=ops, repos=candidate_repos)
+        if cap is not None and cap <= LEGACY_ACCOUNT_ASSIGNMENT_CAP:
+            return LEGACY_ACCOUNT_ASSIGNMENT_CAP
+    return ACCOUNT_ASSIGNMENT_CAP
+
+
+def reachable_underused_cap(ops: Path, sessions_stdout: str = "") -> int:
+    """Compute watchd's reachable session target from active sessions and READY queue rows."""
+    total_cap = effective_account_assignment_cap(ops)
+    active_by_hw: Counter[str] = Counter()
+    for _, _, hw in re.findall(
+        r"^\[([^\]]+)\]\s+(\S+)\s+\| Hardware:[ \t]*([^|\n]*?)[ \t]*(?:\|.*)?$",
+        sessions_stdout,
+        re.M,
+    ):
+        label = hw.strip().upper()
+        if label:
+            active_by_hw[label] += 1
+    queue_path = ops / "ready-queue.json"
+    if not queue_path.is_file():
+        return total_cap
+    try:
+        queue = auto_retry.read(queue_path)
+    except (OSError, ValueError):
+        return total_cap
+    if not isinstance(queue, dict) or not isinstance(queue.get("jobs"), list):
+        return total_cap
+    total_cap = effective_account_assignment_cap(ops, queue=queue)
+    ready_rows = [
+        row for row in queue["jobs"] if row.get("status") == "READY" and ready(queue, row)
+    ]
+    if not ready_rows:
+        return total_cap
+    sim_by_gpu = Counter(active_by_hw)
+    sim_total = sum(active_by_hw.values())
+    for row in ready_rows:
+        if sim_total >= total_cap:
+            break
+        legacy_row = _row_is_legacy_cap6(row, ops)
+        if legacy_row and sim_total >= LEGACY_ACCOUNT_ASSIGNMENT_CAP:
+            continue
+        reservable = _reservable_gpus(row, sim_by_gpu)
+        if reservable is None:
+            continue
+        if legacy_row:
+            total_cap = min(total_cap, LEGACY_ACCOUNT_ASSIGNMENT_CAP)
+        sim_total += 1
+        if reservable:
+            sim_by_gpu[reservable[0]] += 1
+    return min(sim_total, total_cap)
+
+
 def tick(
     ops: Path,
     *,
     dry_run: bool = False,
     inventory: Mapping[str, str] | set[str] | None = None,
 ) -> dict[str, Any]:
-    """Reserve up to ACCOUNT_ASSIGNMENT_CAP occupied or pending runtime slots across all daemons."""
+    """Reserve up to effective_account_assignment_cap occupied or pending runtime slots."""
     if dry_run:
         queue = auto_retry.read(ops / "ready-queue.json")
         observed = observations(ops)
         active, pending = occupancy(queue, observed, inventory)
         by_gpu = accelerator_occupancy(queue, observed, inventory)
-        slots = max(0, ACCOUNT_ASSIGNMENT_CAP - active - pending)
+        total_cap = effective_account_assignment_cap(ops, observed=observed, queue=queue)
+        used = active + pending
+        slots = max(0, total_cap - used)
         would_dispatch = []
         for row in queue["jobs"]:
             if not slots:
                 break
             if row["status"] != "READY" or not ready(queue, row):
                 continue
+            legacy_row = _row_is_legacy_cap6(row, ops)
+            if legacy_row and used >= LEGACY_ACCOUNT_ASSIGNMENT_CAP:
+                continue
             reservable = _reservable_gpus(row, by_gpu)
             if reservable is None:
                 continue
             would_dispatch.append(row["id"])
+            used += 1
             slots -= 1
+            if legacy_row:
+                slots = min(slots, max(0, LEGACY_ACCOUNT_ASSIGNMENT_CAP - used))
             for gpu in reservable:
                 by_gpu[gpu] += 1
         return {
@@ -732,13 +930,18 @@ def tick(
             return {"dispatched": [], "blocked_pending": [str(p) for p in pending_records]}
         active, reserved = occupancy(queue, observed, inventory)
         by_gpu = accelerator_occupancy(queue, observed, inventory)
-        slots = max(0, ACCOUNT_ASSIGNMENT_CAP - active - reserved)
+        total_cap = effective_account_assignment_cap(ops, observed=observed, queue=queue)
+        used = active + reserved
+        slots = max(0, total_cap - used)
         selected = []
         # FIFO among ready entries: an unmet dependency or per-type cap doesn't idle other lanes.
         for row in queue["jobs"]:
             if not slots:
                 break
             if row["status"] != "READY" or not ready(queue, row):
+                continue
+            legacy_row = _row_is_legacy_cap6(row, ops)
+            if legacy_row and used >= LEGACY_ACCOUNT_ASSIGNMENT_CAP:
                 continue
             reservable = _reservable_gpus(row, by_gpu)
             if reservable is None:
@@ -777,7 +980,10 @@ def tick(
                 event(ops, "READY_HELD", id=row["id"], error=str(exc))
                 continue
             selected.append(row["id"])
+            used += 1
             slots -= 1
+            if legacy_row:
+                slots = min(slots, max(0, LEGACY_ACCOUNT_ASSIGNMENT_CAP - used))
             for gpu in reservable:
                 by_gpu[gpu] += 1
         return {"active": active, "reserved": reserved, "dispatched": selected}

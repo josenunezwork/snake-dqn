@@ -23,7 +23,7 @@ import threading
 import time
 import uuid
 from pathlib import Path, PurePosixPath
-from typing import Any, Callable, Iterator
+from typing import Any, Callable, Iterator, Literal, overload
 
 from research.colab_cli import policy
 from research.colab_cli.accounting import (
@@ -311,7 +311,6 @@ class CLI:
         self.call_records: list[dict[str, Any]] = []
         self.operation_records: list[dict[str, Any]] = []
         self._control_context = threading.local()
-        self.session_hardware: dict[str, str] = {}
         self.verified_exports: dict[str, dict[str, Any]] = {}
         self.warmup_seconds = 0.0
         self._lease_stop = threading.Event()
@@ -588,17 +587,32 @@ class CLI:
             raise Refused(f"colab {args[0]} failed ({result.returncode}): {output[-2000:]}")
         return output
 
-    def sessions(self, timeout: float = policy.READ_SECONDS) -> dict[str, str]:
+    @overload
+    def sessions(
+        self, timeout: float = ..., *, include_hardware: Literal[False] = ...
+    ) -> dict[str, str]: ...
+
+    @overload
+    def sessions(
+        self, timeout: float = ..., *, include_hardware: Literal[True]
+    ) -> tuple[dict[str, str], dict[str, str]]: ...
+
+    def sessions(
+        self, timeout: float = policy.READ_SECONDS, *, include_hardware: bool = False
+    ) -> dict[str, str] | tuple[dict[str, str], dict[str, str]]:
         output = self.call("sessions", timeout=timeout)
         rows = re.findall(
-            r"^\[([^\]]+)\]\s+(\S+)\s+\| Hardware:\s*([^|\r\n]+?)(?:\s+\|.*)?$",
+            r"^\[([^\]]+)\]\s+(\S+)\s+\| Hardware:[ \t]*([^|\n]*?)[ \t]*(?:\|.*)?$",
             output,
             re.M,
         )
         if not rows and "No active sessions found on server." not in output:
             raise Refused("unrecognized account sessions output")
-        self.session_hardware = {endpoint: hw.strip().upper() for _, endpoint, hw in rows}
-        return {endpoint: name for name, endpoint, _ in rows}
+        endpoints = {endpoint: name for name, endpoint, _ in rows}
+        if include_hardware:
+            hardware = {endpoint: hw.strip().upper() for _, endpoint, hw in rows}
+            return endpoints, hardware
+        return endpoints
 
     def usage(self, timeout: float = policy.READ_SECONDS) -> dict[str, float]:
         output = self.call("usage", timeout=timeout)
@@ -1173,7 +1187,7 @@ class Broker:
                         min_valid_seconds=m["lease_seconds"] + cli.exec_poll_recovery_seconds + 300,
                         timeout=cli.remaining_seconds(150),
                     )
-                    before = cli.sessions()
+                    before, hw_before = cli.sessions(include_hardware=True)
                     usage_before = cli.usage()
                     reusing = bool(retained and retained.get("endpoint"))
                     if reusing:
@@ -1190,15 +1204,22 @@ class Broker:
                         )
                     req_hw = m["requirements"]["gpu"].upper()
                     type_cap = ACCOUNT_TYPE_CAPS.get(req_hw)
-                    hw_before = getattr(cli, "session_hardware", {})
-                    if (
-                        not reusing
-                        and type_cap is not None
-                        and sum(1 for ep in before if hw_before.get(ep) == req_hw) >= type_cap
-                    ):
-                        raise Refused(
-                            f"account {req_hw} assignment cap {type_cap}" " (including notebooks)"
+                    if not reusing and type_cap is not None:
+                        unknown_hw = sorted(
+                            f"{ep}={hw_before.get(ep, '')!r}"
+                            for ep in before
+                            if hw_before.get(ep) not in ACCOUNT_TYPE_CAPS
                         )
+                        if unknown_hw:
+                            raise Refused(
+                                "unrecognized or empty hardware label in account sessions: "
+                                + ", ".join(unknown_hw)
+                            )
+                        if sum(1 for ep in before if hw_before.get(ep) == req_hw) >= type_cap:
+                            raise Refused(
+                                f"account {req_hw} assignment cap {type_cap}"
+                                " (including notebooks)"
+                            )
                     reservations = [
                         json.loads(p.read_text())
                         for p in ACCOUNT_ROOT.glob("active-*.json")

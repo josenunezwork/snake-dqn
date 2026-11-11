@@ -979,9 +979,9 @@ def test_uncorroborated_stale_other_endpoint_does_not_retry_in_dispatch(fixture,
 
 @pytest.mark.parametrize(
     ("gpu", "hw_label", "cap"),
-    [("L4", "L4", 3), ("A100", "A100", 3), ("cpu", "CPU", 5)],
+    [("L4", "L4", 3), ("A100", "A100", 3), ("H100", "H100", 1), ("cpu", "CPU", 5)],
 )
-def test_dispatch_refuses_fourth_gpu_or_sixth_cpu_and_admits_twelve_mixed(
+def test_dispatch_refuses_capped_type_before_mkdir_and_admits_twelve_mixed(
     fixture, gpu, hw_label, cap
 ):
     f = fixture
@@ -994,6 +994,8 @@ def test_dispatch_refuses_fourth_gpu_or_sixth_cpu_and_admits_twelve_mixed(
     assert refused.returncode == 1
     assert f"account {hw_label} assignment cap {cap} (including notebooks)" in refused.stderr
     assert not runs(f)
+    assert not (f["ops"] / "dispatch/lane").exists()
+    assert not (f["ops"] / "manifests/lane.json").exists()
 
     if gpu == "L4":
         mixed_sessions = {
@@ -1008,3 +1010,146 @@ def test_dispatch_refuses_fourth_gpu_or_sixth_cpu_and_admits_twelve_mixed(
         assert admitted.returncode == 0, admitted.stderr
         assert "allocation=success" in admitted.stdout
         assert len(runs(f)) == 1
+
+        twelve_sessions = {**mixed_sessions, "l4-2": "L4"}
+        f["inventory"](twelve_sessions, [active(ep, 1.54) for ep in twelve_sessions])
+        f["change"](requirements={"gpu": "cpu", "min_vcpu": 2, "est_minutes": 5})
+        over_total = f["invoke"]("lane-thirteenth")
+        assert over_total.returncode == 1
+        assert "account-wide assignment cap 12 (including notebooks)" in over_total.stderr
+        assert not (f["ops"] / "dispatch/lane-thirteenth").exists()
+        assert not (f["ops"] / "manifests/lane-thirteenth.json").exists()
+
+
+def test_dispatch_clamps_total_cap_to_six_while_old_tree_job_is_active(fixture):
+    f = fixture
+    transport = f["broker"] / "research/colab_cli"
+    (transport / "accounting.py").write_text("ACCOUNT_ASSIGNMENT_CAP = 6\n")
+    f["git"]("add", ".")
+    f["git"]("commit", "-qm", "legacy cap6 transport")
+    old_commit = f["git"]("rev-parse", "HEAD")
+    old_tree = f["git"]("rev-parse", "HEAD:research/colab_cli")
+
+    (transport / "accounting.py").write_text("ACCOUNT_ASSIGNMENT_CAP = 12\n")
+    f["git"]("add", ".")
+    f["git"]("commit", "-qm", "new cap12 transport")
+    new_commit = f["git"]("rev-parse", "HEAD")
+    new_tree = f["git"]("rev-parse", "HEAD:research/colab_cli")
+
+    (f["ops"] / "colab-cli-qualified.json").write_text(
+        json.dumps(
+            {
+                "schema": "snake-dqn-colab-cli-qualified/v1",
+                "registry_schema": "snake-dqn-colab-cli-qualified/v2",
+                "independent_review_status": "ACCEPT",
+                "tree_hash": old_tree,
+                "qualified_commit": old_commit,
+                "account_assignment_cap": 6,
+                "trees": [
+                    {
+                        "schema": "snake-dqn-colab-cli-qualified/v1",
+                        "independent_review_status": "ACCEPT",
+                        "tree_hash": old_tree,
+                        "qualified_commit": old_commit,
+                        "account_assignment_cap": 6,
+                    },
+                    {
+                        "schema": "snake-dqn-colab-cli-qualified/v1",
+                        "independent_review_status": "ACCEPT",
+                        "tree_hash": new_tree,
+                        "qualified_commit": new_commit,
+                        "account_assignment_cap": 12,
+                    },
+                ],
+            }
+        )
+    )
+    old_out = f["tmp"] / "old-output"
+    old_manifest = {
+        "job_id": "old-job",
+        "commit": old_commit,
+        "output_dir": str(old_out),
+        "requirements": {"gpu": "L4"},
+    }
+    (f["ops"] / "manifests").mkdir(parents=True, exist_ok=True)
+    (f["ops"] / "logs").mkdir(parents=True, exist_ok=True)
+    (f["ops"] / "manifests/old-lane.json").write_text(json.dumps(old_manifest))
+    (f["ops"] / "logs/old-lane.log").write_text("running\n")
+
+    six_sessions = {
+        **{f"l4-{i}": "L4" for i in range(3)},
+        **{f"a100-{i}": "A100" for i in range(3)},
+    }
+    f["inventory"](six_sessions, [active(ep, 1.54) for ep in six_sessions])
+    f["change"](
+        commit=new_commit,
+        requirements={"gpu": "T4", "min_vcpu": 2, "est_minutes": 5},
+        timeout_minutes=10,
+    )
+    blocked = f["invoke"]("t4-seventh")
+    assert blocked.returncode == 1
+    assert "account-wide assignment cap 6 (including notebooks)" in blocked.stderr
+    assert not (f["ops"] / "dispatch/t4-seventh").exists()
+    assert not (f["ops"] / "manifests/t4-seventh.json").exists()
+
+    # Once the old-tree job finishes with verified stop, the same identity dispatches cleanly.
+    old_out.mkdir(parents=True)
+    old_manifest_bytes = json.dumps(old_manifest).encode()
+    (old_out / "manifest.json").write_bytes(old_manifest_bytes)
+    (old_out / "receipt.json").write_text(
+        json.dumps(
+            {
+                "job_id": "old-job",
+                "commit": old_commit,
+                "manifest_sha256": hashlib.sha256(old_manifest_bytes).hexdigest(),
+                "status": "PASS",
+                "stop_verified": True,
+            }
+        )
+    )
+    (f["ops"] / "logs/old-lane.log").write_text("EXIT=0\n")
+
+    unblocked = f["invoke"]("t4-seventh")
+    assert unblocked.returncode == 0, unblocked.stderr
+    assert "allocation=success" in unblocked.stdout
+
+
+def test_watchd_underused_threshold_uses_reachable_caps_and_not_twenty(tmp_path, monkeypatch):
+    from tools.ops import ready_queue as rq
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    ops = tmp_path / "ops"
+    ops.mkdir()
+    assert rq.reachable_underused_cap(ops, "No active sessions found on server.\n") == 12
+
+    for idx in range(5):
+        manifest = tmp_path / f"l4-{idx}.json"
+        manifest.write_text(
+            json.dumps(
+                {
+                    "job_id": f"l4-{idx}",
+                    "commit": "a" * 40,
+                    "output_dir": str(tmp_path / f"out-{idx}"),
+                    "requirements": {"gpu": "L4"},
+                }
+            )
+        )
+        rq.enqueue(
+            ops,
+            f"l4-{idx}",
+            [
+                str(SCRIPT),
+                f"l4-{idx}",
+                str(manifest),
+                "--broker",
+                str(ROOT),
+                "--cwd",
+                str(ROOT),
+            ],
+        )
+
+    three_l4 = "".join(f"[s{i}] ep-l4-{i} | Hardware: L4 | Shape: Standard\n" for i in range(3))
+    assert rq.reachable_underused_cap(ops, three_l4) == 3
+
+    two_l4 = "".join(f"[s{i}] ep-l4-{i} | Hardware: L4 | Shape: Standard\n" for i in range(2))
+    assert rq.reachable_underused_cap(ops, two_l4) == 3

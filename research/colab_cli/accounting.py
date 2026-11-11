@@ -28,18 +28,25 @@ BALANCE_ROUNDING_TOLERANCE_UNITS = 0.01
 BALANCE_LAG_TOLERANCE_SECONDS = 300.0
 TRANSITION_MISMATCH_POLLS = 2
 # Measured 2026-11-10 (/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/limits-probe):
-# Colab allows 3 concurrent runtimes per GPU type (3 L4 + 3 T4 + 3 G4 + 3 A100 = 12 GPUs;
-# 4th of each refused "Allocation refused (precondition failed)"; H100 assumed 3) plus 5
-# CPU-only sessions (2026-11-02). ACCOUNT_ASSIGNMENT_CAP is an account-wide runaway guard.
+# 3 L4 + 3 T4 + 3 G4 + 3 A100 = 12 concurrent GPU sessions (4th of each refused
+# "Allocation refused (precondition failed)"); CPU-only = 5 and 3 T4 + 5 CPU = 8 measured
+# 2026-11-02.
+# Unprobed until multi-H100 stock is available: a concurrent `--gpu H100` probe (2..4 H100s)
+# is required before raising ACCOUNT_H100_CAP above 1.
+ACCOUNT_H100_CAP = 1
 ACCOUNT_TYPE_CAPS: dict[str, int] = {
     "L4": 3,
     "T4": 3,
     "G4": 3,
     "A100": 3,
-    "H100": 3,
+    "H100": ACCOUNT_H100_CAP,
     "CPU": 5,
 }
-ACCOUNT_ASSIGNMENT_CAP = 20
+# Measured combined ceiling (3 L4 + 3 T4 + 3 G4 + 3 A100 = 12); CPU-only sessions count
+# toward this 12-session ceiling until a 12 GPU + 5 CPU coexistence probe confirms higher.
+ACCOUNT_ASSIGNMENT_CAP = 12
+# Pre-2026-11-10 qualified transport trees abort polling above 6 total assignments.
+LEGACY_ACCOUNT_ASSIGNMENT_CAP = 6
 POLLING_ASSIGNMENT_CAP_ERROR = "account-wide assignment cap exceeded during polling"
 
 

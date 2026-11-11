@@ -93,14 +93,17 @@ Sandbox A and TRAIN-01 compile native kernels for both `8.0` and `9.0`.
 GPU-sprint H100 canaries require a native-compile receipt that includes `9.0`;
 historical `8.0;8.9` receipts remain valid only for their supported hardware.
 
-Fallback occurs once, only after the installed 0.7.4 CLI's exact exit-1/412
+Fallback occurs once, either:
+1. Pre-allocation when `H100` is already at `ACCOUNT_H100_CAP = 1` under the ops lock and `A100` has headroom: `dispatch.py` skips calling `colab new` for `H100`, writes create-only `ops/dispatch/<name>/h100-type-cap-skip.json` (with the live `colab sessions` snapshot), logs `OPS_GPU_FALLBACK primary_skipped=H100_type_cap`, and submits the pre-admitted `A100` sibling; or
+2. Post-attempt only after the installed 0.7.4 CLI's exact exit-1/412
 allocation rejection or the measured H100 assign-POST `ColabRequestError` ending
 in `Service Unavailable`/503, supervisor termination, and independent proof that no
 endpoint was assigned and no VM compute or transfers occurred. Under the broker's
 account lock, dispatch verifies the exact pending/config identity, absence of all
 durable endpoint records, a GET-only notebook recovery returning no endpoint, and
-unchanged account membership below the account assignment cap (`ACCOUNT_ASSIGNMENT_CAP = 6`
-since 2026-10-31). It archives that pending
+unchanged account membership below the account assignment cap (`ACCOUNT_ASSIGNMENT_CAP = 12`
+since 2026-11-10; clamped to `6` while any active job uses a pre-2026-11-10 `cap <= 6`
+transport tree). It archives that pending
 record in `unavailable.json` before retiring just that proven empty intent. The
 supervisor's original incomplete receipt remains unchanged; it does not acquire
 an invented `stop_verified` flag. Unknown errors, timeout, 400 entitlement errors,
@@ -142,8 +145,8 @@ within a variant refreshes that variant's deadline.
 The operator tool's `--timeout-seconds` may shorten its 600-second total bound;
 zero, nonfinite values and values above 600 are refused.
 The qualified supervisor refuses **all new allocations** while any pending record
-exists, even when fewer than six sessions are active (`ACCOUNT_ASSIGNMENT_CAP = 6`
-since 2026-10-31; three on historical tree `40985ca4`). Historical sealed brokers
+exists, even when fewer than twelve sessions are active (`ACCOUNT_ASSIGNMENT_CAP = 12`
+since 2026-11-10; six on tree `36285bc6`; three on historical tree `40985ca4`). Historical sealed brokers
 remain fenced until this shared account record is reconciled; no packet change
 is necessary to remove that account-wide blocker.
 
@@ -330,7 +333,10 @@ No new acceptance was run to initialize the pointer. On 2026-11-01, the Cap-6
 was registered additively via `qualification.py add`
 (`t34-sol/argon-qual-cap6/tree-entry-36285bc6.json`, keeping `40985ca4...` active in
 the v1 view for in-flight jobs) and verified live at `6/6` concurrent runtimes
-(`3 A100 @ 6.73 u/h + 3 L4 @ 1.94 u/h = 26.01 u/h` during `bank14l1–16l1`). Do not
+(`3 A100 @ 6.73 u/h + 3 L4 @ 1.94 u/h = 26.01 u/h` during `bank14l1–16l1`); on 2026-11-10,
+the per-type-cap transport (`ACCOUNT_TYPE_CAPS` `L4/T4/G4/A100 = 3` measured, `CPU = 5`
+measured, `H100 = 1` until multi-H100 probe; `ACCOUNT_ASSIGNMENT_CAP = 12` combined ceiling)
+was built to be added alongside `36285bc6...` via `qualification.py add`. Do not
 edit any file inside `research/colab_cli/` (including `.md` files) without
 requalification, because doing so alters that Git tree SHA.
 
@@ -342,7 +348,7 @@ python3 "$REPO/tools/ops/qualification.py" check \
 ```
 
 The persistent `watchd` tmux daemon writes `ops/events.log`: `JOB_ENDED`, `SOL_DONE`,
-`COLAB_UNDERUSED` (fewer than `ACCOUNT_ASSIGNMENT_CAP = 6` assignments for ten minutes), `MAC_IDLE` (no
+`COLAB_UNDERUSED` (fewer than `ready_queue.reachable_underused_cap(...)` assignments — bounded by `ACCOUNT_TYPE_CAPS`, `ACCOUNT_ASSIGNMENT_CAP = 12`, and `LEGACY_ACCOUNT_ASSIGNMENT_CAP = 6` when legacy trees are active — for ten minutes), `MAC_IDLE` (no
 Python worker above 50% CPU for fifteen minutes), and `COLAB_CLI_UNQUALIFIED` when
 freshly fetched `origin/main` differs from the registry. Missing/invalid registry or
 failed Git refresh also emits that qualification event. Unchanged qualification
@@ -429,10 +435,12 @@ The daemon polls every 15 seconds. It counts dispatch snapshots/logs/receipts an
 durable queued submissions, and reads account-wide `colab sessions` to count
 unmanaged/legacy assignments and avoid mistaking historical unverified receipts
 for current capacity. Unknown inventory stops submissions. It reserves at most
-**six** occupied/pending runtime slots across competing daemons (`ACCOUNT_ASSIGNMENT_CAP = 6`
-since 2026-10-31) and enforces an L4 sub-cap of at most **three** concurrent L4 runtimes
-(`ACCOUNT_L4_CAP = 3` in `ready_queue.py`; standalone `dispatch.sh` calls must also respect
-`L4 <= 3`). The supervisor independently enforces account allocation and pending-identity
+**twelve** occupied/pending runtime slots across competing daemons
+(`ACCOUNT_ASSIGNMENT_CAP = 12`, clamped to `LEGACY_ACCOUNT_ASSIGNMENT_CAP = 6` while any
+active job uses a pre-2026-11-10 `cap <= 6` transport tree) and enforces per-type sub-caps
+(`ACCOUNT_GPU_SUBCAPS = dict(ACCOUNT_TYPE_CAPS)`: `L4 = 3`, `T4 = 3`, `G4 = 3`, `A100 = 3`,
+`H100 = 1`, `CPU = 5`; standalone `dispatch.sh` calls enforce the same caps before identity
+reservation and under `alloc.lock`). The supervisor independently enforces account allocation and pending-identity
 fences. Packages with many small contract/sidecar inputs should pack them into one
 deterministic `input-metadata.tar.gz` via `research/metadata_archive.py` (`<= 12` total
 transfers) to stay well within the `300 s` staging window. A durable
@@ -648,13 +656,12 @@ CLI calls/transfers/exports and no pending/active identity for that session.
 Already consumed ready names are adopted only when their ops snapshot matches
 the enqueued manifest; mismatches are held. Dependencies follow the final retry.
 
-The exact `account-wide assignment cap 6 (including notebooks)` refusal (and
-legacy `cap 3` on older qualified broker trees; see the Round-27 `M0b` live-ops
-note above and [`docs/research/ROADMAP.md`](../../docs/research/ROADMAP.md) §1.3 & §2.2
-for pre-`mkdir` `ops/alloc.lock` capacity checks, `ACCOUNT_GPU_SUBCAPS = {"L4": 3, "A100": 3, "H100": 3}`,
-single-GPU `reconcile_unavailable()`, `0`-`world-*.json` Tier-0 retry eligibility,
-negative-fault transport classification, and non-mutating `1873b902:web/backend/session.py`
-validator pinning) is
+The exact `account-wide assignment cap 12 (including notebooks)` refusal (plus
+`cap 6` while any active job runs on a pre-2026-11-10 `cap <= 6` tree, legacy
+`cap 3` on older qualified broker trees, and per-type cap refusals
+`account <TYPE> assignment cap <CAP> (including notebooks)` for measured
+`L4/T4/G4/A100 = 3`, `CPU = 5`, and unprobed `H100 = 1`; enforced both pre-`mkdir`
+under `ops/alloc.lock` in `dispatch.py` and in `ready_queue.py`) is
 transient. Before any dispatch identity is reserved, a completed refusal with
 no dispatch directory, manifest snapshot, output directory or supervisor log
 returns the same queue row to READY with backoff and a fresh worker log. After
