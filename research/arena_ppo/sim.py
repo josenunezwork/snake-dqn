@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Literal, Sequence
 
 import numpy as np
@@ -24,6 +24,10 @@ _OPPONENT_NAME_TO_ID: dict[str, int] = {
     "snapshot": OPPONENT_KIND_SNAPSHOT,
     "scripted": OPPONENT_KIND_SCRIPTED,
 }
+DEFAULT_GRID_H = 83
+DEFAULT_GRID_W = 145
+DEFAULT_NUM_SNAKES = 6
+
 _CARDINAL_TUPLE = ((0, -1), (1, 0), (0, 1), (-1, 0))
 _SIM_STATE_TENSORS: tuple[str, ...] = (
     "bodies",
@@ -53,33 +57,88 @@ _SIM_STATE_TENSORS: tuple[str, ...] = (
     "_last_transition_valid",
     "_boosted_this_step",
     "terminal_slots",
+    "capacity_overflow",
 )
 
 
-def arena_v2_config(num_envs: int, *, max_capacity: int = 1600) -> BatchSimConfig:
-    """Return the exact rectangular mechanics-v2 configuration (`83 x 145` cells).
+def _ensure_capacity_overflow(sim: DeviceSim) -> torch.Tensor:
+    """Ensure ``sim.capacity_overflow`` exists as an ``(E, S)`` bool tensor on ``sim.device``."""
+    overflow = getattr(sim, "capacity_overflow", None)
+    if overflow is None:
+        overflow = torch.zeros((sim.E, sim.S), dtype=torch.bool, device=sim.device)
+        sim.capacity_overflow = overflow
+    return overflow
 
-    Matches ``configs/mechanics_v2.yaml`` and Watch6 continuous-respawn v2 arena
-    geometry (`1450 x 830` px at `10` px segment size -> `83` rows x `145` cols).
+
+def arena_v2_config(
+    num_envs: int,
+    *,
+    grid_h: int = DEFAULT_GRID_H,
+    grid_w: int = DEFAULT_GRID_W,
+    num_snakes: int = DEFAULT_NUM_SNAKES,
+    max_capacity: int = 1600,
+    initial_food: int | None = None,
+    max_food: int | None = None,
+) -> BatchSimConfig:
+    """Return an exact rectangular mechanics-v2 configuration.
+
+    Defaults (`83 x 145` cells, `6` snakes) match ``configs/mechanics_v2.yaml`` and
+    Watch6 continuous-respawn v2 arena geometry (`1450 x 830` px at `10` px segment size).
+    When ``grid_h`` or ``grid_w`` differs from ``(83, 145)`` and ``initial_food`` /
+    ``max_food`` are omitted, ambient food counts scale proportionally with board area.
 
     Args:
         num_envs: Number of parallel worlds ``E``.
-        max_capacity: Ring buffer capacity per snake (`<= 2048`).
+        grid_h: Arena height in grid cells (`8 <= grid_h <= 32767`).
+        grid_w: Arena width in grid cells (`8 <= grid_w <= 32767`).
+        num_snakes: Snakes per world ``S`` (`>= 1`).
+        max_capacity: Ring buffer capacity per snake (`>= 6`).
+        initial_food: Optional explicit ambient food floor.
+        max_food: Optional explicit ambient food ceiling.
 
     Returns:
         Frozen ``BatchSimConfig`` instance.
     """
     if int(num_envs) < 1:
         raise ValueError(f"num_envs must be positive, got {num_envs}")
+    gh, gw = int(grid_h), int(grid_w)
+    if gh < 8 or gw < 8 or gh > 32767 or gw > 32767:
+        raise ValueError(f"grid_h/grid_w must be in [8, 32767], got {(gh, gw)}")
+    snakes = int(num_snakes)
+    if snakes < 1:
+        raise ValueError(f"num_snakes must be >= 1, got {num_snakes}")
+    if int(max_capacity) < 6:
+        raise ValueError(f"max_capacity must be >= 6, got {max_capacity}")
+
+    if initial_food is None and max_food is None:
+        if (gh, gw) == (DEFAULT_GRID_H, DEFAULT_GRID_W):
+            init_f, max_f = 250, 300
+        else:
+            area_scale = (gh * gw) / float(DEFAULT_GRID_H * DEFAULT_GRID_W)
+            init_f = max(4, min(gh * gw // 3, int(round(250.0 * area_scale))))
+            max_f = max(init_f, min(gh * gw // 2, int(round(300.0 * area_scale))))
+    elif initial_food is not None and max_food is not None:
+        init_f, max_f = int(initial_food), int(max_food)
+    elif initial_food is not None:
+        init_f = int(initial_food)
+        max_f = max(init_f, int(round(init_f * 1.2)))
+    else:
+        assert max_food is not None
+        max_f = int(max_food)
+        init_f = max(1, min(max_f, int(round(max_f * (250.0 / 300.0)))))
+
+    if init_f < 1 or max_f < init_f:
+        raise ValueError(f"Invalid food bounds initial_food={init_f}, max_food={max_f}")
+
     return BatchSimConfig(
         num_envs=int(num_envs),
-        num_snakes=6,
-        game_width=1450,
-        game_height=830,
+        num_snakes=snakes,
+        game_width=gw * 10,
+        game_height=gh * 10,
         segment_size=10,
         wall_thickness=10,
-        initial_food=250,
-        max_food=300,
+        initial_food=init_f,
+        max_food=max_f,
         min_boost_length=5,
         boost_length_cost_frames=3,
         mechanics_version=2,
@@ -386,6 +445,7 @@ class TrainSim:
         self.grid_w: int = int(sim.grid_w)
         self.cap: int = int(sim.cap)
         self.min_boost_length: int = int(sim.cfg.min_boost_length)
+        _ensure_capacity_overflow(self.sim)
 
         self.prev_heads: torch.Tensor = torch.zeros(
             (self.E, self.S, 2), dtype=torch.long, device=self.device
@@ -466,8 +526,13 @@ class TrainSim:
                 hero_respawn=True,
                 exact_mechanics=True,
             )
+            _ensure_capacity_overflow(out)
             for name in _SIM_STATE_TENSORS:
-                src_tensor = getattr(ref_sim, name)
+                src_tensor = getattr(ref_sim, name, None)
+                if src_tensor is None:
+                    if name == "capacity_overflow":
+                        continue
+                    raise AttributeError(f"ref_sim missing expected tensor field {name!r}")
                 if src_tensor.dtype == torch.float64:
                     src_tensor = src_tensor.to(torch.float32)
                 setattr(out, name, src_tensor.to(device=resolved).clone())
@@ -552,7 +617,12 @@ class TrainSim:
         device: str | torch.device = "cpu",
         seed: int = 0,
         world_seeds: Sequence[int] | None = None,
+        grid_h: int = DEFAULT_GRID_H,
+        grid_w: int = DEFAULT_GRID_W,
+        num_snakes: int = DEFAULT_NUM_SNAKES,
         max_capacity: int = 1600,
+        initial_food: int | None = None,
+        max_food: int | None = None,
         opponent_kinds: Sequence[OpponentKind] | torch.Tensor | None = None,
     ) -> "TrainSim":
         """Allocate and spawn ``num_envs`` exact mechanics-v2 worlds directly on ``device``.
@@ -565,14 +635,27 @@ class TrainSim:
             device: Target torch device (`cpu`, `mps`, or `cuda`).
             seed: Base seed used when ``world_seeds`` is omitted.
             world_seeds: Optional explicit per-world integer seeds (`len == num_envs`).
+            grid_h: Arena height in grid cells.
+            grid_w: Arena width in grid cells.
+            num_snakes: Snakes per world ``S``.
             max_capacity: Body ring capacity per snake.
+            initial_food: Optional explicit ambient food floor.
+            max_food: Optional explicit ambient food ceiling.
             opponent_kinds: Optional per-world opponent assignments.
 
         Returns:
             Spawned ``TrainSim`` ready for rollout collection.
         """
         resolved = normalize_device(device)
-        cfg = arena_v2_config(num_envs, max_capacity=max_capacity)
+        cfg = arena_v2_config(
+            num_envs,
+            grid_h=grid_h,
+            grid_w=grid_w,
+            num_snakes=num_snakes,
+            max_capacity=max_capacity,
+            initial_food=initial_food,
+            max_food=max_food,
+        )
         backend = "indexed" if resolved.type == "cuda" else "reference"
         sim_cls: type[DeviceSim] = _MPSCompatDeviceSim if resolved.type == "mps" else DeviceSim
         sim = sim_cls(
@@ -585,6 +668,7 @@ class TrainSim:
             hero_respawn=True,
             exact_mechanics=True,
         )
+        _ensure_capacity_overflow(sim)
         seeds = (
             [int(s) for s in world_seeds]
             if world_seeds is not None
@@ -599,7 +683,7 @@ class TrainSim:
         sim.rng_key = torch.where(sim.rng_key == 0, torch.ones_like(sim.rng_key), sim.rng_key)
         sim.rng_counter.zero_()
 
-        # Spawn all 6 snakes and initial food on device via exact v2 placement.
+        # Spawn all S snakes and initial food on device via exact v2 placement.
         sim.alive.fill_(False)
         sim.respawn_timer.zero_()
         sim.seg_count.zero_()
@@ -618,6 +702,86 @@ class TrainSim:
     def prepare(self) -> None:
         """Advance pre-decision phase (`frame`, food maintenance, respawns) idempotently."""
         self.sim.prepare()
+
+    def assert_no_capacity_overflow(self) -> None:
+        """Raise ``RuntimeError`` if any snake ever exceeded ``max_capacity`` ring storage."""
+        overflow = _ensure_capacity_overflow(self.sim)
+        if bool(overflow.any().detach().cpu().item()):
+            bad = overflow.nonzero(as_tuple=False).detach().cpu().tolist()
+            raise RuntimeError(
+                f"DeviceSim capacity_overflow detected (cap={self.cap}) at (world, seat)={bad[:8]}"
+            )
+
+    def reset_worlds(self, hit_mask: torch.Tensor) -> None:
+        """Reset only worlds where ``hit_mask`` is True to a prepared frame-1 episode.
+
+        Must be called after :meth:`prepare` so non-hit worlds already hold their exact
+        pre-decision ``s_{t+1}`` state. Only rows in ``hit_mask`` are touched; non-hit
+        rows keep byte-identical state and RNG counters.
+
+        Args:
+            hit_mask: Boolean tensor of shape ``(E,)`` on ``self.device``.
+        """
+        if hit_mask.shape != (self.E,):
+            raise ValueError(f"hit_mask must have shape {(self.E,)}, got {hit_mask.shape}")
+        hit_rows = hit_mask.nonzero(as_tuple=False).flatten()
+        n_hit = int(hit_rows.numel())
+        if n_hit == 0:
+            return
+
+        sub_cfg = replace(self.sim.cfg, num_envs=n_hit)
+        sim_cls: type[DeviceSim] = _MPSCompatDeviceSim if self.device.type == "mps" else DeviceSim
+        sub = sim_cls(
+            sub_cfg,
+            device=self.device,
+            train_mode=False,
+            allow_respawn=True,
+            cap=self.cap,
+            move_backend=self.sim.move_backend,
+            hero_respawn=True,
+            exact_mechanics=True,
+        )
+        _ensure_capacity_overflow(sub)
+        sub.rng_key.copy_(self.sim.rng_key.index_select(0, hit_rows))
+        sub.rng_counter.copy_(self.sim.rng_counter.index_select(0, hit_rows))
+        sub.alive.fill_(False)
+        sub.respawn_timer.zero_()
+        sub.seg_count.zero_()
+        sub.length.fill_(1)
+        sub._reward_prev_length.fill_(1)
+        sub.boost_frames.zero_()
+        sub.frames_since_food.zero_()
+        sub.food_present.fill_(False)
+        sub.corpse_food.fill_(False)
+        sub.food_count.zero_()
+        sub._respawn_exact()
+        sub._refill_food_rows(torch.ones((n_hit,), dtype=torch.bool, device=self.device))
+        # Match post-prepare() frame-1 state since self.sim._prepared is True.
+        sub.frame.fill_(1)
+
+        reset_fields = (
+            "bodies",
+            "head_ptr",
+            "seg_count",
+            "length",
+            "alive",
+            "direction",
+            "boost_frames",
+            "frames_since_food",
+            "respawn_timer",
+            "_reward_prev_length",
+            "frame",
+            "rng_counter",
+            "food_cells",
+            "food_present",
+            "corpse_food",
+            "food_count",
+        )
+        for field_name in reset_fields:
+            getattr(self.sim, field_name)[hit_rows] = getattr(sub, field_name)
+        self.prev_heads[hit_rows] = 0
+        self.prev_alive[hit_rows] = False
+        r2_cache.bump(self.sim)
 
     def learner_seat_mask(self) -> torch.Tensor:
         """Return boolean mask ``(E, S)`` of seats belonging to the learning policy."""
@@ -736,11 +900,11 @@ class TrainSim:
         decision_heads = self.sim.heads().clone()
         self.sim.step(actions)
 
-        acted = self.sim._last_transition_valid
-        died = self.sim._last_done
-        survived = self.sim.alive
-        post_length = self.sim.length
-        boosted = self.sim._boosted_this_step
+        acted = self.sim._last_transition_valid.clone()
+        died = self.sim._last_done.clone()
+        survived = self.sim.alive.clone()
+        post_length = self.sim.length.clone()
+        boosted = self.sim._boosted_this_step.clone()
 
         self.prev_heads = torch.where(
             survived[..., None], decision_heads, torch.zeros_like(decision_heads)
@@ -759,43 +923,215 @@ class TrainSim:
             post_length=post_length,
             reward=reward,
             boosted=boosted,
-            learner_mask=self._learner_seat_mask,
+            learner_mask=self._learner_seat_mask.clone(),
         )
 
     def state_dict(self) -> dict[str, Any]:
-        """Export full deterministic simulator state on CPU for checkpointing."""
-        sim_tensors = {
-            name: getattr(self.sim, name).detach().cpu().clone() for name in _SIM_STATE_TENSORS
-        }
+        """Export deterministic simulator state on CPU using compact live-window int16 bodies."""
+        _ensure_capacity_overflow(self.sim)
+        seg_cpu = self.sim.seg_count.detach().cpu()
+        ptr_cpu = self.sim.head_ptr.detach().cpu()
+        max_seg = int(seg_cpu.max().item()) if seg_cpu.numel() > 0 else 0
+        max_seg = max(0, min(max_seg, self.cap))
+        if max_seg > 0:
+            k_offsets = torch.arange(max_seg, dtype=torch.long)[None, None, :]
+            ring_idx = (ptr_cpu[..., None] - k_offsets) % self.cap
+            e_idx = torch.arange(self.E, dtype=torch.long)[:, None, None]
+            s_idx = torch.arange(self.S, dtype=torch.long)[None, :, None]
+            bodies_cpu = self.sim.bodies.detach().cpu()
+            bodies_live_i16 = bodies_cpu[e_idx, s_idx, ring_idx].to(torch.int16).contiguous()
+        else:
+            bodies_live_i16 = torch.zeros((self.E, self.S, 0, 2), dtype=torch.int16)
+
+        sim_tensors: dict[str, torch.Tensor] = {}
+        for name in _SIM_STATE_TENSORS:
+            if name == "bodies":
+                continue
+            val = getattr(self.sim, name).detach().cpu()
+            if name == "food_cells":
+                sim_tensors[name] = val.to(torch.int16).contiguous()
+            else:
+                sim_tensors[name] = val.clone()
+
         return {
             "E": self.E,
             "S": self.S,
             "cap": self.cap,
+            "grid_h": self.grid_h,
+            "grid_w": self.grid_w,
             "prepared": bool(self.sim._prepared),
+            "bodies_live_i16": bodies_live_i16,
             "sim_tensors": sim_tensors,
-            "prev_heads": self.prev_heads.detach().cpu().clone(),
+            "prev_heads": self.prev_heads.detach().cpu().to(torch.int16).contiguous(),
             "prev_alive": self.prev_alive.detach().cpu().clone(),
             "world_opponent_kind": self.world_opponent_kind.detach().cpu().clone(),
         }
 
     def load_state_dict(self, state: dict[str, Any]) -> None:
-        """Restore full deterministic simulator state onto ``self.device``.
+        """Restore deterministic simulator state onto ``self.device``.
 
         Args:
             state: Dictionary previously produced by :meth:`state_dict`.
         """
-        if int(state["E"]) != self.E or int(state["S"]) != self.S or int(state["cap"]) != self.cap:
+        ckpt_gh = int(state.get("grid_h", self.grid_h))
+        ckpt_gw = int(state.get("grid_w", self.grid_w))
+        if (
+            int(state["E"]) != self.E
+            or int(state["S"]) != self.S
+            or int(state["cap"]) != self.cap
+            or ckpt_gh != self.grid_h
+            or ckpt_gw != self.grid_w
+        ):
             raise ValueError(
-                f"TrainSim shape mismatch on load: ckpt={(state['E'], state['S'], state['cap'])} "
-                f"vs current={(self.E, self.S, self.cap)}"
+                "TrainSim shape mismatch on load: "
+                f"ckpt={(state['E'], state['S'], state['cap'], ckpt_gh, ckpt_gw)} "
+                f"vs current={(self.E, self.S, self.cap, self.grid_h, self.grid_w)}"
             )
+        _ensure_capacity_overflow(self.sim)
         sim_tensors = state["sim_tensors"]
         for name in _SIM_STATE_TENSORS:
+            if name == "bodies":
+                continue
+            if name == "capacity_overflow" and name not in sim_tensors:
+                self.sim.capacity_overflow.zero_()
+                continue
             target = getattr(self.sim, name)
             loaded = sim_tensors[name].to(device=self.device, dtype=target.dtype)
             target.copy_(loaded)
+
+        if "bodies_live_i16" in state:
+            self.sim.bodies.zero_()
+            live = state["bodies_live_i16"].to(device=self.device, dtype=torch.long)
+            max_seg = int(live.shape[2])
+            if max_seg > 0:
+                k_offsets = torch.arange(max_seg, device=self.device, dtype=torch.long)[
+                    None, None, :
+                ]
+                ring_idx = (self.sim.head_ptr[..., None] - k_offsets) % self.cap
+                e_idx = torch.arange(self.E, device=self.device, dtype=torch.long)[:, None, None]
+                s_idx = torch.arange(self.S, device=self.device, dtype=torch.long)[None, :, None]
+                self.sim.bodies[e_idx, s_idx, ring_idx] = live
+        else:
+            loaded_bodies = sim_tensors["bodies"].to(
+                device=self.device, dtype=self.sim.bodies.dtype
+            )
+            self.sim.bodies.copy_(loaded_bodies)
+
         self.sim._prepared = bool(state["prepared"])
         self.prev_heads.copy_(state["prev_heads"].to(device=self.device, dtype=torch.long))
         self.prev_alive.copy_(state["prev_alive"].to(device=self.device, dtype=torch.bool))
         self.set_opponent_kinds(state["world_opponent_kind"])
         r2_cache.bump(self.sim)
+
+
+def verify_indexed_vs_reference_parity(
+    device: str | torch.device = "cpu",
+    *,
+    num_envs: int = 4,
+    ticks: int = 100,
+    burnin_ticks: int = 25,
+    grid_h: int = DEFAULT_GRID_H,
+    grid_w: int = DEFAULT_GRID_W,
+    num_snakes: int = DEFAULT_NUM_SNAKES,
+    seed: int = 20261110,
+) -> dict[str, Any]:
+    """Spot-check byte-for-byte parity between ``indexed`` and ``reference`` collision backends.
+
+    On ``mps`` (where ``move_cuda`` is unsupported), executes the parity check on ``cpu``
+    and records ``executed_device="cpu"``. On ``cuda``, runs the real native ``move_cuda``
+    CUDA kernels against ``DeviceSim``'s reference PyTorch collision resolver.
+
+    Args:
+        device: Requested device (`cpu`, `mps`, or `cuda`).
+        num_envs: Number of parallel worlds ``E``.
+        ticks: Number of stepped frames to compare.
+        burnin_ticks: Mature-body warmup ticks before comparison.
+        grid_h: Arena height in grid cells.
+        grid_w: Arena width in grid cells.
+        num_snakes: Snakes per world ``S``.
+        seed: Deterministic seed for initial world state and action tape.
+
+    Returns:
+        Summary dictionary with verified tick, death, and boost counts.
+    """
+    resolved = normalize_device(device)
+    exec_device = torch.device("cpu") if resolved.type == "mps" else resolved
+
+    base = TrainSim.create(
+        num_envs,
+        device=exec_device,
+        seed=seed,
+        grid_h=grid_h,
+        grid_w=grid_w,
+        num_snakes=num_snakes,
+        max_capacity=512,
+    )
+    pattern = torch.tensor([1, 4, 5, 12, 20, 24], dtype=torch.long, device=exec_device)
+    seat_lengths = pattern[torch.arange(num_snakes, device=exec_device) % pattern.numel()]
+    base.sim.length.copy_(seat_lengths[None, :].expand(num_envs, -1).clone())
+    base.sim._reward_prev_length.copy_(base.sim.length)
+    for _ in range(max(0, int(burnin_ticks))):
+        base.prepare()
+        act_b = base.scripted_greedy_food_actions()
+        base.step(act_b)
+
+    def _clone_with_backend(backend_name: str) -> DeviceSim:
+        cloned = DeviceSim(
+            base.sim.cfg,
+            device=exec_device,
+            train_mode=False,
+            allow_respawn=True,
+            cap=base.cap,
+            move_backend=backend_name,
+            hero_respawn=True,
+            exact_mechanics=True,
+        )
+        _ensure_capacity_overflow(cloned)
+        for name in _SIM_STATE_TENSORS:
+            setattr(cloned, name, getattr(base.sim, name).clone())
+        cloned._prepared = bool(base.sim._prepared)
+        r2_cache.bump(cloned)
+        return cloned
+
+    sim_indexed = _clone_with_backend("indexed")
+    sim_reference = _clone_with_backend("reference")
+
+    gen = torch.Generator(device="cpu").manual_seed(int(seed) ^ 0x5A5A5A5A)
+    tape = torch.randint(0, 6, (int(ticks), int(num_envs), int(num_snakes)), generator=gen)
+
+    total_deaths = 0
+    total_boosts = 0
+    for tick in range(int(ticks)):
+        act = tape[tick].to(device=exec_device, dtype=torch.long)
+        sim_indexed.step(act)
+        sim_reference.step(act)
+        total_deaths += int(sim_indexed._last_done.sum().detach().cpu().item())
+        total_boosts += int(sim_indexed._boosted_this_step.sum().detach().cpu().item())
+
+        if (tick + 1) % 25 == 0 or tick == int(ticks) - 1:
+            for field_name in _SIM_STATE_TENSORS:
+                lhs = getattr(sim_indexed, field_name).detach().cpu()
+                rhs = getattr(sim_reference, field_name).detach().cpu()
+                if lhs.is_floating_point():
+                    if not torch.allclose(lhs, rhs, atol=1e-6, rtol=0.0):
+                        raise AssertionError(
+                            f"indexed vs reference float mismatch on {field_name} at tick={tick}"
+                        )
+                elif not torch.equal(lhs, rhs):
+                    raise AssertionError(
+                        f"indexed vs reference exact mismatch on {field_name} at tick={tick}"
+                    )
+
+    return {
+        "schema": "arena-ppo-indexed-parity/v1",
+        "requested_device": str(resolved),
+        "executed_device": str(exec_device),
+        "num_envs": int(num_envs),
+        "num_snakes": int(num_snakes),
+        "grid_h": int(grid_h),
+        "grid_w": int(grid_w),
+        "ticks": int(ticks),
+        "total_deaths": int(total_deaths),
+        "total_boosts": int(total_boosts),
+        "status": "PASS",
+    }
