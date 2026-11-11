@@ -20,7 +20,8 @@ Specification (v3.1 Rules 10 & 11):
   - ``4``: ``out_of_arena`` (``0`` inside arena, ``255`` outside)
   - ``5..8``: current-tick ``t`` enemy heads (``size_bucket``, ``ego_dx``, ``ego_dy``,
     ``boosting`` flag ``0/255``)
-  - ``9..12``: previous-tick ``t - 1`` enemy heads (2-frame head stack)
+  - ``9..12``: previous-tick ``t - 1`` enemy heads projected into the current ``t``
+    observer ego frame (2-frame head stack)
 - Scalars ``(..., 8)`` in ``float32`` (exact dyadic / table values, bitwise identical
   across NumPy, CPU, MPS, and CUDA):
   ``[log_length, body_radius, boost_allowed, own_boost_state, turn_rate,
@@ -107,8 +108,9 @@ def _build_obs_luts_np(
 class ObservationBatch:
     """Batched multi-scale observations on a single Torch device.
 
-    Shapes are ``(E, N, ...)`` when ``learner_mask is None``, or ``(M, ...)`` for
-    the ``M`` ``True`` entries of ``learner_mask`` in row-major ``(e, n)`` order.
+    Shapes are ``(E, N, ...)`` when built without a learner selection, or ``(M, ...)``
+    for the ``M`` ``True`` entries of a :class:`LearnerIndex` / ``learner_mask`` in
+    row-major ``(e, n)`` order.
     """
 
     raster_s1: torch.Tensor
@@ -116,11 +118,8 @@ class ObservationBatch:
     raster_s16: torch.Tensor
     scalars: torch.Tensor
     action_mask: torch.Tensor
-    _learner_env_idx: torch.Tensor | None = field(default=None, repr=False, compare=False)
-    _learner_slot_idx: torch.Tensor | None = field(default=None, repr=False, compare=False)
-    _learner_chunks: tuple[tuple[int, int, int, int], ...] | None = field(
-        default=None, repr=False, compare=False
-    )
+    _learner_index: LearnerIndex | None = field(default=None, repr=False, compare=False)
+    _sim_shape: tuple[int, int] | None = field(default=None, repr=False, compare=False)
 
 
 @dataclass
@@ -155,6 +154,62 @@ def _build_learner_chunks_from_env_np(
         chunks.append((e0, e1, m0, m1))
         m0 = m1
     return tuple(chunks)
+
+
+class LearnerIndex:
+    """Immutable precomputed learner-slot index built once by the caller and passed in.
+
+    Replaces implicit ``(data_ptr, _version)`` tensor caching so address reuse on CPU or
+    CUDA can never return observations for stale slots.
+    """
+
+    def __init__(self, sim: GameV3Sim, learner_mask: torch.Tensor) -> None:
+        if learner_mask.dtype != torch.bool or learner_mask.shape != (sim.E, sim.N):
+            raise ValueError(
+                f"learner_mask must be bool of shape ({sim.E}, {sim.N}), "
+                f"got {learner_mask.dtype} {tuple(learner_mask.shape)}"
+            )
+        if learner_mask.device != sim.device:
+            raise ValueError(
+                f"learner_mask device {learner_mask.device} != sim device {sim.device}"
+            )
+        self.mask: torch.Tensor = learner_mask.detach().clone()
+        self.sim_shape: tuple[int, int] = (sim.E, sim.N)
+        self.device: torch.device = sim.device
+        self.env_block: int = sim.env_block_size
+
+        env_idx, slot_idx = torch.where(self.mask)
+        self.env_idx: torch.Tensor = env_idx.contiguous()
+        self.slot_idx: torch.Tensor = slot_idx.contiguous()
+        self.count: int = int(self.env_idx.shape[0])
+        self.chunks: tuple[tuple[int, int, int, int], ...] = _build_learner_chunks_from_env_np(
+            self.env_idx.detach().cpu().numpy(), self.env_block, OBS_LEARNER_CHUNK
+        )
+
+    def matches(self, other: LearnerIndex | torch.Tensor | None) -> bool:
+        """Return True iff ``other`` selects the exact same ``(E, N)`` mask on ``device``."""
+        if other is self:
+            return True
+        if other is None:
+            return False
+        if isinstance(other, LearnerIndex):
+            if (
+                other.sim_shape != self.sim_shape
+                or other.device != self.device
+                or other.count != self.count
+                or other.env_block != self.env_block
+            ):
+                return False
+            return bool(torch.equal(other.mask, self.mask))
+        if isinstance(other, torch.Tensor):
+            if (
+                other.dtype != torch.bool
+                or other.shape != self.sim_shape
+                or other.device != self.device
+            ):
+                return False
+            return bool(torch.equal(other, self.mask))
+        return False
 
 
 class _ObsStaticCache:
@@ -206,12 +261,6 @@ class _ObsStaticCache:
             torch.ones((sim.N, sim.N), dtype=torch.bool, device=dev), diagonal=-1
         )[None, :, :]
 
-        # Last-used immutable learner_mask index cache for zero-host-sync reuse.
-        self.last_mask_key: tuple[int, int] | None = None
-        self.last_mask_env_idx: torch.Tensor | None = None
-        self.last_mask_slot_idx: torch.Tensor | None = None
-        self.last_mask_chunks: tuple[tuple[int, int, int, int], ...] | None = None
-
 
 _OBS_CACHE: weakref.WeakKeyDictionary[GameV3Sim, _ObsStaticCache] = weakref.WeakKeyDictionary()
 
@@ -224,56 +273,63 @@ def _get_obs_cache(sim: GameV3Sim) -> _ObsStaticCache:
     return cached
 
 
-def _resolve_learner_indices(
+def _coerce_learner_spec(
     sim: GameV3Sim,
-    cache: _ObsStaticCache,
-    learner_mask: torch.Tensor,
-) -> tuple[torch.Tensor, torch.Tensor, tuple[tuple[int, int, int, int], ...]]:
-    if learner_mask.dtype != torch.bool or learner_mask.shape != (sim.E, sim.N):
-        raise ValueError(
-            f"learner_mask must be bool of shape ({sim.E}, {sim.N}), "
-            f"got {learner_mask.dtype} {tuple(learner_mask.shape)}"
-        )
-    if learner_mask.device != sim.device:
-        raise ValueError(f"learner_mask device {learner_mask.device} != sim device {sim.device}")
-
-    key = (int(learner_mask.data_ptr()), int(learner_mask._version))
-    if (
-        cache.last_mask_key == key
-        and cache.last_mask_env_idx is not None
-        and cache.last_mask_slot_idx is not None
-        and cache.last_mask_chunks is not None
-    ):
-        return cache.last_mask_env_idx, cache.last_mask_slot_idx, cache.last_mask_chunks
-
-    nz = torch.nonzero(learner_mask, as_tuple=False)
-    env_idx = nz[:, 0].contiguous()
-    slot_idx = nz[:, 1].contiguous()
-    chunks = _build_learner_chunks_from_env_np(
-        env_idx.detach().cpu().numpy(), cache.env_block, OBS_LEARNER_CHUNK
-    )
-    cache.last_mask_key = key
-    cache.last_mask_env_idx = env_idx
-    cache.last_mask_slot_idx = slot_idx
-    cache.last_mask_chunks = chunks
-    return env_idx, slot_idx, chunks
+    learner_mask: LearnerIndex | torch.Tensor | None,
+    learner_index: LearnerIndex | None,
+) -> LearnerIndex | torch.Tensor | None:
+    if learner_index is not None and learner_mask is not None:
+        if not isinstance(learner_index, LearnerIndex):
+            raise TypeError(f"learner_index must be a LearnerIndex, got {type(learner_index)}")
+        if not learner_index.matches(learner_mask):
+            raise ValueError("Conflicting learner_mask and learner_index passed simultaneously")
+        return learner_index
+    spec = learner_index if learner_index is not None else learner_mask
+    if spec is None:
+        return None
+    if isinstance(spec, LearnerIndex):
+        if (
+            spec.sim_shape != (sim.E, sim.N)
+            or spec.device != sim.device
+            or spec.env_block != sim.env_block_size
+        ):
+            raise ValueError(
+                f"LearnerIndex built for {spec.sim_shape} on {spec.device} "
+                f"(env_block={spec.env_block}) does not match sim {(sim.E, sim.N)} "
+                f"on {sim.device} (env_block={sim.env_block_size})"
+            )
+        return spec
+    if isinstance(spec, torch.Tensor):
+        if spec.dtype != torch.bool or spec.shape != (sim.E, sim.N):
+            raise ValueError(
+                f"learner_mask must be bool of shape ({sim.E}, {sim.N}), "
+                f"got {spec.dtype} {tuple(spec.shape)}"
+            )
+        if spec.device != sim.device:
+            raise ValueError(f"learner_mask device {spec.device} != sim device {sim.device}")
+        return spec
+    raise TypeError(f"Expected LearnerIndex, bool Tensor, or None, got {type(spec)}")
 
 
 def allocate_obs_batch(
     sim: GameV3Sim,
-    learner_mask: torch.Tensor | None = None,
+    learner_mask: LearnerIndex | torch.Tensor | None = None,
+    *,
+    learner_index: LearnerIndex | None = None,
 ) -> ObservationBatch:
     """Preallocate an :class:`ObservationBatch` on ``sim.device`` for zero-sync reuse."""
     cache = _get_obs_cache(sim)
     s1_sz, s4_sz, s16_sz = cache.sizes
-    if learner_mask is None:
+    spec = _coerce_learner_spec(sim, learner_mask, learner_index)
+    if spec is None:
         lead: tuple[int, ...] = (sim.E, sim.N)
-        env_idx: torch.Tensor | None = None
-        slot_idx: torch.Tensor | None = None
-        chunks: tuple[tuple[int, int, int, int], ...] | None = cache.all_chunks
+        resolved_idx: LearnerIndex | None = None
+    elif isinstance(spec, LearnerIndex):
+        resolved_idx = spec
+        lead = (resolved_idx.count,)
     else:
-        env_idx, slot_idx, chunks = _resolve_learner_indices(sim, cache, learner_mask)
-        lead = (int(env_idx.shape[0]),)
+        resolved_idx = LearnerIndex(sim, spec)
+        lead = (resolved_idx.count,)
 
     return ObservationBatch(
         raster_s1=torch.empty(
@@ -287,9 +343,8 @@ def allocate_obs_batch(
         ),
         scalars=torch.empty((*lead, NUM_SCALAR_FEATURES), dtype=torch.float32, device=sim.device),
         action_mask=torch.empty((*lead, NUM_ACTIONS), dtype=torch.bool, device=sim.device),
-        _learner_env_idx=env_idx,
-        _learner_slot_idx=slot_idx,
-        _learner_chunks=chunks,
+        _learner_index=resolved_idx,
+        _sim_shape=(sim.E, sim.N),
     )
 
 
@@ -431,13 +486,6 @@ def _fill_scale_raster_learners_torch(
         sin0 = sim._sin_table[obs_th_i64]
         cos0 = sim._cos_table[obs_th_i64]
 
-        prev_obs_alive = obs_alive & sim.prev_alive[le, ln]
-        prev_obs_pos = sim.prev_head_pos[le, ln]
-        prev_obs_theta = sim.prev_theta[le, ln]
-        prev_th_i64 = prev_obs_theta.to(torch.int64)
-        sin1 = sim._sin_table[prev_th_i64]
-        cos1 = sim._cos_table[prev_th_i64]
-
         # Exact integer ego-to-world sample coordinates (in 1/1024 cell units).
         # wx_fp = hx_fp + ((cos0 * ego_y_2x + sin0 * ego_x_2x + 16) >> 5)
         # wy_fp = hy_fp + ((sin0 * ego_y_2x - cos0 * ego_x_2x + 16) >> 5)
@@ -499,8 +547,18 @@ def _fill_scale_raster_learners_torch(
 
             amb_1x_sub = sim.ambient_grid[e0:e1].view(-1)
             cor_1x_sub = sim.corpse_grid[e0:e1].view(-1)
-            amb_m = amb_1x_sub.index_select(0, g_idx).view(mc, sz, sz).clamp(0, _FOOD_LUT_MAX)
-            cor_m = cor_1x_sub.index_select(0, g_idx).view(mc, sz, sz).clamp(0, _FOOD_LUT_MAX)
+            amb_m = (
+                amb_1x_sub.index_select(0, g_idx)
+                .to(torch.int64)
+                .view(mc, sz, sz)
+                .clamp(0, _FOOD_LUT_MAX)
+            )
+            cor_m = (
+                cor_1x_sub.index_select(0, g_idx)
+                .to(torch.int64)
+                .view(mc, sz, sz)
+                .clamp(0, _FOOD_LUT_MAX)
+            )
             del g_idx
         elif scale_idx == 1:
             gx4 = (gx >> 2).clamp(0, sim.G4 - 1).to(torch.int64)
@@ -578,12 +636,13 @@ def _fill_scale_raster_learners_torch(
             scale_fp=scale_fp,
             raster_size=sz,
         )
+        # Project previous-tick (t - 1) enemy heads into the CURRENT observer ego frame.
         heads_t1 = _splat_heads_u8_torch(
-            obs_alive=prev_obs_alive,
-            obs_pos=prev_obs_pos,
-            obs_theta=prev_obs_theta,
-            obs_sin=sin1,
-            obs_cos=cos1,
+            obs_alive=obs_alive,
+            obs_pos=obs_pos,
+            obs_theta=obs_theta,
+            obs_sin=sin0,
+            obs_cos=cos0,
             obs_slot=ln,
             enemy_alive=sim.prev_alive.index_select(0, le),
             enemy_pos=sim.prev_head_pos.index_select(0, le),
@@ -625,43 +684,69 @@ def _signed_div_q10_torch(num: torch.Tensor, denom: torch.Tensor) -> torch.Tenso
 
 def build_obs(
     sim: GameV3Sim,
-    learner_mask: torch.Tensor | None = None,
+    learner_mask: LearnerIndex | torch.Tensor | None = None,
     *,
+    learner_index: LearnerIndex | None = None,
     out: ObservationBatch | None = None,
 ) -> ObservationBatch:
-    """Build multi-scale uint8 pyramid observations on ``sim.device`` with zero host syncs.
+    """Build multi-scale uint8 pyramid observations on ``sim.device``.
 
-    Args:
-        sim: Active :class:`GameV3Sim` instance.
-        learner_mask: Optional bool mask ``(E, N)``. When provided, observations are
-            computed and returned ONLY for the ``M`` ``True`` slots as ``(M, ...)``.
-        out: Optional preallocated :class:`ObservationBatch` from :func:`allocate_obs_batch`.
-
-    Returns:
-        Populated :class:`ObservationBatch` on ``sim.device``.
+    For zero-host-sync steady-state rollouts, construct a :class:`LearnerIndex` once,
+    allocate ``out = allocate_obs_batch(sim, idx)``, and call ``build_obs(sim, idx, out=out)``.
+    Passing an ``out`` batch built with a different mask/index raises ``ValueError``.
     """
     cache = _get_obs_cache(sim)
-    batch = out if out is not None else allocate_obs_batch(sim, learner_mask=learner_mask)
+    spec = _coerce_learner_spec(sim, learner_mask, learner_index)
+
+    if out is None:
+        batch = allocate_obs_batch(sim, spec)
+    else:
+        if out.raster_s1.device != sim.device:
+            raise ValueError(
+                f"out ObservationBatch device {out.raster_s1.device} != sim device {sim.device}"
+            )
+        if out._sim_shape is not None and out._sim_shape != (sim.E, sim.N):
+            raise ValueError(
+                f"out ObservationBatch was allocated for sim shape {out._sim_shape}, "
+                f"got {(sim.E, sim.N)}"
+            )
+        if out._learner_index is None:
+            if spec is not None:
+                raise ValueError(
+                    "out ObservationBatch was allocated for all slots (learner_index=None), "
+                    "but build_obs received a non-None learner_mask/learner_index"
+                )
+            if out.raster_s1.shape[:2] != (sim.E, sim.N):
+                raise ValueError(
+                    f"out ObservationBatch leading shape {tuple(out.raster_s1.shape[:2])} "
+                    f"does not match ({sim.E}, {sim.N})"
+                )
+        else:
+            if spec is None:
+                raise ValueError(
+                    "out ObservationBatch was allocated with a LearnerIndex/learner_mask, "
+                    "but build_obs received None"
+                )
+            if not out._learner_index.matches(spec):
+                raise ValueError(
+                    "learner_mask/learner_index passed to build_obs differs from the one "
+                    "used to build out ObservationBatch"
+                )
+        batch = out
+
     cfg = sim.cfg
     s1_sz, s4_sz, s16_sz = cache.sizes
 
-    if learner_mask is None:
+    if batch._learner_index is None:
         env_idx = cache.all_env_idx
         slot_idx = cache.all_slot_idx
         chunks = cache.all_chunks
         m_cnt = sim.E * sim.N
-    elif (
-        batch._learner_env_idx is not None
-        and batch._learner_slot_idx is not None
-        and batch._learner_chunks is not None
-    ):
-        env_idx = batch._learner_env_idx
-        slot_idx = batch._learner_slot_idx
-        chunks = batch._learner_chunks
-        m_cnt = int(env_idx.shape[0])
     else:
-        env_idx, slot_idx, chunks = _resolve_learner_indices(sim, cache, learner_mask)
-        m_cnt = int(env_idx.shape[0])
+        env_idx = batch._learner_index.env_idx
+        slot_idx = batch._learner_index.slot_idx
+        chunks = batch._learner_index.chunks
+        m_cnt = batch._learner_index.count
 
     len_all_i64 = sim.length.clamp(0, cfg.max_length).to(torch.int64)
     prev_len_all_i64 = sim.prev_length.clamp(0, cfg.max_length).to(torch.int64)
@@ -862,14 +947,15 @@ def build_obs_reference(
     occ_16x = np.bitwise_or.reduce(
         ref.occ_mask.reshape(g_sz // 16, 16, g_sz // 16, 16), axis=(1, 3)
     )
-    amb_4x = ref.ambient_grid.reshape(g_sz // 4, 4, g_sz // 4, 4).sum(axis=(1, 3))
-    cor_4x = ref.corpse_grid.reshape(g_sz // 4, 4, g_sz // 4, 4).sum(axis=(1, 3))
-    amb_16x = ref.ambient_grid.reshape(g_sz // 16, 16, g_sz // 16, 16).sum(axis=(1, 3))
-    cor_16x = ref.corpse_grid.reshape(g_sz // 16, 16, g_sz // 16, 16).sum(axis=(1, 3))
+    amb_i32 = ref.ambient_grid.astype(np.int32)
+    cor_i32 = ref.corpse_grid.astype(np.int32)
+    amb_4x = amb_i32.reshape(g_sz // 4, 4, g_sz // 4, 4).sum(axis=(1, 3))
+    cor_4x = cor_i32.reshape(g_sz // 4, 4, g_sz // 4, 4).sum(axis=(1, 3))
+    amb_16x = amb_i32.reshape(g_sz // 16, 16, g_sz // 16, 16).sum(axis=(1, 3))
+    cor_16x = cor_i32.reshape(g_sz // 16, 16, g_sz // 16, 16).sum(axis=(1, 3))
 
     arena_r_sq_fp = int(cfg.arena_radius_fp) * int(cfg.arena_radius_fp)
     obs_alive_t0 = ref.alive
-    obs_alive_t1 = ref.alive & ref.prev_alive
 
     rasters: list[np.ndarray] = []
     for scale_idx, (scale, sz) in enumerate(zip(cfg.obs_scales, sizes)):
@@ -907,8 +993,8 @@ def build_obs_reference(
                 gx_c = np.clip(gx, 0, g_sz - 1)
                 gy_c = np.clip(gy, 0, g_sz - 1)
                 m_grid = ref.occ_mask[gy_c, gx_c]
-                af = np.clip(ref.ambient_grid[gy_c, gx_c], 0, _FOOD_LUT_MAX)
-                cf = np.clip(ref.corpse_grid[gy_c, gx_c], 0, _FOOD_LUT_MAX)
+                af = np.clip(amb_i32[gy_c, gx_c], 0, _FOOD_LUT_MAX)
+                cf = np.clip(cor_i32[gy_c, gx_c], 0, _FOOD_LUT_MAX)
             elif scale_idx == 1:
                 gx4 = np.clip(gx >> 2, 0, (g_sz // 4) - 1)
                 gy4 = np.clip(gy >> 2, 0, (g_sz // 4) - 1)
@@ -949,12 +1035,13 @@ def build_obs_reference(
             scale_fp=scale_fp,
             raster_size=sz,
         )
+        # Project previous-tick (t - 1) enemy heads into the CURRENT observer ego frame.
         _splat_heads_ref_u8_np(
             ras[:, CH_ENEMY_HEADS_T1 : CH_ENEMY_BOOST_T1 + 1, :, :],
             learner_slots=learner_slots,
-            obs_alive=obs_alive_t1,
-            obs_pos=ref.prev_head_pos,
-            obs_theta=ref.prev_theta,
+            obs_alive=obs_alive_t0,
+            obs_pos=ref.head_pos,
+            obs_theta=ref.theta,
             sin_table=ref.sin_table,
             cos_table=ref.cos_table,
             enemy_alive=ref.prev_alive,

@@ -46,8 +46,8 @@ class GameV3Config:
     respawn_candidates: int = 8
     respawn_fallback_candidates: int = 8
     respawn_clearance_cells: int = 4
-    spawn_wall_margin: float = 8.0
-    max_life_ticks: int = 3600
+    spawn_wall_margin: float = 20.0
+    max_life_ticks: int = 0
 
     # Movement, steering, fixed-point angle, and boost parameters.
     angle_steps: int = 4096
@@ -152,8 +152,10 @@ class GameV3Config:
             <= self.max_body_radius + self.spawn_wall_margin + 2.0 * self.cell_size
         ):
             raise ValueError("arena_radius is too small for max_body_radius and spawn_wall_margin")
-        if self.ambient_food_density < 0.0 or self.ambient_pellet_value < 1:
-            raise ValueError("Invalid ambient food parameters")
+        if self.ambient_food_density < 0.0 or not (1 <= self.ambient_pellet_value <= 255):
+            raise ValueError(
+                "Invalid ambient food parameters (require density >= 0 and pellet_value in 1..255)"
+            )
         if self.ambient_spawn_budget_per_tick < 1:
             raise ValueError("ambient_spawn_budget_per_tick must be >= 1")
         if not (0.0 <= self.corpse_mass_fraction <= 1.0):

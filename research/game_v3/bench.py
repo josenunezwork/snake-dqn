@@ -16,7 +16,7 @@ import psutil
 import torch
 
 from research.game_v3.config import NUM_ACTIONS, GameV3Config
-from research.game_v3.obs import ObservationBatch, allocate_obs_batch, build_obs
+from research.game_v3.obs import LearnerIndex, ObservationBatch, allocate_obs_batch, build_obs
 from research.game_v3.rng import PURPOSE_SCRIPTED, rng_int_torch
 from research.game_v3.sim import GameV3Sim
 
@@ -192,17 +192,18 @@ def benchmark_single_grid(
     k_learners = min(max(1, int(learner_slots)), cfg.num_snakes)
     col_idx = torch.arange(cfg.num_snakes, device=device)[None, :].expand(num_envs, cfg.num_snakes)
     learner_mask = col_idx < k_learners
-    obs_buf_sub = allocate_obs_batch(sim, learner_mask=learner_mask)
+    learner_index = LearnerIndex(sim, learner_mask)
+    obs_buf_sub = allocate_obs_batch(sim, learner_index)
 
     for t in range(min(2, max(1, warmup_steps))):
         sim.step(action_tape[t])
-        build_obs(sim, learner_mask=learner_mask, out=obs_buf_sub)
+        build_obs(sim, learner_index, out=obs_buf_sub)
     _sync_device(device)
 
     t_sub0 = time.perf_counter()
     for t in range(bench_steps):
         sim.step(action_tape[(warmup_steps + bench_steps + t) % len(action_tape)])
-        build_obs(sim, learner_mask=learner_mask, out=obs_buf_sub)
+        build_obs(sim, learner_index, out=obs_buf_sub)
     _sync_device(device)
     e2e_sub_elapsed = max(1e-9, time.perf_counter() - t_sub0)
     mem_after_sub = _sample_memory_mib(device, sim, obs_buf_sub)
@@ -212,11 +213,11 @@ def benchmark_single_grid(
     for _ in range(stage_steps):
         _sync_device(device)
         t_os0 = time.perf_counter()
-        build_obs(sim, learner_mask=learner_mask, out=obs_buf_sub)
+        build_obs(sim, learner_index, out=obs_buf_sub)
         _sync_device(device)
         obs_sub_seconds += time.perf_counter() - t_os0
 
-    del obs_buf_sub, learner_mask
+    del obs_buf_sub, learner_index, learner_mask
     _release_device_cache(device)
 
     # 4. Uninstrumented sim-only loop (zero inner syncs).

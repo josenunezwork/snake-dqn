@@ -9,7 +9,7 @@ import pytest
 import torch
 
 from research.game_v3.config import NUM_ACTIONS, GameV3Config
-from research.game_v3.obs import allocate_obs_batch, build_obs, build_obs_reference
+from research.game_v3.obs import LearnerIndex, allocate_obs_batch, build_obs, build_obs_reference
 from research.game_v3.reference import ReferenceStepInfo, ReferenceWorld
 from research.game_v3.scripted import food_seeking_actions, random_safe_actions
 from research.game_v3.sim import GameV3Sim, StepInfo
@@ -135,8 +135,9 @@ def assert_full_state_and_obs_parity(
 
         if learner_mask is not None:
             mask_np = learner_mask.detach().cpu().numpy()
-            sub_out = allocate_obs_batch(sim, learner_mask=learner_mask)
-            obs_sub = build_obs(sim, learner_mask=learner_mask, out=sub_out)
+            idx = LearnerIndex(sim, learner_mask)
+            sub_out = allocate_obs_batch(sim, idx)
+            obs_sub = build_obs(sim, idx, out=sub_out)
             for obs_attr in ("raster_s1", "raster_s4", "raster_s16", "scalars", "action_mask"):
                 got_sub = getattr(obs_sub, obs_attr).detach().cpu().numpy()
                 exp_sub = getattr(obs_sim, obs_attr).detach().cpu().numpy()[mask_np]
@@ -299,3 +300,202 @@ def test_32_worlds_x_1000_ticks_n24_exact_bitwise_parity_cpu() -> None:
     assert total_deaths >= 200
     assert total_kills >= 50
     assert total_truncs >= 50
+
+
+def test_parity_large_snakes_all_body_radius_tiers() -> None:
+    """SMALLER 3a: Parity across large snakes exercising every distinct body-radius tier."""
+    cfg = GameV3Config(
+        arena_radius=180.0,
+        num_snakes=20,
+        respawn_delay=6,
+        ambient_food_density=0.01,
+    )
+    num_envs = 2
+    seeds = [4101, 4102]
+    sim = GameV3Sim(cfg, num_envs=num_envs, device="cpu", seeds=seeds)
+    refs = [ReferenceWorld(cfg, seed=s) for s in seeds]
+    sim_mps = (
+        GameV3Sim(cfg, num_envs=num_envs, device="mps", seeds=seeds)
+        if torch.backends.mps.is_available()
+        else None
+    )
+
+    # Collect one representative length for EVERY distinct r_sq_cells tier in [start..max_length].
+    r_sq_list = sim._r_sq_table.tolist()
+    tier_to_len: dict[int, int] = {}
+    for slen in range(cfg.start_length, cfg.max_length + 1):
+        tier_val = int(r_sq_list[slen])
+        if tier_val not in tier_to_len:
+            tier_to_len[tier_val] = slen
+    all_tiers = set(tier_to_len.keys())
+    rep_lengths = sorted(tier_to_len.values())
+    assert len(rep_lengths) >= 12
+    slot_lengths = [
+        rep_lengths[i % len(rep_lengths)] if i < len(rep_lengths) else cfg.max_length
+        for i in range(cfg.num_snakes)
+    ]
+
+    # Assign identical multi-tier target lengths to initial alive snakes in sim, mps, and refs;
+    # subsequent steps emit points at every body-radius tier, collide, boost, and drop corpses.
+    for e in range(num_envs):
+        for i in range(cfg.num_snakes):
+            if bool(sim.alive[e, i].item()):
+                target_l = slot_lengths[i]
+                delta = target_l - int(sim.length[e, i].item())
+                sim.length[e, i] = target_l
+                sim.prev_length[e, i] = target_l
+                sim.total_spawned_snake_mass[e] += delta
+                refs[e].length[i] = target_l
+                refs[e].prev_length[i] = target_l
+                if sim_mps is not None:
+                    sim_mps.length[e, i] = target_l
+                    sim_mps.prev_length[e, i] = target_l
+                    sim_mps.total_spawned_snake_mass[e] += delta
+
+    rng = np.random.default_rng(202603)
+    seen_tiers: set[int] = set()
+    for t in range(1, 65):
+        if t % 3 == 0:
+            act = food_seeking_actions(sim)
+        elif t % 3 == 1:
+            act = random_safe_actions(sim)
+        else:
+            act = torch.from_numpy(
+                rng.integers(0, NUM_ACTIONS, size=(num_envs, cfg.num_snakes), dtype=np.int64)
+            )
+        act_np = act.numpy()
+        info = sim.step(act)
+        ref_infos = [refs[e].step(act_np[e]) for e in range(num_envs)]
+        assert_step_info_parity(info, ref_infos, t, label="large-tiers")
+        if sim_mps is not None:
+            info_m = sim_mps.step(act.to("mps"))
+            for k in info.__dataclass_fields__:
+                assert torch.equal(getattr(info, k), getattr(info_m, k).cpu())
+
+        alive_lens = sim.length[sim.alive].tolist()
+        for slen in alive_lens:
+            seen_tiers.add(int(r_sq_list[slen]))
+
+        if t in (1, 20, 40, 64):
+            assert_full_state_and_obs_parity(
+                sim, refs, t, check_rings=True, check_obs=True, label="large-tiers"
+            )
+            if sim_mps is not None:
+                assert_full_state_and_obs_parity(
+                    sim_mps, refs, t, check_rings=True, check_obs=True, label="large-tiers-mps"
+                )
+
+    assert seen_tiers == all_tiers, f"Missing body-radius tiers: {all_tiers - seen_tiers}"
+
+
+def test_parity_ring_wraparound_max_length_40_for_400_ticks() -> None:
+    """SMALLER 3b: Ring buffer wraparound parity with max_length=40 across 400 ticks."""
+    cfg = GameV3Config(
+        arena_radius=90.0,
+        num_snakes=12,
+        max_length=40,
+        respawn_delay=5,
+        ambient_food_density=0.025,
+    )
+    num_envs = 4
+    seeds = [5100 + e for e in range(num_envs)]
+    sim = GameV3Sim(cfg, num_envs=num_envs, device="cpu", seeds=seeds)
+    refs = [ReferenceWorld(cfg, seed=s) for s in seeds]
+    sim_mps = (
+        GameV3Sim(cfg, num_envs=num_envs, device="mps", seeds=seeds)
+        if torch.backends.mps.is_available()
+        else None
+    )
+
+    rng = np.random.default_rng(40400)
+    max_life_age_seen = 0
+    for t in range(1, 401):
+        if t % 4 != 3:
+            act = food_seeking_actions(sim)
+        else:
+            act = torch.from_numpy(
+                rng.integers(0, NUM_ACTIONS, size=(num_envs, cfg.num_snakes), dtype=np.int64)
+            )
+        act_np = act.numpy()
+        info = sim.step(act)
+        ref_infos = [refs[e].step(act_np[e]) for e in range(num_envs)]
+        assert_step_info_parity(info, ref_infos, t, label="ring-wrap-40")
+        if sim_mps is not None:
+            info_m = sim_mps.step(act.to("mps"))
+            for k in info.__dataclass_fields__:
+                assert torch.equal(getattr(info, k), getattr(info_m, k).cpu())
+
+        max_life_age_seen = max(max_life_age_seen, int(info.life_age.max().item()))
+        if t in (45, 100, 200, 300, 400):
+            assert_full_state_and_obs_parity(
+                sim, refs, t, check_rings=True, check_obs=True, label="ring-wrap-40"
+            )
+            if sim_mps is not None:
+                assert_full_state_and_obs_parity(
+                    sim_mps, refs, t, check_rings=True, check_obs=True, label="ring-wrap-40-mps"
+                )
+
+    assert (
+        max_life_age_seen > cfg.max_length * 2
+    ), f"Expected multiple 40-slot ring wraparounds, got max_life_age={max_life_age_seen}"
+    assert int(sim.seg_count.max().item()) == cfg.max_length
+
+
+def test_parity_default_r600_n24() -> None:
+    """SMALLER 3c: Bitwise parity at the exact default GameV3Config (R=600, N=24)."""
+    cfg = GameV3Config()
+    assert cfg.arena_radius == 600.0 and cfg.num_snakes == 24
+    num_envs = 2
+    seeds = [6101, 6102]
+    sim = GameV3Sim(cfg, num_envs=num_envs, device="cpu", seeds=seeds)
+    refs = [ReferenceWorld(cfg, seed=s) for s in seeds]
+    sim_mps = (
+        GameV3Sim(cfg, num_envs=num_envs, device="mps", seeds=seeds)
+        if torch.backends.mps.is_available()
+        else None
+    )
+
+    mask_cpu = torch.tensor(
+        [[j < 8 for j in range(cfg.num_snakes)] for _ in range(num_envs)], dtype=torch.bool
+    )
+    assert_full_state_and_obs_parity(
+        sim, refs, 0, check_rings=True, check_obs=True, learner_mask=mask_cpu, label="r600-n24"
+    )
+
+    rng = np.random.default_rng(60024)
+    for t in range(1, 51):
+        if t % 2 == 0:
+            act = food_seeking_actions(sim)
+        else:
+            act = torch.from_numpy(
+                rng.integers(0, NUM_ACTIONS, size=(num_envs, cfg.num_snakes), dtype=np.int64)
+            )
+        act_np = act.numpy()
+        info = sim.step(act)
+        ref_infos = [refs[e].step(act_np[e]) for e in range(num_envs)]
+        assert_step_info_parity(info, ref_infos, t, label="r600-n24")
+        if sim_mps is not None:
+            info_m = sim_mps.step(act.to("mps"))
+            for k in info.__dataclass_fields__:
+                assert torch.equal(getattr(info, k), getattr(info_m, k).cpu())
+
+        if t in (1, 25, 50):
+            assert_full_state_and_obs_parity(
+                sim,
+                refs,
+                t,
+                check_rings=True,
+                check_obs=True,
+                learner_mask=mask_cpu,
+                label="r600-n24",
+            )
+            if sim_mps is not None:
+                assert_full_state_and_obs_parity(
+                    sim_mps,
+                    refs,
+                    t,
+                    check_rings=True,
+                    check_obs=True,
+                    learner_mask=mask_cpu.to("mps"),
+                    label="r600-n24-mps",
+                )

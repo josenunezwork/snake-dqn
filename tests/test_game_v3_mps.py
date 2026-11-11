@@ -11,7 +11,7 @@ import torch
 
 from research.game_v3.bench import STAGE_ORDER, run_benchmark
 from research.game_v3.config import NUM_ACTIONS, GameV3Config
-from research.game_v3.obs import allocate_obs_batch, build_obs
+from research.game_v3.obs import LearnerIndex, allocate_obs_batch, build_obs
 from research.game_v3.reference import ReferenceWorld
 from research.game_v3.scripted import food_seeking_actions, random_safe_actions
 from research.game_v3.sim import GameV3Sim
@@ -26,11 +26,13 @@ pytestmark = pytest.mark.skipif(
 def _assert_mps_equals_cpu_bitwise(sim_mps: GameV3Sim, sim_cpu: GameV3Sim, tick: int) -> None:
     """Assert every state and pyramid tensor on MPS is bitwise-identical to CPU."""
     tensor_attrs = (
+        "world_ticks",
         "head_pos",
         "theta",
         "alive",
         "boosting",
         "length",
+        "prev_length",
         "seg_count",
         "head_ptr",
         "oldest_active_subtick",
@@ -154,7 +156,8 @@ def test_32_worlds_x_1000_ticks_n24_exact_bitwise_parity_mps() -> None:
         [[j < 8 for j in range(cfg.num_snakes)] for _ in range(num_envs)], dtype=torch.bool
     )
     mask_mps = mask_cpu.to("mps")
-    out_sub_mps = allocate_obs_batch(sim_mps, learner_mask=mask_mps)
+    idx_mps = LearnerIndex(sim_mps, mask_mps)
+    out_sub_mps = allocate_obs_batch(sim_mps, idx_mps)
 
     _assert_mps_equals_cpu_bitwise(sim_mps, sim_cpu, 0)
     assert_full_state_and_obs_parity(
@@ -222,7 +225,7 @@ def test_32_worlds_x_1000_ticks_n24_exact_bitwise_parity_mps() -> None:
                 learner_mask=mask_mps,
                 label="mps-32x1000",
             )
-            obs_sub = build_obs(sim_mps, learner_mask=mask_mps, out=out_sub_mps)
+            obs_sub = build_obs(sim_mps, idx_mps, out=out_sub_mps)
             obs_cpu = build_obs(sim_cpu)
             assert torch.equal(obs_sub.raster_s1.cpu(), obs_cpu.raster_s1[mask_cpu])
 
