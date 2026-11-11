@@ -975,3 +975,36 @@ def test_uncorroborated_stale_other_endpoint_does_not_retry_in_dispatch(fixture,
     assert result.returncode == 0, result.stderr
     assert "allocation=failed" in result.stdout
     assert len(runs(f)) == 1
+
+
+@pytest.mark.parametrize(
+    ("gpu", "hw_label", "cap"),
+    [("L4", "L4", 3), ("A100", "A100", 3), ("cpu", "CPU", 5)],
+)
+def test_dispatch_refuses_fourth_gpu_or_sixth_cpu_and_admits_twelve_mixed(
+    fixture, gpu, hw_label, cap
+):
+    f = fixture
+    f["change"](requirements={"gpu": gpu, "min_vcpu": 2, "est_minutes": 5}, timeout_minutes=10)
+    f["inventory"](
+        {f"ep-{i}": hw_label for i in range(cap)},
+        [active(f"ep-{i}", 1.54) for i in range(cap)],
+    )
+    refused = f["invoke"]()
+    assert refused.returncode == 1
+    assert f"account {hw_label} assignment cap {cap} (including notebooks)" in refused.stderr
+    assert not runs(f)
+
+    if gpu == "L4":
+        mixed_sessions = {
+            **{f"l4-{i}": "L4" for i in range(2)},
+            **{f"t4-{i}": "T4" for i in range(3)},
+            **{f"g4-{i}": "G4" for i in range(3)},
+            **{f"a100-{i}": "A100" for i in range(3)},
+        }
+        mixed_records = [active(ep, 1.54) for ep in mixed_sessions]
+        f["inventory"](mixed_sessions, mixed_records)
+        admitted = f["invoke"]("lane-twelfth")
+        assert admitted.returncode == 0, admitted.stderr
+        assert "allocation=success" in admitted.stdout
+        assert len(runs(f)) == 1

@@ -20,7 +20,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, Mapping
 
 if __package__:
     from .qualification import OPS, select, tree
@@ -39,6 +39,7 @@ if str(HERE.parents[1]) not in sys.path:
     sys.path.insert(0, str(HERE.parents[1]))
 from research.colab_cli.accounting import (  # noqa: E402
     ACCOUNT_ASSIGNMENT_CAP,
+    ACCOUNT_TYPE_CAPS,
     budget_warning,
     warning_threshold,
 )
@@ -1264,6 +1265,22 @@ def session_rows(stdout: str) -> list[tuple[str, str, str]]:
     return rows
 
 
+def _enforce_session_caps(sessions: Mapping[str, str], manifest_value: Mapping[str, Any]) -> None:
+    """Enforce account-wide runaway cap and per-accelerator concurrency caps before allocation."""
+    if len(sessions) >= ACCOUNT_ASSIGNMENT_CAP:
+        raise Refused(f"account-wide assignment cap {ACCOUNT_ASSIGNMENT_CAP} (including notebooks)")
+    req = manifest_value.get("requirements")
+    req_gpu = req.get("gpu") if isinstance(req, Mapping) else None
+    if isinstance(req_gpu, str) and req_gpu.strip():
+        req_hw = req_gpu.strip().upper()
+        type_cap = ACCOUNT_TYPE_CAPS.get(req_hw)
+        if (
+            type_cap is not None
+            and sum(1 for hw in sessions.values() if hw.upper() == req_hw) >= type_cap
+        ):
+            raise Refused(f"account {req_hw} assignment cap {type_cap} (including notebooks)")
+
+
 def refresh_assignments(manifest: Path, evidence: Path, deadline: float) -> Path:
     """Snapshot live broker-owned prices into a create-only sibling under the lock."""
     result = command(
@@ -1351,6 +1368,7 @@ def refresh_assignments(manifest: Path, evidence: Path, deadline: float) -> Path
         rates[endpoint] = rate
     original = manifest.read_bytes()
     value = json.loads(original)
+    _enforce_session_caps(sessions, value)
     require_f5_plan_live_assignment_match(value, {"budget": {"other_assignments": rates}})
     value.setdefault("budget", {})["other_assignments"] = rates
     refreshed = manifest.with_name(f"{manifest.stem}.live.json")
@@ -2615,7 +2633,15 @@ def dispatch_preferred(
             qualified(broker, ops, deadline)
             qualified(broker, ops, deadline, ref=packet["commit"])
             evidence = ops / "dispatch" / name / f"{name}.accounting.json"
-            live = refresh_assignments(path, evidence, deadline)
+            try:
+                live = refresh_assignments(path, evidence, deadline)
+            except Refused as exc:
+                if index == 0 and str(exc) == (
+                    f"account H100 assignment cap {ACCOUNT_TYPE_CAPS['H100']}"
+                    " (including notebooks)"
+                ):
+                    continue
+                raise
             receipt = test_receipts[index]
             validate(
                 broker,

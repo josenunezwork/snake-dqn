@@ -27,10 +27,19 @@ class AccountingError(ValueError):
 BALANCE_ROUNDING_TOLERANCE_UNITS = 0.01
 BALANCE_LAG_TOLERANCE_SECONDS = 300.0
 TRANSITION_MISMATCH_POLLS = 2
-# Upgraded account probe (2026-10-31 08:49-08:51 PT, balance 2547.65 units):
-# 6 concurrent assignments accepted; 7th (A100/L4) refused ("Allocation refused
-# (precondition failed)").
-ACCOUNT_ASSIGNMENT_CAP = 6
+# Measured 2026-11-10 (/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/limits-probe):
+# Colab allows 3 concurrent runtimes per GPU type (3 L4 + 3 T4 + 3 G4 + 3 A100 = 12 GPUs;
+# 4th of each refused "Allocation refused (precondition failed)"; H100 assumed 3) plus 5
+# CPU-only sessions (2026-11-02). ACCOUNT_ASSIGNMENT_CAP is an account-wide runaway guard.
+ACCOUNT_TYPE_CAPS: dict[str, int] = {
+    "L4": 3,
+    "T4": 3,
+    "G4": 3,
+    "A100": 3,
+    "H100": 3,
+    "CPU": 5,
+}
+ACCOUNT_ASSIGNMENT_CAP = 20
 POLLING_ASSIGNMENT_CAP_ERROR = "account-wide assignment cap exceeded during polling"
 
 

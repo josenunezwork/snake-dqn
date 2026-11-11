@@ -31,19 +31,29 @@ ROOT = HERE.parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from research.colab_cli.accounting import ACCOUNT_ASSIGNMENT_CAP  # noqa: E402
+from research.colab_cli.accounting import (  # noqa: E402
+    ACCOUNT_ASSIGNMENT_CAP,
+    ACCOUNT_TYPE_CAPS,
+)
 
-# Measured 2026-10-31: the Colab account allows at most 3 concurrent L4 runtimes
-# (4th L4 refused "Allocation refused (precondition failed)" with 3 L4 active at
-# 13:39 and 14:20 PT) and ACCOUNT_ASSIGNMENT_CAP=6 total (3 L4 + 3 A100 accepted
-# in the 08:49 PT probe; 7th refused).
-ACCOUNT_L4_CAP = 3
-# Measured 2026-11-02: G4 max 3, T4 max 3, CPU-only pool 5 separate.
-ACCOUNT_GPU_SUBCAPS: dict[str, int] = {
-    "L4": ACCOUNT_L4_CAP,
-    "G4": 3,
-    "T4": 3,
-}
+# Measured 2026-11-10 (/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/limits-probe):
+# Colab allows 3 concurrent runtimes per GPU type (3 L4 + 3 T4 + 3 G4 + 3 A100 = 12 GPUs;
+# 4th of each refused "Allocation refused (precondition failed)"; H100 assumed 3) plus 5
+# CPU-only sessions (2026-11-02), with ACCOUNT_ASSIGNMENT_CAP=20 as a runaway guard.
+ACCOUNT_L4_CAP = ACCOUNT_TYPE_CAPS["L4"]
+ACCOUNT_GPU_SUBCAPS: dict[str, int] = dict(ACCOUNT_TYPE_CAPS)
+_CAPACITY_REFUSALS = frozenset(
+    {
+        *(
+            f"REFUSE: account-wide assignment cap {cap} (including notebooks)"
+            for cap in (ACCOUNT_ASSIGNMENT_CAP, 6, 3)
+        ),
+        *(
+            f"REFUSE: account {hw} assignment cap {cap} (including notebooks)"
+            for hw, cap in ACCOUNT_TYPE_CAPS.items()
+        ),
+    }
+)
 
 SCHEMA = "snake-dqn-ready-queue/v1"
 # Cover the 600s lock wait, two 1200s host admissions, two 600s allocation
@@ -514,8 +524,8 @@ def provider_sessions() -> dict[str, str]:
     return endpoints
 
 
-def _manifest_gpu(path: Path, prepare_command: Sequence[str] = ()) -> str | None:
-    """Read requirements.gpu from a manifest or its unsealed prepare template."""
+def _manifest_gpus(path: Path, prepare_command: Sequence[str] = ()) -> list[str]:
+    """Read declared primary and preference accelerators from a manifest or template."""
     candidates = [
         path,
         path.with_suffix(".pending.json"),
@@ -532,21 +542,65 @@ def _manifest_gpu(path: Path, prepare_command: Sequence[str] = ()) -> str | None
             with contextlib.suppress(OSError, ValueError):
                 data = auto_retry.read(candidate)
                 if isinstance(data, Mapping) and isinstance(data.get("requirements"), Mapping):
-                    gpu = data["requirements"].get("gpu")
+                    req = data["requirements"]
+                    gpus: list[str] = []
+                    gpu = req.get("gpu")
                     if isinstance(gpu, str) and gpu.strip():
-                        return gpu.strip().upper()
-                return None
-    return None
+                        gpus.append(gpu.strip().upper())
+                    prefer = req.get("prefer")
+                    if isinstance(prefer, Sequence) and not isinstance(prefer, (str, bytes)):
+                        for item in prefer:
+                            if isinstance(item, str) and item.strip():
+                                upper = item.strip().upper()
+                                if upper not in gpus:
+                                    gpus.append(upper)
+                    return gpus
+                return []
+    return []
 
 
-def row_gpu(row: Mapping[str, Any]) -> str | None:
-    """Return the declared primary accelerator for a queued row."""
+def _manifest_gpu(path: Path, prepare_command: Sequence[str] = ()) -> str | None:
+    """Read requirements.gpu from a manifest or its unsealed prepare template."""
+    gpus = _manifest_gpus(path, prepare_command)
+    return gpus[0] if gpus else None
+
+
+def row_gpus(row: Mapping[str, Any]) -> list[str]:
+    """Return declared primary and fallback accelerators for a queued row."""
     manifest = row.get("manifest")
     if isinstance(manifest, str) and manifest:
         manifest_path = Path(manifest)
     else:
         _, manifest_path, _, _ = dispatch_parts(list(row["argv"]))
-    return _manifest_gpu(manifest_path, row.get("prepare_command", ()))
+    return _manifest_gpus(manifest_path, row.get("prepare_command", ()))
+
+
+def row_gpu(row: Mapping[str, Any]) -> str | None:
+    """Return the declared primary accelerator for a queued row."""
+    gpus = row_gpus(row)
+    return gpus[0] if gpus else None
+
+
+def _reservable_gpus(row: Mapping[str, Any], by_gpu: Counter[str]) -> list[str] | None:
+    """Return accelerators to reserve for row, or None when held by a per-type cap."""
+    gpus = row_gpus(row)
+    if not gpus:
+        return []
+    if len(gpus) == 1:
+        gpu = gpus[0]
+        subcap = ACCOUNT_GPU_SUBCAPS.get(gpu)
+        if subcap is not None and by_gpu[gpu] >= subcap:
+            return None
+        return [gpu]
+    fallback = gpus[-1]
+    fallback_cap = ACCOUNT_GPU_SUBCAPS.get(fallback)
+    if fallback_cap is not None and by_gpu[fallback] >= fallback_cap:
+        return None
+    return [
+        gpu
+        for gpu in gpus
+        if ACCOUNT_GPU_SUBCAPS.get(gpu) is None or by_gpu[gpu] < ACCOUNT_GPU_SUBCAPS[gpu]
+    ]
 
 
 def occupancy(
@@ -618,9 +672,11 @@ def accelerator_occupancy(
             else state is not None and state.get("endpoint") in inventory
         )
         if not counted:
-            gpu = (state.get("gpu") if state else None) or row_gpu(row)
-            if gpu:
-                counts[gpu] += 1
+            if state is not None and state.get("gpu"):
+                counts[state["gpu"]] += 1
+            else:
+                for gpu in row_gpus(row):
+                    counts[gpu] += 1
     return counts
 
 
@@ -643,13 +699,12 @@ def tick(
                 break
             if row["status"] != "READY" or not ready(queue, row):
                 continue
-            gpu = row_gpu(row)
-            subcap = ACCOUNT_GPU_SUBCAPS.get(gpu) if gpu else None
-            if subcap is not None and by_gpu[gpu] >= subcap:
+            reservable = _reservable_gpus(row, by_gpu)
+            if reservable is None:
                 continue
             would_dispatch.append(row["id"])
             slots -= 1
-            if gpu:
+            for gpu in reservable:
                 by_gpu[gpu] += 1
         return {
             "active": active,
@@ -679,15 +734,14 @@ def tick(
         by_gpu = accelerator_occupancy(queue, observed, inventory)
         slots = max(0, ACCOUNT_ASSIGNMENT_CAP - active - reserved)
         selected = []
-        # FIFO among ready entries: an unmet dependency or L4 cap doesn't idle other lanes.
+        # FIFO among ready entries: an unmet dependency or per-type cap doesn't idle other lanes.
         for row in queue["jobs"]:
             if not slots:
                 break
             if row["status"] != "READY" or not ready(queue, row):
                 continue
-            gpu = row_gpu(row)
-            subcap = ACCOUNT_GPU_SUBCAPS.get(gpu) if gpu else None
-            if subcap is not None and by_gpu[gpu] >= subcap:
+            reservable = _reservable_gpus(row, by_gpu)
+            if reservable is None:
                 continue
             row.update(status="DISPATCHING", token=uuid.uuid4().hex, claimed=False)
             save(ops / "ready-queue.json", queue)
@@ -724,7 +778,7 @@ def tick(
                 continue
             selected.append(row["id"])
             slots -= 1
-            if gpu:
+            for gpu in reservable:
                 by_gpu[gpu] += 1
         return {"active": active, "reserved": reserved, "dispatched": selected}
 
@@ -790,11 +844,7 @@ def worker(ops: Path, identity: str, token: str) -> None:
         )
         capacity_refused = (
             no_submission
-            and output.strip()
-            in {
-                f"REFUSE: account-wide assignment cap {cap} (including notebooks)"
-                for cap in (ACCOUNT_ASSIGNMENT_CAP, 3)
-            }
+            and output.strip() in _CAPACITY_REFUSALS
             and not (ops / "dispatch" / argv[1]).exists()
             and not (ops / "manifests" / (argv[1] + ".json")).exists()
             and not (ops / "manifests" / (argv[1] + ".live.json")).exists()

@@ -966,3 +966,47 @@ def test_precondition_refusal_matches_with_or_without_update_notice(tmp_path, no
     receipt["error"] = f"Refused({detail.replace('precondition failed', 'quota')!r})"
     (tmp_path / "receipt.json").write_text(json.dumps(receipt))
     assert not d.allocation_unavailable(tmp_path, log, "L4")
+
+
+def test_h100_unavailable_fallback_respects_a100_cap_and_retires_h100_pending(fixture):
+    f = fixture
+    preferred(f, "gpu_unavailable")
+    for idx in range(1, 4):
+        owned_dispatch(f, f"a100-{idx}", name=f"a100-job-{idx}")
+    Path(f["env"]["INVENTORY"]).write_text(json.dumps({f"a100-{i}": "A100" for i in range(1, 4)}))
+    result = f["invoke"]()
+    assert result.returncode == 1
+    assert "account A100 assignment cap 3 (including notebooks)" in result.stderr
+    assert [row["job"] for row in trace(f, "run")] == ["job"]
+    proof = json.loads((f["ops"] / "dispatch/lane/unavailable.json").read_text())
+    assert proof["classification"] == "ALLOCATION_UNAVAILABLE"
+    assert not list((Path(f["env"]["HOME"]) / ".config/colab-cli/snake").glob("pending-*.json"))
+    assert not (f["tmp"] / "output-a100-fallback").exists()
+
+
+def test_h100_at_cap_skips_primary_without_allocation_and_uses_a100_when_uncapped(fixture):
+    f = fixture
+    preferred(f, "gpu_success")
+    f["inventory"](
+        {f"h100-{i}": "H100" for i in range(1, 4)},
+        [shared.active(f"h100-{i}", 10.0) for i in range(1, 4)],
+    )
+    result = f["invoke"]()
+    assert result.returncode == 0, result.stderr
+    assert "requested_gpu=A100" in result.stdout
+    assert [row["job"] for row in trace(f, "run")] == ["job-a100-fallback"]
+    assert not (f["tmp"] / "output").exists()
+
+    f["change"](job_id="job2", output_dir=str(f["tmp"] / "output2"))
+    f["inventory"](
+        {
+            **{f"h100-{i}": "H100" for i in range(1, 4)},
+            **{f"a100-{i}": "A100" for i in range(1, 4)},
+        },
+        [shared.active(f"h100-{i}", 10.0) for i in range(1, 4)]
+        + [shared.active(f"a100-{i}", 5.33) for i in range(1, 4)],
+    )
+    both_capped = f["invoke"]("lane2")
+    assert both_capped.returncode == 1
+    assert "account A100 assignment cap 3 (including notebooks)" in both_capped.stderr
+    assert [row["job"] for row in trace(f, "run")] == ["job-a100-fallback"]

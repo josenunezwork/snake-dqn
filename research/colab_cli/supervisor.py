@@ -28,6 +28,7 @@ from typing import Any, Callable, Iterator
 from research.colab_cli import policy
 from research.colab_cli.accounting import (
     ACCOUNT_ASSIGNMENT_CAP,
+    ACCOUNT_TYPE_CAPS,
     budget_warning,
     measurement_rate,
     warning_threshold,
@@ -310,6 +311,7 @@ class CLI:
         self.call_records: list[dict[str, Any]] = []
         self.operation_records: list[dict[str, Any]] = []
         self._control_context = threading.local()
+        self.session_hardware: dict[str, str] = {}
         self.verified_exports: dict[str, dict[str, Any]] = {}
         self.warmup_seconds = 0.0
         self._lease_stop = threading.Event()
@@ -588,10 +590,15 @@ class CLI:
 
     def sessions(self, timeout: float = policy.READ_SECONDS) -> dict[str, str]:
         output = self.call("sessions", timeout=timeout)
-        rows = re.findall(r"^\[([^\]]+)\]\s+(\S+)\s+\| Hardware:", output, re.M)
+        rows = re.findall(
+            r"^\[([^\]]+)\]\s+(\S+)\s+\| Hardware:\s*([^|\r\n]+?)(?:\s+\|.*)?$",
+            output,
+            re.M,
+        )
         if not rows and "No active sessions found on server." not in output:
             raise Refused("unrecognized account sessions output")
-        return {endpoint: name for name, endpoint in rows}
+        self.session_hardware = {endpoint: hw.strip().upper() for _, endpoint, hw in rows}
+        return {endpoint: name for name, endpoint, _ in rows}
 
     def usage(self, timeout: float = policy.READ_SECONDS) -> dict[str, float]:
         output = self.call("usage", timeout=timeout)
@@ -1180,6 +1187,17 @@ class Broker:
                         raise Refused(
                             f"account-wide assignment cap {ACCOUNT_ASSIGNMENT_CAP}"
                             " (including notebooks)"
+                        )
+                    req_hw = m["requirements"]["gpu"].upper()
+                    type_cap = ACCOUNT_TYPE_CAPS.get(req_hw)
+                    hw_before = getattr(cli, "session_hardware", {})
+                    if (
+                        not reusing
+                        and type_cap is not None
+                        and sum(1 for ep in before if hw_before.get(ep) == req_hw) >= type_cap
+                    ):
+                        raise Refused(
+                            f"account {req_hw} assignment cap {type_cap}" " (including notebooks)"
                         )
                     reservations = [
                         json.loads(p.read_text())

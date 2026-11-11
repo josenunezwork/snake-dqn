@@ -164,16 +164,17 @@ def add_jobs(tmp_path, count):
 
 
 def test_capacity_dry_run_and_duplicate_claims(tmp_path, monkeypatch):
-    ops = add_jobs(tmp_path, 7)
+    cap = rq.ACCOUNT_ASSIGNMENT_CAP
+    ops = add_jobs(tmp_path, cap + 1)
     before = (ops / "ready-queue.json").read_bytes()
-    assert rq.tick(ops, dry_run=True)["would_dispatch"] == ["q0", "q1", "q2", "q3", "q4", "q5"]
+    assert rq.tick(ops, dry_run=True)["would_dispatch"] == [f"q{i}" for i in range(cap)]
     assert (ops / "ready-queue.json").read_bytes() == before
     calls = []
     monkeypatch.setattr(rq.subprocess, "Popen", lambda *a, **k: calls.append(a))
     with ThreadPoolExecutor(2) as pool:
         results = list(pool.map(lambda _: rq.tick(ops), range(2)))
-    assert sum(len(result["dispatched"]) for result in results) == 6
-    assert len(calls) == 6
+    assert sum(len(result["dispatched"]) for result in results) == cap
+    assert len(calls) == cap
     assert rq.tick(ops)["dispatched"] == []
     with pytest.raises(ValueError, match="already enqueued"):
         rq.enqueue(ops, "q0", command(tmp_path, tmp_path / "job0.json", "job0"))
@@ -721,7 +722,7 @@ def account_cap_receipt(manifest, log, cap: int = 6):
     return receipt
 
 
-@pytest.mark.parametrize("cap", [6, 3])
+@pytest.mark.parametrize("cap", [20, 6, 3])
 def test_account_cap_receipt_queues_fresh_completion_with_backoff(tmp_path, cap):
     ops = add_jobs(tmp_path, 1)
     manifest = write(ops / "manifests/job0.json", ar.read(tmp_path / "job0.json"))
@@ -838,8 +839,8 @@ def test_capacity_worker_backs_off_only_without_identity_residue(tmp_path, resid
         assert rq.occupancy(queue, {}, set()) == (0, 0)
 
 
-@pytest.mark.parametrize("cap", [6, 3])
-def test_capacity_refusal_supports_cap6_and_legacy_cap3_brokers(packet, tmp_path, cap):
+@pytest.mark.parametrize("cap", [20, 6, 3])
+def test_capacity_refusal_supports_cap20_cap6_and_legacy_cap3_brokers(packet, tmp_path, cap):
     ops = add_jobs(tmp_path, 1)
     script = tmp_path / "dispatch.sh"
     script.write_text(
@@ -1231,8 +1232,15 @@ def add_gpu_job(
 
 def test_l4_cap_skips_l4_without_holding_or_reordering_and_dispatches_a100(tmp_path, monkeypatch):
     assert rq.ACCOUNT_L4_CAP == 3
-    assert rq.ACCOUNT_GPU_SUBCAPS == {"L4": 3, "G4": 3, "T4": 3}
-    assert rq.ACCOUNT_ASSIGNMENT_CAP == 6
+    assert rq.ACCOUNT_GPU_SUBCAPS == {
+        "L4": 3,
+        "T4": 3,
+        "G4": 3,
+        "A100": 3,
+        "H100": 3,
+        "CPU": 5,
+    }
+    assert rq.ACCOUNT_ASSIGNMENT_CAP == 20
     ops = tmp_path / "ops"
     add_gpu_job(tmp_path, ops, "l4-first", "L4")
     add_gpu_job(tmp_path, ops, "l4-unsealed", "L4", unsealed=True)
@@ -1281,11 +1289,17 @@ def test_g4_and_t4_subcaps_skip_capped_gpu_and_dispatch_uncapped(
     assert queue["jobs"][1]["status"] == "DISPATCHING"
 
 
-def test_six_total_assignments_dispatches_nothing(tmp_path, monkeypatch):
+def test_six_l4_and_a100_holds_l4_a100_and_prefer_but_dispatches_t4_g4_h100_and_cpu(
+    tmp_path, monkeypatch
+):
     ops = tmp_path / "ops"
     add_gpu_job(tmp_path, ops, "l4-job", "L4")
     add_gpu_job(tmp_path, ops, "a100-job", "A100")
     add_gpu_job(tmp_path, ops, "h100-pref", "H100", prefer=["H100", "A100"])
+    add_gpu_job(tmp_path, ops, "t4-job", "T4")
+    add_gpu_job(tmp_path, ops, "g4-job", "G4")
+    add_gpu_job(tmp_path, ops, "h100-only", "H100")
+    add_gpu_job(tmp_path, ops, "cpu-job", "cpu")
 
     six_active = {
         "ep-l4-1": "L4",
@@ -1295,17 +1309,124 @@ def test_six_total_assignments_dispatches_nothing(tmp_path, monkeypatch):
         "ep-a100-2": "A100",
         "ep-a100-3": "A100",
     }
+    expected = ["t4-job", "g4-job", "h100-only", "cpu-job"]
     assert rq.tick(ops, dry_run=True, inventory=six_active) == {
         "active": 6,
         "reserved": 0,
-        "would_dispatch": [],
+        "would_dispatch": expected,
     }
     monkeypatch.setattr(rq.subprocess, "Popen", lambda *a, **k: None)
     assert rq.tick(ops, inventory=six_active) == {
         "active": 6,
         "reserved": 0,
-        "dispatched": [],
+        "dispatched": expected,
     }
+    by_id = {row["id"]: row["status"] for row in ar.read(ops / "ready-queue.json")["jobs"]}
+    assert by_id["l4-job"] == "READY"
+    assert by_id["a100-job"] == "READY"
+    assert by_id["h100-pref"] == "READY"
+    for job_id in expected:
+        assert by_id[job_id] == "DISPATCHING"
+
+
+def test_twelve_mixed_gpus_admitted_and_fourth_of_each_type_held(tmp_path, monkeypatch):
+    ops = tmp_path / "ops"
+    for gpu in ("L4", "T4", "G4", "A100"):
+        for idx in range(1, 5):
+            add_gpu_job(tmp_path, ops, f"{gpu.lower()}-{idx}", gpu)
+
+    expected_twelve = [
+        f"{gpu.lower()}-{idx}" for gpu in ("L4", "T4", "G4", "A100") for idx in (1, 2, 3)
+    ]
+    assert rq.tick(ops, dry_run=True, inventory={}) == {
+        "active": 0,
+        "reserved": 0,
+        "would_dispatch": expected_twelve,
+    }
+    monkeypatch.setattr(rq.subprocess, "Popen", lambda *a, **k: None)
+    assert rq.tick(ops, inventory={}) == {
+        "active": 0,
+        "reserved": 0,
+        "dispatched": expected_twelve,
+    }
+    by_id = {row["id"]: row["status"] for row in ar.read(ops / "ready-queue.json")["jobs"]}
+    for gpu in ("L4", "T4", "G4", "A100"):
+        for idx in (1, 2, 3):
+            assert by_id[f"{gpu.lower()}-{idx}"] == "DISPATCHING"
+        assert by_id[f"{gpu.lower()}-4"] == "READY"
+
+    add_gpu_job(tmp_path, ops, "cpu-sixth", "cpu")
+    five_cpu = {f"ep-cpu-{i}": "CPU" for i in range(1, 6)}
+    assert rq.tick(ops, dry_run=True, inventory=five_cpu)["would_dispatch"] == []
+
+
+def test_prefer_h100_a100_dispatches_to_a100_when_h100_at_cap_and_a100_has_headroom(
+    tmp_path, monkeypatch
+):
+    ops = tmp_path / "ops"
+    add_gpu_job(tmp_path, ops, "h100-only-fourth", "H100")
+    add_gpu_job(tmp_path, ops, "h100-pref-1", "H100", prefer=["H100", "A100"])
+    add_gpu_job(tmp_path, ops, "h100-pref-2", "H100", prefer=["H100", "A100"])
+
+    inventory = {
+        "ep-h100-1": "H100",
+        "ep-h100-2": "H100",
+        "ep-h100-3": "H100",
+        "ep-a100-1": "A100",
+        "ep-a100-2": "A100",
+    }
+    assert rq.tick(ops, dry_run=True, inventory=inventory) == {
+        "active": 5,
+        "reserved": 0,
+        "would_dispatch": ["h100-pref-1"],
+    }
+    monkeypatch.setattr(rq.subprocess, "Popen", lambda *a, **k: None)
+    assert rq.tick(ops, inventory=inventory) == {
+        "active": 5,
+        "reserved": 0,
+        "dispatched": ["h100-pref-1"],
+    }
+    by_id = {row["id"]: row["status"] for row in ar.read(ops / "ready-queue.json")["jobs"]}
+    assert by_id["h100-only-fourth"] == "READY"
+    assert by_id["h100-pref-1"] == "DISPATCHING"
+    assert by_id["h100-pref-2"] == "READY"
+
+
+@pytest.mark.parametrize(
+    ("hw_label", "cap"),
+    [("L4", 3), ("T4", 3), ("G4", 3), ("A100", 3), ("H100", 3), ("CPU", 5)],
+)
+def test_per_type_capacity_refusal_backs_off_and_auto_retries(packet, tmp_path, hw_label, cap):
+    ops = add_jobs(tmp_path, 1)
+    script = tmp_path / "dispatch.sh"
+    script.write_text(
+        "#!/bin/sh\n"
+        f'printf "REFUSE: account {hw_label} assignment cap {cap} (including notebooks)\\n"\n'
+        "exit 1\n"
+    )
+    script.chmod(0o755)
+    with rq.locked(ops) as queue:
+        queue["jobs"][0].update(status="DISPATCHING", token="claim")
+    rq.worker(ops, "q0", "claim")
+    row = ar.read(ops / "ready-queue.json")["jobs"][0]
+    assert row["status"] == "READY" and row["capacity_refusals"] == 1
+
+    log = tmp_path / f"type-cap-{hw_label}.log"
+    receipt = pending_fence_receipt(packet, log)
+    receipt.update(
+        failure_class="ACCOUNTING",
+        error=f"Refused('account {hw_label} assignment cap {cap} (including notebooks)')",
+        usage_before={"assignments": float(cap), "balance": 685.97, "rate": 4.62},
+        cli_calls=[
+            {"command": cmd, "operation": "control", "status": "completed", "attempt": 1}
+            for cmd in ("version", "sessions", "usage")
+        ],
+    )
+    write(Path(ar.read(packet)["output_dir"]) / "receipt.json", receipt)
+    value = ar.read(packet)
+    output = Path(value["output_dir"])
+    assert ar.blocked_before_allocation(value, output, log) is True
+    assert ar.eligible(value, output, log) == receipt
 
 
 def test_reserved_l4_and_prefer_actual_accelerator_accounting(tmp_path, monkeypatch):

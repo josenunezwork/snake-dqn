@@ -1,4 +1,4 @@
-"""Synthetic H100/A100 CUDA acceptance; no game, checkpoint, or science inputs."""
+"""Synthetic CUDA runtime/transport acceptance; no game, checkpoint, or science inputs."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ def run(output: Path) -> dict:
     ).strip()
     assert torch.cuda.is_available()
     name, capability = torch.cuda.get_device_name(0), torch.cuda.get_device_capability(0)
-    assert any(kind in name for kind in ("H100", "A100")), name
+    assert any(kind in name for kind in ("H100", "A100", "L4", "G4", "T4")), name
     assert torch.version.cuda and torch.version.cuda.startswith("12.6"), torch.version.cuda
     tensor = torch.arange(6, dtype=torch.float32, device="cuda").reshape(1, 6)
     # A synthetic six-choice decision lets the existing canary observer attest
