@@ -756,28 +756,11 @@ class TrainSim:
         sub.food_count.zero_()
         sub._respawn_exact()
         sub._refill_food_rows(torch.ones((n_hit,), dtype=torch.bool, device=self.device))
-        # Match post-prepare() frame-1 state since self.sim._prepared is True.
-        sub.frame.fill_(1)
+        sub.frame.zero_()
+        sub._prepared = False
+        sub.prepare()
 
-        reset_fields = (
-            "bodies",
-            "head_ptr",
-            "seg_count",
-            "length",
-            "alive",
-            "direction",
-            "boost_frames",
-            "frames_since_food",
-            "respawn_timer",
-            "_reward_prev_length",
-            "frame",
-            "rng_counter",
-            "food_cells",
-            "food_present",
-            "corpse_food",
-            "food_count",
-        )
-        for field_name in reset_fields:
+        for field_name in _SIM_STATE_TENSORS:
             getattr(self.sim, field_name)[hit_rows] = getattr(sub, field_name)
         self.prev_heads[hit_rows] = 0
         self.prev_alive[hit_rows] = False
@@ -929,17 +912,20 @@ class TrainSim:
     def state_dict(self) -> dict[str, Any]:
         """Export deterministic simulator state on CPU using compact live-window int16 bodies."""
         _ensure_capacity_overflow(self.sim)
-        seg_cpu = self.sim.seg_count.detach().cpu()
-        ptr_cpu = self.sim.head_ptr.detach().cpu()
-        max_seg = int(seg_cpu.max().item()) if seg_cpu.numel() > 0 else 0
+        max_seg = (
+            int(self.sim.seg_count.max().detach().cpu().item())
+            if self.sim.seg_count.numel() > 0
+            else 0
+        )
         max_seg = max(0, min(max_seg, self.cap))
         if max_seg > 0:
-            k_offsets = torch.arange(max_seg, dtype=torch.long)[None, None, :]
-            ring_idx = (ptr_cpu[..., None] - k_offsets) % self.cap
-            e_idx = torch.arange(self.E, dtype=torch.long)[:, None, None]
-            s_idx = torch.arange(self.S, dtype=torch.long)[None, :, None]
-            bodies_cpu = self.sim.bodies.detach().cpu()
-            bodies_live_i16 = bodies_cpu[e_idx, s_idx, ring_idx].to(torch.int16).contiguous()
+            k_offsets = torch.arange(max_seg, device=self.device, dtype=torch.long)[None, None, :]
+            ring_idx = (self.sim.head_ptr[..., None] - k_offsets) % self.cap
+            e_idx = torch.arange(self.E, device=self.device, dtype=torch.long)[:, None, None]
+            s_idx = torch.arange(self.S, device=self.device, dtype=torch.long)[None, :, None]
+            bodies_live_i16 = (
+                self.sim.bodies[e_idx, s_idx, ring_idx].to(torch.int16).contiguous().detach().cpu()
+            )
         else:
             bodies_live_i16 = torch.zeros((self.E, self.S, 0, 2), dtype=torch.int16)
 
@@ -947,11 +933,11 @@ class TrainSim:
         for name in _SIM_STATE_TENSORS:
             if name == "bodies":
                 continue
-            val = getattr(self.sim, name).detach().cpu()
+            val = getattr(self.sim, name)
             if name == "food_cells":
-                sim_tensors[name] = val.to(torch.int16).contiguous()
+                sim_tensors[name] = val.to(torch.int16).contiguous().detach().cpu()
             else:
-                sim_tensors[name] = val.clone()
+                sim_tensors[name] = val.detach().cpu().clone()
 
         return {
             "E": self.E,
@@ -962,7 +948,7 @@ class TrainSim:
             "prepared": bool(self.sim._prepared),
             "bodies_live_i16": bodies_live_i16,
             "sim_tensors": sim_tensors,
-            "prev_heads": self.prev_heads.detach().cpu().to(torch.int16).contiguous(),
+            "prev_heads": self.prev_heads.to(torch.int16).contiguous().detach().cpu(),
             "prev_alive": self.prev_alive.detach().cpu().clone(),
             "world_opponent_kind": self.world_opponent_kind.detach().cpu().clone(),
         }
@@ -1022,6 +1008,312 @@ class TrainSim:
         self.prev_alive.copy_(state["prev_alive"].to(device=self.device, dtype=torch.bool))
         self.set_opponent_kinds(state["world_opponent_kind"])
         r2_cache.bump(self.sim)
+
+
+_RESERVOIR_DIRECT_TENSORS: tuple[str, ...] = (
+    "head_ptr",
+    "seg_count",
+    "length",
+    "alive",
+    "direction",
+    "boost_frames",
+    "frames_since_food",
+    "respawn_timer",
+    "_reward_prev_length",
+    "food_present",
+    "corpse_food",
+    "food_count",
+    "_boosted_this_step",
+    "terminal_slots",
+)
+
+_RESERVOIR_ZERO_ON_RESTORE: tuple[str, ...] = (
+    "_last_reward",
+    "_last_done",
+    "_last_death_cause",
+    "_last_kills",
+    "_last_food_ate",
+    "_last_ambient_food_ate",
+    "_last_corpse_food_ate",
+    "_last_transition_valid",
+    "capacity_overflow",
+)
+
+
+class LateStateReservoir:
+    """GPU-resident reservoir of prepared world states where some snake has `length >= min_length`.
+
+    Captures prepared pre-decision states (`sim._prepared == True`) from the agents' own
+    trajectories into a FIFO ring buffer on `device`. On world reset, restores a sampled
+    reservoir world with probability `restore_prob` while keeping each target world's own
+    disjoint `rng_key` and advancing `rng_counter` monotonically so restored worlds continue
+    with exact mechanics-v2 dynamics and independent RNG streams.
+    """
+
+    def __init__(
+        self,
+        *,
+        max_size: int = 64,
+        min_length: int = 600,
+        max_harvest_per_call: int = 8,
+        num_snakes: int = DEFAULT_NUM_SNAKES,
+        max_capacity: int = 1600,
+        food_capacity: int,
+        device: str | torch.device = "cpu",
+        seed: int = 0,
+    ) -> None:
+        if int(max_size) < 1:
+            raise ValueError(f"max_size must be >= 1, got {max_size}")
+        if int(min_length) < 1:
+            raise ValueError(f"min_length must be >= 1, got {min_length}")
+        if int(max_harvest_per_call) < 1:
+            raise ValueError(f"max_harvest_per_call must be >= 1, got {max_harvest_per_call}")
+
+        self.max_size = int(max_size)
+        self.min_length = int(min_length)
+        self.max_harvest_per_call = int(max_harvest_per_call)
+        self.S = int(num_snakes)
+        self.cap = int(max_capacity)
+        self.food_capacity = int(food_capacity)
+        self.device = normalize_device(device)
+
+        self.size = 0
+        self.write_ptr = 0
+        self.total_harvested = 0
+        self.total_restored = 0
+
+        self.rng = torch.Generator(device="cpu")
+        self.rng.manual_seed(int(seed) + 40_003)
+
+        k = self.max_size
+        s = self.S
+        dev = self.device
+        self.bodies_i16 = torch.zeros((k, s, self.cap, 2), dtype=torch.int16, device=dev)
+        self.food_cells_i16 = torch.zeros((k, self.food_capacity, 2), dtype=torch.int16, device=dev)
+        self.prev_heads_i16 = torch.zeros((k, s, 2), dtype=torch.int16, device=dev)
+        self.prev_alive = torch.zeros((k, s), dtype=torch.bool, device=dev)
+
+        self.tensors: dict[str, torch.Tensor] = {
+            "head_ptr": torch.zeros((k, s), dtype=torch.long, device=dev),
+            "seg_count": torch.zeros((k, s), dtype=torch.long, device=dev),
+            "length": torch.zeros((k, s), dtype=torch.long, device=dev),
+            "alive": torch.zeros((k, s), dtype=torch.bool, device=dev),
+            "direction": torch.zeros((k, s), dtype=torch.long, device=dev),
+            "boost_frames": torch.zeros((k, s), dtype=torch.long, device=dev),
+            "frames_since_food": torch.zeros((k, s), dtype=torch.long, device=dev),
+            "respawn_timer": torch.zeros((k, s), dtype=torch.long, device=dev),
+            "_reward_prev_length": torch.ones((k, s), dtype=torch.long, device=dev),
+            "food_present": torch.zeros((k, self.food_capacity), dtype=torch.bool, device=dev),
+            "corpse_food": torch.zeros((k, self.food_capacity), dtype=torch.bool, device=dev),
+            "food_count": torch.zeros((k,), dtype=torch.long, device=dev),
+            "_boosted_this_step": torch.zeros((k, s), dtype=torch.bool, device=dev),
+            "terminal_slots": torch.zeros((k, s), dtype=torch.bool, device=dev),
+        }
+
+    def nbytes(self) -> int:
+        """Return total resident device storage of the reservoir in bytes."""
+        total = (
+            self.bodies_i16.numel() * self.bodies_i16.element_size()
+            + self.food_cells_i16.numel() * self.food_cells_i16.element_size()
+            + self.prev_heads_i16.numel() * self.prev_heads_i16.element_size()
+            + self.prev_alive.numel() * self.prev_alive.element_size()
+        )
+        for tensor in self.tensors.values():
+            total += tensor.numel() * tensor.element_size()
+        return int(total)
+
+    def harvest(self, train_sim: TrainSim) -> int:
+        """Harvest prepared worlds where any alive snake has `length >= self.min_length`."""
+        train_sim.prepare()
+        sim = train_sim.sim
+        eligible = (sim.alive & (sim.length >= self.min_length)).any(dim=1)
+        rows = eligible.nonzero(as_tuple=False).flatten()
+        n_elig = int(rows.numel())
+        if n_elig == 0:
+            return 0
+
+        if n_elig > self.max_harvest_per_call:
+            perm = torch.randperm(n_elig, generator=self.rng)[: self.max_harvest_per_call]
+            rows = rows.index_select(0, perm.to(device=rows.device, dtype=torch.long))
+            n_elig = int(rows.numel())
+
+        slots = (
+            torch.arange(n_elig, device=self.device, dtype=torch.long) + self.write_ptr
+        ) % self.max_size
+        self.bodies_i16[slots] = sim.bodies.index_select(0, rows).to(torch.int16)
+        self.food_cells_i16[slots] = sim.food_cells.index_select(0, rows).to(torch.int16)
+        self.prev_heads_i16[slots] = train_sim.prev_heads.index_select(0, rows).to(torch.int16)
+        self.prev_alive[slots] = train_sim.prev_alive.index_select(0, rows)
+        for name in _RESERVOIR_DIRECT_TENSORS:
+            self.tensors[name][slots] = getattr(sim, name).index_select(0, rows)
+
+        self.write_ptr = (self.write_ptr + n_elig) % self.max_size
+        self.size = min(self.max_size, self.size + n_elig)
+        self.total_harvested += n_elig
+        return n_elig
+
+    def _restore_rows_from_reservoir(self, train_sim: TrainSim, late_rows: torch.Tensor) -> None:
+        """Overwrite `late_rows` in `train_sim` with randomly drawn mature reservoir slots."""
+        n_late = int(late_rows.numel())
+        if n_late == 0:
+            return
+        slot_idx = torch.randint(0, self.size, (n_late,), generator=self.rng, dtype=torch.long).to(
+            device=train_sim.device
+        )
+        sim = train_sim.sim
+        _ensure_capacity_overflow(sim)
+        sim.bodies[late_rows] = self.bodies_i16.index_select(0, slot_idx).to(torch.long)
+        sim.food_cells[late_rows] = self.food_cells_i16.index_select(0, slot_idx).to(torch.long)
+        for name in _RESERVOIR_DIRECT_TENSORS:
+            getattr(sim, name)[late_rows] = self.tensors[name].index_select(0, slot_idx)
+        for zero_name in _RESERVOIR_ZERO_ON_RESTORE:
+            getattr(sim, zero_name)[late_rows] = 0
+        # Start a fresh world time-limit window while preserving prepared pre-decision state
+        # and each world's disjoint RNG stream.
+        sim.frame[late_rows] = 1
+        sim.rng_counter[late_rows] = sim.rng_counter[late_rows] + 1
+        train_sim.prev_heads[late_rows] = self.prev_heads_i16.index_select(0, slot_idx).to(
+            torch.long
+        )
+        train_sim.prev_alive[late_rows] = self.prev_alive.index_select(0, slot_idx)
+        r2_cache.bump(sim)
+        self.total_restored += n_late
+
+    def restore_from_reservoir(
+        self,
+        train_sim: TrainSim,
+        candidate_mask: torch.Tensor,
+        *,
+        restore_prob: float = 0.5,
+    ) -> torch.Tensor:
+        """Restore a random `restore_prob` subset of `candidate_mask` worlds at rollout start.
+
+        Leaves non-selected worlds untouched and returns a boolean mask `(train_sim.E,)` on
+        `train_sim.device` marking the worlds actually restored from the reservoir.
+        """
+        if candidate_mask.shape != (train_sim.E,):
+            raise ValueError(
+                f"candidate_mask must have shape {(train_sim.E,)}, got {candidate_mask.shape}"
+            )
+        restored_mask = torch.zeros((train_sim.E,), dtype=torch.bool, device=train_sim.device)
+        prob = float(restore_prob)
+        if self.size == 0 or prob <= 0.0:
+            return restored_mask
+
+        cand_rows = candidate_mask.nonzero(as_tuple=False).flatten()
+        n_cand = int(cand_rows.numel())
+        if n_cand == 0:
+            return restored_mask
+
+        draws = torch.rand((n_cand,), generator=self.rng, dtype=torch.float32)
+        choose_late_cpu = draws < prob
+        n_late = int(choose_late_cpu.sum().item())
+        if n_late > 0:
+            late_rows = cand_rows[choose_late_cpu.to(device=cand_rows.device)]
+            self._restore_rows_from_reservoir(train_sim, late_rows)
+            restored_mask[late_rows] = True
+        return restored_mask
+
+    def reset_or_restore_worlds(
+        self,
+        train_sim: TrainSim,
+        hit_mask: torch.Tensor,
+        *,
+        restore_prob: float = 0.5,
+    ) -> tuple[int, int]:
+        """Reset `hit_mask` worlds, restoring from the reservoir with probability `restore_prob`.
+
+        Note: `ArenaPPOTrainer` restores ONLY at rollout start (`t=0`, via
+        :meth:`restore_from_reservoir`) before the full body-tape snapshot and performs fresh
+        resets mid-rollout so `CompactRolloutBuffer` observations remain lossless.
+
+        Returns:
+            Tuple ``(num_restored_from_reservoir, num_fresh_resets)``.
+        """
+        if hit_mask.shape != (train_sim.E,):
+            raise ValueError(f"hit_mask must have shape {(train_sim.E,)}, got {hit_mask.shape}")
+        hit_rows = hit_mask.nonzero(as_tuple=False).flatten()
+        n_hit = int(hit_rows.numel())
+        if n_hit == 0:
+            return 0, 0
+
+        prob = float(restore_prob)
+        if self.size == 0 or prob <= 0.0:
+            train_sim.reset_worlds(hit_mask)
+            return 0, n_hit
+
+        draws = torch.rand((n_hit,), generator=self.rng, dtype=torch.float32)
+        choose_late_cpu = draws < prob
+        n_late = int(choose_late_cpu.sum().item())
+        n_fresh = n_hit - n_late
+
+        if n_fresh > 0:
+            fresh_rows = hit_rows[(~choose_late_cpu).to(device=hit_rows.device)]
+            fresh_mask = torch.zeros((train_sim.E,), dtype=torch.bool, device=train_sim.device)
+            fresh_mask[fresh_rows] = True
+            train_sim.reset_worlds(fresh_mask)
+
+        if n_late > 0:
+            late_rows = hit_rows[choose_late_cpu.to(device=hit_rows.device)]
+            self._restore_rows_from_reservoir(train_sim, late_rows)
+
+        return n_late, n_fresh
+
+    def state_dict(self) -> dict[str, Any]:
+        """Serialize active reservoir slots and RNG state onto CPU."""
+        n = int(self.size)
+        return {
+            "max_size": self.max_size,
+            "min_length": self.min_length,
+            "max_harvest_per_call": self.max_harvest_per_call,
+            "S": self.S,
+            "cap": self.cap,
+            "food_capacity": self.food_capacity,
+            "size": n,
+            "write_ptr": int(self.write_ptr),
+            "total_harvested": int(self.total_harvested),
+            "total_restored": int(self.total_restored),
+            "rng_state": self.rng.get_state().clone(),
+            "bodies_i16": self.bodies_i16[:n].detach().cpu().clone(),
+            "food_cells_i16": self.food_cells_i16[:n].detach().cpu().clone(),
+            "prev_heads_i16": self.prev_heads_i16[:n].detach().cpu().clone(),
+            "prev_alive": self.prev_alive[:n].detach().cpu().clone(),
+            "tensors": {k: v[:n].detach().cpu().clone() for k, v in self.tensors.items()},
+        }
+
+    def load_state_dict(self, state: dict[str, Any]) -> None:
+        """Restore serialized reservoir slots and RNG state onto `self.device`."""
+        n = int(state["size"])
+        if n > self.max_size:
+            raise ValueError(
+                f"Reservoir state size {n} exceeds configured max_size={self.max_size}"
+            )
+        if (
+            int(state["S"]) != self.S
+            or int(state["cap"]) != self.cap
+            or int(state["food_capacity"]) != self.food_capacity
+        ):
+            raise ValueError(
+                "LateStateReservoir shape mismatch on load: "
+                f"ckpt={(state['S'], state['cap'], state['food_capacity'])} "
+                f"vs current={(self.S, self.cap, self.food_capacity)}"
+            )
+        self.size = n
+        self.write_ptr = int(state["write_ptr"]) % self.max_size
+        self.total_harvested = int(state.get("total_harvested", 0))
+        self.total_restored = int(state.get("total_restored", 0))
+        self.rng.set_state(state["rng_state"].cpu())
+        if n > 0:
+            self.bodies_i16[:n].copy_(state["bodies_i16"].to(device=self.device, dtype=torch.int16))
+            self.food_cells_i16[:n].copy_(
+                state["food_cells_i16"].to(device=self.device, dtype=torch.int16)
+            )
+            self.prev_heads_i16[:n].copy_(
+                state["prev_heads_i16"].to(device=self.device, dtype=torch.int16)
+            )
+            self.prev_alive[:n].copy_(state["prev_alive"].to(device=self.device, dtype=torch.bool))
+            for k, dst in self.tensors.items():
+                dst[:n].copy_(state["tensors"][k].to(device=self.device, dtype=dst.dtype))
 
 
 def verify_indexed_vs_reference_parity(
