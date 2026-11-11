@@ -538,6 +538,16 @@ class ArenaNet(nn.Module):
             return torch.autocast(device_type="cuda", dtype=self._cuda_autocast_dtype)
         return nullcontext()
 
+    def uses_fp16_grad_scaler(self, device: torch.device) -> bool:
+        """Return True when CUDA mixed precision falls back to fp16 and needs GradScaler."""
+        if not (self.use_bf16_autocast and device.type == "cuda"):
+            return False
+        if self._cuda_autocast_dtype is None:
+            self._cuda_autocast_dtype = (
+                torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+            )
+        return self._cuda_autocast_dtype == torch.float16
+
     def _forward_backbone_impl(
         self,
         arena: torch.Tensor,
@@ -597,6 +607,8 @@ class ArenaNet(nn.Module):
         ego: torch.Tensor,
         scalars: torch.Tensor,
         legal_mask: torch.Tensor | None = None,
+        *,
+        compute_value: bool = True,
     ) -> PolicyForwardOut:
         """Run full dual-stream forward pass returning float32 masked logits, values, and aux.
 
@@ -605,6 +617,7 @@ class ArenaNet(nn.Module):
             ego: Tensor ``(N, 13, 47, 47)``.
             scalars: Tensor ``(N, 6)``.
             legal_mask: Optional boolean mask ``(N, 6)`` or ``(E, S, 6)``.
+            compute_value: When False (learner path), skips unused scalar value decode.
 
         Returns:
             ``PolicyForwardOut`` in float32.
@@ -622,7 +635,11 @@ class ArenaNet(nn.Module):
         masked_logits = self.mask_policy_logits(raw_logits, legal_mask)
         val_logits_f32 = val_logits.to(torch.float32)
         aux_logits_f32 = aux_logits.to(torch.float32)
-        values = symlog_two_hot_value(val_logits_f32, self.value_support)
+        values = (
+            symlog_two_hot_value(val_logits_f32, self.value_support)
+            if compute_value
+            else val_logits_f32.new_zeros((val_logits_f32.shape[0],))
+        )
         return PolicyForwardOut(
             masked_logits=masked_logits,
             value=values,
@@ -691,7 +708,7 @@ class ArenaNet(nn.Module):
         Returns:
             Tuple ``(action_log_probs, entropy, value_logits, aux_logits)`` in float32.
         """
-        out = self.forward(arena, ego, scalars, legal_mask=legal_mask)
+        out = self.forward(arena, ego, scalars, legal_mask=legal_mask, compute_value=False)
         log_probs_all = F.log_softmax(out.masked_logits, dim=-1)
         probs_all = F.softmax(out.masked_logits, dim=-1)
         action_log_probs = log_probs_all.gather(1, actions.to(torch.long).unsqueeze(1)).squeeze(1)
@@ -993,6 +1010,16 @@ class SharedTrunkArenaNet(nn.Module):
             return torch.autocast(device_type="cuda", dtype=self._cuda_autocast_dtype)
         return nullcontext()
 
+    def uses_fp16_grad_scaler(self, device: torch.device) -> bool:
+        """Return True when CUDA mixed precision falls back to fp16 and needs GradScaler."""
+        if not (self.use_bf16_autocast and device.type == "cuda"):
+            return False
+        if self._cuda_autocast_dtype is None:
+            self._cuda_autocast_dtype = (
+                torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+            )
+        return self._cuda_autocast_dtype == torch.float16
+
     def _forward_backbone_impl(
         self,
         world_arena: torch.Tensor,
@@ -1110,6 +1137,8 @@ class SharedTrunkArenaNet(nn.Module):
         self,
         obs: SharedWorldObs,
         legal_mask: torch.Tensor | None = None,
+        *,
+        compute_value: bool = True,
     ) -> PolicyForwardOut:
         """Run shared-trunk forward pass on ``SharedWorldObs`` returning float32 outputs."""
         if self.use_channels_last:
@@ -1132,7 +1161,11 @@ class SharedTrunkArenaNet(nn.Module):
         masked_logits = ArenaNet.mask_policy_logits(raw_logits, legal_mask)
         val_logits_f32 = val_logits.to(torch.float32)
         aux_logits_f32 = aux_logits.to(torch.float32)
-        values = symlog_two_hot_value(val_logits_f32, self.value_support)
+        values = (
+            symlog_two_hot_value(val_logits_f32, self.value_support)
+            if compute_value
+            else val_logits_f32.new_zeros((val_logits_f32.shape[0],))
+        )
         return PolicyForwardOut(
             masked_logits=masked_logits,
             value=values,
@@ -1171,7 +1204,7 @@ class SharedTrunkArenaNet(nn.Module):
         actions: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Evaluate log-probabilities, entropy, value_logits, and aux_logits on world-ticks."""
-        out = self.forward(obs, legal_mask=legal_mask)
+        out = self.forward(obs, legal_mask=legal_mask, compute_value=False)
         log_probs_all = F.log_softmax(out.masked_logits, dim=-1)
         probs_all = F.softmax(out.masked_logits, dim=-1)
         action_log_probs = log_probs_all.gather(1, actions.to(torch.long).unsqueeze(1)).squeeze(1)
@@ -1382,6 +1415,16 @@ class EgoOnlyArenaNet(nn.Module):
             return torch.autocast(device_type="cuda", dtype=self._cuda_autocast_dtype)
         return nullcontext()
 
+    def uses_fp16_grad_scaler(self, device: torch.device) -> bool:
+        """Return True when CUDA mixed precision falls back to fp16 and needs GradScaler."""
+        if not (self.use_bf16_autocast and device.type == "cuda"):
+            return False
+        if self._cuda_autocast_dtype is None:
+            self._cuda_autocast_dtype = (
+                torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+            )
+        return self._cuda_autocast_dtype == torch.float16
+
     def _forward_backbone_impl(
         self,
         world_arena: torch.Tensor,
@@ -1400,6 +1443,8 @@ class EgoOnlyArenaNet(nn.Module):
         pad_w = max(0, self.token_w * kw - gw)
         pooled_src = F.pad(world_arena, (0, pad_w, 0, pad_h)) if (pad_h or pad_w) else world_arena
         coarse_in = F.avg_pool2d(pooled_src, kernel_size=(kh, kw), stride=(kh, kw))
+        if self.use_channels_last:
+            coarse_in = coarse_in.contiguous(memory_format=torch.channels_last)
         coarse_map = self.coarse_conv(coarse_in)  # (W, coarse_ch, token_h, token_w)
         coarse_ch = int(coarse_map.shape[1])
         coarse_mean = coarse_map.mean(dim=(2, 3))
@@ -1453,13 +1498,14 @@ class EgoOnlyArenaNet(nn.Module):
         self,
         obs: SharedWorldObs,
         legal_mask: torch.Tensor | None = None,
+        *,
+        compute_value: bool = True,
     ) -> PolicyForwardOut:
         """Run ego-only + coarse world summary forward pass returning float32 outputs."""
+        world_in = obs.world_arena
         if self.use_channels_last:
-            world_in = obs.world_arena.contiguous(memory_format=torch.channels_last)
             ego_in = obs.ego.contiguous(memory_format=torch.channels_last)
         else:
-            world_in = obs.world_arena
             ego_in = obs.ego
 
         with self._autocast_ctx(world_in.device):
@@ -1474,7 +1520,11 @@ class EgoOnlyArenaNet(nn.Module):
         masked_logits = ArenaNet.mask_policy_logits(raw_logits, legal_mask)
         val_logits_f32 = val_logits.to(torch.float32)
         aux_logits_f32 = aux_logits.to(torch.float32)
-        values = symlog_two_hot_value(val_logits_f32, self.value_support)
+        values = (
+            symlog_two_hot_value(val_logits_f32, self.value_support)
+            if compute_value
+            else val_logits_f32.new_zeros((val_logits_f32.shape[0],))
+        )
         return PolicyForwardOut(
             masked_logits=masked_logits,
             value=values,
@@ -1513,7 +1563,7 @@ class EgoOnlyArenaNet(nn.Module):
         actions: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Evaluate log-probabilities, entropy, value_logits, and aux_logits on world-ticks."""
-        out = self.forward(obs, legal_mask=legal_mask)
+        out = self.forward(obs, legal_mask=legal_mask, compute_value=False)
         log_probs_all = F.log_softmax(out.masked_logits, dim=-1)
         probs_all = F.softmax(out.masked_logits, dim=-1)
         action_log_probs = log_probs_all.gather(1, actions.to(torch.long).unsqueeze(1)).squeeze(1)
@@ -1532,17 +1582,19 @@ def build_arena_model(
     grid_w: int = ARENA_GRID_W,
     use_channels_last: bool = True,
     use_bf16_autocast: bool = True,
+    amp: bool | None = None,
     compile_model: bool = False,
     compile_mode: str = "default",
 ) -> ArenaPolicyModel:
     """Instantiate ``SharedTrunkArenaNet``, ``EgoOnlyArenaNet``, or ``ArenaNet`` (`per_seat`)."""
+    eff_amp = bool(use_bf16_autocast if amp is None else amp)
     if net_arch == "shared_trunk":
         cfg_s = SharedTrunkNetConfig.from_size(
             size,
             grid_h=grid_h,
             grid_w=grid_w,
             use_channels_last=use_channels_last,
-            use_bf16_autocast=use_bf16_autocast,
+            use_bf16_autocast=eff_amp,
         )
         return SharedTrunkArenaNet(cfg_s, compile_model=compile_model, compile_mode=compile_mode)
     if net_arch == "ego_only":
@@ -1551,7 +1603,7 @@ def build_arena_model(
             grid_h=grid_h,
             grid_w=grid_w,
             use_channels_last=use_channels_last,
-            use_bf16_autocast=use_bf16_autocast,
+            use_bf16_autocast=eff_amp,
         )
         return EgoOnlyArenaNet(cfg_e, compile_model=compile_model, compile_mode=compile_mode)
     if net_arch == "per_seat":
@@ -1560,7 +1612,7 @@ def build_arena_model(
             grid_h=grid_h,
             grid_w=grid_w,
             use_channels_last=use_channels_last,
-            use_bf16_autocast=use_bf16_autocast,
+            use_bf16_autocast=eff_amp,
         )
         return ArenaNet(cfg_p, compile_model=compile_model, compile_mode=compile_mode)
     raise ValueError(f"Unsupported net_arch {net_arch!r}; expected one of {VALID_NET_ARCHS}")

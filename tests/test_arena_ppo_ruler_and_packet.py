@@ -506,7 +506,9 @@ def test_prepare_three_modes_l4_a100_t4_rejected_and_offline_supervisor_validate
     mf_canary_a100 = json.loads(Path(canary_a100["manifest_path"]).read_text(encoding="utf-8"))
 
     for mf in (mf_canary_l4, mf_canary_a100):
-        assert mf["timeout_minutes"] == 28.0
+        assert mf["timeout_minutes"] == 30.0
+        assert mf["requirements"]["est_minutes"] == 15.0
+        assert mf["env"]["ARENA_PPO_MAX_WALL_SECONDS"] == "720"
         assert mf["env"]["SNAKE_COLAB_CANARY"] == "1"
         colab_schema.validate_manifest(mf)
         ops_dispatch.require_resume_policy(mf)
@@ -1000,23 +1002,23 @@ def test_m1_ruler_isolates_non_oom_cell_and_bench_errors_and_canary_probes_all_a
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """M1: per-cell/per-bench non-OOM isolation, exit 0 if >=1 cell succeeds, 3-arch canary."""
-    # 1. Verify prepare.py canary docstring and exemption reason match 14/28 (not <= 12 min)
+    # 1. Verify prepare.py canary docstring and exemption reason match 15/30 (not <= 12 min)
     assert prepare_arena_ppo_packet.__doc__ is not None
     assert "<= 12 min" not in prepare_arena_ppo_packet.__doc__
-    assert "14 min" in prepare_arena_ppo_packet.__doc__
-    assert "28 min" in prepare_arena_ppo_packet.__doc__
+    assert "15 min" in prepare_arena_ppo_packet.__doc__
+    assert "30 min" in prepare_arena_ppo_packet.__doc__
     pkt_c = prepare_arena_ppo_packet(
-        tmp_path / "pkt_canary_14_28",
+        tmp_path / "pkt_canary_15_30",
         commit="HEAD",
         mode="canary",
         gpu="L4",
-        output_dir=tmp_path / "out_canary_14_28",
+        output_dir=tmp_path / "out_canary_15_30",
         allow_unmerged_commit=True,
     )
     mf_c = json.loads(Path(pkt_c["manifest_path"]).read_text(encoding="utf-8"))
     reason_text = mf_c["resume_exemption"]["reason"]
     assert "<= 12 min" not in reason_text
-    assert "14 min" in reason_text and "28 min" in reason_text
+    assert "15 min" in reason_text and "30 min" in reason_text
 
     # 2. Non-OOM exceptions in batch6_forward (ego_only) and in cells (ego_only collection,
     # per_seat integrated) must NOT abort shared_trunk; CLI exits 0 and ruler_result.json PASSes.
@@ -1464,6 +1466,320 @@ def test_minor3_continuation_canary_verifies_staged_checkpoint_without_rollout_b
             output_dir=tmp_path / "out_cross_arch_refused",
             allow_unmerged_commit=True,
         )
+
+
+def test_task_a_ruler_fp32_cells_comparisons_and_short_l4_prepare(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Default bf16 plain cells + `_fp32` cells, paired comparisons, and short L4 prepare CLI."""
+    from research.arena_ppo import prepare as prepare_mod
+
+    out_dual = tmp_path / "ruler_dual_precision_out"
+    res = run_ruler(
+        output_dir=out_dual,
+        device="cpu",
+        envs_list=[2],
+        net_sizes=["S"],
+        net_archs=["ego_only", "shared_trunk"],
+        burnin_ticks=4,
+        warmup_ticks=1,
+        collect_ticks=2,
+        rollout_len=4,
+        ppo_epochs=2,
+        minibatch_size=24,
+        actor_chunk_envs=2,
+        max_capacity=64,
+        include_fp32=True,
+        include_one_epoch_cell=False,
+        include_best_compile=False,
+        measure_larger_minibatch=False,
+        seed=314,
+    )
+    assert verify_completed_artifact(out_dual / "ruler_result.json")
+    assert res["stopped_reason"] == "completed"
+    assert res["amp"] is True
+    assert res["include_fp32"] is True
+    cell_ids = [c["cell_id"] for c in res["cells"]]
+    assert cell_ids == [
+        "E2_ego_only_S",
+        "E2_ego_only_S_fp32",
+        "E2_shared_trunk_S",
+        "E2_shared_trunk_S_fp32",
+    ]
+    for c in res["cells"]:
+        assert verify_completed_artifact(out_dual / "cells" / f"{c['cell_id']}.json")
+        assert c["amp"] is (not c["cell_id"].endswith("_fp32"))
+        assert c["is_fp32_probe"] is c["cell_id"].endswith("_fp32")
+        assert c["learner_rows_per_sec"] > 0.0
+        assert c["integrated_agent_steps_per_sec"] > 0.0
+        assert isinstance(c["epoch0_approx_kl"], float)
+        assert isinstance(c["value_loss"], float)
+
+    comps = res["precision_comparisons"]
+    assert len(comps) == 2
+    assert [(x["default_cell_id"], x["fp32_cell_id"]) for x in comps] == [
+        ("E2_ego_only_S", "E2_ego_only_S_fp32"),
+        ("E2_shared_trunk_S", "E2_shared_trunk_S_fp32"),
+    ]
+    for comp in comps:
+        assert comp["amp_learner_rows_per_sec"] > 0.0
+        assert comp["fp32_learner_rows_per_sec"] > 0.0
+        assert comp["learner_speedup_ratio"] > 0.0
+        assert comp["amp_integrated_agent_steps_per_sec"] > 0.0
+        assert comp["fp32_integrated_agent_steps_per_sec"] > 0.0
+        assert comp["integrated_speedup_ratio"] > 0.0
+        assert isinstance(comp["amp_epoch0_approx_kl"], float)
+        assert isinstance(comp["fp32_epoch0_approx_kl"], float)
+        assert isinstance(comp["amp_value_loss"], float)
+        assert isinstance(comp["fp32_value_loss"], float)
+
+    # Short E=2048 default (`bf16`) vs `_fp32` ruler packet via prepare.py CLI (< 25 min)
+    canary_pkt = prepare_arena_ppo_packet(
+        tmp_path / "pkt_canary_for_short_ruler",
+        commit="HEAD",
+        mode="canary",
+        gpu="L4",
+        output_dir=tmp_path / "out_canary_for_short_ruler",
+        allow_unmerged_commit=True,
+    )
+    canary_mf = json.loads(Path(canary_pkt["manifest_path"]).read_text(encoding="utf-8"))
+    rcpt_short = _build_synthetic_canary_receipt(canary_mf, "L4")
+
+    pkt_ruler_dir = tmp_path / "pkt_short_ruler_fp32"
+    out_ruler_dir = tmp_path / "out_short_ruler_fp32"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "research.arena_ppo.prepare",
+            "--packet",
+            str(pkt_ruler_dir),
+            "--commit",
+            "HEAD",
+            "--mode",
+            "ruler",
+            "--gpu",
+            "L4",
+            "--net-arch",
+            "ego_only,shared_trunk",
+            "--ruler-envs",
+            "2048",
+            "--ruler-nets",
+            "S",
+            "--include-fp32",
+            "--no-one-epoch-cell",
+            "--no-best-compile",
+            "--no-larger-minibatch",
+            "--ruler-base-minutes",
+            "12",
+            "--canary-receipt",
+            str(rcpt_short),
+            "--output-dir",
+            str(out_ruler_dir),
+            "--allow-unmerged-commit",
+        ],
+    )
+    assert prepare_mod.main() == 0
+    mf_path = pkt_ruler_dir / "dispatch-manifest.json"
+    mf = json.loads(mf_path.read_text(encoding="utf-8"))
+    colab_canary.check(mf, ROOT)
+    colab_schema.validate_manifest(mf)
+    ops_dispatch.require_resume_policy(mf)
+    colab_supervisor.validate(mf)
+    assert mf["timeout_minutes"] == 24.0
+    env = mf["env"]
+    assert env["ARENA_PPO_RULER_ARCHS"] == "ego_only,shared_trunk"
+    assert env["ARENA_PPO_RULER_ENVS"] == "2048"
+    assert env["ARENA_PPO_RULER_NETS"] == "S"
+    assert env["ARENA_PPO_AMP"] == "1"
+    assert env["ARENA_PPO_INCLUDE_FP32"] == "1"
+    assert env["ARENA_PPO_NO_ONE_EPOCH_CELL"] == "1"
+    assert env["ARENA_PPO_NO_BEST_COMPILE"] == "1"
+    assert env["ARENA_PPO_NO_LARGER_MINIBATCH"] == "1"
+
+    # Train packet defaults to amp=True (ARENA_PPO_AMP=1), and --no-amp turns it off (0)
+    pkt_train_def = prepare_arena_ppo_packet(
+        tmp_path / "pkt_train_default_amp",
+        commit="HEAD",
+        mode="train",
+        gpu="L4",
+        hours=2.0,
+        canary_receipt=rcpt_short,
+        output_dir=tmp_path / "out_train_default_amp",
+        allow_unmerged_commit=True,
+    )
+    mf_train_def = json.loads(Path(pkt_train_def["manifest_path"]).read_text(encoding="utf-8"))
+    colab_supervisor.validate(mf_train_def)
+    assert mf_train_def["env"]["ARENA_PPO_AMP"] == "1"
+    cfg_def = json.loads(mf_train_def["env"]["ARENA_PPO_CONFIG_JSON"])
+    assert cfg_def["amp"] is True and cfg_def["use_bf16_autocast"] is True
+
+    pkt_train_fp32 = prepare_arena_ppo_packet(
+        tmp_path / "pkt_train_fp32",
+        commit="HEAD",
+        mode="train",
+        gpu="L4",
+        hours=2.0,
+        amp=False,
+        canary_receipt=rcpt_short,
+        output_dir=tmp_path / "out_train_fp32",
+        allow_unmerged_commit=True,
+    )
+    mf_train_fp32 = json.loads(Path(pkt_train_fp32["manifest_path"]).read_text(encoding="utf-8"))
+    colab_supervisor.validate(mf_train_fp32)
+    assert mf_train_fp32["env"]["ARENA_PPO_AMP"] == "0"
+    cfg_fp32 = json.loads(mf_train_fp32["env"]["ARENA_PPO_CONFIG_JSON"])
+    assert cfg_fp32["amp"] is False and cfg_fp32["use_bf16_autocast"] is False
+
+
+def test_task_b1_and_a3_canary_3arch_train_late_reset_resume_and_cuda_fp32_probe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """3-design canary train w/ time-limit + reservoir + resume + dual-precision CUDA probe."""
+    canary_out = tmp_path / "canary_3arch_out"
+    suite = run_canary_suite(
+        output_dir=canary_out,
+        device="cpu",
+        num_envs=4,
+        rollout_len=4,
+        seed=2026,
+    )
+    assert verify_completed_artifact(canary_out / "canary_checks.json")
+    checks = json.loads((canary_out / "canary_checks.json").read_text(encoding="utf-8"))
+    assert checks["fp32_canary_probe"]["executed"] is False
+    assert "CUDA" in checks["fp32_canary_probe"]["skipped_reason"]
+    assert suite["fp32_canary_probe"] == checks["fp32_canary_probe"]
+
+    assert set(suite["train_by_arch"].keys()) == {"ego_only", "per_seat", "shared_trunk"}
+    for arch in ("ego_only", "per_seat", "shared_trunk"):
+        tr = suite["train_by_arch"][arch]
+        assert tr["updates_completed"] == 2
+        assert tr["resumed_from_checkpoint"] is True
+        assert tr["config"]["amp"] is True
+        assert tr["config"]["use_bf16_autocast"] is True
+        assert tr["config"]["max_world_frames"] == 4
+        assert tr["config"]["late_reset_enabled"] is True
+        assert tr["config"]["late_reset_min_length"] == 1
+        assert tr["total_time_limit_resets"] >= 1, f"{arch} did not exercise time-limit reset"
+        assert tr["total_harvested"] >= 1, f"{arch} did not harvest into late-state reservoir"
+        assert tr["total_restored"] >= 1, f"{arch} did not restore from late-state reservoir"
+
+    # Enable CUDA `_fp32` canary probe gate to verify both default and `_fp32` cells execute
+    assert ruler_mod._canary_runs_fp32_probe(torch.device("cpu")) is False
+    assert ruler_mod._canary_runs_fp32_probe(torch.device("cuda", 0)) is True
+    monkeypatch.setattr(ruler_mod, "_canary_runs_fp32_probe", lambda _dev: True)
+
+    canary_cuda_out = tmp_path / "canary_cuda_sim_out"
+    suite_cuda = run_canary_suite(
+        output_dir=canary_cuda_out,
+        device="cpu",
+        num_envs=4,
+        rollout_len=4,
+        seed=2026,
+    )
+    assert suite_cuda["fp32_canary_probe"]["executed"] is True
+    assert suite_cuda["fp32_canary_probe"]["fp32_cell_ids"] == [
+        "E4_ego_only_S_fp32",
+        "E4_shared_trunk_S_fp32",
+        "E4_per_seat_S_fp32",
+    ]
+    assert suite_cuda["ruler_result"]["succeeded_cell_ids"] == [
+        "E4_ego_only_S",
+        "E4_ego_only_S_fp32",
+        "E4_shared_trunk_S",
+        "E4_shared_trunk_S_fp32",
+        "E4_per_seat_S",
+        "E4_per_seat_S_fp32",
+    ]
+
+    # Verify a failure specifically inside a secondary `_fp32` cell aborts the CUDA canary loudly
+    orig_integ = ruler_mod._measure_integrated_cell
+
+    def _fail_fp32_cell(**kw: Any) -> dict[str, Any]:
+        if (not kw.get("amp")) and kw.get("net_arch") == "shared_trunk":
+            raise RuntimeError("synthetic failure in shared_trunk _fp32")
+        return orig_integ(**kw)
+
+    monkeypatch.setattr(ruler_mod, "_measure_integrated_cell", _fail_fp32_cell)
+    with pytest.raises(RuntimeError, match="E4_shared_trunk_S_fp32"):
+        run_canary_suite(
+            output_dir=tmp_path / "canary_cuda_fp32_fail",
+            device="cpu",
+            num_envs=4,
+            rollout_len=4,
+            seed=2026,
+        )
+
+
+def test_task_b4_fatal_non_oom_cuda_error_stops_grid_and_cleanup_fault_preserves_cell(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Task B.4: non-OOM CUDA error stops grid, marks skipped_cells, and survives cleanup fault."""
+    orig_coll = ruler_mod._measure_collection_only_cell
+    orig_cleanup = ruler_mod._cleanup_device_memory
+    cuda_poisoned = {"active": False}
+
+    def _poison_on_second_cell(**kw: Any) -> dict[str, Any]:
+        if kw.get("num_envs") == 2 and kw.get("net_arch") == "shared_trunk":
+            cuda_poisoned["active"] = True
+            raise RuntimeError("CUDA error: device-side assert triggered")
+        if kw.get("num_envs") == 4:
+            raise AssertionError("Grid failed to stop after non-OOM CUDA device-side assert!")
+        return orig_coll(**kw)
+
+    def _poisoned_cleanup(dev: torch.device) -> None:
+        if cuda_poisoned["active"]:
+            raise RuntimeError("CUDA error: device-side assert triggered inside empty_cache")
+        orig_cleanup(dev)
+
+    monkeypatch.setattr(ruler_mod, "_measure_collection_only_cell", _poison_on_second_cell)
+    monkeypatch.setattr(ruler_mod, "_cleanup_device_memory", _poisoned_cleanup)
+
+    out_dir = tmp_path / "ruler_cuda_assert_stop"
+    res = run_ruler(
+        output_dir=out_dir,
+        device="cpu",
+        envs_list=[2, 4],
+        net_sizes=["S"],
+        net_archs=["ego_only", "shared_trunk"],
+        burnin_ticks=2,
+        warmup_ticks=1,
+        collect_ticks=2,
+        rollout_len=2,
+        ppo_epochs=1,
+        minibatch_size=12,
+        actor_chunk_envs=2,
+        max_capacity=64,
+        include_one_epoch_cell=False,
+        include_best_compile=False,
+        measure_larger_minibatch=False,
+        seed=77,
+    )
+
+    # Current failing cell record MUST be persisted intact despite poisoned cleanup raising!
+    assert verify_completed_artifact(out_dir / "cells" / "E2_ego_only_S.json")
+    assert verify_completed_artifact(out_dir / "cells" / "E2_shared_trunk_S.json")
+    assert verify_completed_artifact(out_dir / "ruler_result.json")
+
+    poisoned_cell = json.loads(
+        (out_dir / "cells" / "E2_shared_trunk_S.json").read_text(encoding="utf-8")
+    )
+    assert poisoned_cell["fatal_cuda_error"] is True
+    assert "device-side assert" in poisoned_cell["error"]
+    assert "empty_cache" in poisoned_cell["cleanup_error"]
+
+    assert res["partial"] is True
+    assert res["stopped_reason"] == "cuda_error_stop"
+    assert [c["cell_id"] for c in res["cells"]] == ["E2_ego_only_S", "E2_shared_trunk_S"]
+    assert res["succeeded_cell_ids"] == ["E2_ego_only_S"]
+    assert res["failed_cell_ids"] == ["E2_shared_trunk_S"]
+
+    skipped = res["skipped_cells"]
+    assert [s["cell_id"] for s in skipped] == ["E4_ego_only_S", "E4_shared_trunk_S"]
+    for s in skipped:
+        assert s["reason"] == "stopped_after_cuda_error"
+        assert s["trigger_cell_id"] == "E2_shared_trunk_S"
+        assert "device-side assert" in s["trigger_error"]
 
 
 def test_canary_disables_projection_skip_under_huge_projected_cell_time(

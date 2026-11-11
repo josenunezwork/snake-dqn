@@ -52,11 +52,11 @@ GPU_FORECAST_RATES_UPH: dict[str, float] = {
     "H100": 12.0,
 }
 
-# Instrumented family canary envelope: 14 min base / 28 min 2x timeout. The job itself needs ~3 min
-# on L4; the rest is headroom for hung Colab control calls (attempt-02 lost a 12 min cap to them).
-CANARY_BASE_MINUTES = 14.0
-CANARY_TIMEOUT_MINUTES = 28.0
-CANARY_WALL_GUARD_SECONDS = 540.0
+# Instrumented family canary envelope: 15 min base / 30 min 2x timeout (30 min transport cap),
+# 720s (12 min) Python wall guard (~2.26x over conservative ~318s 6-cell + 3-arch L4 canary).
+CANARY_BASE_MINUTES = 15.0
+CANARY_TIMEOUT_MINUTES = 30.0
+CANARY_WALL_GUARD_SECONDS = 720.0
 
 # Uninstrumented science ruler envelope: 30 min base / 60 min runaway guard; Python guard = T - 8m
 RULER_BASE_MINUTES = 30.0
@@ -330,6 +330,11 @@ def prepare_arena_ppo_packet(
     ruler_envs: str | None = None,
     ruler_nets: str | None = None,
     no_one_epoch_cell: bool = False,
+    no_best_compile: bool = False,
+    no_larger_minibatch: bool = False,
+    ruler_base_minutes: float | None = None,
+    amp: bool | None = None,
+    include_fp32: bool = False,
     output_dir: Path | str | None = None,
     prior_output_dir: Path | str | None = None,
     prior_kind: str = "auto",
@@ -348,7 +353,7 @@ def prepare_arena_ppo_packet(
         packet_dir: Fresh target packet directory on Mac.
         commit: Git revision to pin (must be an ancestor of ``origin/main`` unless
             ``allow_unmerged_commit=True`` is explicitly requested for local pre-merge checks).
-        mode: ``"canary"`` (14 min base / 28 min timeout instrumented family probe), ``"ruler"``
+        mode: ``"canary"`` (15 min base / 30 min timeout instrumented family probe), ``"ruler"``
             (<= 60 min uninstrumented science ruler bound to canary receipt), or ``"train"``
             (resumable training session bound to canary receipt).
         gpu: Target GPU in ``{"L4", "A100", "H100"}`` (default ``"L4"``).
@@ -493,7 +498,7 @@ def prepare_arena_ppo_packet(
             "resume_exemption": {
                 "kind": "short-canary",
                 "reason": (
-                    f"Stage 1 Arena PPO {gpu_norm} family canary probe (14 min base / 28 min "
+                    f"Stage 1 Arena PPO {gpu_norm} family canary probe (15 min base / 30 min "
                     "timeout): real indexed parity + tiny 3-arch ruler + tiny 2-update "
                     "train/checkpoint/resume"
                 ),
@@ -505,11 +510,27 @@ def prepare_arena_ppo_packet(
             "family": FAMILY_SCRIPT,
         }
     elif mode == "ruler":
-        est_minutes = RULER_BASE_MINUTES
-        timeout_minutes = RULER_TIMEOUT_MINUTES
+        if ruler_base_minutes is not None:
+            if not math.isfinite(ruler_base_minutes) or float(ruler_base_minutes) < 3.0:
+                raise ValueError(
+                    f"--ruler-base-minutes must be >= 3.0 and <= 30.0, got {ruler_base_minutes}"
+                )
+            if float(ruler_base_minutes) > 30.0:
+                raise ValueError(
+                    f"--ruler-base-minutes must be <= 30.0 (2x <= 60m acceptance cap), "
+                    f"got {ruler_base_minutes}"
+                )
+            est_minutes = round(float(ruler_base_minutes), 2)
+            timeout_minutes = round(2.0 * est_minutes, 2)
+            headroom_min = min(8.0, max(2.0, 0.2 * timeout_minutes))
+            wall_guard_sec = int(max(60.0, (timeout_minutes - headroom_min) * 60.0))
+        else:
+            est_minutes = RULER_BASE_MINUTES
+            timeout_minutes = RULER_TIMEOUT_MINUTES
+            wall_guard_sec = int(RULER_WALL_GUARD_SECONDS)
         base_sec = est_minutes * 60.0
         eff_sec = timeout_minutes * 60.0
-        extra_env["ARENA_PPO_MAX_WALL_SECONDS"] = str(int(RULER_WALL_GUARD_SECONDS))
+        extra_env["ARENA_PPO_MAX_WALL_SECONDS"] = str(wall_guard_sec)
         if net_arch is not None:
             parsed_archs = _parse_archs_csv(net_arch)
             extra_env["ARENA_PPO_RULER_ARCHS"] = ",".join(parsed_archs)
@@ -521,6 +542,14 @@ def prepare_arena_ppo_packet(
             extra_env["ARENA_PPO_RULER_NETS"] = ",".join(parsed_nets)
         if no_one_epoch_cell:
             extra_env["ARENA_PPO_NO_ONE_EPOCH_CELL"] = "1"
+        if no_best_compile:
+            extra_env["ARENA_PPO_NO_BEST_COMPILE"] = "1"
+        if no_larger_minibatch:
+            extra_env["ARENA_PPO_NO_LARGER_MINIBATCH"] = "1"
+        eff_ruler_amp = True if amp is None else bool(amp)
+        extra_env["ARENA_PPO_AMP"] = "1" if eff_ruler_amp else "0"
+        if include_fp32:
+            extra_env["ARENA_PPO_INCLUDE_FP32"] = "1"
         if compile_model:
             extra_env["ARENA_PPO_COMPILE"] = "1"
         job_id = f"arena-ppo-ruler-{gpu_slug}-{attempt}"
@@ -577,7 +606,12 @@ def prepare_arena_ppo_packet(
 
         if ppo_config is not None:
             cfg_obj = ppo_config
-            if resolved_train_arch is not None or net_size is not None or num_envs is not None:
+            if (
+                resolved_train_arch is not None
+                or net_size is not None
+                or num_envs is not None
+                or amp is not None
+            ):
                 d = cfg_obj.to_dict()
                 if resolved_train_arch is not None and resolved_train_arch != cfg_obj.net_arch:
                     d["net_arch"] = resolved_train_arch
@@ -589,6 +623,9 @@ def prepare_arena_ppo_packet(
                     d["actor_chunk_envs"] = None
                 if num_envs is not None:
                     d["num_envs"] = int(num_envs)
+                if amp is not None:
+                    d["amp"] = bool(amp)
+                    d["use_bf16_autocast"] = bool(amp)
                 cfg_obj = ArenaPPOConfig.from_dict(d)
         elif staged_base_cfg is not None:
             d = staged_base_cfg.to_dict()
@@ -604,6 +641,9 @@ def prepare_arena_ppo_packet(
                 d["num_envs"] = int(num_envs)
             if compile_model:
                 d["compile_model"] = True
+            if amp is not None:
+                d["amp"] = bool(amp)
+                d["use_bf16_autocast"] = bool(amp)
             cfg_obj = ArenaPPOConfig.from_dict(d)
         else:
             cfg_obj = ArenaPPOConfig(
@@ -611,7 +651,9 @@ def prepare_arena_ppo_packet(
                 net_size=net_size if net_size is not None else "S",
                 num_envs=int(num_envs) if num_envs is not None else 1024,
                 compile_model=compile_model,
+                amp=(True if amp is None else bool(amp)),
             )
+        extra_env["ARENA_PPO_AMP"] = "1" if bool(cfg_obj.amp) else "0"
 
         if staged_base_cfg is not None:
             staged_dict = staged_base_cfg.to_dict()
@@ -793,6 +835,35 @@ def main() -> int:
     parser.add_argument("--ruler-envs", type=str, default=None)
     parser.add_argument("--ruler-nets", type=str, default=None)
     parser.add_argument("--no-one-epoch-cell", action="store_true")
+    parser.add_argument("--no-best-compile", action="store_true")
+    parser.add_argument("--no-larger-minibatch", action="store_true")
+    parser.add_argument("--ruler-base-minutes", type=float, default=None)
+    amp_group = parser.add_mutually_exclusive_group()
+    amp_group.add_argument(
+        "--amp",
+        dest="amp",
+        action="store_true",
+        default=None,
+        help=(
+            "Enable CUDA mixed precision (DEFAULT ON: bf16 autocast on Ampere/Ada/Hopper, "
+            "fp16+GradScaler else)."
+        ),
+    )
+    amp_group.add_argument(
+        "--no-amp",
+        "--fp32",
+        dest="amp",
+        action="store_false",
+        help="Disable CUDA mixed precision and run pure float32.",
+    )
+    parser.add_argument(
+        "--include-fp32",
+        action="store_true",
+        help=(
+            "In --mode ruler, measure both default mixed-precision (`E...`, bf16 ON on CUDA) "
+            "and pure float32 (`E..._fp32`) cells in one run."
+        ),
+    )
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--prior-output-dir", type=Path, default=None)
     parser.add_argument(
@@ -842,6 +913,11 @@ def main() -> int:
         ruler_envs=args.ruler_envs,
         ruler_nets=args.ruler_nets,
         no_one_epoch_cell=bool(args.no_one_epoch_cell),
+        no_best_compile=bool(args.no_best_compile),
+        no_larger_minibatch=bool(args.no_larger_minibatch),
+        ruler_base_minutes=args.ruler_base_minutes,
+        amp=args.amp,
+        include_fp32=bool(args.include_fp32),
         output_dir=args.output_dir,
         prior_output_dir=args.prior_output_dir,
         prior_kind=args.prior_kind,

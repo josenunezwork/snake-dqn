@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import math
 import os
@@ -446,7 +447,8 @@ def test_m5_projected_wall_guard_and_max_update_seconds(tmp_path: Path) -> None:
     assert verify_completed_artifact(out_proj / "checkpoints" / "final.pt")
     assert verify_completed_artifact(out_proj / "train_result.json")
 
-    # MAJOR-2: Exceeding max_update_seconds stops cleanly (no RuntimeError!) and exports all files
+    # MAJOR-2 + Task B.2: First update of a session is exempt from `max_update_seconds` (includes
+    # compile/warmup), while update 2 stops cleanly (no RuntimeError!) and exports all files.
     cfg_slow = ArenaPPOConfig(**{**cfg.to_dict(), "max_update_seconds": 1e-6})
     cli_slow = tmp_path / "slow_update_root"
     out_slow = cli_slow / "output"
@@ -459,12 +461,24 @@ def test_m5_projected_wall_guard_and_max_update_seconds(tmp_path: Path) -> None:
     )
     assert res_slow["stopped_reason"] == "max_update_seconds_guard"
     assert res_slow["aborted_mid_update"] is False
-    assert res_slow["updates_completed"] == 1
-    assert verify_completed_artifact(out_slow / "checkpoints" / "ckpt_u0000001.pt")
+    assert res_slow["updates_completed"] == 2
+    assert verify_completed_artifact(out_slow / "checkpoints" / "ckpt_u0000002.pt")
     assert verify_completed_artifact(out_slow / "checkpoints" / "final.pt")
     assert verify_completed_artifact(out_slow / "arena_ppo_weights.pth")
     assert verify_completed_artifact(out_slow / "train_result.json")
     supervisor_scan_exports(cli_slow, estimate_max_export_bytes(cfg_slow), cache_slow)
+
+    # Resumed session 2: update 3 is the first update of session 2 (exempt), update 4 triggers guard
+    out_slow_s2 = tmp_path / "slow_update_session2"
+    res_slow_s2 = run_training_job(
+        cfg=cfg_slow,
+        output_dir=out_slow_s2,
+        work_dir=cli_slow / "work",
+        device="cpu",
+    )
+    assert res_slow_s2["resumed_from"] is not None
+    assert res_slow_s2["stopped_reason"] == "max_update_seconds_guard"
+    assert res_slow_s2["updates_completed"] == 4
 
 
 def test_t1_work_dir_pruning_45m_hardlink_snapshots_and_supervisor_exports_scanner(
@@ -1247,3 +1261,585 @@ def test_minor6_max_world_frames_checks_host_bound_once_per_rollout(
 
     # Old code added +16 Tensor.item() host syncs (one per tick); new code adds +1 per rollout.
     assert (calls_bounded - calls_unbounded) == 1
+
+
+@pytest.mark.parametrize("net_arch", ["ego_only", "shared_trunk", "per_seat"])
+def test_task_a4_amp_off_bit_identical_cpu_fallback_and_grad_scaler_roundtrip(
+    tmp_path: Path, net_arch: NetArch
+) -> None:
+    """Default amp=True (CUDA bf16 ON), amp=False pure fp32, max_seg & flat targets exact."""
+    assert ArenaPPOConfig().amp is True
+    assert ArenaPPOConfig().use_bf16_autocast is True
+    assert ArenaPPOConfig(amp=False).amp is False
+    assert ArenaPPOConfig(amp=False).use_bf16_autocast is False
+    assert ArenaPPOConfig(use_bf16_autocast=False).amp is False
+
+    base_kw: dict[str, Any] = dict(
+        net_arch=net_arch,
+        net_size="S",
+        num_envs=2,
+        rollout_len=4,
+        ppo_epochs=2,
+        minibatch_size=6,
+        actor_chunk_envs=2,
+        max_capacity=64,
+        seed=20261112,
+        deterministic=True,
+    )
+    tr_off = ArenaPPOTrainer(ArenaPPOConfig(**base_kw, amp=False), device="cpu")
+    assert tr_off.grad_scaler.is_enabled() is False
+    m_off = tr_off.step_update()
+
+    # Prove pre-flattened learner targets (`index_select(0, flat_wt)`) match old `[t_idx, e_idx]`
+    buf = tr_off.buffer
+    total_wt = buf.T * buf.E
+    perm = torch.tensor([5, 0, 7, 2, 1, 6, 3, 4], dtype=torch.long)
+    actions_wt = buf.actions.reshape(total_wt, buf.S).to(torch.long)
+    old_lp_wt = buf.log_probs.reshape(total_wt, buf.S)
+    returns_wt = buf.returns.reshape(total_wt, buf.S)
+    aux_targets_wt = buf.aux_targets.reshape(total_wt, buf.S, 3)
+    valid_all = buf.acted & buf.learner_mask
+    v_sum = valid_all.to(torch.float32).sum()
+    adv_mean = (buf.advantages * valid_all.to(torch.float32)).sum() / v_sum.clamp_min(1.0)
+    adv_sq = (
+        (buf.advantages - adv_mean).square() * valid_all.to(torch.float32)
+    ).sum() / v_sum.clamp_min(1.0)
+    norm_adv_wt = (
+        torch.where(valid_all, (buf.advantages - adv_mean) * torch.rsqrt(adv_sq + 1e-8), 0.0)
+    ).reshape(total_wt, buf.S)
+    for start in range(0, total_wt, 2):
+        flat_wt = perm[start : start + 2]
+        t_idx = flat_wt // buf.E
+        e_idx = flat_wt % buf.E
+        assert torch.equal(
+            actions_wt.index_select(0, flat_wt).reshape(-1),
+            buf.actions[t_idx, e_idx].reshape(-1).to(torch.long),
+        )
+        assert torch.equal(
+            old_lp_wt.index_select(0, flat_wt).reshape(-1),
+            buf.log_probs[t_idx, e_idx].reshape(-1),
+        )
+        assert torch.equal(
+            returns_wt.index_select(0, flat_wt).reshape(-1),
+            buf.returns[t_idx, e_idx].reshape(-1),
+        )
+        assert torch.equal(
+            aux_targets_wt.index_select(0, flat_wt).reshape(-1, 3),
+            buf.aux_targets[t_idx, e_idx].reshape(-1, 3),
+        )
+        old_mb_valid = (buf.acted[t_idx, e_idx] & buf.learner_mask[t_idx, e_idx]).reshape(-1)
+        old_mb_adv = torch.where(
+            old_mb_valid,
+            (buf.advantages[t_idx, e_idx].reshape(-1) - adv_mean) * torch.rsqrt(adv_sq + 1e-8),
+            0.0,
+        )
+        assert torch.equal(norm_adv_wt.index_select(0, flat_wt).reshape(-1), old_mb_adv)
+
+    tr_on_cpu = ArenaPPOTrainer(ArenaPPOConfig(**base_kw, amp=True), device="cpu")
+    assert tr_on_cpu.grad_scaler.is_enabled() is False
+    m_on = tr_on_cpu.step_update()
+
+    # Compare against unmodified full-cap (`max_seg=None`) reconstruction path
+    tr_unmod = ArenaPPOTrainer(ArenaPPOConfig(**base_kw, amp=False), device="cpu")
+    orig_rec_wt = tr_unmod.buffer.reconstruct_world_ticks
+    orig_rec_sh = tr_unmod.buffer.reconstruct_shared_world_ticks
+    tr_unmod.buffer.reconstruct_world_ticks = (  # type: ignore[method-assign]
+        lambda t_i, e_i, *, ring_chunk=512, max_seg=None: orig_rec_wt(
+            t_i, e_i, ring_chunk=ring_chunk, max_seg=None
+        )
+    )
+    tr_unmod.buffer.reconstruct_shared_world_ticks = (  # type: ignore[method-assign]
+        lambda t_i, e_i, *, ring_chunk=512, max_seg=None: orig_rec_sh(
+            t_i, e_i, ring_chunk=ring_chunk, max_seg=None
+        )
+    )
+    m_unmod = tr_unmod.step_update()
+
+    assert m_off.policy_loss == m_on.policy_loss == m_unmod.policy_loss
+    assert m_off.value_loss == m_on.value_loss == m_unmod.value_loss
+    assert m_off.aux_loss == m_on.aux_loss == m_unmod.aux_loss
+    assert m_off.epoch0_approx_kl == m_on.epoch0_approx_kl == m_unmod.epoch0_approx_kl
+    for k, v_off in tr_off.model.state_dict().items():
+        assert torch.equal(v_off, tr_on_cpu.model.state_dict()[k]), f"CPU amp fallback diff on {k}"
+        assert torch.equal(v_off, tr_unmod.model.state_dict()[k]), f"Unmodified path diff on {k}"
+
+    # Verify fp16 GradScaler learner path & checkpoint state_dict roundtrip via spy scaler
+    if net_arch == "ego_only":
+        calls: list[str] = []
+
+        class _SpyGradScaler:
+            def __init__(self) -> None:
+                self._scale = 512.0
+
+            def is_enabled(self) -> bool:
+                return True
+
+            def scale(self, loss: torch.Tensor) -> torch.Tensor:
+                calls.append("scale")
+                return loss * 2.0
+
+            def unscale_(self, optimizer: torch.optim.Optimizer) -> None:
+                calls.append("unscale_")
+                for group in optimizer.param_groups:
+                    for p in group["params"]:
+                        if p.grad is not None:
+                            p.grad.mul_(0.5)
+
+            def step(self, optimizer: torch.optim.Optimizer) -> None:
+                calls.append("step")
+                optimizer.step()
+
+            def update(self) -> None:
+                calls.append("update")
+                self._scale = 1024.0
+
+            def state_dict(self) -> dict[str, Any]:
+                return {"scale": self._scale}
+
+            def load_state_dict(self, sd: dict[str, Any]) -> None:
+                self._scale = float(sd["scale"])
+
+        tr_scaler = ArenaPPOTrainer(ArenaPPOConfig(**base_kw, amp=False), device="cpu")
+        spy = _SpyGradScaler()
+        tr_scaler.grad_scaler = spy  # type: ignore[assignment]
+        m_scaled = tr_scaler.step_update()
+        assert calls[:4] == ["scale", "unscale_", "step", "update"]
+        # Scaling by 2.0 and unscaling by 0.5 yields exact fp32 weights!
+        assert math.isclose(m_scaled.policy_loss, m_off.policy_loss, rel_tol=0.0, abs_tol=1e-7)
+        for k, v_off in tr_off.model.state_dict().items():
+            assert torch.allclose(v_off, tr_scaler.model.state_dict()[k], atol=1e-6, rtol=0.0)
+
+        ckpt_s = tmp_path / "scaler_ckpt" / "ckpt_u0000001.pt"
+        tr_scaler.save_checkpoint(ckpt_s)
+        tr_scaler2 = ArenaPPOTrainer(ArenaPPOConfig(**base_kw, amp=False), device="cpu")
+        spy2 = _SpyGradScaler()
+        tr_scaler2.grad_scaler = spy2  # type: ignore[assignment]
+        tr_scaler2.load_checkpoint(ckpt_s)
+        assert spy2._scale == 1024.0
+
+
+def test_task_b3_publish_gap_projection_uses_measured_publish_sec_and_safety_factor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Task B.3: 45-min publish bound includes measured publish time and 1.25x safety factor."""
+    import dataclasses
+
+    assert ppo_mod.PUBLISH_GAP_SAFETY_FACTOR >= 1.2
+    fake_now = {"t": 20_000.0}
+    monkeypatch.setattr(ppo_mod.time, "monotonic", lambda: fake_now["t"])
+
+    orig_step_update = ArenaPPOTrainer.step_update
+    orig_save_ckpt = ArenaPPOTrainer.save_checkpoint
+    orig_pub = ppo_mod._publish_work_checkpoint_to_output
+
+    update_durations = [1900.0, 500.0]
+    u_idx = {"i": 0}
+
+    def _timed_step(self: ArenaPPOTrainer, *, should_stop: Any = None) -> ppo_mod.PPOUpdateMetrics:
+        m = orig_step_update(self, should_stop=should_stop)
+        dur = update_durations[min(u_idx["i"], len(update_durations) - 1)]
+        u_idx["i"] += 1
+        fake_now["t"] += dur
+        return dataclasses.replace(m, collect_sec=0.5 * dur, learn_sec=0.5 * dur)
+
+    def _timed_save(self: ArenaPPOTrainer, path: Path | str, *, reason: str = "periodic") -> str:
+        out = orig_save_ckpt(self, path, reason=reason)
+        fake_now["t"] += 50.0
+        return out
+
+    def _timed_pub(*args: Any, **kwargs: Any) -> tuple[str | None, list[str]]:
+        out = orig_pub(*args, **kwargs)
+        fake_now["t"] += 120.0
+        return out
+
+    monkeypatch.setattr(ArenaPPOTrainer, "step_update", _timed_step)
+    monkeypatch.setattr(ArenaPPOTrainer, "save_checkpoint", _timed_save)
+    monkeypatch.setattr(ppo_mod, "_publish_work_checkpoint_to_output", _timed_pub)
+
+    # Update 1: 1900s + 50s save >= 1800s interval -> publishes ckpt_u0000001.pt (takes 120s).
+    # Update 2: elapsed_since_publish = 500s + 50s = 550s (< 2600s interval).
+    # Wait: set update 2 duration = 1850s!
+    # Without publish time (120s) + 1.25x safety factor:
+    #   elapsed_since_publish (1900) + update (500) + save (50) = 2450 < 2700 -> NO publish!
+    # With publish time (120s) + 1.25x safety factor:
+    #   elapsed_since_publish (1900) + 1.25 * (1850 + 50 + 120) > 2700; let's test the exact margin
+    #   where update 2 = 500s after a 1400s non-published update!
+    update_durations[:] = [1900.0, 1350.0, 500.0]
+    cfg = ArenaPPOConfig(
+        net_arch="ego_only",
+        net_size="S",
+        num_envs=1,
+        num_snakes=4,
+        grid_h=24,
+        grid_w=32,
+        rollout_len=2,
+        ppo_epochs=1,
+        minibatch_size=8,
+        max_capacity=32,
+        total_updates=3,
+        checkpoint_every_updates=1,
+        output_publish_interval_sec=2600.0,
+        max_update_seconds=5000.0,
+        seed=654,
+        deterministic=True,
+    )
+    # u1=2000s (+50s save) -> elapsed=2050, publishes u1 (+120s; last_output_publish_sec=120s).
+    # u2=800s (+50s save) -> elapsed=850 + 1.25*(800+50+120) = 2062.5 < 2700 -> does NOT publish.
+    # u3=800s (+50s save) -> elapsed=1700 + 1.25*(800+50+120) = 2912.5 >= 2700 -> publishes u3
+    # (whereas old formula without publish_sec & safety factor gave 1700 + 850 = 2550 < 2700).
+    update_durations[:] = [2000.0, 800.0, 800.0]
+    cfg_exact = ArenaPPOConfig(**{**cfg.to_dict(), "total_updates": 4})
+    update_durations.append(400.0)
+    out_dir = tmp_path / "pub_b3_out"
+    res = run_training_job(
+        cfg=cfg_exact,
+        output_dir=out_dir,
+        work_dir=tmp_path / "pub_b3_work",
+        device="cpu",
+    )
+    assert res["last_output_publish_seconds"] >= 120.0
+    assert verify_completed_artifact(out_dir / "checkpoints" / "ckpt_u0000001.pt")
+    assert not (out_dir / "checkpoints" / "ckpt_u0000002.pt").exists()
+    assert verify_completed_artifact(out_dir / "checkpoints" / "ckpt_u0000003.pt")
+
+
+def test_task_b5_resume_from_pending_late_restore_bit_identical_and_staged_validator(
+    tmp_path: Path,
+) -> None:
+    """Task B.5: resume with active pending_late_restore is exact; validator checks shape."""
+    cfg = ArenaPPOConfig(
+        net_arch="shared_trunk",
+        net_size="S",
+        num_envs=8,
+        rollout_len=4,
+        ppo_epochs=1,
+        minibatch_size=24,
+        actor_chunk_envs=8,
+        max_capacity=64,
+        max_world_frames=4,
+        late_reset_enabled=True,
+        late_reset_min_length=1,
+        late_reset_prob=0.5,
+        late_reset_reservoir_size=16,
+        seed=20261113,
+        deterministic=True,
+    )
+    # 1. Uninterrupted 3 updates (update 1 queues pending_late_restore; update 2 restores ~half)
+    unint = ArenaPPOTrainer(cfg, device="cpu")
+    _ = unint.step_update()
+    assert unint._has_pending_late_restore is True
+    assert bool(unint._pending_late_restore.all().item()) is True
+    m2_unint = unint.step_update()
+    m3_unint = unint.step_update()
+    assert unint.late_reservoir is not None and unint.late_reservoir.total_restored > 0
+
+    # 2. Save checkpoint right after update 1 WITH pending_late_restore active
+    part1 = ArenaPPOTrainer(cfg, device="cpu")
+    _ = part1.step_update()
+    assert part1._has_pending_late_restore is True
+    ckpt_u1 = tmp_path / "pending_late" / "ckpt_u0000001.pt"
+    part1.save_checkpoint(ckpt_u1)
+
+    # Staged validator accepts valid pending_late_restore shape (8,) bool
+    info = ppo_mod.verify_staged_checkpoint(ckpt_u1, device="cpu", verify_markers=True)
+    assert info["updates_completed"] == 1
+
+    # Fresh trainer loads ckpt_u1 and continues updates 2 and 3 bit-identically
+    resumed = ArenaPPOTrainer(cfg, device="cpu")
+    resumed.load_checkpoint(ckpt_u1)
+    assert resumed._has_pending_late_restore is True
+    assert torch.equal(resumed._pending_late_restore, part1._pending_late_restore)
+    m2_res = resumed.step_update()
+    m3_res = resumed.step_update()
+
+    assert m2_res.policy_loss == m2_unint.policy_loss
+    assert m2_res.value_loss == m2_unint.value_loss
+    assert m3_res.policy_loss == m3_unint.policy_loss
+    assert m3_res.value_loss == m3_unint.value_loss
+    assert resumed.late_reservoir is not None
+    assert resumed.late_reservoir.total_restored == unint.late_reservoir.total_restored
+    assert torch.equal(resumed._pending_late_restore, unint._pending_late_restore)
+    for k, v_u in unint.model.state_dict().items():
+        assert torch.equal(v_u, resumed.model.state_dict()[k]), f"Weight diff on {k}"
+    sd_u = unint.sim.state_dict()
+    sd_r = resumed.sim.state_dict()
+    assert torch.equal(sd_u["bodies_live_i16"], sd_r["bodies_live_i16"])
+    for k, t_u in sd_u["sim_tensors"].items():
+        assert torch.equal(t_u, sd_r["sim_tensors"][k]), f"Sim tensor diff on {k}"
+
+    # 3. Corrupt pending_late_restore shape and dtype -> verify_staged_checkpoint must reject both
+    raw_ckpt = torch.load(ckpt_u1, map_location="cpu", weights_only=False)
+    bad_shape_ckpt = tmp_path / "bad_shape.pt"
+    torch.save(
+        {**raw_ckpt, "pending_late_restore": torch.ones((9,), dtype=torch.bool)}, bad_shape_ckpt
+    )
+    with pytest.raises(ValueError, match="Invalid pending_late_restore"):
+        ppo_mod.verify_staged_checkpoint(bad_shape_ckpt, device="cpu", verify_markers=False)
+
+    bad_dtype_ckpt = tmp_path / "bad_dtype.pt"
+    torch.save(
+        {**raw_ckpt, "pending_late_restore": torch.ones((8,), dtype=torch.int64)}, bad_dtype_ckpt
+    )
+    with pytest.raises(ValueError, match="Invalid pending_late_restore"):
+        ppo_mod.verify_staged_checkpoint(bad_dtype_ckpt, device="cpu", verify_markers=False)
+
+
+def test_live_466d5966_checkpoint_config_loads_and_continues_identically(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Old 466d5966 checkpoints (use_bf16_autocast=True, no 'amp' key) load and continue cleanly."""
+    from research.arena_ppo.prepare import prepare_arena_ppo_packet
+    from research.arena_ppo.runtime import write_create_only_artifact, write_create_only_json
+
+    old_466d5966_cfg_dict: dict[str, Any] = {
+        "net_arch": "shared_trunk",
+        "net_size": "S",
+        "num_envs": 2,
+        "num_snakes": 6,
+        "grid_h": 83,
+        "grid_w": 145,
+        "rollout_len": 4,
+        "gamma": 0.999,
+        "gae_lambda": 0.97,
+        "lr": 3.0e-4,
+        "adam_eps": 1.0e-5,
+        "weight_decay": 0.0,
+        "clip_ratio": 0.2,
+        "ppo_epochs": 1,
+        "minibatch_size": 12,
+        "entropy_coef": 0.01,
+        "value_coef": 0.5,
+        "aux_coef": 0.1,
+        "max_grad_norm": 1.0,
+        "normalize_advantages": True,
+        "actor_chunk_envs": 2,
+        "ring_chunk": 64,
+        "max_capacity": 64,
+        "max_world_frames": 0,
+        "total_updates": 2,
+        "seed": 4665966,
+        "deterministic": True,
+        "compile_model": False,
+        "use_channels_last": True,
+        "use_bf16_autocast": True,
+        "checkpoint_interval_sec": 1200.0,
+        "checkpoint_every_updates": 1,
+        "keep_periodic_checkpoints": 3,
+        "max_update_seconds": 1200.0,
+        "output_publish_interval_sec": 1800.0,
+        "eval_every_updates": 0,
+        "log_rotate_every_updates": 64,
+        "log_rotate_every_seconds": 900.0,
+        "late_reset_enabled": False,
+        "late_reset_min_length": 600,
+        "late_reset_prob": 0.5,
+        "late_reset_reservoir_size": 64,
+    }
+    assert "amp" not in old_466d5966_cfg_dict
+
+    loaded_cfg = ArenaPPOConfig.from_dict(old_466d5966_cfg_dict)
+    assert loaded_cfg.amp is True
+    assert loaded_cfg.use_bf16_autocast is True
+
+    # Run 2 uninterrupted updates for exact continuation reference
+    unint = ArenaPPOTrainer(loaded_cfg, device="cpu")
+    _ = unint.step_update()
+    m2_unint = unint.step_update()
+
+    # Build an exact 466d5966-shaped checkpoint at update 1:
+    # - config has `"use_bf16_autocast": True` and NO `"amp"` key
+    # - NO `"grad_scaler_state_dict"` key
+    # - `"counters"` has NO `"time_limit_resets"` key
+    # - `optimizer_state_dict` has unfused `"fused": None` + CPU `step` tensors
+    part1 = ArenaPPOTrainer(loaded_cfg, device="cpu")
+    _ = part1.step_update()
+    raw_ckpt = part1.checkpoint_dict()
+    raw_ckpt["config"] = dict(old_466d5966_cfg_dict)
+    assert "amp" not in raw_ckpt["config"]
+    raw_ckpt.pop("grad_scaler_state_dict", None)
+    raw_ckpt["counters"].pop("time_limit_resets", None)
+    for grp in raw_ckpt["optimizer_state_dict"]["param_groups"]:
+        grp["fused"] = None
+    for st in raw_ckpt["optimizer_state_dict"]["state"].values():
+        if isinstance(st, dict) and "step" in st:
+            st["step"] = torch.tensor(float(st["step"]), dtype=torch.float32, device="cpu")
+    raw_ckpt["reason"] = "periodic"
+
+    prior_out = tmp_path / "live_466d5966_out"
+    ckpt_dir = prior_out / "checkpoints"
+    ckpt_pt = ckpt_dir / "ckpt_u0000001.pt"
+    pt_sha = write_create_only_artifact(ckpt_pt, lambda tmp: torch.save(raw_ckpt, tmp))
+    write_create_only_json(
+        ckpt_pt.with_suffix(".meta.json"),
+        {
+            "schema": ppo_mod.ARENA_PPO_SCHEMA,
+            "namespace": ppo_mod.ARENA_PPO_NAMESPACE,
+            "reason": "periodic",
+            "checkpoint_file": ckpt_pt.name,
+            "checkpoint_sha256": pt_sha,
+            "updates_completed": 1,
+            "agent_steps_collected": int(part1.agent_steps_collected),
+            "world_steps_collected": int(part1.world_steps_collected),
+            "canary_export_probe": False,
+        },
+    )
+
+    info = ppo_mod.verify_staged_checkpoint(ckpt_pt, device="cpu", verify_markers=True)
+    assert info["updates_completed"] == 1
+
+    # Stage via prepare_arena_ppo_packet -> preserves amp=True / use_bf16_autocast=True
+    pkt = prepare_arena_ppo_packet(
+        tmp_path / "pkt_resume_466d5966",
+        commit="HEAD",
+        mode="train",
+        gpu="L4",
+        hours=2.0,
+        prior_output_dir=prior_out,
+        prior_kind="checkpoint",
+        output_dir=tmp_path / "out_resume_466d5966",
+        allow_unmerged_commit=True,
+    )
+    mf = json.loads(Path(pkt["manifest_path"]).read_text(encoding="utf-8"))
+    assert mf["env"]["ARENA_PPO_AMP"] == "1"
+    staged_cfg_env = json.loads(mf["env"]["ARENA_PPO_CONFIG_JSON"])
+    assert staged_cfg_env["amp"] is True
+    assert staged_cfg_env["use_bf16_autocast"] is True
+
+    # Load into new ArenaPPOTrainer (default amp=True) and continue update 2 bit-identically
+    resumed = ArenaPPOTrainer(ArenaPPOConfig(**{**loaded_cfg.to_dict()}), device="cpu")
+    resumed.load_checkpoint(ckpt_pt)
+    assert resumed.cfg.amp is True and resumed.cfg.use_bf16_autocast is True
+    m2_res = resumed.step_update()
+    assert m2_res.policy_loss == m2_unint.policy_loss
+    assert m2_res.value_loss == m2_unint.value_loss
+    for k, v_u in unint.model.state_dict().items():
+        assert torch.equal(v_u, resumed.model.state_dict()[k]), f"466d5966 resume diff on {k}"
+
+    # Also verify `step` tensor device/dtype normalization on load_checkpoint (both non-fused CPU
+    # and capturable/fused `needs_dev_step=True` branches)
+    capturable_ckpt = copy.deepcopy(raw_ckpt)
+    for grp in capturable_ckpt["optimizer_state_dict"]["param_groups"]:
+        grp["capturable"] = True
+    cap_pt = tmp_path / "capturable_466d5966.pt"
+    torch.save(capturable_ckpt, cap_pt)
+    cap_trainer = ArenaPPOTrainer(loaded_cfg, device="cpu")
+    cap_trainer.load_checkpoint(cap_pt, verify_markers=False)
+    checked_steps = 0
+    for grp in cap_trainer.optimizer.param_groups:
+        for p in grp["params"]:
+            st = cap_trainer.optimizer.state.get(p)
+            if isinstance(st, dict) and "step" in st:
+                assert st["step"].dtype == torch.float32
+                assert st["step"].device == p.device
+                checked_steps += 1
+    assert checked_steps > 0
+
+
+def test_per_update_arena_ppo_phase_progress_line_zero_extra_syncs(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """run_training_job emits one ARENA_PPO_PHASE train_update line/update with 0 extra syncs."""
+    cfg = ArenaPPOConfig(
+        net_arch="ego_only",
+        net_size="S",
+        num_envs=2,
+        rollout_len=4,
+        ppo_epochs=1,
+        minibatch_size=12,
+        actor_chunk_envs=2,
+        max_capacity=64,
+        total_updates=3,
+        checkpoint_interval_sec=9999.0,
+        checkpoint_every_updates=0,
+        output_publish_interval_sec=9999.0,
+        seed=909,
+        deterministic=True,
+    )
+
+    # Measure baseline Tensor.item() calls inside a bare step_update()
+    orig_item = torch.Tensor.item
+    sync_counter = {"n": 0}
+
+    def _count_item(self: torch.Tensor) -> Any:
+        sync_counter["n"] += 1
+        return orig_item(self)
+
+    bare_trainer = ArenaPPOTrainer(cfg, device="cpu")
+    monkeypatch.setattr(torch.Tensor, "item", _count_item)
+    sync_counter["n"] = 0
+    _ = bare_trainer.step_update()
+    bare_syncs_per_update = sync_counter["n"]
+    monkeypatch.setattr(torch.Tensor, "item", orig_item)
+
+    # Count Tensor.item() calls inside run_training_job's per-update loop outside step_update
+    orig_step = ArenaPPOTrainer.step_update
+    outside_step_syncs = {"n": 0}
+
+    def _wrapped_step(
+        self: ArenaPPOTrainer, *, should_stop: Any = None
+    ) -> ppo_mod.PPOUpdateMetrics:
+        monkeypatch.setattr(torch.Tensor, "item", orig_item)
+        try:
+            return orig_step(self, should_stop=should_stop)
+        finally:
+            monkeypatch.setattr(
+                torch.Tensor,
+                "item",
+                lambda t: (
+                    outside_step_syncs.__setitem__("n", outside_step_syncs["n"] + 1) or orig_item(t)
+                ),
+            )
+
+    monkeypatch.setattr(ArenaPPOTrainer, "step_update", _wrapped_step)
+    capsys.readouterr()
+    out_dir = tmp_path / "progress_line_out"
+    work_dir = tmp_path / "progress_line_work"
+    res = ppo_mod.run_training_job(
+        cfg=cfg,
+        output_dir=out_dir,
+        work_dir=work_dir,
+        device="cpu",
+        step_hook=lambda _tr, _u: monkeypatch.setattr(torch.Tensor, "item", orig_item),
+    )
+    monkeypatch.setattr(torch.Tensor, "item", orig_item)
+    assert res["updates_completed"] == 3
+    assert bare_syncs_per_update >= 0
+    assert outside_step_syncs["n"] == 0, "Per-update progress line introduced extra Tensor.item()!"
+
+    stdout = capsys.readouterr().out
+    phase_records = [
+        json.loads(line[len("ARENA_PPO_PHASE ") :])
+        for line in stdout.splitlines()
+        if line.startswith("ARENA_PPO_PHASE ")
+    ]
+    start_idx = next(
+        i
+        for i, r in enumerate(phase_records)
+        if r["phase"] == "train_loop" and r["event"] == "START"
+    )
+    end_idx = next(
+        i for i, r in enumerate(phase_records) if r["phase"] == "train_loop" and r["event"] == "END"
+    )
+    loop_records = phase_records[start_idx + 1 : end_idx]
+    update_records = [r for r in loop_records if r["phase"] == "train_update"]
+    assert len(update_records) == 3
+    assert [r["update_idx"] for r in update_records] == [1, 2, 3]
+
+    required_keys = {
+        "update_idx",
+        "agent_steps",
+        "steps_per_sec",
+        "mean_length",
+        "p95_length",
+        "mean_episode_return",
+        "deaths_per_1k_agent_steps",
+        "entropy",
+        "approx_kl",
+        "elapsed_sec",
+    }
+    for idx, rec in enumerate(update_records, start=1):
+        assert rec["event"] == "END"
+        assert required_keys.issubset(rec.keys())
+        assert rec["agent_steps"] == idx * 2 * 4 * 6
+        assert rec["steps_per_sec"] > 0.0
+        assert rec["elapsed_sec"] >= 0.0

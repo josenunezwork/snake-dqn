@@ -176,6 +176,7 @@ def build_arena_ego_obs_from_tensors(
     grid_w: int = ARENA_GRID_W,
     ego_crop_size: int = EGO_CROP_SIZE,
     ring_chunk: int = 512,
+    max_seg: int | None = None,
     seat_mask: torch.Tensor | None = None,
 ) -> ArenaEgoObs:
     """Build exact `(arena, ego, scalars)` tensors on device with zero host syncs.
@@ -218,7 +219,8 @@ def build_arena_ego_obs_from_tensors(
     len_i32 = length.to(torch.int32)
 
     if ordered_bodies is not None:
-        max_k = int(ordered_bodies.shape[2])
+        raw_k = int(ordered_bodies.shape[2])
+        max_k = raw_k if max_seg is None else min(raw_k, max(1, int(max_seg)))
         for k_start in range(0, max_k, max(1, int(ring_chunk))):
             k_end = min(max_k, k_start + max(1, int(ring_chunk)))
             k_vec = torch.arange(k_start, k_end, dtype=torch.int32, device=device)[None, None, :]
@@ -247,11 +249,12 @@ def build_arena_ego_obs_from_tensors(
         if ring_bodies is None or head_ptr is None:
             raise ValueError("Either ordered_bodies or (ring_bodies, head_ptr) must be provided")
         cap = int(ring_bodies.shape[2])
+        scan_cap = cap if max_seg is None else max(1, min(cap, int(max_seg)))
         env_grid = torch.arange(num_envs, device=device)[:, None, None]
         snake_grid = torch.arange(num_snakes, device=device)[None, :, None]
         hp_long = head_ptr.to(torch.long)
-        for k_start in range(0, cap, max(1, int(ring_chunk))):
-            k_end = min(cap, k_start + max(1, int(ring_chunk)))
+        for k_start in range(0, scan_cap, max(1, int(ring_chunk))):
+            k_end = min(scan_cap, k_start + max(1, int(ring_chunk)))
             k_long = torch.arange(k_start, k_end, dtype=torch.long, device=device)[None, None, :]
             k_i32 = k_long.to(torch.int32)
             ring = (hp_long[..., None] - k_long) % cap
@@ -316,70 +319,93 @@ def build_arena_ego_obs_from_tensors(
     arena_flat[:, :, CH_WALL, :] = _arena_wall_border(gh, gw, device)[None, None, :]
 
     # Per-snake head channels (`O(E * S)` single-cell updates, zero host syncs)
-    env_idx = torch.arange(num_envs, device=device)
     dir_clamped = direction.to(torch.long).clamp(0, 3)
     head_dirs_f32 = cardinal_f32[dir_clamped]
     len_norm_f32 = length.to(torch.float32) * INV_NORM_DIVISOR
-    one_vec = torch.ones((num_envs,), dtype=torch.float32, device=device)
 
-    for j_slot in range(num_snakes):
-        hx = curr_heads[:, j_slot, 0]
-        hy = curr_heads[:, j_slot, 1]
-        inb_c = (
-            alive[:, j_slot]
-            & (seg_count[:, j_slot] > 0)
-            & (hx >= 0)
-            & (hx < grid_w)
-            & (hy >= 0)
-            & (hy < grid_h)
+    if num_snakes > 0:
+        env_2d_h = torch.arange(num_envs, device=device)[:, None]
+        snake_2d_h = torch.arange(num_snakes, device=device)[None, :]
+        hx_all = curr_heads[:, :, 0]
+        hy_all = curr_heads[:, :, 1]
+        inb_c_all = (
+            alive
+            & (seg_count > 0)
+            & (hx_all >= 0)
+            & (hx_all < grid_w)
+            & (hy_all >= 0)
+            & (hy_all < grid_h)
         )
-        flat_c = hy.clamp(0, grid_h - 1) * grid_w + hx.clamp(0, grid_w - 1)
+        flat_c_all = hy_all.clamp(0, grid_h - 1) * grid_w + hx_all.clamp(0, grid_w - 1)
 
-        px = prev_heads[:, j_slot, 0].to(torch.long)
-        py = prev_heads[:, j_slot, 1].to(torch.long)
-        inb_p = (
-            alive[:, j_slot]
-            & prev_alive[:, j_slot]
-            & (px >= 0)
-            & (px < grid_w)
-            & (py >= 0)
-            & (py < grid_h)
+        px_all = prev_heads[:, :, 0].to(torch.long)
+        py_all = prev_heads[:, :, 1].to(torch.long)
+        inb_p_all = (
+            alive
+            & prev_alive
+            & (px_all >= 0)
+            & (px_all < grid_w)
+            & (py_all >= 0)
+            & (py_all < grid_h)
         )
-        flat_p = py.clamp(0, grid_h - 1) * grid_w + px.clamp(0, grid_w - 1)
+        flat_p_all = py_all.clamp(0, grid_h - 1) * grid_w + px_all.clamp(0, grid_w - 1)
 
-        arena_flat[env_idx, j_slot, CH_OWN_HEAD_CURR, flat_c] = torch.where(
-            inb_c, one_vec, arena_flat[env_idx, j_slot, CH_OWN_HEAD_CURR, flat_c]
+        one_es = torch.ones((num_envs, num_snakes), dtype=torch.float32, device=device)
+        arena_flat[env_2d_h, snake_2d_h, CH_OWN_HEAD_CURR, flat_c_all] = torch.where(
+            inb_c_all, one_es, arena_flat[env_2d_h, snake_2d_h, CH_OWN_HEAD_CURR, flat_c_all]
         )
-        arena_flat[env_idx, j_slot, CH_OWN_HEAD_PREV, flat_p] = torch.where(
-            inb_p, one_vec, arena_flat[env_idx, j_slot, CH_OWN_HEAD_PREV, flat_p]
+        arena_flat[env_2d_h, snake_2d_h, CH_OWN_HEAD_PREV, flat_p_all] = torch.where(
+            inb_p_all, one_es, arena_flat[env_2d_h, snake_2d_h, CH_OWN_HEAD_PREV, flat_p_all]
         )
 
-        inb_boost = inb_c & prev_alive[:, j_slot] & boosted[:, j_slot]
-        for s_slot in range(num_snakes):
-            arena_flat[env_idx, s_slot, CH_BOOST_FLAGS, flat_c] = torch.where(
-                inb_boost, one_vec, arena_flat[env_idx, s_slot, CH_BOOST_FLAGS, flat_c]
-            )
-            if s_slot == j_slot:
-                continue
-            arena_flat[env_idx, s_slot, CH_ENEMY_HEAD_CURR, flat_c] = torch.where(
-                inb_c, one_vec, arena_flat[env_idx, s_slot, CH_ENEMY_HEAD_CURR, flat_c]
-            )
-            arena_flat[env_idx, s_slot, CH_ENEMY_HEAD_PREV, flat_p] = torch.where(
-                inb_p, one_vec, arena_flat[env_idx, s_slot, CH_ENEMY_HEAD_PREV, flat_p]
-            )
-            arena_flat[env_idx, s_slot, CH_ENEMY_HEAD_DX, flat_c] = torch.where(
-                inb_c,
-                head_dirs_f32[:, j_slot, 0],
-                arena_flat[env_idx, s_slot, CH_ENEMY_HEAD_DX, flat_c],
-            )
-            arena_flat[env_idx, s_slot, CH_ENEMY_HEAD_DY, flat_c] = torch.where(
-                inb_c,
-                head_dirs_f32[:, j_slot, 1],
-                arena_flat[env_idx, s_slot, CH_ENEMY_HEAD_DY, flat_c],
-            )
-            arena_flat[env_idx, s_slot, CH_ENEMY_LENGTH, flat_c] = torch.where(
-                inb_c, len_norm_f32[:, j_slot], arena_flat[env_idx, s_slot, CH_ENEMY_LENGTH, flat_c]
-            )
+        inb_boost_all = inb_c_all & prev_alive & boosted
+        ones_es_i32 = torch.ones((num_envs, num_snakes), dtype=torch.int32, device=device)
+        zeros_es_i32 = torch.zeros((num_envs, num_snakes), dtype=torch.int32, device=device)
+        boost_plane_i32 = torch.zeros((num_envs, board_n), dtype=torch.int32, device=device)
+        boost_plane_i32.scatter_reduce_(
+            1,
+            flat_c_all,
+            torch.where(inb_boost_all, ones_es_i32, zeros_es_i32),
+            reduce="amax",
+            include_self=True,
+        )
+        arena_flat[:, :, CH_BOOST_FLAGS, :] = boost_plane_i32.to(torch.float32)[:, None, :]
+
+        if num_snakes > 1:
+            one_other = torch.ones((num_envs, num_snakes - 1), dtype=torch.float32, device=device)
+            all_slots = torch.arange(num_snakes, device=device)
+            for j_slot in range(num_snakes):
+                other_slots = all_slots[all_slots != j_slot][None, :]
+                inb_c_j = inb_c_all[:, j_slot : j_slot + 1]
+                flat_c_j = flat_c_all[:, j_slot : j_slot + 1].expand(-1, num_snakes - 1)
+                inb_p_j = inb_p_all[:, j_slot : j_slot + 1]
+                flat_p_j = flat_p_all[:, j_slot : j_slot + 1].expand(-1, num_snakes - 1)
+
+                arena_flat[env_2d_h, other_slots, CH_ENEMY_HEAD_CURR, flat_c_j] = torch.where(
+                    inb_c_j,
+                    one_other,
+                    arena_flat[env_2d_h, other_slots, CH_ENEMY_HEAD_CURR, flat_c_j],
+                )
+                arena_flat[env_2d_h, other_slots, CH_ENEMY_HEAD_PREV, flat_p_j] = torch.where(
+                    inb_p_j,
+                    one_other,
+                    arena_flat[env_2d_h, other_slots, CH_ENEMY_HEAD_PREV, flat_p_j],
+                )
+                arena_flat[env_2d_h, other_slots, CH_ENEMY_HEAD_DX, flat_c_j] = torch.where(
+                    inb_c_j,
+                    head_dirs_f32[:, j_slot : j_slot + 1, 0],
+                    arena_flat[env_2d_h, other_slots, CH_ENEMY_HEAD_DX, flat_c_j],
+                )
+                arena_flat[env_2d_h, other_slots, CH_ENEMY_HEAD_DY, flat_c_j] = torch.where(
+                    inb_c_j,
+                    head_dirs_f32[:, j_slot : j_slot + 1, 1],
+                    arena_flat[env_2d_h, other_slots, CH_ENEMY_HEAD_DY, flat_c_j],
+                )
+                arena_flat[env_2d_h, other_slots, CH_ENEMY_LENGTH, flat_c_j] = torch.where(
+                    inb_c_j,
+                    len_norm_f32[:, j_slot : j_slot + 1],
+                    arena_flat[env_2d_h, other_slots, CH_ENEMY_LENGTH, flat_c_j],
+                )
 
     # Zero out dead seats across all channels in-place (avoids 2x multi-GB allocations)
     arena_flat.masked_fill_(~alive[:, :, None, None], 0.0)
@@ -445,6 +471,7 @@ def build_arena_ego_obs_gpu(
     env_slice: slice | None = None,
     ego_crop_size: int = EGO_CROP_SIZE,
     ring_chunk: int = 512,
+    max_seg: int | None = None,
 ) -> ArenaEgoObs:
     """Build `(arena, ego, scalars)` directly from a prepared ``TrainSim`` on device.
 
@@ -477,6 +504,7 @@ def build_arena_ego_obs_gpu(
         grid_w=train_sim.grid_w,
         ego_crop_size=ego_crop_size,
         ring_chunk=ring_chunk,
+        max_seg=train_sim.max_seg_bound if max_seg is None else max_seg,
     )
 
 
@@ -749,6 +777,7 @@ def build_shared_world_obs_from_tensors(
     grid_w: int = ARENA_GRID_W,
     ego_crop_size: int = EGO_CROP_SIZE,
     ring_chunk: int = 512,
+    max_seg: int | None = None,
 ) -> SharedWorldObs:
     """Build world-once `(E, 9, H, W)` + bit-identical per-seat `(ego, scalars)` on device.
 
@@ -794,7 +823,8 @@ def build_shared_world_obs_from_tensors(
     len_i32 = length.to(torch.int32)
 
     if ordered_bodies is not None:
-        max_k = int(ordered_bodies.shape[2])
+        raw_k = int(ordered_bodies.shape[2])
+        max_k = raw_k if max_seg is None else min(raw_k, max(1, int(max_seg)))
         for k_start in range(0, max_k, max(1, int(ring_chunk))):
             k_end = min(max_k, k_start + max(1, int(ring_chunk)))
             k_vec = torch.arange(k_start, k_end, dtype=torch.int32, device=device)[None, None, :]
@@ -823,11 +853,12 @@ def build_shared_world_obs_from_tensors(
         if ring_bodies is None or head_ptr is None:
             raise ValueError("Either ordered_bodies or (ring_bodies, head_ptr) must be provided")
         cap = int(ring_bodies.shape[2])
+        scan_cap = cap if max_seg is None else max(1, min(cap, int(max_seg)))
         env_grid = torch.arange(num_envs, device=device)[:, None, None]
         snake_grid = torch.arange(num_snakes, device=device)[None, :, None]
         hp_long = head_ptr.to(torch.long)
-        for k_start in range(0, cap, max(1, int(ring_chunk))):
-            k_end = min(cap, k_start + max(1, int(ring_chunk)))
+        for k_start in range(0, scan_cap, max(1, int(ring_chunk))):
+            k_end = min(scan_cap, k_start + max(1, int(ring_chunk)))
             k_long = torch.arange(k_start, k_end, dtype=torch.long, device=device)[None, None, :]
             k_i32 = k_long.to(torch.int32)
             ring = (hp_long[..., None] - k_long) % cap
@@ -959,81 +990,112 @@ def build_shared_world_obs_from_tensors(
 
     ego_es[:, :, CH_WALL, :] = (alive[:, :, None] & (~ego_inb)).to(torch.float32)
 
-    obs_hx = curr_heads[:, :, 0]
-    obs_hy = curr_heads[:, :, 1]
-    obs_fx = head_dirs_i64[:, :, 0]
-    obs_fy = head_dirs_i64[:, :, 1]
+    if num_snakes > 0:
+        env_2d_h = torch.arange(num_envs, device=device)[:, None]
+        snake_2d_h = torch.arange(num_snakes, device=device)[None, :]
+        obs_hx = curr_heads[:, :, 0]
+        obs_hy = curr_heads[:, :, 1]
+        obs_fx = head_dirs_i64[:, :, 0]
+        obs_fy = head_dirs_i64[:, :, 1]
 
-    for j_slot in range(num_snakes):
-        hx = curr_heads[:, j_slot, 0]
-        hy = curr_heads[:, j_slot, 1]
-        inb_c = (
-            alive[:, j_slot]
-            & (seg_count[:, j_slot] > 0)
-            & (hx >= 0)
-            & (hx < gw)
-            & (hy >= 0)
-            & (hy < gh)
+        inb_c_all = (
+            alive & (seg_count > 0) & (obs_hx >= 0) & (obs_hx < gw) & (obs_hy >= 0) & (obs_hy < gh)
         )
-        inb_boost = inb_c & prev_alive[:, j_slot] & boosted[:, j_slot]
+        inb_boost_all = inb_c_all & prev_alive & boosted
 
-        px = prev_heads[:, j_slot, 0].to(torch.long)
-        py = prev_heads[:, j_slot, 1].to(torch.long)
-        inb_p = (
-            alive[:, j_slot] & prev_alive[:, j_slot] & (px >= 0) & (px < gw) & (py >= 0) & (py < gh)
+        px_all = prev_heads[:, :, 0].to(torch.long)
+        py_all = prev_heads[:, :, 1].to(torch.long)
+        inb_p_all = (
+            alive & prev_alive & (px_all >= 0) & (px_all < gw) & (py_all >= 0) & (py_all < gh)
         )
 
-        for s_slot in range(num_snakes):
-            dx_c = hx - obs_hx[:, s_slot]
-            dy_c = hy - obs_hy[:, s_slot]
-            fx_s = obs_fx[:, s_slot]
-            fy_s = obs_fy[:, s_slot]
-            r_c = head_rc - (dx_c * fx_s + dy_c * fy_s)
-            c_c = head_rc + (-dx_c * fy_s + dy_c * fx_s)
-            hit_c = alive[:, s_slot] & inb_c & (r_c >= 0) & (r_c < crop) & (c_c >= 0) & (c_c < crop)
-            flat_rc_c = r_c.clamp(0, crop - 1) * crop + c_c.clamp(0, crop - 1)
+        # Pairwise `(E, s_slot, j_slot)` ego coordinates: tiny `(E, S, S)` (~1.1 MB at E=4096)
+        dx_c_pair = obs_hx[:, None, :] - obs_hx[:, :, None]
+        dy_c_pair = obs_hy[:, None, :] - obs_hy[:, :, None]
+        r_c_pair = head_rc - (dx_c_pair * obs_fx[:, :, None] + dy_c_pair * obs_fy[:, :, None])
+        c_c_pair = head_rc + (-dx_c_pair * obs_fy[:, :, None] + dy_c_pair * obs_fx[:, :, None])
+        hit_c_pair = (
+            alive[:, :, None]
+            & inb_c_all[:, None, :]
+            & (r_c_pair >= 0)
+            & (r_c_pair < crop)
+            & (c_c_pair >= 0)
+            & (c_c_pair < crop)
+        )
+        flat_rc_c_pair = r_c_pair.clamp(0, crop - 1) * crop + c_c_pair.clamp(0, crop - 1)
+        hit_boost_pair = hit_c_pair & inb_boost_all[:, None, :]
 
-            hit_boost = hit_c & inb_boost
-            ego_es[env_idx, s_slot, CH_BOOST_FLAGS, flat_rc_c] = torch.where(
-                hit_boost, one_vec, ego_es[env_idx, s_slot, CH_BOOST_FLAGS, flat_rc_c]
+        dx_p_pair = px_all[:, None, :] - obs_hx[:, :, None]
+        dy_p_pair = py_all[:, None, :] - obs_hy[:, :, None]
+        r_p_pair = head_rc - (dx_p_pair * obs_fx[:, :, None] + dy_p_pair * obs_fy[:, :, None])
+        c_p_pair = head_rc + (-dx_p_pair * obs_fy[:, :, None] + dy_p_pair * obs_fx[:, :, None])
+        hit_p_pair = (
+            alive[:, :, None]
+            & inb_p_all[:, None, :]
+            & (r_p_pair >= 0)
+            & (r_p_pair < crop)
+            & (c_p_pair >= 0)
+            & (c_p_pair < crop)
+        )
+        flat_rc_p_pair = r_p_pair.clamp(0, crop - 1) * crop + c_p_pair.clamp(0, crop - 1)
+
+        one_es = torch.ones((num_envs, num_snakes), dtype=torch.float32, device=device)
+        ego_es[:, :, CH_OWN_HEAD_CURR, head_rc * crop + head_rc] = inb_c_all.to(torch.float32)
+
+        own_hit_p = torch.diagonal(hit_p_pair, dim1=1, dim2=2)
+        own_flat_p = torch.diagonal(flat_rc_p_pair, dim1=1, dim2=2)
+        ego_es[env_2d_h, snake_2d_h, CH_OWN_HEAD_PREV, own_flat_p] = torch.where(
+            own_hit_p, one_es, ego_es[env_2d_h, snake_2d_h, CH_OWN_HEAD_PREV, own_flat_p]
+        )
+
+        all_slots = torch.arange(num_snakes, device=device)
+        one_other = (
+            torch.ones((num_envs, num_snakes - 1), dtype=torch.float32, device=device)
+            if num_snakes > 1
+            else one_es
+        )
+        for j_slot in range(num_snakes):
+            flat_c_j_all = flat_rc_c_pair[:, :, j_slot]
+            hit_boost_j_all = hit_boost_pair[:, :, j_slot]
+            ego_es[env_2d_h, snake_2d_h, CH_BOOST_FLAGS, flat_c_j_all] = torch.where(
+                hit_boost_j_all,
+                one_es,
+                ego_es[env_2d_h, snake_2d_h, CH_BOOST_FLAGS, flat_c_j_all],
             )
+            if num_snakes <= 1:
+                continue
+            other_mask = all_slots != j_slot
+            other_slots = all_slots[other_mask][None, :]
+            hit_c_j = hit_c_pair[:, other_mask, j_slot]
+            flat_c_j = flat_rc_c_pair[:, other_mask, j_slot]
+            hit_p_j = hit_p_pair[:, other_mask, j_slot]
+            flat_p_j = flat_rc_p_pair[:, other_mask, j_slot]
 
-            dx_p = px - obs_hx[:, s_slot]
-            dy_p = py - obs_hy[:, s_slot]
-            r_p = head_rc - (dx_p * fx_s + dy_p * fy_s)
-            c_p = head_rc + (-dx_p * fy_s + dy_p * fx_s)
-            hit_p = alive[:, s_slot] & inb_p & (r_p >= 0) & (r_p < crop) & (c_p >= 0) & (c_p < crop)
-            flat_rc_p = r_p.clamp(0, crop - 1) * crop + c_p.clamp(0, crop - 1)
-
-            if s_slot == j_slot:
-                ego_es[env_idx, s_slot, CH_OWN_HEAD_CURR, flat_rc_c] = torch.where(
-                    hit_c, one_vec, ego_es[env_idx, s_slot, CH_OWN_HEAD_CURR, flat_rc_c]
-                )
-                ego_es[env_idx, s_slot, CH_OWN_HEAD_PREV, flat_rc_p] = torch.where(
-                    hit_p, one_vec, ego_es[env_idx, s_slot, CH_OWN_HEAD_PREV, flat_rc_p]
-                )
-            else:
-                ego_es[env_idx, s_slot, CH_ENEMY_HEAD_CURR, flat_rc_c] = torch.where(
-                    hit_c, one_vec, ego_es[env_idx, s_slot, CH_ENEMY_HEAD_CURR, flat_rc_c]
-                )
-                ego_es[env_idx, s_slot, CH_ENEMY_HEAD_PREV, flat_rc_p] = torch.where(
-                    hit_p, one_vec, ego_es[env_idx, s_slot, CH_ENEMY_HEAD_PREV, flat_rc_p]
-                )
-                ego_es[env_idx, s_slot, CH_ENEMY_HEAD_DX, flat_rc_c] = torch.where(
-                    hit_c,
-                    head_dirs_f32[:, j_slot, 0],
-                    ego_es[env_idx, s_slot, CH_ENEMY_HEAD_DX, flat_rc_c],
-                )
-                ego_es[env_idx, s_slot, CH_ENEMY_HEAD_DY, flat_rc_c] = torch.where(
-                    hit_c,
-                    head_dirs_f32[:, j_slot, 1],
-                    ego_es[env_idx, s_slot, CH_ENEMY_HEAD_DY, flat_rc_c],
-                )
-                ego_es[env_idx, s_slot, CH_ENEMY_LENGTH, flat_rc_c] = torch.where(
-                    hit_c,
-                    len_norm_f32[:, j_slot],
-                    ego_es[env_idx, s_slot, CH_ENEMY_LENGTH, flat_rc_c],
-                )
+            ego_es[env_2d_h, other_slots, CH_ENEMY_HEAD_CURR, flat_c_j] = torch.where(
+                hit_c_j,
+                one_other,
+                ego_es[env_2d_h, other_slots, CH_ENEMY_HEAD_CURR, flat_c_j],
+            )
+            ego_es[env_2d_h, other_slots, CH_ENEMY_HEAD_PREV, flat_p_j] = torch.where(
+                hit_p_j,
+                one_other,
+                ego_es[env_2d_h, other_slots, CH_ENEMY_HEAD_PREV, flat_p_j],
+            )
+            ego_es[env_2d_h, other_slots, CH_ENEMY_HEAD_DX, flat_c_j] = torch.where(
+                hit_c_j,
+                head_dirs_f32[:, j_slot : j_slot + 1, 0],
+                ego_es[env_2d_h, other_slots, CH_ENEMY_HEAD_DX, flat_c_j],
+            )
+            ego_es[env_2d_h, other_slots, CH_ENEMY_HEAD_DY, flat_c_j] = torch.where(
+                hit_c_j,
+                head_dirs_f32[:, j_slot : j_slot + 1, 1],
+                ego_es[env_2d_h, other_slots, CH_ENEMY_HEAD_DY, flat_c_j],
+            )
+            ego_es[env_2d_h, other_slots, CH_ENEMY_LENGTH, flat_c_j] = torch.where(
+                hit_c_j,
+                len_norm_f32[:, j_slot : j_slot + 1],
+                ego_es[env_2d_h, other_slots, CH_ENEMY_LENGTH, flat_c_j],
+            )
 
     total_rows = num_envs * num_snakes
     alive_rows = alive.reshape(total_rows)
@@ -1081,6 +1143,7 @@ def build_shared_world_obs_gpu(
     env_slice: slice | None = None,
     ego_crop_size: int = EGO_CROP_SIZE,
     ring_chunk: int = 512,
+    max_seg: int | None = None,
 ) -> SharedWorldObs:
     """Build ``SharedWorldObs`` directly from a prepared ``TrainSim`` on device."""
     sim = train_sim.sim
@@ -1103,6 +1166,7 @@ def build_shared_world_obs_gpu(
         grid_w=train_sim.grid_w,
         ego_crop_size=ego_crop_size,
         ring_chunk=ring_chunk,
+        max_seg=train_sim.max_seg_bound if max_seg is None else max_seg,
     )
 
 
