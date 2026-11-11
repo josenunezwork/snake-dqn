@@ -124,8 +124,11 @@ REGISTERED_ALIVE_HERO_FRAC_ESTIMATE = 0.95
 REGISTERED_A100_CALIBRATED_RATE_UPH = 6.73
 REGISTERED_A100_BROKER_CEILING_RATE_UPH = 8.00
 
-# Target ceiling for projected A100 Step B1b-Smoke wall time (leaves >= 380 s headroom inside
-# the ~1,080 s remaining after ~200 s Colab session setup under the 22.5 min = 1,350 s timeout).
+# Projection gate limit on ``same_hw_total_projected_sec`` (L4 measured, treated as an upper
+# bound for A100; leaves >= 250 s headroom inside the ~1,150 s remaining after ~200 s Colab
+# session setup under the 22.5 min = 1,350 s timeout). ``a100_total_projected_sec_estimate``
+# is reported strictly as an estimate and never used as the gate.
+SMOKE_SAME_HW_PROJECTION_LIMIT_SEC = 900.0
 SMOKE_A100_PROJECTION_LIMIT_SEC = 700.0
 
 # ESTIMATED L4 -> A100 wall-time multipliers (marked explicitly as estimates, never exact truth):
@@ -1518,7 +1521,7 @@ def run_step_b1b_smoke(
         scoring_suffixes=PROBE32_SCORING_SUFFIXES,
         branch_horizon=int(branch_horizon),
         namespace=OPEN_STOP_CRN_NAMESPACE,
-        batch_roots=max(1, n_probe_sample),
+        batch_roots=max(1, n_probe_sample * len(PROBE32_SCORING_SUFFIXES)),
         cpu_fast_flood=bool(dev.type == "cpu"),
     )
     _sync_device(dev)
@@ -1833,18 +1836,16 @@ def compute_smoke_wall_time_projection(
     smoke_subresult: dict[str, Any],
     *,
     cold_init_elapsed_sec: float | None = None,
-    target_a100_limit_sec: float = SMOKE_A100_PROJECTION_LIMIT_SEC,
+    target_same_hw_limit_sec: float = SMOKE_SAME_HW_PROJECTION_LIMIT_SEC,
 ) -> dict[str, Any]:
     """Project full registered Step B1b-Smoke wall time per phase from a shake-out subresult.
 
     For each phase ``i``:
-    - ``same_hw_projected_sec = measured_sec * scale_ratio``
+    - ``same_hw_projected_sec = measured_sec * scale_ratio`` (gated against
+      ``target_same_hw_limit_sec = 900.0``, treating L4 same-HW projection as an upper bound
+      for A100).
     - ``a100_projected_sec_estimate = same_hw_projected_sec * a100_hw_factor_estimate``
-
-    The ``L4 -> A100`` conversion multiplier is an explicit hardware **ESTIMATE** (``0.55`` for
-    GPU-resident phases from 108 vs 58 SMs and 1,555 vs 300 GB/s HBM2e/GDDR6 tempered by host
-    launch overhead; ``0.85`` for mixed CPU+GPU ``parity_4_open_stop_h32``; ``1.00`` for host CPU
-    compile/build phases on 12-vCPU Colab VMs).
+      (reported as an **ESTIMATE** only; never used as the gate).
     """
     tp = dict(smoke_subresult.get("throughput") or {})
     timings = dict(smoke_subresult.get("phase_timings_sec") or {})
@@ -1988,25 +1989,27 @@ def compute_smoke_wall_time_projection(
             flush=True,
         )
 
-    within_limit = bool(a100_total_est <= float(target_a100_limit_sec))
+    within_same_hw_limit = bool(same_hw_total <= float(target_same_hw_limit_sec))
     print(
         f"[shakeout.projection] SUMMARY source_device={src_dev} source_arch={eff_arch or 'cpu'} "
         f"same_hw_total_projected_s={same_hw_total:.2f} "
-        f"a100_total_projected_s={a100_total_est:.2f} (ESTIMATE) "
-        f"limit_s={float(target_a100_limit_sec):.2f} "
-        f"status={'PASS' if within_limit else 'FAIL'}",
+        f"same_hw_limit_s={float(target_same_hw_limit_sec):.2f} "
+        f"a100_total_projected_s_est={a100_total_est:.2f} (ESTIMATE_ONLY) "
+        f"status={'PASS' if within_same_hw_limit else 'FAIL'}",
         flush=True,
     )
     return {
         "schema": "t34-gpu-sitl-smoke-wall-projection/v1",
         "is_estimate": True,
+        "gate_metric": "same_hw_total_projected_sec",
         "source_device": src_dev,
         "source_effective_cuda_arch": eff_arch or None,
         "l4_to_a100_factor_derivation": factor_source,
-        "target_a100_limit_sec": float(target_a100_limit_sec),
+        "target_same_hw_limit_sec": float(target_same_hw_limit_sec),
         "same_hw_total_projected_sec": float(same_hw_total),
+        "within_same_hw_limit": within_same_hw_limit,
         "a100_total_projected_sec_estimate": float(a100_total_est),
-        "within_a100_limit": within_limit,
+        "a100_estimate_is_ungated": True,
         "phases": per_phase,
     }
 
@@ -2102,7 +2105,7 @@ def run_cuda_shakeout(
     seed: int = 20261110,
     require_cuda: bool = False,
     enforce_projection_gate: bool | None = None,
-    target_a100_limit_sec: float = SMOKE_A100_PROJECTION_LIMIT_SEC,
+    target_same_hw_limit_sec: float = SMOKE_SAME_HW_PROJECTION_LIMIT_SEC,
 ) -> dict[str, Any]:
     """Run the dev-only L4/CUDA shake-out across all GPU SITL phases at predictive smoke scale.
 
@@ -2387,14 +2390,18 @@ def run_cuda_shakeout(
             projection = compute_smoke_wall_time_projection(
                 smoke_res,
                 cold_init_elapsed_sec=float(ext_info_holder.get("cold_init_elapsed_sec", 0.0)),
-                target_a100_limit_sec=float(target_a100_limit_sec),
+                target_same_hw_limit_sec=float(target_same_hw_limit_sec),
             )
             projection_holder["projection"] = projection
-            if bool(knobs["enforce_projection_gate"]) and not bool(projection["within_a100_limit"]):
+            if bool(knobs["enforce_projection_gate"]) and not bool(
+                projection["within_same_hw_limit"]
+            ):
                 raise RuntimeError(
-                    f"Shake-out projected A100 smoke wall time "
-                    f"{projection['a100_total_projected_sec_estimate']:.2f}s (ESTIMATE) "
-                    f"exceeds limit {projection['target_a100_limit_sec']:.2f}s"
+                    f"Shake-out projected same-HW smoke wall time "
+                    f"{projection['same_hw_total_projected_sec']:.2f}s "
+                    f"(L4 upper bound for A100; A100 estimate="
+                    f"{projection['a100_total_projected_sec_estimate']:.2f}s) "
+                    f"exceeds limit {projection['target_same_hw_limit_sec']:.2f}s"
                 )
 
             return {
@@ -2711,12 +2718,14 @@ def main() -> int:
         "--enforce-projection-gate",
         action="store_true",
         default=None,
-        help="Fail shake-out if projected A100 smoke wall time exceeds --target-a100-limit-sec.",
+        help="Fail shake-out if projected same-HW smoke wall time exceeds --target-same-hw-limit-sec.",
     )
     parser.add_argument(
+        "--target-same-hw-limit-sec",
         "--target-a100-limit-sec",
+        dest="target_same_hw_limit_sec",
         type=float,
-        default=SMOKE_A100_PROJECTION_LIMIT_SEC,
+        default=SMOKE_SAME_HW_PROJECTION_LIMIT_SEC,
     )
     parser.add_argument("--seed", type=int, default=20261109)
     parser.add_argument(
@@ -2749,7 +2758,7 @@ def main() -> int:
             seed=args.seed,
             require_cuda=str(args.device).startswith("cuda"),
             enforce_projection_gate=args.enforce_projection_gate,
-            target_a100_limit_sec=float(args.target_a100_limit_sec),
+            target_same_hw_limit_sec=float(args.target_same_hw_limit_sec),
         )
         print(
             json.dumps(

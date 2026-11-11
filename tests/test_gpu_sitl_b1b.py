@@ -4858,18 +4858,40 @@ def test_shakeout_smoke_wall_time_projection_and_700s_gate(
             "write_outputs_sec": 0.5,
         },
     }
+    assert smoke_mod.SMOKE_SAME_HW_PROJECTION_LIMIT_SEC == pytest.approx(900.0)
     proj_ok = smoke_mod.compute_smoke_wall_time_projection(
         synthetic_l4_sub,
         cold_init_elapsed_sec=70.0,
-        target_a100_limit_sec=700.0,
+        target_same_hw_limit_sec=900.0,
     )
     out_text = capsys.readouterr().out
     assert "[shakeout.projection] SUMMARY" in out_text
-    assert "(ESTIMATE)" in out_text
+    assert "(ESTIMATE_ONLY)" in out_text
     assert proj_ok["is_estimate"] is True
+    assert proj_ok["gate_metric"] == "same_hw_total_projected_sec"
+    assert proj_ok["a100_estimate_is_ungated"] is True
     assert "ESTIMATE" in proj_ok["l4_to_a100_factor_derivation"]
-    assert proj_ok["within_a100_limit"] is True
+    assert proj_ok["within_same_hw_limit"] is True
+    assert proj_ok["same_hw_total_projected_sec"] < 900.0
     assert proj_ok["a100_total_projected_sec_estimate"] < 300.0
+
+    # Verify Opus S2 specifically: if same_hw > 900s (e.g. ~965s) EVEN WHEN A100 estimate < 700s,
+    # the same-HW gate MUST fail closed!
+    over_same_hw_sub = {
+        **synthetic_l4_sub,
+        "phase_timings_sec": {
+            **synthetic_l4_sub["phase_timings_sec"],
+            "label_benchmark_sec": 106.0,
+        },
+    }
+    proj_over = smoke_mod.compute_smoke_wall_time_projection(
+        over_same_hw_sub,
+        cold_init_elapsed_sec=70.0,
+        target_same_hw_limit_sec=900.0,
+    )
+    assert proj_over["same_hw_total_projected_sec"] > 900.0
+    assert proj_over["a100_total_projected_sec_estimate"] < 700.0
+    assert proj_over["within_same_hw_limit"] is False
 
     by_p = {row["phase"]: row for row in proj_ok["phases"]}
     assert by_p["init_and_extensions"]["measured_sec"] == pytest.approx(70.0)
@@ -4880,20 +4902,16 @@ def test_shakeout_smoke_wall_time_projection_and_700s_gate(
     assert by_p["bench_3_probe32_scoring_suffixes"]["scale_ratio"] == pytest.approx(8.0)
     assert by_p["bench_4_learner_updates"]["scale_ratio"] == pytest.approx(4.0)
 
-    # 2. End-to-end CLI --shakeout --enforce-projection-gate fails closed when A100 proj > 700s
+    # 2. End-to-end CLI --shakeout --enforce-projection-gate fails closed when same-HW proj > 900s
+    # even when the A100 estimate is < 700s.
     b8_path, opp_path = resolve_product_checkpoints()
     orig_proj_fn = smoke_mod.compute_smoke_wall_time_projection
 
-    def _slow_projection(sub_res: dict[str, Any], **kw: Any) -> dict[str, Any]:
-        inflated = dict(sub_res)
-        inflated["phase_timings_sec"] = {
-            **dict(sub_res["phase_timings_sec"]),
-            "label_benchmark_sec": 200.0,
-        }
-        return orig_proj_fn(inflated, **kw)
+    def _slow_projection(_sub_res: dict[str, Any], **kw: Any) -> dict[str, Any]:
+        return orig_proj_fn(over_same_hw_sub, **kw)
 
     monkeypatch.setattr(smoke_mod, "compute_smoke_wall_time_projection", _slow_projection)
-    out_slow = tmp_path / "shakeout_exceeds_700s"
+    out_slow = tmp_path / "shakeout_exceeds_900s"
     monkeypatch.setattr(
         "sys.argv",
         [
@@ -4916,8 +4934,9 @@ def test_shakeout_smoke_wall_time_projection_and_700s_gate(
     assert saved_shake["ok"] is False
     assert saved_shake["verdict"] == "SHAKEOUT_FAIL_NOT_EVIDENCE"
     assert saved_shake["failed_phases"] == ["phase_4_b1b_smoke_reduced"]
-    assert saved_shake["smoke_wall_time_projection"]["within_a100_limit"] is False
-    assert saved_shake["smoke_wall_time_projection"]["a100_total_projected_sec_estimate"] > 700.0
+    assert saved_shake["smoke_wall_time_projection"]["within_same_hw_limit"] is False
+    assert saved_shake["smoke_wall_time_projection"]["same_hw_total_projected_sec"] > 900.0
+    assert saved_shake["smoke_wall_time_projection"]["a100_total_projected_sec_estimate"] < 700.0
 
 
 def test_opus_s1_cuda_cudnn_deterministic_and_no_global_deterministic_algorithms(
@@ -5040,4 +5059,264 @@ def test_a1_phase6_resume_mismatch_reports_first_update_and_tensor_name(
     assert "first_differing_update_index=1" in str(p6["error"])
     assert f"first_differing_tensor={perturbed_key_holder[0]}" in str(p6["error"])
     assert "[shakeout] phase_6 resume determinism mismatch:" in captured
+
+
+def test_a2_fast_label_search_and_suffix_batching_bit_identical_cpu_and_mps() -> None:
+    """A2: fast_v8_decide, evaluate_terminal_openness_device, batched_open_stop_h32,
+    4-suffix Probe32 batching, and CTDeviceSim row-subset stepping are bit-identical
+    to unbatched/reference implementations on CPU (and MPS where supported)."""
+    import dataclasses
+
+    from research.gpu_sim_spike import ego_device, r2_cache, v8_device
+    from research.gpu_sitl.open_stop_gpu import (
+        OPEN_STOP_POCKET_MIN_LENGTH,
+        OPEN_STOP_V8_LAMBDA,
+        OPEN_STOP_V8_NEED_CAP,
+        OPEN_STOP_V8_NEED_FLOOR,
+        _ttl_by_owner,
+        batched_open_stop_h32,
+        concat_sims_and_policies,
+        evaluate_terminal_openness_device,
+        fast_v8_decide,
+    )
+    from research.gpu_sitl.preflight import (
+        MATURE_EXTENSION_SPECS,
+        build_extension_worlds,
+        snapshot_worlds_to_device,
+    )
+    from research.gpu_sitl.probe_bank import (
+        PROBE32_SCORING_SUFFIXES,
+        _evaluate_scoring_suffixes_on_snapshots,
+        build_watch6_ct_device_bundle,
+        extract_hero_root_observations,
+        slice_single_row_cpu_state,
+    )
+    from research.sandbox_a_resident.ct_mechanics import CTDeviceSim
+
+    b8_path, opp_path = resolve_product_checkpoints()
+    worlds = build_extension_worlds(b8_path, opp_path, specs=MATURE_EXTENSION_SPECS[:2])[0]
+    sim_n, pol_n = build_watch6_ct_device_bundle(
+        [301, 302, 303, 304], b8_path=b8_path, frp3_path=opp_path, device="cpu"
+    )
+    for _ in range(8):
+        sim_n.prepare()
+        pol_n.vector_runtime.prepare(sim_n)
+        pol_n.vector_prepared = True
+        _, _, ha = pol_n.evaluate(sim_n)
+        sim_n.step(pol_n.actions(sim_n, ha))
+        pol_n.after_step(sim_n)
+    sim_m, pol_m = snapshot_worlds_to_device(worlds, pol_n, device="cpu", sim_cls=CTDeviceSim)
+    sim_cpu, pol_cpu = concat_sims_and_policies([sim_m, sim_n], [pol_m, pol_n])
+    r2_cache.enable(sim_cpu)
+    sim_cpu.prepare()
+    pol_cpu.vector_runtime.prepare(sim_cpu)
+    pol_cpu.vector_prepared = True
+
+    e_cnt = int(sim_cpu.E)
+    hero_rows = torch.stack(
+        [torch.arange(e_cnt, dtype=torch.long), torch.zeros(e_cnt, dtype=torch.long)], dim=1
+    )
+    adv_hero = sim_cpu.advisory_mask()[:, 0] & sim_cpu.alive[:, 0:1]
+    g = torch.Generator().manual_seed(20261110)
+    q_hero = torch.randn((e_cnt, 6), generator=g)
+
+    # 1. Hero & opponent fast_v8_decide vs reference v8_device.v8_decide (all fields + hints)
+    ref_h_feat = v8_device.v8_decide(
+        sim_cpu, hero_rows, q_hero, adv_hero, float(OPEN_STOP_V8_LAMBDA), features=True
+    )
+    fast_h_feat = fast_v8_decide(
+        sim_cpu,
+        hero_rows,
+        q_hero,
+        adv_hero,
+        float(OPEN_STOP_V8_LAMBDA),
+        features=True,
+        slot_layout="hero",
+    )
+    for fld in dataclasses.fields(ref_h_feat):
+        va, vb = getattr(ref_h_feat, fld.name), getattr(fast_h_feat, fld.name)
+        assert (va is None and vb is None) or torch.equal(va, vb), f"hero {fld.name}"
+
+    ref_zero_planes = v8_device.v8_decide(
+        sim_cpu,
+        hero_rows,
+        torch.zeros((e_cnt, 6)),
+        adv_hero,
+        float(OPEN_STOP_V8_LAMBDA),
+        features=True,
+    ).feature_planes()
+    fast_only_planes = fast_v8_decide(
+        sim_cpu,
+        hero_rows,
+        torch.zeros((e_cnt, 6)),
+        adv_hero,
+        float(OPEN_STOP_V8_LAMBDA),
+        features=True,
+        slot_layout="hero",
+        _only_features=True,
+    ).feature_planes()
+    assert torch.equal(ref_zero_planes, fast_only_planes)
+
+    opp_rows = torch.stack(
+        [
+            torch.arange(e_cnt, dtype=torch.long).repeat(5),
+            torch.arange(1, 6, dtype=torch.long).repeat_interleave(e_cnt),
+        ],
+        dim=1,
+    )
+    q_opp = torch.randn((e_cnt * 5, 6), generator=g)
+    m_opp = sim_cpu.advisory_mask()[opp_rows[:, 0], opp_rows[:, 1]]
+    ref_opp = v8_device.v8_decide(sim_cpu, opp_rows, q_opp, m_opp, 8.0, features=False)
+    fast_opp = fast_v8_decide(
+        sim_cpu, opp_rows, q_opp, m_opp, 8.0, features=False, slot_layout="opp_slot_major"
+    )
+    for fld in dataclasses.fields(ref_opp):
+        va, vb = getattr(ref_opp, fld.name), getattr(fast_opp, fld.name)
+        assert (va is None and vb is None) or torch.equal(va, vb), f"opp {fld.name}"
+    fast_opp_act = fast_v8_decide(
+        sim_cpu,
+        opp_rows,
+        q_opp,
+        m_opp,
+        8.0,
+        features=False,
+        slot_layout="opp_slot_major",
+        _only_action=True,
+    ).action
+    assert torch.equal(ref_opp.action, fast_opp_act)
+
+    # 2. evaluate_terminal_openness_device vs reference full v8_decide + _component_sizes
+    op_fast = evaluate_terminal_openness_device(sim_cpu)
+    alive_h = sim_cpu.alive[:, 0]
+    adv_any = adv_hero.any(dim=1)
+    ref_areas = torch.where(
+        adv_hero, ref_zero_planes[:, :, 4] if False else ref_h_feat.area.to(torch.long), 0
+    )
+    ref_best_area = torch.where(adv_any, ref_areas.max(dim=1).values, 0)
+    ref_reg = ego_device._component_sizes(sim_cpu, hero_rows, _ttl_by_owner(sim_cpu)).to(torch.long)
+    ref_reg6 = ref_reg.index_select(1, torch.tensor([0, 1, 2, 0, 1, 2], dtype=torch.long))
+    ref_pkt = torch.where(adv_any, torch.where(adv_hero, ref_reg6, 0).max(dim=1).values, 0)
+    len_h = torch.where(alive_h, sim_cpu.length[:, 0].to(torch.long), 0)
+    v8_need = torch.where(
+        alive_h, len_h.clamp(int(OPEN_STOP_V8_NEED_FLOOR), int(OPEN_STOP_V8_NEED_CAP)), 0
+    )
+    ref_un_enc = (
+        adv_any
+        & (ref_best_area >= v8_need)
+        & torch.where(len_h >= int(OPEN_STOP_POCKET_MIN_LENGTH), ref_pkt >= len_h, True)
+    )
+    assert torch.equal(op_fast["v8_best_safe_area"], ref_best_area)
+    assert torch.equal(op_fast["max_pocket_r"], ref_pkt)
+    assert torch.equal(op_fast["un_enclosed"], ref_un_enc)
+
+    # 3. batched_open_stop_h32 compact_dead=True vs False + 4-suffix batching vs unbatched
+    ws = [int(w.seed) for w in worlds] + [301, 302, 303, 304]
+    decs = [int(x) for x in sim_cpu.frame.tolist()]
+    res_compact = batched_open_stop_h32(
+        sim_cpu,
+        pol_cpu,
+        world_seeds=ws,
+        decisions=decs,
+        suffix_id=0,
+        branch_horizon=8,
+        compact_dead=True,
+        return_host_records=False,
+    )
+    res_dense = batched_open_stop_h32(
+        sim_cpu,
+        pol_cpu,
+        world_seeds=ws,
+        decisions=decs,
+        suffix_id=0,
+        branch_horizon=8,
+        compact_dead=False,
+        return_host_records=False,
+    )
+    for k, v_c in res_compact.items():
+        if isinstance(v_c, torch.Tensor):
+            assert torch.equal(v_c, res_dense[k]), f"compact vs dense mismatch on {k}"
+
+    obs = extract_hero_root_observations(sim_cpu)
+    snaps = [
+        {
+            "world_seed": ws[i],
+            "world_index": i,
+            "decision_frame": decs[i],
+            "hero_length": int(obs["hero_length"][i]),
+            "local_u8": obs["local_u8"][i],
+            "global_u8": obs["global_u8"][i],
+            "scalars_f32": obs["scalars_f32"][i],
+            "legal_mask": obs["legal_mask"][i],
+            "safe_mask_s0": res_compact["safe_mask"][i],
+            "bare_action": int(res_compact["bare_actions"][i]),
+            "a_star_action": int(res_compact["a_star_actions"][i]),
+            "root_q_b8": res_compact["root_q"][i],
+            "row_state": slice_single_row_cpu_state(sim_cpu, pol_cpu, i),
+        }
+        for i in range(3)
+    ]
+    suf_batched = _evaluate_scoring_suffixes_on_snapshots(
+        snaps,
+        template_sim=sim_cpu,
+        template_pol=pol_cpu,
+        scoring_suffixes=PROBE32_SCORING_SUFFIXES,
+        branch_horizon=8,
+        batch_roots=12,
+    )
+    suf_single = _evaluate_scoring_suffixes_on_snapshots(
+        snaps,
+        template_sim=sim_cpu,
+        template_pol=pol_cpu,
+        scoring_suffixes=PROBE32_SCORING_SUFFIXES,
+        branch_horizon=8,
+        batch_roots=1,
+    )
+    assert len(suf_batched) == len(suf_single) == 3
+    for rb, rs in zip(suf_batched, suf_single):
+        assert set(rb.keys()) == set(rs.keys())
+        for k in rb:
+            vb, vs = rb[k], rs[k]
+            if isinstance(vb, torch.Tensor):
+                assert torch.equal(vb, vs), f"suffix {k}"
+            elif isinstance(vb, dict):
+                for sk in vb:
+                    assert torch.equal(vb[sk], vs[sk]) if isinstance(vb[sk], torch.Tensor) else vb[sk] == vs[sk]
+            else:
+                assert vb == vs
+
+    # 4. MPS bit-identity where MPS runs (fast_v8_decide _only_features + CTDeviceSim.step)
+    if torch.backends.mps.is_available():
+        sim_mps = sim_cpu.clone()
+        for k_attr, v_attr in list(sim_mps.__dict__.items()):
+            if isinstance(v_attr, torch.Tensor):
+                dt = torch.float32 if v_attr.dtype == torch.float64 else v_attr.dtype
+                setattr(sim_mps, k_attr, v_attr.to(device="mps", dtype=dt))
+        sim_mps.device = sim_mps.bodies.device
+        sim_mps._timing = type(sim_cpu._timing)(sim_mps.device)
+        r2_cache.disable(sim_mps)
+        sim_mps.prepare()
+
+        mps_planes = fast_v8_decide(
+            sim_mps,
+            hero_rows.to(sim_mps.device),
+            torch.zeros((e_cnt, 6), device=sim_mps.device),
+            adv_hero.to(sim_mps.device),
+            float(OPEN_STOP_V8_LAMBDA),
+            features=True,
+            slot_layout="hero",
+            _only_features=True,
+        ).feature_planes()
+        assert torch.equal(ref_zero_planes, mps_planes.cpu())
+
+        sc = sim_cpu.clone()
+        for _ in range(10):
+            act_step = torch.randint(0, 6, (sc.E, sc.S), generator=g)
+            sc.step(act_step)
+            sim_mps.step(act_step.to(sim_mps.device))
+            assert torch.equal(sc.alive, sim_mps.alive.cpu())
+            assert torch.equal(sc.seg_count, sim_mps.seg_count.cpu())
+            assert torch.equal(sc.food_cells, sim_mps.food_cells.cpu())
+            assert torch.equal(sc.food_present, sim_mps.food_present.cpu())
+            assert torch.equal(sc.corpse_food, sim_mps.corpse_food.cpu())
+
 

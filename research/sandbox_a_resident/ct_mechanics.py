@@ -343,8 +343,14 @@ class CTDeviceSim(TrainingDeviceSim):
             if cap <= 0:
                 want = torch.zeros_like(want)
             else:
-                corpse_full = want & (f_corpse.sum(dim=1) >= cap)
-                if bool(corpse_full.any()):
+                corpse_cnt = f_corpse.sum(dim=1)
+                near_cap = (
+                    True
+                    if not r2_cache._host_scalar_safe(corpse_cnt)
+                    else int(corpse_cnt.max().item()) >= cap
+                )
+                if near_cap:
+                    corpse_full = want & (corpse_cnt >= cap)
                     evict = corpse_full.long()
                     order_c = torch.cumsum(f_corpse.long(), dim=1)
                     remove = f_corpse & (order_c <= evict[:, None])
@@ -369,13 +375,21 @@ class CTDeviceSim(TrainingDeviceSim):
             torch.where(use[:, None], torch.ones_like(use[:, None]), f_corpse.gather(1, slot_idx1)),
         )
         f_count = f_count + use.long()
-        over = (f_corpse.sum(dim=1) - cap).clamp_min(0)
-        if bool(over.any()):
+        corpse_cnt_after = f_corpse.sum(dim=1)
+        has_over = (
+            True
+            if not r2_cache._host_scalar_safe(corpse_cnt_after)
+            else int(corpse_cnt_after.max().item()) > cap
+        )
+        if has_over:
+            over = (corpse_cnt_after - cap).clamp_min(0)
             order_c2 = torch.cumsum(f_corpse.long(), dim=1)
             remove2 = f_corpse & (order_c2 <= over[:, None])
             f_pres = f_pres & ~remove2
             f_corpse = f_corpse & ~remove2
-        f_cells, f_pres, f_corpse, f_count = self._compact_food_tensors(f_cells, f_pres, f_corpse)
+            f_cells, f_pres, f_corpse, f_count = self._compact_food_tensors(
+                f_cells, f_pres, f_corpse
+            )
         self.food_cells.index_copy_(0, rows, f_cells)
         self.food_present.index_copy_(0, rows, f_pres)
         self.corpse_food.index_copy_(0, rows, f_corpse)
@@ -420,15 +434,36 @@ class CTDeviceSim(TrainingDeviceSim):
         flat.scatter_(1, pos, True)
         return flat[:, :board_n].reshape(m, h, w)
 
-    def _refill_food_rows(self, active_mask: torch.Tensor) -> None:
+    def _refill_food_rows(
+        self,
+        active_mask: torch.Tensor | None = None,
+        *,
+        active_rows: torch.Tensor | None = None,
+    ) -> None:
         """Refill ambient deficit up to max_food matching GridBatchSim._spawn nested rejection."""
         max_food = int(self.cfg.max_food)
-        ambient = (self.food_present & ~self.corpse_food).sum(dim=1)
-        need = active_mask & (ambient < max_food)
-        rows = need.nonzero(as_tuple=False).flatten()
-        m = int(rows.numel())
-        if m == 0:
-            return
+        if active_rows is not None:
+            if int(active_rows.numel()) == 0:
+                return
+            ambient_cand = (
+                self.food_present.index_select(0, active_rows)
+                & ~self.corpse_food.index_select(0, active_rows)
+            ).sum(dim=1)
+            need_sub = (ambient_cand < max_food).nonzero(as_tuple=False).flatten()
+            rows = active_rows.index_select(0, need_sub)
+            m = int(rows.numel())
+            if m == 0:
+                return
+            ambient_rows = ambient_cand.index_select(0, need_sub)
+        else:
+            assert active_mask is not None
+            ambient = (self.food_present & ~self.corpse_food).sum(dim=1)
+            need = active_mask & (ambient < max_food)
+            rows = need.nonzero(as_tuple=False).flatten()
+            m = int(rows.numel())
+            if m == 0:
+                return
+            ambient_rows = ambient.index_select(0, rows)
 
         occ_bool = self._occupied_bool_for_rows(rows)
         f_cells = self.food_cells.index_select(0, rows)
@@ -436,7 +471,7 @@ class CTDeviceSim(TrainingDeviceSim):
         f_corpse = self.corpse_food.index_select(0, rows)
         f_count = self.food_count.index_select(0, rows)
 
-        remaining = (max_food - ambient.index_select(0, rows)).clamp_min(0)
+        remaining = (max_food - ambient_rows).clamp_min(0)
         outer_tries = torch.zeros(m, dtype=torch.long, device=self.device)
         inner_tries = torch.zeros(m, dtype=torch.long, device=self.device)
         exhausted = torch.zeros(m, dtype=torch.bool, device=self.device)
@@ -562,8 +597,16 @@ class CTDeviceSim(TrainingDeviceSim):
             return
         any_placed = False
         occ_pending = self._occupied_bool_for_rows(pending_rows)
+        pending_sub = pending.index_select(0, pending_rows)
+        slot_has_need = (
+            [True] * self.S
+            if not r2_cache._host_scalar_safe(pending_sub)
+            else [bool(x) for x in pending_sub.any(dim=0).tolist()]
+        )
         for sidx in range(self.S):
-            slot_local_need = pending.index_select(0, pending_rows)[:, sidx]
+            if not slot_has_need[sidx]:
+                continue
+            slot_local_need = pending_sub[:, sidx]
             slot_sub = slot_local_need.nonzero(as_tuple=False).flatten()
             if int(slot_sub.numel()) == 0:
                 continue
@@ -645,6 +688,101 @@ class CTDeviceSim(TrainingDeviceSim):
         body_pair = body_other.any(dim=(2, 4))
         return body, self_hit, head_pair, body_pair
 
+    def _append_many(self, cells: torch.Tensor, mask: torch.Tensor, corpse: bool) -> None:
+        """Append batch of food/corpse cells, using int32 scatter_reduce on MPS."""
+        if self.device.type != "mps":
+            return super()._append_many(cells, mask, corpse)
+        n = int(cells.shape[1])
+        x, y = cells[..., 0], cells[..., 1]
+        inb = mask & (x >= 0) & (x < self.grid_w) & (y >= 0) & (y < self.grid_h)
+        old_f, board_n = int(self.food_capacity), int(self.grid_h) * int(self.grid_w)
+        rows = torch.arange(self.E, device=self.device)
+        ox, oy = self.food_cells[..., 0], self.food_cells[..., 1]
+        old_live = (
+            self.food_present & (ox >= 0) & (ox < self.grid_w) & (oy >= 0) & (oy < self.grid_h)
+        )
+        old_id = oy.clamp(0, self.grid_h - 1) * self.grid_w + ox.clamp(0, self.grid_w - 1)
+        tag_i32 = torch.full((self.E, board_n), -2, dtype=torch.int32, device=self.device)
+        old_stamp = torch.where(
+            self.corpse_food,
+            torch.arange(old_f, device=self.device)[None] + 1,
+            torch.full_like(old_id, -1),
+        )
+        old_stamp_i32 = old_stamp.to(torch.int32)
+        tag_i32.scatter_reduce_(
+            1,
+            old_id,
+            torch.where(old_live, old_stamp_i32, torch.full_like(old_stamp_i32, -2)),
+            reduce="amax",
+            include_self=True,
+        )
+        tag = tag_i32.to(torch.long)
+        tag = torch.where(tag == -2, torch.zeros_like(tag), tag)
+        cap = corpse_food_cap(int(self.cfg.max_food)) if corpse else 0
+        queue_i32 = torch.full((self.E, max(cap, 1)), -1, dtype=torch.int32, device=self.device)
+        if corpse:
+            rank = torch.cumsum(self.corpse_food.long(), dim=1) - 1
+            old_id_p1_i32 = (old_id + 1).to(torch.int32)
+            queue_i32.scatter_reduce_(
+                1,
+                rank.clamp(0, cap - 1),
+                torch.where(self.corpse_food, old_id_p1_i32, torch.full_like(old_id_p1_i32, -1)),
+                reduce="amax",
+                include_self=True,
+            )
+        queue = queue_i32.to(torch.long)
+        head = torch.zeros((self.E,), dtype=torch.long, device=self.device)
+        count = (
+            self.corpse_food.sum(dim=1).clamp_max(cap)
+            if corpse
+            else torch.zeros((self.E,), dtype=torch.long, device=self.device)
+        )
+        cell_id = y.clamp(0, self.grid_h - 1) * self.grid_w + x.clamp(0, self.grid_w - 1)
+        accepted = torch.zeros((self.E, n), dtype=torch.bool, device=self.device)
+        for col in range(n):
+            cid = cell_id[:, col]
+            accept = inb[:, col] & (tag[rows, cid] == 0)
+            accepted[:, col] = accept
+            if corpse:
+                full = accept & (count >= cap)
+                evicted = queue[rows, head].clamp_min(1) - 1
+                tag[rows, evicted] = torch.where(
+                    full, torch.zeros_like(evicted), tag[rows, evicted]
+                )
+                slot_q = torch.where(full, head, (head + count).remainder(cap))
+                queue[rows, slot_q] = torch.where(accept, cid + 1, queue[rows, slot_q])
+                head = torch.where(full, (head + 1).remainder(cap), head)
+                count = torch.where(accept & ~full, count + 1, count)
+                tag[rows, cid] = torch.where(
+                    accept, torch.full_like(cid, old_f + col + 1), tag[rows, cid]
+                )
+            else:
+                tag[rows, cid] = torch.where(accept, torch.full_like(cid, -1), tag[rows, cid])
+        old_keep = old_live & torch.where(
+            self.corpse_food, tag.gather(1, old_id) == old_stamp, tag.gather(1, old_id) == -1
+        )
+        incoming_keep = (
+            accepted
+            & (tag.gather(1, cell_id) == (old_f + torch.arange(n, device=self.device)[None] + 1))
+            if corpse
+            else accepted
+        )
+        combined_cells = torch.cat((self.food_cells, cells), dim=1)
+        combined_present = torch.cat((old_keep, incoming_keep), dim=1)
+        combined_corpse = torch.cat(
+            (self.corpse_food & old_keep, torch.full_like(incoming_keep, corpse) & incoming_keep),
+            dim=1,
+        )
+        total = old_f + n
+        source = torch.arange(total, device=self.device)[None]
+        order = torch.where(combined_present, source, source + total).argsort(dim=1, stable=True)[
+            :, :old_f
+        ]
+        self.food_cells = combined_cells.gather(1, order[..., None].expand(-1, -1, 2))
+        self.food_present = combined_present.gather(1, order)
+        self.corpse_food = combined_corpse.gather(1, order)
+        self.food_count = self.food_present.sum(dim=1)
+
     @torch.inference_mode()
     def step(self, actions: torch.Tensor) -> None:
         """Advance one frame with per-slot sequential non-train food refill before deaths."""
@@ -699,25 +837,25 @@ class CTDeviceSim(TrainingDeviceSim):
         self.seg_count -= extra.long()
         if self.v2:
             paid_valid = extra & self._in_arena(paid_tail)
-            if self.device.type == "meta":
+            if self.device.type == "meta" or not r2_cache._host_scalar_safe(paid_valid):
                 for slot in range(self.S):
                     self._append_food(paid_tail[:, slot], paid_valid[:, slot], True)
             else:
-                if bool(paid_valid.any()):
+                cap_corpse = corpse_food_cap(int(self.cfg.max_food))
+                paid_by_slot = paid_valid.any(dim=0)
+                need_trim = (self.corpse_food.sum(dim=1) > cap_corpse).any()
+                paid_flags = [
+                    bool(x) for x in torch.cat((paid_by_slot, need_trim.unsqueeze(0))).tolist()
+                ]
+                if any(paid_flags[:-1]):
                     for slot in range(self.S):
-                        slot_mask = paid_valid[:, slot]
-                        if not bool(slot_mask.any()):
+                        if not paid_flags[slot]:
                             continue
-                        if self.device.type == "mps":
-                            self._append_food(paid_tail[:, slot], slot_mask, True)
-                        else:
-                            slot_rows = slot_mask.nonzero(as_tuple=False).flatten()
-                            self._append_corpse_single_rows(
-                                slot_rows, paid_tail[:, slot].index_select(0, slot_rows)
-                            )
-                elif bool(
-                    (self.corpse_food.sum(dim=1) > corpse_food_cap(int(self.cfg.max_food))).any()
-                ):
+                        slot_rows = paid_valid[:, slot].nonzero(as_tuple=False).flatten()
+                        self._append_corpse_single_rows(
+                            slot_rows, paid_tail[:, slot].index_select(0, slot_rows)
+                        )
+                if paid_flags[-1]:
                     self._trim_corpse_food()
         traversed = torch.stack((head1, head2), dim=2)
         traversed_valid = torch.stack((move1, boost), dim=2)
@@ -727,28 +865,17 @@ class CTDeviceSim(TrainingDeviceSim):
         ate = torch.zeros_like(self.alive)
         ate_corpse = torch.zeros_like(self.alive)
         eq_any = (traversed[:, :, :, None, :] == self.food_cells[:, None, None, :, :]).all(dim=-1)
-        any_candidate = bool(
-            (eq_any & self.food_present[:, None, None, :] & traversed_valid[..., None]).any()
-        )
-        if any_candidate:
+        if self.device.type == "meta" or not r2_cache._host_scalar_safe(eq_any):
             food_slots = torch.arange(self.food_capacity, device=self.device)[None, :]
             t_idx = torch.arange(2, device=self.device)[None, :]
             for slot in range(self.S):
-                eq_s = (traversed[:, slot, :, None, :] == self.food_cells[:, None, :, :]).all(
-                    dim=-1
-                )
+                eq_s = eq_any[:, slot]
                 available = eq_s & self.food_present[:, None, :] & traversed_valid[:, slot, :, None]
                 by_t = available.any(dim=2)
                 first_t = by_t.long().argmax(dim=1)
                 tmask = t_idx == first_t[:, None]
                 candidates = (available & tmask[:, :, None]).any(dim=1)
                 has = candidates.any(dim=1) & self.alive[:, slot]
-                if self.device.type == "meta":
-                    eat_rows = None
-                else:
-                    eat_rows = has.nonzero(as_tuple=False).flatten()
-                    if int(eat_rows.numel()) == 0:
-                        continue
                 chosen = candidates.long().argmax(dim=1)
                 select = has[:, None] & (food_slots == chosen[:, None])
                 is_corpse = (select & self.corpse_food).any(dim=1)
@@ -757,14 +884,72 @@ class CTDeviceSim(TrainingDeviceSim):
                 self.length[:, slot] += has.long()
                 self.food_present &= ~select
                 self.corpse_food &= self.food_present
-                if eat_rows is None or self.device.type == "mps":
-                    self._compact_food()
-                else:
-                    self._compact_food_rows(eat_rows)
+                self._compact_food()
                 r2_cache.bump(self)
                 with self.stage("food"):
                     self._refill_food_rows(has)
                 r2_cache.bump(self)
+        else:
+            possible = (
+                eq_any & self.food_present[:, None, None, :] & traversed_valid[..., None]
+            ).any(dim=(2, 3)) & self.alive
+            slot_flags = [bool(x) for x in possible.any(dim=0).tolist()]
+            if any(slot_flags):
+                food_slots = torch.arange(self.food_capacity, device=self.device)[None, :]
+                t_idx = torch.arange(2, device=self.device)[None, :]
+                for slot in range(self.S):
+                    if not slot_flags[slot]:
+                        continue
+                    p_rows = possible[:, slot].nonzero(as_tuple=False).flatten()
+                    if int(p_rows.numel()) == 0:
+                        continue
+                    trav_p = traversed.index_select(0, p_rows)[:, slot]
+                    tval_p = traversed_valid.index_select(0, p_rows)[:, slot]
+                    fc_p = self.food_cells.index_select(0, p_rows)
+                    fp_p = self.food_present.index_select(0, p_rows)
+                    eq_s = (trav_p[:, :, None, :] == fc_p[:, None, :, :]).all(dim=-1)
+                    available = eq_s & fp_p[:, None, :] & tval_p[:, :, None]
+                    by_t = available.any(dim=2)
+                    first_t = by_t.long().argmax(dim=1)
+                    tmask = t_idx == first_t[:, None]
+                    candidates = (available & tmask[:, :, None]).any(dim=1)
+                    has_sub = candidates.any(dim=1) & self.alive.index_select(0, p_rows)[:, slot]
+                    eat_sub = has_sub.nonzero(as_tuple=False).flatten()
+                    if int(eat_sub.numel()) == 0:
+                        continue
+                    eat_rows = p_rows.index_select(0, eat_sub)
+                    chosen_eat = candidates.index_select(0, eat_sub).long().argmax(dim=1)
+                    select_eat = food_slots == chosen_eat[:, None]
+                    fp_eat = self.food_present.index_select(0, eat_rows)
+                    cf_eat = self.corpse_food.index_select(0, eat_rows)
+                    is_corpse_eat = (select_eat & cf_eat).any(dim=1)
+                    ate[eat_rows, slot] = True
+                    ate_corpse[eat_rows, slot] = is_corpse_eat
+                    self.length[eat_rows, slot] = self.length.index_select(0, eat_rows)[:, slot] + 1
+                    fp_after = fp_eat & ~select_eat
+                    cf_after = cf_eat & fp_after
+                    self.food_present.index_copy_(0, eat_rows, fp_after)
+                    self.corpse_food.index_copy_(0, eat_rows, cf_after)
+                    self._compact_food_rows(eat_rows)
+                    r2_cache.bump(self)
+                    with self.stage("food"):
+                        self._refill_food_rows(active_rows=eat_rows)
+                    r2_cache.bump(self)
+                    if slot + 1 < self.S:
+                        trav_rem = traversed.index_select(0, eat_rows)[:, slot + 1 :]
+                        tval_rem = traversed_valid.index_select(0, eat_rows)[:, slot + 1 :]
+                        fc_rem = self.food_cells.index_select(0, eat_rows)
+                        fp_rem = self.food_present.index_select(0, eat_rows)
+                        eq_rem = (trav_rem[:, :, :, None, :] == fc_rem[:, None, None, :, :]).all(
+                            dim=-1
+                        )
+                        poss_rem = (
+                            eq_rem & fp_rem[:, None, None, :] & tval_rem[..., None]
+                        ).any(dim=(2, 3)) & self.alive.index_select(0, eat_rows)[:, slot + 1 :]
+                        possible[eat_rows, slot + 1 :] = poss_rem
+                        rem_flags = possible[:, slot + 1 :].any(dim=0).tolist()
+                        for k_off, flg in enumerate(rem_flags):
+                            slot_flags[slot + 1 + k_off] = bool(flg)
 
         movement_stage.__exit__(None, None, None)
         death_stage = self.stage("deaths_corpse")
@@ -785,7 +970,7 @@ class CTDeviceSim(TrainingDeviceSim):
                 in_arena, self_hit, head_pair, body_pair
             )
         died = dead
-        if self.device.type == "meta" or bool(died.any().item()):
+        if self.device.type == "meta" or not r2_cache._host_scalar_safe(died):
             if body is None:
                 c_span = int(r2_cache.window(self)) if r2_cache.enabled(self) else int(self.cap)
                 offsets = torch.arange(c_span, device=self.device)[None, None, :]
@@ -801,22 +986,66 @@ class CTDeviceSim(TrainingDeviceSim):
             corpse_mask = died_ordered[..., None] & (offsets < seg_ordered[..., None])
             if not self.v2:
                 corpse_mask &= offsets.remainder(2) == 0
-            if self.device.type in ("meta", "mps"):
-                self._append_many(
-                    body.reshape(self.E, self.S * c_span, 2),
-                    corpse_mask.reshape(self.E, self.S * c_span),
-                    self.v2,
+            self._append_many(
+                body.reshape(self.E, self.S * c_span, 2),
+                corpse_mask.reshape(self.E, self.S * c_span),
+                self.v2,
+            )
+        else:
+            died_rows = died.any(dim=1).nonzero(as_tuple=False).flatten()
+            m_died = int(died_rows.numel())
+            if m_died > 0:
+                died_sub = died if m_died == self.E else died.index_select(0, died_rows)
+                seg_sub = (
+                    self.seg_count if m_died == self.E else self.seg_count.index_select(0, died_rows)
                 )
-            else:
-                died_rows = died.any(dim=1).nonzero(as_tuple=False).flatten()
-                m_died = int(died_rows.numel())
+                c_span = min(
+                    int(self.cap),
+                    max(
+                        1,
+                        int(
+                            torch.where(died_sub, seg_sub, torch.zeros_like(seg_sub))
+                            .max()
+                            .item()
+                        ),
+                    ),
+                )
+                if body is None or int(body.shape[2]) < c_span:
+                    hp_sub = (
+                        self.head_ptr
+                        if m_died == self.E
+                        else self.head_ptr.index_select(0, died_rows)
+                    )
+                    bodies_sub = (
+                        self.bodies if m_died == self.E else self.bodies.index_select(0, died_rows)
+                    )
+                    offsets = torch.arange(c_span, device=self.device)[None, None, :]
+                    rings = (hp_sub[..., None] - offsets) % self.cap
+                    body_sub = bodies_sub.gather(2, rings[..., None].expand(-1, -1, -1, 2))
+                else:
+                    body_sub = (
+                        body[:, :, :c_span]
+                        if m_died == self.E
+                        else body.index_select(0, died_rows)[:, :, :c_span]
+                    )
+                dr_sub = death_rank if m_died == self.E else death_rank.index_select(0, died_rows)
+                snake_order = dr_sub.argsort(dim=1, stable=True)
+                body_sub = body_sub.gather(
+                    1, snake_order[:, :, None, None].expand(-1, -1, c_span, 2)
+                )
+                died_ordered = died_sub.gather(1, snake_order)
+                seg_ordered = seg_sub.gather(1, snake_order)
+                offsets = torch.arange(c_span, device=self.device)[None, None, :]
+                corpse_mask = died_ordered[..., None] & (offsets < seg_ordered[..., None])
+                if not self.v2:
+                    corpse_mask &= offsets.remainder(2) == 0
                 if m_died == self.E:
                     self._append_many(
-                        body.reshape(self.E, self.S * c_span, 2),
+                        body_sub.reshape(self.E, self.S * c_span, 2),
                         corpse_mask.reshape(self.E, self.S * c_span),
                         self.v2,
                     )
-                elif m_died > 0:
+                else:
                     sub = object.__new__(type(self))
                     sub.device = self.device
                     sub.E = m_died
@@ -825,13 +1054,14 @@ class CTDeviceSim(TrainingDeviceSim):
                     sub.grid_w = self.grid_w
                     sub.cfg = self.cfg
                     sub.v2 = self.v2
+                    sub.exact_mechanics = self.exact_mechanics
                     sub.food_cells = self.food_cells.index_select(0, died_rows)
                     sub.food_present = self.food_present.index_select(0, died_rows)
                     sub.corpse_food = self.corpse_food.index_select(0, died_rows)
                     sub.food_count = self.food_count.index_select(0, died_rows)
                     sub._append_many(
-                        body.index_select(0, died_rows).reshape(m_died, self.S * c_span, 2),
-                        corpse_mask.index_select(0, died_rows).reshape(m_died, self.S * c_span),
+                        body_sub.reshape(m_died, self.S * c_span, 2),
+                        corpse_mask.reshape(m_died, self.S * c_span),
                         self.v2,
                     )
                     self.food_cells.index_copy_(0, died_rows, sub.food_cells)

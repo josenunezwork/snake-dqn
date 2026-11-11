@@ -41,6 +41,7 @@ from research.gpu_sitl.open_stop_gpu import (
     FastDevicePolicy,
     FastDeviceVectorRuntime,
     _maybe_cpu_fast_flood,
+    _repeat_sim_fast,
     assert_sim_and_policy_on_device,
     batched_open_stop_h32,
     concat_sims_and_policies,
@@ -273,6 +274,7 @@ def _extract_hero_root_observations_impl(
                 float(OPEN_STOP_V8_LAMBDA),
                 features=True,
                 slot_layout="hero",
+                _only_features=True,
             )
             .feature_planes()
             .reshape(e_count, 30)
@@ -438,8 +440,11 @@ def _evaluate_scoring_suffixes_on_snapshots(
     if not snapshots:
         return []
     out_records: list[dict[str, Any]] = []
-    for start in range(0, len(snapshots), int(batch_roots)):
-        chunk = snapshots[start : start + int(batch_roots)]
+    suf_list = [int(s) for s in scoring_suffixes]
+    k_suf = len(suf_list)
+    chunk_roots = max(1, int(batch_roots) // max(1, k_suf))
+    for start in range(0, len(snapshots), chunk_roots):
+        chunk = snapshots[start : start + chunk_roots]
         if all("row_state" in c for c in chunk):
             if template_sim is None or template_pol is None:
                 raise ValueError(
@@ -459,13 +464,13 @@ def _evaluate_scoring_suffixes_on_snapshots(
         decs = [int(c["decision_frame"]) for c in chunk]
 
         safe_by_suffix: dict[int, torch.Tensor] = {}
-        for suf in scoring_suffixes:
+        if k_suf == 1:
             res_suf = batched_open_stop_h32(
                 batch_sim,
                 batch_pol,
                 world_seeds=w_seeds,
                 decisions=decs,
-                suffix_id=int(suf),
+                suffix_id=suf_list[0],
                 branch_horizon=int(branch_horizon),
                 namespace=namespace,
                 compact_dead=True,
@@ -473,7 +478,43 @@ def _evaluate_scoring_suffixes_on_snapshots(
                 cpu_fast_flood=cpu_fast_flood,
                 return_host_records=False,
             )
-            safe_by_suffix[int(suf)] = res_suf["safe_mask"].detach().cpu()
+            safe_by_suffix[suf_list[0]] = res_suf["safe_mask"].detach().cpu()
+        elif k_suf > 1:
+            if batch_sim.device.type != "mps":
+                r2_cache.enable(batch_sim)
+            if not batch_sim._prepared:
+                batch_sim.prepare()
+            if not batch_pol.vector_prepared:
+                with _maybe_cpu_fast_flood(bool(cpu_fast_flood and batch_sim.device.type == "cpu")):
+                    batch_pol.vector_runtime.prepare(batch_sim)
+                batch_pol.vector_prepared = True
+            batch_sim_k = _repeat_sim_fast(batch_sim, k_suf)
+            batch_pol_k = batch_pol.repeat_interleave(k_suf)
+            if type(batch_pol_k) is DevicePolicy:
+                batch_pol_k.__class__ = FastDevicePolicy
+            if batch_pol_k.vector_runtime is not None:
+                batch_pol_k.vector_runtime.__class__ = FastDeviceVectorRuntime
+            if batch_sim_k.device.type != "mps":
+                r2_cache.enable(batch_sim_k)
+            w_seeds_k = [ws for ws in w_seeds for _ in suf_list]
+            decs_k = [dc for dc in decs for _ in suf_list]
+            sufs_k = [sf for _ in chunk for sf in suf_list]
+            res_all = batched_open_stop_h32(
+                batch_sim_k,
+                batch_pol_k,
+                world_seeds=w_seeds_k,
+                decisions=decs_k,
+                suffix_ids=sufs_k,
+                branch_horizon=int(branch_horizon),
+                namespace=namespace,
+                compact_dead=True,
+                enable_r2=True,
+                cpu_fast_flood=cpu_fast_flood,
+                return_host_records=False,
+            )
+            safe_all = res_all["safe_mask"].detach().cpu().view(len(chunk), k_suf, 6)
+            for k_i, sf in enumerate(suf_list):
+                safe_by_suffix[sf] = safe_all[:, k_i, :]
 
         for i, item in enumerate(chunk):
             bare_a = int(item["bare_action"])
