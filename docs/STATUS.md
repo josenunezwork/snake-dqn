@@ -20,7 +20,7 @@ Large-scale from-scratch PPO self-play on GPU simulators, using the Colab slots.
 | [`research/v3_ppo`](../research/v3_ppo/README.md) | PPO self-play trainer for game v3. | Merged 2026-11-11 (`6d22e30a`) after four review rounds. A100, 256 worlds x 24 learners: S 12.9k, M 7.0k learner-steps/s with learning. No long training run yet. |
 | `research/arena_ppo/evaluate` (branch `carbon-arena-eval-1111`) | Evaluation of old-game policies against scripted opponents, an untrained network, other checkpoints, and B8 if its features can be reproduced exactly. | In progress. Until it lands, every training number is self-play length only. |
 
-**Running on Colab (all old grid game, 8 h each):** `ego_only` S continued from 207.6M steps (L4); `ego_only` M from scratch (L4); `ego_only` S at 4,096 worlds from scratch (A100); `ego_only` S at 1,024 worlds from scratch (L4, starting). Job folders: `../snake-dqn-artifacts/big-lever/exp/argon-20261026/arena-ppo-train-*`.
+**Running on Colab (all old grid game, 8 h each):** `ego_only` S continued from 207.6M steps (L4); `ego_only` M from scratch (L4); `ego_only` S at 4,096 worlds from scratch (A100); `ego_only` S at 1,024 worlds from scratch (L4, starting). Job folders: `../snake-dqn-artifacts/big-lever/exp/argon-20261026/` (index of the whole artifacts tree: `../snake-dqn-artifacts/INDEX.md`).
 
 **On hold:** `gpu_sitl` Step B1b pilot (search-in-the-loop on the B8 lineage), pinned at `b772f89f`.
 
