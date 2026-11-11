@@ -5896,3 +5896,56 @@ def test_opus_n4_fast_v8_decide_rejects_noncanonical_slot_layout_rows() -> None:
     # Subset length with slot_layout='hero' must also raise RuntimeError
     with pytest.raises(RuntimeError, match="slot_layout='hero'"):
         fast_v8_decide(sim, bad_hero_perm[:2], q_h[:2], m_h[:2], 8.0, slot_layout="hero")
+
+
+def test_opus_n5_multi_suffix_marks_hero_terminal_before_prepare() -> None:
+    """N5: _evaluate_scoring_suffixes_on_snapshots marks hero terminal before prepare() on k_suf > 1."""
+    from research.gpu_sitl.probe_bank import (
+        _evaluate_scoring_suffixes_on_snapshots,
+        build_watch6_ct_device_bundle,
+        slice_single_row_cpu_state,
+    )
+
+    b8_path, opp_path = resolve_product_checkpoints()
+    sim, pol = build_watch6_ct_device_bundle(
+        [301], b8_path=b8_path, frp3_path=opp_path, device="cpu"
+    )
+    sim.alive[0, 0] = False
+    sim.seg_count[0, 0] = 0
+    sim.respawn_timer[0, 0] = 0
+    sim.terminal_slots[0, 0] = False
+    sim._prepared = False
+    pol.vector_prepared = False
+
+    snap = {
+        "world_seed": 301,
+        "world_index": 0,
+        "decision_frame": 1,
+        "hero_length": 0,
+        "local_u8": torch.zeros((9, 31, 31), dtype=torch.uint8),
+        "global_u8": torch.zeros((3, 25, 25), dtype=torch.uint8),
+        "scalars_f32": torch.zeros(60, dtype=torch.float32),
+        "legal_mask": torch.tensor([True, True, True, False, False, False], dtype=torch.bool),
+        "safe_mask_s0": torch.zeros(6, dtype=torch.bool),
+        "bare_action": 1,
+        "a_star_action": -1,
+        "root_q_b8": torch.zeros(6, dtype=torch.float32),
+        "row_state": slice_single_row_cpu_state(sim, pol, 0),
+    }
+    res_single = _evaluate_scoring_suffixes_on_snapshots(
+        [dict(snap)],
+        template_sim=sim,
+        template_pol=pol,
+        scoring_suffixes=[4],
+        branch_horizon=1,
+    )
+    res_multi = _evaluate_scoring_suffixes_on_snapshots(
+        [dict(snap)],
+        template_sim=sim,
+        template_pol=pol,
+        scoring_suffixes=[4, 5],
+        branch_horizon=1,
+    )
+    assert res_single[0]["safe_by_scoring_suffix"][4] == [False] * 6
+    assert res_multi[0]["safe_by_scoring_suffix"][4] == [False] * 6
+    assert res_multi[0]["safe_by_scoring_suffix"][5] == [False] * 6
