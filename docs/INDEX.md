@@ -2,6 +2,7 @@
 
 Snapshot: **2026-11-10 PT** (active goal & `2026-11-10` owner ruling at the top of [STATUS.md](STATUS.md); T34 ExIt-B8 closed `2026-11-04 PT`). For binding operating rules, monitoring thresholds, and release history,
 see [STATUS.md](STATUS.md).
+For a plain-language map of everything this project has learned, see [FINDINGS.md](FINDINGS.md).
 
 ---
 
