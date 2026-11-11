@@ -1991,6 +1991,11 @@ def _resolve_work_dir(output_dir: Path, work_dir: Path | None) -> Path:
     return resolved
 
 
+def _artifact_or_sidecar_exists(path: Path) -> bool:
+    """Return True when `path` or its `.sha256` / `.complete` sidecar already exists."""
+    return path.exists() or Path(f"{path}.sha256").exists() or Path(f"{path}.complete").exists()
+
+
 def _publish_work_checkpoint_to_output(
     work_pt: Path,
     ckpt_out_dir: Path,
@@ -2002,7 +2007,11 @@ def _publish_work_checkpoint_to_output(
 ) -> tuple[str | None, list[str]]:
     """Hard-link `work_pt` into create-only `ckpt_out_dir` filenames and write `.meta.json`."""
     unique_names = list(dict.fromkeys(dst_names))
-    targets = [ckpt_out_dir / name for name in unique_names if not (ckpt_out_dir / name).exists()]
+    targets = [
+        ckpt_out_dir / name
+        for name in unique_names
+        if not _artifact_or_sidecar_exists(ckpt_out_dir / name)
+    ]
     if not targets:
         first_existing = ckpt_out_dir / unique_names[0] if unique_names else None
         if first_existing is not None and first_existing.is_file():
@@ -2025,7 +2034,7 @@ def _publish_work_checkpoint_to_output(
     published_names: list[str] = []
     for dst in targets:
         meta_path = dst.with_suffix(".meta.json")
-        if not meta_path.exists():
+        if not _artifact_or_sidecar_exists(meta_path):
             meta = {
                 "schema": ARENA_PPO_SCHEMA,
                 "namespace": ARENA_PPO_NAMESPACE,
@@ -2310,7 +2319,7 @@ def run_training_job(
                         eval_path = (
                             output_dir / "eval" / f"eval_u{trainer.updates_completed:07d}.json"
                         )
-                        if not eval_path.exists():
+                        if not _artifact_or_sidecar_exists(eval_path):
                             write_create_only_json(eval_path, eval_payload)
                             eval_records_written.append(eval_path.name)
 
@@ -2399,7 +2408,7 @@ def run_training_job(
                 published_checkpoints.extend(extra_pub)
 
             weights_path = output_dir / "arena_ppo_weights.pth"
-            if not weights_path.exists():
+            if not _artifact_or_sidecar_exists(weights_path):
                 weights_sha = trainer.save_eval_weights(weights_path)
         elif newest_verified_work_ckpt is not None:
             # Mid-update signal abort or oversized grace save: publish newest verified periodic ckpt

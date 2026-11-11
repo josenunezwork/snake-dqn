@@ -40,7 +40,6 @@ from research.arena_ppo.ppo import (
     ArenaPPOConfig,
     ArenaPPOTrainer,
     StopRequestedError,
-    _publish_work_checkpoint_to_output,
     estimate_rollout_buffer_bytes,
     run_training_job,
     verify_staged_checkpoint,
@@ -2643,7 +2642,7 @@ def run_canary_suite(
             )
 
             cfg_u2 = ArenaPPOConfig(**{**cfg_u1.to_dict(), "total_updates": 2})
-            u2_out = out if arch == "shared_trunk" else (tmp_canary_dir / f"{arch}_u2_out")
+            u2_out = tmp_canary_dir / f"{arch}_u2_out"
             u2_work = tmp_canary_dir / f"{arch}_u2_work"
             rem_u2 = (
                 max(20.0, float(max_wall_seconds) - (time.monotonic() - wall_t0))
@@ -2659,23 +2658,6 @@ def run_canary_suite(
                 ledger_path=staged_ledger,
                 max_wall_seconds=rem_u2,
             )
-            if arch == "shared_trunk":
-                _publish_work_checkpoint_to_output(
-                    u1_ckpt,
-                    out / "checkpoints",
-                    [u1_ckpt.name],
-                    reason="periodic_snapshot",
-                    staging_dir=u1_work / "checkpoints",
-                    fallback_counters={
-                        "updates_completed": 1,
-                        "agent_steps_collected": int(num_envs)
-                        * int(rollout_len)
-                        * DEFAULT_NUM_SNAKES,
-                        "world_steps_collected": int(num_envs) * int(rollout_len),
-                    },
-                )
-                train_res = res_u2
-                final_train_cfg = cfg_u2
 
             arch_final_ckpt = u2_out / "checkpoints" / "final.pt"
             verify_completed_artifact(arch_final_ckpt)
@@ -2683,6 +2665,43 @@ def run_canary_suite(
             reload_trainer.load_checkpoint(arch_final_ckpt)
             del reload_trainer
             _safe_cleanup_device_memory(resolved_dev)
+
+            if arch == "shared_trunk":
+                # Export only deliberate canary artifacts as fresh single-inode copies in `out`
+                # so canary-internal `ckpt_u*` stay in scratch and `rmtree(tmp_canary_dir)` never
+                # unlinks a hard link sharing an inode with any completed export under `out`.
+                out_final_ckpt = out / "checkpoints" / "final.pt"
+                write_create_only_artifact(
+                    out_final_ckpt,
+                    lambda tmp, src=arch_final_ckpt: shutil.copyfile(src, tmp),
+                )
+                arch_final_meta = u2_out / "checkpoints" / "final.meta.json"
+                if arch_final_meta.is_file():
+                    verify_completed_artifact(arch_final_meta)
+                    write_create_only_artifact(
+                        out / "checkpoints" / "final.meta.json",
+                        lambda tmp, src=arch_final_meta: shutil.copyfile(src, tmp),
+                    )
+                arch_weights = u2_out / "arena_ppo_weights.pth"
+                verify_completed_artifact(arch_weights)
+                write_create_only_artifact(
+                    out / "arena_ppo_weights.pth",
+                    lambda tmp, src=arch_weights: shutil.copyfile(src, tmp),
+                )
+                for seg_name in res_u2.get("train_log_segments", []):
+                    seg_src = u2_out / "train_logs" / str(seg_name)
+                    verify_completed_artifact(seg_src)
+                    write_create_only_artifact(
+                        out / "train_logs" / str(seg_name),
+                        lambda tmp, src=seg_src: shutil.copyfile(src, tmp),
+                    )
+                exported_train_res = {
+                    **res_u2,
+                    "published_checkpoints": ["final.pt"],
+                }
+                write_create_only_json(out / "train_result.json", exported_train_res)
+                train_res = exported_train_res
+                final_train_cfg = cfg_u2
 
             late_sum = res_u2.get("late_reset_summary") or {}
             if (

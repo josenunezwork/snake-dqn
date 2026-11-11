@@ -231,13 +231,15 @@ def write_create_only_artifact(
         if sha_tmp.exists():
             sha_tmp.unlink()
 
-    comp_tmp = Path(f"{complete_path}.tmp.{os.getpid()}")
+    comp_tmp = Path(f"{complete_path}.tmp.{os.getpid()}.{time.monotonic_ns()}")
     try:
         with comp_tmp.open("w", encoding="utf-8") as handle:
             handle.write(f"{digest}\n")
             handle.flush()
             os.fsync(handle.fileno())
-        os.link(comp_tmp, complete_path)
+        if complete_path.exists():
+            raise FileExistsError(f"Refusing to overwrite immutable artifact path: {complete_path}")
+        os.replace(comp_tmp, complete_path)
     finally:
         if comp_tmp.exists():
             comp_tmp.unlink()
@@ -314,7 +316,9 @@ def _publish_sidecars_for_existing_payload(target: Path, digest: str) -> None:
             handle.write(f"{digest}\n")
             handle.flush()
             os.fsync(handle.fileno())
-        os.link(comp_tmp, complete_path)
+        if complete_path.exists():
+            raise FileExistsError(f"Refusing to overwrite immutable sidecar path: {complete_path}")
+        os.replace(comp_tmp, complete_path)
     finally:
         if comp_tmp.exists():
             comp_tmp.unlink()
