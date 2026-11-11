@@ -1,6 +1,6 @@
 # Game V3.1 — Fixed-Point Continuous-Angle GPU Simulator
 
-`research/game_v3/` implements **Spec v3.1** of the continuous-angle, large-arena slither-like RL environment built GPU-first for bitwise-deterministic multi-agent training across `cpu`, `mps`, and `cuda` with zero Python `.item()`/`.tolist()` host syncs inside steady-state `step()`, `build_obs(sim, learner_index, out=...)`, or scripted opponent policies (Stage 5 compacts only `ready` respawn slots).
+`research/game_v3/` implements **Spec v3.1** of the continuous-angle, large-arena slither-like RL environment built GPU-first for bitwise-deterministic multi-agent training across `cpu`, `mps`, and `cuda` with zero host syncs in Stages 0–4 of `step()`, `build_obs(sim, learner_index, out=...)` (when reusing the same `LearnerIndex` instance), or scripted opponent policies, and one row-count sync (`torch.where(ready)`) in Stage 5 to compact ready respawn slots.
 
 ## Module Layout
 
@@ -11,7 +11,7 @@
 - `obs.py`: Explicit `LearnerIndex`, batched GPU `build_obs` (with strict `out`-batch index verification), and plain-NumPy `build_obs_reference` producing pooled `uint8` rasters (`64x64 @ 1x`, `32x32 @ 4x`, `32x32 @ 16x`, `13` channels), `8` `float32` scalars, and `10`-way boolean action masks.
 - `scripted.py`: Pure integer/fixed-point on-device opponents (`food_seeking_actions` and `random_safe_actions`) over the `10`-action space.
 - `bench.py`: Throughput (`all-learner`, `M-of-N` `LearnerIndex`, `sim-only`), synchronized per-stage timing (`move`, `collide`, `rasterise`, `food`, `respawn`, `obs`), and memory-per-world benchmark CLI (`schema: "game-v3-bench/v2"`).
-- `cuda_check.py`: Standalone CLI running `32`-world x `1,000`-tick device-vs-CPU bitwise parity plus the throughput/memory benchmark and writing a single JSON report (`schema: "game-v3-cuda-check/v1"`).
+- `cuda_check.py`: Standalone CLI printing an L4 execution plan (`< ~15 min`, `< 20 GB` peak VRAM), running `32`-world x `1,000`-tick normal-kernel parity (`deterministic_algorithms=False`) plus a separate `deterministic_algorithms=True` parity pass (both exercising patched-threshold `rebase_subticks` and `reset_worlds`), then running `deterministic_algorithms=False` benchmark cells with per-cell OOM catching and atomic create-then-rename JSON writes after parity and after every benchmark cell (`schema: "game-v3-cuda-check/v1"`).
 
 ## Rules as Implemented (Spec v3.1)
 
@@ -55,7 +55,7 @@ Every tick executes in the following deterministic order:
    - Surviving heads test nearby cells on integer squared distance `(cx_fp - hx_fp)^2 + (cy_fp - hy_fp)^2 <= pickup_r_sq_fp[L]`. Contested food cells sort distinct per-world integer keys `(cell_flat << 6) | slot_id` (`O(N * K_eat * log(N * K_eat))`, `0` host syncs) so the **lowest surviving slot** wins every contested cell identically to `ReferenceWorld`.
    - Boost pellets drop at pre-move tail cells; dead snakes drop `floor(L_dead * corpse_mass_fraction)` across `P = min(corpse_mass, old_seg, corpse_max_pellets)` spine cells; up to `ambient_spawn_budget_per_tick` ambient pellets spawn per world using `world_ticks`.
 5. **Ready-Only Respawn (`spawn_wall_margin = 20`, Inward Headings) & Episode Hooks:**
-   - Dead snakes (prior to this tick's deaths) decrement `respawn_timer`. Candidate generation, wall/clearance checks, and sparse stamping run **only** for ready slots (`respawn_timer == 0`).
+   - Dead snakes (prior to this tick's deaths) decrement `respawn_timer`. Candidate generation, wall/clearance checks, and sparse stamping run **only** for ready slots (`respawn_timer == 0`), compacted via a single per-step `torch.where(ready)` count sync (capping `B < E * N` without reading `r_cnt` would drop simultaneous respawns and break parity; unconditional `B = E * N` dense evaluation costs `24.5 ms/tick` vs `1.1 ms/tick` and `> 500 MiB` temp on MPS at `E = 256, N = 64`).
    - Spawn spots stay inside `arena_radius - spawn_wall_margin` (`spawn_wall_margin = 20.0` units, well above the `~8.35`-unit start turn radius). Candidate headings with outward radial dot product `cx_fp * cos(theta) + cy_fp * sin(theta) > 0` flip by `angle_steps // 2` (`180 deg`) so newly spawned snakes always point away from the wall.
    - **Rollout truncation vs `max_life_ticks`:** `max_life_ticks` defaults to `0` (disabled) so big snakes stay in the world. Trainers flag rollout-boundary truncation via `sim.step(actions, truncate=...)` (bool or `(E,)` / `(E, N)` bool mask) or `info.flag_truncation(mask)` **without** removing the snake or its mass from the world.
    - **Per-world reset:** `sim.reset_worlds(world_mask, seeds=...)` resets selected worlds (`world_ticks[e] = 0`) without disturbing other worlds.
@@ -74,7 +74,7 @@ Every tick executes in the following deterministic order:
   - `4: out_of_arena` (`255` outside `arena_radius`, else `0`)
   - `5..8` (`t` enemy heads) and `9..12` (`t - 1` enemy heads **projected into the current `t` observer ego frame**, lowest enemy slot wins ties): `enemy_heads` (`size_bucket`), `enemy_dx` (`128 + round(127 * sin(cur_theta_obs - theta_enemy))` in `1..255`), `enemy_dy` (`128 + round(127 * cos(cur_theta_obs - theta_enemy))` in `1..255`), `enemy_boost` (`255` if boosting else `0`).
 - **8 Scalars (`float32`):** `[log_length, body_radius_norm, boost_allowed, own_boost_state, turn_rate_norm, boundary_dist_norm, boundary_ego_dx, boundary_ego_dy]`.
-- **Explicit `LearnerIndex` & `out`-Batch Verification:** Callers construct `idx = LearnerIndex(sim, mask)` once (cloning `mask` and extracting `(env_idx, slot_idx)` with `0` steady-state address-reuse risk) and pass `idx` to `allocate_obs_batch(sim, idx)` and `build_obs(sim, idx, out=batch)`. `build_obs` raises `ValueError` if `out` was allocated for a different `LearnerIndex` or mask content.
+- **Explicit `LearnerIndex` & `out`-Batch Verification:** Callers construct `idx = LearnerIndex(sim, mask)` once (cloning `mask` and extracting `(env_idx, slot_idx)` with `0` steady-state address-reuse risk) and reuse that exact `idx` instance in `allocate_obs_batch(sim, idx)` and `build_obs(sim, idx, out=batch)` (`O(1)` `other is self` check, `0` host syncs). Passing a raw boolean `torch.Tensor` `learner_mask` (or a newly constructed `LearnerIndex`) alongside `out=` verifies mask equality via `torch.equal(..., out._learner_index.mask)`, which triggers a device-to-host sync on CUDA/MPS. `build_obs` raises `ValueError` if `out` was allocated for a different `LearnerIndex` or mask content.
 
 ## Configuration & Fixed-Point Constants
 
@@ -120,14 +120,25 @@ Every tick executes in the following deterministic order:
 | `corpse_mass_fraction` / `corpse_max_pellets` | `0.5` / `32` | Fraction of dead length dropped & max corpse orbs |
 | `obs_fine_size` / `obs_coarse_size` / `obs_scales` | `64` / `32` / `(1, 4, 16)` | Multi-scale ego raster sizes and unit scales |
 
-## Memory per World & Scaling `R = 2000` to `>= 256` Worlds on a `22 GiB` L4
+## Memory per World (`max_length = 2048`)
 
-- **Measured Per-World Footprint (`max_length = 2048`):**
-  - `R = 600, N = 24` (`G = 1248`): `sim` dropped from **`34.87 MiB/world` -> `27.44 MiB/world`** (`27.58 MiB/w` at `E = 2` incl. static tables; `-7.43 MiB/world`, `-21.3%`); with `8-of-24` `obs` (`0.61 MiB/w`) total is **`35.48 -> 28.05 MiB/world`** (`36.70 -> 29.27 MiB/w` with `24/24` `obs`). At `N = 64`, `sim` dropped from `52.06 -> 44.63 MiB/world` (`56.94 -> 49.51 MiB/w` with `64/64` `obs`).
-  - `R = 2000, N = 24` (`G = 4032`): `sim` dropped from **`355.98 MiB/world` -> `278.60 MiB/world`** at `E = 2` (`278.46 MiB/w` asymptotic per world; `-77.52 MiB/world`, `-21.8%`); with `8-of-24` `obs` total is **`356.59 -> 279.21 MiB/world`**. At `N = 64`, `sim` dropped from `522.12 -> 444.75 MiB/world`.
-- **Design for `>= 256` Worlds at `R = 2000` on a `22 GiB` L4 (`<= ~60 MiB/world` target):**
-  1. **Replace per-snake `4x` `occ_subtick_4x (G4, G4, N)` (`93.02 MiB/w` at `N = 24`) with owner-packed `4x` grids (`7.75 MiB/w`, `-85.27 MiB/w`):** Store `occ_hi_4x` + `occ_lo_4x` (`2 x int32` per `4x` cell) plus a tiny `uint8` max-enemy-bucket cache instead of `N` `int32` channels per `4x` cell.
-  2. **Page `1x` grids (`occ_hi`, `occ_lo`, `corpse_grid`, `ambient_grid` = `170.54 MiB/w`) into fixed-capacity active `16x16` macro-tiles (`~12 MiB/w`, `-158 MiB/w`):** At `N = 24, max_length = 2048`, all active snake discs touch `< 2,000` of the `63,504` `16x16` tiles (`< 3.2%`). A `(252, 252)` `int16` tile-index table (`0.12 MiB/w`) addressing a preallocated pool of `4,096` active `16x16` tiles per world (`4096 x 256 x 10 B = 10.0 MiB/w` for `occ_hi` + `occ_lo` + `corpse_grid`) plus a `1`-bit/cell `ambient_grid` bitmap (`1.94 MiB/w` when `ambient_pellet_value` is constant) lowers total `R = 2000, N = 24` simulator memory to **`~27–30 MiB/world`** (`~7.0–7.7 GiB` for `256` worlds on a `22 GiB` L4).
+| Arena Radius `R` | Grid `G` (`G4` / `G16`) | Snakes `N` | `1x` Body `occ_hi` + `occ_lo` (`MiB/w`) | `4x` + `16x` Body Pyramids (`MiB/w`) | `1x` + `4x` + `16x` Food Grids (`MiB/w`) | Rings + Slot State (`MiB/w`) | **Total Sim State (`MiB/world`)** | `+ 8-of-N` Obs (`MiB/w`) | `+ All-N` Obs (`MiB/w`) |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **`600`** | `1248` (`312` / `78`) | **`24`** | `11.88` | `9.47` (`8.91` + `0.56`) | `5.25` (`4.46` + `0.79`) | `0.85` | **`27.45 MiB`** | `28.06 MiB` | `29.27 MiB` |
+| `600` | `1248` (`312` / `78`) | `64` | `11.88` | `25.25` (`23.77` + `1.49`) | `5.25` (`4.46` + `0.79`) | `2.25` | **`44.63 MiB`** | `45.24 MiB` | `49.51 MiB` |
+| **`2000`** | `4032` (`1008` / `252`) | **`24`** | `124.03` | `98.84` (`93.02` + `5.81`) | `54.75` (`46.51` + `8.24`) | `0.85` | **`~278 MiB`** (`278.46`) | `279.07 MiB` | `280.29 MiB` |
+| `2000` | `4032` (`1008` / `252`) | `64` | `124.03` | `263.57` (`248.06` + `15.50`) | `54.75` (`46.51` + `8.24`) | `2.25` | **`444.60 MiB`** | `445.21 MiB` | `449.47 MiB` |
+
+- **In-place `rebase_subticks()` temporary memory:** `rebase_subticks` updates `ring_subtick`, `oldest_active_subtick`, `occ_hi`, `occ_lo`, `_occ_4x_blocks`, and `occ_subtick_16x` strictly in-place in `8`-world chunks with a single boolean mask per slice (`17.82 MiB` peak temporary tensor across any `E >= 8` at `R = 600, N = 24`, i.e. `0.25%` of `256`-world state instead of `+55.5 MiB/world` out-of-place).
+
+### What Would Be Needed for `R = 2000` at `>= 256` Worlds on a `22.5 GB` L4 (**NOT BUILT**)
+
+> **Status: NOT BUILT.** Dense `1x` + `N`-channel `4x` grids at `R = 2000, N = 24` require `~278 MiB/world` (`~71.3 GiB` for `256` worlds), so `R = 2000` currently supports small-`E` evaluation/smoke worlds rather than `256`-world single-L4 training. Fitting `>= 256` worlds at `R = 2000` inside `< 20 GB` (`<= ~30–60 MiB/world`) would require two structural changes (**not implemented**):
+
+1. **Paged `16x16` macro-tiles for `1x` grids (**NOT BUILT**; saves `~158 MiB/world` from `170.54 MiB/world` -> `~12 MiB/world`):**
+   At `N = 24, max_length = 2048`, all active snake discs touch `< 2,000` of the `63,504` `16x16` macro-tiles (`< 3.2%` of the `4032 x 4032` lattice). Replacing dense `(E, G, G)` `occ_hi`, `occ_lo`, and `corpse_grid` with a `(252, 252)` `int16` tile-index table (`0.12 MiB/world`) backed by a preallocated pool of `4,096` active `16x16` tiles per world (`4096 x 256 x 10 B = 10.0 MiB/world` for `occ_hi` + `occ_lo` + `corpse_grid`, allocated/freed via per-tile active refcounts or subtick max) plus a `1`-bit/cell `ambient_grid` bitmap (`1.94 MiB/world` when `ambient_pellet_value` is constant) would eliminate `~93%` of `1x` grid memory.
+2. **Owner-packed `4x` occupancy grids (**NOT BUILT**; saves `~85.3 MiB/world` from `93.02 MiB/world` -> `7.75 MiB/world`):**
+   Replacing per-snake `occ_subtick_4x (G4, G4, N)` (`24 x int32` per `4x` cell) with dual-bound `occ_hi_4x` + `occ_lo_4x` (`2 x int32` per `4x` cell) plus a `uint8` coarse enemy-size cache would drop combined `R = 2000, N = 24` simulator state to **`~27–30 MiB/world`** (`~7.0–7.7 GiB` for `256` worlds on an L4).
 
 ## CUDA Parity & Benchmark Entrypoint
 
@@ -147,4 +158,3 @@ python -m research.game_v3.cuda_check --device cuda --json-out /tmp/game_v3_cuda
 | `mps` | `256` | `24` | `133,457` -> **`133,297`** (`1.00x`) | `58,540` -> **`59,653`** (`+1.9%`) | `24,070` -> **`25,555`** (`+6.2%`) | `19.23` -> **`14.16`** (`1.36x`) | `18.13` -> **`5.17`** (`3.51x`) | `12,454` -> **`10,034`** |
 | `mps` | `64` | `64` | `82,146` -> **`84,090`** (`+2.4%`) | `69,316` -> **`59,083`** (`0.85x`) | `18,362` -> **`19,370`** (`+5.5%`) | `25.48` -> **`13.52`** (`1.88x`) | `14.91` -> **`17.08`** | `6,662` -> **`6,015`** |
 | `mps` | `256` | `64` | `107,423` -> **`241,019`** (`2.24x`) | `63,335` -> **`94,531`** (`+49.3%`) | `17,517` -> **`19,723`** (`+12.6%`) | `84.51` -> **`23.40`** (`3.61x`) | `42.16` -> **`19.28`** (`2.19x`) | `19,585` -> **`16,011`** |
-

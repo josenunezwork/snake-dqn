@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 import torch
 
+from research.game_v3 import sim as sim_mod
 from research.game_v3.config import NUM_ACTIONS, GameV3Config
 from research.game_v3.obs import LearnerIndex, allocate_obs_batch, build_obs, build_obs_reference
 from research.game_v3.reference import ReferenceStepInfo, ReferenceWorld
@@ -62,7 +63,20 @@ def assert_full_state_and_obs_parity(
     label: str = "cpu",
 ) -> None:
     """Assert bitwise-identical full state (and optional rings/obs) vs ReferenceWorld."""
-    assert sim.tick == refs[0].tick, f"[{label}] tick mismatch: {sim.tick} != {refs[0].tick}"
+    got_wticks = sim.world_ticks.detach().cpu().numpy()
+    exp_wticks = np.array([r.tick for r in refs], dtype=np.int64)
+    assert np.array_equal(
+        got_wticks, exp_wticks
+    ), f"[{label}] world_ticks mismatch at {tick}: {got_wticks} != {exp_wticks}"
+
+    got_occ = sim.active_occupancy_grid().detach().cpu().numpy()
+    exp_occ = np.stack([r.occ_grid for r in refs], axis=0)
+    if not np.array_equal(got_occ, exp_occ):
+        diff = np.argwhere(got_occ != exp_occ)[0]
+        raise AssertionError(
+            f"[{label}] active_occupancy_grid diverged at tick={tick}, idx={tuple(diff)}: "
+            f"got={got_occ[tuple(diff)]}, exp={exp_occ[tuple(diff)]}"
+        )
 
     for attr in _SNAKE_STATE_FIELDS:
         got = getattr(sim, attr).detach().cpu().numpy()
@@ -499,3 +513,322 @@ def test_parity_default_r600_n24() -> None:
                     learner_mask=mask_cpu.to("mps"),
                     label="r600-n24-mps",
                 )
+
+
+def test_parity_truncate_masks_all_shapes_vs_reference() -> None:
+    """MINOR 1a: Parity vs ReferenceWorld for bool, (E,), and (E, N) truncate= masks."""
+    cfg = GameV3Config(
+        arena_radius=100.0,
+        num_snakes=16,
+        respawn_delay=5,
+        max_life_ticks=40,
+        ambient_food_density=0.02,
+    )
+    num_envs = 6
+    seeds = [7100 + e for e in range(num_envs)]
+    sim = GameV3Sim(cfg, num_envs=num_envs, device="cpu", seeds=seeds)
+    refs = [ReferenceWorld(cfg, seed=s) for s in seeds]
+    sim_mps = (
+        GameV3Sim(cfg, num_envs=num_envs, device="mps", seeds=seeds)
+        if torch.backends.mps.is_available()
+        else None
+    )
+
+    rng = np.random.default_rng(710016)
+    learner_mask = torch.from_numpy(rng.random((num_envs, cfg.num_snakes)) < 0.4)
+    total_rollout_truncs = 0
+
+    for t in range(1, 91):
+        if t % 3 == 0:
+            act = food_seeking_actions(sim)
+        elif t % 3 == 1:
+            act = random_safe_actions(sim)
+        else:
+            act = torch.from_numpy(
+                rng.integers(0, NUM_ACTIONS, size=(num_envs, cfg.num_snakes), dtype=np.int64)
+            )
+        act_np = act.numpy()
+
+        # Cycle across all supported truncate= forms: False, True, (E,), (E, N), and post-step flag.
+        use_post_flag = False
+        if t % 11 == 0:
+            trunc_sim: bool | torch.Tensor = True
+            ref_truncs: list[bool | np.ndarray] = [True for _ in range(num_envs)]
+        elif t % 7 == 0:
+            w_mask_np = rng.random((num_envs,)) < 0.5
+            w_mask_np[t % num_envs] = True
+            trunc_sim = torch.from_numpy(w_mask_np)
+            ref_truncs = [bool(w_mask_np[e]) for e in range(num_envs)]
+        elif t % 5 == 0:
+            s_mask_np = rng.random((num_envs, cfg.num_snakes)) < 0.35
+            trunc_sim = torch.from_numpy(s_mask_np)
+            ref_truncs = [s_mask_np[e] for e in range(num_envs)]
+        elif t % 13 == 0:
+            use_post_flag = True
+            post_np = rng.random((num_envs, cfg.num_snakes)) < 0.45
+            trunc_sim = False
+            ref_truncs = [post_np[e] for e in range(num_envs)]
+        else:
+            trunc_sim = False
+            ref_truncs = [False for _ in range(num_envs)]
+
+        info = sim.step(act, truncate=trunc_sim)
+        if use_post_flag:
+            post_t = torch.from_numpy(np.stack(ref_truncs, axis=0))
+            info.flag_truncation(post_t)
+        ref_infos = [refs[e].step(act_np[e], truncate=ref_truncs[e]) for e in range(num_envs)]
+        assert_step_info_parity(info, ref_infos, t, label="truncate-masks")
+
+        if sim_mps is not None:
+            trunc_mps = trunc_sim.to("mps") if isinstance(trunc_sim, torch.Tensor) else trunc_sim
+            info_m = sim_mps.step(act.to("mps"), truncate=trunc_mps)
+            if use_post_flag:
+                info_m.flag_truncation(torch.from_numpy(np.stack(ref_truncs, axis=0)).to("mps"))
+            for k in info.__dataclass_fields__:
+                assert torch.equal(getattr(info, k), getattr(info_m, k).cpu())
+
+        if t % 11 == 0 or t % 7 == 0 or t % 5 == 0 or use_post_flag:
+            total_rollout_truncs += int(info.truncated.sum().item())
+
+        if t in (1, 15, 35, 40, 41, 65, 90):
+            assert_full_state_and_obs_parity(
+                sim,
+                refs,
+                t,
+                check_rings=True,
+                check_obs=True,
+                learner_mask=learner_mask,
+                label="truncate-masks",
+            )
+            if sim_mps is not None:
+                assert_full_state_and_obs_parity(
+                    sim_mps,
+                    refs,
+                    t,
+                    check_rings=True,
+                    check_obs=True,
+                    learner_mask=learner_mask.to("mps"),
+                    label="truncate-masks-mps",
+                )
+
+    assert total_rollout_truncs >= 100
+
+
+def test_parity_forced_rebases_and_repeated_reset_worlds_600_ticks_vs_reference(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """MINOR 1b: Parity vs ReferenceWorld across forced rebases + repeated reset_worlds (600 ticks).
+
+    Exercises:
+      - Patched low ``AUTO_REBASE_SUBTICK_THRESHOLD = 96`` triggering repeated automatic rebases
+        during ``step()`` and inside ``reset_worlds()``, plus explicit ``rebase_subticks()`` calls;
+      - 8 ``reset_worlds`` calls across 600 ticks (single-world, subset, alternating, all-world,
+        and empty masks; ``seeds=None``, ``(E,)`` seeds, and ``(m_envs,)`` seeds) while un-reset
+        worlds continue running across multiple rebases;
+      - Heavy boosting (actions 5..9), fractional boost shedding/drops, kills, deaths, respawns,
+        and ``truncate=`` masks, verifying full game state, ``StepInfo``, rings, disjoint surviving
+        discs, and ``build_obs`` vs ``build_obs_reference``.
+    """
+    monkeypatch.setattr(sim_mod, "AUTO_REBASE_SUBTICK_THRESHOLD", 96)
+    cfg = GameV3Config(
+        arena_radius=105.0,
+        num_snakes=18,
+        max_length=48,
+        respawn_delay=6,
+        ambient_food_density=0.022,
+    )
+    num_envs = 8
+    num_ticks = 600
+    init_seeds = [8200 + e * 13 for e in range(num_envs)]
+    sim = GameV3Sim(cfg, num_envs=num_envs, device="cpu", seeds=init_seeds)
+    refs = [ReferenceWorld(cfg, seed=s) for s in init_seeds]
+    sim_mps = (
+        GameV3Sim(cfg, num_envs=num_envs, device="mps", seeds=init_seeds)
+        if torch.backends.mps.is_available()
+        else None
+    )
+
+    rng = np.random.default_rng(20261112)
+    learner_mask = torch.tensor(
+        [[(e + j) % 3 == 0 for j in range(cfg.num_snakes)] for e in range(num_envs)],
+        dtype=torch.bool,
+    )
+    assert_full_state_and_obs_parity(
+        sim, refs, 0, check_rings=True, check_obs=True, learner_mask=learner_mask, label="rebase-rw"
+    )
+
+    reset_schedule: dict[int, tuple[list[int], str]] = {
+        60: ([0], "subset_seeds"),
+        135: ([1, 3, 5, 7], "full_seeds"),
+        210: ([], "none_seeds"),  # empty world_mask no-op check
+        285: ([2, 4, 6], "subset_seeds"),
+        360: ([0, 3, 7], "none_seeds"),  # re-seed from current sim.seeds
+        435: (list(range(num_envs)), "full_seeds"),  # all-worlds reset_worlds
+        510: ([1, 2, 5, 6], "force_reset_rebase"),  # forces auto-rebase inside reset_worlds
+        560: ([4], "subset_seeds"),
+    }
+
+    rebase_events = 0
+    reset_calls = 0
+    total_deaths = 0
+    total_kills = 0
+
+    for t in range(1, num_ticks + 1):
+        # Mix food-seeking with heavy boost actions (5..9) whenever length > min_boost_length.
+        if t % 3 == 0:
+            act = food_seeking_actions(sim).clone()
+            can_boost = sim.length > cfg.min_boost_length
+            boost_draw = torch.from_numpy(
+                rng.integers(5, NUM_ACTIONS, size=(num_envs, cfg.num_snakes), dtype=np.int64)
+            )
+            boost_slots = torch.from_numpy(rng.random((num_envs, cfg.num_snakes)) < 0.65)
+            act = torch.where(can_boost & boost_slots, boost_draw, act)
+        elif t % 3 == 1:
+            act = random_safe_actions(sim)
+        else:
+            act = torch.from_numpy(
+                rng.integers(0, NUM_ACTIONS, size=(num_envs, cfg.num_snakes), dtype=np.int64)
+            )
+        act_np = act.numpy()
+
+        if t % 80 == 0:
+            s_mask_np = rng.random((num_envs, cfg.num_snakes)) < 0.4
+            trunc_arg: bool | torch.Tensor = torch.from_numpy(s_mask_np)
+            ref_truncs: list[bool | np.ndarray] = [s_mask_np[e] for e in range(num_envs)]
+        elif t % 45 == 0:
+            w_mask_np = np.array([(e + t) % 2 == 0 for e in range(num_envs)], dtype=bool)
+            trunc_arg = torch.from_numpy(w_mask_np)
+            ref_truncs = [bool(w_mask_np[e]) for e in range(num_envs)]
+        else:
+            trunc_arg = False
+            ref_truncs = [False for _ in range(num_envs)]
+
+        off_before = sim._subtick_offset
+        info = sim.step(act, truncate=trunc_arg)
+        if sim._subtick_offset > off_before:
+            rebase_events += 1
+        ref_infos = [refs[e].step(act_np[e], truncate=ref_truncs[e]) for e in range(num_envs)]
+        assert_step_info_parity(info, ref_infos, t, label="rebase-rw")
+
+        if sim_mps is not None:
+            t_mps = trunc_arg.to("mps") if isinstance(trunc_arg, torch.Tensor) else trunc_arg
+            info_m = sim_mps.step(act.to("mps"), truncate=t_mps)
+            assert sim_mps._subtick_offset == sim._subtick_offset
+            for k in info.__dataclass_fields__:
+                assert torch.equal(getattr(info, k), getattr(info_m, k).cpu())
+
+        total_deaths += int(info.died.sum().item())
+        total_kills += int(info.kill_credit.sum().item())
+
+        # Also run explicit manual rebase_subticks() mid-flight at ticks 170 and 475.
+        if t in (170, 475):
+            sh = sim.rebase_subticks()
+            if sh > 0:
+                rebase_events += 1
+            if sim_mps is not None:
+                sh_m = sim_mps.rebase_subticks()
+                assert sh_m == sh
+            assert_full_state_and_obs_parity(
+                sim,
+                refs,
+                t,
+                check_rings=True,
+                check_obs=True,
+                learner_mask=learner_mask,
+                label="manual-rebase",
+            )
+
+        if t in reset_schedule:
+            sel_envs, seed_mode = reset_schedule[t]
+            wmask = torch.zeros((num_envs,), dtype=torch.bool)
+            for e_idx in sel_envs:
+                wmask[e_idx] = True
+
+            off_pre_reset = sim._subtick_offset
+            if seed_mode == "none_seeds":
+                sim.reset_worlds(wmask)
+                if sim_mps is not None:
+                    sim_mps.reset_worlds(wmask.to("mps"))
+                for e_idx in sel_envs:
+                    refs[e_idx] = ReferenceWorld(cfg, seed=int(sim.seeds[e_idx].item()))
+            elif seed_mode == "full_seeds":
+                full_seeds = [50_000 + t * 29 + e for e in range(num_envs)]
+                sim.reset_worlds(wmask, seeds=full_seeds)
+                if sim_mps is not None:
+                    sim_mps.reset_worlds(wmask.to("mps"), seeds=full_seeds)
+                for e_idx in sel_envs:
+                    refs[e_idx] = ReferenceWorld(cfg, seed=full_seeds[e_idx])
+            elif seed_mode == "subset_seeds":
+                sub_seeds = [70_000 + t * 37 + k for k in range(len(sel_envs))]
+                sim.reset_worlds(wmask, seeds=sub_seeds)
+                if sim_mps is not None:
+                    sim_mps.reset_worlds(wmask.to("mps"), seeds=sub_seeds)
+                for k, e_idx in enumerate(sel_envs):
+                    refs[e_idx] = ReferenceWorld(cfg, seed=sub_seeds[k])
+            elif seed_mode == "force_reset_rebase":
+                sub_seeds = [90_000 + t * 41 + k for k in range(len(sel_envs))]
+                saved_th = sim_mod.AUTO_REBASE_SUBTICK_THRESHOLD
+                try:
+                    init_st = max(1, sim.max_pts * sim.tick + 1 - sim._subtick_offset)
+                    sim_mod.AUTO_REBASE_SUBTICK_THRESHOLD = max(4, init_st)
+                    sim.reset_worlds(wmask, seeds=sub_seeds)
+                    if sim_mps is not None:
+                        sim_mps.reset_worlds(wmask.to("mps"), seeds=sub_seeds)
+                finally:
+                    sim_mod.AUTO_REBASE_SUBTICK_THRESHOLD = saved_th
+                assert sim._subtick_offset > off_pre_reset
+                for k, e_idx in enumerate(sel_envs):
+                    refs[e_idx] = ReferenceWorld(cfg, seed=sub_seeds[k])
+
+            if sim._subtick_offset > off_pre_reset:
+                rebase_events += 1
+            reset_calls += 1
+            sim.assert_surviving_discs_disjoint()
+            assert_full_state_and_obs_parity(
+                sim,
+                refs,
+                t,
+                check_rings=True,
+                check_obs=True,
+                learner_mask=learner_mask,
+                label=f"post-reset-{t}",
+            )
+            if sim_mps is not None:
+                assert_full_state_and_obs_parity(
+                    sim_mps,
+                    refs,
+                    t,
+                    check_rings=True,
+                    check_obs=True,
+                    learner_mask=learner_mask.to("mps"),
+                    label=f"post-reset-mps-{t}",
+                )
+
+        if t % 50 == 0 or t == num_ticks:
+            sim.assert_surviving_discs_disjoint()
+            assert_full_state_and_obs_parity(
+                sim,
+                refs,
+                t,
+                check_rings=True,
+                check_obs=True,
+                learner_mask=learner_mask,
+                label="rebase-rw",
+            )
+            if sim_mps is not None:
+                assert_full_state_and_obs_parity(
+                    sim_mps,
+                    refs,
+                    t,
+                    check_rings=True,
+                    check_obs=True,
+                    learner_mask=learner_mask.to("mps"),
+                    label="rebase-rw-mps",
+                )
+
+    assert reset_calls == 8
+    assert rebase_events >= 10
+    assert sim._subtick_offset >= 500
+    assert total_deaths >= 150
+    assert total_kills >= 25
+    assert int(sim.total_boost_decay_sink.sum().item()) > 0

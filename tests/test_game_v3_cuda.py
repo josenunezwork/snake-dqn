@@ -30,6 +30,8 @@ def test_cuda_32_worlds_x_1000_ticks_vs_cpu_bitwise_parity() -> None:
         check_every=100,
     )
     assert result["passed"] is True
+    assert result["rebases"] >= 2
+    assert result["world_resets"] >= 2
     assert result["total_deaths"] >= 100
     assert result["total_kills"] >= 20
     assert result["total_rollout_truncations"] > 0
@@ -67,5 +69,15 @@ def test_cuda_check_entrypoint_writes_single_json(tmp_path: Path) -> None:
     assert out_json.is_file()
     payload = json.loads(out_json.read_text(encoding="utf-8"))
     assert payload["schema"] == "game-v3-cuda-check/v1"
+    assert payload["plan"]["within_l4_budget"] is True
     assert payload["parity"]["passed"] is True
+    assert payload["parity"]["deterministic_algorithms"] is False
+    assert payload["parity"]["rebases"] >= 1
+    assert payload["parity"]["world_resets"] >= 1
+    assert payload["parity_deterministic"]["passed"] is True
+    assert payload["parity_deterministic"]["deterministic_algorithms"] is True
+    assert payload["parity_deterministic"]["rebases"] >= 1
+    assert payload["parity_deterministic"]["world_resets"] >= 1
     assert len(payload["benchmarks"]) == 1
+    assert payload["benchmarks"][0]["deterministic_algorithms"] is False
+    assert payload["benchmarks"][0]["cases"][0]["status"] == "ok"

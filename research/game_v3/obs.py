@@ -187,7 +187,15 @@ class LearnerIndex:
         )
 
     def matches(self, other: LearnerIndex | torch.Tensor | None) -> bool:
-        """Return True iff ``other`` selects the exact same ``(E, N)`` mask on ``device``."""
+        """Return True iff ``other`` selects the exact same ``(E, N)`` mask on ``device``.
+
+        Note:
+            Passing the exact same :class:`LearnerIndex` instance (``other is self``) returns
+            ``True`` in ``O(1)`` on the host with zero device synchronization. Passing a raw
+            boolean ``torch.Tensor`` mask (or a distinct :class:`LearnerIndex` instance with
+            matching shape/count) verifies content via ``torch.equal(..., self.mask)``, which
+            triggers a device-to-host synchronization on CUDA/MPS.
+        """
         if other is self:
             return True
         if other is None:
@@ -692,8 +700,12 @@ def build_obs(
     """Build multi-scale uint8 pyramid observations on ``sim.device``.
 
     For zero-host-sync steady-state rollouts, construct a :class:`LearnerIndex` once,
-    allocate ``out = allocate_obs_batch(sim, idx)``, and call ``build_obs(sim, idx, out=out)``.
-    Passing an ``out`` batch built with a different mask/index raises ``ValueError``.
+    allocate ``out = allocate_obs_batch(sim, idx)``, and reuse that same ``idx`` instance in
+    ``build_obs(sim, idx, out=out)`` (fast ``other is self`` identity check). Passing a raw
+    boolean ``torch.Tensor`` ``learner_mask`` (or a newly constructed :class:`LearnerIndex`)
+    with ``out=`` validates mask equality via ``torch.equal(..., out._learner_index.mask)``,
+    which incurs a device-to-host synchronization on CUDA/MPS. Passing an ``out`` batch built
+    with a different mask/index raises ``ValueError``.
     """
     cache = _get_obs_cache(sim)
     spec = _coerce_learner_spec(sim, learner_mask, learner_index)

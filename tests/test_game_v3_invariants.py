@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import copy
+import gc
 import json
 import math
+import weakref
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
 import torch
+from torch.utils._python_dispatch import TorchDispatchMode
 
 from research.game_v3 import cuda_check
 from research.game_v3 import sim as sim_mod
@@ -71,7 +75,8 @@ def _clear_world(sim: GameV3Sim) -> None:
 
     sim.occ_hi.fill_(-1)
     sim.occ_lo.fill_(-1)
-    sim.occ_subtick_4x.fill_(-1)
+    for blk in sim._occ_4x_blocks:
+        blk.fill_(-1)
     sim.occ_subtick_16x.fill_(-1)
 
     sim.ambient_grid.zero_()
@@ -1553,7 +1558,7 @@ def test_ready_only_respawn_skips_work_and_n64_food_tiebreak_parity(
 
 
 def test_cuda_check_cli_smoke_on_cpu(tmp_path: Path) -> None:
-    """SMALLER 10: cuda_check.py CLI runs parity + benchmark and writes one valid JSON result."""
+    """SMALLER 10: cuda_check.py CLI runs dual parity + benchmark and writes one valid JSON."""
     out_json = tmp_path / "cuda_check_cpu_smoke.json"
     rc = cuda_check.main(
         [
@@ -1562,7 +1567,9 @@ def test_cuda_check_cli_smoke_on_cpu(tmp_path: Path) -> None:
             "--parity-envs",
             "4",
             "--parity-ticks",
-            "16",
+            "24",
+            "--det-parity-ticks",
+            "24",
             "--parity-snakes",
             "8",
             "--parity-arena-radius",
@@ -1589,8 +1596,469 @@ def test_cuda_check_cli_smoke_on_cpu(tmp_path: Path) -> None:
     assert out_json.is_file()
     payload = json.loads(out_json.read_text(encoding="utf-8"))
     assert payload["schema"] == "game-v3-cuda-check/v1"
+    assert payload["status"] == "completed"
+    assert payload["plan"]["within_l4_budget"] is True
     assert payload["parity"]["passed"] is True
+    assert payload["parity"]["deterministic_algorithms"] is False
     assert payload["parity"]["num_envs"] == 4
-    assert payload["parity"]["num_ticks"] == 16
+    assert payload["parity"]["num_ticks"] == 24
+    assert payload["parity"]["rebases"] >= 1
+    assert payload["parity"]["world_resets"] >= 1
+    assert payload["parity_deterministic"]["passed"] is True
+    assert payload["parity_deterministic"]["deterministic_algorithms"] is True
+    assert payload["parity_deterministic"]["rebases"] >= 1
+    assert payload["parity_deterministic"]["world_resets"] >= 1
     assert len(payload["benchmarks"]) == 1
+    assert payload["benchmarks"][0]["deterministic_algorithms"] is False
+    assert payload["benchmarks"][0]["cases"][0]["status"] == "ok"
+    assert payload["benchmarks"][0]["cases"][0]["oom"] is False
     assert payload["benchmarks"][0]["cases"][0]["agent_steps_per_sec"] > 0.0
+
+
+def _collect_sim_storage_ptrs(sim: GameV3Sim) -> set[int]:
+    """Return data pointers of all UntypedStorage objects owned by ``sim``."""
+    ptrs: set[int] = set()
+    for val in sim.__dict__.values():
+        if isinstance(val, torch.Tensor):
+            ptrs.add(val.untyped_storage().data_ptr())
+        elif isinstance(val, (list, tuple)):
+            for item in val:
+                if isinstance(item, torch.Tensor):
+                    ptrs.add(item.untyped_storage().data_ptr())
+    return ptrs
+
+
+class _CpuStorageWaterMarkTracker(TorchDispatchMode):
+    """Torch CPU tracemalloc-equivalent tracking live bytes of newly allocated UntypedStorages.
+
+    Intercepts every ATen C++ operation dispatched during the ``with`` block, inspects all
+    returned CPU ``torch.Tensor`` outputs, records any ``UntypedStorage`` whose ``data_ptr()``
+    was not present in ``baseline_ptrs`` (sized by ``storage.nbytes()``), and decrements
+    ``live_bytes`` via ``weakref.finalize(storage, ...)`` immediately when a temporary storage
+    is freed. Reports ``(peak_live_bytes, total_allocated_bytes)``.
+    """
+
+    def __init__(self, baseline_ptrs: set[int]) -> None:
+        super().__init__()
+        self.baseline_ptrs: set[int] = set(baseline_ptrs)
+        self.active_allocs: dict[int, int] = {}
+        self.live_bytes: int = 0
+        self.peak_bytes: int = 0
+        self.total_allocated_bytes: int = 0
+
+    def _on_free(self, ptr: int) -> None:
+        freed = self.active_allocs.pop(ptr, 0)
+        self.live_bytes -= freed
+
+    def _inspect(self, obj: Any) -> None:
+        if isinstance(obj, torch.Tensor):
+            if obj.device.type != "cpu":
+                return
+            st = obj.untyped_storage()
+            ptr = st.data_ptr()
+            nbytes = st.nbytes()
+            if nbytes <= 0 or ptr in self.baseline_ptrs or ptr in self.active_allocs:
+                return
+            self.active_allocs[ptr] = nbytes
+            self.live_bytes += nbytes
+            self.total_allocated_bytes += nbytes
+            if self.live_bytes > self.peak_bytes:
+                self.peak_bytes = self.live_bytes
+            weakref.finalize(st, self._on_free, ptr)
+        elif isinstance(obj, (tuple, list)):
+            for item in obj:
+                self._inspect(item)
+
+    def __torch_dispatch__(
+        self,
+        func: Any,
+        types: tuple[type, ...],
+        args: tuple[Any, ...] = (),
+        kwargs: dict[str, Any] | None = None,
+    ) -> Any:
+        out = func(*args, **(kwargs or {}))
+        self._inspect(out)
+        return out
+
+
+def _reference_out_of_place_rebase_1x(grid: torch.Tensor, shift_val: int) -> torch.Tensor:
+    """Reference pre-optimization bit-shift formula for 1x packed occupancy grids."""
+    st = grid >> 6
+    return torch.where(
+        (grid >= 0) & (st > shift_val),
+        ((st - shift_val) << 6) | (grid & 63),
+        -1,
+    )
+
+
+def test_rebase_subticks_inplace_bitwise_identity_and_int32_boundaries() -> None:
+    """MAJOR: In-place chunked rebase_subticks is bitwise identical to bit-shift reference."""
+    # Part 1: Multi-chunk E=19 (> 2 * _REBASE_ENV_CHUNK) realistic world with boosts & deaths.
+    cfg = GameV3Config(arena_radius=90.0, num_snakes=16, respawn_delay=4, ambient_food_density=0.02)
+    sim = GameV3Sim(cfg, num_envs=19, device="cpu", seeds=[700 + e for e in range(19)])
+    for _ in range(32):
+        sim.step(food_seeking_actions(sim))
+
+    hi_before = sim.occ_hi.clone()
+    lo_before = sim.occ_lo.clone()
+    occ4_before = sim.occ_subtick_4x.clone()
+    occ16_before = sim.occ_subtick_16x.clone()
+    ring_st_before = sim.ring_subtick.clone()
+    oldest_before = sim.oldest_active_subtick.clone()
+    alive_before = sim.alive.clone()
+    frontier_st = max(2, sim.max_pts * sim.tick + 2 - sim._subtick_offset + sim.max_pts + 1)
+
+    ptrs_before = {
+        "ring_subtick": sim.ring_subtick.data_ptr(),
+        "oldest_active_subtick": sim.oldest_active_subtick.data_ptr(),
+        "occ_hi": sim.occ_hi.data_ptr(),
+        "occ_lo": sim.occ_lo.data_ptr(),
+        "occ_4x_0": sim._occ_4x_blocks[0].data_ptr(),
+        "occ_16x": sim.occ_subtick_16x.data_ptr(),
+    }
+
+    shift_val = sim.rebase_subticks()
+    assert shift_val > 20
+
+    # Every mutated state tensor must preserve its storage pointer (strictly in-place).
+    assert sim.ring_subtick.data_ptr() == ptrs_before["ring_subtick"]
+    assert sim.oldest_active_subtick.data_ptr() == ptrs_before["oldest_active_subtick"]
+    assert sim.occ_hi.data_ptr() == ptrs_before["occ_hi"]
+    assert sim.occ_lo.data_ptr() == ptrs_before["occ_lo"]
+    assert sim._occ_4x_blocks[0].data_ptr() == ptrs_before["occ_4x_0"]
+    assert sim.occ_subtick_16x.data_ptr() == ptrs_before["occ_16x"]
+
+    exp_ring_st = (ring_st_before - shift_val).clamp_min(0)
+    new_sentinel = max(2, frontier_st - shift_val)
+    exp_oldest = torch.where(
+        alive_before,
+        oldest_before - shift_val,
+        torch.full_like(oldest_before, new_sentinel),
+    )
+    exp_hi = _reference_out_of_place_rebase_1x(hi_before, shift_val)
+    exp_lo = _reference_out_of_place_rebase_1x(lo_before, shift_val)
+    exp_4x = torch.where(occ4_before > shift_val, occ4_before - shift_val, -1)
+    exp_16x = torch.where(occ16_before > shift_val, occ16_before - shift_val, -1)
+
+    assert torch.equal(sim.ring_subtick, exp_ring_st)
+    assert torch.equal(sim.oldest_active_subtick, exp_oldest)
+    assert torch.equal(sim.occ_hi, exp_hi)
+    assert torch.equal(sim.occ_lo, exp_lo)
+    assert torch.equal(sim.occ_subtick_4x, exp_4x)
+    assert torch.equal(sim.occ_subtick_16x, exp_16x)
+
+    # Part 2: Signed int32 boundary values including shift = MAX_OCC_SUBTICK - 1 and MAX_OCC_SUBTICK
+    # (where naive ``(shift + 1) << 6`` would overflow signed int32).
+    cfg_edge = GameV3Config(arena_radius=48.0, num_snakes=8)
+    for test_shift in (1, 137, MAX_OCC_SUBTICK - 1):
+        sim_e = GameV3Sim(cfg_edge, num_envs=2, device="cpu", seeds=[1, 2])
+        _clear_world(sim_e)
+        sim_e.alive[0, 0] = True
+        sim_e.oldest_active_subtick[0, 0] = MAX_OCC_SUBTICK
+        sim_e.tick = MAX_OCC_SUBTICK
+
+        edge_1x = torch.tensor(
+            [
+                -(1 << 31),
+                -65,
+                -1,
+                0,
+                63,
+                (test_shift << 6) - 1,
+                test_shift << 6,
+                (test_shift << 6) | 63,
+                (test_shift + 1) << 6,
+                ((test_shift + 1) << 6) | 63,
+                (MAX_OCC_SUBTICK << 6) | 0,
+                (MAX_OCC_SUBTICK << 6) | 63,  # INT32_MAX = 2,147,483,647
+            ],
+            dtype=torch.int32,
+        )
+        sim_e.occ_hi.view(-1)[: edge_1x.numel()] = edge_1x
+        sim_e.occ_lo.view(-1)[: edge_1x.numel()] = edge_1x.flip(0)
+
+        edge_pyr = torch.tensor(
+            [-(1 << 31), -1, 0, test_shift - 1, test_shift, test_shift + 1, MAX_OCC_SUBTICK],
+            dtype=torch.int32,
+        )
+        sim_e._occ_4x_blocks[0].view(-1)[: edge_pyr.numel()] = edge_pyr
+        sim_e.occ_subtick_16x.view(-1)[: edge_pyr.numel()] = edge_pyr
+
+        hi_snap = sim_e.occ_hi.clone()
+        lo_snap = sim_e.occ_lo.clone()
+        p4_snap = sim_e.occ_subtick_4x.clone()
+        p16_snap = sim_e.occ_subtick_16x.clone()
+
+        got_shift = sim_e.rebase_subticks(test_shift)
+        assert got_shift == test_shift
+        assert torch.equal(sim_e.occ_hi, _reference_out_of_place_rebase_1x(hi_snap, test_shift))
+        assert torch.equal(sim_e.occ_lo, _reference_out_of_place_rebase_1x(lo_snap, test_shift))
+        assert torch.equal(
+            sim_e.occ_subtick_4x,
+            torch.where(p4_snap > test_shift, p4_snap - test_shift, -1),
+        )
+        assert torch.equal(
+            sim_e.occ_subtick_16x,
+            torch.where(p16_snap > test_shift, p16_snap - test_shift, -1),
+        )
+
+
+def test_rebase_subticks_and_reset_worlds_peak_temp_memory_fraction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """MAJOR: Peak live temporary CPU tensor memory of rebase_subticks & reset_worlds < 5% state.
+
+    Exact measurement methodology:
+      - ``state_bytes`` is the deduplicated byte footprint of all simulator tensors owned by
+        ``GameV3Sim`` at ``R=600, N=24, E=16`` (~439.4 MiB = 27.46 MiB/world).
+      - ``_CpuStorageWaterMarkTracker`` (a ``TorchDispatchMode``) intercepts every ATen op inside
+        the target call, sums ``UntypedStorage.nbytes()`` for all newly allocated CPU storages
+        not in the pre-call baseline pointer set, and subtracts freed bytes immediately via
+        ``weakref.finalize`` on storage destruction — giving the exact peak live temporary Torch
+        CPU storage high-water mark (excluding persistent simulator state).
+      - Cross-checked against ``torch.profiler.profile(activities=[CPU], profile_memory=True)``
+        cumulative ``self_cpu_memory_usage`` high-water mark over ``c10::alloc_cpu``/``free_cpu``.
+    """
+    cfg = GameV3Config(arena_radius=600.0, num_snakes=24)
+    num_envs = 16
+    sim = GameV3Sim(cfg, num_envs=num_envs, device="cpu", seeds=list(range(100, 100 + num_envs)))
+
+    # Advance subticks past initial spawn segments so rebase_subticks performs a real shift > 0.
+    sim.tick = 5000
+    sim.oldest_active_subtick.add_(5000)
+    sim.ring_subtick[sim.ring_subtick > 0] += 5000
+    sim.occ_hi[sim.occ_hi >= 0] += 5000 << 6
+    sim.occ_lo[sim.occ_lo >= 0] += 5000 << 6
+    sim._occ_4x_blocks[0][sim._occ_4x_blocks[0] >= 0] += 5000
+    sim.occ_subtick_16x[sim.occ_subtick_16x >= 0] += 5000
+
+    state_bytes = _tensor_bytes_of_sim_and_obs(sim, None)
+    assert state_bytes > 400 * 1024 * 1024  # ~439.36 MiB across 16 worlds (27.46 MiB/world)
+    max_allowed_fraction = 0.05  # 5% of state (~21.97 MiB cap vs ~513.96 MiB / 117% pre-fix!)
+
+    # 1. Measure rebase_subticks() peak live temporary CPU memory.
+    baseline_ptrs = _collect_sim_storage_ptrs(sim)
+    gc.collect()
+    with _CpuStorageWaterMarkTracker(baseline_ptrs) as rebase_mem:
+        shifted = sim.rebase_subticks()
+    assert shifted >= 5000
+    assert _collect_sim_storage_ptrs(sim) == baseline_ptrs, "rebase_subticks replaced state storage"
+    rebase_frac = rebase_mem.peak_bytes / state_bytes
+    state_mib = state_bytes / 1048576
+    assert rebase_frac < max_allowed_fraction, (
+        f"rebase_subticks peak temp CPU memory {rebase_mem.peak_bytes / 1048576:.2f} MiB "
+        f"({rebase_frac:.2%} of {state_mib:.2f} MiB state) >= {max_allowed_fraction:.0%}"
+    )
+
+    # Cross-check with torch.profiler CPU allocator events on a second rebase.
+    sim.tick += 5000
+    sim.oldest_active_subtick.add_(5000)
+    sim.ring_subtick[sim.ring_subtick > 0] += 5000
+    gc.collect()
+    with torch.profiler.profile(
+        activities=[torch.profiler.ProfilerActivity.CPU],
+        profile_memory=True,
+    ) as prof:
+        shifted2 = sim.rebase_subticks()
+    assert shifted2 == 5000
+    prof_cur = 0
+    prof_peak = 0
+    for ev in sorted(prof.events(), key=lambda e: e.time_range.start):
+        prof_cur += int(ev.self_cpu_memory_usage)
+        if prof_cur > prof_peak:
+            prof_peak = prof_cur
+    assert (prof_peak / state_bytes) < max_allowed_fraction
+
+    # 2. Measure reset_worlds() peak live temporary CPU memory (normal partial reset).
+    world_mask = torch.tensor([(e % 2) == 0 for e in range(num_envs)], dtype=torch.bool)
+    new_seeds = torch.tensor([9000 + e for e in range(num_envs)], dtype=torch.int64)
+    baseline_ptrs = _collect_sim_storage_ptrs(sim)
+    gc.collect()
+    with _CpuStorageWaterMarkTracker(baseline_ptrs) as reset_mem:
+        sim.reset_worlds(world_mask, seeds=new_seeds)
+    assert _collect_sim_storage_ptrs(sim) == baseline_ptrs, "reset_worlds replaced state storage"
+    reset_frac = reset_mem.peak_bytes / state_bytes
+    assert reset_frac < max_allowed_fraction, (
+        f"reset_worlds peak temp CPU memory {reset_mem.peak_bytes / 1048576:.2f} MiB "
+        f"({reset_frac:.2%} of {state_mib:.2f} MiB state) >= {max_allowed_fraction:.0%}"
+    )
+
+    # 3. Measure reset_worlds() when it triggers an automatic rebase_subticks() internally.
+    sim.tick += 5000
+    sim.oldest_active_subtick.add_(5000)
+    sim.ring_subtick[sim.ring_subtick > 0] += 5000
+    monkeypatch.setattr(sim_mod, "AUTO_REBASE_SUBTICK_THRESHOLD", 64)
+    off_before = sim._subtick_offset
+    baseline_ptrs = _collect_sim_storage_ptrs(sim)
+    gc.collect()
+    with _CpuStorageWaterMarkTracker(baseline_ptrs) as reset_rebase_mem:
+        sim.reset_worlds(world_mask, seeds=new_seeds + 100)
+    assert sim._subtick_offset > off_before, "Expected reset_worlds to trigger auto-rebase"
+    assert _collect_sim_storage_ptrs(sim) == baseline_ptrs
+    reset_rebase_frac = reset_rebase_mem.peak_bytes / state_bytes
+    assert reset_rebase_frac < max_allowed_fraction, (
+        f"reset_worlds+rebase peak temp CPU memory "
+        f"{reset_rebase_mem.peak_bytes / 1048576:.2f} MiB "
+        f"({reset_rebase_frac:.2%} of state) >= {max_allowed_fraction:.0%}"
+    )
+
+
+def test_occ_subtick_4x_returns_on_sim_device_for_multi_block_sim() -> None:
+    """MINOR 4: occ_subtick_4x returns on sim.device even when sharded across >1 _occ_4x_blocks."""
+    cfg = GameV3Config(arena_radius=48.0, num_snakes=8)
+    sim_cpu = GameV3Sim(cfg, num_envs=300, device="cpu", seeds=list(range(300)))
+    assert len(sim_cpu._occ_4x_blocks) == 2
+    full_cpu = sim_cpu.occ_subtick_4x
+    assert full_cpu.device == sim_cpu.device
+    assert full_cpu.shape == (300, sim_cpu.G4, sim_cpu.G4, 8)
+    assert torch.equal(full_cpu, torch.cat(sim_cpu._occ_4x_blocks, dim=0))
+
+    if torch.backends.mps.is_available():
+        sim_mps = GameV3Sim(cfg, num_envs=300, device="mps", seeds=list(range(300)))
+        assert len(sim_mps._occ_4x_blocks) == 2
+        full_mps = sim_mps.occ_subtick_4x
+        assert full_mps.device == sim_mps.device
+        assert torch.equal(full_mps.cpu(), full_cpu)
+
+
+def test_build_obs_out_learner_index_zero_equal_sync_vs_raw_mask_equal_sync(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """MINOR 3: Reusing LearnerIndex with out= skips torch.equal; raw mask with out= runs it."""
+    cfg = GameV3Config(arena_radius=80.0, num_snakes=12)
+    sim = GameV3Sim(cfg, num_envs=2, device="cpu", seeds=[1, 2])
+    raw_mask = torch.tensor([[j < 4 for j in range(12)] for _ in range(2)], dtype=torch.bool)
+    idx = LearnerIndex(sim, raw_mask)
+    out = allocate_obs_batch(sim, idx)
+
+    real_equal = torch.equal
+    equal_calls = 0
+
+    def _counted_equal(a: torch.Tensor, b: torch.Tensor) -> bool:
+        nonlocal equal_calls
+        equal_calls += 1
+        return bool(real_equal(a, b))
+
+    monkeypatch.setattr(torch, "equal", _counted_equal)
+
+    # Reusing the identical LearnerIndex instance takes the O(1) ``other is self`` path (0 calls).
+    build_obs(sim, idx, out=out)
+    assert equal_calls == 0
+
+    # Passing a raw bool mask tensor with out= validates mask equality via torch.equal (1 call).
+    build_obs(sim, raw_mask, out=out)
+    assert equal_calls == 1
+
+    # Passing a distinct LearnerIndex instance with matching shape/count also validates via equal.
+    idx_dup = LearnerIndex(sim, raw_mask)
+    build_obs(sim, idx_dup, out=out)
+    assert equal_calls == 2
+
+
+def test_cuda_check_dual_parity_incremental_json_and_oom_isolation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """MINOR 2: cuda_check runs normal + det parity, bench with flag off, atomic JSON, OOM catch."""
+    # Verify default L4 plan stays well below 15 minutes and 20 GB peak VRAM.
+    default_plan = cuda_check.build_cuda_check_plan(
+        device=torch.device("cuda", 0),
+        parity_envs=32,
+        parity_ticks=1000,
+        det_parity_ticks=250,
+        parity_snakes=24,
+        parity_arena_radius=180.0,
+        rebase_threshold=400,
+        bench_envs=(64, 256),
+        bench_snakes_list=(24, 64),
+        learner_slots=8,
+        bench_arena_radius=600.0,
+        warmup_steps=10,
+        bench_steps=50,
+        stage_steps=20,
+    )
+    assert default_plan["within_l4_budget"] is True
+    assert default_plan["estimated_l4_wall_minutes"] < 15.0
+    assert default_plan["estimated_peak_vram_gb"] < 20.0
+
+    # Record every atomic JSON snapshot and deterministic-algorithm state in parity & benchmark.
+    snapshots: list[dict[str, Any]] = []
+    real_atomic_write = cuda_check._atomic_write_json
+    real_bench_cell = cuda_check.benchmark_single_grid
+    bench_det_flags: list[bool] = []
+
+    def _spy_atomic_write(path: Path, payload: dict[str, Any]) -> None:
+        real_atomic_write(path, payload)
+        # Verify no lingering .tmp file after create-then-rename and capture deep snapshot.
+        assert not path.with_suffix(path.suffix + ".tmp").exists()
+        snapshots.append(json.loads(path.read_text(encoding="utf-8")))
+
+    def _oom_injecting_bench_cell(
+        cfg: GameV3Config,
+        *,
+        num_envs: int,
+        device: torch.device,
+        warmup_steps: int,
+        bench_steps: int,
+        stage_steps: int,
+        learner_slots: int = 8,
+    ) -> dict[str, Any]:
+        bench_det_flags.append(bool(torch.are_deterministic_algorithms_enabled()))
+        if cfg.num_snakes == 8 and num_envs == 8:
+            raise RuntimeError("CUDA out of memory. Tried to allocate 8.00 GiB (simulated)")
+        return real_bench_cell(
+            cfg,
+            num_envs=num_envs,
+            device=device,
+            warmup_steps=warmup_steps,
+            bench_steps=bench_steps,
+            stage_steps=stage_steps,
+            learner_slots=learner_slots,
+        )
+
+    monkeypatch.setattr(cuda_check, "_atomic_write_json", _spy_atomic_write)
+    monkeypatch.setattr(cuda_check, "benchmark_single_grid", _oom_injecting_bench_cell)
+
+    prev_det = torch.are_deterministic_algorithms_enabled()
+    out_json = tmp_path / "cuda_check_oom_test.json"
+    result = cuda_check.run_cuda_check(
+        device="cpu",
+        parity_envs=4,
+        parity_ticks=24,
+        det_parity_ticks=20,
+        parity_snakes=8,
+        parity_arena_radius=70.0,
+        rebase_threshold=48,
+        bench_envs=(4, 8),
+        bench_snakes_list=(8, 12),
+        learner_slots=4,
+        bench_arena_radius=70.0,
+        warmup_steps=1,
+        bench_steps=2,
+        stage_steps=1,
+        json_output=out_json,
+    )
+    assert torch.are_deterministic_algorithms_enabled() == prev_det
+    assert bench_det_flags == [False, False, False, False]
+
+    # Expect writes after: (1) parity_normal, (2) parity_det, (3..6) 4 bench cells, (7) final.
+    assert len(snapshots) == 7
+    assert snapshots[0]["parity"]["passed"] is True
+    assert snapshots[0]["parity"]["deterministic_algorithms"] is False
+    assert snapshots[0]["parity_deterministic"] is None
+    assert snapshots[1]["parity_deterministic"]["passed"] is True
+    assert snapshots[1]["parity_deterministic"]["deterministic_algorithms"] is True
+    # Snapshot 2 (after cell N=8, E=4) already persisted before OOM in cell (N=8, E=8):
+    assert snapshots[2]["benchmarks"][0]["cases"][0]["status"] == "ok"
+    # Snapshot 3 (after OOM in cell N=8, E=8) preserves cell (N=8, E=4) and records OOM:
+    assert snapshots[3]["benchmarks"][0]["cases"][0]["status"] == "ok"
+    assert snapshots[3]["benchmarks"][0]["cases"][1]["status"] == "oom"
+    assert snapshots[3]["benchmarks"][0]["cases"][1]["oom"] is True
+
+    # Final JSON keeps earlier & later benchmark cells intact and reports completed_with_oom.
+    assert result["status"] == "completed_with_oom"
+    assert result["completed_cells"] == 3
+    assert result["oom_cells"] == 1
+    assert result["benchmarks"][0]["cases"][0]["status"] == "ok"
+    assert result["benchmarks"][0]["cases"][1]["status"] == "oom"
+    assert result["benchmarks"][1]["cases"][0]["status"] == "ok"
+    assert result["benchmarks"][1]["cases"][1]["status"] == "ok"

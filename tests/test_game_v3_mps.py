@@ -310,6 +310,38 @@ def test_mps_multi_block_env_chunking_parity_past_256_envs() -> None:
         obs_all_cpu.scalars[mask_cpu].view(torch.uint32),
     )
 
+    # Verify multi-block occ_subtick_4x returns on sim.device (mps:0), not CPU, and exercise
+    # multi-block rebase_subticks + reset_worlds across the 256-env block boundary.
+    assert len(sim_mps._occ_4x_blocks) == 2
+    occ4_mps = sim_mps.occ_subtick_4x
+    assert occ4_mps.device == sim_mps.device
+    assert torch.equal(occ4_mps.cpu(), sim_cpu.occ_subtick_4x)
+
+    # Advance stored subticks uniformly by +200 (as after earlier segments have expired) so
+    # rebase_subticks performs a real non-zero shift across both 256-env blocks at E=300.
+    for s in (sim_mps, sim_cpu):
+        s.tick += 200
+        s.oldest_active_subtick.add_(200)
+        s.ring_subtick[s.ring_subtick > 0] += 200
+        s.occ_hi[s.occ_hi >= 0] += 200 << 6
+        s.occ_lo[s.occ_lo >= 0] += 200 << 6
+        for blk in s._occ_4x_blocks:
+            blk[blk >= 0] += 200
+        s.occ_subtick_16x[s.occ_subtick_16x >= 0] += 200
+
+    sh_mps = sim_mps.rebase_subticks()
+    sh_cpu = sim_cpu.rebase_subticks()
+    assert sh_mps == sh_cpu >= 200
+    _assert_mps_equals_cpu_bitwise(sim_mps, sim_cpu, sim_cpu.tick)
+
+    rw_mask_cpu = torch.zeros((num_envs,), dtype=torch.bool)
+    for e_idx in (0, 255, 256, 299):
+        rw_mask_cpu[e_idx] = True
+    rw_seeds = [19_000, 19_255, 19_256, 19_299]
+    sim_mps.reset_worlds(rw_mask_cpu.to("mps"), seeds=rw_seeds)
+    sim_cpu.reset_worlds(rw_mask_cpu, seeds=rw_seeds)
+    _assert_mps_equals_cpu_bitwise(sim_mps, sim_cpu, 12)
+
     # Also verify state_dict / load_state_dict round-trip across >256-env sharded occ_4x.
     ckpt = sim_mps.state_dict()
     sim_mps_restored = GameV3Sim(cfg, num_envs=num_envs, device="mps", seeds=[0] * num_envs)

@@ -38,6 +38,7 @@ from research.game_v3.rng import (
 
 _INIT_SNAKE_CANDIDATES: int = 32
 _INIT_FOOD_BATCH_SIZE: int = 128
+_REBASE_ENV_CHUNK: int = 8
 
 # Packed 1x occupancy grids store ``(subtick << 6) | slot_code`` in signed int32,
 # so non-negative packed values require ``0 <= subtick <= (1 << 25) - 1``.
@@ -520,10 +521,22 @@ class GameV3Sim:
 
     @property
     def occ_subtick_4x(self) -> torch.Tensor:
-        """Return ``(E, G4, G4, N)`` view when single-block, or CPU concatenation across blocks."""
+        """Return ``(E, G4, G4, N)`` on ``self.device`` (view if 1 block, else concatenated copy).
+
+        When ``self.E <= self.env_block_size`` (single shard), returns the underlying block view
+        with zero allocation. When sharded across multiple ``_occ_4x_blocks`` (e.g. ``E > 256``),
+        concatenates the shards onto ``self.device``; performance-critical callers should iterate
+        ``_occ_4x_blocks`` or call :meth:`occ_4x_slice` to avoid materializing a full copy.
+        """
         if len(self._occ_4x_blocks) == 1:
             return self._occ_4x_blocks[0]
-        return torch.cat([blk.detach().cpu() for blk in self._occ_4x_blocks], dim=0)
+        total_elems = self.E * self.G4 * self.G4 * self.N
+        if self.device.type == "mps" and total_elems >= (1 << 31):
+            raise RuntimeError(
+                f"occ_subtick_4x has {total_elems} elements (>= 2^31 MPS limit); "
+                "use _occ_4x_blocks or occ_4x_slice() instead"
+            )
+        return torch.cat(self._occ_4x_blocks, dim=0)
 
     def occ_4x_slice(self, e0: int, e1: int) -> torch.Tensor:
         """Return a view into the single ``_occ_4x_blocks`` shard containing ``[e0:e1]``."""
@@ -672,6 +685,33 @@ class GameV3Sim:
         for e0 in range(0, e_cnt, eb_1x):
             e1 = min(e_cnt, e0 + eb_1x)
             out_2d[e0:e1] = grid[e0:e1].view(e1 - e0, -1).gather(1, flat_2d[e0:e1])
+        return out_2d.view_as(flat_idx)
+
+    def _gather_1x_grid_rows(
+        self, grid: torch.Tensor, row_envs: torch.Tensor, flat_idx: torch.Tensor
+    ) -> torch.Tensor:
+        """Gather ``flat_idx`` ``(R, M)`` at world indices ``row_envs`` without copying ``grid``."""
+        r_cnt = int(row_envs.shape[0])
+        if r_cnt == 0:
+            return torch.empty(flat_idx.shape, dtype=grid.dtype, device=self.device)
+        flat_2d = flat_idx.reshape(r_cnt, -1)
+        g2 = self.G * self.G
+        eb_1x = self._env_block_1x
+        if eb_1x == self.E:
+            g_idx = (row_envs[:, None] * g2 + flat_2d).reshape(-1)
+            return grid.view(-1).index_select(0, g_idx).view_as(flat_idx)
+
+        out_2d = torch.empty(flat_2d.shape, dtype=grid.dtype, device=self.device)
+        for e0 in range(0, self.E, eb_1x):
+            e1 = min(self.E, e0 + eb_1x)
+            rows = torch.where((row_envs >= e0) & (row_envs < e1))[0]
+            if rows.numel() == 0:
+                continue
+            local_e = row_envs.index_select(0, rows) - e0
+            f_sub = flat_2d.index_select(0, rows)
+            g_idx = (local_e[:, None] * g2 + f_sub).reshape(-1)
+            vals = grid[e0:e1].view(-1).index_select(0, g_idx).view_as(f_sub)
+            out_2d.index_copy_(0, rows, vals)
         return out_2d.view_as(flat_idx)
 
     def _put_1x_grid_chunked(
@@ -1122,13 +1162,16 @@ class GameV3Sim:
                         )
 
     def rebase_subticks(self, shift: int | None = None, *, _sync_free_hint: bool = False) -> int:
-        """Subtract a constant positive offset from all stored subticks (bitwise-neutral).
+        """Subtract a constant positive offset from all stored subticks in-place (bitwise-neutral).
 
         Active ring segments have ``subtick >= oldest_active_subtick >= shift + 1``, so
         subtracting ``shift`` preserves all active relative comparisons ``st >= oldest``
         and owner IDs while keeping packed ``(subtick << 6) | id`` strictly inside
         non-negative signed ``int32`` forever. Any cell with ``st <= shift`` was already
         expired and is reset to ``-1``.
+
+        Executes strictly in-place over ``_REBASE_ENV_CHUNK``-world slices with at most one
+        boolean mask temporary per slice (~17.8 MiB peak at ``R=600, N=24`` regardless of ``E``).
         """
         frontier_st = max(2, self.max_pts * self.tick + 2 - self._subtick_offset + self.max_pts + 1)
         if shift is None:
@@ -1138,13 +1181,7 @@ class GameV3Sim:
                 shift_val = max(0, safe_min - 1)
             else:
                 min_active = int(
-                    torch.where(
-                        self.alive,
-                        self.oldest_active_subtick,
-                        torch.full_like(self.oldest_active_subtick, frontier_st),
-                    )
-                    .amin()
-                    .item()
+                    torch.where(self.alive, self.oldest_active_subtick, frontier_st).amin().item()
                 )
                 shift_val = max(0, min_active - 1)
         else:
@@ -1152,13 +1189,7 @@ class GameV3Sim:
             if shift_val < 0:
                 raise ValueError(f"shift must be >= 0, got {shift_val}")
             min_active = int(
-                torch.where(
-                    self.alive,
-                    self.oldest_active_subtick,
-                    torch.full_like(self.oldest_active_subtick, frontier_st),
-                )
-                .amin()
-                .item()
+                torch.where(self.alive, self.oldest_active_subtick, frontier_st).amin().item()
             )
             if shift_val >= min_active:
                 raise ValueError(
@@ -1168,40 +1199,54 @@ class GameV3Sim:
         if shift_val == 0:
             return 0
 
-        self.ring_subtick = (self.ring_subtick - shift_val).clamp_min(0)
+        self.ring_subtick.clamp_min_(shift_val)
+        self.ring_subtick.sub_(shift_val)
+
         new_sentinel = max(2, frontier_st - shift_val)
-        self.oldest_active_subtick = torch.where(
-            self.alive,
-            self.oldest_active_subtick - shift_val,
-            torch.full_like(self.oldest_active_subtick, new_sentinel),
-        )
+        dead = ~self.alive
+        self.oldest_active_subtick.masked_fill_(dead, shift_val)
+        self.oldest_active_subtick.sub_(shift_val)
+        self.oldest_active_subtick.masked_fill_(dead, new_sentinel)
+        del dead
 
-        for e0 in range(0, self.E, self.env_block_size):
-            e1 = min(self.E, e0 + self.env_block_size)
-            hi_sub = self.occ_hi[e0:e1]
-            st_hi = hi_sub >> 6
-            hi_sub.copy_(
-                torch.where(
-                    (hi_sub >= 0) & (st_hi > shift_val),
-                    ((st_hi - shift_val) << 6) | (hi_sub & 63),
-                    -1,
-                )
-            )
-            lo_sub = self.occ_lo[e0:e1]
-            st_lo = lo_sub >> 6
-            lo_sub.copy_(
-                torch.where(
-                    (lo_sub >= 0) & (st_lo > shift_val),
-                    ((st_lo - shift_val) << 6) | (lo_sub & 63),
-                    -1,
-                )
-            )
+        # 1x grids pack ``(st << 6) | code`` (0 <= code <= 63) or -1 in signed int32.
+        # For 1 <= shift_val < 2^25, ``shift_6 = shift_val << 6`` and ``exp_max_1x = shift_6 | 63``
+        # both fit in signed int32 (<= 2,147,483,647), and ``(g >= 0) & ((g >> 6) > shift_val)``
+        # holds iff ``g > exp_max_1x``. Filling expired cells (``g <= exp_max_1x``) with
+        # ``shift_6 - 1`` before ``sub_(shift_6)`` maps expired cells to -1 and active cells to
+        # ``((st - shift_val) << 6) | code`` with a single bool mask and zero int32 overflow.
+        if shift_val >= (1 << 25):
+            self.occ_hi.fill_(-1)
+            self.occ_lo.fill_(-1)
+        else:
+            shift_6 = shift_val << 6
+            exp_max_1x = shift_6 | 63
+            pre_fill_1x = shift_6 - 1
+            for e0 in range(0, self.E, _REBASE_ENV_CHUNK):
+                e1 = min(self.E, e0 + _REBASE_ENV_CHUNK)
+                for grid_1x in (self.occ_hi[e0:e1], self.occ_lo[e0:e1]):
+                    mask = grid_1x <= exp_max_1x
+                    grid_1x.masked_fill_(mask, pre_fill_1x)
+                    del mask
+                    grid_1x.sub_(shift_6)
 
+        pre_fill_pyr = shift_val - 1
         for blk in self._occ_4x_blocks:
-            blk.copy_(torch.where(blk > shift_val, blk - shift_val, -1))
-        self.occ_subtick_16x.copy_(
-            torch.where(self.occ_subtick_16x > shift_val, self.occ_subtick_16x - shift_val, -1)
-        )
+            b_len = int(blk.shape[0])
+            for b0 in range(0, b_len, _REBASE_ENV_CHUNK):
+                sub_4x = blk[b0 : min(b_len, b0 + _REBASE_ENV_CHUNK)]
+                mask = sub_4x <= shift_val
+                sub_4x.masked_fill_(mask, pre_fill_pyr)
+                del mask
+                sub_4x.sub_(shift_val)
+
+        for e0 in range(0, self.E, _REBASE_ENV_CHUNK):
+            sub_16x = self.occ_subtick_16x[e0 : min(self.E, e0 + _REBASE_ENV_CHUNK)]
+            mask = sub_16x <= shift_val
+            sub_16x.masked_fill_(mask, pre_fill_pyr)
+            del mask
+            sub_16x.sub_(shift_val)
+
         self._subtick_offset += shift_val
         return shift_val
 
@@ -1341,8 +1386,8 @@ class GameV3Sim:
         flat = gy_c * self.G + gx_c
 
         occupied = self._is_cell_occupied_rows(env_ids, flat, self.oldest_active_subtick)
-        amb_sub = self.ambient_grid.index_select(0, env_ids).view(m_envs, -1).gather(1, flat)
-        cor_sub = self.corpse_grid.index_select(0, env_ids).view(m_envs, -1).gather(1, flat)
+        amb_sub = self._gather_1x_grid_rows(self.ambient_grid, env_ids, flat)
+        cor_sub = self._gather_1x_grid_rows(self.corpse_grid, env_ids, flat)
         food_free = (amb_sub == 0) & (cor_sub == 0)
 
         same = flat[:, :, None] == flat[:, None, :]
@@ -1639,7 +1684,7 @@ class GameV3Sim:
             else:
                 seed_t = torch.as_tensor(list(seeds), dtype=torch.int64, device=self.device)
             if seed_t.shape == (self.E,):
-                self.seeds = torch.where(world_mask, seed_t, self.seeds)
+                self.seeds.copy_(torch.where(world_mask, seed_t, self.seeds))
             elif seed_t.shape == (m_envs,):
                 if m_envs > 0:
                     self.seeds.index_copy_(0, env_ids, seed_t)
@@ -2311,6 +2356,12 @@ class GameV3Sim:
             self.respawn_timer,
         )
         ready = was_dead_before & (self.respawn_timer == 0)
+        # Intentional 1-count device-to-host sync via ``torch.where(ready)``:
+        #   - Capping to a fixed ``B < E * N`` without reading ``r_cnt`` would drop slots when
+        #     simultaneous deaths mature on the same tick (up to ``E * N``), breaking parity.
+        #   - Unconditional dense ``(E, N)`` evaluation (``B = E * N``) avoids the sync cleanly
+        #     only by paying 81-cell 1x clearance gathers across every slot every tick (~24.5 ms
+        #     and >500 MiB temp vs ~1.1 ms on MPS at E=256, N=64; 51.2 ms vs 0.04 ms on CPU).
         raw_e, raw_i = torch.where(ready)
         r_cnt = int(raw_e.shape[0])
 
@@ -2608,12 +2659,23 @@ class GameV3Sim:
             "total_length_cap_sink",
             "total_truncation_sink",
         )
+        tensors_out: dict[str, torch.Tensor] = {}
+        for name in tensor_names:
+            if name == "occ_subtick_4x":
+                if len(self._occ_4x_blocks) == 1:
+                    tensors_out[name] = self._occ_4x_blocks[0].detach().cpu().clone()
+                else:
+                    tensors_out[name] = torch.cat(
+                        [blk.detach().cpu() for blk in self._occ_4x_blocks], dim=0
+                    )
+            else:
+                tensors_out[name] = getattr(self, name).detach().cpu().clone()
         return {
             "config": self.cfg.to_dict(),
             "num_envs": self.E,
             "tick": self.tick,
             "subtick_offset": self._subtick_offset,
-            "tensors": {name: getattr(self, name).detach().cpu().clone() for name in tensor_names},
+            "tensors": tensors_out,
         }
 
     def load_state_dict(self, state: dict[str, Any]) -> None:
