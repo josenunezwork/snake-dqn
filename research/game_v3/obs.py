@@ -651,17 +651,24 @@ def build_obs(
     dx_q10_raw = _signed_div_q10_torch((hx64 * sin_i - hy64 * cos_i) * 1024, denom)
     dy_q10_raw = _signed_div_q10_torch((hx64 * cos_i + hy64 * sin_i) * 1024, denom)
     at_origin = dist_c_fp == 0
-    dx_q10 = torch.where(at_origin, torch.zeros_like(dx_q10_raw), dx_q10_raw)
-    dy_q10 = torch.where(at_origin, torch.full_like(dy_q10_raw, 1024), dy_q10_raw)
+    z_i64 = torch.zeros_like(dx_q10_raw)
+    dx_q10 = torch.where(l_alive & (~at_origin), dx_q10_raw, z_i64)
+    dy_q10 = torch.where(
+        l_alive,
+        torch.where(at_origin, torch.full_like(dy_q10_raw, 1024), dy_q10_raw),
+        z_i64,
+    )
 
     sc_flat[:, SCALAR_LOG_LENGTH] = sim._len_log_f32_table[l_len_i64] * alive_f
     sc_flat[:, SCALAR_BODY_RADIUS] = sim._radius_norm_f32_table[l_len_i64] * alive_f
     sc_flat[:, SCALAR_BOOST_ALLOWED] = boost_ok.to(torch.float32)
     sc_flat[:, SCALAR_OWN_BOOST] = (l_alive & l_boost).to(torch.float32)
     sc_flat[:, SCALAR_TURN_RATE] = sim._turn_norm_f32_table[l_len_i64] * alive_f
-    sc_flat[:, SCALAR_BOUNDARY_DIST] = wall_dist_q10.to(torch.float32) * _INV_1024_F32 * alive_f
-    sc_flat[:, SCALAR_BOUNDARY_DX] = dx_q10.to(torch.float32) * _INV_1024_F32 * alive_f
-    sc_flat[:, SCALAR_BOUNDARY_DY] = dy_q10.to(torch.float32) * _INV_1024_F32 * alive_f
+    sc_flat[:, SCALAR_BOUNDARY_DIST] = (
+        torch.where(l_alive, wall_dist_q10, z_i64).to(torch.float32) * _INV_1024_F32
+    )
+    sc_flat[:, SCALAR_BOUNDARY_DX] = dx_q10.to(torch.float32) * _INV_1024_F32
+    sc_flat[:, SCALAR_BOUNDARY_DY] = dy_q10.to(torch.float32) * _INV_1024_F32
 
     am_flat[:, :NUM_TURN_LEVELS] = True
     am_flat[:, NUM_TURN_LEVELS:] = boost_ok[:, None]

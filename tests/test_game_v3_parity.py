@@ -1,225 +1,301 @@
-"""Exact parity tests for GameV3Sim vs ReferenceWorld and build_obs vs NumPy reference."""
+"""Exact bitwise parity tests between NumPy ReferenceWorld and Torch GameV3Sim (CPU)."""
 
 from __future__ import annotations
 
-import math
+from typing import Sequence
 
 import numpy as np
 import pytest
 import torch
 
-from research.game_v3.config import GameV3Config
-from research.game_v3.obs import (
-    CH_ENEMY_DX_T0,
-    CH_ENEMY_DY_T0,
-    CH_ENEMY_HEADS_T0,
-    CH_ENEMY_HEADS_T1,
-    CH_OUT_OF_ARENA,
-    CH_OWN_BODY,
-    build_obs,
-    build_obs_reference,
-)
-from research.game_v3.reference import ReferenceWorld
-from research.game_v3.rng import PURPOSE_SCRIPTED, rng_int_torch
+from research.game_v3.config import NUM_ACTIONS, GameV3Config
+from research.game_v3.obs import allocate_obs_batch, build_obs, build_obs_reference
+from research.game_v3.reference import ReferenceStepInfo, ReferenceWorld
 from research.game_v3.scripted import food_seeking_actions, random_safe_actions
-from research.game_v3.sim import GameV3Sim
+from research.game_v3.sim import GameV3Sim, StepInfo
+
+_SNAKE_STATE_FIELDS: tuple[str, ...] = (
+    "head_pos",
+    "theta",
+    "alive",
+    "boosting",
+    "length",
+    "seg_count",
+    "dist_accum_fp",
+    "boost_ticks",
+    "boost_drop_fp_accum",
+    "respawn_timer",
+    "life_age",
+    "life_start",
+    "truncated_pending",
+    "prev_alive",
+    "prev_boosting",
+    "prev_head_pos",
+    "prev_theta",
+    "prev_length",
+)
 
 
-def _assert_world_parity_every_tick(sim: GameV3Sim, refs: list[ReferenceWorld], tick: int) -> None:
-    """Assert exact discrete-state equality (including all 2D grids) and CPU bitwise floats."""
-    occ_sim = sim.active_occupancy_grid().numpy()
-    amb_sim = sim.ambient_grid.numpy()
-    cor_sim = sim.corpse_grid.numpy()
-    alive_sim = sim.alive.numpy()
-    len_sim = sim.length.numpy()
-    amb_cnt_sim = sim.ambient_count.numpy()
-    pos_sim_u32 = sim.head_pos.numpy().view(np.uint32)
-    th_sim_u32 = sim.theta.numpy().view(np.uint32)
-
-    for e, ref in enumerate(refs):
-        if not np.array_equal(alive_sim[e], ref.alive):
-            raise AssertionError(f"tick={tick} env={e}: alive mismatch")
-        if not np.array_equal(len_sim[e], ref.length):
-            raise AssertionError(f"tick={tick} env={e}: length mismatch")
-        if int(amb_cnt_sim[e]) != ref.ambient_count:
+def assert_step_info_parity(
+    info: StepInfo, ref_infos: Sequence[ReferenceStepInfo], tick: int, label: str = "cpu"
+) -> None:
+    """Assert every StepInfo hook field is bitwise-identical to ReferenceWorld."""
+    for field_name in info.__dataclass_fields__:
+        got = getattr(info, field_name).detach().cpu().numpy()
+        exp = np.stack([getattr(ri, field_name) for ri in ref_infos], axis=0)
+        if not np.array_equal(got, exp):
+            diff = np.argwhere(got != exp)[0]
             raise AssertionError(
-                f"tick={tick} env={e}: ambient_count {amb_cnt_sim[e]} != {ref.ambient_count}"
+                f"[{label}] StepInfo.{field_name} diverged at tick={tick}, idx={tuple(diff)}: "
+                f"got={got[tuple(diff)]}, exp={exp[tuple(diff)]}"
             )
-        if not np.array_equal(pos_sim_u32[e], ref.head_pos.view(np.uint32)):
-            raise AssertionError(f"tick={tick} env={e}: bitwise head_pos mismatch")
-        if not np.array_equal(th_sim_u32[e], ref.theta.view(np.uint32)):
-            raise AssertionError(f"tick={tick} env={e}: bitwise theta mismatch")
-        if not np.array_equal(occ_sim[e], ref.occ_grid):
-            raise AssertionError(f"tick={tick} env={e}: occupancy grid mismatch")
-        if not np.array_equal(amb_sim[e], ref.ambient_grid):
-            raise AssertionError(f"tick={tick} env={e}: ambient_grid mismatch")
-        if not np.array_equal(cor_sim[e], ref.corpse_grid):
-            raise AssertionError(f"tick={tick} env={e}: corpse_grid mismatch")
 
 
-def _assert_obs_parity(sim: GameV3Sim, refs: list[ReferenceWorld]) -> None:
-    """Assert exact observation equality between PyTorch build_obs and NumPy reference."""
-    obs_th = build_obs(sim)
-    s1_th = obs_th.raster_s1.numpy()
-    s4_th = obs_th.raster_s4.numpy()
-    s16_th = obs_th.raster_s16.numpy()
-    sc_th = obs_th.scalars.numpy()
-    am_th = obs_th.action_mask.numpy()
+def assert_full_state_and_obs_parity(
+    sim: GameV3Sim,
+    refs: Sequence[ReferenceWorld],
+    tick: int,
+    *,
+    check_rings: bool = False,
+    check_obs: bool = False,
+    learner_mask: torch.Tensor | None = None,
+    label: str = "cpu",
+) -> None:
+    """Assert bitwise-identical full state (and optional rings/obs) vs ReferenceWorld."""
+    assert sim.tick == refs[0].tick, f"[{label}] tick mismatch: {sim.tick} != {refs[0].tick}"
 
-    for e, ref in enumerate(refs):
-        obs_ref = build_obs_reference(ref)
-        np.testing.assert_allclose(s1_th[e], obs_ref.raster_s1, rtol=0.0, atol=1e-6)
-        np.testing.assert_allclose(s4_th[e], obs_ref.raster_s4, rtol=0.0, atol=1e-6)
-        np.testing.assert_allclose(s16_th[e], obs_ref.raster_s16, rtol=0.0, atol=1e-6)
-        np.testing.assert_allclose(sc_th[e], obs_ref.scalars, rtol=0.0, atol=1e-6)
-        np.testing.assert_array_equal(am_th[e], obs_ref.action_mask)
+    for attr in _SNAKE_STATE_FIELDS:
+        got = getattr(sim, attr).detach().cpu().numpy()
+        exp = np.stack([getattr(r, attr) for r in refs], axis=0)
+        if not np.array_equal(got, exp):
+            diff = np.argwhere(got != exp)[0]
+            raise AssertionError(
+                f"[{label}] sim.{attr} diverged at tick={tick}, idx={tuple(diff)}: "
+                f"got={got[tuple(diff)]}, exp={exp[tuple(diff)]}"
+            )
+
+    got_amb_cnt = sim.ambient_count.detach().cpu().numpy()
+    exp_amb_cnt = np.array([r.ambient_count for r in refs], dtype=np.int32)
+    assert np.array_equal(got_amb_cnt, exp_amb_cnt), f"[{label}] ambient_count mismatch at {tick}"
+
+    for grid_attr in ("ambient_grid", "corpse_grid"):
+        got_g = getattr(sim, grid_attr).detach().cpu().numpy()
+        exp_g = np.stack([getattr(r, grid_attr) for r in refs], axis=0)
+        if not np.array_equal(got_g, exp_g):
+            diff = np.argwhere(got_g != exp_g)[0]
+            raise AssertionError(
+                f"[{label}] sim.{grid_attr} diverged at tick={tick}, idx={tuple(diff)}: "
+                f"got={got_g[tuple(diff)]}, exp={exp_g[tuple(diff)]}"
+            )
+
+    if check_rings:
+        max_len = sim.cfg.max_length
+        ring_pos_np = sim.ring_pos.detach().cpu().numpy()
+        ring_cell_np = sim.ring_cell.detach().cpu().numpy().astype(np.int32)
+        ring_r_sq_np = sim.ring_r_sq.detach().cpu().numpy().astype(np.int32)
+        head_ptr_np = sim.head_ptr.detach().cpu().numpy()
+        seg_cnt_np = sim.seg_count.detach().cpu().numpy()
+        alive_np = sim.alive.detach().cpu().numpy()
+
+        for e, ref in enumerate(refs):
+            for i in range(sim.N):
+                if not alive_np[e, i]:
+                    continue
+                cnt = int(seg_cnt_np[e, i])
+                sim_idxs = (int(head_ptr_np[e, i]) - np.arange(cnt, dtype=np.int32)) % max_len
+                ref_idxs = (int(ref.head_ptr[i]) - np.arange(cnt, dtype=np.int32)) % max_len
+                assert np.array_equal(ring_pos_np[e, i, sim_idxs], ref.ring_pos[i, ref_idxs])
+                assert np.array_equal(ring_cell_np[e, i, sim_idxs], ref.ring_cell[i, ref_idxs])
+                assert np.array_equal(ring_r_sq_np[e, i, sim_idxs], ref.ring_r_sq[i, ref_idxs])
+
+    if check_obs:
+        obs_sim = build_obs(sim)
+        obs_refs = [build_obs_reference(r) for r in refs]
+        for obs_attr in ("raster_s1", "raster_s4", "raster_s16", "action_mask"):
+            got_o = getattr(obs_sim, obs_attr).detach().cpu().numpy()
+            exp_o = np.stack([getattr(or_i, obs_attr) for or_i in obs_refs], axis=0)
+            if not np.array_equal(got_o, exp_o):
+                diff = np.argwhere(got_o != exp_o)[0]
+                raise AssertionError(
+                    f"[{label}] obs.{obs_attr} diverged at tick={tick}, idx={tuple(diff)}: "
+                    f"got={got_o[tuple(diff)]}, exp={exp_o[tuple(diff)]}"
+                )
+
+        # Bitwise IEEE-754 float32 comparison (zero tolerance) on scalars as well!
+        got_sc = obs_sim.scalars.detach().cpu().numpy().view(np.uint32)
+        exp_sc = np.stack([or_i.scalars for or_i in obs_refs], axis=0).view(np.uint32)
+        if not np.array_equal(got_sc, exp_sc):
+            diff = np.argwhere(got_sc != exp_sc)[0]
+            got_f = obs_sim.scalars.detach().cpu().numpy()[tuple(diff)]
+            exp_f = np.stack([or_i.scalars for or_i in obs_refs], axis=0)[tuple(diff)]
+            raise AssertionError(
+                f"[{label}] obs.scalars diverged bitwise at tick={tick}, idx={tuple(diff)}: "
+                f"got={got_f!r}, exp={exp_f!r}"
+            )
+
+        if learner_mask is not None:
+            mask_np = learner_mask.detach().cpu().numpy()
+            sub_out = allocate_obs_batch(sim, learner_mask=learner_mask)
+            obs_sub = build_obs(sim, learner_mask=learner_mask, out=sub_out)
+            for obs_attr in ("raster_s1", "raster_s4", "raster_s16", "scalars", "action_mask"):
+                got_sub = getattr(obs_sub, obs_attr).detach().cpu().numpy()
+                exp_sub = getattr(obs_sim, obs_attr).detach().cpu().numpy()[mask_np]
+                if obs_attr == "scalars":
+                    assert np.array_equal(got_sub.view(np.uint32), exp_sub.view(np.uint32))
+                else:
+                    assert np.array_equal(got_sub, exp_sub)
 
 
-def test_obs_builder_vs_numpy_reference_and_ego_geometry() -> None:
-    """GPU/Torch obs builder matches NumPy reference across scales, channels, and 2-frame heads."""
-    cfg = GameV3Config(arena_radius=300.0, num_snakes=12, respawn_delay=8)
-    seeds = [3, 17, 29, 43]
-    sim = GameV3Sim(cfg, num_envs=4, seeds=seeds, device="cpu")
+def test_fast_reference_vs_torch_cpu_full_state_and_obs_parity() -> None:
+    """Fast smoke: 8 worlds x 120 ticks at N=24 with all 10 actions, collisions, and truncations."""
+    cfg = GameV3Config(
+        arena_radius=120.0,
+        num_snakes=24,
+        respawn_delay=8,
+        max_life_ticks=55,
+        ambient_food_density=0.015,
+    )
+    num_envs = 8
+    seeds = [2000 + e for e in range(num_envs)]
+    sim = GameV3Sim(cfg, num_envs=num_envs, device="cpu", seeds=seeds)
     refs = [ReferenceWorld(cfg, seed=s) for s in seeds]
 
-    # Tick 0: T1 previous-frame head channels must be all zero.
-    obs0 = build_obs(sim)
-    assert float(obs0.raster_s1[:, :, CH_ENEMY_HEADS_T1].abs().max().item()) == 0.0
-    _assert_obs_parity(sim, refs)
-
-    for t in range(1, 61):
-        actions = food_seeking_actions(sim) if t % 2 == 1 else random_safe_actions(sim)
-        act_np = actions.numpy()
-        sim.step(actions)
-        for e, ref in enumerate(refs):
-            ref.step(act_np[e])
-        if t in (1, 2, 20, 40, 60):
-            _assert_obs_parity(sim, refs)
-
-    # Verify explicit ego-frame geometry: observer at origin heading +y (theta = pi/2),
-    # enemy 10 units ahead at (0, +10) also heading +y -> appears in upper half (row < 32),
-    # centered horizontally (col == 32), with ego heading (dx=0, dy=+1).
-    g_cfg = GameV3Config(arena_radius=100.0, num_snakes=6)
-    g_sim = GameV3Sim(g_cfg, num_envs=1, seeds=[5], device="cpu")
-    hg = g_sim.half_grid
-    g_sim.alive.fill_(False)
-    g_sim.tail_seq.fill_(10)
-    g_sim.occ_packed.fill_(-1)
-
-    # Observer slot 0 at cell (hg, hg) heading +y (pi/2).
-    g_sim.alive[0, 0] = True
-    g_sim.length[0, 0] = 20
-    g_sim.head_pos[0, 0] = torch.tensor([0.5, 0.5], dtype=torch.float32)
-    g_sim.theta[0, 0] = float(np.float32(0.5 * math.pi))
-    g_sim.tail_seq[0, 0] = 1
-    g_sim._stamp_discs(
-        torch.tensor([[hg] * 6], dtype=torch.int32),
-        torch.tensor([[hg] * 6], dtype=torch.int32),
-        torch.ones((1, 6), dtype=torch.int32),
-        g_sim.alive,
-        seq=1,
+    rng = np.random.default_rng(314159)
+    learner_mask = torch.from_numpy(rng.random((num_envs, cfg.num_snakes)) < (8.0 / 24.0))
+    assert_full_state_and_obs_parity(
+        sim, refs, 0, check_rings=True, check_obs=True, learner_mask=learner_mask
     )
 
-    # Enemy slot 1 at (0.5, 10.5) heading +y (pi/2) -> 10 units straight ahead.
-    g_sim.alive[0, 1] = True
-    g_sim.length[0, 1] = 20
-    g_sim.head_pos[0, 1] = torch.tensor([0.5, 10.5], dtype=torch.float32)
-    g_sim.theta[0, 1] = float(np.float32(0.5 * math.pi))
+    action_counts = np.zeros(NUM_ACTIONS, dtype=np.int64)
+    total_deaths = 0
+    total_truncs = 0
 
-    obs_g = build_obs(g_sim)
-    r1 = obs_g.raster_s1[0, 0]
-    assert float(r1[CH_OWN_BODY, 31:33, 31:33].max().item()) == 1.0
-    head_locs = (r1[CH_ENEMY_HEADS_T0] > 0.5).nonzero(as_tuple=False)
-    assert head_locs.shape == (1, 2)
-    row_h, col_h = int(head_locs[0, 0].item()), int(head_locs[0, 1].item())
-    assert row_h == 22 and col_h == 32  # floor(32 - 10) == 22 (ahead/up), floor(0 + 32) == 32
-    assert pytest.approx(float(r1[CH_ENEMY_DX_T0, row_h, col_h].item()), abs=1e-5) == 0.0
-    assert pytest.approx(float(r1[CH_ENEMY_DY_T0, row_h, col_h].item()), abs=1e-5) == 1.0
-    # At scale 16 (covering 1024x1024 around radius-100 arena), corners must be out-of-arena.
-    assert float(obs_g.raster_s16[0, 0, CH_OUT_OF_ARENA, 0, 0].item()) == 1.0
-    assert float(obs_g.raster_s16[0, 0, CH_OUT_OF_ARENA, 32, 32].item()) == 0.0
-    # Dead snake slot 2 emits exact zeros.
-    assert float(obs_g.raster_s1[0, 2].abs().max().item()) == 0.0
-    assert float(obs_g.scalars[0, 2].abs().max().item()) == 0.0
-
-
-def test_sim_vs_reference_fast_smoke_8x120() -> None:
-    """Fast non-slow parity check across 8 worlds x 120 ticks checking every tick."""
-    cfg = GameV3Config(arena_radius=300.0, num_snakes=12, respawn_delay=10)
-    seeds = [10 + i * 13 for i in range(8)]
-    sim = GameV3Sim(cfg, num_envs=8, seeds=seeds, device="cpu")
-    refs = [ReferenceWorld(cfg, seed=s) for s in seeds]
-
-    _assert_world_parity_every_tick(sim, refs, tick=0)
     for t in range(1, 121):
-        actions = food_seeking_actions(sim) if t % 3 != 0 else random_safe_actions(sim)
+        mode = t % 3
+        if mode == 0:
+            actions = food_seeking_actions(sim)
+        elif mode == 1:
+            actions = random_safe_actions(sim)
+        else:
+            actions = torch.from_numpy(
+                rng.integers(0, NUM_ACTIONS, size=(num_envs, cfg.num_snakes), dtype=np.int64)
+            )
         act_np = actions.numpy()
-        info_s = sim.step(actions)
-        for e, ref in enumerate(refs):
-            info_r = ref.step(act_np[e])
-            assert np.array_equal(info_s.died[e].numpy(), info_r.died)
-            assert np.array_equal(info_s.killer_id[e].numpy(), info_r.killer_id)
-            assert np.array_equal(info_s.kill_credit[e].numpy(), info_r.kill_credit)
-            assert np.array_equal(info_s.mass_eaten[e].numpy(), info_r.mass_eaten)
-        _assert_world_parity_every_tick(sim, refs, tick=t)
-    _assert_obs_parity(sim, refs)
+        np.add.at(action_counts, act_np.ravel(), 1)
+
+        info = sim.step(actions)
+        ref_infos = [refs[e].step(act_np[e]) for e in range(num_envs)]
+        assert_step_info_parity(info, ref_infos, t)
+
+        total_deaths += int(info.died.sum().item())
+        total_truncs += int(info.truncated.sum().item())
+
+        if t in (1, 15, 30, 55, 56, 90, 120):
+            assert_full_state_and_obs_parity(
+                sim, refs, t, check_rings=True, check_obs=True, learner_mask=learner_mask
+            )
+
+    assert np.all(action_counts > 0), f"All 10 actions must be exercised, got {action_counts}"
+    assert total_deaths >= 20
+    assert total_truncs >= 10
 
 
-def _run_32x1000_parity(*, scripted: bool) -> None:
-    cfg = GameV3Config()  # Default R=600, N=24
+def test_scripted_policies_respect_action_mask_and_determinism() -> None:
+    """Scripted baseline policies must be deterministic and never request boost when masked."""
+    cfg = GameV3Config(arena_radius=120.0, num_snakes=24, ambient_food_density=0.008)
+    sim = GameV3Sim(cfg, num_envs=4, device="cpu", seeds=[10, 20, 30, 40])
+
+    for _ in range(15):
+        obs = build_obs(sim)
+        a_rs1 = random_safe_actions(sim)
+        a_rs2 = random_safe_actions(sim)
+        a_fs1 = food_seeking_actions(sim)
+        a_fs2 = food_seeking_actions(sim)
+
+        assert torch.equal(a_rs1, a_rs2)
+        assert torch.equal(a_fs1, a_fs2)
+        assert int(a_rs1.min().item()) >= 0 and int(a_rs1.max().item()) < NUM_ACTIONS
+        assert int(a_fs1.min().item()) >= 0 and int(a_fs1.max().item()) < NUM_ACTIONS
+
+        # Wherever boost is masked (actions 5..9 illegal), scripted actions must stay in 0..4.
+        boost_forbidden = ~obs.action_mask[:, :, 5]
+        assert torch.all(a_rs1[boost_forbidden] < 5)
+        assert torch.all(a_fs1[boost_forbidden] < 5)
+        sim.step(a_fs1)
+
+
+@pytest.mark.slow
+def test_32_worlds_x_1000_ticks_n24_exact_bitwise_parity_cpu() -> None:
+    """Contract (Rule 8): 32 worlds x 1,000 ticks at N=24 on CPU with 0 state/obs divergence."""
+    cfg = GameV3Config(
+        arena_radius=180.0,
+        num_snakes=24,
+        respawn_delay=15,
+        max_life_ticks=350,
+        ambient_food_density=0.006,
+    )
     num_envs = 32
     num_ticks = 1000
-    base = 5000 if scripted else 1000
-    seeds = [base + e * 37 for e in range(num_envs)]
+    seeds = [10_000 + e for e in range(num_envs)]
 
-    sim = GameV3Sim(cfg, num_envs=num_envs, seeds=seeds, device="cpu")
+    sim = GameV3Sim(cfg, num_envs=num_envs, device="cpu", seeds=seeds)
     refs = [ReferenceWorld(cfg, seed=s) for s in seeds]
 
-    _assert_world_parity_every_tick(sim, refs, tick=0)
+    rng = np.random.default_rng(20261110)
+    learner_mask = torch.tensor(
+        [[(e + j) % 3 == 0 for j in range(cfg.num_snakes)] for e in range(num_envs)],
+        dtype=torch.bool,
+    )
+    assert_full_state_and_obs_parity(
+        sim, refs, 0, check_rings=True, check_obs=True, learner_mask=learner_mask
+    )
 
-    slots = torch.arange(cfg.num_snakes, dtype=torch.int64)[None, :]
-    half_n = cfg.num_snakes // 2
+    action_counts = np.zeros(NUM_ACTIONS, dtype=np.int64)
+    total_deaths = 0
+    total_kills = 0
+    total_truncs = 0
 
     for t in range(1, num_ticks + 1):
-        if scripted:
-            a_food = food_seeking_actions(sim)
-            a_rand = random_safe_actions(sim)
-            actions = torch.cat((a_food[:, :half_n], a_rand[:, half_n:]), dim=1)
-        else:
-            actions = rng_int_torch(sim.seeds[:, None], t, PURPOSE_SCRIPTED, slots, 6).to(
-                torch.int64
+        mode = t % 4
+        if mode == 0:
+            actions = food_seeking_actions(sim)
+        elif mode == 1:
+            actions = random_safe_actions(sim)
+        elif mode == 2:
+            # Bias toward boost actions (5..9) to exercise multi-point boost steps & shedding.
+            actions = torch.from_numpy(
+                rng.integers(0, NUM_ACTIONS, size=(num_envs, cfg.num_snakes), dtype=np.int64)
             )
-        actions_np = actions.numpy()
+        else:
+            # Mix scripted steering on slots 0..15 with uniform 10-action exploration on 16..23.
+            actions = food_seeking_actions(sim).clone()
+            actions[:, 16:] = torch.from_numpy(
+                rng.integers(0, NUM_ACTIONS, size=(num_envs, 8), dtype=np.int64)
+            )
 
-        info_sim = sim.step(actions)
-        died_sim = info_sim.died.numpy()
-        killer_sim = info_sim.killer_id.numpy()
-        credit_sim = info_sim.kill_credit.numpy()
-        eaten_sim = info_sim.mass_eaten.numpy()
+        act_np = actions.numpy()
+        np.add.at(action_counts, act_np.ravel(), 1)
 
-        for e, ref in enumerate(refs):
-            info_ref = ref.step(actions_np[e])
-            if not np.array_equal(died_sim[e], info_ref.died):
-                raise AssertionError(f"tick={t} env={e}: died mismatch")
-            if not np.array_equal(killer_sim[e], info_ref.killer_id):
-                raise AssertionError(f"tick={t} env={e}: killer_id mismatch")
-            if not np.array_equal(credit_sim[e], info_ref.kill_credit):
-                raise AssertionError(f"tick={t} env={e}: kill_credit mismatch")
-            if not np.array_equal(eaten_sim[e], info_ref.mass_eaten):
-                raise AssertionError(f"tick={t} env={e}: mass_eaten mismatch")
+        info = sim.step(actions)
+        ref_infos = [refs[e].step(act_np[e]) for e in range(num_envs)]
+        assert_step_info_parity(info, ref_infos, t, label="cpu-32x1000")
 
-        _assert_world_parity_every_tick(sim, refs, tick=t)
+        total_deaths += int(info.died.sum().item())
+        total_kills += int(info.kill_credit.sum().item())
+        total_truncs += int(info.truncated.sum().item())
 
-    _assert_obs_parity(sim, refs)
+        if t % 100 == 0 or t in (1, 350, 351, num_ticks):
+            assert_full_state_and_obs_parity(
+                sim,
+                refs,
+                t,
+                check_rings=(t in (350, num_ticks)),
+                check_obs=True,
+                learner_mask=learner_mask,
+                label="cpu-32x1000",
+            )
 
-
-@pytest.mark.slow
-def test_sim_vs_reference_random_tape_32x1000_n24() -> None:
-    """Exact discrete + bitwise CPU parity every tick over 32 worlds x 1,000 ticks (random)."""
-    _run_32x1000_parity(scripted=False)
-
-
-@pytest.mark.slow
-def test_sim_vs_reference_scripted_tape_32x1000_n24() -> None:
-    """Exact discrete + bitwise CPU parity every tick over 32 worlds x 1,000 ticks (scripted)."""
-    _run_32x1000_parity(scripted=True)
+    assert np.all(action_counts >= 10_000), f"Expected all 10 actions heavily used: {action_counts}"
+    assert total_deaths >= 200
+    assert total_kills >= 50
+    assert total_truncs >= 50
