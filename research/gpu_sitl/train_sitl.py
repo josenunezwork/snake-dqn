@@ -80,6 +80,7 @@ from research.gpu_sitl.seed_check import (
     SHAKEOUT_PROBE_NAMESPACE,
     SHAKEOUT_TRAIN_NAMESPACE,
     TRAIN_NAMESPACE,
+    assert_allowed_training_seeds,
     audit_b1b_seeds,
     shakeout_train_seeds,
     train_seeds,
@@ -185,6 +186,7 @@ def compute_step_b1b_pilot_verdict(
     tripwire_history: Sequence[dict[str, Any]],
     tripwire_breached: bool,
     stop_ego2s_bv8_inputs_insufficient: bool,
+    overall_max_single_action_share: float | None = None,
 ) -> str:
     """Resolve Step B1b pilot terminal verdict with strict tripwire key validation.
 
@@ -199,6 +201,11 @@ def compute_step_b1b_pilot_verdict(
             _ = t[req_k]
 
     all_windows_pass = all(bool(w["pass"]) for w in completed_windows)
+    short_run_action_collapse = bool(
+        not completed_windows
+        and overall_max_single_action_share is not None
+        and float(overall_max_single_action_share) >= REGISTERED_MAX_SINGLE_ACTION_SHARE
+    )
     all_probe_tripwires_pass = bool(
         tripwire_history and all(bool(t["all_pass"]) for t in tripwire_history)
     )
@@ -212,6 +219,7 @@ def compute_step_b1b_pilot_verdict(
     fault_or_drift_tripwire_failed = bool(
         int(updates_completed) < int(total_updates)
         or not all_windows_pass
+        or short_run_action_collapse
         or not bool(delivered_boost_band_pass)
         or int(non_finite_loss_count) > 0
         or int(non_finite_q_count) > 0
@@ -390,7 +398,13 @@ def compute_sitl_hinge_loss(
 
     # 1. Rescue hinge term: max(0, delta_rescue - (Q(s, a*) - max_{a in legal \ safe} Q(s, a)))
     res_arange = torch.arange(n_res, device=q_res.device, dtype=torch.long)
-    a_star = rescue_batch["a_star_action"].clamp(0, 5)
+    a_star = rescue_batch["a_star_action"].to(dtype=torch.long)
+    if not bool(((a_star >= 0) & (a_star < 6)).all().item()):
+        raise RuntimeError(
+            f"Every mined rescue root must have legal a_star_action in [0, 5], got {a_star.tolist()}"
+        )
+    if not bool(rescue_batch["legal_mask"][res_arange, a_star].all().item()):
+        raise RuntimeError("Every mined rescue root must have a_star_action in legal_mask")
     unsafe_mask = rescue_batch["unsafe_mask"] & rescue_batch["legal_mask"]
     if not bool(unsafe_mask.any(dim=1).all().item()):
         raise RuntimeError("Every mined rescue root must have at least one legal unsafe action")
@@ -404,7 +418,11 @@ def compute_sitl_hinge_loss(
     # 2. Ordinary DQfD hinge term:
     # max_{a in legal}(Q(s, a) + delta_ordinary * 1[a != a_b8]) - Q(s, a_b8)
     ord_arange = torch.arange(n_ord, device=q_ord.device, dtype=torch.long)
-    a_b8 = ordinary_batch["bare_action"].clamp(0, 5)
+    a_b8 = ordinary_batch["bare_action"].to(dtype=torch.long)
+    if not bool(((a_b8 >= 0) & (a_b8 < 6)).all().item()):
+        raise RuntimeError(
+            f"Every ordinary state must have bare_action in [0, 5], got {a_b8.tolist()}"
+        )
     ord_legal = ordinary_batch["legal_mask"]
     if not bool(ord_legal[ord_arange, a_b8].all().item()):
         raise RuntimeError("Every ordinary state must have a_b8(s) in legal(s)")
@@ -463,30 +481,33 @@ def sample_ordinary_minibatch_indices(
         was_training = student_net.training
         student_net.eval()
         try:
-            idx_t = torch.as_tensor(eval_indices, dtype=torch.long)
-            loc = ordinary_buf.local_u8.index_select(0, idx_t).to(device)
-            glb = ordinary_buf.global_u8.index_select(0, idx_t).to(device)
-            sca = ordinary_buf.scalars_f32.index_select(0, idx_t).to(device)
-            leg = ordinary_buf.legal_mask.index_select(0, idx_t).to(device)
-            saf = ordinary_buf.safe_mask.index_select(0, idx_t).to(device)
-            b8_a = ordinary_buf.bare_action.index_select(0, idx_t).to(device).clamp(0, 5)
+            chunk_size = 512
+            for start_i in range(0, len(eval_indices), chunk_size):
+                chunk_arr = eval_indices[start_i : start_i + chunk_size]
+                idx_t = torch.as_tensor(chunk_arr, dtype=torch.long)
+                loc = ordinary_buf.local_u8.index_select(0, idx_t).to(device)
+                glb = ordinary_buf.global_u8.index_select(0, idx_t).to(device)
+                sca = ordinary_buf.scalars_f32.index_select(0, idx_t).to(device)
+                leg = ordinary_buf.legal_mask.index_select(0, idx_t).to(device)
+                saf = ordinary_buf.safe_mask.index_select(0, idx_t).to(device)
+                b8_a = ordinary_buf.bare_action.index_select(0, idx_t).to(device).clamp(0, 5)
 
-            q = student_net(loc, glb, sca)
-            a_theta = q.masked_fill(~leg, -torch.inf).argmax(dim=1)
-            row_i = torch.arange(len(eval_indices), device=device, dtype=torch.long)
-            theta_safe = saf[row_i, a_theta]
-            diff_b8 = a_theta != b8_a
+                q = student_net(loc, glb, sca)
+                a_theta = q.masked_fill(~leg, -torch.inf).argmax(dim=1)
+                row_i = torch.arange(len(chunk_arr), device=device, dtype=torch.long)
+                theta_safe = saf[row_i, a_theta]
+                diff_b8 = a_theta != b8_a
 
-            new_tier = torch.where(
-                diff_b8 & (~theta_safe),
-                torch.full_like(a_theta, 2, dtype=torch.int8),
-                torch.where(
-                    diff_b8,
-                    torch.full_like(a_theta, 1, dtype=torch.int8),
-                    torch.zeros_like(a_theta, dtype=torch.int8),
-                ),
-            ).cpu()
-            ordinary_buf.hard_neg_tier[idx_t] = new_tier
+                new_tier = torch.where(
+                    diff_b8 & (~theta_safe),
+                    torch.full_like(a_theta, 2, dtype=torch.int8),
+                    torch.where(
+                        diff_b8,
+                        torch.full_like(a_theta, 1, dtype=torch.int8),
+                        torch.zeros_like(a_theta, dtype=torch.int8),
+                    ),
+                ).cpu()
+                ordinary_buf.hard_neg_tier[idx_t] = new_tier
         finally:
             if was_training:
                 student_net.train()
@@ -669,7 +690,7 @@ def _capture_sim_and_runtime_state(sim: Any, policy: Any) -> dict[str, Any]:
             sim_state[name] = val.detach().cpu().clone()
     rt = policy.vector_runtime
     rt_state: dict[str, Any] = {
-        "E": int(rt.E),
+        "E": int(getattr(rt, "E", sim.E)),
         "vector_prepared": bool(policy.vector_prepared),
         "fresh_rows": (
             rt.fresh_rows.detach().cpu().clone()
@@ -695,7 +716,7 @@ def _capture_sim_and_runtime_state(sim: Any, policy: Any) -> dict[str, Any]:
     }
 
 
-@torch.inference_mode()
+@torch.no_grad()
 def _restore_sim_and_runtime_state(sim: Any, policy: Any, state: dict[str, Any]) -> None:
     if "compressed_zlib" in state:
         raw_bytes = zlib.decompress(state["compressed_zlib"])
@@ -705,7 +726,7 @@ def _restore_sim_and_runtime_state(sim: Any, policy: Any, state: dict[str, Any])
     move_device_policy_to_device(policy, dev)
     sim_state = state["sim"]
     for name in _ENV_TENSOR_FIELDS:
-        if name in sim_state and isinstance(getattr(sim, name, None), torch.Tensor):
+        if name in sim_state and isinstance(sim_state[name], torch.Tensor):
             setattr(sim, name, sim_state[name].to(dev).clone())
     sim.E = int(sim_state["E"])
     sim._prepared = bool(sim_state.get("_prepared", False))
@@ -714,13 +735,23 @@ def _restore_sim_and_runtime_state(sim: Any, policy: Any, state: dict[str, Any])
     rt = policy.vector_runtime
     rt_state = state["vector_runtime"]
     for name in _VECTOR_RUNTIME_ENV_FIELDS:
-        if name in rt_state and isinstance(getattr(rt, name, None), torch.Tensor):
+        if name in rt_state and isinstance(rt_state[name], torch.Tensor):
             setattr(rt, name, rt_state[name].to(dev).clone())
-    if "fresh_rows" in rt_state and isinstance(getattr(rt, "fresh_rows", None), torch.Tensor):
-        rt.fresh_rows = torch.as_tensor(rt_state["fresh_rows"], device=dev).clone()
-    if "carried_rows" in rt_state and isinstance(getattr(rt, "carried_rows", None), torch.Tensor):
-        rt.carried_rows = torch.as_tensor(rt_state["carried_rows"], device=dev).clone()
-    rt.E = int(rt_state["E"])
+    if "fresh_rows" in rt_state:
+        fr = rt_state["fresh_rows"]
+        rt.fresh_rows = (
+            fr.to(dev).clone()
+            if isinstance(fr, torch.Tensor)
+            else torch.as_tensor(int(fr), dtype=torch.long, device=dev)
+        )
+    if "carried_rows" in rt_state:
+        cr = rt_state["carried_rows"]
+        rt.carried_rows = (
+            cr.to(dev).clone()
+            if isinstance(cr, torch.Tensor)
+            else torch.as_tensor(int(cr), dtype=torch.long, device=dev)
+        )
+    rt.E = int(rt_state.get("E", sim_state["E"]))
     rt.__class__ = FastDeviceVectorRuntime
     policy.vector_prepared = bool(rt_state["vector_prepared"])
     assert_sim_and_policy_on_device(sim, policy, dev)
@@ -789,6 +820,7 @@ def run_sitl_training(
     resume: bool = True,
     stop_after_updates: int | None = None,
     stop_after_collection_steps: int | None = None,
+    pause_after_seconds: float | None = None,
     dry_run: bool = False,
     shakeout: bool = False,
 ) -> dict[str, Any]:
@@ -843,7 +875,7 @@ def run_sitl_training(
                 f"decision_window_size={REGISTERED_DECISION_WINDOW_SIZE}"
             )
 
-    seed_audit = audit_b1b_seeds(scan_code_roots=[])
+    seed_audit = audit_b1b_seeds()
     if not bool(seed_audit["ok"]):
         raise RuntimeError(f"Step B1b seed audit failed: {seed_audit}")
 
@@ -855,61 +887,173 @@ def run_sitl_training(
     opp_path = Path(opponent_checkpoint)
     b8_sha = sha256_file(b8_path)
     opp_sha = sha256_file(opp_path)
+    if not eff_dry_run:
+        if b8_sha != B8_S3_SHA256:
+            raise ValueError(
+                f"Non-dry-run SITL training requires canonical b8-s3 SHA256 {B8_S3_SHA256}, "
+                f"got {b8_sha} at {b8_path}"
+            )
+        if opp_sha != FRP3_S12_SHA256:
+            raise ValueError(
+                f"Non-dry-run SITL training requires canonical frp3-s12 SHA256 {FRP3_S12_SHA256}, "
+                f"got {opp_sha} at {opp_path}"
+            )
 
     out_dir = Path(output_dir)
+    result_json_path = out_dir / (
+        "shakeout_sitl_subresult.json" if is_shakeout else "sitl_pilot_result.json"
+    )
+    if Path(f"{result_json_path}.complete").is_file():
+        if not resume:
+            raise FileExistsError(
+                f"Refusing to overwrite completed SITL training output at {result_json_path}"
+            )
+        existing_sha = verify_file_sha256(result_json_path, require_complete=True)
+        existing_summary = json.loads(result_json_path.read_text(encoding="utf-8"))
+        if existing_summary.get("namespace") != active_train_namespace:
+            raise ValueError(
+                f"Refusing completed output at {result_json_path} with foreign namespace "
+                f"{existing_summary.get('namespace')!r} (expected {active_train_namespace!r})"
+            )
+        existing_summary["result_json_path"] = str(result_json_path)
+        existing_summary["result_json_sha256"] = existing_sha
+        return existing_summary
+
     out_dir.mkdir(parents=True, exist_ok=True)
     ckpt_dir = out_dir / "checkpoints"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     in_dir = Path(input_dir) if input_dir is not None else None
 
     world_seeds = shakeout_train_seeds(int(num_envs)) if is_shakeout else train_seeds(int(num_envs))
+    assert_allowed_training_seeds(
+        namespace=active_train_namespace,
+        seeds=world_seeds,
+        context="run_sitl_training.world_seeds",
+    )
 
-    # Resolve and validate verified-ledger.json if present (for cross-session Colab resume)
-    active_ledger_file: Path | None = None
+    def _validate_ledger_file(l_path: Path) -> dict[str, Any]:
+        obj = json.loads(l_path.read_text(encoding="utf-8"))
+        if not isinstance(obj, dict):
+            raise ValueError(f"Invalid verified ledger at {l_path}")
+        if obj.get("namespace") != active_train_namespace:
+            raise ValueError(
+                f"Refusing foreign training namespace in ledger {l_path}: "
+                f"expected {active_train_namespace!r}, got {obj.get('namespace')!r}"
+            )
+        if obj.get("probe_namespace", active_probe_namespace) != active_probe_namespace:
+            raise ValueError(
+                f"Refusing foreign probe namespace in ledger {l_path}: "
+                f"expected {active_probe_namespace!r}, got {obj.get('probe_namespace')!r}"
+            )
+        l_seeds = obj.get("world_seeds")
+        if l_seeds and [int(s) for s in l_seeds] != [int(s) for s in world_seeds]:
+            raise ValueError(f"Refusing ledger {l_path} with mismatched world_seeds allocation")
+        return obj
+
+    # Resolve and validate verified-ledger.json if present (external staged + local working/part)
+    ext_ledger_file: Path | None = None
     if ledger_path is not None:
-        active_ledger_file = Path(ledger_path)
+        ext_ledger_file = Path(ledger_path)
     elif in_dir is not None:
         for cand_l in (in_dir / "inputs" / "verified-ledger.json", in_dir / "verified-ledger.json"):
             if cand_l.is_file():
-                active_ledger_file = cand_l
+                ext_ledger_file = cand_l
                 break
-    elif (out_dir / "verified-ledger.json").is_file():
-        active_ledger_file = out_dir / "verified-ledger.json"
 
+    local_ledger_file: Path | None = None
+    if resume:
+        working_l = out_dir / "verified-ledger.working.json"
+        part_ls = sorted(
+            p for p in out_dir.glob("verified-ledger.part*.json") if Path(f"{p}.complete").is_file()
+        )
+        base_l = out_dir / "verified-ledger.json"
+        if working_l.is_file() and Path(f"{working_l}.sha256").is_file():
+            verify_file_sha256(working_l, require_complete=False)
+            local_ledger_file = working_l
+        elif part_ls:
+            verify_file_sha256(part_ls[-1], require_complete=True)
+            local_ledger_file = part_ls[-1]
+        elif base_l.is_file():
+            verify_file_sha256(base_l, require_complete=Path(f"{base_l}.complete").is_file())
+            local_ledger_file = base_l
+
+    active_ledger_file: Path | None = ext_ledger_file or local_ledger_file
     loaded_ledger: dict[str, Any] = {}
     verified_units_ledger: list[dict[str, Any]] = []
-    if active_ledger_file is not None and active_ledger_file.is_file():
-        loaded_ledger = json.loads(active_ledger_file.read_text(encoding="utf-8"))
-        if not isinstance(loaded_ledger, dict):
-            raise ValueError(f"Invalid verified ledger at {active_ledger_file}")
-        if loaded_ledger.get("namespace") != active_train_namespace:
-            raise ValueError(
-                f"Refusing foreign training namespace in ledger {active_ledger_file}: "
-                f"expected {active_train_namespace!r}, got {loaded_ledger.get('namespace')!r}"
-            )
-        if loaded_ledger.get("probe_namespace", active_probe_namespace) != active_probe_namespace:
-            raise ValueError(
-                f"Refusing foreign probe namespace in ledger {active_ledger_file}: "
-                f"expected {active_probe_namespace!r}, got {loaded_ledger.get('probe_namespace')!r}"
-            )
-        ledger_seeds = loaded_ledger.get("world_seeds")
-        if ledger_seeds and [int(s) for s in ledger_seeds] != [int(s) for s in world_seeds]:
-            raise ValueError(
-                f"Refusing ledger {active_ledger_file} with mismatched world_seeds allocation"
-            )
+    if ext_ledger_file is not None and ext_ledger_file.is_file():
+        loaded_ledger = _validate_ledger_file(ext_ledger_file)
         if isinstance(loaded_ledger.get("verified_units"), list):
             verified_units_ledger = list(loaded_ledger["verified_units"])
+    if (
+        local_ledger_file is not None
+        and local_ledger_file.is_file()
+        and local_ledger_file != ext_ledger_file
+    ):
+        local_obj = _validate_ledger_file(local_ledger_file)
+        for k, v in local_obj.items():
+            if k == "verified_units" and isinstance(v, list):
+                for u_item in v:
+                    if not any(
+                        u_existing.get("sha256") == u_item.get("sha256")
+                        for u_existing in verified_units_ledger
+                    ):
+                        verified_units_ledger.append(u_item)
+            else:
+                loaded_ledger[k] = v
+
+    out_ledger_path = out_dir / "verified-ledger.json"
+    working_ledger_path = out_dir / "verified-ledger.working.json"
+
+    def _publish_ledger_payload(
+        ledger_obj: dict[str, Any],
+        *,
+        mark_complete: bool = False,
+    ) -> Path:
+        payload_txt = json.dumps(ledger_obj, indent=2, sort_keys=True, allow_nan=False) + "\n"
+        write_atomic_with_sha256(
+            working_ledger_path,
+            lambda tmp: tmp.write_text(payload_txt, encoding="utf-8"),
+            write_complete_marker=False,
+        )
+        if not mark_complete:
+            return working_ledger_path
+        if not Path(f"{out_ledger_path}.complete").exists():
+            write_atomic_with_sha256(
+                out_ledger_path,
+                lambda tmp: tmp.write_text(payload_txt, encoding="utf-8"),
+                write_complete_marker=True,
+            )
+            return out_ledger_path
+        part_idx = 2
+        while True:
+            cand_part = out_dir / f"verified-ledger.part{part_idx:02d}.json"
+            if not cand_part.exists() and not Path(f"{cand_part}.complete").exists():
+                write_atomic_with_sha256(
+                    cand_part,
+                    lambda tmp: tmp.write_text(payload_txt, encoding="utf-8"),
+                    write_complete_marker=True,
+                )
+                return cand_part
+            part_idx += 1
 
     # Harvest or load probe32 bank before training starts
     if probe_bank_path is None:
         probe_bank_path = out_dir / ("shakeout_probe_bank.pt" if is_shakeout else "probe32_bank.pt")
     probe_bank_file = Path(probe_bank_path)
 
-    if resume and (
-        not probe_bank_file.is_file() or not Path(f"{probe_bank_file}.sha256").is_file()
-    ):
+    def _has_complete_probe_bank() -> bool:
+        return probe_bank_file.is_file() and Path(f"{probe_bank_file}.complete").is_file()
+
+    def _clean_incomplete_probe_bank() -> None:
+        if not Path(f"{probe_bank_file}.complete").is_file():
+            for p_rem in (probe_bank_file, Path(f"{probe_bank_file}.sha256")):
+                if p_rem.is_file():
+                    p_rem.unlink()
+
+    if resume and not _has_complete_probe_bank():
         staged_probe_info = loaded_ledger.get("probe32_bank")
         if isinstance(staged_probe_info, dict) and staged_probe_info.get("relpath"):
+            _clean_incomplete_probe_bank()
             staged_pb = _resolve_staged_input_file(
                 str(staged_probe_info["relpath"]),
                 input_dir=in_dir,
@@ -932,9 +1076,8 @@ def run_sitl_training(
                 raise RuntimeError("Published probe32_bank SHA256 mismatch after staging")
 
     staged_harvest_ckpt: Path | None = None
-    if resume and (
-        not probe_bank_file.is_file() or not Path(f"{probe_bank_file}.sha256").is_file()
-    ):
+    staged_harvest_ckpt_sha: str | None = None
+    if resume and not _has_complete_probe_bank():
         staged_hckpt_info = loaded_ledger.get("probe32_harvest_ckpt")
         if isinstance(staged_hckpt_info, dict) and staged_hckpt_info.get("relpath"):
             cand_hckpt = _resolve_staged_input_file(
@@ -947,34 +1090,90 @@ def run_sitl_training(
             if sha256_file(cand_hckpt) != expected_h_sha:
                 raise ValueError("Staged probe32 harvest checkpoint SHA256 mismatch")
             staged_harvest_ckpt = cand_hckpt
+            staged_harvest_ckpt_sha = expected_h_sha
 
-    if not probe_bank_file.is_file() or not Path(f"{probe_bank_file}.sha256").is_file():
-        harvest_probe32_bank(
-            probe_bank_file,
-            b8_checkpoint=b8_path,
-            opponent_checkpoint=opp_path,
-            device=dev,
-            num_worlds=min(4, int(num_envs)) if eff_dry_run else 32,
-            horizon=6 if eff_dry_run else 5000,
-            branch_horizon=int(branch_horizon),
-            ordinary_per_world=4 if eff_dry_run else 210,
-            harvest_batch_roots=max(4, int(num_envs)),
-            checkpoint_every_seconds=float(checkpoint_every_seconds),
-            resume_ckpt_path=staged_harvest_ckpt,
-            cpu_fast_flood=cpu_fast_flood,
-            dry_run=eff_dry_run,
-            shakeout=is_shakeout,
-        )
+    signal_requested = {"stop": False}
+
+    def _on_signal(signum: int, _frame: Any) -> None:
+        signal_requested["stop"] = True
+
+    if not _has_complete_probe_bank():
+        _clean_incomplete_probe_bank()
+        prev_sigterm_h = signal.getsignal(signal.SIGTERM)
+        prev_sigusr1_h = signal.getsignal(signal.SIGUSR1) if hasattr(signal, "SIGUSR1") else None
+        signal.signal(signal.SIGTERM, _on_signal)
+        if hasattr(signal, "SIGUSR1"):
+            signal.signal(signal.SIGUSR1, _on_signal)
+        try:
+            rem_pause = (
+                max(0.0, float(pause_after_seconds) - (time.perf_counter() - t_start))
+                if pause_after_seconds is not None
+                else None
+            )
+            harvest_res = harvest_probe32_bank(
+                probe_bank_file,
+                b8_checkpoint=b8_path,
+                opponent_checkpoint=opp_path,
+                device=dev,
+                num_worlds=min(4, int(num_envs)) if eff_dry_run else 32,
+                horizon=6 if eff_dry_run else 5000,
+                branch_horizon=int(branch_horizon),
+                ordinary_per_world=4 if eff_dry_run else 210,
+                harvest_batch_roots=max(4, int(num_envs)),
+                checkpoint_every_seconds=float(checkpoint_every_seconds),
+                pause_after_seconds=rem_pause,
+                should_pause_fn=lambda: bool(signal_requested["stop"]),
+                resume_ckpt_path=staged_harvest_ckpt,
+                resume_ckpt_expected_sha256=staged_harvest_ckpt_sha,
+                cpu_fast_flood=cpu_fast_flood,
+                dry_run=eff_dry_run,
+                shakeout=is_shakeout,
+            )
+        finally:
+            signal.signal(signal.SIGTERM, prev_sigterm_h)
+            if hasattr(signal, "SIGUSR1") and prev_sigusr1_h is not None:
+                signal.signal(signal.SIGUSR1, prev_sigusr1_h)
+        if isinstance(harvest_res, dict) and harvest_res.get("status") == "PAUSED_FOR_RESUME":
+            harvest_ledger_obj: dict[str, Any] = {
+                "schema": "t34-gpu-sitl-verified-ledger/v1",
+                "namespace": active_train_namespace,
+                "probe_namespace": active_probe_namespace,
+                "world_seeds": [int(s) for s in world_seeds],
+                "unit_kind": "update",
+                "skip_verified": True,
+                "probe32_harvest_ckpt": {
+                    "relpath": f"checkpoints/{Path(str(harvest_res['harvest_ckpt_path'])).name}",
+                    "sha256": str(harvest_res["harvest_ckpt_sha256"]),
+                    "size_bytes": int(harvest_res["harvest_ckpt_size_bytes"]),
+                    "completed_tick": int(harvest_res["completed_tick"]),
+                    "horizon": int(harvest_res["horizon"]),
+                },
+                "verified_units": list(verified_units_ledger),
+            }
+            pub_l = _publish_ledger_payload(harvest_ledger_obj, mark_complete=True)
+            return {
+                "status": "PAUSED_FOR_RESUME",
+                "phase": "probe32_harvest",
+                "completed_tick": int(harvest_res["completed_tick"]),
+                "horizon": int(harvest_res["horizon"]),
+                "harvest_ckpt_path": str(harvest_res["harvest_ckpt_path"]),
+                "verified_ledger_path": str(pub_l),
+            }
+
     probe_bank = load_probe32_bank(probe_bank_file, expected_namespace=active_probe_namespace)
     probe_meta_file = out_dir / f"{probe_bank_file.name}.meta.json"
-    if not probe_meta_file.is_file() or not Path(f"{probe_meta_file}.complete").is_file():
+    if not Path(f"{probe_meta_file}.complete").is_file():
+        for p_rem in (probe_meta_file, Path(f"{probe_meta_file}.sha256")):
+            if p_rem.is_file():
+                p_rem.unlink()
         meta_to_write = dict(probe_bank["meta"])
         meta_to_write.setdefault("probe_bank_path", str(probe_bank_file))
         meta_to_write.setdefault("probe_bank_sha256", probe_bank["verified_sha256"])
         write_atomic_with_sha256(
             probe_meta_file,
             lambda tmp: tmp.write_text(
-                json.dumps(meta_to_write, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+                json.dumps(meta_to_write, indent=2, sort_keys=True, allow_nan=False) + "\n",
+                encoding="utf-8",
             ),
             write_complete_marker=True,
         )
@@ -994,6 +1193,11 @@ def run_sitl_training(
         probe_seed_set.update(int(x) for x in probe_bank["ordinary"]["world_seed"].tolist())
     if not probe_seed_set:
         raise ValueError("probe_bank world_seeds set is empty")
+    assert_allowed_training_seeds(
+        namespace=active_probe_namespace,
+        seeds=sorted(probe_seed_set),
+        context="run_sitl_training.probe_bank",
+    )
     seed_overlap = probe_seed_set.intersection(int(s) for s in world_seeds)
     if seed_overlap:
         raise ValueError(
@@ -1032,6 +1236,7 @@ def run_sitl_training(
             device=dev,
             vector_prepared=False,
         )
+        ext_sim.hero_respawn = True
         ext_sim.terminal_slots[:, 0] = False
         keep_rest = torch.arange(n_door, int(num_envs), device=dev, dtype=torch.long)
         sim_rest = sim.clone()
@@ -1040,6 +1245,8 @@ def run_sitl_training(
             pol_rest.vector_runtime.__class__ = FastDeviceVectorRuntime
         compact_sim_and_policy(sim_rest, pol_rest, keep_rest)
         sim, policy = concat_sims_and_policies([ext_sim, sim_rest], [ext_pol, pol_rest])
+        sim.hero_respawn = True
+        sim.terminal_slots[:, 0] = False
         r2_cache.enable(sim)
 
     student_net = load_ego2s_checkpoint(str(b8_path), device=dev)
@@ -1077,7 +1284,6 @@ def run_sitl_training(
     runaway_guard_reason: str | None = None
 
     latest_ckpt_meta_path = ckpt_dir / "latest_checkpoint.json"
-    out_ledger_path = out_dir / "verified-ledger.json"
     resumed_from_checkpoint: str | None = None
     last_latest_ckpt_info: dict[str, Any] | None = None
 
@@ -1085,7 +1291,7 @@ def run_sitl_training(
         latest_ckpt_info: dict[str, Any] | None = None,
         *,
         mark_complete: bool = False,
-    ) -> None:
+    ) -> Path:
         ledger_obj: dict[str, Any] = {
             "schema": "t34-gpu-sitl-verified-ledger/v1",
             "namespace": active_train_namespace,
@@ -1104,16 +1310,7 @@ def run_sitl_training(
             ledger_obj["resume_checkpoint"] = dict(latest_ckpt_info)
         elif loaded_ledger.get("resume_checkpoint") is not None:
             ledger_obj["resume_checkpoint"] = dict(loaded_ledger["resume_checkpoint"])
-        write_comp = bool(mark_complete and not Path(f"{out_ledger_path}.complete").exists())
-        write_atomic_with_sha256(
-            out_ledger_path,
-            lambda tmp: tmp.write_text(
-                json.dumps(ledger_obj, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-            ),
-            write_complete_marker=write_comp,
-        )
-
-    _write_verified_ledger(None, mark_complete=False)
+        return _publish_ledger_payload(ledger_obj, mark_complete=mark_complete)
 
     def _load_training_checkpoint_file(ckpt_pt_path: Path) -> None:
         nonlocal unique_rescue_keys, unique_rescue_episode_keys
@@ -1123,6 +1320,7 @@ def run_sitl_training(
         nonlocal illegal_action_count, total_action_counts, window_action_counts, window_decisions
         nonlocal completed_windows, tripwire_history, update_history
         nonlocal tripwire_breached, tripwire_breach_reason, resumed_from_checkpoint
+        nonlocal last_latest_ckpt_info
 
         state = torch.load(ckpt_pt_path, map_location="cpu", weights_only=False)
         if state.get("namespace") != active_train_namespace:
@@ -1179,12 +1377,30 @@ def run_sitl_training(
         tripwire_breached = bool(state["tripwire_breached"])
         tripwire_breach_reason = state["tripwire_breach_reason"]
         random.setstate(state["py_random_state"])
+        if state.get("np_global_rng_state") is not None:
+            np.random.set_state(state["np_global_rng_state"])
         rng.bit_generator.state = state["np_rng_state"]
         torch.set_rng_state(state["torch_cpu_rng_state"])
         if dev.type == "cuda" and state.get("torch_cuda_rng_state") is not None:
             ensure_cuda_initialized(dev)
             torch.cuda.set_rng_state_all(state["torch_cuda_rng_state"])
         resumed_from_checkpoint = str(ckpt_pt_path)
+        ckpt_sha_loaded = sha256_file(ckpt_pt_path)
+        last_latest_ckpt_info = {
+            "checkpoint_path": str(ckpt_pt_path),
+            "relpath": (
+                f"checkpoints/{ckpt_pt_path.name}"
+                if ckpt_pt_path.parent == ckpt_dir
+                else ckpt_pt_path.name
+            ),
+            "sha256": ckpt_sha_loaded,
+            "checkpoint_sha256": ckpt_sha_loaded,
+            "size_bytes": int(ckpt_pt_path.stat().st_size),
+            "updates_completed": int(updates_completed),
+            "collection_steps": int(collection_steps),
+            "unique_mined_rescue_roots": len(unique_rescue_keys),
+            "unique_mined_rescue_episodes": len(unique_rescue_episode_keys),
+        }
 
     if resume:
         if latest_ckpt_meta_path.is_file():
@@ -1215,13 +1431,15 @@ def run_sitl_training(
                 )
             _load_training_checkpoint_file(staged_ckpt)
 
+    _write_verified_ledger(last_latest_ckpt_info, mark_complete=False)
+
     last_ckpt_wall = time.perf_counter()
-    last_ckpt_state: tuple[int, int] = (-1, -1)
-    signal_requested = {"stop": False}
-
-    def _on_signal(signum: int, _frame: Any) -> None:
-        signal_requested["stop"] = True
-
+    last_ckpt_state: tuple[int, int] = (
+        (int(updates_completed), int(collection_steps))
+        if resumed_from_checkpoint is not None
+        else (-1, -1)
+    )
+    paused_early = False
     prev_sigterm = signal.getsignal(signal.SIGTERM)
     prev_sigusr1 = signal.getsignal(signal.SIGUSR1) if hasattr(signal, "SIGUSR1") else None
     signal.signal(signal.SIGTERM, _on_signal)
@@ -1279,6 +1497,7 @@ def run_sitl_training(
             "rescue_buffer": rescue_buf.state_dict(),
             "ordinary_buffer": ordinary_buf.state_dict(),
             "py_random_state": random.getstate(),
+            "np_global_rng_state": np.random.get_state(),
             "np_rng_state": rng.bit_generator.state,
             "torch_cpu_rng_state": torch.get_rng_state(),
             "torch_cuda_rng_state": (
@@ -1349,7 +1568,9 @@ def run_sitl_training(
             return None
         max_share = max(window_action_counts) / float(window_decisions)
         enforce_action_share = bool(
-            not is_partial_final or window_decisions >= int(decision_window_size)
+            not is_partial_final
+            or window_decisions >= int(decision_window_size)
+            or len(completed_windows) == 0
         )
         win_pass = bool(
             non_finite_loss_count == 0
@@ -1504,23 +1725,33 @@ def run_sitl_training(
         while updates_completed < int(total_updates):
             if tripwire_breached:
                 break
-            if signal_requested["stop"]:
-                if last_ckpt_state != (int(updates_completed), int(collection_steps)):
+            if signal_requested["stop"] or (
+                pause_after_seconds is not None
+                and (time.perf_counter() - t_start) >= float(pause_after_seconds)
+            ):
+                if (
+                    last_ckpt_state != (int(updates_completed), int(collection_steps))
+                    or last_latest_ckpt_info is None
+                ):
                     _save_training_checkpoint(
                         f"sig_u{updates_completed:04d}_s{collection_steps:06d}"
                     )
-                _write_verified_ledger(last_latest_ckpt_info, mark_complete=True)
-                raise RuntimeError(
-                    "Training interrupted by signal after saving verified checkpoint"
-                )
+                paused_early = True
+                break
             if stop_after_updates is not None and updates_completed >= int(stop_after_updates):
-                if last_ckpt_state != (int(updates_completed), int(collection_steps)):
+                if (
+                    last_ckpt_state != (int(updates_completed), int(collection_steps))
+                    or last_latest_ckpt_info is None
+                ):
                     _save_training_checkpoint(f"u{updates_completed:04d}")
                 break
             if stop_after_collection_steps is not None and collection_steps >= int(
                 stop_after_collection_steps
             ):
-                if last_ckpt_state != (int(updates_completed), int(collection_steps)):
+                if (
+                    last_ckpt_state != (int(updates_completed), int(collection_steps))
+                    or last_latest_ckpt_info is None
+                ):
                     _save_training_checkpoint(f"u{updates_completed:04d}_s{collection_steps:06d}")
                 break
 
@@ -1529,6 +1760,11 @@ def run_sitl_training(
             while (
                 updates_completed < int(total_updates)
                 and not tripwire_breached
+                and not signal_requested["stop"]
+                and (
+                    pause_after_seconds is None
+                    or (time.perf_counter() - t_start) < float(pause_after_seconds)
+                )
                 and (stop_after_updates is None or updates_completed < int(stop_after_updates))
             ):
                 next_u = updates_completed + 1
@@ -1553,23 +1789,33 @@ def run_sitl_training(
                 break
             if tripwire_breached:
                 break
-            if signal_requested["stop"]:
-                if last_ckpt_state != (int(updates_completed), int(collection_steps)):
+            if signal_requested["stop"] or (
+                pause_after_seconds is not None
+                and (time.perf_counter() - t_start) >= float(pause_after_seconds)
+            ):
+                if (
+                    last_ckpt_state != (int(updates_completed), int(collection_steps))
+                    or last_latest_ckpt_info is None
+                ):
                     _save_training_checkpoint(
                         f"sig_u{updates_completed:04d}_s{collection_steps:06d}"
                     )
-                _write_verified_ledger(last_latest_ckpt_info, mark_complete=True)
-                raise RuntimeError(
-                    "Training interrupted by signal after saving verified checkpoint"
-                )
+                paused_early = True
+                break
             if stop_after_updates is not None and updates_completed >= int(stop_after_updates):
-                if last_ckpt_state != (int(updates_completed), int(collection_steps)):
+                if (
+                    last_ckpt_state != (int(updates_completed), int(collection_steps))
+                    or last_latest_ckpt_info is None
+                ):
                     _save_training_checkpoint(f"u{updates_completed:04d}")
                 break
             if stop_after_collection_steps is not None and collection_steps >= int(
                 stop_after_collection_steps
             ):
-                if last_ckpt_state != (int(updates_completed), int(collection_steps)):
+                if (
+                    last_ckpt_state != (int(updates_completed), int(collection_steps))
+                    or last_latest_ckpt_info is None
+                ):
                     _save_training_checkpoint(f"u{updates_completed:04d}_s{collection_steps:06d}")
                 break
             if collection_steps >= int(max_collection_steps):
@@ -1763,7 +2009,8 @@ def run_sitl_training(
             signal.signal(signal.SIGUSR1, prev_sigusr1)
 
     if (
-        (
+        paused_early
+        or (
             stop_after_updates is not None
             and (
                 updates_completed < int(total_updates)
@@ -1778,7 +2025,7 @@ def run_sitl_training(
             )
         )
     ) and not runaway_guard_reached:
-        _write_verified_ledger(last_latest_ckpt_info, mark_complete=True)
+        pub_ledger = _write_verified_ledger(last_latest_ckpt_info, mark_complete=True)
         return {
             "status": "PAUSED_FOR_RESUME",
             "updates_completed": int(updates_completed),
@@ -1786,13 +2033,17 @@ def run_sitl_training(
             "unique_mined_rescue_roots": len(unique_rescue_keys),
             "unique_mined_rescue_episodes": len(unique_rescue_episode_keys),
             "latest_checkpoint_meta": str(latest_ckpt_meta_path),
-            "verified_ledger_path": str(out_ledger_path),
+            "verified_ledger_path": str(pub_ledger),
         }
+
+    # Save full resumable state BEFORE flushing the terminal partial decision window so
+    # completed_windows inside sitl_state_final.pt remains clean if ever resumed.
+    final_state_path = _save_training_checkpoint("final")
 
     # Flush final partial decision window
     _flush_decision_window(is_partial_final=True)
 
-    # Save final student checkpoint in served Ego2sNet format + full resumable state
+    # Save final student checkpoint in served Ego2sNet format
     final_student_ckpt = out_dir / (
         "shakeout_student_final.pth" if is_shakeout else "b8_sitl_student_final.pth"
     )
@@ -1819,8 +2070,7 @@ def run_sitl_training(
         ),
         write_complete_marker=True,
     )
-    final_state_path = _save_training_checkpoint("final")
-    _write_verified_ledger(last_latest_ckpt_info, mark_complete=True)
+    pub_final_ledger = _write_verified_ledger(last_latest_ckpt_info, mark_complete=True)
 
     # End-of-pilot training-set aliasing diagnostic
     if rescue_buf.size >= 1 and ordinary_buf.size >= 1:
@@ -1873,6 +2123,7 @@ def run_sitl_training(
         stop_ego2s_bv8_inputs_insufficient=bool(
             aliasing_diag["stop_ego2s_bv8_inputs_insufficient"]
         ),
+        overall_max_single_action_share=float(overall_max_single_action_share),
     )
 
     elapsed_s = float(time.perf_counter() - t_start)
@@ -1903,7 +2154,7 @@ def run_sitl_training(
         "declared_torch_cuda_arch_list": native_extensions.get("torch_cuda_arch_list"),
         "effective_build_cuda_arch": native_extensions.get("effective_build_cuda_arch"),
         "resumed_from_checkpoint": resumed_from_checkpoint,
-        "verified_ledger_path": str(out_ledger_path),
+        "verified_ledger_path": str(pub_final_ledger),
         "b8_checkpoint_sha256": b8_sha,
         "b8_expected_sha256": B8_S3_SHA256,
         "opponent_checkpoint_sha256": opp_sha,
@@ -2000,7 +2251,8 @@ def run_sitl_training(
     result_sha = write_atomic_with_sha256(
         result_json_path,
         lambda tmp: tmp.write_text(
-            json.dumps(result_summary, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            json.dumps(result_summary, indent=2, sort_keys=True, allow_nan=False) + "\n",
+            encoding="utf-8",
         ),
         write_complete_marker=True,
     )
@@ -2036,15 +2288,19 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--checkpoint-every-seconds", type=float, default=900.0)
     parser.add_argument("--max-collection-steps", type=int, default=200_000)
     parser.add_argument("--max-wall-seconds", type=float, default=None)
+    parser.add_argument("--stop-after-updates", type=int, default=None)
+    parser.add_argument("--stop-after-collection-steps", type=int, default=None)
+    parser.add_argument("--pause-after-seconds", type=float, default=None)
     parser.add_argument("--seed", type=int, default=20261109)
     parser.add_argument("--no-resume", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--shakeout", action="store_true")
     return parser.parse_args(argv)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
-    is_dry = bool(args.dry_run)
+    is_dry = bool(args.dry_run or args.shakeout)
     summary = run_sitl_training(
         args.output_dir,
         probe_bank_path=args.probe_bank_path,
@@ -2113,11 +2369,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         checkpoint_every_seconds=args.checkpoint_every_seconds,
         max_collection_steps=args.max_collection_steps,
         max_wall_seconds=args.max_wall_seconds,
+        stop_after_updates=args.stop_after_updates,
+        stop_after_collection_steps=args.stop_after_collection_steps,
+        pause_after_seconds=args.pause_after_seconds,
         seed=args.seed,
         resume=not bool(args.no_resume),
-        dry_run=is_dry,
+        dry_run=bool(args.dry_run),
+        shakeout=bool(args.shakeout),
     )
-    print(json.dumps(summary, indent=2, sort_keys=True))
+    print(json.dumps(summary, indent=2, sort_keys=True, allow_nan=False))
     return 0
 
 

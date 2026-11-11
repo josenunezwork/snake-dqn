@@ -3,6 +3,7 @@ harvester, online SITL training loop, and smoke entrypoint."""
 
 from __future__ import annotations
 
+import contextlib
 import json
 from pathlib import Path
 from typing import Any
@@ -683,6 +684,7 @@ def test_step_b1b_smoke_parity_and_prepare_packets(tmp_path: Path) -> None:
         opponent_checkpoint=opp_path,
         smoke_result_json=smoke_res["result_json_path"],
         attempt="test-01",
+        allow_non_evidence_smoke=True,
     )
     manifest_pilot = json.loads(Path(info_pilot["manifest_path"]).read_text(encoding="utf-8"))
     assert "resume_exemption" not in manifest_pilot
@@ -1629,6 +1631,7 @@ def test_b3_canary_check_accepts_pilot_manifest_against_smoke_receipt(
             smoke_result_json=smoke_res["result_json_path"],
             canary_receipt=rcpt_file,
             attempt=f"pilot-{hw_kind.lower()}-01",
+            allow_non_evidence_smoke=True,
         )
         pilot_manifest = json.loads(Path(info_pilot["manifest_path"]).read_text(encoding="utf-8"))
         assert pilot_manifest["requirements"]["gpu"] == hw_kind
@@ -2477,7 +2480,8 @@ def test_cuda_shakeout_end_to_end_and_continues_past_failing_phase(
     assert res["not_evidence"] is True
     assert res["evidence_class"] == "SHAKEOUT_NOT_EVIDENCE"
     assert res["failed_phases"] == []
-    assert len(res["phases"]) == 6
+    assert len(res["phases"]) == 7
+    assert res["phases"][6]["phase"] == "phase_7_devicesim_v2_parity"
     assert all(p["ok"] is True and p["status"] == "PASS" for p in res["phases"])
 
     # Verify mature cohort splice exercised length >= 80 and flood cap 160 in Phase 4
@@ -3359,3 +3363,2399 @@ def test_b1b_smoke_emits_per_phase_wall_time_stamps(
     }
     assert expected_phases <= set(started_phases)
     assert expected_phases <= set(ended_phases)
+
+
+def test_review_search_findings_se1_to_se9(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Regression coverage for confirmed search/seed_check review findings SE1-SE7, SE9."""
+    import copy as copy_mod
+
+    import research.gpu_sitl.open_stop_gpu as osg
+    import research.gpu_sitl.seed_check as sc
+    from research.gpu_sitl.probe_bank import build_watch6_ct_device_bundle
+
+    b8_path, opp_path = resolve_product_checkpoints()
+    seeds2 = preflight_seeds((0, 1))
+    sim2, pol2 = build_watch6_ct_device_bundle(seeds2, b8_path, opp_path, device="cpu")
+
+    # SE1: move_device_policy_to_device must not deepcopy networks already on target_dev.
+    deepcopy_calls = 0
+    orig_deepcopy = copy_mod.deepcopy
+
+    def _counting_deepcopy(obj: Any, *args: Any, **kwargs: Any) -> Any:
+        nonlocal deepcopy_calls
+        deepcopy_calls += 1
+        return orig_deepcopy(obj, *args, **kwargs)
+
+    monkeypatch.setattr(osg.copy, "deepcopy", _counting_deepcopy)
+    pol_chk = pol2.repeat_interleave(1)
+    pol_chk.device = torch.device("meta")  # mismatched wrapper attr while params live on cpu
+    osg.move_device_policy_to_device(pol_chk, "cpu")
+    assert pol_chk.device == torch.device("cpu")
+    assert deepcopy_calls == 0
+    monkeypatch.setattr(osg.copy, "deepcopy", orig_deepcopy)
+
+    # SE2: batched_open_stop_h32 must fail closed when policy E != sim.E (not modulo-wrap).
+    bad_pol = pol2.repeat_interleave(1)
+    osg.move_device_policy_to_device(bad_pol, "cpu", e_count=1)
+    assert int(bad_pol.vector_runtime.controlled.shape[0]) == 1
+    with pytest.raises(RuntimeError, match="controlled E=1 != sim.E=2"):
+        batched_open_stop_h32(
+            sim2,
+            bad_pol,
+            world_seeds=seeds2,
+            decisions=[0, 0],
+            branch_horizon=1,
+        )
+
+    # SE3: compact_sim_and_policy and concat_sims_and_policies must not emit inference tensors,
+    # must reconcile heterogeneous _prepared/vector_prepared, and tolerate vector_runtime=None.
+    sim_a, pol_a = build_watch6_ct_device_bundle([seeds2[0]], b8_path, opp_path, device="cpu")
+    sim_b, pol_b = build_watch6_ct_device_bundle([seeds2[1]], b8_path, opp_path, device="cpu")
+    sim_a.prepare()
+    pol_a.vector_runtime.prepare(sim_a)
+    pol_a.vector_prepared = True
+    assert sim_a._prepared is True and sim_b._prepared is False
+    cat_sim, cat_pol = osg.concat_sims_and_policies([sim_a, sim_b], [pol_a, pol_b])
+    assert not cat_sim.alive.is_inference()
+    assert cat_sim._prepared is True
+    assert cat_pol.vector_prepared is True
+    osg.compact_sim_and_policy(cat_sim, cat_pol, torch.tensor([1], dtype=torch.long))
+    assert not cat_sim.alive.is_inference()
+    _, _, hero_act = cat_pol.evaluate(cat_sim)
+    cat_sim.step(cat_pol.actions(cat_sim, hero_act))
+
+    pol_none_a = pol_a.repeat_interleave(1)
+    pol_none_b = pol_b.repeat_interleave(1)
+    pol_none_a.vector_runtime = None
+    pol_none_b.vector_runtime = None
+    cat_sim_nr, cat_pol_nr = osg.concat_sims_and_policies([sim_a, sim_b], [pol_none_a, pol_none_b])
+    assert int(cat_sim_nr.E) == 2 and cat_pol_nr.vector_runtime is None
+
+    # SE4 + SE9: default scan_code_roots scans research/gpu_sitl (not docs), checks heldout refs,
+    # propagates index_horizon >= 256, and audit_shakeout_seeds guards preflight namespaces.
+    b1b_rep = audit_b1b_seeds(index_horizon=600)
+    assert b1b_rep["ok"] is True
+    assert b1b_rep["heldout_code_reference_hits"] == {}
+    assert b1b_rep["namespaces"][PROBE32_NAMESPACE]["prefix_horizon"] == 600
+    shake_rep = sc.audit_shakeout_seeds(smoke_envs=2, probe_worlds=2, train_envs=2)
+    assert PREFLIGHT_NAMESPACE not in shake_rep["forbidden_registered_namespaces_untouched"]
+    assert shake_rep["read_only_mature_splice_namespace"] == PREFLIGHT_NAMESPACE
+    assert T34_PREFLIGHT_NAMESPACE in shake_rep["forbidden_registered_namespaces_untouched"]
+
+    fake_code_dir = tmp_path / "fake_code"
+    fake_code_dir.mkdir()
+    (fake_code_dir / "leak.py").write_text(f"LEAK = {train_seeds(1)[0]}\n", encoding="utf-8")
+    leak_rep = audit_b1b_seeds(scan_code_roots=[fake_code_dir])
+    assert leak_rep["ok"] is False
+    assert "fake_code/leak.py" in leak_rep["literal_code_hits"]
+
+    with pytest.raises(ValueError, match="Forbidden|held-out|contaminated"):
+        sc.assert_allowed_training_seeds(
+            namespace=SELECTIVITY_NAMESPACE,
+            seeds=[12345],
+            context="unit-test",
+        )
+
+    # SE5: verify_cuda_native_extensions normalizes Hopper '9.0a' arch token.
+    monkeypatch.setenv("TORCH_CUDA_ARCH_LIST", "8.0;8.9;9.0a")
+    ext_cpu = osg.verify_cuda_native_extensions("cpu")
+    assert ext_cpu["arch_list_covers_a100_l4_h100"] is True
+
+    # SE6: batched_open_stop_h32 skips terminal openness kernel when 0 branches survive.
+    dead_sim = sim2.clone()
+    dead_sim.alive[:, 0] = False
+    openness_calls = 0
+    orig_eval_open = osg.evaluate_terminal_openness_device
+
+    def _counting_open(s: Any) -> dict[str, torch.Tensor]:
+        nonlocal openness_calls
+        openness_calls += 1
+        return orig_eval_open(s)
+
+    monkeypatch.setattr(osg, "evaluate_terminal_openness_device", _counting_open)
+    dead_res = batched_open_stop_h32(
+        dead_sim,
+        pol2,
+        world_seeds=seeds2,
+        decisions=[0, 0],
+        branch_horizon=2,
+        compact_dead=False,
+    )
+    assert not bool(dead_res["raw_survives"].any().item())
+    assert openness_calls == 0
+    monkeypatch.setattr(osg, "evaluate_terminal_openness_device", orig_eval_open)
+
+    # SE7: margin_loss_gradient_check prepares unprepared sim and skips dead hero rows.
+    unprep_sim, _ = build_watch6_ct_device_bundle(seeds2, b8_path, opp_path, device="cpu")
+    assert unprep_sim._prepared is False
+    unprep_sim.alive[0, 0] = False
+    grad_chk = margin_loss_gradient_check(str(b8_path), sim=unprep_sim, device="cpu")
+    assert grad_chk["all_non_value_grads_finite_and_nonzero"] is True
+    assert 0 not in grad_chk["selected_root_indices"]
+
+
+def test_review_train_findings_t1_t2_t3_t5_t6_t7_t8_t10(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Regression coverage for confirmed train/probe_bank findings T1-T3, T5-T8, T10."""
+    import research.gpu_sitl.train_sitl as ts
+    from research.gpu_sitl.probe_bank import (
+        build_watch6_ct_device_bundle,
+        write_atomic_with_sha256,
+    )
+    from src.model.ego2s_network import load_ego2s_checkpoint
+
+    b8_path, opp_path = resolve_product_checkpoints()
+
+    # T1a: write_atomic_with_sha256 must refuse overwriting .complete-marked files,
+    # and verify_file_sha256 must validate the digest inside <path>.complete.
+    immutable_f = tmp_path / "immutable.json"
+    write_atomic_with_sha256(
+        immutable_f,
+        lambda tmp: tmp.write_text('{"a": 1}\n', encoding="utf-8"),
+        write_complete_marker=True,
+    )
+    with pytest.raises(FileExistsError):
+        write_atomic_with_sha256(
+            immutable_f,
+            lambda tmp: tmp.write_text('{"a": 2}\n', encoding="utf-8"),
+            write_complete_marker=False,
+        )
+    Path(f"{immutable_f}.complete").write_text("0" * 64 + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="complete|mismatch"):
+        verify_file_sha256(immutable_f, require_complete=True)
+
+    # T2a: CLI _parse_args supports pause/stop/shakeout flags.
+    parsed = ts._parse_args(
+        [
+            "--output-dir",
+            str(tmp_path / "cli_out"),
+            "--stop-after-updates",
+            "2",
+            "--stop-after-collection-steps",
+            "10",
+            "--pause-after-seconds",
+            "300",
+            "--shakeout",
+        ]
+    )
+    assert parsed.stop_after_updates == 2
+    assert parsed.stop_after_collection_steps == 10
+    assert parsed.pause_after_seconds == 300.0
+    assert parsed.shakeout is True
+
+    # T3a: lazy _last_done tensor and int/tensor fresh_rows restored; pending_rows preserved across
+    # wall-clock harvest checkpoints so checkpoint_every_seconds=0.0 matches uninterrupted harvest.
+    seeds2 = preflight_seeds((0, 1))
+    sim_src, pol_src = build_watch6_ct_device_bundle(seeds2, b8_path, opp_path, device="cpu")
+    sim_src.prepare()
+    pol_src.vector_runtime.prepare(sim_src)
+    pol_src.vector_prepared = True
+    _, _, h_act = pol_src.evaluate(sim_src)
+    sim_src.step(pol_src.actions(sim_src, h_act))
+    pol_src.after_step(sim_src)
+    assert isinstance(sim_src._last_done, torch.Tensor)
+    captured_state = ts._capture_sim_and_runtime_state(sim_src, pol_src)
+
+    sim_dst, pol_dst = build_watch6_ct_device_bundle(seeds2, b8_path, opp_path, device="cpu")
+    sim_dst._last_done = None
+    pol_dst.vector_runtime.fresh_rows = 0
+    pol_dst.vector_runtime.carried_rows = 0
+    ts._restore_sim_and_runtime_state(sim_dst, pol_dst, captured_state)
+    assert isinstance(sim_dst._last_done, torch.Tensor)
+    assert torch.equal(sim_dst._last_done, sim_src._last_done)
+    assert isinstance(pol_dst.vector_runtime.fresh_rows, torch.Tensor)
+    assert int(pol_dst.vector_runtime.fresh_rows) == int(pol_src.vector_runtime.fresh_rows)
+
+    pb_unint = tmp_path / "pb_unint.pt"
+    pb_ckpt0 = tmp_path / "pb_ckpt0.pt"
+    harvest_probe32_bank(
+        pb_unint,
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+        num_worlds=2,
+        horizon=5,
+        branch_horizon=2,
+        ordinary_per_world=3,
+        harvest_batch_roots=4,
+        checkpoint_every_seconds=9999.0,
+        dry_run=True,
+    )
+    harvest_probe32_bank(
+        pb_ckpt0,
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+        num_worlds=2,
+        horizon=5,
+        branch_horizon=2,
+        ordinary_per_world=3,
+        harvest_batch_roots=4,
+        checkpoint_every_seconds=0.0,
+        dry_run=True,
+    )
+    b_u = load_probe32_bank(pb_unint)
+    b_c = load_probe32_bank(pb_ckpt0)
+    assert torch.equal(b_u["ordinary"]["decision_frame"], b_c["ordinary"]["decision_frame"])
+
+    # T1b + T2b: multi-unit pause/resume keeps verified-ledger.json.complete valid,
+    # final state checkpoint has unmutated completed_windows, and re-entry is idempotent.
+    common = dict(
+        probe_bank_path=pb_unint,
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+        num_envs=4,
+        total_updates=2,
+        warmup_rescue_roots=1,
+        min_unique_rescue_roots=2,
+        rescue_batch_size=2,
+        ordinary_batch_size=4,
+        ordinary_uniform_half=2,
+        ordinary_hard_neg_half=2,
+        branch_horizon=2,
+        tripwire_interval=2,
+        decision_window_size=10,
+        checkpoint_every_updates=1,
+        seed=20261109,
+        dry_run=True,
+    )
+    multi_dir = tmp_path / "multi_unit"
+    p1 = run_sitl_training(multi_dir, stop_after_updates=1, **common)
+    assert p1["status"] == "PAUSED_FOR_RESUME"
+    ledger1_sha = verify_file_sha256(multi_dir / "verified-ledger.json", require_complete=True)
+    p2 = run_sitl_training(multi_dir, resume=True, **common)
+    assert p2["counts"]["updates_completed"] == 2
+    # Original verified-ledger.json + .complete stays digest-intact!
+    assert (
+        verify_file_sha256(multi_dir / "verified-ledger.json", require_complete=True) == ledger1_sha
+    )
+    final_ckpt_obj = torch.load(
+        p2["final_state_checkpoint_path"], map_location="cpu", weights_only=False
+    )
+    assert all(not bool(w.get("is_partial_final")) for w in final_ckpt_obj["completed_windows"])
+
+    # Re-entering completed run with resume=True returns identical summary without rewriting files
+    res_sha_before = p2["result_json_sha256"]
+    p2_again = run_sitl_training(multi_dir, resume=True, **common)
+    assert p2_again["result_json_sha256"] == res_sha_before
+    assert len(p2_again["unconditional_fault_checks"]["decision_windows"]) == len(
+        p2["unconditional_fault_checks"]["decision_windows"]
+    )
+    with pytest.raises(FileExistsError):
+        run_sitl_training(multi_dir, resume=False, **common)
+
+    # T5: <100k decision collapse must trigger STOP_TRIPWIRE_BREACH
+    verdict_collapse = ts.compute_step_b1b_pilot_verdict(
+        runaway_guard_reached=False,
+        updates_completed=1000,
+        total_updates=1000,
+        completed_windows=[],
+        delivered_boost_band_pass=True,
+        non_finite_loss_count=0,
+        non_finite_q_count=0,
+        non_finite_grad_count=0,
+        illegal_action_count=0,
+        tripwire_history=[
+            {
+                "all_pass": True,
+                "decile_tripwire_pass": True,
+                "boost_tripwire_pass": True,
+                "decisive_rescue_bar_pass": True,
+                "all_q_finite": True,
+                "illegal_action_count": 0,
+            }
+        ],
+        tripwire_breached=False,
+        stop_ego2s_bv8_inputs_insufficient=False,
+        overall_max_single_action_share=0.95,
+    )
+    assert verdict_collapse == ts.VERDICT_TRIPWIRE_STOP
+
+    # T6: evaluate_probe_bank_tripwires with b8_boost_share == 0 and student_boost_share > 0
+    # must serialize cleanly under allow_nan=False.
+    net = load_ego2s_checkpoint(str(b8_path), device="cpu")
+    with torch.no_grad():
+        net.adv.bias.copy_(torch.tensor([-10.0, -10.0, -10.0, 50.0, 40.0, 30.0]))
+    zero_boost_bank = {
+        "meta": dict(b_u["meta"]),
+        "ordinary": {
+            **b_u["ordinary"],
+            "bare_action": torch.zeros_like(b_u["ordinary"]["bare_action"]),
+            "legal_mask": torch.ones_like(b_u["ordinary"]["legal_mask"], dtype=torch.bool),
+        },
+        "rescue": b_u["rescue"],
+    }
+    tw_zero = evaluate_probe_bank_tripwires(net, zero_boost_bank, update_step=200, device="cpu")
+    assert tw_zero["boost_tripwire_pass"] is False
+    json.dumps(tw_zero, allow_nan=False)
+
+    # T7 + T10: non-dry-run rejects tampered checkpoint SHA256; hinge loss rejects a_star == -1.
+    tampered_b8 = tmp_path / "tampered_b8.pth"
+    tampered_b8.write_bytes(Path(b8_path).read_bytes() + b"\x00")
+    with pytest.raises(ValueError, match="SHA256|sha256"):
+        harvest_probe32_bank(
+            tmp_path / "bad_sha_pb.pt",
+            b8_checkpoint=tampered_b8,
+            opponent_checkpoint=opp_path,
+            dry_run=False,
+        )
+    with pytest.raises(RuntimeError, match="a_star_action"):
+        compute_sitl_hinge_loss(
+            net,
+            rescue_batch={
+                "local_u8": torch.zeros((1, 7, 31, 31), dtype=torch.uint8),
+                "global_u8": torch.zeros((1, 4, 37, 37), dtype=torch.uint8),
+                "scalars_f32": torch.zeros((1, 60), dtype=torch.float32),
+                "legal_mask": torch.ones((1, 6), dtype=torch.bool),
+                "unsafe_mask": torch.tensor([[True, False, False, False, False, False]]),
+                "a_star_action": torch.tensor([-1], dtype=torch.long),
+            },
+            ordinary_batch={
+                "local_u8": torch.zeros((1, 7, 31, 31), dtype=torch.uint8),
+                "global_u8": torch.zeros((1, 4, 37, 37), dtype=torch.uint8),
+                "scalars_f32": torch.zeros((1, 60), dtype=torch.float32),
+                "legal_mask": torch.ones((1, 6), dtype=torch.bool),
+                "bare_action": torch.tensor([1], dtype=torch.long),
+            },
+        )
+
+
+def test_review_smoke_findings_sm1_sm2_sm3_sm4_sm5_sm6_sm7_sm10_sm11_sm12(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Regression coverage for confirmed smoke/prepare/job.sh findings SM1-SM7, SM10-SM12."""
+    import os
+    import subprocess
+
+    from research.gpu_sitl.prepare import (
+        ROOT,
+        _stage_prior_attempt_artifacts,
+        prepare_b1b_packet,
+        runtime_source_paths,
+    )
+    from research.gpu_sitl.smoke import run_cuda_shakeout, run_step_b1b_smoke
+
+    b8_path, opp_path = resolve_product_checkpoints()
+
+    # SM1: host-only prepare.py must not be shipped in runtime_source_paths.
+    src_paths = runtime_source_paths("origin/main")
+    assert "research/gpu_sitl/prepare.py" not in src_paths
+
+    # SM2a: job.sh must fail closed when MODE=pilot and verified-ledger.json is missing.
+    fake_cli_root = tmp_path / "fake_cli_root"
+    fake_in_dir = tmp_path / "fake_in_dir"
+    (fake_cli_root / "output").mkdir(parents=True)
+    fake_in_dir.mkdir(parents=True)
+    job_proc = subprocess.run(
+        ["bash", str(ROOT / "research" / "gpu_sitl" / "job.sh")],
+        env={
+            **os.environ,
+            "COLAB_CLI_ROOT": str(fake_cli_root),
+            "COLAB_INPUT_DIR": str(fake_in_dir),
+            "GPU_SITL_SOURCE_COMMIT": "deadbeef",
+            "GPU_SITL_MODE": "pilot",
+        },
+        capture_output=True,
+        text=True,
+    )
+    assert job_proc.returncode == 2
+    assert "verified-ledger.json" in job_proc.stderr
+
+    # SM3 + SM11 + SM12: run_step_b1b_smoke must exclude spliced PREFLIGHT_NAMESPACE rows from
+    # online_alive_hero_decisions (2 non-spliced envs * 2 label batches <= 4 decisions),
+    # pass splice world seeds for spliced CRN rows, and refuse overwriting a completed smoke dir.
+    seen_seed_lists: list[list[int]] = []
+    import research.gpu_sitl.smoke as smoke_mod
+
+    orig_batched_os = smoke_mod.batched_open_stop_h32
+
+    def _spy_batched_os(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        if "world_seeds" in kwargs:
+            seen_seed_lists.append([int(x) for x in kwargs["world_seeds"]])
+        return orig_batched_os(*args, **kwargs)
+
+    monkeypatch.setattr(smoke_mod, "batched_open_stop_h32", _spy_batched_os)
+
+    smoke_dir = tmp_path / "smoke_sm"
+    smoke_res = run_step_b1b_smoke(
+        smoke_dir,
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+        num_envs=4,
+        branch_horizon=2,
+        parity_slice_indices=(0, 8),
+        bench_env_steps=2,
+        bench_label_batches=2,
+        bench_learner_updates=2,
+        dry_run=True,
+    )
+    # 4 envs, 2 spliced mature worlds -> only 2 train_seeds worlds contribute to online decisions
+    assert smoke_res["throughput"]["mature_spliced_worlds"] == 2
+    assert 1 <= smoke_res["throughput"]["measured_alive_hero_decisions"] <= 4
+    # Label batches (after warmup) must use spliced mature world seeds on rows 0..1
+    train4 = train_seeds(4)
+    assert any(sl[:2] != train4[:2] and sl[2:] == train4[2:] for sl in seen_seed_lists)
+
+    # SM12: re-running smoke in a completed directory must raise FileExistsError immediately
+    with pytest.raises(FileExistsError):
+        run_step_b1b_smoke(
+            smoke_dir,
+            b8_checkpoint=b8_path,
+            opponent_checkpoint=opp_path,
+            device="cpu",
+            num_envs=4,
+            branch_horizon=2,
+            parity_slice_indices=(0, 8),
+            bench_env_steps=1,
+            bench_label_batches=1,
+            bench_learner_updates=1,
+            dry_run=True,
+        )
+
+    # SM5: _stage_prior_attempt_artifacts must refuse staging smoke canary_export_probe artifacts!
+    with pytest.raises(ValueError, match="canary_export_probe|non-evidence|probe"):
+        _stage_prior_attempt_artifacts(
+            smoke_dir,
+            tmp_path / "bad_stage_inputs",
+            [],
+            {"verified_units": []},
+        )
+
+    # SM4: prepare_b1b_packet(mode="pilot") must verify smoke_result.json .complete + parity_check.ok
+    # and reject dry_run smoke when allow_non_evidence_smoke=False.
+    with pytest.raises(ValueError, match="non-evidence|dry_run|evidence"):
+        prepare_b1b_packet(
+            tmp_path / "pkt_reject_dry_smoke",
+            commit="origin/main",
+            mode="pilot",
+            output_dir=tmp_path / "out_reject_dry",
+            b8_checkpoint=b8_path,
+            opponent_checkpoint=opp_path,
+            smoke_result_json=smoke_res["result_json_path"],
+            allow_non_evidence_smoke=False,
+        )
+
+    # SM6: both smoke_result_json and base_seconds paths set GPU_SITL_MAX_WALL_SECONDS < timeout * 60
+    info_bs = prepare_b1b_packet(
+        tmp_path / "pkt_bs",
+        commit="origin/main",
+        mode="pilot",
+        output_dir=tmp_path / "out_bs",
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        base_seconds=600.0,
+    )
+    mf_bs = json.loads(Path(info_bs["manifest_path"]).read_text(encoding="utf-8"))
+    max_wall_bs = float(mf_bs["env"]["GPU_SITL_MAX_WALL_SECONDS"])
+    assert 0.0 < max_wall_bs < float(mf_bs["timeout_minutes"]) * 60.0
+
+    # SM10: run_cuda_shakeout phase 6 verifies uninterrupted == resumed determinism
+    shake_dir = tmp_path / "shake_sm10"
+    shake_res = run_cuda_shakeout(
+        shake_dir,
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+    )
+    assert shake_res["ok"] is True
+    p6 = [p for p in shake_res["phases"] if "phase_6" in p["phase"]][0]
+    assert p6["detail"]["deterministic_resume_verified"] is True
+
+
+@contextlib.contextmanager
+def _mps_readonly_spike_compat() -> Any:
+    """Adapt float64 and int64 scatter_reduce_ calls inside read-only gpu_sim_spike on MPS."""
+    orig_zeros, orig_full, orig_empty = torch.zeros, torch.full, torch.empty
+    orig_tensor, orig_as_tensor, orig_arange = torch.tensor, torch.as_tensor, torch.arange
+    orig_to, orig_double = torch.Tensor.to, torch.Tensor.double
+    orig_scatter_reduce_ = torch.Tensor.scatter_reduce_
+    orig_assert_async = torch._assert_async
+
+    def _is_mps(dev: Any) -> bool:
+        return dev is not None and torch.device(dev).type == "mps"
+
+    def _wrap_creation(fn: Any) -> Any:
+        def wrapped(*args: Any, **kwargs: Any) -> Any:
+            if _is_mps(kwargs.get("device")) and kwargs.get("dtype") == torch.float64:
+                kwargs = dict(kwargs, dtype=torch.float32)
+            return fn(*args, **kwargs)
+
+        return wrapped
+
+    def wrapped_as_tensor(data: Any, dtype: Any = None, device: Any = None) -> torch.Tensor:
+        if _is_mps(device):
+            if dtype == torch.float64 or (
+                dtype is None
+                and (
+                    (isinstance(data, np.ndarray) and data.dtype == np.float64)
+                    or (isinstance(data, torch.Tensor) and data.dtype == torch.float64)
+                )
+            ):
+                dtype = torch.float32
+        return orig_as_tensor(data, dtype=dtype, device=device)
+
+    def wrapped_to(self: torch.Tensor, *args: Any, **kwargs: Any) -> torch.Tensor:
+        new_args = list(args)
+        target_mps = (
+            (self.device.type == "mps")
+            or any(isinstance(a, (str, torch.device)) and _is_mps(a) for a in new_args)
+            or _is_mps(kwargs.get("device"))
+        )
+        if target_mps:
+            new_args = [torch.float32 if a == torch.float64 else a for a in new_args]
+            if kwargs.get("dtype") == torch.float64 or (
+                self.dtype == torch.float64
+                and "dtype" not in kwargs
+                and not any(isinstance(a, torch.dtype) for a in new_args)
+            ):
+                kwargs = dict(kwargs, dtype=torch.float32)
+        return orig_to(self, *new_args, **kwargs)
+
+    def wrapped_double(self: torch.Tensor, *args: Any, **kwargs: Any) -> torch.Tensor:
+        if self.device.type == "mps":
+            return orig_to(self, dtype=torch.float32)
+        return orig_double(self, *args, **kwargs)
+
+    def wrapped_scatter_reduce_(
+        self: torch.Tensor,
+        dim: int,
+        index: torch.Tensor,
+        src: torch.Tensor,
+        reduce: str,
+        *,
+        include_self: bool = True,
+    ) -> torch.Tensor:
+        if self.device.type == "mps" and self.dtype == torch.int64:
+            tmp = orig_to(self, dtype=torch.int32).clone()
+            orig_scatter_reduce_(
+                tmp, dim, index, orig_to(src, dtype=torch.int32), reduce, include_self=include_self
+            )
+            self.copy_(orig_to(tmp, dtype=torch.int64))
+            return self
+        return orig_scatter_reduce_(self, dim, index, src, reduce, include_self=include_self)
+
+    def wrapped_assert_async(tensor: torch.Tensor, msg: str) -> None:
+        if isinstance(tensor, torch.Tensor) and tensor.device.type == "mps":
+            if not bool(tensor.all().item()):
+                raise AssertionError(msg)
+            return
+        orig_assert_async(tensor, msg)
+
+    torch.zeros = _wrap_creation(orig_zeros)  # type: ignore[assignment]
+    torch.full = _wrap_creation(orig_full)  # type: ignore[assignment]
+    torch.empty = _wrap_creation(orig_empty)  # type: ignore[assignment]
+    torch.tensor = _wrap_creation(orig_tensor)  # type: ignore[assignment]
+    torch.arange = _wrap_creation(orig_arange)  # type: ignore[assignment]
+    torch.as_tensor = wrapped_as_tensor  # type: ignore[assignment]
+    torch.Tensor.to = wrapped_to  # type: ignore[assignment]
+    torch.Tensor.double = wrapped_double  # type: ignore[assignment]
+    torch.Tensor.scatter_reduce_ = wrapped_scatter_reduce_  # type: ignore[assignment]
+    torch._assert_async = wrapped_assert_async  # type: ignore[assignment]
+    try:
+        yield
+    finally:
+        torch.zeros, torch.full, torch.empty = orig_zeros, orig_full, orig_empty  # type: ignore[assignment]
+        torch.tensor, torch.as_tensor, torch.arange = orig_tensor, orig_as_tensor, orig_arange  # type: ignore[assignment]
+        torch.Tensor.to, torch.Tensor.double = orig_to, orig_double  # type: ignore[assignment]
+        torch.Tensor.scatter_reduce_ = orig_scatter_reduce_  # type: ignore[assignment]
+        torch._assert_async = orig_assert_async  # type: ignore[assignment]
+
+
+def test_ct_device_sim_step_and_reset_bit_identical_cpu_and_mps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Prove optimized CTDeviceSim step + reset_fresh_worlds are 100% bit-identical to the
+    pre-optimization reference implementation across all 28 _ENV_TENSOR_FIELDS on CPU and MPS,
+    and default move_backend='indexed' on CUDA."""
+    from research.gpu_sim_spike import r2_cache
+    from research.gpu_sim_spike.device_sim import PHI_LENGTH_DIVISOR, DeviceSim
+    from research.gpu_sitl.probe_bank import build_watch6_ct_device_bundle
+    from research.sandbox_a_resident.ct_mechanics import _CARDINAL, CTDeviceSim
+    from research.sandbox_a_resident.device_sim import _ENV_TENSOR_FIELDS
+
+    class _ReferenceCTDeviceSim(CTDeviceSim):
+        """Pre-optimization CTDeviceSim methods for before/after bit-identity comparison."""
+
+        def _refill_food_rows(self, active_mask: torch.Tensor) -> None:
+            DeviceSim._refill_food_rows(self, active_mask)
+
+        @torch.inference_mode()
+        def reset_fresh_worlds(self) -> None:
+            pending = ~self.alive & ~self.terminal_slots & (self.respawn_timer <= 0)
+            if not bool(pending.any()):
+                return
+            any_placed = False
+            for sidx in range(self.S):
+                slot_need = pending[:, sidx]
+                if not bool(slot_need.any()):
+                    continue
+                rows = slot_need.nonzero(as_tuple=False).flatten()
+                r2_cache.bump(self)
+                sub = object.__new__(DeviceSim)
+                sub.__dict__ = self.__dict__.copy()
+                for name in _ENV_TENSOR_FIELDS:
+                    value = getattr(self, name, None)
+                    if isinstance(value, torch.Tensor):
+                        setattr(sub, name, value.index_select(0, rows))
+                sub.E = int(rows.numel())
+                sub.exact_mechanics = self.exact_mechanics
+                r2_cache.inherit(sub, self)
+                occupied = sub.occupancy()
+                unplaced = torch.ones(sub.E, dtype=torch.bool, device=self.device)
+                for _ in range(100):
+                    if not bool(unplaced.any()):
+                        break
+                    local_idx = unplaced.nonzero(as_tuple=False).flatten()
+                    global_idx = rows.index_select(0, local_idx)
+                    cand = self._draw_for_rows(global_idx)
+                    cx, cy = cand[:, 0], cand[:, 1]
+                    in_bounds = (cx >= 0) & (cx < self.grid_w) & (cy >= 0) & (cy < self.grid_h)
+                    safe_x = cx.clamp(0, self.grid_w - 1)
+                    safe_y = cy.clamp(0, self.grid_h - 1)
+                    free = in_bounds & (occupied[local_idx, safe_y, safe_x] < 0)
+                    if bool(free.any()):
+                        win_global = global_idx[free]
+                        win_local = local_idx[free]
+                        win_cand = cand[free]
+                        self.bodies[win_global, sidx, 0] = win_cand.to(self.bodies.dtype)
+                        self.head_ptr[win_global, sidx] = 0
+                        self.seg_count[win_global, sidx] = 1
+                        self.length[win_global, sidx] = 1
+                        self.direction[win_global, sidx] = 1
+                        self.alive[win_global, sidx] = True
+                        self.respawn_timer[win_global, sidx] = 0
+                        self.boost_frames[win_global, sidx] = 0
+                        self.frames_since_food[win_global, sidx] = 0
+                        self._reward_prev_length[win_global, sidx] = 1
+                        unplaced[win_local] = False
+                        any_placed = True
+            if any_placed:
+                r2_cache.bump(self)
+
+        @torch.inference_mode()
+        def step(self, actions: torch.Tensor) -> None:
+            actions = actions.long().clamp(0, 5)
+            r2_cache.bump(self)
+            self.prepare()
+            acted, prev_length = self.alive.clone(), self._reward_prev_length.clone()
+            new_dir = (
+                self.direction
+                + torch.where(
+                    actions.remainder(3) == 0, -1, torch.where(actions.remainder(3) == 2, 1, 0)
+                )
+            ) % 4
+            self.direction = torch.where(self.alive, new_dir, self.direction)
+            cardinal = (
+                r2_cache.const(_CARDINAL, torch.long, self.device)
+                if r2_cache.enabled(self)
+                else torch.tensor(_CARDINAL, dtype=torch.long, device=self.device)
+            )
+            delta = cardinal[self.direction]
+            head0 = self.heads()
+            move1 = self.alive
+            head1 = head0 + delta
+            self._push(head1, move1)
+            boost = self.alive & (actions >= 3) & (self.length >= int(self.cfg.min_boost_length))
+            head2 = head1 + delta
+            self._push(head2, boost)
+            self._boosted_this_step = boost
+            self.boost_frames = torch.where(boost, self.boost_frames + 1, self.boost_frames)
+            burn = (
+                boost
+                & (self.boost_frames >= int(self.cfg.boost_length_cost_frames))
+                & (self.length > 1)
+            )
+            self.boost_frames = torch.where(
+                burn, torch.zeros_like(self.boost_frames), self.boost_frames
+            )
+            tail_ring = (self.head_ptr - (self.seg_count - 1).clamp_min(0)) % self.cap
+            e = torch.arange(self.E, device=self.device)[:, None]
+            s = torch.arange(self.S, device=self.device)[None, :]
+            paid_tail = self.bodies[e, s, tail_ring]
+            self.length -= burn.long()
+            extra = burn & (self.seg_count > self.length)
+            self.seg_count -= extra.long()
+            if self.v2:
+                for slot in range(self.S):
+                    self._append_food(
+                        paid_tail[:, slot],
+                        extra[:, slot] & self._in_arena(paid_tail[:, slot]),
+                        True,
+                    )
+            traversed = torch.stack((head1, head2), dim=2)
+            traversed_valid = torch.stack((move1, boost), dim=2)
+            ate = torch.zeros_like(self.alive)
+            ate_corpse = torch.zeros_like(self.alive)
+            eq_any = (traversed[:, :, :, None, :] == self.food_cells[:, None, None, :, :]).all(
+                dim=-1
+            )
+            if bool(
+                (eq_any & self.food_present[:, None, None, :] & traversed_valid[..., None]).any()
+            ):
+                food_slots = torch.arange(self.food_capacity, device=self.device)[None, :]
+                t_idx = torch.arange(2, device=self.device)[None, :]
+                for slot in range(self.S):
+                    eq_s = (traversed[:, slot, :, None, :] == self.food_cells[:, None, :, :]).all(
+                        dim=-1
+                    )
+                    available = (
+                        eq_s & self.food_present[:, None, :] & traversed_valid[:, slot, :, None]
+                    )
+                    by_t = available.any(dim=2)
+                    first_t = by_t.long().argmax(dim=1)
+                    tmask = t_idx == first_t[:, None]
+                    candidates = (available & tmask[:, :, None]).any(dim=1)
+                    has = candidates.any(dim=1) & self.alive[:, slot]
+                    if not bool(has.any()):
+                        continue
+                    chosen = candidates.long().argmax(dim=1)
+                    select = has[:, None] & (food_slots == chosen[:, None])
+                    is_corpse = (select & self.corpse_food).any(dim=1)
+                    ate[:, slot] = has
+                    ate_corpse[:, slot] = is_corpse
+                    self.length[:, slot] += has.long()
+                    self.food_present &= ~select
+                    self.corpse_food &= self.food_present
+                    self._compact_food()
+                    r2_cache.bump(self)
+                    self._refill_food_rows(has)
+                    r2_cache.bump(self)
+            in_arena = ((~traversed_valid) | self._in_arena(traversed)).all(dim=2)
+            body, self_hit, head_pair, body_pair = self._collision_flags_reference(
+                head0, traversed, traversed_valid
+            )
+            death, death_rank, dead, kills, kill_mass = self._resolve_collisions_reference(
+                in_arena, self_hit, head_pair, body_pair
+            )
+            died = dead
+            if bool(died.any().item()):
+                snake_order = death_rank.argsort(dim=1, stable=True)
+                body = body.gather(1, snake_order[:, :, None, None].expand(-1, -1, self.cap, 2))
+                died_ordered = died.gather(1, snake_order)
+                seg_ordered = self.seg_count.gather(1, snake_order)
+                offsets = torch.arange(self.cap, device=self.device)[None, None, :]
+                corpse_mask = died_ordered[..., None] & (offsets < seg_ordered[..., None])
+                if not self.v2:
+                    corpse_mask &= offsets.remainder(2) == 0
+                self._append_many(
+                    body.reshape(self.E, self.S * self.cap, 2),
+                    corpse_mask.reshape(self.E, self.S * self.cap),
+                    self.v2,
+                )
+            phi_prev = prev_length.float() / PHI_LENGTH_DIVISOR
+            phi_new = torch.where(
+                died, torch.zeros_like(phi_prev), self.length.float() / PHI_LENGTH_DIVISOR
+            )
+            self._last_reward = (
+                float(self.cfg.gamma) * phi_new
+                - phi_prev
+                + torch.where(
+                    died,
+                    torch.full_like(phi_new, float(self.cfg.death_value)),
+                    torch.zeros_like(phi_new),
+                )
+                + kill_mass.float() * float(self.cfg.kill_scale)
+            )
+            self.frames_since_food = torch.where(
+                died,
+                self.frames_since_food,
+                torch.where(
+                    ate,
+                    torch.zeros_like(self.frames_since_food),
+                    self.frames_since_food + self.alive.long(),
+                ),
+            )
+            self._reward_prev_length = torch.where(died, self._reward_prev_length, self.length)
+            self.alive &= ~died
+            self.respawn_timer = torch.where(
+                died,
+                torch.full_like(self.respawn_timer, int(self.cfg.frame_rate)),
+                self.respawn_timer,
+            )
+            self._last_done, self._last_death_cause, self._last_kills, self._last_food_ate = (
+                died,
+                death,
+                kills,
+                ate,
+            )
+            self._last_ambient_food_ate = ate & ~ate_corpse
+            self._last_corpse_food_ate = ate_corpse
+            self._last_transition_valid = acted
+            self._prepared = False
+            r2_cache.bump(self)
+
+    b8_path, opp_path = resolve_product_checkpoints()
+    if not Path(b8_path).exists() or not Path(opp_path).exists():
+        pytest.skip("b8-s3 or opponent checkpoint not present")
+
+    # Verify CTDeviceSim.__init__ and CTDeviceSim.from_reference default move_backend="indexed" on CUDA
+    from research.sandbox_a_resident.training_sim import TrainingDeviceSim
+    from src.simd_env.batch_sim import BatchSimConfig
+
+    seen_init_kwargs: list[dict[str, Any]] = []
+    orig_tds_init = TrainingDeviceSim.__init__
+
+    def _spy_tds_init(self: Any, *args: Any, **kwargs: Any) -> None:
+        seen_init_kwargs.append(dict(kwargs))
+        cpu_kwargs = dict(kwargs, device="cpu")
+        orig_tds_init(self, *args, **cpu_kwargs)
+
+    with monkeypatch.context() as mp:
+        mp.setattr(TrainingDeviceSim, "__init__", _spy_tds_init)
+        cuda_init_sim = CTDeviceSim(BatchSimConfig(num_envs=2, num_snakes=6), device="cuda")
+        assert seen_init_kwargs[-1].get("move_backend") == "indexed"
+        assert cuda_init_sim.move_backend == "indexed"
+
+        orig_from_ref = TrainingDeviceSim.from_reference
+
+        def _fake_cuda_from_ref(cls_arg: Any, sim_arg: Any, **kw: Any) -> Any:
+            res_sim = orig_from_ref(sim_arg, device="cpu", repeat=int(kw.get("repeat", 1)))
+            res_sim.capacity_overflow = torch.zeros_like(res_sim.alive)
+            res_sim.device = torch.device("cuda:0")
+            return res_sim
+
+        mp.setattr(TrainingDeviceSim, "from_reference", classmethod(_fake_cuda_from_ref))
+        from src.simd_env.grid_sim import GridBatchSim
+
+        cuda_ref_sim = CTDeviceSim.from_reference(
+            GridBatchSim(BatchSimConfig(num_envs=1, num_snakes=6)),
+            device="cuda",
+        )
+        assert cuda_ref_sim.move_backend == "indexed"
+
+    seeds = preflight_seeds(tuple(range(16)))
+    devices = ["cpu"] + (["mps"] if torch.backends.mps.is_available() else [])
+    for dev_name in devices:
+        ctx = _mps_readonly_spike_compat() if dev_name == "mps" else contextlib.nullcontext()
+        with ctx:
+            dev = torch.device("mps", 0) if dev_name == "mps" else torch.device("cpu")
+            sim_fast, _ = build_watch6_ct_device_bundle(seeds, b8_path, opp_path, device=dev)
+            # Test reset_fresh_worlds bit-identity first
+            sim_fast.alive[::2, :] = False
+            sim_fast.respawn_timer[::2, :] = 0
+            sim_ref_reset = sim_fast.clone()
+            sim_ref_reset.__class__ = _ReferenceCTDeviceSim
+            sim_fast.reset_fresh_worlds()
+            sim_ref_reset.reset_fresh_worlds()
+            for field_name in _ENV_TENSOR_FIELDS:
+                assert torch.equal(
+                    getattr(sim_fast, field_name), getattr(sim_ref_reset, field_name)
+                ), f"[{dev_name}] reset_fresh_worlds mismatch on {field_name}"
+
+            # Exercise boost burn paid_tail corpse drop, food eat/refill, deaths, and respawns
+            sim_fast.length[:, :] = 8
+            sim_fast._reward_prev_length[:, :] = 8
+            sim_fast.boost_frames[:, :] = int(sim_fast.cfg.boost_length_cost_frames) - 1
+            sim_fast.alive[:, 4] = False
+            sim_fast.respawn_timer[:, 4] = 2
+
+            sim_ref = sim_fast.clone()
+            sim_ref.__class__ = _ReferenceCTDeviceSim
+            r2_cache.enable(sim_fast)
+            r2_cache.enable(sim_ref)
+
+            gen = torch.Generator(device="cpu").manual_seed(20261110)
+            for step_i in range(24):
+                act = torch.randint(0, 6, (16, 6), generator=gen, dtype=torch.long).to(dev)
+                sim_fast.step(act)
+                sim_ref.step(act)
+                for field_name in _ENV_TENSOR_FIELDS:
+                    assert torch.equal(
+                        getattr(sim_fast, field_name), getattr(sim_ref, field_name)
+                    ), f"[{dev_name}] step {step_i} mismatch on {field_name}"
+
+
+def test_fast_v8_decide_and_fast_device_policy_bit_identical_cpu_and_mps() -> None:
+    """Prove fast_v8_decide and FastDevicePolicy match v8_decide/DevicePolicy bit-for-bit."""
+    from dataclasses import fields as dc_fields
+
+    from research.gpu_sim_spike import r2_cache, v8_device
+    from research.gpu_sim_spike.device_policy import DevicePolicy
+    from research.gpu_sitl.open_stop_gpu import (
+        FastDevicePolicy,
+        _maybe_cpu_fast_flood,
+        fast_v8_decide,
+    )
+    from research.gpu_sitl.preflight import (
+        MATURE_EXTENSION_SPECS,
+        build_extension_worlds,
+        snapshot_worlds_to_device,
+    )
+    from research.gpu_sitl.smoke import DEFAULT_MATURE_SLICE_INDICES
+
+    b8_path, opp_path = resolve_product_checkpoints()
+    specs = [MATURE_EXTENSION_SPECS[i] for i in DEFAULT_MATURE_SLICE_INDICES[:4]]
+    worlds, pol_tpl, _ = build_extension_worlds(
+        Path(b8_path),
+        Path(opp_path),
+        specs=specs,
+        cpu_featurizer_backend="python",
+        ego_raster_backend="numpy",
+    )
+
+    devices = ["cpu"] + (["mps"] if torch.backends.mps.is_available() else [])
+    for dev_name in devices:
+        ctx = _mps_readonly_spike_compat() if dev_name == "mps" else _maybe_cpu_fast_flood(True)
+        with ctx:
+            dev = torch.device("mps", 0) if dev_name == "mps" else torch.device("cpu")
+            sim, pol_fast = snapshot_worlds_to_device(
+                worlds * 2, pol_tpl, sim_cls=CTDeviceSim, device=dev, vector_prepared=False
+            )
+            # Mark one opponent dead to prove dead-slot parity as well
+            sim.alive[1, 3] = False
+            r2_cache.enable(sim)
+            assert type(pol_fast) is FastDevicePolicy
+
+            pol_ref = pol_fast.repeat_interleave(1)
+            pol_ref.__class__ = DevicePolicy
+
+            e = int(sim.E)
+            hero_rows = torch.stack(
+                (
+                    torch.arange(e, dtype=torch.long, device=dev),
+                    torch.zeros(e, dtype=torch.long, device=dev),
+                ),
+                dim=1,
+            )
+            opp_rows = torch.stack(
+                (
+                    torch.arange(e, dtype=torch.long, device=dev).repeat(5),
+                    torch.arange(1, 6, dtype=torch.long, device=dev).repeat_interleave(e),
+                ),
+                dim=1,
+            )
+            gen = torch.Generator(device="cpu").manual_seed(20261110)
+            q_hero = torch.randn((e, 6), generator=gen, dtype=torch.float32).to(dev)
+            q_opp = torch.randn((e * 5, 6), generator=gen, dtype=torch.float32).to(dev)
+            adv_all = sim.advisory_mask()
+            mask_hero = adv_all[:, 0]
+            mask_opp = adv_all[opp_rows[:, 0], opp_rows[:, 1]]
+
+            for feat_flag in (True, False):
+                ref_h = v8_device.v8_decide(
+                    sim, hero_rows, q_hero, mask_hero, 8.0, features=feat_flag
+                )
+                cand_h = fast_v8_decide(
+                    sim,
+                    hero_rows,
+                    q_hero,
+                    mask_hero,
+                    8.0,
+                    features=feat_flag,
+                    slot_layout="hero",
+                )
+                for f in dc_fields(ref_h):
+                    assert torch.equal(
+                        getattr(ref_h, f.name), getattr(cand_h, f.name)
+                    ), f"[{dev_name} feat={feat_flag}] hero field mismatch: {f.name}"
+                if feat_flag:
+                    assert torch.equal(ref_h.feature_planes(), cand_h.feature_planes())
+
+                ref_o = v8_device.v8_decide(sim, opp_rows, q_opp, mask_opp, 8.0, features=feat_flag)
+                cand_o = fast_v8_decide(
+                    sim,
+                    opp_rows,
+                    q_opp,
+                    mask_opp,
+                    8.0,
+                    features=feat_flag,
+                    slot_layout="opp_slot_major",
+                )
+                for f in dc_fields(ref_o):
+                    assert torch.equal(
+                        getattr(ref_o, f.name), getattr(cand_o, f.name)
+                    ), f"[{dev_name} feat={feat_flag}] opp field mismatch: {f.name}"
+
+            # Multi-step rollout comparing FastDevicePolicy vs DevicePolicy bit-for-bit
+            sim_ref = sim.clone()
+            r2_cache.enable(sim_ref)
+            for step_idx in range(4):
+                sim.prepare()
+                sim_ref.prepare()
+                q_f, leg_f, bare_f = pol_fast.evaluate(sim)
+                q_r, leg_r, bare_r = pol_ref.evaluate(sim_ref)
+                assert torch.equal(q_f, q_r), f"[{dev_name}] step {step_idx} evaluate Q mismatch"
+                assert torch.equal(leg_f, leg_r)
+                assert torch.equal(bare_f, bare_r)
+
+                act_f = pol_fast.actions(sim, bare_f)
+                act_r = pol_ref.actions(sim_ref, bare_r)
+                assert torch.equal(act_f, act_r), f"[{dev_name}] step {step_idx} actions mismatch"
+                sim.step(act_f)
+                sim_ref.step(act_r)
+                pol_fast.after_step(sim)
+                pol_ref.after_step(sim_ref)
+
+
+def test_fast_device_vector_runtime_and_open_stop_h32_bit_identical_cpu_and_mps() -> None:
+    """Prove FastDeviceVectorRuntime and batched_open_stop_h32 match reference on CPU and MPS."""
+    from research.gpu_sim_spike.device_policy import DevicePolicy
+    from research.gpu_sim_spike.vector_device import DeviceVectorRuntime
+    from research.gpu_sitl import open_stop_gpu as osg
+    from research.gpu_sitl.open_stop_gpu import (
+        FastDeviceVectorRuntime,
+        _maybe_cpu_fast_flood,
+        batched_open_stop_h32,
+        compact_sim_and_policy,
+    )
+    from research.gpu_sitl.preflight import (
+        MATURE_EXTENSION_SPECS,
+        build_extension_worlds,
+        snapshot_worlds_to_device,
+    )
+    from research.gpu_sitl.smoke import DEFAULT_MATURE_SLICE_INDICES
+
+    b8_path, opp_path = resolve_product_checkpoints()
+    specs = [MATURE_EXTENSION_SPECS[i] for i in DEFAULT_MATURE_SLICE_INDICES[:4]]
+    worlds, pol_tpl, _ = build_extension_worlds(
+        Path(b8_path),
+        Path(opp_path),
+        specs=specs,
+        cpu_featurizer_backend="python",
+        ego_raster_backend="numpy",
+    )
+    slice_seeds = [int(w.seed) for w in worlds]
+    slice_decisions = [int(w.sim.frame[0]) for w in worlds]
+
+    # 1. Prove cpu_fast_flood=True vs cpu_fast_flood=False bit-identity on CPU (parity_4 speedup)
+    sim_cpu, pol_cpu = snapshot_worlds_to_device(
+        worlds, pol_tpl, sim_cls=CTDeviceSim, device="cpu", vector_prepared=False
+    )
+    cert_slow = batched_open_stop_h32(
+        sim_cpu,
+        pol_cpu,
+        world_seeds=slice_seeds,
+        decisions=slice_decisions,
+        branch_horizon=6,
+        cpu_fast_flood=False,
+        return_host_records=False,
+    )
+    cert_fast = batched_open_stop_h32(
+        sim_cpu,
+        pol_cpu,
+        world_seeds=slice_seeds,
+        decisions=slice_decisions,
+        branch_horizon=6,
+        cpu_fast_flood=True,
+        return_host_records=False,
+    )
+    for key in (
+        "certified",
+        "raw_survives",
+        "safe_mask",
+        "unsafe_mask",
+        "rescue_mask",
+        "ordinary_mask",
+        "bare_actions",
+        "a_star_actions",
+        "v8_best_safe_area",
+        "max_pocket_r",
+        "root_q",
+    ):
+        assert torch.equal(cert_slow[key], cert_fast[key]), f"cpu_fast_flood mismatch on {key}"
+
+    # 2. Prove FastDeviceVectorRuntime + FastDevicePolicy + _compact_sim_and_policy_fast
+    # match DeviceVectorRuntime + DevicePolicy + compact_sim_and_policy on CPU and MPS
+    devices = ["cpu"] + (["mps"] if torch.backends.mps.is_available() else [])
+    for dev_name in devices:
+        ctx = _mps_readonly_spike_compat() if dev_name == "mps" else _maybe_cpu_fast_flood(True)
+        with ctx:
+            dev = torch.device("mps", 0) if dev_name == "mps" else torch.device("cpu")
+            sim_d, pol_d = snapshot_worlds_to_device(
+                worlds, pol_tpl, sim_cls=CTDeviceSim, device=dev, vector_prepared=False
+            )
+            rt_fast = pol_d.vector_runtime
+            assert type(rt_fast) is FastDeviceVectorRuntime
+            rt_base = rt_fast.repeat_interleave(1)
+            rt_base.__class__ = DeviceVectorRuntime
+            sim_rt = sim_d.clone()
+            sim_rt.prepare()
+            rt_fast.prepare(sim_rt)
+            rt_base.prepare(sim_rt)
+            assert torch.equal(rt_fast.sel_state, rt_base.sel_state)
+            assert torch.equal(rt_fast.sel_mask, rt_base.sel_mask)
+
+            res_fast = batched_open_stop_h32(
+                sim_d,
+                pol_d,
+                world_seeds=slice_seeds,
+                decisions=slice_decisions,
+                branch_horizon=6,
+                cpu_fast_flood=True,
+                return_host_records=False,
+            )
+
+            # Force unoptimized DevicePolicy + original compact_sim_and_policy
+            orig_compact = osg._compact_sim_and_policy_fast
+            orig_move = osg.move_device_policy_to_device
+
+            def _move_plain(pol_arg: Any, dev_arg: Any, **kw: Any) -> Any:
+                out_p = orig_move(pol_arg, dev_arg, **kw)
+                out_p.__class__ = DevicePolicy
+                return out_p
+
+            try:
+                osg._compact_sim_and_policy_fast = compact_sim_and_policy
+                osg.move_device_policy_to_device = _move_plain
+                pol_plain = pol_d.repeat_interleave(1)
+                pol_plain.__class__ = DevicePolicy
+                res_plain = batched_open_stop_h32(
+                    sim_d,
+                    pol_plain,
+                    world_seeds=slice_seeds,
+                    decisions=slice_decisions,
+                    branch_horizon=6,
+                    cpu_fast_flood=True,
+                    return_host_records=False,
+                )
+            finally:
+                osg._compact_sim_and_policy_fast = orig_compact
+                osg.move_device_policy_to_device = orig_move
+
+            for key in (
+                "certified",
+                "raw_survives",
+                "safe_mask",
+                "unsafe_mask",
+                "rescue_mask",
+                "ordinary_mask",
+                "bare_actions",
+                "a_star_actions",
+                "v8_best_safe_area",
+                "max_pocket_r",
+                "root_q",
+            ):
+                assert torch.equal(
+                    res_fast[key], res_plain[key]
+                ), f"[{dev_name}] open_stop_h32 fast vs plain mismatch on {key}"
+
+
+def test_extension_worlds_and_watch6_bundle_template_reuse_bit_identical() -> None:
+    """Prove python/numpy world building and policy_template bundle reuse match numba/disk."""
+    from research.gpu_sitl.open_stop_gpu import _ENV_TENSOR_FIELDS, _VECTOR_RUNTIME_ENV_FIELDS
+    from research.gpu_sitl.preflight import MATURE_EXTENSION_SPECS, build_extension_worlds
+    from research.gpu_sitl.probe_bank import build_watch6_ct_device_bundle
+
+    b8_path, opp_path = resolve_product_checkpoints()
+    specs = [MATURE_EXTENSION_SPECS[0], MATURE_EXTENSION_SPECS[26]]
+    w_nb, tpl_nb, meta_nb = build_extension_worlds(
+        Path(b8_path),
+        Path(opp_path),
+        specs=specs,
+        cpu_featurizer_backend="numba",
+        ego_raster_backend="numba",
+    )
+    w_py, tpl_py, meta_py = build_extension_worlds(
+        Path(b8_path),
+        Path(opp_path),
+        specs=specs,
+        cpu_featurizer_backend="python",
+        ego_raster_backend="numpy",
+    )
+    assert meta_nb == meta_py
+    for wn, wp in zip(w_nb, w_py):
+        assert np.array_equal(wn.sim.bodies, wp.sim.bodies)
+        assert np.array_equal(wn.sim.head_ptr, wp.sim.head_ptr)
+        assert np.array_equal(wn.sim.seg_count, wp.sim.seg_count)
+        assert np.array_equal(wn.sim.length, wp.sim.length)
+        assert np.array_equal(wn.sim.alive, wp.sim.alive)
+        assert np.array_equal(wn.sim.direction, wp.sim.direction)
+        assert np.array_equal(wn.sim.frame, wp.sim.frame)
+        assert wn.sim.food_cells == wp.sim.food_cells
+        assert wn.sim.corpse_cells == wp.sim.corpse_cells
+        np.testing.assert_allclose(wn.runtime._carry_state, wp.runtime._carry_state, atol=1e-6)
+        assert np.array_equal(wn.runtime._carry_mask, wp.runtime._carry_mask)
+        assert np.array_equal(wn.runtime._carry_valid, wp.runtime._carry_valid)
+
+    seeds = preflight_seeds((0, 1, 2, 3))
+    devices = ["cpu"] + (["mps"] if torch.backends.mps.is_available() else [])
+    for dev_name in devices:
+        ctx = _mps_readonly_spike_compat() if dev_name == "mps" else contextlib.nullcontext()
+        with ctx:
+            dev = torch.device("mps", 0) if dev_name == "mps" else torch.device("cpu")
+            sim_disk, pol_disk = build_watch6_ct_device_bundle(
+                seeds,
+                b8_path,
+                opp_path,
+                device=dev,
+                policy_template=None,
+                cpu_featurizer_backend="numba",
+            )
+            sim_tpl, pol_tpl_out = build_watch6_ct_device_bundle(
+                seeds, b8_path, opp_path, device=dev, policy_template=tpl_py
+            )
+            for fname in _ENV_TENSOR_FIELDS:
+                assert torch.equal(getattr(sim_disk, fname), getattr(sim_tpl, fname))
+            for fname in _VECTOR_RUNTIME_ENV_FIELDS:
+                assert torch.equal(
+                    getattr(pol_disk.vector_runtime, fname),
+                    getattr(pol_tpl_out.vector_runtime, fname),
+                )
+            for (_, p1), (_, p2) in zip(
+                pol_disk.b8_network.named_parameters(), pol_tpl_out.b8_network.named_parameters()
+            ):
+                assert torch.equal(p1, p2)
+
+
+def test_verify_cuda_native_extensions_parallel_cold_compile(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Verify cold CUDA extension compilation dispatches all 4 modules in parallel."""
+    import threading
+    import time
+
+    from research.gpu_sim_spike import event_cuda, flood_cuda, move_cuda, vector_geometry
+    from research.gpu_sitl import open_stop_gpu as osg
+
+    active = 0
+    max_active = 0
+    calls: list[str] = []
+    lock = threading.Lock()
+    barrier = threading.Barrier(4, timeout=5.0)
+
+    def _make_loader(tag: str) -> Any:
+        def _loader() -> str:
+            nonlocal active, max_active
+            with lock:
+                active += 1
+                max_active = max(max_active, active)
+                calls.append(tag)
+            try:
+                barrier.wait()
+                time.sleep(0.01)
+                return f"ext_{tag}"
+            finally:
+                with lock:
+                    active -= 1
+
+        return _loader
+
+    monkeypatch.setenv("TORCH_EXTENSIONS_DIR", str(tmp_path / "ext_cache"))
+    monkeypatch.setenv("TORCH_CUDA_ARCH_LIST", "8.0;8.9;9.0")
+    monkeypatch.setenv("GPU_SIM_VECTOR_GEOMETRY", "native")
+    monkeypatch.setenv("GPU_SIM_VECTOR_FLOOD", "static")
+    monkeypatch.setattr(osg, "_LAST_SCOPED_BUILD_KEY", None)
+    monkeypatch.setattr(osg, "ensure_cuda_initialized", lambda d: torch.device("cuda:0"))
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "is_initialized", lambda: True)
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda d=None: (8, 0))
+    monkeypatch.setattr(torch.version, "cuda", "12.6")
+    monkeypatch.setattr(torch._C, "_cuda_getDeviceCount", lambda: 1, raising=False)
+    monkeypatch.setattr(flood_cuda, "_load", _make_loader("flood"))
+    monkeypatch.setattr(vector_geometry, "_load_exact_extension", _make_loader("vector"))
+    monkeypatch.setattr(osg, "_load_event_cuda_extension", _make_loader("event"))
+    monkeypatch.setattr(osg, "_load_move_cuda_extension", _make_loader("move"))
+
+    info = osg.verify_cuda_native_extensions(torch.device("cuda:0"))
+    assert info["effective_build_cuda_arch"] == "8.0"
+    assert set(calls) == {"flood", "move", "event", "vector"}
+    assert max_active == 4
+
+    # Warm second call with same build_key must NOT re-spawn parallel barrier threads
+    calls.clear()
+    monkeypatch.setattr(flood_cuda, "_load", lambda: (calls.append("flood"), "ext")[1])
+    monkeypatch.setattr(
+        vector_geometry, "_load_exact_extension", lambda: (calls.append("vector"), "ext")[1]
+    )
+    monkeypatch.setattr(
+        osg, "_load_event_cuda_extension", lambda: (calls.append("event"), "ext")[1]
+    )
+    monkeypatch.setattr(osg, "_load_move_cuda_extension", lambda: (calls.append("move"), "ext")[1])
+    osg.verify_cuda_native_extensions(torch.device("cuda:0"))
+    assert calls == ["flood", "vector", "event", "move"]
+
+
+def test_b1b_smoke_partial_phase_files_timeout_evidence_and_pilot_rejection(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Verify per-phase immutable partial exports survive timeouts and never count as PASS."""
+    import shutil
+
+    from research.colab_cli import runtime as colab_runtime
+    from research.colab_cli import schema as colab_schema
+    from research.gpu_sitl import smoke as smoke_mod
+    from research.gpu_sitl.prepare import SMOKE_REQUIRED_EXPORTS, prepare_b1b_packet
+    from research.gpu_sitl.probe_bank import verify_file_sha256, write_atomic_with_sha256
+
+    assert SMOKE_REQUIRED_EXPORTS == ("smoke_result.json",)
+
+    b8_path, opp_path = resolve_product_checkpoints()
+
+    # 1. Full dry-run smoke on CPU (and MPS if available): 13 create-only partial files + final PASS
+    devices = ["cpu"] + (["mps"] if torch.backends.mps.is_available() else [])
+    cpu_tp: dict[str, Any] | None = None
+    for dev_name in devices:
+        ctx = _mps_readonly_spike_compat() if dev_name == "mps" else contextlib.nullcontext()
+        out_ok = tmp_path / f"smoke_ok_{dev_name}"
+        with ctx:
+            res = smoke_mod.run_step_b1b_smoke(
+                out_ok,
+                b8_checkpoint=b8_path,
+                opponent_checkpoint=opp_path,
+                device=dev_name,
+                num_envs=4,
+                branch_horizon=2,
+                parity_slice_indices=(0, 8),
+                bench_env_steps=2,
+                bench_label_batches=2,
+                bench_learner_updates=2,
+                dry_run=True,
+            )
+        assert res["ok"] is True
+        assert res["partial"] is False
+        assert res["status"] == "PASS"
+        partial_files = sorted(out_ok.glob("smoke_partial_*.json"))
+        assert len(partial_files) == 13
+        prev_elapsed = 0.0
+        for idx, pf in enumerate(partial_files, start=1):
+            verify_file_sha256(pf, require_complete=True)
+            pdata = json.loads(pf.read_text(encoding="utf-8"))
+            assert pdata["schema"] == "t34-gpu-sitl-b1b-smoke-partial/v1"
+            assert pdata["partial"] is True
+            assert pdata["ok"] is False
+            assert pdata["pass"] is False
+            assert pdata["status"] == "PARTIAL_IN_PROGRESS"
+            assert pdata["not_evidence"] is True
+            assert pdata["phase_index"] == idx
+            assert float(pdata["elapsed_since_start_sec"]) >= prev_elapsed
+            prev_elapsed = float(pdata["elapsed_since_start_sec"])
+        if dev_name == "cpu":
+            cpu_tp = res["throughput"]
+        elif cpu_tp is not None:
+            for key in (
+                "measured_alive_hero_decisions",
+                "measured_rescue_frame_count",
+                "measured_rescue_episode_count",
+                "window_min_hero_length",
+                "window_max_hero_length",
+                "window_mature_length_ge_160_decisions",
+            ):
+                assert res["throughput"][key] == cpu_tp[key], f"CPU vs MPS mismatch on {key}"
+
+    # 2. Simulated timeout mid-run (during bench_3): leaves immutable partial evidence,
+    # never writes smoke_result.json, fails colab_cli required_exports, and is rejected by prepare.
+    fake_root = tmp_path / "colab_root"
+    fake_out = fake_root / "output"
+    scanner_cache: dict[str, Any] = {}
+
+    def _timeout_in_bench_3(*args: Any, **kwargs: Any) -> Any:
+        # Scanner snapshot mid-run before timeout
+        mid_records = colab_runtime._exports(fake_root, 2 * 1024**3, scanner_cache)
+        assert len(mid_records) == 11
+        raise TimeoutError("simulated 22.5 min A100 timeout")
+
+    monkeypatch.setattr(smoke_mod, "_evaluate_scoring_suffixes_on_snapshots", _timeout_in_bench_3)
+    with pytest.raises(TimeoutError, match="22.5 min"):
+        smoke_mod.run_step_b1b_smoke(
+            fake_out,
+            b8_checkpoint=b8_path,
+            opponent_checkpoint=opp_path,
+            device="cpu",
+            num_envs=4,
+            branch_horizon=2,
+            parity_slice_indices=(0, 8),
+            bench_env_steps=1,
+            bench_label_batches=1,
+            bench_learner_updates=1,
+            dry_run=True,
+        )
+    assert not (fake_out / "smoke_result.json").exists()
+    post_records = colab_runtime._exports(fake_root, 2 * 1024**3, scanner_cache)
+    assert len(post_records) == 11
+    with pytest.raises(colab_schema.SchemaError, match="smoke_result.json"):
+        colab_schema.validate_export_inventory(
+            {"required_exports": list(SMOKE_REQUIRED_EXPORTS)}, post_records
+        )
+
+    last_partial = sorted(fake_out.glob("smoke_partial_*.json"))[-1]
+    with pytest.raises(ValueError, match="partial"):
+        prepare_b1b_packet(
+            tmp_path / "pkt_reject_partial_name",
+            commit="origin/main",
+            mode="pilot",
+            smoke_result_json=last_partial,
+        )
+
+    disguised = tmp_path / "smoke_result.json"
+    write_atomic_with_sha256(
+        disguised,
+        lambda tmp: shutil.copyfile(last_partial, tmp),
+        write_complete_marker=True,
+    )
+    with pytest.raises(ValueError, match="partial|non-passing"):
+        prepare_b1b_packet(
+            tmp_path / "pkt_reject_disguised_partial",
+            commit="origin/main",
+            mode="pilot",
+            smoke_result_json=disguised,
+        )
+
+
+def test_shakeout_smoke_wall_time_projection_and_700s_gate(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify shakeout predictive scale in job.sh, per-phase projection math, and >700s failure."""
+    from research.gpu_sitl import smoke as smoke_mod
+    from research.gpu_sitl.prepare import ROOT
+
+    job_sh_text = (ROOT / "research" / "gpu_sitl" / "job.sh").read_text(encoding="utf-8")
+    shake_section = job_sh_text.split('elif [ "$MODE" = "shakeout" ]; then', 1)[1].split(
+        'elif [ "$MODE" = "pilot" ]; then', 1
+    )[0]
+    for expected_flag in (
+        "--enforce-projection-gate",
+        "--num-envs 256",
+        "--branch-horizon 32",
+        "--mature-warmup-steps 60",
+        "--bench-env-steps 8",
+        "--bench-label-batches 8",
+        "--probe-sample-roots 8",
+        "--bench-learner-updates 5",
+    ):
+        assert expected_flag in shake_section, f"Missing {expected_flag} in job.sh shakeout"
+
+    # 1. Exact per-phase scale_ratio and L4 -> A100 estimate math at E=256, H=32
+    synthetic_l4_sub = {
+        "device": "cuda:0",
+        "effective_build_cuda_arch": "8.9",
+        "parity_check": {
+            "num_roots": 8,
+            "subphase_timings_sec": {
+                "parity_1_v8_flood_sec": 0.4,
+                "parity_2_components_sec": 0.2,
+                "parity_3_vector_runtime_sec": 0.4,
+                "parity_4_open_stop_h32_sec": 24.0,
+            },
+        },
+        "throughput": {
+            "num_envs": 256,
+            "branch_horizon": 32,
+            "mature_warmup_steps": 60,
+            "bench_env_steps": 8,
+            "bench_label_batches": 8,
+            "probe_sample_roots": 8,
+            "bench_learner_updates": 5,
+        },
+        "phase_timings_sec": {
+            "init_and_extensions_sec": 0.2,
+            "mature_extension_build_sec": 3.0,
+            "parity_check_sec": 25.5,
+            "bundle_and_bench_warmup_sec": 5.0,
+            "mature_warmup_and_splice_sec": 4.0,
+            "env_benchmark_sec": 0.6,
+            "label_benchmark_sec": 18.0,
+            "buffer_insertion_sec": 0.5,
+            "probe_scoring_benchmark_sec": 2.5,
+            "learner_benchmark_sec": 0.8,
+            "write_outputs_sec": 0.5,
+        },
+    }
+    assert smoke_mod.SMOKE_SAME_HW_PROJECTION_LIMIT_SEC == pytest.approx(900.0)
+    proj_ok = smoke_mod.compute_smoke_wall_time_projection(
+        synthetic_l4_sub,
+        cold_init_elapsed_sec=70.0,
+        target_same_hw_limit_sec=900.0,
+    )
+    out_text = capsys.readouterr().out
+    assert "[shakeout.projection] SUMMARY" in out_text
+    assert "(ESTIMATE_ONLY)" in out_text
+    assert proj_ok["is_estimate"] is True
+    assert proj_ok["gate_metric"] == "same_hw_total_projected_sec"
+    assert proj_ok["a100_estimate_is_ungated"] is True
+    assert "ESTIMATE" in proj_ok["l4_to_a100_factor_derivation"]
+    assert proj_ok["within_same_hw_limit"] is True
+    assert proj_ok["same_hw_total_projected_sec"] < 900.0
+    assert proj_ok["a100_total_projected_sec_estimate"] < 300.0
+
+    # Verify Opus S2 specifically: if same_hw > 900s (e.g. ~965s) EVEN WHEN A100 estimate < 700s,
+    # the same-HW gate MUST fail closed!
+    over_same_hw_sub = {
+        **synthetic_l4_sub,
+        "phase_timings_sec": {
+            **synthetic_l4_sub["phase_timings_sec"],
+            "label_benchmark_sec": 106.0,
+        },
+    }
+    proj_over = smoke_mod.compute_smoke_wall_time_projection(
+        over_same_hw_sub,
+        cold_init_elapsed_sec=70.0,
+        target_same_hw_limit_sec=900.0,
+    )
+    assert proj_over["same_hw_total_projected_sec"] > 900.0
+    assert proj_over["a100_total_projected_sec_estimate"] < 700.0
+    assert proj_over["within_same_hw_limit"] is False
+
+    by_p = {row["phase"]: row for row in proj_ok["phases"]}
+    assert by_p["init_and_extensions"]["measured_sec"] == pytest.approx(70.0)
+    assert by_p["init_and_extensions"]["scale_ratio"] == pytest.approx(1.0)
+    assert by_p["mature_warmup_and_splice"]["scale_ratio"] == pytest.approx(10.0)
+    assert by_p["bench_1_env_steps"]["scale_ratio"] == pytest.approx(4.0)
+    assert by_p["bench_2_label_batches_and_rescue_rate"]["scale_ratio"] == pytest.approx(8.0)
+    assert by_p["bench_3_probe32_scoring_suffixes"]["scale_ratio"] == pytest.approx(8.0)
+    assert by_p["bench_4_learner_updates"]["scale_ratio"] == pytest.approx(4.0)
+
+    # 2. End-to-end CLI --shakeout --enforce-projection-gate fails closed when same-HW proj > 900s
+    # even when the A100 estimate is < 700s.
+    b8_path, opp_path = resolve_product_checkpoints()
+    orig_proj_fn = smoke_mod.compute_smoke_wall_time_projection
+
+    def _slow_projection(_sub_res: dict[str, Any], **kw: Any) -> dict[str, Any]:
+        return orig_proj_fn(over_same_hw_sub, **kw)
+
+    monkeypatch.setattr(smoke_mod, "compute_smoke_wall_time_projection", _slow_projection)
+    out_slow = tmp_path / "shakeout_exceeds_900s"
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "smoke.py",
+            "--shakeout",
+            "--enforce-projection-gate",
+            "--device",
+            "cpu",
+            "--output-dir",
+            str(out_slow),
+            "--b8-checkpoint",
+            str(b8_path),
+            "--opponent-checkpoint",
+            str(opp_path),
+        ],
+    )
+    rc = smoke_mod.main()
+    assert rc == 1
+    saved_shake = json.loads((out_slow / "shakeout_result.json").read_text(encoding="utf-8"))
+    assert saved_shake["ok"] is False
+    assert saved_shake["verdict"] == "SHAKEOUT_FAIL_NOT_EVIDENCE"
+    assert saved_shake["failed_phases"] == ["phase_4_b1b_smoke_reduced"]
+    assert saved_shake["smoke_wall_time_projection"]["within_same_hw_limit"] is False
+    assert saved_shake["smoke_wall_time_projection"]["same_hw_total_projected_sec"] > 900.0
+    assert saved_shake["smoke_wall_time_projection"]["a100_total_projected_sec_estimate"] < 700.0
+
+
+def test_opus_s1_cuda_cudnn_deterministic_and_no_global_deterministic_algorithms(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """S1/A1: ensure_cuda_initialized sets cudnn.deterministic=True, benchmark=False,
+    and CUBLAS_WORKSPACE_CONFIG without enabling global use_deterministic_algorithms."""
+    import os
+
+    import research.gpu_sitl.open_stop_gpu as osg
+
+    orig_det = torch.backends.cudnn.deterministic
+    orig_bench = torch.backends.cudnn.benchmark
+    orig_algos = torch.are_deterministic_algorithms_enabled()
+    monkeypatch.delenv("CUBLAS_WORKSPACE_CONFIG", raising=False)
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    try:
+        torch.backends.cudnn.deterministic = False
+        torch.backends.cudnn.benchmark = True
+        torch.use_deterministic_algorithms(False)
+
+        dev = osg.ensure_cuda_initialized("cuda")
+        assert dev == torch.device("cuda", 0)
+        assert torch.backends.cudnn.deterministic is True
+        assert torch.backends.cudnn.benchmark is False
+        assert os.environ.get("CUBLAS_WORKSPACE_CONFIG") == ":4096:8"
+        assert torch.are_deterministic_algorithms_enabled() is False
+    finally:
+        torch.backends.cudnn.deterministic = orig_det
+        torch.backends.cudnn.benchmark = orig_bench
+        torch.use_deterministic_algorithms(orig_algos)
+
+
+def test_a1_phase6_resume_mismatch_reports_first_update_and_tensor_name(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A1: phase_6 failure prints and raises with first differing update index and tensor name."""
+    import research.gpu_sitl.smoke as smoke_mod
+
+    ckpt_r = tmp_path / "resumed_student.pth"
+    ckpt_u = tmp_path / "unint_student.pth"
+    w_base = torch.zeros((6, 256), dtype=torch.float32)
+    w_diff = w_base.clone()
+    w_diff[2, 5] = 1.25e-4
+    torch.save(
+        {
+            "state_dict": {
+                "trunk.0.weight": torch.ones((256, 60), dtype=torch.float32),
+                "advantage.weight": w_base,
+            }
+        },
+        ckpt_r,
+    )
+    torch.save(
+        {
+            "state_dict": {
+                "trunk.0.weight": torch.ones((256, 60), dtype=torch.float32),
+                "advantage.weight": w_diff,
+            }
+        },
+        ckpt_u,
+    )
+    res_r = {
+        "final_student_checkpoint_path": str(ckpt_r),
+        "final_student_checkpoint_sha256": "aaa",
+        "update_history": [
+            {"update": 1, "loss_total": 0.25},
+            {"update": 2, "loss_total": 0.20, "grad_norm": 1.1},
+        ],
+    }
+    res_u = {
+        "final_student_checkpoint_path": str(ckpt_u),
+        "final_student_checkpoint_sha256": "bbb",
+        "update_history": [
+            {"update": 1, "loss_total": 0.25},
+            {"update": 2, "loss_total": 0.21, "grad_norm": 1.1},
+        ],
+    }
+    diag = smoke_mod._describe_resume_determinism_mismatch(res_r, res_u)
+    assert "first_differing_update_index=1 (update=2;" in diag
+    assert "loss_total: resumed=0.2 vs unint=0.21" in diag
+    assert "first_differing_tensor=advantage.weight" in diag
+
+    b8_path, opp_path = resolve_product_checkpoints()
+    orig_train = smoke_mod.run_sitl_training
+
+    perturbed_key_holder: list[str] = []
+
+    def _perturbed_uninterrupted(output_dir: Path | str, **kwargs: Any) -> dict[str, Any]:
+        out = orig_train(output_dir, **kwargs)
+        if kwargs.get("resume") is False and kwargs.get("stop_after_updates") is None:
+            p = Path(str(out["final_student_checkpoint_path"]))
+            blob = torch.load(p, map_location="cpu", weights_only=False)
+            last_key = list(blob["state_dict"].keys())[-1]
+            perturbed_key_holder.append(last_key)
+            blob["state_dict"][last_key] = blob["state_dict"][last_key] + 1.0e-3
+            torch.save(blob, p)
+            out = dict(out)
+            out["final_student_checkpoint_sha256"] = "perturbed_sha"
+            hist = [dict(row) for row in out["update_history"]]
+            float_key = next(k for k, v in hist[-1].items() if isinstance(v, float))
+            hist[-1][float_key] = float(hist[-1][float_key]) + 0.125
+            out["update_history"] = hist
+        return out
+
+    monkeypatch.setattr(smoke_mod, "run_sitl_training", _perturbed_uninterrupted)
+    rep = smoke_mod.run_cuda_shakeout(
+        tmp_path / "shakeout_diag",
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+    )
+    captured = capsys.readouterr().out
+    assert rep["ok"] is False
+    assert perturbed_key_holder
+    assert "phase_6_tiny_sitl_training_and_resume" in rep["failed_phases"]
+    p6 = next(p for p in rep["phases"] if p["phase"] == "phase_6_tiny_sitl_training_and_resume")
+    assert "first_differing_update_index=1" in str(p6["error"])
+    assert f"first_differing_tensor={perturbed_key_holder[0]}" in str(p6["error"])
+    assert "[shakeout] phase_6 resume determinism mismatch:" in captured
+
+
+def test_a2_fast_label_search_and_suffix_batching_bit_identical_cpu_and_mps() -> None:
+    """A2: fast_v8_decide, evaluate_terminal_openness_device, batched_open_stop_h32,
+    4-suffix Probe32 batching, and CTDeviceSim row-subset stepping are bit-identical
+    to unbatched/reference implementations on CPU (and MPS where supported)."""
+    import dataclasses
+
+    from research.gpu_sim_spike import ego_device, r2_cache, v8_device
+    from research.gpu_sitl.open_stop_gpu import (
+        OPEN_STOP_POCKET_MIN_LENGTH,
+        OPEN_STOP_V8_LAMBDA,
+        OPEN_STOP_V8_NEED_CAP,
+        OPEN_STOP_V8_NEED_FLOOR,
+        _ttl_by_owner,
+        batched_open_stop_h32,
+        concat_sims_and_policies,
+        evaluate_terminal_openness_device,
+        fast_v8_decide,
+    )
+    from research.gpu_sitl.preflight import (
+        MATURE_EXTENSION_SPECS,
+        build_extension_worlds,
+        snapshot_worlds_to_device,
+    )
+    from research.gpu_sitl.probe_bank import (
+        PROBE32_SCORING_SUFFIXES,
+        _evaluate_scoring_suffixes_on_snapshots,
+        build_watch6_ct_device_bundle,
+        extract_hero_root_observations,
+        slice_single_row_cpu_state,
+    )
+    from research.sandbox_a_resident.ct_mechanics import CTDeviceSim
+
+    b8_path, opp_path = resolve_product_checkpoints()
+    worlds = build_extension_worlds(b8_path, opp_path, specs=MATURE_EXTENSION_SPECS[:2])[0]
+    sim_n, pol_n = build_watch6_ct_device_bundle(
+        [301, 302, 303, 304], b8_path=b8_path, frp3_path=opp_path, device="cpu"
+    )
+    for _ in range(8):
+        sim_n.prepare()
+        pol_n.vector_runtime.prepare(sim_n)
+        pol_n.vector_prepared = True
+        _, _, ha = pol_n.evaluate(sim_n)
+        sim_n.step(pol_n.actions(sim_n, ha))
+        pol_n.after_step(sim_n)
+    sim_m, pol_m = snapshot_worlds_to_device(worlds, pol_n, device="cpu", sim_cls=CTDeviceSim)
+    sim_cpu, pol_cpu = concat_sims_and_policies([sim_m, sim_n], [pol_m, pol_n])
+    r2_cache.enable(sim_cpu)
+    sim_cpu.prepare()
+    pol_cpu.vector_runtime.prepare(sim_cpu)
+    pol_cpu.vector_prepared = True
+
+    e_cnt = int(sim_cpu.E)
+    hero_rows = torch.stack(
+        [torch.arange(e_cnt, dtype=torch.long), torch.zeros(e_cnt, dtype=torch.long)], dim=1
+    )
+    adv_hero = sim_cpu.advisory_mask()[:, 0] & sim_cpu.alive[:, 0:1]
+    g = torch.Generator().manual_seed(20261110)
+    q_hero = torch.randn((e_cnt, 6), generator=g)
+
+    # 1. Hero & opponent fast_v8_decide vs reference v8_device.v8_decide (all fields + hints)
+    ref_h_feat = v8_device.v8_decide(
+        sim_cpu, hero_rows, q_hero, adv_hero, float(OPEN_STOP_V8_LAMBDA), features=True
+    )
+    fast_h_feat = fast_v8_decide(
+        sim_cpu,
+        hero_rows,
+        q_hero,
+        adv_hero,
+        float(OPEN_STOP_V8_LAMBDA),
+        features=True,
+        slot_layout="hero",
+    )
+    for fld in dataclasses.fields(ref_h_feat):
+        va, vb = getattr(ref_h_feat, fld.name), getattr(fast_h_feat, fld.name)
+        assert (va is None and vb is None) or torch.equal(va, vb), f"hero {fld.name}"
+
+    ref_zero_planes = v8_device.v8_decide(
+        sim_cpu,
+        hero_rows,
+        torch.zeros((e_cnt, 6)),
+        adv_hero,
+        float(OPEN_STOP_V8_LAMBDA),
+        features=True,
+    ).feature_planes()
+    fast_only_planes = fast_v8_decide(
+        sim_cpu,
+        hero_rows,
+        torch.zeros((e_cnt, 6)),
+        adv_hero,
+        float(OPEN_STOP_V8_LAMBDA),
+        features=True,
+        slot_layout="hero",
+        _only_features=True,
+    ).feature_planes()
+    assert torch.equal(ref_zero_planes, fast_only_planes)
+
+    opp_rows = torch.stack(
+        [
+            torch.arange(e_cnt, dtype=torch.long).repeat(5),
+            torch.arange(1, 6, dtype=torch.long).repeat_interleave(e_cnt),
+        ],
+        dim=1,
+    )
+    q_opp = torch.randn((e_cnt * 5, 6), generator=g)
+    m_opp = sim_cpu.advisory_mask()[opp_rows[:, 0], opp_rows[:, 1]]
+    ref_opp = v8_device.v8_decide(sim_cpu, opp_rows, q_opp, m_opp, 8.0, features=False)
+    fast_opp = fast_v8_decide(
+        sim_cpu, opp_rows, q_opp, m_opp, 8.0, features=False, slot_layout="opp_slot_major"
+    )
+    for fld in dataclasses.fields(ref_opp):
+        va, vb = getattr(ref_opp, fld.name), getattr(fast_opp, fld.name)
+        assert (va is None and vb is None) or torch.equal(va, vb), f"opp {fld.name}"
+    fast_opp_act = fast_v8_decide(
+        sim_cpu,
+        opp_rows,
+        q_opp,
+        m_opp,
+        8.0,
+        features=False,
+        slot_layout="opp_slot_major",
+        _only_action=True,
+    ).action
+    assert torch.equal(ref_opp.action, fast_opp_act)
+
+    # 2. evaluate_terminal_openness_device vs reference full v8_decide + _component_sizes
+    op_fast = evaluate_terminal_openness_device(sim_cpu)
+    alive_h = sim_cpu.alive[:, 0]
+    adv_any = adv_hero.any(dim=1)
+    ref_areas = torch.where(
+        adv_hero, ref_zero_planes[:, :, 4] if False else ref_h_feat.area.to(torch.long), 0
+    )
+    ref_best_area = torch.where(adv_any, ref_areas.max(dim=1).values, 0)
+    ref_reg = ego_device._component_sizes(sim_cpu, hero_rows, _ttl_by_owner(sim_cpu)).to(torch.long)
+    ref_reg6 = ref_reg.index_select(1, torch.tensor([0, 1, 2, 0, 1, 2], dtype=torch.long))
+    ref_pkt = torch.where(adv_any, torch.where(adv_hero, ref_reg6, 0).max(dim=1).values, 0)
+    len_h = torch.where(alive_h, sim_cpu.length[:, 0].to(torch.long), 0)
+    v8_need = torch.where(
+        alive_h, len_h.clamp(int(OPEN_STOP_V8_NEED_FLOOR), int(OPEN_STOP_V8_NEED_CAP)), 0
+    )
+    ref_un_enc = (
+        adv_any
+        & (ref_best_area >= v8_need)
+        & torch.where(len_h >= int(OPEN_STOP_POCKET_MIN_LENGTH), ref_pkt >= len_h, True)
+    )
+    assert torch.equal(op_fast["v8_best_safe_area"], ref_best_area)
+    assert torch.equal(op_fast["max_pocket_r"], ref_pkt)
+    assert torch.equal(op_fast["un_enclosed"], ref_un_enc)
+
+    # 3. batched_open_stop_h32 compact_dead=True vs False + 4-suffix batching vs unbatched
+    ws = [int(w.seed) for w in worlds] + [301, 302, 303, 304]
+    decs = [int(x) for x in sim_cpu.frame.tolist()]
+    res_compact = batched_open_stop_h32(
+        sim_cpu,
+        pol_cpu,
+        world_seeds=ws,
+        decisions=decs,
+        suffix_id=0,
+        branch_horizon=8,
+        compact_dead=True,
+        return_host_records=False,
+    )
+    res_dense = batched_open_stop_h32(
+        sim_cpu,
+        pol_cpu,
+        world_seeds=ws,
+        decisions=decs,
+        suffix_id=0,
+        branch_horizon=8,
+        compact_dead=False,
+        return_host_records=False,
+    )
+    for k, v_c in res_compact.items():
+        if isinstance(v_c, torch.Tensor):
+            assert torch.equal(v_c, res_dense[k]), f"compact vs dense mismatch on {k}"
+
+    obs = extract_hero_root_observations(sim_cpu)
+    snaps = [
+        {
+            "world_seed": ws[i],
+            "world_index": i,
+            "decision_frame": decs[i],
+            "hero_length": int(obs["hero_length"][i]),
+            "local_u8": obs["local_u8"][i],
+            "global_u8": obs["global_u8"][i],
+            "scalars_f32": obs["scalars_f32"][i],
+            "legal_mask": obs["legal_mask"][i],
+            "safe_mask_s0": res_compact["safe_mask"][i],
+            "bare_action": int(res_compact["bare_actions"][i]),
+            "a_star_action": int(res_compact["a_star_actions"][i]),
+            "root_q_b8": res_compact["root_q"][i],
+            "row_state": slice_single_row_cpu_state(sim_cpu, pol_cpu, i),
+        }
+        for i in range(3)
+    ]
+    suf_batched = _evaluate_scoring_suffixes_on_snapshots(
+        snaps,
+        template_sim=sim_cpu,
+        template_pol=pol_cpu,
+        scoring_suffixes=PROBE32_SCORING_SUFFIXES,
+        branch_horizon=8,
+        batch_roots=12,
+    )
+    suf_single = _evaluate_scoring_suffixes_on_snapshots(
+        snaps,
+        template_sim=sim_cpu,
+        template_pol=pol_cpu,
+        scoring_suffixes=PROBE32_SCORING_SUFFIXES,
+        branch_horizon=8,
+        batch_roots=1,
+    )
+    assert len(suf_batched) == len(suf_single) == 3
+    for rb, rs in zip(suf_batched, suf_single):
+        assert set(rb.keys()) == set(rs.keys())
+        for k in rb:
+            vb, vs = rb[k], rs[k]
+            if isinstance(vb, torch.Tensor):
+                assert torch.equal(vb, vs), f"suffix {k}"
+            elif isinstance(vb, dict):
+                for sk in vb:
+                    assert (
+                        torch.equal(vb[sk], vs[sk])
+                        if isinstance(vb[sk], torch.Tensor)
+                        else vb[sk] == vs[sk]
+                    )
+            else:
+                assert vb == vs
+
+    # 4. MPS bit-identity where MPS runs (fast_v8_decide _only_features + CTDeviceSim.step)
+    if torch.backends.mps.is_available():
+        sim_mps = sim_cpu.clone()
+        for k_attr, v_attr in list(sim_mps.__dict__.items()):
+            if isinstance(v_attr, torch.Tensor):
+                dt = torch.float32 if v_attr.dtype == torch.float64 else v_attr.dtype
+                setattr(sim_mps, k_attr, v_attr.to(device="mps", dtype=dt))
+        sim_mps.device = sim_mps.bodies.device
+        sim_mps._timing = type(sim_cpu._timing)(sim_mps.device)
+        r2_cache.disable(sim_mps)
+        sim_mps.prepare()
+
+        mps_planes = fast_v8_decide(
+            sim_mps,
+            hero_rows.to(sim_mps.device),
+            torch.zeros((e_cnt, 6), device=sim_mps.device),
+            adv_hero.to(sim_mps.device),
+            float(OPEN_STOP_V8_LAMBDA),
+            features=True,
+            slot_layout="hero",
+            _only_features=True,
+        ).feature_planes()
+        assert torch.equal(ref_zero_planes, mps_planes.cpu())
+
+        sc = sim_cpu.clone()
+        for _ in range(10):
+            act_step = torch.randint(0, 6, (sc.E, sc.S), generator=g)
+            sc.step(act_step)
+            sim_mps.step(act_step.to(sim_mps.device))
+            assert torch.equal(sc.alive, sim_mps.alive.cpu())
+            assert torch.equal(sc.seg_count, sim_mps.seg_count.cpu())
+            assert torch.equal(sc.food_cells, sim_mps.food_cells.cpu())
+            assert torch.equal(sc.food_present, sim_mps.food_present.cpu())
+            assert torch.equal(sc.corpse_food, sim_mps.corpse_food.cpu())
+
+
+def test_opus_s3_parity1_checks_hero_and_opp_slot_major_all_v8_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """S3: parity_1 runs fast_v8_decide on all E hero rows (slot_layout='hero') and all E*5
+    opponent rows ('opp_slot_major') and checks every V8DeviceResult field with torch.equal."""
+    import dataclasses
+
+    from research.gpu_sitl import smoke as smoke_mod
+
+    b8_path, opp_path = resolve_product_checkpoints()
+    seen_layouts: list[str | None] = []
+    orig_fast = smoke_mod.fast_v8_decide
+
+    def _spy_fast(sim: Any, rows: torch.Tensor, *args: Any, **kwargs: Any) -> Any:
+        seen_layouts.append(kwargs.get("slot_layout"))
+        return orig_fast(sim, rows, *args, **kwargs)
+
+    monkeypatch.setattr(smoke_mod, "fast_v8_decide", _spy_fast)
+    rep = smoke_mod.run_mature_cohort_row_subset_parity(
+        b8_path,
+        opp_path,
+        device="cpu",
+        slice_indices=(0, 24),
+        branch_horizon=2,
+        dry_run=True,
+    )
+    assert "hero" in seen_layouts
+    assert "opp_slot_major" in seen_layouts
+    sub = rep["flood_cuda_v8_decide_row_subset"]
+    assert sub["fast_v8_hero_slot_layout_exact_match"] is True
+    assert sub["fast_v8_opp_slot_major_exact_match"] is True
+
+    # Fail-closed proof: perturbing a non-action V8DeviceResult field (`v5_reason`) ONLY when
+    # slot_layout == 'opp_slot_major' must fail parity_1 (would have passed before S3!).
+    def _corrupt_opp_reason(sim: Any, rows: torch.Tensor, *args: Any, **kwargs: Any) -> Any:
+        res = orig_fast(sim, rows, *args, **kwargs)
+        if kwargs.get("slot_layout") == "opp_slot_major" and not kwargs.get("_only_action", False):
+            bad_reason = res.v5_reason.clone()
+            bad_reason[0] = bad_reason[0] + 1
+            return dataclasses.replace(res, v5_reason=bad_reason)
+        return res
+
+    monkeypatch.setattr(smoke_mod, "fast_v8_decide", _corrupt_opp_reason)
+    with pytest.raises(RuntimeError, match="fast_v8_opp_layout_ok=False"):
+        smoke_mod.run_mature_cohort_row_subset_parity(
+            b8_path,
+            opp_path,
+            device="cpu",
+            slice_indices=(0, 24),
+            branch_horizon=2,
+            dry_run=True,
+        )
+
+
+def test_opus_s4_s5_s6_shakeout_v2_parity_b1b_seed_audit_and_truthful_untouched_list(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """S4/S5/S6: shake-out runs phase_7 CTDeviceSim vs GridBatchSim v2 parity (0 mismatches,
+    indexed move backend), times audit_b1b_seeds in phase_3, and excludes PREFLIGHT_NAMESPACE
+    from forbidden_registered_namespaces_untouched."""
+    import research.devicesim_v2_parity.harness as v2_harness
+    from research.gpu_sitl import seed_check as sc
+    from research.gpu_sitl import smoke as smoke_mod
+    from research.gpu_sitl.seed_check import PREFLIGHT_NAMESPACE, T34_PREFLIGHT_NAMESPACE
+
+    # S6 check
+    audit_s = sc.audit_shakeout_seeds(smoke_envs=4, probe_worlds=2, train_envs=4)
+    assert PREFLIGHT_NAMESPACE not in audit_s["forbidden_registered_namespaces_untouched"]
+    assert audit_s["read_only_mature_splice_namespace"] == PREFLIGHT_NAMESPACE
+    assert T34_PREFLIGHT_NAMESPACE in audit_s["forbidden_registered_namespaces_untouched"]
+
+    # End-to-end pass check for S4 + S5
+    b8_path, opp_path = resolve_product_checkpoints()
+    res = smoke_mod.run_cuda_shakeout(
+        tmp_path / "shake_s456_pass",
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+        v2_parity_envs=2,
+        v2_parity_ticks=6,
+    )
+    assert res["ok"] is True
+    by_phase = {p["phase"]: p for p in res["phases"]}
+    p3 = by_phase["phase_3_seed_isolation_audit"]["detail"]
+    assert p3["b1b_seed_audit_ok"] is True
+    assert p3["b1b_seed_audit_elapsed_sec"] >= 0.0
+    assert p3["b1b_seed_audit"]["ok"] is True
+
+    p7 = by_phase["phase_7_devicesim_v2_parity"]["detail"]
+    assert p7["verdict"] == "PASS"
+    assert p7["move_backend"] == "indexed"
+    assert p7["check_ct_sim"] is True
+    assert p7["ct_discrete_mismatches"] == 0
+    assert p7["discrete_mismatches"] == 0
+    assert p7["ego_obs_mismatches"] == 0
+    assert p7["unexplained_mismatches"] == 0
+
+    # Fail-closed check for S4 (ct_discrete_mismatches > 0) and S5 (audit_b1b_seeds fails)
+    orig_v2 = v2_harness.run_v2_parity_rollout
+
+    def _bad_v2(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        out = dict(orig_v2(*args, **kwargs))
+        out["ct_discrete_mismatches"] = 1
+        out["unexplained_mismatches"] = 1
+        out["verdict"] = "FAIL"
+        return out
+
+    monkeypatch.setattr(v2_harness, "run_v2_parity_rollout", _bad_v2)
+    monkeypatch.setattr(smoke_mod, "audit_b1b_seeds", lambda: {"ok": False, "reason": "synthetic"})
+    res_fail = smoke_mod.run_cuda_shakeout(
+        tmp_path / "shake_s456_fail",
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+        v2_parity_envs=2,
+        v2_parity_ticks=2,
+    )
+    assert res_fail["ok"] is False
+    assert "phase_3_seed_isolation_audit" in res_fail["failed_phases"]
+    assert "phase_7_devicesim_v2_parity" in res_fail["failed_phases"]
+
+
+def test_opus_p2_and_safe_oneline_minors(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """P2 harvest resume without sidecars + 5 clearly safe one-line MINOR fixes."""
+    import shutil
+
+    import research.gpu_sitl.open_stop_gpu as osg
+    import research.gpu_sitl.probe_bank as pb_mod
+    import research.gpu_sitl.train_sitl as ts
+    from research.gpu_sitl.prepare import prepare_b1b_packet
+    from research.gpu_sitl.probe_bank import (
+        build_watch6_ct_device_bundle,
+        harvest_probe32_bank,
+        load_probe32_bank,
+        write_atomic_with_sha256,
+    )
+    from research.gpu_sitl.smoke import run_step_b1b_smoke
+
+    b8_path, opp_path = resolve_product_checkpoints()
+
+    # 1. P2: missing explicit resume_ckpt_path must raise FileNotFoundError (never restart tick 0).
+    with pytest.raises(FileNotFoundError, match="resume_ckpt_path"):
+        harvest_probe32_bank(
+            tmp_path / "pb_missing_resume.pt",
+            b8_checkpoint=b8_path,
+            opponent_checkpoint=opp_path,
+            device="cpu",
+            num_worlds=2,
+            horizon=4,
+            branch_horizon=1,
+            ordinary_per_world=2,
+            resume_ckpt_path=tmp_path / "does_not_exist.ckpt.pt",
+            dry_run=True,
+        )
+
+    # 2. P2 + MINOR 1 (train_sitl.py:1142 checkpoints/ relpath):
+    # Pause run_sitl_training mid-harvest after 2 ticks, then resume BOTH:
+    # (a) in-place in the same out_dir (relies on checkpoints/ prefix in relpath), and
+    # (b) staged into a Colab-style input_dir with NO .sha256/.complete sidecars next to payload!
+    orig_harvest = ts.harvest_probe32_bank
+    seen_harvest_calls: list[dict[str, Any]] = []
+
+    def _pause_first_harvest(out_p: Any, **kwargs: Any) -> dict[str, Any]:
+        call_rec: dict[str, Any] = {
+            "resume_ckpt_path": kwargs.get("resume_ckpt_path"),
+            "resume_ckpt_expected_sha256": kwargs.get("resume_ckpt_expected_sha256"),
+        }
+        seen_harvest_calls.append(call_rec)
+        if len(seen_harvest_calls) == 1:
+            tick_counter = {"n": 0}
+            orig_step = pb_mod.CTDeviceSim.step
+
+            def _counting_step(self_sim: Any, actions: Any) -> Any:
+                if int(self_sim.E) == 2:
+                    tick_counter["n"] += 1
+                return orig_step(self_sim, actions)
+
+            monkeypatch.setattr(pb_mod.CTDeviceSim, "step", _counting_step)
+            kwargs["should_pause_fn"] = lambda: tick_counter["n"] >= 2
+            try:
+                return orig_harvest(out_p, **kwargs)
+            finally:
+                monkeypatch.setattr(pb_mod.CTDeviceSim, "step", orig_step)
+        return orig_harvest(out_p, **kwargs)
+
+    monkeypatch.setattr(ts, "harvest_probe32_bank", _pause_first_harvest)
+
+    h_pause_dir = tmp_path / "harvest_pause_attempt1"
+    h_pause_res = run_sitl_training(
+        h_pause_dir,
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+        num_envs=2,
+        total_updates=1,
+        warmup_rescue_roots=1,
+        min_unique_rescue_roots=1,
+        rescue_batch_size=2,
+        ordinary_batch_size=2,
+        ordinary_uniform_half=1,
+        ordinary_hard_neg_half=1,
+        branch_horizon=1,
+        stop_after_collection_steps=1,
+        dry_run=True,
+    )
+    assert h_pause_res["status"] == "PAUSED_FOR_RESUME"
+    assert h_pause_res["phase"] == "probe32_harvest"
+    assert int(h_pause_res["completed_tick"]) == 2
+    pause_ledger = json.loads((h_pause_dir / "verified-ledger.json").read_text(encoding="utf-8"))
+    # MINOR 1: relpath includes checkpoints/
+    assert str(pause_ledger["probe32_harvest_ckpt"]["relpath"]).startswith("checkpoints/")
+
+    # Copy paused attempt1 dir to test in-place resume via checkpoints/... relpath (remove default
+    # root probe32_bank.pt.ckpt.pt so ONLY staged_harvest_ckpt from checkpoints/ can be used).
+    inplace_dir = tmp_path / "harvest_pause_inplace"
+    shutil.copytree(h_pause_dir, inplace_dir)
+    for p_def in inplace_dir.glob("probe32_bank.pt.ckpt.pt*"):
+        p_def.unlink()
+
+    step_ticks_inplace = {"n": 0}
+    orig_ct_step = pb_mod.CTDeviceSim.step
+
+    def _count_env2_steps_inplace(self_sim: Any, actions: Any) -> Any:
+        if int(self_sim.E) == 2:
+            step_ticks_inplace["n"] += 1
+        return orig_ct_step(self_sim, actions)
+
+    monkeypatch.setattr(pb_mod.CTDeviceSim, "step", _count_env2_steps_inplace)
+    res_inplace = run_sitl_training(
+        inplace_dir,
+        resume=True,
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+        num_envs=2,
+        total_updates=1,
+        warmup_rescue_roots=1,
+        min_unique_rescue_roots=1,
+        rescue_batch_size=2,
+        ordinary_batch_size=2,
+        ordinary_uniform_half=1,
+        ordinary_hard_neg_half=1,
+        branch_horizon=1,
+        stop_after_collection_steps=1,
+        dry_run=True,
+    )
+    monkeypatch.setattr(pb_mod.CTDeviceSim, "step", orig_ct_step)
+    assert (inplace_dir / "probe32_bank.pt.complete").is_file()
+    # Horizon in dry_run is 6; paused at tick 2 -> 4 harvest steps + 1 train step == 5 (not 7)
+    assert step_ticks_inplace["n"] == 5
+    assert res_inplace["status"] == "PAUSED_FOR_RESUME"
+
+    # P2 Colab-staged simulation: stage attempt1 into pkt_h_retry, then copy ONLY raw payloads
+    # (NO .sha256 or .complete sidecars!) into colab_uploaded_inputs, matching Colab CLI upload.
+    pkt_h_retry = tmp_path / "pkt_harvest_retry"
+    prepare_b1b_packet(
+        pkt_h_retry,
+        commit="origin/main",
+        mode="pilot",
+        output_dir=tmp_path / "harvest_attempt2_out",
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        base_seconds=600.0,
+        prior_output_dir=h_pause_dir,
+        attempt="pilot-h-02",
+    )
+    colab_in_dir = tmp_path / "colab_uploaded_inputs"
+    colab_in_dir.mkdir(parents=True)
+    for src_in in (pkt_h_retry / "inputs").iterdir():
+        if src_in.name.endswith(".sha256") or src_in.name.endswith(".complete"):
+            continue
+        shutil.copyfile(src_in, colab_in_dir / src_in.name)
+    assert (colab_in_dir / "probe32_bank.pt.ckpt.pt").is_file()
+    assert not (colab_in_dir / "probe32_bank.pt.ckpt.pt.sha256").exists()
+
+    # Tampered expected SHA on sidecar-less checkpoint must raise ValueError
+    with pytest.raises(ValueError, match="SHA256 mismatch"):
+        harvest_probe32_bank(
+            tmp_path / "pb_bad_expected_sha.pt",
+            b8_checkpoint=b8_path,
+            opponent_checkpoint=opp_path,
+            device="cpu",
+            num_worlds=2,
+            horizon=6,
+            branch_horizon=1,
+            ordinary_per_world=4,
+            resume_ckpt_path=colab_in_dir / "probe32_bank.pt.ckpt.pt",
+            resume_ckpt_expected_sha256="0" * 64,
+            dry_run=True,
+        )
+
+    step_ticks_staged = {"n": 0}
+
+    def _count_env2_steps_staged(self_sim: Any, actions: Any) -> Any:
+        if int(self_sim.E) == 2:
+            step_ticks_staged["n"] += 1
+        return orig_ct_step(self_sim, actions)
+
+    monkeypatch.setattr(pb_mod.CTDeviceSim, "step", _count_env2_steps_staged)
+    h_attempt2_out = tmp_path / "harvest_attempt2_out"
+    run_sitl_training(
+        h_attempt2_out,
+        input_dir=colab_in_dir,
+        ledger_path=colab_in_dir / "verified-ledger.json",
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+        num_envs=2,
+        total_updates=1,
+        warmup_rescue_roots=1,
+        min_unique_rescue_roots=1,
+        rescue_batch_size=2,
+        ordinary_batch_size=2,
+        ordinary_uniform_half=1,
+        ordinary_hard_neg_half=1,
+        branch_horizon=1,
+        stop_after_collection_steps=1,
+        dry_run=True,
+    )
+    monkeypatch.setattr(pb_mod.CTDeviceSim, "step", orig_ct_step)
+    monkeypatch.setattr(ts, "harvest_probe32_bank", orig_harvest)
+    assert (
+        step_ticks_staged["n"] == 5
+    )  # resumed from tick 2 (4 harvest ticks + 1 train step), NOT 7!
+
+    # Verify resumed Probe32 bank matches uninterrupted harvest bit-for-bit
+    pb_uninterrupted = tmp_path / "pb_uninterrupted_ref.pt"
+    harvest_probe32_bank(
+        pb_uninterrupted,
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+        num_worlds=2,
+        horizon=6,
+        branch_horizon=1,
+        ordinary_per_world=4,
+        harvest_batch_roots=4,
+        dry_run=True,
+    )
+    bank_resumed = load_probe32_bank(h_attempt2_out / "probe32_bank.pt")
+    bank_ref = load_probe32_bank(pb_uninterrupted)
+    for k, v in bank_ref["ordinary"].items():
+        if isinstance(v, torch.Tensor):
+            assert torch.equal(bank_resumed["ordinary"][k], v), f"ordinary.{k} mismatch"
+
+    # 3. MINOR 2 (train_sitl.py:1434): immediate pause after resume must NOT write a duplicate
+    # checkpoint at the already-checkpointed (updates_completed, collection_steps) state.
+    ckpts_before = sorted((h_attempt2_out / "checkpoints").glob("sitl_state_*.pt"))
+    assert len(ckpts_before) == 1
+    immediate_pause_res = run_sitl_training(
+        h_attempt2_out,
+        resume=True,
+        pause_after_seconds=0.0,
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+        num_envs=2,
+        total_updates=2,
+        warmup_rescue_roots=1,
+        min_unique_rescue_roots=1,
+        rescue_batch_size=2,
+        ordinary_batch_size=2,
+        ordinary_uniform_half=1,
+        ordinary_hard_neg_half=1,
+        branch_horizon=1,
+        dry_run=True,
+    )
+    assert immediate_pause_res["status"] == "PAUSED_FOR_RESUME"
+    ckpts_after = sorted((h_attempt2_out / "checkpoints").glob("sitl_state_*.pt"))
+    assert ckpts_after == ckpts_before
+
+    # 4. MINOR 3 (smoke.py:1332): num_envs=1 must NOT splice over the sole online row.
+    smoke_e1_dir = tmp_path / "smoke_e1"
+    smoke_e1 = run_step_b1b_smoke(
+        smoke_e1_dir,
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+        num_envs=1,
+        branch_horizon=1,
+        parity_slice_indices=(0, 8),
+        bench_env_steps=1,
+        bench_label_batches=1,
+        bench_learner_updates=1,
+        dry_run=True,
+    )
+    assert smoke_e1["throughput"]["mature_spliced_worlds"] == 0
+
+    # 5. MINOR 4: concat_sims_and_policies rejects mixed vector_runtime=None vs non-None.
+    seeds2 = preflight_seeds((0, 1))
+    sim_a, pol_a = build_watch6_ct_device_bundle([seeds2[0]], b8_path, opp_path, device="cpu")
+    sim_b, pol_b = build_watch6_ct_device_bundle([seeds2[1]], b8_path, opp_path, device="cpu")
+    pol_b_none = pol_b.repeat_interleave(1)
+    pol_b_none.vector_runtime = None
+    with pytest.raises(ValueError, match="vector_runtime"):
+        osg.concat_sims_and_policies([sim_a, sim_b], [pol_a, pol_b_none])
+
+    # 6. MINOR 5 (prepare.py:539, 768): allow_non_evidence_smoke defaults to False AND requires
+    # evidence_class == "REGISTERED_STEP_B1B_SMOKE_EVIDENCE".
+    with pytest.raises(ValueError, match="non-evidence|dry_run"):
+        prepare_b1b_packet(
+            tmp_path / "pkt_default_rejects_dry_smoke",
+            commit="origin/main",
+            mode="pilot",
+            b8_checkpoint=b8_path,
+            opponent_checkpoint=opp_path,
+            smoke_result_json=smoke_e1["result_json_path"],
+        )
+    spoof_smoke_path = tmp_path / "spoof_smoke_result.json"
+    spoof_data = json.loads(Path(smoke_e1["result_json_path"]).read_text(encoding="utf-8"))
+    spoof_data["dry_run"] = False
+    spoof_data["non_registration_evidence"] = False
+    spoof_data["evidence_class"] = "CUSTOM_UNREGISTERED_CLASS"
+    write_atomic_with_sha256(
+        spoof_smoke_path,
+        lambda tmp: tmp.write_text(json.dumps(spoof_data, indent=2) + "\n", encoding="utf-8"),
+        write_complete_marker=True,
+    )
+    with pytest.raises(ValueError, match="non-evidence|dry_run"):
+        prepare_b1b_packet(
+            tmp_path / "pkt_rejects_bad_evidence_class",
+            commit="origin/main",
+            mode="pilot",
+            b8_checkpoint=b8_path,
+            opponent_checkpoint=opp_path,
+            smoke_result_json=spoof_smoke_path,
+        )

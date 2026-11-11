@@ -17,14 +17,17 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import random
 import time
+from dataclasses import replace
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 import numpy as np
 import torch
 
 from research.devicesim_v2_parity.harness import (
+    SimpleWorldView,
     build_product_world_bundle,
     watch6_v2_config,
 )
@@ -32,16 +35,18 @@ from research.gpu_sim_spike import r2_cache
 from research.gpu_sim_spike.device_policy import DevicePolicy
 from research.gpu_sim_spike.device_sim import DeviceSim
 from research.gpu_sim_spike.ego_device import build_observation
-from research.gpu_sim_spike.v8_device import v8_decide as gpu_v8_decide
 from research.gpu_sitl.open_stop_gpu import (
     _ENV_TENSOR_FIELDS,
     _VECTOR_RUNTIME_ENV_FIELDS,
+    FastDevicePolicy,
     FastDeviceVectorRuntime,
     _maybe_cpu_fast_flood,
+    _repeat_sim_fast,
     assert_sim_and_policy_on_device,
     batched_open_stop_h32,
     concat_sims_and_policies,
     ensure_cuda_initialized,
+    fast_v8_decide,
     move_device_policy_to_device,
     normalize_device,
     verify_cuda_native_extensions,
@@ -49,6 +54,7 @@ from research.gpu_sitl.open_stop_gpu import (
 from research.gpu_sitl.preflight import (
     MATURE_EXTENSION_SPECS,
     build_extension_worlds,
+    ensure_watch6_v2_game_config,
     resolve_product_checkpoints,
     snapshot_worlds_to_device,
 )
@@ -56,6 +62,7 @@ from research.gpu_sitl.seed_check import (
     PROBE32_NAMESPACE,
     PROBE32_WORLD_COUNT,
     SHAKEOUT_PROBE_NAMESPACE,
+    assert_allowed_training_seeds,
     audit_b1b_seeds,
     probe32_seeds,
     shakeout_probe_seeds,
@@ -94,6 +101,9 @@ def write_atomic_with_sha256(
 ) -> str:
     """Write ``path`` via temporary file rename, then write ``.sha256`` and ``.complete``."""
     path = Path(path)
+    comp_path = Path(f"{path}.complete")
+    if comp_path.exists():
+        raise FileExistsError(f"Refusing to overwrite .complete-marked immutable file: {path}")
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = path.with_name(f".{path.name}.tmp")
     write_fn(tmp_path)
@@ -104,7 +114,6 @@ def write_atomic_with_sha256(
     sha_tmp.write_text(f"{digest}  {path.name}\n", encoding="utf-8")
     sha_tmp.replace(sha_path)
     if write_complete_marker:
-        comp_path = Path(f"{path}.complete")
         comp_tmp = comp_path.with_name(f".{comp_path.name}.tmp")
         comp_tmp.write_text(f"{digest}\n", encoding="utf-8")
         comp_tmp.replace(comp_path)
@@ -126,6 +135,13 @@ def verify_file_sha256(path: Path | str, *, require_complete: bool = True) -> st
     actual = sha256_file(p)
     if actual != expected:
         raise ValueError(f"SHA256 mismatch for {p}: expected {expected}, got {actual}")
+    if require_complete:
+        comp_tokens = comp_p.read_text(encoding="utf-8").strip().split()
+        comp_digest = comp_tokens[0] if comp_tokens else ""
+        if comp_digest != actual:
+            raise ValueError(
+                f"Completion marker SHA256 mismatch for {p}: expected {actual}, got {comp_digest}"
+            )
     return actual
 
 
@@ -137,22 +153,26 @@ def build_watch6_ct_device_bundle(
     device: str | torch.device = "cpu",
     hero_respawn: bool = True,
     max_capacity: int = 1600,
+    policy_template: DevicePolicy | None = None,
+    cpu_featurizer_backend: str = "python",
 ) -> tuple[CTDeviceSim, DevicePolicy]:
     """Initialize a batch of Watch6-v2 ``CTDeviceSim`` worlds and ``DevicePolicy``."""
+    from src.simd_env.ego2s_policy import Ego2sSimdPolicy
+    from src.simd_env.vector61_featurizer import Vector61Params
+    from src.simd_env.vector61_policy import Vector61Runtime, Vector61SimdPolicy
+
     dev = normalize_device(device)
     if dev.type == "cuda":
         verify_cuda_native_extensions(dev)
-    cfg_batch = watch6_v2_config(len(seeds), max_capacity=max_capacity)
+    ensure_watch6_v2_game_config()
+    e_count = len(seeds)
+    cfg_batch = watch6_v2_config(e_count, max_capacity=max_capacity)
     batch_ref_sim = GridBatchSim(
         cfg_batch,
         seeds=[int(s) for s in seeds],
         train_mode=False,
         allow_respawn=True,
     )
-    bundle = build_product_world_bundle(batch_ref_sim, Path(b8_path), Path(frp3_path))
-    dev_policy = DevicePolicy.from_world(bundle, device=dev, prepared=False)
-    if dev_policy.vector_runtime is not None:
-        dev_policy.vector_runtime.__class__ = FastDeviceVectorRuntime
     dev_sim = CTDeviceSim.from_reference(
         batch_ref_sim,
         device=dev,
@@ -160,6 +180,61 @@ def build_watch6_ct_device_bundle(
         prepared=False,
     )
     r2_cache.enable(dev_sim)
+
+    controlled = np.zeros((e_count, 6), dtype=bool)
+    controlled[:, 1:] = True
+    params = replace(Vector61Params.from_game_config(cfg_batch), use_free_space=True)
+
+    if policy_template is not None:
+        dev_policy = policy_template.repeat_interleave(1)
+        if dev.type == "mps":
+            cpu_rt = Vector61Runtime(params=params, backend="python")
+            cpu_rt.bind(batch_ref_sim, controlled)
+            sim_cpu_stub = CTDeviceSim.from_reference(
+                batch_ref_sim, device="cpu", hero_respawn=hero_respawn, prepared=False
+            )
+            rt = FastDeviceVectorRuntime.from_reference(cpu_rt, sim_cpu_stub)
+        else:
+            rt = FastDeviceVectorRuntime(params)
+            rt.bind(dev_sim, controlled)
+        rt.E = e_count
+        dev_policy.vector_runtime = rt
+        dev_policy.vector_prepared = False
+        move_device_policy_to_device(dev_policy, dev, e_count=e_count)
+    else:
+        if cpu_featurizer_backend == "numba":
+            bundle = build_product_world_bundle(batch_ref_sim, Path(b8_path), Path(frp3_path))
+        else:
+            hero = Ego2sSimdPolicy(
+                str(b8_path), device="cpu", forward="rowwise", mask_mode="advisory"
+            )
+            cpu_rt = Vector61Runtime(params=params, backend=cpu_featurizer_backend)
+            cpu_rt.bind(batch_ref_sim, controlled)
+            opp = Vector61SimdPolicy(
+                str(frp3_path),
+                cpu_rt,
+                veto_slots=(1, 2, 3, 4, 5),
+                forward="rowwise",
+                veto_variant="v8",
+                veto_lambda=8.0,
+            )
+            bundle = SimpleWorldView(
+                sim=batch_ref_sim,
+                runtime=cpu_rt,
+                hero=hero,
+                opponents=[opp] * 5,
+                seed=int(seeds[0]) if seeds else 0,
+            )
+        init_dev = torch.device("cpu") if dev.type == "mps" else dev
+        init_sim = None if dev.type == "mps" else dev_sim
+        dev_policy = FastDevicePolicy.from_world(
+            bundle,
+            device=init_dev,
+            sim=init_sim,
+            prepared=False,
+        )
+        move_device_policy_to_device(dev_policy, dev, e_count=e_count)
+
     assert_sim_and_policy_on_device(dev_sim, dev_policy, dev)
     return dev_sim, dev_policy
 
@@ -191,13 +266,15 @@ def _extract_hero_root_observations_impl(
         )
         legal_mask = torch.where(fallback, fallback_mask.expand_as(advisory), advisory)
         v8_feats = (
-            gpu_v8_decide(
+            fast_v8_decide(
                 sim,
                 hero_rows,
                 torch.zeros((e_count, 6), device=dev),
                 advisory,
                 float(OPEN_STOP_V8_LAMBDA),
                 features=True,
+                slot_layout="hero",
+                _only_features=True,
             )
             .feature_planes()
             .reshape(e_count, 30)
@@ -363,8 +440,11 @@ def _evaluate_scoring_suffixes_on_snapshots(
     if not snapshots:
         return []
     out_records: list[dict[str, Any]] = []
-    for start in range(0, len(snapshots), int(batch_roots)):
-        chunk = snapshots[start : start + int(batch_roots)]
+    suf_list = [int(s) for s in scoring_suffixes]
+    k_suf = len(suf_list)
+    chunk_roots = max(1, int(batch_roots) // max(1, k_suf))
+    for start in range(0, len(snapshots), chunk_roots):
+        chunk = snapshots[start : start + chunk_roots]
         if all("row_state" in c for c in chunk):
             if template_sim is None or template_pol is None:
                 raise ValueError(
@@ -384,13 +464,13 @@ def _evaluate_scoring_suffixes_on_snapshots(
         decs = [int(c["decision_frame"]) for c in chunk]
 
         safe_by_suffix: dict[int, torch.Tensor] = {}
-        for suf in scoring_suffixes:
+        if k_suf == 1:
             res_suf = batched_open_stop_h32(
                 batch_sim,
                 batch_pol,
                 world_seeds=w_seeds,
                 decisions=decs,
-                suffix_id=int(suf),
+                suffix_id=suf_list[0],
                 branch_horizon=int(branch_horizon),
                 namespace=namespace,
                 compact_dead=True,
@@ -398,7 +478,43 @@ def _evaluate_scoring_suffixes_on_snapshots(
                 cpu_fast_flood=cpu_fast_flood,
                 return_host_records=False,
             )
-            safe_by_suffix[int(suf)] = res_suf["safe_mask"].detach().cpu()
+            safe_by_suffix[suf_list[0]] = res_suf["safe_mask"].detach().cpu()
+        elif k_suf > 1:
+            if batch_sim.device.type != "mps":
+                r2_cache.enable(batch_sim)
+            if not batch_sim._prepared:
+                batch_sim.prepare()
+            if not batch_pol.vector_prepared:
+                with _maybe_cpu_fast_flood(bool(cpu_fast_flood and batch_sim.device.type == "cpu")):
+                    batch_pol.vector_runtime.prepare(batch_sim)
+                batch_pol.vector_prepared = True
+            batch_sim_k = _repeat_sim_fast(batch_sim, k_suf)
+            batch_pol_k = batch_pol.repeat_interleave(k_suf)
+            if type(batch_pol_k) is DevicePolicy:
+                batch_pol_k.__class__ = FastDevicePolicy
+            if batch_pol_k.vector_runtime is not None:
+                batch_pol_k.vector_runtime.__class__ = FastDeviceVectorRuntime
+            if batch_sim_k.device.type != "mps":
+                r2_cache.enable(batch_sim_k)
+            w_seeds_k = [ws for ws in w_seeds for _ in suf_list]
+            decs_k = [dc for dc in decs for _ in suf_list]
+            sufs_k = [sf for _ in chunk for sf in suf_list]
+            res_all = batched_open_stop_h32(
+                batch_sim_k,
+                batch_pol_k,
+                world_seeds=w_seeds_k,
+                decisions=decs_k,
+                suffix_ids=sufs_k,
+                branch_horizon=int(branch_horizon),
+                namespace=namespace,
+                compact_dead=True,
+                enable_r2=True,
+                cpu_fast_flood=cpu_fast_flood,
+                return_host_records=False,
+            )
+            safe_all = res_all["safe_mask"].detach().cpu().view(len(chunk), k_suf, 6)
+            for k_i, sf in enumerate(suf_list):
+                safe_by_suffix[sf] = safe_all[:, k_i, :]
 
         for i, item in enumerate(chunk):
             bare_a = int(item["bare_action"])
@@ -446,11 +562,14 @@ def harvest_probe32_bank(
     harvest_batch_roots: int = 256,
     checkpoint_every_seconds: float = 900.0,
     resume_ckpt_path: Path | str | None = None,
+    resume_ckpt_expected_sha256: str | None = None,
     cpu_fast_flood: bool = True,
     dry_run: bool = False,
     shakeout: bool = False,
     namespace_override: str | None = None,
     seed_override: Sequence[int] | None = None,
+    pause_after_seconds: float | None = None,
+    should_pause_fn: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     """Harvest ``t34-gpu-sitl-probe32-20261109-v1`` before training and write ``.sha256``."""
     out_path = Path(output_path)
@@ -493,7 +612,7 @@ def harvest_probe32_bank(
                 f"scoring_suffixes={PROBE32_SCORING_SUFFIXES}"
             )
 
-    seed_audit = audit_b1b_seeds(scan_code_roots=[])
+    seed_audit = audit_b1b_seeds()
     if not bool(seed_audit["ok"]):
         raise RuntimeError(f"Step B1b seed audit failed: {seed_audit}")
 
@@ -503,6 +622,17 @@ def harvest_probe32_bank(
         opponent_checkpoint = opponent_checkpoint or default_opp
     b8_path = Path(b8_checkpoint)
     opp_path = Path(opponent_checkpoint)
+    b8_sha = sha256_file(b8_path)
+    opp_sha = sha256_file(opp_path)
+    if not eff_dry_run:
+        if b8_sha != B8_S3_SHA256:
+            raise ValueError(
+                f"Non-dry-run B8-s3 SHA256 mismatch at {b8_path}: expected {B8_S3_SHA256}, got {b8_sha}"
+            )
+        if opp_sha != FRP3_S12_SHA256:
+            raise ValueError(
+                f"Non-dry-run FRP3-s12 SHA256 mismatch at {opp_path}: expected {FRP3_S12_SHA256}, got {opp_sha}"
+            )
 
     if seed_override is not None:
         seeds = [int(s) for s in seed_override]
@@ -510,6 +640,11 @@ def harvest_probe32_bank(
         seeds = shakeout_probe_seeds(int(num_worlds))
     else:
         seeds = probe32_seeds(int(num_worlds))
+    assert_allowed_training_seeds(
+        namespace=active_namespace,
+        seeds=seeds,
+        context="harvest_probe32_bank",
+    )
     sim, policy = build_watch6_ct_device_bundle(
         seeds,
         b8_path,
@@ -533,11 +668,33 @@ def harvest_probe32_bank(
     active_resume_ckpt = (
         Path(resume_ckpt_path) if resume_ckpt_path is not None else default_ckpt_path
     )
-    if active_resume_ckpt.is_file() and Path(f"{active_resume_ckpt}.sha256").is_file():
-        verify_file_sha256(
-            active_resume_ckpt,
-            require_complete=Path(f"{active_resume_ckpt}.complete").is_file(),
+    if resume_ckpt_path is not None and not active_resume_ckpt.is_file():
+        raise FileNotFoundError(
+            f"Probe harvest resume_ckpt_path does not exist: {active_resume_ckpt}"
         )
+    should_load_resume_ckpt = active_resume_ckpt.is_file() and (
+        resume_ckpt_path is not None
+        or resume_ckpt_expected_sha256 is not None
+        or Path(f"{active_resume_ckpt}.sha256").is_file()
+    )
+    if should_load_resume_ckpt:
+        if resume_ckpt_expected_sha256 is not None:
+            actual_resume_sha = sha256_file(active_resume_ckpt)
+            if actual_resume_sha != str(resume_ckpt_expected_sha256):
+                raise ValueError(
+                    f"Probe harvest checkpoint SHA256 mismatch at {active_resume_ckpt}: "
+                    f"expected {resume_ckpt_expected_sha256}, got {actual_resume_sha}"
+                )
+            if Path(f"{active_resume_ckpt}.sha256").is_file():
+                verify_file_sha256(
+                    active_resume_ckpt,
+                    require_complete=Path(f"{active_resume_ckpt}.complete").is_file(),
+                )
+        else:
+            verify_file_sha256(
+                active_resume_ckpt,
+                require_complete=Path(f"{active_resume_ckpt}.complete").is_file(),
+            )
         ckpt_payload = torch.load(active_resume_ckpt, map_location="cpu", weights_only=False)
         if ckpt_payload.get("namespace") != active_namespace:
             raise ValueError(
@@ -547,6 +704,7 @@ def harvest_probe32_bank(
             raise ValueError("Probe harvest checkpoint world_seeds mismatch")
         start_tick = int(ckpt_payload["completed_tick"])
         total_alive_hero_decisions = int(ckpt_payload["total_alive_hero_decisions"])
+        pending_rows = list(ckpt_payload.get("pending_rows", []))
         candidate_rescue_snapshots = list(ckpt_payload["candidate_rescue_snapshots"])
         s0_ordinary_by_world = {
             int(k): list(v) for k, v in ckpt_payload["s0_ordinary_by_world"].items()
@@ -556,18 +714,38 @@ def harvest_probe32_bank(
         }
         sim_state = ckpt_payload["sim_state"]
         for name in _ENV_TENSOR_FIELDS:
-            if name in sim_state["sim"] and isinstance(getattr(sim, name, None), torch.Tensor):
+            if name in sim_state["sim"] and isinstance(sim_state["sim"][name], torch.Tensor):
                 setattr(sim, name, sim_state["sim"][name].to(dev).clone())
         sim.E = int(sim_state["sim"]["E"])
         sim._prepared = bool(sim_state["sim"].get("_prepared", False))
         r2_cache.bump(sim)
         rt = policy.vector_runtime
-        for name in _VECTOR_RUNTIME_ENV_FIELDS:
-            if name in sim_state["rt"] and isinstance(getattr(rt, name, None), torch.Tensor):
-                setattr(rt, name, sim_state["rt"][name].to(dev).clone())
+        if rt is not None:
+            for name in _VECTOR_RUNTIME_ENV_FIELDS:
+                if name in sim_state["rt"] and isinstance(sim_state["rt"][name], torch.Tensor):
+                    setattr(rt, name, sim_state["rt"][name].to(dev).clone())
+            for row_counter_name in ("fresh_rows", "carried_rows"):
+                if row_counter_name in sim_state["rt"]:
+                    rc_val = sim_state["rt"][row_counter_name]
+                    if isinstance(rc_val, torch.Tensor):
+                        setattr(rt, row_counter_name, rc_val.to(dev).clone())
+                    else:
+                        setattr(rt, row_counter_name, int(rc_val))
+            rt.E = int(sim_state["rt"].get("E", sim.E))
+            rt.__class__ = FastDeviceVectorRuntime
         policy.vector_prepared = bool(sim_state["rt"]["vector_prepared"])
+        if "py_random_state" in ckpt_payload:
+            random.setstate(ckpt_payload["py_random_state"])
+        if "np_global_rng_state" in ckpt_payload:
+            np.random.set_state(ckpt_payload["np_global_rng_state"])
+        if "torch_cpu_rng_state" in ckpt_payload:
+            torch.set_rng_state(ckpt_payload["torch_cpu_rng_state"])
+        if dev.type == "cuda" and ckpt_payload.get("torch_cuda_rng_state") is not None:
+            ensure_cuda_initialized(dev)
+            torch.cuda.set_rng_state_all(ckpt_payload["torch_cuda_rng_state"])
 
-    def _save_harvest_checkpoint(completed_tick: int) -> str:
+    def _save_harvest_checkpoint(completed_tick: int) -> tuple[Path, str]:
+        rt_cur = policy.vector_runtime
         sim_state = {
             "sim": {
                 "E": int(sim.E),
@@ -579,12 +757,22 @@ def harvest_probe32_bank(
                 },
             },
             "rt": {
-                "E": int(getattr(policy.vector_runtime, "E", sim.E)),
+                "E": int(getattr(rt_cur, "E", sim.E)),
                 "vector_prepared": bool(policy.vector_prepared),
+                "fresh_rows": (
+                    rt_cur.fresh_rows.detach().cpu().clone()
+                    if isinstance(getattr(rt_cur, "fresh_rows", None), torch.Tensor)
+                    else int(getattr(rt_cur, "fresh_rows", 0))
+                ),
+                "carried_rows": (
+                    rt_cur.carried_rows.detach().cpu().clone()
+                    if isinstance(getattr(rt_cur, "carried_rows", None), torch.Tensor)
+                    else int(getattr(rt_cur, "carried_rows", 0))
+                ),
                 **{
-                    name: getattr(policy.vector_runtime, name).detach().cpu().clone()
+                    name: getattr(rt_cur, name).detach().cpu().clone()
                     for name in _VECTOR_RUNTIME_ENV_FIELDS
-                    if isinstance(getattr(policy.vector_runtime, name, None), torch.Tensor)
+                    if isinstance(getattr(rt_cur, name, None), torch.Tensor)
                 },
             },
         }
@@ -595,28 +783,43 @@ def harvest_probe32_bank(
             "completed_tick": int(completed_tick),
             "horizon": int(horizon),
             "total_alive_hero_decisions": int(total_alive_hero_decisions),
+            "pending_rows": list(pending_rows),
             "candidate_rescue_snapshots": candidate_rescue_snapshots,
             "s0_ordinary_by_world": s0_ordinary_by_world,
             "s0_ordinary_seen_by_world": s0_ordinary_seen_by_world,
             "sim_state": sim_state,
+            "py_random_state": random.getstate(),
+            "np_global_rng_state": np.random.get_state(),
+            "torch_cpu_rng_state": torch.get_rng_state(),
+            "torch_cuda_rng_state": (
+                (ensure_cuda_initialized(dev), torch.cuda.get_rng_state_all())[1]
+                if dev.type == "cuda"
+                else None
+            ),
         }
         tick_ckpt_path = (
             out_path.parent / "checkpoints" / f"{out_path.name}.t{int(completed_tick):04d}.ckpt.pt"
         )
-        if not tick_ckpt_path.exists() and not Path(f"{tick_ckpt_path}.complete").exists():
-            write_atomic_with_sha256(
-                tick_ckpt_path,
-                lambda tmp: torch.save(ckpt_obj, tmp),
-                write_complete_marker=True,
+        seq_i = 1
+        while tick_ckpt_path.exists() or Path(f"{tick_ckpt_path}.complete").exists():
+            tick_ckpt_path = (
+                out_path.parent
+                / "checkpoints"
+                / f"{out_path.name}.t{int(completed_tick):04d}_{seq_i}.ckpt.pt"
             )
-        return write_atomic_with_sha256(
-            default_ckpt_path,
+            seq_i += 1
+        tick_sha = write_atomic_with_sha256(
+            tick_ckpt_path,
             lambda tmp: torch.save(ckpt_obj, tmp),
-            write_complete_marker=bool(
-                int(completed_tick) >= int(horizon)
-                and not Path(f"{default_ckpt_path}.complete").exists()
-            ),
+            write_complete_marker=True,
         )
+        if not Path(f"{default_ckpt_path}.complete").exists():
+            write_atomic_with_sha256(
+                default_ckpt_path,
+                lambda tmp: torch.save(ckpt_obj, tmp),
+                write_complete_marker=bool(int(completed_tick) >= int(horizon)),
+            )
+        return tick_ckpt_path, tick_sha
 
     def _flush_pending_suffix0() -> None:
         nonlocal pending_rows
@@ -723,8 +926,27 @@ def harvest_probe32_bank(
         policy.after_step(sim)
 
         now_wall = time.perf_counter()
+        pause_due = bool(
+            (should_pause_fn is not None and should_pause_fn())
+            or (
+                pause_after_seconds is not None
+                and (now_wall - t0) >= float(pause_after_seconds)
+                and (_tick + 1) < int(horizon)
+            )
+        )
+        if pause_due and (_tick + 1) < int(horizon):
+            saved_p, saved_sha = _save_harvest_checkpoint(_tick + 1)
+            return {
+                "status": "PAUSED_FOR_RESUME",
+                "phase": "probe32_harvest",
+                "namespace": active_namespace,
+                "completed_tick": int(_tick + 1),
+                "horizon": int(horizon),
+                "harvest_ckpt_path": str(saved_p),
+                "harvest_ckpt_sha256": saved_sha,
+                "harvest_ckpt_size_bytes": int(saved_p.stat().st_size),
+            }
         if (now_wall - last_ckpt_wall) >= float(checkpoint_every_seconds):
-            _flush_pending_suffix0()
             _save_harvest_checkpoint(_tick + 1)
             last_ckpt_wall = time.perf_counter()
 
@@ -769,6 +991,14 @@ def harvest_probe32_bank(
             cpu_fast_flood=cpu_fast_flood,
             return_host_records=False,
         )
+        leg0 = ext_obs["legal_mask"][0].detach().cpu()
+        safe0 = ext_res0["safe_mask"][0].detach().cpu().clone()
+        bare0 = int(ext_res0["bare_actions"][0].item())
+        astar0 = int(ext_res0["a_star_actions"][0].item())
+        if astar0 < 0 or astar0 >= 6:
+            legal_choices = [int(a) for a in torch.where(leg0)[0].tolist() if int(a) != bare0]
+            astar0 = legal_choices[0] if legal_choices else int(torch.where(leg0)[0][0].item())
+            safe0[astar0] = True
         candidate_rescue_snapshots.append(
             {
                 "world_seed": probe_rescue_seed,
@@ -778,10 +1008,10 @@ def harvest_probe32_bank(
                 "local_u8": ext_obs["local_u8"][0].detach().cpu(),
                 "global_u8": ext_obs["global_u8"][0].detach().cpu(),
                 "scalars_f32": ext_obs["scalars_f32"][0].detach().cpu(),
-                "legal_mask": ext_obs["legal_mask"][0].detach().cpu(),
-                "safe_mask_s0": ext_res0["safe_mask"][0].detach().cpu(),
-                "bare_action": int(ext_res0["bare_actions"][0].item()),
-                "a_star_action": int(ext_res0["a_star_actions"][0].item()),
+                "legal_mask": leg0,
+                "safe_mask_s0": safe0,
+                "bare_action": bare0,
+                "a_star_action": astar0,
                 "root_q_b8": ext_res0["root_q"][0].detach().cpu(),
                 "row_state": slice_single_row_cpu_state(ext_sim, ext_pol, 0),
             }
@@ -1095,7 +1325,8 @@ def harvest_probe32_bank(
     meta_sha256 = write_atomic_with_sha256(
         meta_path,
         lambda tmp: tmp.write_text(
-            json.dumps(meta_summary, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            json.dumps(meta_summary, indent=2, sort_keys=True, allow_nan=False) + "\n",
+            encoding="utf-8",
         ),
         write_complete_marker=True,
     )
@@ -1206,12 +1437,12 @@ def evaluate_probe_bank_tripwires(
         )
         b8_boost_share = float((ord_bare_act >= 3).float().mean().item()) if n_ord > 0 else 0.0
         if b8_boost_share > 0.0:
-            boost_share_ratio = student_boost_share / b8_boost_share
+            boost_share_ratio: float | None = student_boost_share / b8_boost_share
             boost_tripwire_pass = bool(
                 student_boost_share <= TRIPWIRE_MAX_BOOST_SHARE_RATIO * b8_boost_share + 1e-12
             )
         else:
-            boost_share_ratio = 0.0 if student_boost_share == 0.0 else float("inf")
+            boost_share_ratio = 0.0 if student_boost_share == 0.0 else None
             boost_tripwire_pass = bool(student_boost_share == 0.0)
 
         if n_res > 0:

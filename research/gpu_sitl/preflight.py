@@ -18,17 +18,21 @@ import argparse
 import gzip
 import hashlib
 import json
+import os
+import subprocess
+import tempfile
 import time
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, Iterator, Sequence
+from typing import Any, Callable, Iterator, Sequence
 
 import numpy as np
 import torch
 
 from research.bl_served_search import ceiling
 from research.devicesim_v2_parity.harness import (
+    SimpleWorldView,
     SplitMixEnvRngProxy,
     build_product_world_bundle,
     prepare_cpu_policy_phase,
@@ -39,6 +43,8 @@ from research.gpu_sim_spike.device_sim import DeviceSim
 from research.gpu_sitl.open_stop_gpu import (
     MARGIN_DELTA_DEFAULT,
     RESCUE_MARGIN_DELTA_DEFAULT,
+    FastDevicePolicy,
+    FastDeviceVectorRuntime,
     assert_sim_and_policy_on_device,
     batched_open_stop_h32,
     margin_loss_gradient_check,
@@ -259,9 +265,103 @@ def _sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def _assert_not_exists_create_only(path: Path) -> None:
+    sha_p = Path(f"{path}.sha256")
+    comp_p = Path(f"{path}.complete")
+    if path.exists() or sha_p.exists() or comp_p.exists():
+        raise FileExistsError(f"Refusing to overwrite create-only evidence file: {path}")
+
+
+def _write_atomic_bytes_or_fn(path: Path, write_fn: Callable[[Path], None]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(
+        dir=str(path.parent),
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+    )
+    os.close(fd)
+    tmp_p = Path(tmp_name)
+    try:
+        write_fn(tmp_p)
+        os.replace(tmp_p, path)
+    except Exception:
+        if tmp_p.exists():
+            tmp_p.unlink()
+        raise
+
+
+def _write_create_only_evidence(path: Path, write_fn: Callable[[Path], None]) -> str:
+    """Write ``path`` atomically with ``.sha256`` and ``.complete`` sidecars, refusing overwrites."""
+    _assert_not_exists_create_only(path)
+    _write_atomic_bytes_or_fn(path, write_fn)
+    digest = _sha256_file(path)
+    sidecar_line = f"{digest}  {path.name}\n"
+    _write_atomic_bytes_or_fn(
+        Path(f"{path}.sha256"),
+        lambda tmp: tmp.write_text(sidecar_line, encoding="utf-8"),
+    )
+    _write_atomic_bytes_or_fn(
+        Path(f"{path}.complete"),
+        lambda tmp: tmp.write_text(sidecar_line, encoding="utf-8"),
+    )
+    return digest
+
+
+def _write_deterministic_gzip_json(tmp_path: Path, payload: Any) -> None:
+    raw_bytes = (json.dumps(payload, indent=2, allow_nan=False) + "\n").encode("utf-8")
+    with tmp_path.open("wb") as raw_f:
+        with gzip.GzipFile(filename="", mode="wb", fileobj=raw_f, mtime=0) as gz_f:
+            gz_f.write(raw_bytes)
+
+
+def _verify_frozen_cohort_file(cohort_path: Path) -> str:
+    sha_path = Path(f"{cohort_path}.sha256")
+    comp_path = Path(f"{cohort_path}.complete")
+    if not cohort_path.is_file() or not sha_path.is_file() or not comp_path.is_file():
+        raise RuntimeError(
+            f"Frozen CPU cohort or sidecars (.sha256/.complete) missing at {cohort_path}; "
+            "run --mode freeze-cohort first."
+        )
+    expected_sha = sha_path.read_text(encoding="utf-8").strip().split()[0]
+    comp_sha = comp_path.read_text(encoding="utf-8").strip().split()[0]
+    actual_sha = _sha256_file(cohort_path)
+    if actual_sha != expected_sha or actual_sha != comp_sha:
+        raise RuntimeError(
+            f"Frozen CPU cohort SHA mismatch: actual={actual_sha}, "
+            f"sha256={expected_sha}, complete={comp_sha}"
+        )
+    return actual_sha
+
+
 def resolve_product_checkpoints(saved_dir: Path | None = None) -> tuple[Path, Path]:
     """Return verified ``(b8_s3_path, frp3_s12_path)`` under ``saved_snakes``."""
-    base = Path(saved_dir) if saved_dir is not None else Path(REPO_ROOT) / "saved_snakes"
+    candidates: list[Path] = []
+    if saved_dir is not None:
+        candidates.append(Path(saved_dir))
+    else:
+        env_dir = os.environ.get("SNAKE_CKPT_DIR", "").strip()
+        if env_dir:
+            candidates.append(Path(env_dir))
+        candidates.append(Path(REPO_ROOT) / "saved_snakes")
+        try:
+            proc = subprocess.run(
+                ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                cwd=str(REPO_ROOT),
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if proc.returncode == 0 and proc.stdout.strip():
+                common_saved = Path(proc.stdout.strip()).resolve().parent / "saved_snakes"
+                if common_saved not in candidates:
+                    candidates.append(common_saved)
+        except OSError:
+            pass
+    base = candidates[0]
+    for cand in candidates:
+        if (cand / B8_S3_FILENAME).is_file() and (cand / FRP3_S12_FILENAME).is_file():
+            base = cand
+            break
     b8_path = base / B8_S3_FILENAME
     frp3_path = base / FRP3_S12_FILENAME
     if not b8_path.is_file():
@@ -323,6 +423,9 @@ def ensure_watch6_v2_game_config() -> None:
     if (
         cfg.game.mechanics_version != 2
         or cfg.game.num_snakes != 6
+        or cfg.game.min_boost_length != 5
+        or cfg.game.boost_length_cost_frames != 3
+        or cfg.game.arena_type != "rectangular"
         or not cfg.network.use_free_space
         or cfg.network.input_size != 61
     ):
@@ -349,6 +452,7 @@ def build_watch6_captured_worlds(
     max_capacity: int = DEFAULT_MAX_CAPACITY,
     long_hero_profiles: Sequence[Sequence[int]] | None = None,
     device: str | torch.device = "cpu",
+    cpu_featurizer_backend: str = "numba",
 ) -> tuple[list[CapturedWorld], DevicePolicy]:
     """Construct ``E`` CPU :class:`CapturedWorld` instances and a matching :class:`DevicePolicy`."""
     ensure_watch6_v2_game_config()
@@ -360,7 +464,7 @@ def build_watch6_captured_worlds(
     )
     # Build one template Vector61SimdPolicy so we load FRP3 weights from disk only once.
     dummy_sim = GridBatchSim(cfg_1, seeds=[int(seeds[0])], train_mode=False, allow_respawn=True)
-    dummy_rt = Vector61Runtime(params=params, backend="numba")
+    dummy_rt = Vector61Runtime(params=params, backend=cpu_featurizer_backend)
     dummy_rt.bind(dummy_sim, np.array([[False, True, True, True, True, True]]))
     template_opp = Vector61SimdPolicy(
         str(frp3_path),
@@ -379,7 +483,7 @@ def build_watch6_captured_worlds(
             inject_serpentines([sim], lengths, box_height=LONG_HERO_BOX_HEIGHT)
             sim._rebuild_env_grids(0, food=True)
 
-        rt = Vector61Runtime(params=params, backend="numba")
+        rt = Vector61Runtime(params=params, backend=cpu_featurizer_backend)
         rt.bind(sim, np.array([[False, True, True, True, True, True]]))
 
         opp = object.__new__(Vector61SimdPolicy)
@@ -405,12 +509,28 @@ def build_watch6_captured_worlds(
     batch_ref_sim = GridBatchSim(
         cfg_batch, seeds=[int(s) for s in seeds], train_mode=False, allow_respawn=True
     )
-    bundle = build_product_world_bundle(batch_ref_sim, b8_path, frp3_path)
-    device_policy = DevicePolicy.from_world(
+    batch_rt = Vector61Runtime(params=params, backend=cpu_featurizer_backend)
+    batch_controlled = np.zeros((len(seeds), 6), dtype=bool)
+    batch_controlled[:, 1:] = True
+    batch_rt.bind(batch_ref_sim, batch_controlled)
+    batch_opp = object.__new__(Vector61SimdPolicy)
+    batch_opp.__dict__ = dict(template_opp.__dict__)
+    batch_opp.runtime = batch_rt
+    bundle = SimpleWorldView(
+        sim=batch_ref_sim,
+        runtime=batch_rt,
+        hero=shared_hero,
+        opponents=[batch_opp] * 5,
+        seed=int(seeds[0]),
+    )
+    target_dev = normalize_device(device)
+    init_dev = torch.device("cpu") if target_dev.type == "mps" else target_dev
+    device_policy = FastDevicePolicy.from_world(
         bundle,
-        device=normalize_device(device),
+        device=init_dev,
         prepared=False,
     )
+    move_device_policy_to_device(device_policy, target_dev, e_count=len(seeds))
     return worlds, device_policy
 
 
@@ -847,6 +967,8 @@ def run_cohort_parity(
         "ticks": int(num_ticks),
         "roots_total": len(root_rows),
         "certificates_total": len(certificate_rows),
+        "min_hero_length": min(int(r["hero_length"]) for r in root_rows) if root_rows else 0,
+        "max_hero_length": max(int(r["hero_length"]) for r in root_rows) if root_rows else 0,
         "gpu_wall_seconds": float(gpu_wall_seconds),
         "cpu_wall_seconds": float(cpu_wall_seconds),
         "gpu_certificates_per_sec": (
@@ -922,69 +1044,69 @@ def summarize_agreement(
     return {
         "total_certificates": total,
         "agreed_certificates": agree,
-        "agreement_rate": float(agree / total) if total else 1.0,
+        "agreement_rate": float(agree / total) if total else 0.0,
         "all_boolean_subconditions_agreed": all_bool_agree,
         "all_boolean_subconditions_agreement_rate": (
-            float(all_bool_agree / total) if total else 1.0
+            float(all_bool_agree / total) if total else 0.0
         ),
         "cpu_certified_safe_total": len(cpu_safe_rows),
         "cpu_certified_safe_agreed": safe_agree,
         "cpu_certified_safe_agreement_rate": (
-            float(safe_agree / len(cpu_safe_rows)) if cpu_safe_rows else 1.0
+            float(safe_agree / len(cpu_safe_rows)) if cpu_safe_rows else 0.0
         ),
         "cpu_not_safe_total": len(cpu_unsafe_rows),
         "cpu_not_safe_agreed": unsafe_agree,
         "cpu_not_safe_agreement_rate": (
-            float(unsafe_agree / len(cpu_unsafe_rows)) if cpu_unsafe_rows else 1.0
+            float(unsafe_agree / len(cpu_unsafe_rows)) if cpu_unsafe_rows else 0.0
         ),
         "legal_at_root_total": len(legal_rows),
         "legal_at_root_agreed": legal_agree,
         "legal_at_root_agreement_rate": (
-            float(legal_agree / len(legal_rows)) if legal_rows else 1.0
+            float(legal_agree / len(legal_rows)) if legal_rows else 0.0
         ),
         "early_stop_evaluated_total": len(early_rows),
         "early_stop_evaluated_agreed": early_agree,
         "early_stop_evaluated_agreement_rate": (
-            float(early_agree / len(early_rows)) if early_rows else 1.0
+            float(early_agree / len(early_rows)) if early_rows else 0.0
         ),
         "raw_survives_agreed": raw_surv_agree,
-        "raw_survives_agreement_rate": float(raw_surv_agree / total) if total else 1.0,
+        "raw_survives_agreement_rate": float(raw_surv_agree / total) if total else 0.0,
         "v8_open_agreed": v8_open_agree,
-        "v8_open_agreement_rate": float(v8_open_agree / total) if total else 1.0,
+        "v8_open_agreement_rate": float(v8_open_agree / total) if total else 0.0,
         "pocket_open_agreed": pocket_open_agree,
-        "pocket_open_agreement_rate": float(pocket_open_agree / total) if total else 1.0,
+        "pocket_open_agreement_rate": float(pocket_open_agree / total) if total else 0.0,
         "exact_int_all_certificates": {
             "total": total,
             "length_agreed": len_agree_all,
-            "length_rate": float(len_agree_all / total) if total else 1.0,
+            "length_rate": float(len_agree_all / total) if total else 0.0,
             "v8_best_safe_area_agreed": v8_area_agree_all,
-            "v8_best_safe_area_rate": float(v8_area_agree_all / total) if total else 1.0,
+            "v8_best_safe_area_rate": float(v8_area_agree_all / total) if total else 0.0,
             "max_pocket_r_agreed": pocket_r_agree_all,
-            "max_pocket_r_rate": float(pocket_r_agree_all / total) if total else 1.0,
+            "max_pocket_r_rate": float(pocket_r_agree_all / total) if total else 0.0,
             "all_three_agreed": all3_int_agree_all,
-            "all_three_rate": float(all3_int_agree_all / total) if total else 1.0,
+            "all_three_rate": float(all3_int_agree_all / total) if total else 0.0,
         },
         "exact_int_surviving_branches": {
             "total": surv_total,
             "length_agreed": len_agree_surv,
-            "length_rate": float(len_agree_surv / surv_total) if surv_total else 1.0,
+            "length_rate": float(len_agree_surv / surv_total) if surv_total else 0.0,
             "v8_best_safe_area_agreed": v8_area_agree_surv,
             "v8_best_safe_area_rate": (
-                float(v8_area_agree_surv / surv_total) if surv_total else 1.0
+                float(v8_area_agree_surv / surv_total) if surv_total else 0.0
             ),
             "max_pocket_r_agreed": pocket_r_agree_surv,
-            "max_pocket_r_rate": float(pocket_r_agree_surv / surv_total) if surv_total else 1.0,
+            "max_pocket_r_rate": float(pocket_r_agree_surv / surv_total) if surv_total else 0.0,
             "all_three_agreed": all3_int_agree_surv,
-            "all_three_rate": float(all3_int_agree_surv / surv_total) if surv_total else 1.0,
+            "all_three_rate": float(all3_int_agree_surv / surv_total) if surv_total else 0.0,
         },
         "roots_total": roots_total,
         "roots_chosen_agreed": roots_chosen_agree,
         "roots_chosen_agreement_rate": (
-            float(roots_chosen_agree / roots_total) if roots_total else 1.0
+            float(roots_chosen_agree / roots_total) if roots_total else 0.0
         ),
         "roots_bare_agreed": roots_bare_agree,
         "roots_bare_agreement_rate": (
-            float(roots_bare_agree / roots_total) if roots_total else 1.0
+            float(roots_bare_agree / roots_total) if roots_total else 0.0
         ),
         "certificate_disagreement_count": len(cert_disagreements),
         "any_subcondition_disagreement_count": len(sub_disagreements),
@@ -1126,6 +1248,8 @@ def _setup_rolled_serpentine_world(
     hero_length: int,
     rollout_ticks: int,
     ego_cfg: EgoRasterConfig,
+    *,
+    ego_raster_backend: str = "numba",
 ) -> None:
     """Inject mature serpentine snakes and roll bare ``b8-s3`` for ``rollout_ticks`` frames."""
     lengths = [int(hero_length), 96, 72, 56, 40, 28]
@@ -1139,7 +1263,7 @@ def _setup_rolled_serpentine_world(
         obs = build_ego_raster(
             w.sim,
             ego_cfg,
-            backend="numba",
+            backend=ego_raster_backend,
             rows=np.array([[0, 0]], dtype=np.int64),
         )
         q = np.asarray(prepared_q(w, obs), dtype=np.float32)
@@ -1153,10 +1277,14 @@ def build_extension_worlds(
     b8_path: Path,
     frp3_path: Path,
     *,
-    specs: Sequence[dict[str, Any]] = MATURE_EXTENSION_SPECS,
+    specs: Sequence[dict[str, Any]] | None = None,
     device: str = "cpu",
+    cpu_featurizer_backend: str = "numba",
+    ego_raster_backend: str = "numba",
 ) -> tuple[list[CapturedWorld], DevicePolicy, list[dict[str, Any]]]:
     """Build the 32 mature extension ``CapturedWorld`` roots at their pre-prepare hero seam."""
+    if specs is None:
+        specs = MATURE_EXTENSION_SPECS
     indices = [int(s["world_index"]) for s in specs]
     seeds = preflight_seeds(indices)
     worlds, dev_policy_template = build_watch6_captured_worlds(
@@ -1166,6 +1294,7 @@ def build_extension_worlds(
         max_capacity=DEFAULT_MAX_CAPACITY,
         long_hero_profiles=None,
         device=device,
+        cpu_featurizer_backend=cpu_featurizer_backend,
     )
     ego_cfg = EgoRasterConfig(version="bv8")
     meta_rows: list[dict[str, Any]] = []
@@ -1184,6 +1313,7 @@ def build_extension_worlds(
                 int(spec["hero_length"]),
                 int(spec["rollout_ticks"]),
                 ego_cfg,
+                ego_raster_backend=ego_raster_backend,
             )
         else:
             raise ValueError(f"Unknown extension world kind: {kind!r}")
@@ -1311,6 +1441,8 @@ def freeze_mature_cohort_cpu(
     """Audit seeds, verify 32-root CPU composition, and freeze root list before device run."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    cohort_path = out_dir / FROZEN_COHORT_FILENAME
+    _assert_not_exists_create_only(cohort_path)
 
     seed_audit = audit_preflight_seeds()
     if not seed_audit["ok"]:
@@ -1373,27 +1505,37 @@ def freeze_mature_cohort_cpu(
         "cpu_reference_wall_seconds": float(cpu_wall_cross),
         "roots": frozen_roots_manifest,
     }
-    cohort_path = out_dir / FROZEN_COHORT_FILENAME
-    cohort_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    cohort_sha = _sha256_file(cohort_path)
-    sha_path = out_dir / f"{FROZEN_COHORT_FILENAME}.sha256"
-    sha_path.write_text(f"{cohort_sha}  {FROZEN_COHORT_FILENAME}\n", encoding="utf-8")
+    cohort_sha = _write_create_only_evidence(
+        cohort_path,
+        lambda tmp: tmp.write_text(
+            json.dumps(payload, indent=2, allow_nan=False) + "\n",
+            encoding="utf-8",
+        ),
+    )
+    sha_path = Path(f"{cohort_path}.sha256")
     cache_path = out_dir / "_cpu_cohort_cache.json"
-    cache_path.write_text(
-        json.dumps(
-            {
-                "cpu_cross_roots": cpu_roots_cross,
-                "cpu_cross_wall_seconds": float(cpu_wall_cross),
-            },
-            indent=2,
-        )
-        + "\n",
-        encoding="utf-8",
+    _write_atomic_bytes_or_fn(
+        cache_path,
+        lambda tmp: tmp.write_text(
+            json.dumps(
+                {
+                    "cohort_sha256": cohort_sha,
+                    "branch_horizon": int(branch_horizon),
+                    "cpu_cross_roots": cpu_roots_cross,
+                    "cpu_cross_wall_seconds": float(cpu_wall_cross),
+                },
+                indent=2,
+                allow_nan=False,
+            )
+            + "\n",
+            encoding="utf-8",
+        ),
     )
     return {
         "cohort_path": str(cohort_path),
         "cohort_sha256": cohort_sha,
         "sha_sidecar_path": str(sha_path),
+        "complete_sidecar_path": str(Path(f"{cohort_path}.complete")),
         "cpu_reference_composition": composition_cross,
         "cpu_reference_wall_seconds": float(cpu_wall_cross),
     }
@@ -1509,19 +1651,18 @@ def run_extension_shard(
     device: str = "cpu",
 ) -> dict[str, Any]:
     """Run ``MATURE_EXTENSION_SPECS[shard_start:shard_end]`` after verifying frozen cohort."""
+    s_start = int(shard_start)
+    s_end = int(shard_end)
+    n_specs = len(MATURE_EXTENSION_SPECS)
+    if s_start < 0 or s_end > n_specs or s_start >= s_end:
+        raise ValueError(
+            f"Invalid shard bounds [{s_start}, {s_end}) for {n_specs} MATURE_EXTENSION_SPECS"
+        )
     out_dir = Path(out_dir)
     cohort_path = out_dir / FROZEN_COHORT_FILENAME
-    sha_path = out_dir / f"{FROZEN_COHORT_FILENAME}.sha256"
-    if not cohort_path.exists() or not sha_path.exists():
-        raise RuntimeError(
-            f"Frozen CPU cohort missing at {cohort_path}; run --mode freeze-cohort first."
-        )
-    expected_sha = sha_path.read_text(encoding="utf-8").strip().split()[0]
-    actual_sha = _sha256_file(cohort_path)
-    if actual_sha != expected_sha:
-        raise RuntimeError(f"Frozen CPU cohort SHA mismatch: {actual_sha} != {expected_sha}")
+    actual_sha = _verify_frozen_cohort_file(cohort_path)
 
-    specs_slice = MATURE_EXTENSION_SPECS[int(shard_start) : int(shard_end)]
+    specs_slice = MATURE_EXTENSION_SPECS[s_start:s_end]
     b8_path, frp3_path = resolve_product_checkpoints()
     worlds, dev_policy_tpl, meta_rows = build_extension_worlds(
         b8_path,
@@ -1530,7 +1671,7 @@ def run_extension_shard(
         device=device,
     )
     for local_i, m in enumerate(meta_rows):
-        m["cohort_root_index"] = int(shard_start) + local_i
+        m["cohort_root_index"] = s_start + local_i
 
     cpu_matched_roots, _, cpu_matched_wall = evaluate_cpu_cohort_reference(
         worlds,
@@ -1539,13 +1680,18 @@ def run_extension_shard(
         matched_rng=True,
     )
     cache_path = out_dir / "_cpu_cohort_cache.json"
+    cached_ok = False
     if cache_path.exists():
         cached = json.loads(cache_path.read_text(encoding="utf-8"))
-        cpu_cross_roots = cached["cpu_cross_roots"][int(shard_start) : int(shard_end)]
-        cpu_cross_wall = float(cached["cpu_cross_wall_seconds"]) * (
-            len(specs_slice) / float(len(MATURE_EXTENSION_SPECS))
-        )
-    else:
+        if cached.get("cohort_sha256") == actual_sha and int(
+            cached.get("branch_horizon", -1)
+        ) == int(branch_horizon):
+            cpu_cross_roots = cached["cpu_cross_roots"][s_start:s_end]
+            cpu_cross_wall = float(cached["cpu_cross_wall_seconds"]) * (
+                len(specs_slice) / float(n_specs)
+            )
+            cached_ok = True
+    if not cached_ok:
         cpu_cross_roots, _, cpu_cross_wall = evaluate_cpu_cohort_reference(
             worlds,
             meta_rows,
@@ -1581,10 +1727,12 @@ def run_extension_shard(
 
     shard_dir = out_dir / "_shards"
     shard_dir.mkdir(parents=True, exist_ok=True)
-    shard_path = shard_dir / f"shard_{int(shard_start):02d}_{int(shard_end):02d}.json"
+    shard_path = shard_dir / f"shard_{s_start:02d}_{s_end:02d}.json"
     shard_payload = {
-        "shard_start": int(shard_start),
-        "shard_end": int(shard_end),
+        "cohort_sha256": actual_sha,
+        "branch_horizon": int(branch_horizon),
+        "shard_start": s_start,
+        "shard_end": s_end,
         "meta_rows": meta_rows,
         "cpu_matched_roots": cpu_matched_roots,
         "cpu_cross_roots": cpu_cross_roots,
@@ -1593,7 +1741,13 @@ def run_extension_shard(
         "cpu_cross_wall_seconds": float(cpu_cross_wall),
         "gpu_wavefront_wall_seconds": float(gpu_wavefront_wall),
     }
-    shard_path.write_text(json.dumps(shard_payload, indent=2) + "\n", encoding="utf-8")
+    _write_atomic_bytes_or_fn(
+        shard_path,
+        lambda tmp: tmp.write_text(
+            json.dumps(shard_payload, indent=2, allow_nan=False) + "\n",
+            encoding="utf-8",
+        ),
+    )
     return {
         "shard_path": str(shard_path),
         "roots": len(meta_rows),
@@ -1611,18 +1765,37 @@ def finalize_extension_preflight(
 ) -> dict[str, Any]:
     """Aggregate shard results for all 32 mature roots, run grad check, and write report."""
     out_dir = Path(out_dir)
+    raw_gz_path = out_dir / "gpu_sitl_preflight_ext_certificates_20261109.json.gz"
+    summary_path = out_dir / "gpu_sitl_preflight_ext_summary_20261109.json"
+    _assert_not_exists_create_only(raw_gz_path)
+    _assert_not_exists_create_only(summary_path)
+
     cohort_path = out_dir / FROZEN_COHORT_FILENAME
-    sha_path = out_dir / f"{FROZEN_COHORT_FILENAME}.sha256"
-    if not cohort_path.exists() or not sha_path.exists():
-        raise RuntimeError(f"Frozen CPU cohort missing at {cohort_path}")
-    expected_sha = sha_path.read_text(encoding="utf-8").strip().split()[0]
-    actual_sha = _sha256_file(cohort_path)
-    if actual_sha != expected_sha:
-        raise RuntimeError(f"Frozen CPU cohort SHA mismatch: {actual_sha} != {expected_sha}")
+    actual_sha = _verify_frozen_cohort_file(cohort_path)
     frozen_cohort = json.loads(cohort_path.read_text(encoding="utf-8"))
 
     shard_dir = out_dir / "_shards"
     shard_files = sorted(shard_dir.glob("shard_*.json"))
+    if not shard_files:
+        raise RuntimeError(f"No shard_*.json files found in {shard_dir}")
+
+    parsed_shards: list[tuple[int, int, Path, dict[str, Any]]] = []
+    for sf in shard_files:
+        sp = json.loads(sf.read_text(encoding="utf-8"))
+        sh_sha = sp.get("cohort_sha256")
+        if sh_sha is not None and sh_sha != actual_sha:
+            raise RuntimeError(
+                f"Shard {sf.name} cohort_sha256={sh_sha} does not match frozen cohort {actual_sha}"
+            )
+        s_start = int(sp["shard_start"])
+        s_end = int(sp["shard_end"])
+        if s_start < 0 or s_end <= s_start or len(sp["meta_rows"]) != (s_end - s_start):
+            raise RuntimeError(f"Malformed shard bounds or meta_rows count in {sf.name}")
+        parsed_shards.append((s_start, s_end, sf, sp))
+    parsed_shards.sort(key=lambda item: (item[0], item[1], item[2].name))
+
+    n_expected = len(MATURE_EXTENSION_SPECS)
+    expected_cursor = 0
     meta_rows: list[dict[str, Any]] = []
     cpu_matched_roots: list[dict[str, Any]] = []
     cpu_cross_roots: list[dict[str, Any]] = []
@@ -1631,8 +1804,13 @@ def finalize_extension_preflight(
     cpu_cross_wall = 0.0
     gpu_wavefront_wall = 0.0
 
-    for sf in shard_files:
-        sp = json.loads(sf.read_text(encoding="utf-8"))
+    for s_start, s_end, sf, sp in parsed_shards:
+        if s_start != expected_cursor:
+            raise RuntimeError(
+                f"Non-contiguous or overlapping shard {sf.name}: expected shard_start="
+                f"{expected_cursor}, got [{s_start}, {s_end})"
+            )
+        expected_cursor = s_end
         meta_rows.extend(sp["meta_rows"])
         cpu_matched_roots.extend(sp["cpu_matched_roots"])
         cpu_cross_roots.extend(sp["cpu_cross_roots"])
@@ -1641,10 +1819,28 @@ def finalize_extension_preflight(
         cpu_cross_wall += float(sp["cpu_cross_wall_seconds"])
         gpu_wavefront_wall += float(sp["gpu_wavefront_wall_seconds"])
 
-    if len(meta_rows) != len(MATURE_EXTENSION_SPECS):
+    if expected_cursor != n_expected or len(meta_rows) != n_expected:
         raise RuntimeError(
-            f"Expected {len(MATURE_EXTENSION_SPECS)} roots across shards, got {len(meta_rows)}"
+            f"Expected contiguous shards covering 0..{n_expected}, got cursor={expected_cursor}, "
+            f"roots={len(meta_rows)}"
         )
+
+    frozen_roots = frozen_cohort["roots"]
+    if len(frozen_roots) != n_expected:
+        raise RuntimeError(f"Frozen cohort root count {len(frozen_roots)} != {n_expected}")
+    for idx, (m_row, f_row) in enumerate(zip(meta_rows, frozen_roots)):
+        for key in (
+            "cohort_root_index",
+            "world_index",
+            "world_seed",
+            "decision_frame",
+            "hero_length_root",
+        ):
+            if int(m_row[key]) != int(f_row[key]):
+                raise RuntimeError(
+                    f"Shard root {idx} mismatch against frozen cohort on {key}: "
+                    f"{m_row[key]} != {f_row[key]}"
+                )
 
     matched_root_rows, matched_cert_rows, matched_disagreements = _build_comparison_rows(
         "mature_32_matched_rng_wavefront",
@@ -1663,8 +1859,19 @@ def finalize_extension_preflight(
     summary_cross = summarize_agreement(cross_cert_rows, cross_root_rows)
 
     # Registered rescue-hinge gradient check on rescue roots with both safe and unsafe legal actions
+    eligible_grad_indices: list[int] = []
+    for r_idx, r in enumerate(gpu_wavefront_roots):
+        leg = [bool(_outcome_for_action(r, a)["legal"]) for a in range(6)]
+        cert = [bool(_outcome_for_action(r, a)["certified"]) for a in range(6)]
+        if any(l and c for l, c in zip(leg, cert)) and any(l and not c for l, c in zip(leg, cert)):
+            eligible_grad_indices.append(r_idx)
+    grad_indices = (
+        eligible_grad_indices[:8]
+        if eligible_grad_indices
+        else list(range(min(8, len(MATURE_EXTENSION_SPECS))))
+    )
     b8_path, frp3_path = resolve_product_checkpoints()
-    grad_specs = MATURE_EXTENSION_SPECS[:8]
+    grad_specs = tuple(MATURE_EXTENSION_SPECS[i] for i in grad_indices)
     grad_worlds, grad_pol_tpl, _ = build_extension_worlds(
         b8_path,
         frp3_path,
@@ -1682,7 +1889,8 @@ def finalize_extension_preflight(
     safe_list = []
     unsafe_list = []
     astar_list = []
-    for r in gpu_wavefront_roots[:8]:
+    for r_idx in grad_indices:
+        r = gpu_wavefront_roots[r_idx]
         leg = [bool(_outcome_for_action(r, a)["legal"]) for a in range(6)]
         cert = [bool(_outcome_for_action(r, a)["certified"]) for a in range(6)]
         saf = [is_leg and is_cert for is_leg, is_cert in zip(leg, cert)]
@@ -1692,16 +1900,17 @@ def finalize_extension_preflight(
         unsafe_list.append(uns)
         astar_list.append(int(r["chosen"]))
 
+    target_dev = normalize_device(device)
     gradient_report = margin_loss_gradient_check(
         str(b8_path),
         sim=grad_sim,
         delta=delta,
-        device=device,
+        device=target_dev,
         freeze_value_head=True,
-        legal_mask=torch.tensor(legal_list, dtype=torch.bool),
-        safe_mask=torch.tensor(safe_list, dtype=torch.bool),
-        unsafe_mask=torch.tensor(unsafe_list, dtype=torch.bool),
-        a_star=torch.tensor(astar_list, dtype=torch.int64),
+        legal_mask=torch.tensor(legal_list, dtype=torch.bool, device=target_dev),
+        safe_mask=torch.tensor(safe_list, dtype=torch.bool, device=target_dev),
+        unsafe_mask=torch.tensor(unsafe_list, dtype=torch.bool, device=target_dev),
+        a_star=torch.tensor(astar_list, dtype=torch.int64, device=target_dev),
     )
 
     seed_audit = audit_preflight_seeds()
@@ -1718,6 +1927,12 @@ def finalize_extension_preflight(
         and part1_int_all["v8_best_safe_area_rate"] >= EXT_MATCHED_RNG_INT_AGREE_RATE_MIN
         and part1_int_all["max_pocket_r_rate"] >= EXT_MATCHED_RNG_INT_AGREE_RATE_MIN
     )
+    part1_surviving_joint_all_three_pass = bool(
+        part1_int_surv["all_three_rate"] >= EXT_MATCHED_RNG_INT_AGREE_RATE_MIN
+    )
+    part1_all_certs_joint_all_three_pass = bool(
+        part1_int_all["all_three_rate"] >= EXT_MATCHED_RNG_INT_AGREE_RATE_MIN
+    )
     part2_bool_pass = bool(summary_cross["agreed_certificates"] >= EXT_CROSS_RNG_CERT_AGREE_MIN)
     part2_chosen_pass = bool(summary_cross["roots_chosen_agreed"] >= EXT_CROSS_RNG_CHOSEN_AGREE_MIN)
     grad_pass = bool(
@@ -1727,19 +1942,26 @@ def finalize_extension_preflight(
     )
     comp_pass = bool(comp["composition_bars_met"])
     overall_pass = bool(
-        seed_audit["ok"]
-        and comp_pass
+        comp_pass
         and part1_bool_pass
         and part1_int_pass
         and part2_bool_pass
         and part2_chosen_pass
         and grad_pass
     )
+    integrity_checks = {
+        "seed_audit_ok": bool(seed_audit["ok"]),
+        "part1_matched_rng_surviving_all_three_ge_98pct": part1_surviving_joint_all_three_pass,
+        "part1_matched_rng_all_certs_all_three_ge_98pct": part1_all_certs_joint_all_three_pass,
+    }
+    integrity_pass = bool(all(integrity_checks.values()))
 
     raw_payload = {
         "schema": "gpu-sitl-preflight-ext-raw/v1",
         "namespace": PREFLIGHT_NAMESPACE,
         "verdict": "PASS" if overall_pass else "FAIL",
+        "integrity_pass": integrity_pass,
+        "integrity_checks": integrity_checks,
         "frozen_cohort_path": str(cohort_path),
         "frozen_cohort_sha256": actual_sha,
         "cpu_reference_composition": comp,
@@ -1754,22 +1976,23 @@ def finalize_extension_preflight(
         "cross_roots": cross_root_rows,
         "cross_certificates": cross_cert_rows,
     }
-    raw_gz_path = out_dir / "gpu_sitl_preflight_ext_certificates_20261109.json.gz"
-    with gzip.open(raw_gz_path, "wt", encoding="utf-8") as gz_file:
-        json.dump(raw_payload, gz_file, indent=2)
-    raw_gz_sha256 = _sha256_file(raw_gz_path)
+    raw_gz_sha256 = _write_create_only_evidence(
+        raw_gz_path,
+        lambda tmp: _write_deterministic_gzip_json(tmp, raw_payload),
+    )
 
     summary_payload = {
         "schema": "gpu-sitl-preflight-ext-summary/v1",
         "namespace": PREFLIGHT_NAMESPACE,
         "verdict": "PASS" if overall_pass else "FAIL",
+        "integrity_pass": integrity_pass,
+        "integrity_checks": integrity_checks,
         "frozen_cohort_path": str(cohort_path),
         "frozen_cohort_sha256": actual_sha,
         "raw_certificates_gz_path": str(raw_gz_path),
         "raw_certificates_gz_sha256": raw_gz_sha256,
         "raw_certificates_gz_bytes": int(raw_gz_path.stat().st_size),
         "bar_checks": {
-            "seed_audit_ok": bool(seed_audit["ok"]),
             "cpu_composition_bars_met": comp_pass,
             "part1_matched_rng_bool_ge_191_of_192": part1_bool_pass,
             "part1_matched_rng_exact_int_ge_98pct": part1_int_pass,
@@ -1789,8 +2012,13 @@ def finalize_extension_preflight(
             "cpu_cross_rng_total": float(cpu_cross_wall),
         },
     }
-    summary_path = out_dir / "gpu_sitl_preflight_ext_summary_20261109.json"
-    summary_path.write_text(json.dumps(summary_payload, indent=2) + "\n", encoding="utf-8")
+    _write_create_only_evidence(
+        summary_path,
+        lambda tmp: tmp.write_text(
+            json.dumps(summary_payload, indent=2, allow_nan=False) + "\n",
+            encoding="utf-8",
+        ),
+    )
     return summary_payload
 
 
@@ -1807,6 +2035,10 @@ def run_preflight(
     t_start = time.perf_counter()
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    raw_gz_path = out_dir / "gpu_sitl_preflight_certificates_20261109.json.gz"
+    summary_path = out_dir / "gpu_sitl_preflight_summary_20261109.json"
+    _assert_not_exists_create_only(raw_gz_path)
+    _assert_not_exists_create_only(summary_path)
 
     seed_audit = audit_preflight_seeds()
     if not seed_audit["ok"]:
@@ -1848,20 +2080,34 @@ def run_preflight(
     summary_combined = summarize_agreement(all_cert_rows, all_root_rows)
 
     # Gradient check on real Watch6 v2 root states (4 natural + 4 long-hero worlds).
-    grad_worlds, grad_policy_tpl = build_watch6_captured_worlds(
+    base8_worlds, grad_policy_tpl = build_watch6_captured_worlds(
         natural_seeds + long_hero_seeds,
         b8_path,
         frp3_path,
         max_capacity=DEFAULT_MAX_CAPACITY,
-        long_hero_profiles=[
-            [3, 3, 3, 3, 3, 3],
-            [3, 3, 3, 3, 3, 3],
-            [3, 3, 3, 3, 3, 3],
-            [3, 3, 3, 3, 3, 3],
-            *LONG_HERO_LENGTH_PROFILES,
-        ],
+        long_hero_profiles=None,
+        device=device,
     )
+    nat4_worlds, nat4_policy_tpl = build_watch6_captured_worlds(
+        natural_seeds,
+        b8_path,
+        frp3_path,
+        max_capacity=DEFAULT_MAX_CAPACITY,
+        long_hero_profiles=None,
+        device=device,
+    )
+    long4_worlds, _ = build_watch6_captured_worlds(
+        long_hero_seeds,
+        b8_path,
+        frp3_path,
+        max_capacity=DEFAULT_MAX_CAPACITY,
+        long_hero_profiles=LONG_HERO_LENGTH_PROFILES,
+        device=device,
+    )
+    grad_worlds = base8_worlds[:4] + long4_worlds
     for w in grad_worlds:
+        advance_to_next_live_hero_seam(w)
+    for w in nat4_worlds:
         advance_to_next_live_hero_seam(w)
     grad_sim, grad_pol = snapshot_worlds_to_device(
         grad_worlds,
@@ -1880,13 +2126,13 @@ def run_preflight(
     # Also measure 1 batch (4 natural roots = 24 certificates) with pure-Torch 2D wavefront floods
     # (cpu_fast_flood=False) and verify parity against CPU reference.
     nat4_sim, nat4_pol = snapshot_worlds_to_device(
-        grad_worlds[:4],
-        grad_policy_tpl,
+        nat4_worlds,
+        nat4_policy_tpl,
         sim_cls=CTDeviceSim,
         device=device,
         vector_prepared=False,
     )
-    nat4_decisions = [int(w.sim.frame[0]) for w in grad_worlds[:4]]
+    nat4_decisions = [int(w.sim.frame[0]) for w in nat4_worlds]
     t0_wavefront = time.perf_counter()
     wavefront_batch = batched_open_stop_h32(
         nat4_sim,
@@ -1904,7 +2150,7 @@ def run_preflight(
     wavefront_certs = len(natural_seeds) * 6
     ego_cfg = EgoRasterConfig(version="bv8")
     wavefront_agreed = 0
-    for e_idx, w in enumerate(grad_worlds[:4]):
+    for e_idx, w in enumerate(nat4_worlds):
         w_cpu = open_stop_mod._clone_root(w)
         w_cpu.runtime.prepare(w_cpu.sim)
         w_cpu.sim._policy_phase_prepared = True
@@ -1976,11 +2222,22 @@ def run_preflight(
 
     natural_pass = bool(summary_natural["agreement_rate"] >= PASS_BAR_AGREEMENT)
     long_hero_pass = bool(summary_long_hero["agreement_rate"] >= PASS_BAR_AGREEMENT)
+    long_hero_min_length_pass = bool(int(long_hero_res["min_hero_length"]) >= 800)
     combined_pass = bool(summary_combined["agreement_rate"] >= PASS_BAR_AGREEMENT)
+    wavefront_pass = bool(wavefront_agreed == wavefront_certs)
     grad_finite_pass = bool(
-        gradient_report["all_grads_present"] and gradient_report["all_grads_finite"]
+        gradient_report["all_grads_present"]
+        and gradient_report["all_grads_finite"]
+        and gradient_report["all_non_value_grads_finite_and_nonzero"]
     )
     overall_pass = bool(natural_pass and combined_pass and grad_finite_pass)
+    integrity_checks = {
+        "seed_audit_ok": bool(seed_audit["ok"]),
+        "long_hero_agreement_ge_99pct": long_hero_pass,
+        "long_hero_min_length_ge_800": long_hero_min_length_pass,
+        "wavefront_24certs_exact_agree": wavefront_pass,
+    }
+    integrity_pass = bool(all(integrity_checks.values()))
 
     total_wall_seconds = time.perf_counter() - t_start
 
@@ -1988,6 +2245,8 @@ def run_preflight(
         "schema": "gpu-sitl-preflight-raw/v1",
         "namespace": PREFLIGHT_NAMESPACE,
         "verdict": "PASS" if overall_pass else "FAIL",
+        "integrity_pass": integrity_pass,
+        "integrity_checks": integrity_checks,
         "pass_bar": {
             "branch_certificate_agreement_min": PASS_BAR_AGREEMENT,
             "all_ego2s_gradients_finite": True,
@@ -2008,22 +2267,22 @@ def run_preflight(
         "total_wall_seconds": float(total_wall_seconds),
     }
 
-    raw_gz_path = out_dir / "gpu_sitl_preflight_certificates_20261109.json.gz"
-    with gzip.open(raw_gz_path, "wt", encoding="utf-8") as gz_file:
-        json.dump(raw_payload, gz_file, indent=2)
-
-    raw_gz_sha256 = _sha256_file(raw_gz_path)
+    raw_gz_sha256 = _write_create_only_evidence(
+        raw_gz_path,
+        lambda tmp: _write_deterministic_gzip_json(tmp, raw_payload),
+    )
     summary_payload = {
         "schema": "gpu-sitl-preflight-summary/v1",
         "namespace": PREFLIGHT_NAMESPACE,
         "verdict": "PASS" if overall_pass else "FAIL",
+        "integrity_pass": integrity_pass,
+        "integrity_checks": integrity_checks,
         "pass_bar": {
             "branch_certificate_agreement_min": PASS_BAR_AGREEMENT,
             "all_ego2s_gradients_finite": True,
         },
         "bar_checks": {
             "natural_agreement_ge_99pct": natural_pass,
-            "long_hero_agreement_ge_99pct": long_hero_pass,
             "combined_agreement_ge_99pct": combined_pass,
             "all_gradients_finite": grad_finite_pass,
         },
@@ -2039,12 +2298,17 @@ def run_preflight(
         "disagreements": all_disagreements,
         "total_wall_seconds": float(total_wall_seconds),
     }
-    summary_path = out_dir / "gpu_sitl_preflight_summary_20261109.json"
-    summary_path.write_text(json.dumps(summary_payload, indent=2) + "\n", encoding="utf-8")
+    _write_create_only_evidence(
+        summary_path,
+        lambda tmp: tmp.write_text(
+            json.dumps(summary_payload, indent=2, allow_nan=False) + "\n",
+            encoding="utf-8",
+        ),
+    )
     return summary_payload
 
 
-def main() -> None:
+def main() -> int:
     parser = argparse.ArgumentParser(description="Run Step B1a / B1a-ext Preflight on Mac CPU.")
     parser.add_argument(
         "--mode",
@@ -2062,7 +2326,7 @@ def main() -> None:
     parser.add_argument("--natural-ticks", type=int, default=DEFAULT_NATURAL_TICKS)
     parser.add_argument("--long-hero-ticks", type=int, default=DEFAULT_LONG_HERO_TICKS)
     parser.add_argument("--branch-horizon", type=int, default=OPEN_STOP_BRANCH_HORIZON)
-    parser.add_argument("--delta", type=float, default=MARGIN_DELTA_DEFAULT)
+    parser.add_argument("--delta", type=float, default=None)
     args = parser.parse_args()
 
     torch.set_num_threads(1)
@@ -2070,7 +2334,7 @@ def main() -> None:
         out_dir = args.out_dir or DEFAULT_EXTENSION_OUT_DIR
         res = freeze_mature_cohort_cpu(out_dir=out_dir, branch_horizon=args.branch_horizon)
         print(json.dumps(res, indent=2))
-        return
+        return 0
     if args.mode == "ext-shard":
         out_dir = args.out_dir or DEFAULT_EXTENSION_OUT_DIR
         res = run_extension_shard(
@@ -2081,16 +2345,16 @@ def main() -> None:
             device="cpu",
         )
         print(json.dumps(res, indent=2))
-        return
+        return 0
     if args.mode == "ext-finalize":
         out_dir = args.out_dir or DEFAULT_EXTENSION_OUT_DIR
         res = finalize_extension_preflight(
             out_dir=out_dir,
-            delta=RESCUE_MARGIN_DELTA_DEFAULT,
+            delta=(args.delta if args.delta is not None else RESCUE_MARGIN_DELTA_DEFAULT),
             device="cpu",
         )
         print(json.dumps(res["bar_checks"], indent=2))
-        return
+        return 0 if res.get("verdict") == "PASS" else 1
 
     out_dir = args.out_dir or DEFAULT_ARTIFACT_OUT_DIR
     summary = run_preflight(
@@ -2098,13 +2362,15 @@ def main() -> None:
         natural_ticks=args.natural_ticks,
         long_hero_ticks=args.long_hero_ticks,
         branch_horizon=args.branch_horizon,
-        delta=args.delta,
+        delta=(args.delta if args.delta is not None else MARGIN_DELTA_DEFAULT),
         device="cpu",
     )
     print(
         json.dumps(
             {
                 "verdict": summary["verdict"],
+                "integrity_pass": summary["integrity_pass"],
+                "integrity_checks": summary["integrity_checks"],
                 "bar_checks": summary["bar_checks"],
                 "natural_agreement_rate": summary["summary_natural"]["agreement_rate"],
                 "long_hero_agreement_rate": summary["summary_long_hero_ge800"]["agreement_rate"],
@@ -2122,7 +2388,8 @@ def main() -> None:
             indent=2,
         )
     )
+    return 0 if summary.get("verdict") == "PASS" else 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
