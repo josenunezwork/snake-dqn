@@ -20,7 +20,37 @@ verdict recorded in repository files.
 
 **Counts (163 packages):** HISTORICAL 94, RESULT-RECORDED 46, UNUSED 8, RATIFIED-FROZEN 4, ACTIVE-INFRA 4, UNKNOWN 3, EXPLORATION 2, RUNNING 1, SERVED-ACTIVE 1.
 
-## Current & recent decision-relevant packages (Watch6, Oct 31 – Nov 1 exploration, active infra/sandbox)
+## Start here: live code (2026-11-11)
+
+`research/` holds about 170 folders in one flat list. Only the ones in this section are being changed or run today; everything below this section is a finished experiment kept for its record. Current status of the work: [`docs/STATUS.md`](../docs/STATUS.md); what was learned: [`docs/FINDINGS.md`](../docs/FINDINGS.md).
+
+**Main track — from-scratch PPO self-play on GPU**
+
+| Package | What it is | Start reading at | Run it with |
+|---|---|---|---|
+| [`arena_ppo`](arena_ppo/) | PPO self-play trainer for the old grid game (v2) on the exact GPU simulator. Test bed for network designs and sizing. | [`README.md`](arena_ppo/README.md), then `ppo.py` (trainer), `net.py` (designs `ego_only`, `shared_trunk`, `per_seat`), `obs.py`, `sim.py` | `python -m research.arena_ppo.prepare --mode canary\|ruler\|train` |
+| [`game_v3`](game_v3/) | The new game: continuous heading, circular arena, 24 snakes, 10 actions. GPU simulator, observation builder, scripted opponents. | [`README.md`](game_v3/README.md), then `sim.py`, `obs.py`, `scripted.py`, `reference.py` (CPU reference) | `python -m research.game_v3.prepare --mode canary\|check` |
+| `v3_ppo` (branch `carbon-v3-ppo-1111`, not merged) | PPO self-play trainer for game v3. | its `README.md` on the branch | `python -m research.v3_ppo.prepare --mode canary\|ruler\|train` |
+
+**Shared machinery these depend on**
+
+| Package | What it is |
+|---|---|
+| [`colab_cli`](colab_cli/) | Mac supervisor for Colab jobs: allocation, leases, export checks, receipts. Hash-pinned; do not edit casually. Dispatch only through `tools/ops/dispatch.sh`. |
+| [`gpu_sim_spike`](gpu_sim_spike/) | The exact GPU simulator of the old game (`DeviceSim`) that `arena_ppo` trains on. |
+| [`devicesim_v2_parity`](devicesim_v2_parity/) | Proof that the GPU simulator matches the product game exactly. |
+| [`compute`](compute/), `mac_lease.py`, `published_ledger.py`, `metadata_archive.py` | Mac slot/thermal guard, Mac lease, ledger and archive helpers. |
+
+**Served product support (changes only with a release)**
+
+| Package | What it is |
+|---|---|
+| [`watch_replay`](watch_replay/) | Produces and installs the Watch replay bank that is served today. |
+| [`gpu_sitl`](gpu_sitl/) | Search-in-the-loop training on the B8 lineage. On hold (pilot pinned at `b772f89f`). |
+
+The tables below were last refreshed 2026-11-01 and do not list `arena_ppo`, `game_v3`, `gpu_sitl` or `v3_ppo`.
+
+## Recent closed work as of 2026-11-01 (Watch6, Oct 31 – Nov 1 exploration, infra/sandbox)
 
 Run and serving states as of [`docs/STATUS.md`](../docs/STATUS.md) 2026-11-01 PT (see also [`docs/research/ROADMAP.md`](../docs/research/ROADMAP.md) for Round-27 advice).
 

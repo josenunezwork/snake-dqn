@@ -67,7 +67,7 @@ closed, Claim A `b8-head-closedloop` `KILL`; see [docs/INDEX.md](docs/INDEX.md) 
 [docs/STATUS.md](docs/STATUS.md)). Start here:
 
 1. [docs/INDEX.md](docs/INDEX.md): project overview, served Watch/Play setup, T34 closeout summary, and commands
-2. [docs/STATUS.md](docs/STATUS.md): T34 final state, standing owner rules, release pins, and binding contract documents
+2. [docs/STATUS.md](docs/STATUS.md): one-page current state and standing owner rules (release pins, monitoring and T34 detail are in [docs/STATUS_ARCHIVE.md](docs/STATUS_ARCHIVE.md))
 3. [docs/research/ROADMAP.md](docs/research/ROADMAP.md): T34 closeout summary and archived Round-27 research roadmap (*advice, not decisions*)
 4. [CAMPAIGN_LOG.md](docs/research/final_run_20261019/CAMPAIGN_LOG.md) and
    [HANDOFF_2026-10-20.md](docs/research/final_run_20261019/HANDOFF_2026-10-20.md): chronological T34 decisions and results
