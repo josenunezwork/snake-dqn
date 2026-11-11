@@ -30,7 +30,7 @@ verdict recorded in repository files.
 |---|---|---|---|
 | [`arena_ppo`](arena_ppo/) | PPO self-play trainer for the old grid game (v2) on the exact GPU simulator. Test bed for network designs and sizing. | [`README.md`](arena_ppo/README.md), then `ppo.py` (trainer), `net.py` (designs `ego_only`, `shared_trunk`, `per_seat`), `obs.py`, `sim.py` | `python -m research.arena_ppo.prepare --mode canary\|ruler\|train` |
 | [`game_v3`](game_v3/) | The new game: continuous heading, circular arena, 24 snakes, 10 actions. GPU simulator, observation builder, scripted opponents. | [`README.md`](game_v3/README.md), then `sim.py`, `obs.py`, `scripted.py`, `reference.py` (CPU reference) | `python -m research.game_v3.prepare --mode canary\|check` |
-| `v3_ppo` (branch `carbon-v3-ppo-1111`, not merged) | PPO self-play trainer for game v3. | its `README.md` on the branch | `python -m research.v3_ppo.prepare --mode canary\|ruler\|train` |
+| [`v3_ppo`](v3_ppo/) | PPO self-play trainer for game v3. | [`README.md`](v3_ppo/README.md), then `ppo.py`, `net.py`, `buffer.py`, `eval.py` | `python -m research.v3_ppo.prepare --mode canary\|ruler\|train` |
 
 **Shared machinery these depend on**
 
