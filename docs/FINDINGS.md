@@ -2,6 +2,78 @@
 
 Plain-language guide to every major experimental, engineering, operational, and process finding in this repository through 2026-11-10 PT, written so you do not have to read campaign logs.
 
+## 0. Read this first — what actually matters (coordinator synthesis, 2026-11-10)
+
+Written by the coordinator after reading the 54 lineage verdicts, the 72 rows below, and the full records for the B8 recipe, the PPO fine-tune, the GPU throughput work and the league collapse. Everything here is backed by a row in section 3; the judgement about what it means is mine.
+
+### The story in five sentences
+
+1. Between July and mid-October the project found a recipe that works: a small network that sees a heading-aligned view, rewarded only for staying alive and big, trained against a mix of opponents. That produced B8, the agent served in Play.
+2. B8's remaining weakness is one thing: at length 800+ it coils into a pocket of its own body and dies. A 300-step exact lookahead fixes most of those deaths by overriding about 1 move in 2,000 to 15,000.
+3. From 2026-10-15 to 2026-11-04, more than fifteen separate attempts to teach B8 that fix all failed, and so did every attempt to improve B8 by training it further.
+4. Lookahead is far too slow to run live on the Mac (480 ms per move against a 41.7 ms budget), so the strong agent exists only as recordings.
+5. Two things were never tried at scale: training a new network from scratch for billions of steps, and giving the network a view wide enough to see the pocket forming. That is the current work.
+
+### What is proven and should be reused
+
+| Rule | Evidence | Applies to game v3? |
+|---|---|---|
+| Reward = length while alive, nothing else. No kill bonus. | The B8 recipe used it and won by +138.67 mass; adding a kill bonus with a shorter discount collapsed survival to 1–11%. | Yes |
+| Long discount (0.997–0.998). | Shortening to 0.995 cost 41.5 mass in one study and contributed to the collapse in another. | Yes |
+| Train against a mix: scripted, frozen older agents, and self. | B8 used 50% scripted / 25% frozen / 25% mixed. A narrow league of 3 fixed opponents lost 80.8 mass by forgetting how to forage. | Yes |
+| The view must be heading-aligned, and must show how soon each body cell will clear. | World-frame inputs did not transfer between board sizes; adding a time-to-vacate plane and a length number unlocked 768-step survival. | Yes |
+| A student can only copy a teacher if it can see what the teacher sees. | Distilling into a student with 12 summary numbers failed (−29.5); adding 18 more plus the enemies' next cells, the cues the teacher relied on, worked (+52.4). | Yes — matters for the big-teacher-to-Mac-student step |
+| Many different worlds beat many samples from few worlds. | 64 → 256 training worlds lifted held-out food from about 150 to 220; more data helped death prediction where a 4x bigger network did not. | Yes |
+| Score by total mass over the whole game, counting dead time as zero, against fixed opponents. | Scoring only while alive rewarded snakes that boosted and died; changing the opponents changed the hero's score with no change to the hero. | Yes |
+| Two different agents on the same world seed are almost uncorrelated. | Correlation −0.22 to +0.11, so 96–192 worlds give only about 30% power to see a +40 gain. Plan for hundreds of worlds per comparison. | Yes |
+| Rollouts used for labels must be exact and deterministic. | Two noisy 8-sample searches agreed on the best move 33% of the time. | Yes |
+
+### What fails, and the reason behind each
+
+- **Patching a finished network.** Fine-tuning B8 with PPO for 100 million steps gained +8; with a league, −81; with a gentler schedule, −13. Fitting it to search labels taught the labels (95–99% agreement) and still lost 81–88 mass, because caution leaked into ordinary play. Reason: rescues are rare (about 0.1% of decisions) and the right and wrong moves differ by a tiny value gap (median 0.45), so any pressure strong enough to move them also moves thousands of normal decisions.
+- **Predicting the trap from a 31×31 view.** Death within 30 steps is predictable (0.91), within 300 steps it is not (0.71–0.77), for every feature set tried and for a network four times larger. 87% of late pockets extend beyond the view. More capacity on the same input does not help.
+- **A caution for the new work:** two attempts that did use the whole board also failed — a full-board trap detector (0.753, worse than B8's features) and a full-board value network (explained 3% of late-game variance). Both were trained on 384 worlds or fewer with no control objective, so they do not show the idea is wrong, but "give it the full board" is not yet proven either. This is the main risk in the from-scratch plan and should be measured early.
+- **Targets cut off at a fixed horizon.** Regressing on 300-step returns taught the network to boost 34% of the time, because the cost of lost length fell after the cut-off.
+- **Switching from imitation to RL without rescaling.** Skill was wiped out within 32–5,000 updates until the value scale was matched and a temporary imitation anchor was kept.
+- **Live lookahead on the Mac CPU.** Five designs, all missed the frame budget or delivered rescues too late.
+- **Shrinking the board or crowding it to make traps happen faster.** It changed the geometry of the traps.
+
+### Where the time goes (decides every speed plan)
+
+- In CPU self-play the network is 10–13% of the time. The flood-fill safety features are 41–57% and building the view about 30%.
+- On the GPU simulator the game rules alone take 0.03 s per tick for 1,024 worlds. With the old flood features the whole tick was 0.13–0.17 s. Going from 1,024 to 4,096 worlds added only 13–21%, so the cost is per world, not per launch.
+- Best measured training speed with the old features: 21,133 hero steps a second at 1,024 worlds and 28,113 at 4,096 on one A100. The learner alone managed about 140,000 rows a second for the 1.64M network, so it was never the limit.
+- Consequence: the new trainer drops flood features and learns from all six snakes. Its real speed is unmeasured until the speed test runs.
+- Mac serving: one CPU thread beats the Mac GPU by 3–21x for single decisions; ONNX Runtime was 2.49x faster than PyTorch.
+
+### Colab facts that keep costing attempts
+
+- The limit is 3 runtimes per GPU type (L4, T4, G4, A100 measured together on 2026-11-10: 12 at once), not 6 in total. A refused request leaves a record that blocks all dispatch until retired.
+- L4 and A100 both have 12 virtual CPUs of equal speed, so anything CPU-bound belongs on an L4 (or a 48-CPU G4). L4 billed 1.94 units an hour on 2026-11-10; A100 has measured 5.3–6.7.
+- A100 stock comes and goes within the hour. H100 is rarely available.
+- Colab's control calls hang for 1–2 minutes at a time. Short caps die to this, not to our code: give every session at least 28 minutes.
+- Uploads die at 300 seconds: bundle small files, compress snapshots (1.33 GB became 8.8 MB).
+- Never delete or rewrite a completed export during a run; the supervisor kills the job.
+- New GPU code fails on its first real GPU run in ways the Mac cannot show. Run the L4 canary before anything long, and get the independent review before dispatching, not after.
+- Results differ between the Mac and Colab CPUs in about 1 game in 50 because of floating-point ties. Game v3 uses integer state for this reason.
+
+### What the old research does not tell us about game v3
+
+Most of October was about one failure: a long snake trapping itself. In game v3 a snake can cross its own body, so that failure does not exist. The hard problems become being encircled by others and cutting across heads, which nothing here has studied. What carries over is method (reward, opponent mix, scoring, world counts, Colab operations, where compute time goes), not the tactical findings.
+
+### Numbers worth remembering
+
+| What | Number |
+|---|---|
+| B8 vs the previous served agent | +138.67 mass over 5,000 frames, 5 of 5 seeds |
+| Late deaths that one different move within 300 steps would have avoided | 46 of 49 |
+| How often search needs to override B8 | 0.07–0.52 per 1,000 moves |
+| Search at every length vs bare B8, 96 worlds × 14,400 frames | 133 deaths vs 476 |
+| Adding the 32-step pocket check between searches | deaths per 1,000 frames 0.0897 → 0.0398, +258.69 mass per world |
+| Live search cost on the Mac at length 800+ | 480 ms mean, 2,255 ms 95th percentile, budget 41.67 ms |
+| Best fine-tune of B8 with PPO (100.7M steps) | +8.09 mass, bar was +40 |
+| Recipes tried for teaching B8 the rescues | 732, none passed |
+
 ## 1. The ten things we know
 
 1. Our served bare neural network — B8 (checkpoint b8-s3, a 1.64-million-parameter convolutional network acting alone with no safety wrapper) — plays strong tactical snake (+138.67 average living body length over 5,000 frames versus the best older wrapped model), yet 93.9% of its late-game deaths still had a surviving turn within 300 steps ([row](#f-t1-escape)).
