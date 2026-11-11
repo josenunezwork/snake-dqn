@@ -15,6 +15,7 @@ import pytest
 import torch
 
 from research.arena_ppo import ruler as ruler_mod
+from research.arena_ppo import runtime as runtime_mod
 from research.arena_ppo.ppo import (
     ArenaPPOConfig,
     ArenaPPOTrainer,
@@ -34,6 +35,7 @@ from research.arena_ppo.sim import StepInfo, TrainSim
 from research.colab_cli import canary as colab_canary
 from research.colab_cli import schema as colab_schema
 from research.colab_cli import supervisor as colab_supervisor
+from research.colab_cli.runtime import _exports as supervisor_scan_exports
 from tools.ops import dispatch as ops_dispatch
 
 
@@ -307,7 +309,7 @@ def test_canary_suite_real_exports_no_stubs_and_custom_board_ruler(tmp_path: Pat
     assert verify_completed_artifact(canary_dir / "cells" / "E4_ego_only_S.json")
     assert verify_completed_artifact(canary_dir / "cells" / "E4_shared_trunk_S.json")
     assert verify_completed_artifact(canary_dir / "cells" / "E4_per_seat_S.json")
-    assert verify_completed_artifact(canary_dir / "checkpoints" / "ckpt_u0000001.pt")
+    assert list((canary_dir / "checkpoints").glob("ckpt_u*.pt")) == []
 
     # Prove final.pt from canary_suite is a genuine loadable trainer checkpoint, not a stub
     cfg = ArenaPPOConfig.from_dict(suite["train_result"]["config"])
@@ -1909,3 +1911,100 @@ def test_canary_error_names_skipped_cells_reasons_and_missing_designs(
     assert "Canary multi-arch ruler probe failed:" in msg_missing
     assert "missing designs: per_seat" in msg_missing
     assert "skipped cells: none" in msg_missing
+
+
+def test_continuation_canary_completed_exports_never_change(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: continuation canary must never mutate sha256 or stat of completed exports."""
+    prior_train_out = tmp_path / "prior_ego_s_train"
+    prior_cfg = ArenaPPOConfig(
+        net_arch="ego_only",
+        net_size="S",
+        num_envs=4,
+        rollout_len=4,
+        ppo_epochs=1,
+        minibatch_size=24,
+        actor_chunk_envs=4,
+        max_capacity=64,
+        total_updates=2,
+        seed=20261111,
+        deterministic=True,
+    )
+    run_training_job(
+        cfg=prior_cfg,
+        output_dir=prior_train_out,
+        work_dir=tmp_path / "prior_ego_s_work",
+        device="cpu",
+    )
+    assert verify_completed_artifact(prior_train_out / "checkpoints" / "final.pt")
+
+    cont_pkt = prepare_arena_ppo_packet(
+        tmp_path / "pkt_cont_canary_a100",
+        commit="HEAD",
+        mode="canary",
+        gpu="A100",
+        prior_output_dir=prior_train_out,
+        prior_kind="checkpoint",
+        output_dir=tmp_path / "host_cont_canary_out",
+        attempt="attempt-02",
+        allow_unmerged_commit=True,
+    )
+    mf = json.loads(Path(cont_pkt["manifest_path"]).read_text(encoding="utf-8"))
+    max_export_bytes = int(mf["max_export_bytes"])
+
+    cli_root = tmp_path / "remote_cli_root"
+    remote_in = _stage_manifest_inputs(mf, cli_root / "inputs")
+    remote_out = cli_root / "output"
+    remote_out_resolved = remote_out.resolve()
+
+    initial_sha256: dict[str, str] = {}
+    supervisor_cache: dict[str, Any] = {}
+    orig_fsync_dir = runtime_mod._fsync_directory
+
+    def _check_completed_exports() -> None:
+        if not remote_out.is_dir():
+            return
+        seen_now: set[str] = set()
+        for marker in sorted(remote_out.rglob("*.complete")):
+            candidate = marker.with_name(marker.name[: -len(".complete")])
+            rel = candidate.relative_to(remote_out).as_posix()
+            seen_now.add(rel)
+            observed_sha = sha256_file(candidate)
+            if rel not in initial_sha256:
+                initial_sha256[rel] = observed_sha
+            else:
+                assert (
+                    observed_sha == initial_sha256[rel]
+                ), f"Completed export {rel} sha256 changed after .complete"
+        assert set(initial_sha256).issubset(
+            seen_now
+        ), f"Completed export removed after .complete: {set(initial_sha256) - seen_now}"
+        supervisor_scan_exports(cli_root, max_export_bytes, supervisor_cache)
+
+    def _hooked_fsync_dir(directory: Path) -> None:
+        orig_fsync_dir(directory)
+        resolved = directory.resolve()
+        if resolved == remote_out_resolved or remote_out_resolved in resolved.parents:
+            _check_completed_exports()
+
+    monkeypatch.setattr(runtime_mod, "_fsync_directory", _hooked_fsync_dir)
+
+    suite = run_canary_suite(
+        output_dir=remote_out,
+        device="cpu",
+        input_dir=remote_in,
+        ledger_path=remote_in / "verified-ledger.json",
+        num_envs=2,
+        rollout_len=4,
+        seed=20261111,
+    )
+    _check_completed_exports()
+
+    assert suite["staged_input_verification"]["kind"] == "checkpoint"
+    assert suite["staged_input_verification"]["updates_completed"] == 2
+    assert len(initial_sha256) >= len(CANARY_REQUIRED_EXPORTS)
+    for rel in CANARY_REQUIRED_EXPORTS:
+        assert rel in initial_sha256
+        assert verify_completed_artifact(remote_out / rel)
+    assert list((remote_out / "checkpoints").glob("ckpt_u*.pt")) == []
