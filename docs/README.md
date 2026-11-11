@@ -1,92 +1,16 @@
-# Documentation map
+# Documentation — start here
 
-Start with **[INDEX.md](INDEX.md)** for the full project overview, current Watch/Play
-serving setup, active experiments, and how to run things, and **[STATUS.md](STATUS.md)**
-for binding release pins, standing owner rules, and operational decisions (updated
-2026-11-01). Then use [../research/INDEX.md](../research/INDEX.md) for study code packages,
-the [research record index](research/INDEX.md) for dated narrative reports, and the
-[evaluation glossary](research/GLOSSARY.md) or [notes glossary](notes/GLOSSARY.md) for
-vocabulary. Dated records preserve their original outcome; they are evidence, not
-permission to resume an old plan.
+Read in this order. Each page has one job; none repeats another.
 
-## Current reference and decision records
+1. **[STATUS.md](STATUS.md)** — one page: goal, what is being built, what is running, what is served, binding rules.
+2. **[FINDINGS.md](FINDINGS.md)** — what the project has learned, in plain language.
+3. **[INDEX.md](INDEX.md)** — what the project is (model stacks, source trees) and how to run things.
+4. **[MAP.md](MAP.md)** — one line for every file and folder under `docs/`.
+5. **[TIMELINE.md](TIMELINE.md)** — dated milestones from June 2026 to now.
 
-| Document or collection | Status | Use it for |
-| --- | --- | --- |
-| [INDEX.md](INDEX.md) | **Current entry map** | Project overview, served Watch (132-session confirmed `exact-stop-l2-prime` replay bank) & Play (live `b8-s3`), active T34 state, package locations, and commands. |
-| [STATUS.md](STATUS.md) | **Current authority** | Served Watch/Play setup, released `b8-s3` without a veto, standing owner rules, active campaign verdicts, and historical snapshots. |
-| [research/ROADMAP.md](research/ROADMAP.md) | **Advice only (not ratified decisions)** | Round-27 synthesized current-round and later-round research roadmap: `0 u` Mac `M0a` Claim-A readout & `0 u` Mac `M0b` / `M0_process_v27` live-ops patch before L4 Wave 1 finishes at `~01:55 AM PT` (`~12.6 min` before A100 Wave 1) and Wave 2 at `~08:38 AM PT` for running `Watch6-L1-V1` (`l1v1-main-01`, `18` shards on `1873b902`, `science = 57ec544f…`, `~637.5 u` across `6/6` Colab slots = `3 A100 + 3 L4` in their 3rd/final arm at `26.01 u/h` / `2,106.84 u` balance — pinning `1873b902:web/backend/session.py` (`da7b4971…`) in operational validators while keeping `protocol.py` + live `session.py` (`fec81656`) untouched; `ACCOUNT_GPU_SUBCAPS = {"L4": 3, "A100": 3, "H100": 3}` in `ready_queue.py:682`; pre-compute forbid-list in `admission.py:474-490`, ignoring `{"workload-started.json", "performance.json"}` for Tier-0 `0`-`world-*.json` drops (`prestart_attempt <= 6`, bypassing `if attempt >= maximum` on `retry_limit = 1`), and negative-fault transport classification in `admission.py:682-706`; linear `RETRY.json`/`unalloc_ref`/`prior_receipts` DAG + 4-site canary filter in `final_look.py` under `pre_outcome_open_guard()`; and Tier-0 `cb72db0f…` reuse vs. Tier-1 `recover.py --commit 1873b902`), later-round `CTS-ZWRHS-L1-v6` (`RH-DAG-1`, Subsumed-BFS + Component-Ceiling Theorem + stack-local `tail_flat[6]` + `V8ResultBuffer` + `_i64` zero-copy + `step_prepared(hero_policies=[])` cutting `1.892 -> ~0.15 ms/step`, `RH-DAG-1` Suffix Grafting $h = 96 \to 64 \to 1$ + `RolloutBacktrack-16` + Future-Rooted 2-Tick Stage B from $\hat{w}_{t+1}$ keeping single-process Mac live serving `p99 <= 12.0 ms < 33.0 ms` (`0` workers), Phase-Free Danger Interrupt + Every-Tick $\pi_{\text{shield}}$ (`v8_tail_redecide` + `0`-flood `DesperateOppHeadOnShield`) + `res_opp.head_risky` `OppPinchProbe`, `Watch6-RHDAG1-V6-Screen96` `~7.4 u` / `~14.8 u` 2× cap -> `~56 u` / `~112 u` 2× confirm) + spawned `P1+3W` `ShadowSpine`, and settled panel disagreements. |
-| [../research/INDEX.md](../research/INDEX.md) | **Current package map** | One-row-per-directory index of all 163 study and tooling packages under `research/`. |
-| [research/INDEX.md](research/INDEX.md) | **Current record map** | Chronological locator for kept research and decision documents in `docs/research/`. |
-| [research/history/INDEX.md](research/history/INDEX.md) | **Consolidated lineage history** | 54 lineage records summarizing all completed & closed research series (replacing 761 historical `.md` files). |
-| [notes/README.md](notes/README.md) | **Cited reference (as of 2026-10-25)** | Fact-only, line-cited topic notes and [notes glossary](notes/GLOSSARY.md) covering models, redesign, T34, Big-Lever, F0/F4, and compute. |
-| [research/GLOSSARY.md](research/GLOSSARY.md) | **Current reference** | Terms used by the release, gate, and redesign records (through 2026-10-08). |
-| [research/](research/) | **Mixed: current decisions and historical evidence** | Release receipts, governance amendments, compute/performance notes, diagnostics, and prior study decisions. Use the index to determine a record's status. |
-| [ml_algorithm.md](ml_algorithm.md) | **Current reference, limited scope** | The historical Apex/vector policy's algorithm and serving-facing concepts. It does not prescribe the released B8 policy or the active redesign program. |
-| [simd_env_spec.md](simd_env_spec.md) | **Current technical contract** | `BatchSim` dynamics and parity/observation contract; consult source and tests for behavior changes after the dated specification. |
-| [ml_redesign_blueprint_2026-07.md](ml_redesign_blueprint_2026-07.md) | **Historical foundation** | The July rationale and original redesign blueprint. Its audit and implementation milestones are not a current run plan; use `STATUS.md` for the adopted October direction. |
+Code: live research packages are listed at the top of [../research/INDEX.md](../research/INDEX.md); product code (served Watch/Play) is described in [PRODUCT_CODE_GUIDE.md](PRODUCT_CODE_GUIDE.md). Closed research lines: [research/history/INDEX.md](research/history/INDEX.md). Vocabulary: [research/GLOSSARY.md](research/GLOSSARY.md), [notes/GLOSSARY.md](notes/GLOSSARY.md).
 
-## Released-agent and evaluation record
-
-| Document or collection | Status | Use it for |
-| --- | --- | --- |
-| [research/b8_s3_release_2026-10-17.md](research/b8_s3_release_2026-10-17.md) | **Current release receipt** | Why `b8-s3` without a veto is the served default, including qualification, rollback, disclosures, and monitoring. |
-| [research/t7_phase_r_result_2026-10-16.md](research/t7_phase_r_result_2026-10-16.md) | **Current release evidence** | The B8 strict result and Tier 2 pass that supply the release skill evidence. |
-| [research/frp3_serving_result_and_release_2026-10-06.md](research/frp3_serving_result_and_release_2026-10-06.md) and [research/frp3_strict_result_2026-10-06.md](research/frp3_strict_result_2026-10-06.md) | **Historical prior-release evidence** | Why `frp3-s12 + v8` was the served default before B8 seed 3 replaced it. |
-| [research/governance_amendment_survival_band_v2_2026-10-06.md](research/governance_amendment_survival_band_v2_2026-10-06.md) | **Current for opted-in strict studies** | Ratified survival-band-v2 rule and its scope. |
-| [research/governance_amendment_sequential_phase_r_2026-10-07.md](research/governance_amendment_sequential_phase_r_2026-10-07.md) | **Current for Phase R** | Ratified sequential Phase R rule; do not apply it retroactively. |
-| [research/governance_amendment_strict_on_runpod_2026-10-05.md](research/governance_amendment_strict_on_runpod_2026-10-05.md) | **Not ratified; superseded 2026-10-08** | Historical proposal for strict gates on RunPod. Never used. Hash-bound, so its text is unchanged; its [status note](research/governance_amendment_strict_on_runpod_2026-10-05_status_2026-10-08.md) records the outcome and what a new amendment would need. Strict gates and serving qualification stay on the Mac. |
-| [research/history/governance.md](research/history/colab-and-process.md#governance) | **Erratum** | The branch-only LH-1 amendment (`lh1-screen`) opens with `DRAFT`; it was ratified 2026-10-05 (`ecddfab`). The file is hash-bound and left unedited. |
-| [research/governance_tiers_2026-09-26.md](research/governance_tiers_2026-09-26.md) and [governance_amendment_sequential_gates_2026-10-02.md](research/governance_amendment_sequential_gates_2026-10-02.md) | **Historical policy base, amended** | Original tier and sequential-gate rules. Read later amendments before using either as an operating rule. |
-
-Today, **Watch** plays the 132-session confirmed `exact-stop-l2-prime`
-replay bank (`watch-replay-bank-live-132`, `SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l2-prime`,
-banks `01–08, 10–12`, visibly labelled `"Recorded assisted hero"`, confirmed `GO_EFFICACY_ONLY`
-in Watch6 V3 `52135312`, qualified on Mac `24 fps` in `fec81656`, and released in `f5912f44`;
-live bare `b8-s3` against the mixed `5× frp3-s12 + v8` roster is the automatic fallback, and
-`SNAKE_WATCH_SOURCE=live` forces live Watch),
-while **Play** runs `1` human against live bare **b8-s3 without a veto**
-(`3e649783`, default `5` AI opponents, adjustable `1–11`). `b8-s3`'s release claim is **more
-mass at equal survival against the previously served agent, with no veto**; it is
-not a safety claim. To roll back
-the live checkpoint, restart the server with `SNAKE_WATCH_SOURCE=live` (Watch replay is also
-automatically bypassed whenever `_is_clean_mixed_watch6_b8()` is false) and `SNAKE_SERVE_CHECKPOINT=frp3-s12`
-for `frp3-s12 + v8` or `SNAKE_SERVE_CHECKPOINT=champion` for `champion + v8`,
-with the remaining serving environment at defaults. See [STATUS.md](STATUS.md)
-and the [B8 release record](research/b8_s3_release_2026-10-17.md) for copyable
-commands, qualification boundaries, disclosures, and monitoring thresholds.
-
-## Research archive
-
-| Collection | Status | Contents and starting point |
-| --- | --- | --- |
-| [experiments/](experiments/) | **Historical study archive** | Per-study protocols, results, ledgers, and tables. Start with [the September portfolio](research/history/rl-runs.md#pqn-redesign-and-sept-audit), then use each study `README.md`; tables are supporting data for the adjoining report. |
-| `experiments/controlled_encounter_*` | **Historical study family** | September controlled-encounter diagnostics and learning screens. Each directory names the intervention and date. |
-| `experiments/solo_*` and `experiments/solo_food_*` | **Historical study families** | Solo food, safety, native-policy, and PQN probes. Names encode the question; read the family portfolio before interpreting a single result. |
-| `experiments/apex_*` | **Historical study family** | Apex continuation, retention, scaling, and veto screens. The v5-v8 subdirectories are evidence leading to the released veto; the release receipt above is authoritative for what is served. |
-| `experiments/task_aligned_*` | **Historical bridge/strict family** | Qualification, recovery, and strict-pilot records for the earlier raster path. |
-| [experiments/four_hour_2026-09-13/README.md](research/history/rl-runs.md#four-hour-2026-09-13) | **Historical campaign** | Campaign overview; its ledger, handoff, next-waves note, and proposal are adjacent and preserve the campaign state at that date. |
-| [experiments/pqn_followup_2026-09-12.md](research/history/rl-runs.md#pqn-redesign-and-sept-audit), [pqn_sampler_results_2026-09-06.md](pqn_sampler_results_2026-09-06.md), and [pqn_decision_phase_2026-09-12.md](pqn_decision_phase_2026-09-12.md) | **Historical / scoped PQN records** | Respectively: follow-up execution, sampler screen, and decision-phase contract. They do not establish a promoted raster policy. |
-| [research_review_2026-09-24/README.md](research_review_2026-09-24/README.md) and [research_findings_2026-09-24.md](research_findings_2026-09-24.md) | **Historical synthesis** | A review and an index of the September evidence; use them to trace reasoning, then check `STATUS.md` before acting. |
-| [plans/](plans/) | **Historical plans and packages** | The September repair plan and associated packages. Plans record proposed work and their contemporary boundaries; they are not active instructions. |
-
-## Earlier engineering and provenance notes
-
-| Document | Status | Use it for |
-| --- | --- | --- |
-| [codebase_quality_2026-09.md](codebase_quality_2026-09.md) | **Historical handoff** | The scoped September quality pass and its verification boundaries. |
-| [rl_review_2026-09-06.md](rl_review_2026-09-06.md) and [state_and_system_review_2026-09-06.md](state_and_system_review_2026-09-06.md) | **Historical audits** | The September architecture, contract, and evaluation findings that informed later work. |
-| [rl_assessment_2026-09-06.md](rl_assessment_2026-09-06.md) and [project_history_and_findings.md](project_history_and_findings.md) | **Historical evidence/provenance** | Corrected history, audit evidence, and limits of older measurements. Do not use their former “current status” sections as present state. |
-| [h100_training_recipe.md](h100_training_recipe.md) | **Superseded as an active recipe** | Reproducibility and provenance for the old Apex/vector training line. The frozen vector line is no longer the main research plan. |
-
-## Compute and RunPod pointers
-
-The source-controlled pointers are [compute policy](research/compute_policy_2026-10-02.md),
-[performance plan](research/history/simulators-and-speed.md#perf-20261013), [x86 consistency check](research/history/colab-and-process.md#colab-ops)
-(historical: its all-identical sample is superseded by the 2026-10-07 float32-tie diagnosis),
-and the RunPod governance status note above. They are supplemented by the operator notes in
-`~/.claude/skills/runpod/`; those external notes are not versioned with this repository.
-For the current choice of work and any spend boundary, use `STATUS.md` first.
+Dated records keep their original outcome; they are evidence, not permission to resume an old plan. The per-document status tables that used to be on this page duplicated [MAP.md](MAP.md) and were removed on 2026-11-11 (see git history).
 
 ## Reconciled discrepancies and source precedence
 

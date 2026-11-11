@@ -1,23 +1,15 @@
 # docs/ tree map
 
-One line for every top-level file and folder in `docs/` (updated 2026-11-01). For the project
-overview and command reference start at [INDEX.md](INDEX.md); for per-document status tables see
-[README.md](README.md).
+One line for every top-level file and folder in `docs/` (tables last fully refreshed 2026-11-01; start-here list 2026-11-11). Reading order for a new reader is on [README.md](README.md).
 
 ## Start here (new reader)
 
-1. [INDEX.md](INDEX.md): project overview, served Watch/Play setup today, active experiments, and commands.
-2. [STATUS.md](STATUS.md): released agent, Watch replay bank status, standing owner rules, and campaign authority.
-3. [research/ROADMAP.md](research/ROADMAP.md): synthesized current-round and later-round research plans (*advice, not decisions*).
-4. [research/final_run_20261019/CAMPAIGN_LOG.md](research/final_run_20261019/CAMPAIGN_LOG.md) and
-   [HANDOFF_2026-10-20.md](research/final_run_20261019/HANDOFF_2026-10-20.md): active T34 campaign log and initial handoff.
-5. [research/final_run_20261019/SUCCESS_CONTRACT.md](research/final_run_20261019/SUCCESS_CONTRACT.md) and
-   [P7_STATISTICS.md](research/final_run_20261019/P7_STATISTICS.md): ratified pass rules.
-6. [notes/README.md](notes/README.md) ([notes/GLOSSARY.md](notes/GLOSSARY.md)),
-   [research/GLOSSARY.md](research/GLOSSARY.md), and [TIMELINE.md](TIMELINE.md).
-7. [architecture/WEB_MAP.md](architecture/WEB_MAP.md), [architecture/TESTS_MAP.md](architecture/TESTS_MAP.md),
-   and [ml_algorithm.md](ml_algorithm.md): how the system works.
-8. [../research/INDEX.md](../research/INDEX.md) and [research/INDEX.md](research/INDEX.md): find any study package or dated decision.
+1. [STATUS.md](STATUS.md): one-page current state and binding rules. [FINDINGS.md](FINDINGS.md): what was learned.
+2. [INDEX.md](INDEX.md): what the project is, where source lives, run commands.
+3. [../research/INDEX.md](../research/INDEX.md): live research code first, then every closed study package.
+4. [PRODUCT_CODE_GUIDE.md](PRODUCT_CODE_GUIDE.md), [architecture/WEB_MAP.md](architecture/WEB_MAP.md), [architecture/TESTS_MAP.md](architecture/TESTS_MAP.md): how the served product works.
+5. [research/history/INDEX.md](research/history/INDEX.md), [STATUS_ARCHIVE.md](STATUS_ARCHIVE.md), [TIMELINE.md](TIMELINE.md): closed lines and history (T34 campaign log and pass rules: [research/final_run_20261019/](research/final_run_20261019/)).
+6. [notes/README.md](notes/README.md), [research/GLOSSARY.md](research/GLOSSARY.md), [notes/GLOSSARY.md](notes/GLOSSARY.md): topic notes and vocabulary.
 
 ## Current campaign & governance
 
@@ -94,5 +86,8 @@ overview and command reference start at [INDEX.md](INDEX.md); for per-document s
 
 | Path | What it is |
 | --- | --- |
-| [README.md](README.md) | Documentation map with per-document status (current vs historical). |
+| [README.md](README.md) | Front door: reading order, reconciled discrepancies, status labels. |
+| [STATUS_ARCHIVE.md](STATUS_ARCHIVE.md) | The status page as it stood on 2026-11-10: release evidence, rollback targets, T34, October history. |
+| [PRODUCT_CODE_GUIDE.md](PRODUCT_CODE_GUIDE.md) | Product code overview, architecture contracts, commands and key files (moved out of `AGENTS.md`). |
+| [FINDINGS.md](FINDINGS.md) | Plain-language map of what the project has learned. |
 | [MAP.md](MAP.md) | This file: whole-tree layout. |
