@@ -1464,3 +1464,132 @@ def test_minor3_continuation_canary_verifies_staged_checkpoint_without_rollout_b
             output_dir=tmp_path / "out_cross_arch_refused",
             allow_unmerged_commit=True,
         )
+
+
+def test_canary_disables_projection_skip_under_huge_projected_cell_time(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Canary tiny ruler must run all 3 designs even when projection exceeds max_wall_seconds."""
+    proj_calls: list[tuple[str, float]] = []
+
+    def _huge_projection(**kwargs: Any) -> float:
+        arch = str(kwargs.get("net_arch", "per_seat"))
+        est = 0.0 if arch == "ego_only" else 10_000.0
+        proj_calls.append((arch, est))
+        return est
+
+    monkeypatch.setattr(ruler_mod, "_project_cell_seconds", _huge_projection)
+
+    # Default run_ruler (disable_projection_skip=False) still skips on huge projection.
+    default_dir = tmp_path / "ruler_default_skips"
+    res_default = run_ruler(
+        output_dir=default_dir,
+        device="cpu",
+        envs_list=[2],
+        net_sizes=["S"],
+        net_archs=["ego_only", "shared_trunk", "per_seat"],
+        burnin_ticks=2,
+        warmup_ticks=1,
+        collect_ticks=2,
+        rollout_len=2,
+        ppo_epochs=1,
+        include_one_epoch_cell=False,
+        include_best_compile=False,
+        measure_larger_minibatch=False,
+        max_capacity=64,
+        max_wall_seconds=120.0,
+    )
+    assert res_default["partial"] is True
+    assert res_default["stopped_reason"] == "wall_projection_guard"
+    assert res_default["succeeded_cell_ids"] == ["E2_ego_only_S"]
+    assert [sc["cell_id"] for sc in res_default["skipped_cells"]] == [
+        "E2_shared_trunk_S",
+        "E2_per_seat_S",
+    ]
+    assert all(sc["reason"] == "projected_wall_budget_skip" for sc in res_default["skipped_cells"])
+
+    # Canary path sets disable_projection_skip=True and must still run all three designs.
+    proj_calls.clear()
+    canary_dir = tmp_path / "canary_ignores_projection"
+    suite = run_canary_suite(
+        output_dir=canary_dir,
+        device="cpu",
+        max_wall_seconds=540.0,
+        num_envs=2,
+        rollout_len=4,
+        seed=20261111,
+    )
+    rr = suite["ruler_result"]
+    assert [arch for arch, est in proj_calls if est >= 10_000.0] == [
+        "shared_trunk",
+        "per_seat",
+    ]
+    assert rr["partial"] is False
+    assert rr["stopped_reason"] == "completed"
+    assert rr["skipped_cells"] == []
+    assert rr["succeeded_cell_ids"] == [
+        "E2_ego_only_S",
+        "E2_shared_trunk_S",
+        "E2_per_seat_S",
+    ]
+    for rel in CANARY_REQUIRED_EXPORTS:
+        assert verify_completed_artifact(canary_dir / rel)
+
+
+def test_canary_error_names_skipped_cells_reasons_and_missing_designs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Canary failure message must name skipped cells + reasons and genuinely missing designs."""
+    orig_monotonic = ruler_mod.time.monotonic
+    orig_integ = ruler_mod._measure_integrated_cell
+    clock_offset = {"sec": 0.0}
+
+    monkeypatch.setattr(ruler_mod.time, "monotonic", lambda: orig_monotonic() + clock_offset["sec"])
+
+    def _slow_second_cell(**kwargs: Any) -> dict[str, Any]:
+        out = orig_integ(**kwargs)
+        if kwargs.get("net_arch") == "shared_trunk":
+            clock_offset["sec"] += 400.0
+        return out
+
+    monkeypatch.setattr(ruler_mod, "_measure_integrated_cell", _slow_second_cell)
+
+    # 1. Hard elapsed-time stop inside canary ruler skips per_seat -> error names cell, reason, arch
+    with pytest.raises(RuntimeError) as exc_skip:
+        run_canary_suite(
+            output_dir=tmp_path / "canary_hard_wall_skip",
+            device="cpu",
+            max_wall_seconds=540.0,
+            num_envs=2,
+            rollout_len=4,
+            seed=7,
+        )
+    msg_skip = str(exc_skip.value)
+    assert "Canary multi-arch ruler probe failed:" in msg_skip
+    assert "missing designs: per_seat" in msg_skip
+    assert "E2_per_seat_S (elapsed_wall_budget_skip)" in msg_skip
+
+    # 2. Genuinely missing design (no failed/skipped cells) -> error names the missing design
+    clock_offset["sec"] = 0.0
+    monkeypatch.setattr(ruler_mod, "_measure_integrated_cell", orig_integ)
+    orig_run_ruler = ruler_mod.run_ruler
+
+    def _drop_per_seat(**kwargs: Any) -> dict[str, Any]:
+        kwargs["net_archs"] = ["ego_only", "shared_trunk"]
+        return orig_run_ruler(**kwargs)
+
+    monkeypatch.setattr(ruler_mod, "run_ruler", _drop_per_seat)
+
+    with pytest.raises(RuntimeError) as exc_missing:
+        run_canary_suite(
+            output_dir=tmp_path / "canary_missing_design",
+            device="cpu",
+            max_wall_seconds=540.0,
+            num_envs=2,
+            rollout_len=4,
+            seed=7,
+        )
+    msg_missing = str(exc_missing.value)
+    assert "Canary multi-arch ruler probe failed:" in msg_missing
+    assert "missing designs: per_seat" in msg_missing
+    assert "skipped cells: none" in msg_missing
