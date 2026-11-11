@@ -131,22 +131,56 @@ def test_minor2_symlog_two_hot_loss_performs_zero_host_item_syncs(
     assert torch.allclose(loss_a, loss_b, atol=1e-6)
 
 
-def test_m1_per_net_defaults_and_minor10_bf16_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify M1 per-net defaults for M fit memory bounds and MINOR 10 bf16 fallback works."""
+def test_m1_per_net_defaults_and_minor10_bf16_fallback_and_caching(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify M1 per-net defaults, MINOR 10 bf16 fallback, and MINOR 11b per-instance caching."""
     assert default_actor_chunk_envs("S") == 1024
     assert default_actor_chunk_envs("M") <= 512
     assert default_minibatch_size("S") == 1536
     assert default_minibatch_size("M") <= 1024
 
-    net = ArenaNet(ArenaNetConfig.from_size("S"))
     fake_cuda = torch.device("cuda", 0)
-    monkeypatch.setattr(torch.cuda, "is_bf16_supported", lambda: False)
-    ctx_fp16 = net._autocast_ctx(fake_cuda)
-    assert getattr(ctx_fp16, "fast_dtype", None) == torch.float16
+    calls_fp16 = {"n": 0}
 
-    monkeypatch.setattr(torch.cuda, "is_bf16_supported", lambda: True)
-    ctx_bf16 = net._autocast_ctx(fake_cuda)
-    assert getattr(ctx_bf16, "fast_dtype", None) == torch.bfloat16
+    def _no_bf16() -> bool:
+        calls_fp16["n"] += 1
+        return False
+
+    monkeypatch.setattr(torch.cuda, "is_bf16_supported", _no_bf16)
+    net_fp16 = ArenaNet(ArenaNetConfig.from_size("S"))
+    for _ in range(8):
+        ctx_fp16 = net_fp16._autocast_ctx(fake_cuda)
+        assert getattr(ctx_fp16, "fast_dtype", None) == torch.float16
+    assert calls_fp16["n"] == 1, "is_bf16_supported() must be cached per ArenaNet instance"
+
+    calls_bf16 = {"n": 0}
+
+    def _yes_bf16() -> bool:
+        calls_bf16["n"] += 1
+        return True
+
+    monkeypatch.setattr(torch.cuda, "is_bf16_supported", _yes_bf16)
+    net_bf16 = ArenaNet(ArenaNetConfig.from_size("S"))
+    for _ in range(8):
+        ctx_bf16 = net_bf16._autocast_ctx(fake_cuda)
+        assert getattr(ctx_bf16, "fast_dtype", None) == torch.bfloat16
+    assert calls_bf16["n"] == 1
+
+
+def test_minor4_r3_from_size_derives_ceil_div8_token_grid_from_board_size() -> None:
+    """MINOR 4: ArenaNetConfig.from_size derives ceil(grid_h/8) x ceil(grid_w/8) token grid."""
+    cfg_default = ArenaNetConfig.from_size("S", grid_h=83, grid_w=145)
+    assert (cfg_default.token_grid_h, cfg_default.token_grid_w) == (11, 19)
+
+    cfg_custom = ArenaNetConfig.from_size("M", grid_h=48, grid_w=64)
+    assert (cfg_custom.token_grid_h, cfg_custom.token_grid_w) == (6, 8)
+    net_custom = ArenaNet(cfg_custom)
+    assert (net_custom.token_h, net_custom.token_w, net_custom.num_tokens) == (6, 8, 48)
+    assert net_custom.arena_pos_embed.shape == (1, 48, net_custom.cfg.arena_dim)
+    arena = torch.zeros((2, NUM_OBS_CHANNELS, 48, 64))
+    a_feat = net_custom.arena_stage2(net_custom.arena_stage1(net_custom.arena_stem(arena)))
+    assert a_feat.shape == (2, net_custom.cfg.arena_dim, 6, 8)
 
 
 def test_parameterized_board_resolutions_in_arenanet() -> None:

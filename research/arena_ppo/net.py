@@ -300,12 +300,24 @@ class ArenaNetConfig:
         cls,
         size: NetSize,
         *,
-        token_grid_h: int = (ARENA_GRID_H + 7) // 8,
-        token_grid_w: int = (ARENA_GRID_W + 7) // 8,
+        grid_h: int | None = None,
+        grid_w: int | None = None,
+        token_grid_h: int | None = None,
+        token_grid_w: int | None = None,
         use_channels_last: bool = True,
         use_bf16_autocast: bool = True,
     ) -> "ArenaNetConfig":
         """Construct preset configuration for ``"S"`` (~1M params) or ``"M"`` (~5M params)."""
+        resolved_th = (
+            int(token_grid_h)
+            if token_grid_h is not None
+            else ((int(grid_h) + 7) // 8 if grid_h is not None else (ARENA_GRID_H + 7) // 8)
+        )
+        resolved_tw = (
+            int(token_grid_w)
+            if token_grid_w is not None
+            else ((int(grid_w) + 7) // 8 if grid_w is not None else (ARENA_GRID_W + 7) // 8)
+        )
         if size == "S":
             return cls(
                 size="S",
@@ -323,8 +335,8 @@ class ArenaNetConfig:
                 ego_stage2_blocks=2,
                 scalar_hidden=64,
                 fuse_dim=192,
-                token_grid_h=int(token_grid_h),
-                token_grid_w=int(token_grid_w),
+                token_grid_h=resolved_th,
+                token_grid_w=resolved_tw,
                 use_channels_last=use_channels_last,
                 use_bf16_autocast=use_bf16_autocast,
             )
@@ -345,8 +357,8 @@ class ArenaNetConfig:
                 ego_stage2_blocks=2,
                 scalar_hidden=64,
                 fuse_dim=320,
-                token_grid_h=int(token_grid_h),
-                token_grid_w=int(token_grid_w),
+                token_grid_h=resolved_th,
+                token_grid_w=resolved_tw,
                 use_channels_last=use_channels_last,
                 use_bf16_autocast=use_bf16_autocast,
             )
@@ -483,6 +495,7 @@ class ArenaNet(nn.Module):
         )
         self.register_buffer("value_support", support, persistent=True)
 
+        self._cuda_autocast_dtype: torch.dtype | None = None
         if self.use_channels_last:
             self.to(memory_format=torch.channels_last)
 
@@ -505,9 +518,11 @@ class ArenaNet(nn.Module):
 
     def _autocast_ctx(self, device: torch.device) -> Any:
         if self.use_bf16_autocast and device.type == "cuda":
-            if torch.cuda.is_bf16_supported():
-                return torch.autocast(device_type="cuda", dtype=torch.bfloat16)
-            return torch.autocast(device_type="cuda", dtype=torch.float16)
+            if self._cuda_autocast_dtype is None:
+                self._cuda_autocast_dtype = (
+                    torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+                )
+            return torch.autocast(device_type="cuda", dtype=self._cuda_autocast_dtype)
         return nullcontext()
 
     def _forward_backbone_impl(

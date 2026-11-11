@@ -7,6 +7,8 @@ import json
 import math
 import shutil
 import subprocess
+import sys
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +16,7 @@ from research.arena_ppo.ppo import (
     ARENA_PPO_NAMESPACE,
     ARENA_PPO_SCHEMA,
     ArenaPPOConfig,
+    build_training_plan,
     estimate_max_export_bytes,
     find_newest_verified_checkpoint,
 )
@@ -126,22 +129,12 @@ def runtime_source_paths(commit: str) -> list[str]:
     return selected
 
 
-def _stage_prior_checkpoint(
-    prior_output_dir: Path,
-    pkt_inputs_dir: Path,
-    inputs_list: list[dict[str, str]],
-    ledger: dict[str, Any],
-) -> dict[str, Any]:
-    """Stage newest verified non-probe checkpoint from a prior attempt directory."""
-    prior_dir = Path(prior_output_dir).resolve()
-    if not prior_dir.is_dir():
-        raise FileNotFoundError(f"prior_output_dir does not exist: {prior_dir}")
-
+def _find_verified_prior_checkpoint(prior_dir: Path) -> Path | None:
+    """Locate newest verified non-probe Arena PPO checkpoint under `prior_dir` (or `/exports`)."""
     search_roots = [prior_dir]
     if (prior_dir / "exports").is_dir():
         search_roots.append(prior_dir / "exports")
 
-    chosen_ckpt: Path | None = None
     for root_cand in search_roots:
         ckpt_sub = root_cand / "checkpoints"
         if not ckpt_sub.is_dir():
@@ -162,14 +155,70 @@ def _stage_prior_checkpoint(
                     or obj.get("namespace") != ARENA_PPO_NAMESPACE
                 ):
                     raise ValueError(f"Foreign checkpoint schema/namespace at {final_cand}")
-                chosen_ckpt = final_cand
-                break
+                return final_cand
 
         newest = find_newest_verified_checkpoint(ckpt_sub)
         if newest is not None:
-            chosen_ckpt = newest
-            break
+            return newest
+    return None
 
+
+def _find_verified_prior_cells(prior_dir: Path) -> list[Path]:
+    """Locate verified `cells/*.json` artifacts under `prior_dir` (or `/exports`)."""
+    search_roots = [prior_dir]
+    if (prior_dir / "exports").is_dir():
+        search_roots.append(prior_dir / "exports")
+
+    for root_cand in search_roots:
+        cells_sub = root_cand / "cells"
+        if not cells_sub.is_dir():
+            continue
+        found: list[Path] = []
+        for cell_json in sorted(cells_sub.glob("*.json")):
+            if not (
+                Path(f"{cell_json}.complete").is_file() and Path(f"{cell_json}.sha256").is_file()
+            ):
+                continue
+            verify_completed_artifact(cell_json)
+            found.append(cell_json)
+        if found:
+            return found
+    return []
+
+
+def _detect_prior_kind(prior_output_dir: Path) -> str:
+    """Detect whether `prior_output_dir` holds checkpoints or ruler cells for `--mode canary`."""
+    prior_dir = Path(prior_output_dir).resolve()
+    if not prior_dir.is_dir():
+        raise FileNotFoundError(f"prior_output_dir does not exist: {prior_dir}")
+    has_ckpt = _find_verified_prior_checkpoint(prior_dir) is not None
+    has_cells = bool(_find_verified_prior_cells(prior_dir))
+    if has_ckpt and has_cells:
+        raise ValueError(
+            f"Ambiguous prior_output_dir {prior_dir} contains both verified checkpoints and "
+            "ruler cells; pass explicit --prior-kind checkpoint or --prior-kind ruler_cells."
+        )
+    if has_ckpt:
+        return "checkpoint"
+    if has_cells:
+        return "ruler_cells"
+    raise FileNotFoundError(
+        f"No verified Arena PPO checkpoints or ruler cells/*.json found under {prior_dir}"
+    )
+
+
+def _stage_prior_checkpoint(
+    prior_output_dir: Path,
+    pkt_inputs_dir: Path,
+    inputs_list: list[dict[str, str]],
+    ledger: dict[str, Any],
+) -> dict[str, Any]:
+    """Stage newest verified non-probe checkpoint from a prior attempt directory."""
+    prior_dir = Path(prior_output_dir).resolve()
+    if not prior_dir.is_dir():
+        raise FileNotFoundError(f"prior_output_dir does not exist: {prior_dir}")
+
+    chosen_ckpt = _find_verified_prior_checkpoint(prior_dir)
     if chosen_ckpt is None:
         raise FileNotFoundError(
             f"No verified non-probe Arena PPO checkpoint found under {prior_dir}"
@@ -207,47 +256,33 @@ def _stage_prior_ruler_cells(
     if not prior_dir.is_dir():
         raise FileNotFoundError(f"prior_output_dir does not exist: {prior_dir}")
 
-    search_roots = [prior_dir]
-    if (prior_dir / "exports").is_dir():
-        search_roots.append(prior_dir / "exports")
+    found_cells = _find_verified_prior_cells(prior_dir)
+    if not found_cells:
+        raise FileNotFoundError(f"No verified ruler cells/*.json found under {prior_dir}")
 
     staged_ids: list[str] = []
-    for root_cand in search_roots:
-        cells_sub = root_cand / "cells"
-        if not cells_sub.is_dir():
-            continue
-        for cell_json in sorted(cells_sub.glob("*.json")):
-            if not (
-                Path(f"{cell_json}.complete").is_file() and Path(f"{cell_json}.sha256").is_file()
-            ):
-                continue
-            verify_completed_artifact(cell_json)
-            rel_dest = f"cells/{cell_json.name}"
-            dst_file = pkt_inputs_dir / "cells" / cell_json.name
-            c_sha = write_create_only_artifact(
-                dst_file, lambda tmp, src=cell_json: shutil.copyfile(src, tmp)
-            )
-            inputs_list.append(
-                {
-                    "path": str(dst_file),
-                    "dest": rel_dest,
-                    "sha256": c_sha,
-                }
-            )
-            ledger["verified_units"].append(
-                {
-                    "unit_id": f"cell:{cell_json.stem}",
-                    "relpath": rel_dest,
-                    "sha256": c_sha,
-                    "size_bytes": int(dst_file.stat().st_size),
-                }
-            )
-            staged_ids.append(cell_json.stem)
-        if staged_ids:
-            break
-
-    if not staged_ids:
-        raise FileNotFoundError(f"No verified ruler cells/*.json found under {prior_dir}")
+    for cell_json in found_cells:
+        rel_dest = f"cells/{cell_json.name}"
+        dst_file = pkt_inputs_dir / "cells" / cell_json.name
+        c_sha = write_create_only_artifact(
+            dst_file, lambda tmp, src=cell_json: shutil.copyfile(src, tmp)
+        )
+        inputs_list.append(
+            {
+                "path": str(dst_file),
+                "dest": rel_dest,
+                "sha256": c_sha,
+            }
+        )
+        ledger["verified_units"].append(
+            {
+                "unit_id": f"cell:{cell_json.stem}",
+                "relpath": rel_dest,
+                "sha256": c_sha,
+                "size_bytes": int(dst_file.stat().st_size),
+            }
+        )
+        staged_ids.append(cell_json.stem)
     return staged_ids
 
 
@@ -277,11 +312,13 @@ def prepare_arena_ppo_packet(
     mode: str = "canary",
     gpu: str = "L4",
     hours: float = 2.0,
+    expected_steps_per_sec: float | None = None,
     output_dir: Path | str | None = None,
     prior_output_dir: Path | str | None = None,
     prior_kind: str = "auto",
     canary_receipt: Path | str | None = None,
     ppo_config: ArenaPPOConfig | None = None,
+    explicit_total_updates: bool = False,
     measured_checkpoint_bytes: int | None = None,
     compile_model: bool = False,
     attempt: str = "attempt-01",
@@ -372,9 +409,21 @@ def prepare_arena_ppo_packet(
     }
     inputs_list: list[dict[str, str]] = []
     if prior_output_dir is not None:
+        if prior_kind not in ("auto", "checkpoint", "ruler_cells"):
+            raise ValueError(f"Unsupported prior_kind={prior_kind!r}")
+        if mode == "train" and prior_kind == "ruler_cells":
+            raise ValueError("mode='train' requires prior_kind in {'auto', 'checkpoint'}")
+        if mode == "ruler" and prior_kind == "checkpoint":
+            raise ValueError("mode='ruler' requires prior_kind in {'auto', 'ruler_cells'}")
+
         eff_prior_kind = prior_kind
         if eff_prior_kind == "auto":
-            eff_prior_kind = "ruler_cells" if mode == "ruler" else "checkpoint"
+            if mode == "train":
+                eff_prior_kind = "checkpoint"
+            elif mode == "ruler":
+                eff_prior_kind = "ruler_cells"
+            else:
+                eff_prior_kind = _detect_prior_kind(Path(prior_output_dir))
         if eff_prior_kind == "ruler_cells":
             _stage_prior_ruler_cells(Path(prior_output_dir), pkt_inputs_dir, inputs_list, ledger)
         elif eff_prior_kind == "checkpoint":
@@ -397,6 +446,7 @@ def prepare_arena_ppo_packet(
     rate_uph = GPU_FORECAST_RATES_UPH[gpu_norm]
     extra_env: dict[str, str] = {}
     canary_block: dict[str, Any] | None = None
+    training_plan: dict[str, Any] | None = None
 
     if mode == "canary":
         if canary_receipt is not None:
@@ -459,10 +509,36 @@ def prepare_arena_ppo_packet(
         base_sec = est_minutes * 60.0
         eff_sec = timeout_minutes * 60.0
         headroom_sec = min(480.0, max(60.0, eff_sec * 0.08))
-        extra_env["ARENA_PPO_MAX_WALL_SECONDS"] = str(int(max(30.0, eff_sec - headroom_sec)))
+        max_wall_sec_int = int(max(30.0, eff_sec - headroom_sec))
+        extra_env["ARENA_PPO_MAX_WALL_SECONDS"] = str(max_wall_sec_int)
+        extra_env["ARENA_PPO_HOURS"] = str(float(hours))
         cfg_obj = (
             ppo_config if ppo_config is not None else ArenaPPOConfig(compile_model=compile_model)
         )
+        if expected_steps_per_sec is not None:
+            extra_env["ARENA_PPO_EXPECTED_STEPS_PER_SEC"] = str(float(expected_steps_per_sec))
+            training_plan = build_training_plan(
+                cfg_obj,
+                hours=float(hours),
+                expected_steps_per_sec=float(expected_steps_per_sec),
+                max_wall_seconds=float(max_wall_sec_int),
+            )
+            print(
+                f"ARENA_PPO_PLAN {json.dumps(training_plan, sort_keys=True)}",
+                file=sys.stderr,
+                flush=True,
+            )
+        if ppo_config is None or (
+            not explicit_total_updates and cfg_obj.total_updates == ArenaPPOConfig.total_updates
+        ):
+            if training_plan is not None:
+                lifted_updates = max(
+                    cfg_obj.total_updates,
+                    int(math.ceil(training_plan["nominal_expected_updates"] * 3.0)) + 16,
+                )
+            else:
+                lifted_updates = max(cfg_obj.total_updates, 1_000_000)
+            cfg_obj = replace(cfg_obj, total_updates=lifted_updates)
         extra_env["ARENA_PPO_CONFIG_JSON"] = json.dumps(cfg_obj.to_dict(), sort_keys=True)
         job_id = f"arena-ppo-train-{gpu_slug}-{attempt}"
         required_exports = list(TRAIN_REQUIRED_EXPORTS)
@@ -532,7 +608,7 @@ def prepare_arena_ppo_packet(
 
     manifest_path = pkt / "dispatch-manifest.json"
     _write_json_create_only(manifest_path, manifest)
-    return {
+    summary: dict[str, Any] = {
         "packet_dir": str(pkt),
         "manifest_path": str(manifest_path),
         "manifest_sha256": sha256_file(manifest_path),
@@ -545,6 +621,9 @@ def prepare_arena_ppo_packet(
         "max_export_bytes": int(max_export_bytes),
         "unit_cap": unit_cap,
     }
+    if training_plan is not None:
+        summary["training_plan"] = training_plan
+    return summary
 
 
 def re_safe_attempt(value: str) -> bool:
@@ -564,6 +643,12 @@ def main() -> int:
         type=float,
         default=2.0,
         help="Whole-session timeout in hours for --mode train (default: 2.0).",
+    )
+    parser.add_argument(
+        "--expected-steps-per-sec",
+        type=float,
+        default=None,
+        help="Expected agent-steps/s for --mode train plan calculation.",
     )
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--prior-output-dir", type=Path, default=None)
@@ -586,20 +671,32 @@ def main() -> int:
                 "(pass --allow-missing-canary-receipt only for offline schema inspection)"
             )
 
-    ppo_cfg = (
-        ArenaPPOConfig.from_json(args.ppo_config_json) if args.ppo_config_json is not None else None
-    )
+    ppo_cfg: ArenaPPOConfig | None = None
+    explicit_total_updates = False
+    if args.ppo_config_json is not None:
+        raw_source = args.ppo_config_json
+        if raw_source.lstrip().startswith("{"):
+            raw_dict = json.loads(raw_source)
+        else:
+            raw_dict = json.loads(Path(raw_source).read_text(encoding="utf-8"))
+        if not isinstance(raw_dict, dict):
+            raise ValueError("--ppo-config-json root must be a JSON object")
+        explicit_total_updates = "total_updates" in raw_dict
+        ppo_cfg = ArenaPPOConfig.from_dict(raw_dict)
+
     info = prepare_arena_ppo_packet(
         args.packet,
         commit=args.commit,
         mode=args.mode,
         gpu=args.gpu,
         hours=args.hours,
+        expected_steps_per_sec=args.expected_steps_per_sec,
         output_dir=args.output_dir,
         prior_output_dir=args.prior_output_dir,
         prior_kind=args.prior_kind,
         canary_receipt=args.canary_receipt,
         ppo_config=ppo_cfg,
+        explicit_total_updates=explicit_total_updates,
         measured_checkpoint_bytes=args.measured_checkpoint_bytes,
         compile_model=bool(args.compile),
         attempt=args.attempt,

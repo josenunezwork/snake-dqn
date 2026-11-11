@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import signal
 import subprocess
 from pathlib import Path
@@ -13,7 +14,7 @@ import pytest
 import torch
 
 from research.arena_ppo import ruler as ruler_mod
-from research.arena_ppo.ppo import ArenaPPOConfig, ArenaPPOTrainer
+from research.arena_ppo.ppo import ArenaPPOConfig, ArenaPPOTrainer, run_training_job
 from research.arena_ppo.prepare import (
     CANARY_REQUIRED_EXPORTS,
     ROOT,
@@ -21,8 +22,9 @@ from research.arena_ppo.prepare import (
     TRAIN_REQUIRED_EXPORTS,
     prepare_arena_ppo_packet,
 )
-from research.arena_ppo.ruler import run_canary_suite, run_ruler
+from research.arena_ppo.ruler import _WorldMaturityTracker, run_canary_suite, run_ruler
 from research.arena_ppo.runtime import sha256_file, verify_completed_artifact
+from research.arena_ppo.sim import StepInfo, TrainSim
 from research.colab_cli import canary as colab_canary
 from research.colab_cli import schema as colab_schema
 from research.colab_cli import supervisor as colab_supervisor
@@ -90,8 +92,17 @@ def test_ruler_mps_mature_burnin_stage_split_dual_mb_and_compile_grid(
         cid = cell["cell_id"]
         assert verify_completed_artifact(out_dir / "cells" / f"{cid}.json")
         assert cell["oom"] is False
+        assert cell["rollout_buffer_bytes"] > 0
+        assert cell["train_rollout_len"] == 256
+        assert cell["train_rollout_buffer_bytes"] > cell["rollout_buffer_bytes"]
         coll = cell["collection_only"]
         integ = cell["integrated"]
+        assert (
+            cell["projected_train_peak_vram_bytes"]
+            >= integ["peak_vram_bytes"]
+            + cell["train_rollout_buffer_bytes"]
+            - cell["rollout_buffer_bytes"]
+        )
         assert coll["agent_steps_per_sec"] > 0.0
         assert integ["agent_steps_per_sec"] > 0.0
         assert coll["world_maturity"]["mean_length"] > 3.0
@@ -317,9 +328,21 @@ def test_canary_suite_real_exports_no_stubs_and_custom_board_ruler(tmp_path: Pat
         measure_larger_minibatch=False,
     )
     assert res_custom["batch6_forward"]["S"]["batch_size"] == 4
+    assert res_custom["batch6_forward"]["S"]["token_grid"] == [6, 8]
     assert res_custom["cells"][0]["grid_h"] == 48
     assert res_custom["cells"][0]["grid_w"] == 64
     assert res_custom["cells"][0]["num_snakes"] == 4
+    assert res_custom["cells"][0]["token_grid"] == [6, 8]
+
+
+def _stage_manifest_inputs(mf: dict[str, Any], remote_inputs_dir: Path) -> Path:
+    """Copy manifest `inputs` into simulated remote `$COLAB_INPUT_DIR`."""
+    remote_inputs_dir.mkdir(parents=True, exist_ok=True)
+    for inp in mf["inputs"]:
+        dst = remote_inputs_dir / str(inp["dest"])
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(inp["path"], dst)
+    return remote_inputs_dir
 
 
 def _build_synthetic_canary_receipt(
@@ -329,12 +352,19 @@ def _build_synthetic_canary_receipt(
     """Create a broker-verified canary receipt from real `run_canary_suite` exports."""
     canary_out = Path(canary_mf["output_dir"])
     canary_exports_dir = canary_out / "exports"
-    run_canary_suite(
+    remote_inputs_dir = _stage_manifest_inputs(canary_mf, canary_out / "remote_inputs")
+    ledger_cand = remote_inputs_dir / "verified-ledger.json"
+    suite_res = run_canary_suite(
         output_dir=canary_exports_dir,
         device="cpu",
+        input_dir=remote_inputs_dir,
+        ledger_path=ledger_cand if ledger_cand.is_file() else None,
         num_envs=2,
         rollout_len=4,
         seed=777,
+    )
+    (canary_out / "canary_suite_summary.json").write_text(
+        json.dumps(suite_res, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
     saved_probe_mf = canary_out / "manifest.json"
     saved_probe_mf.write_text(json.dumps(canary_mf, indent=2, sort_keys=True) + "\n")
@@ -526,49 +556,324 @@ def test_prepare_three_modes_l4_a100_t4_rejected_and_offline_supervisor_validate
         commit="HEAD",
         mode="train",
         gpu="L4",
-        hours=3.0,
+        hours=6.0,
+        expected_steps_per_sec=150_000.0,
         canary_receipt=rcpt_l4,
         measured_checkpoint_bytes=40 * 1024 * 1024,
         output_dir=tmp_path / "out_train_l4",
         allow_unmerged_commit=True,
     )
+    assert "training_plan" in train_l4
+    assert train_l4["training_plan"]["expected_updates"] > 100
     mf_train_l4 = json.loads(Path(train_l4["manifest_path"]).read_text(encoding="utf-8"))
     assert "SNAKE_COLAB_CANARY" not in mf_train_l4["env"]
-    assert mf_train_l4["timeout_minutes"] == 180.0
+    assert mf_train_l4["timeout_minutes"] == 360.0
+    assert mf_train_l4["env"]["ARENA_PPO_HOURS"] == "6.0"
+    assert mf_train_l4["env"]["ARENA_PPO_EXPECTED_STEPS_PER_SEC"] == "150000.0"
+    parsed_train_cfg = json.loads(mf_train_l4["env"]["ARENA_PPO_CONFIG_JSON"])
+    assert parsed_train_cfg["total_updates"] > 100
     assert mf_train_l4["max_export_bytes"] < 2 * 1024**3
     colab_schema.validate_manifest(mf_train_l4)
     ops_dispatch.require_resume_policy(mf_train_l4)
     colab_supervisor.validate(mf_train_l4)
 
-    # 4. Stage real checkpoint from canary_l4/exports into a resumed train packet
-    train_resume = prepare_arena_ppo_packet(
-        tmp_path / "pkt_train_resume",
+
+def test_major1_r3_end_to_end_continuations_both_prior_kinds(tmp_path: Path) -> None:
+    """MAJOR-1: end-to-end continuation canary + resumed train/ruler for BOTH prior kinds."""
+    # Ambiguous directory containing BOTH checkpoints/ and cells/ must refuse --prior-kind auto
+    ambig_dir = tmp_path / "ambig_prior"
+    run_canary_suite(output_dir=ambig_dir, device="cpu", num_envs=2, rollout_len=4, seed=11)
+    with pytest.raises(ValueError, match="Ambiguous prior_output_dir"):
+        prepare_arena_ppo_packet(
+            tmp_path / "pkt_ambig_auto",
+            commit="HEAD",
+            mode="canary",
+            gpu="L4",
+            prior_output_dir=ambig_dir,
+            prior_kind="auto",
+            output_dir=tmp_path / "out_ambig_auto",
+            allow_unmerged_commit=True,
+        )
+
+    # ---- Case A: Train checkpoint continuation (attempt-01 -> cont canary -> attempt-02) ----
+    prior_train_out = tmp_path / "prior_train_attempt01"
+    prior_train_cfg = ArenaPPOConfig(
+        net_size="S",
+        num_envs=6,  # distinct from canary's num_envs=2 to prove 0-update staged load verification
+        rollout_len=8,
+        ppo_epochs=1,
+        minibatch_size=24,
+        actor_chunk_envs=6,
+        max_capacity=96,
+        total_updates=2,
+        seed=20261110,
+        deterministic=True,
+    )
+    run_training_job(
+        cfg=prior_train_cfg,
+        output_dir=prior_train_out,
+        work_dir=tmp_path / "prior_train_work",
+        device="cpu",
+    )
+    assert verify_completed_artifact(prior_train_out / "checkpoints" / "final.pt")
+
+    # Mismatched prior_kind for mode=train must be rejected
+    with pytest.raises(ValueError, match="mode='train'"):
+        prepare_arena_ppo_packet(
+            tmp_path / "pkt_bad_train_prior",
+            commit="HEAD",
+            mode="train",
+            gpu="L4",
+            prior_output_dir=prior_train_out,
+            prior_kind="ruler_cells",
+            output_dir=tmp_path / "out_bad_train_prior",
+            allow_unmerged_commit=True,
+        )
+
+    cont_canary_ckpt = prepare_arena_ppo_packet(
+        tmp_path / "pkt_cont_canary_ckpt",
+        commit="HEAD",
+        mode="canary",
+        gpu="L4",
+        prior_output_dir=prior_train_out,
+        prior_kind="auto",  # auto-detects "checkpoint" when only checkpoints/ exist
+        output_dir=tmp_path / "out_cont_canary_ckpt",
+        attempt="attempt-02",
+        allow_unmerged_commit=True,
+    )
+    mf_cont_canary_ckpt = json.loads(
+        Path(cont_canary_ckpt["manifest_path"]).read_text(encoding="utf-8")
+    )
+    assert len(mf_cont_canary_ckpt["inputs"]) == 2
+    colab_schema.validate_manifest(mf_cont_canary_ckpt)
+    colab_supervisor.validate(mf_cont_canary_ckpt)
+
+    rcpt_cont_ckpt = _build_synthetic_canary_receipt(mf_cont_canary_ckpt, "L4")
+    suite_ckpt_summary = json.loads(
+        (Path(mf_cont_canary_ckpt["output_dir"]) / "canary_suite_summary.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert suite_ckpt_summary["staged_input_verification"]["kind"] == "checkpoint"
+    assert suite_ckpt_summary["staged_input_verification"]["updates_completed"] == 2
+    assert suite_ckpt_summary["train_result"]["updates_completed"] == 2
+
+    cont_train = prepare_arena_ppo_packet(
+        tmp_path / "pkt_cont_train_02",
         commit="HEAD",
         mode="train",
         gpu="L4",
         hours=2.0,
-        prior_output_dir=Path(mf_canary_l4["output_dir"]),
-        output_dir=tmp_path / "out_train_resume",
+        prior_output_dir=prior_train_out,
+        prior_kind="checkpoint",
+        canary_receipt=rcpt_cont_ckpt,
+        ppo_config=ArenaPPOConfig(**{**prior_train_cfg.to_dict(), "total_updates": 4}),
+        explicit_total_updates=True,
+        output_dir=tmp_path / "out_cont_train_02",
         attempt="attempt-02",
         allow_unmerged_commit=True,
     )
-    mf_train_resume = json.loads(Path(train_resume["manifest_path"]).read_text(encoding="utf-8"))
-    assert len(mf_train_resume["inputs"]) == 2
-    colab_schema.validate_manifest(mf_train_resume)
-    ops_dispatch.require_resume_policy(mf_train_resume)
+    mf_cont_train = json.loads(Path(cont_train["manifest_path"]).read_text(encoding="utf-8"))
+    colab_canary.check(mf_cont_train, ROOT)
+    colab_schema.validate_manifest(mf_cont_train)
+    ops_dispatch.require_resume_policy(mf_cont_train)
+    colab_supervisor.validate(mf_cont_train)
 
-    # 5. Stage partial ruler `cells/*.json` from canary_l4/exports into a resumed ruler packet
-    ruler_resume = prepare_arena_ppo_packet(
-        tmp_path / "pkt_ruler_resume",
+    # Execute resumed training job offline from the staged manifest inputs (updates 2 -> 4)
+    staged_train_inputs = _stage_manifest_inputs(mf_cont_train, tmp_path / "exec_cont_train_in")
+    res_cont_train = run_training_job(
+        cfg=ArenaPPOConfig.from_json(mf_cont_train["env"]["ARENA_PPO_CONFIG_JSON"]),
+        output_dir=Path(mf_cont_train["output_dir"]),
+        work_dir=tmp_path / "exec_cont_train_work",
+        device="cpu",
+        input_dir=staged_train_inputs,
+        ledger_path=staged_train_inputs / "verified-ledger.json",
+    )
+    assert res_cont_train["resumed_from"] is not None
+    assert res_cont_train["updates_completed"] == 4
+
+    # ---- Case B: Partial ruler cells continuation (attempt-01 -> cont canary -> attempt-02) ----
+    prior_ruler_out = tmp_path / "prior_ruler_attempt01"
+    run_ruler(
+        output_dir=prior_ruler_out,
+        device="cpu",
+        envs_list=[2, 4],
+        net_sizes=["S"],
+        burnin_ticks=4,
+        warmup_ticks=1,
+        collect_ticks=2,
+        rollout_len=3,
+        ppo_epochs=1,
+        minibatch_size=12,
+        max_capacity=64,
+        include_best_compile=False,
+        measure_larger_minibatch=False,
+        step_hook=lambda cid: (
+            os.kill(os.getpid(), signal.SIGUSR1)
+            if cid == "E2_S" and hasattr(signal, "SIGUSR1")
+            else None
+        ),
+    )
+    assert verify_completed_artifact(prior_ruler_out / "cells" / "E2_S.json")
+    assert not (prior_ruler_out / "cells" / "E4_S.json").exists()
+
+    cont_canary_cells = prepare_arena_ppo_packet(
+        tmp_path / "pkt_cont_canary_cells",
+        commit="HEAD",
+        mode="canary",
+        gpu="L4",
+        prior_output_dir=prior_ruler_out,
+        prior_kind="auto",  # auto-detects "ruler_cells" when only cells/*.json exist!
+        output_dir=tmp_path / "out_cont_canary_cells",
+        attempt="ruler-attempt-02",
+        allow_unmerged_commit=True,
+    )
+    mf_cont_canary_cells = json.loads(
+        Path(cont_canary_cells["manifest_path"]).read_text(encoding="utf-8")
+    )
+    assert any(inp["dest"] == "cells/E2_S.json" for inp in mf_cont_canary_cells["inputs"])
+    colab_schema.validate_manifest(mf_cont_canary_cells)
+    colab_supervisor.validate(mf_cont_canary_cells)
+
+    rcpt_cont_cells = _build_synthetic_canary_receipt(mf_cont_canary_cells, "L4")
+    suite_cells_summary = json.loads(
+        (Path(mf_cont_canary_cells["output_dir"]) / "canary_suite_summary.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert suite_cells_summary["staged_input_verification"] == {
+        "kind": "ruler_cells",
+        "verified_cells": ["E2_S"],
+    }
+
+    cont_ruler = prepare_arena_ppo_packet(
+        tmp_path / "pkt_cont_ruler_02",
         commit="HEAD",
         mode="ruler",
         gpu="L4",
-        prior_output_dir=Path(mf_canary_l4["output_dir"]),
-        output_dir=tmp_path / "out_ruler_resume",
+        prior_output_dir=prior_ruler_out,
+        prior_kind="ruler_cells",
+        canary_receipt=rcpt_cont_cells,
+        output_dir=tmp_path / "out_cont_ruler_02",
         attempt="attempt-02",
         allow_unmerged_commit=True,
     )
-    mf_ruler_resume = json.loads(Path(ruler_resume["manifest_path"]).read_text(encoding="utf-8"))
-    assert any(inp["dest"].startswith("cells/") for inp in mf_ruler_resume["inputs"])
-    colab_schema.validate_manifest(mf_ruler_resume)
-    ops_dispatch.require_resume_policy(mf_ruler_resume)
+    mf_cont_ruler = json.loads(Path(cont_ruler["manifest_path"]).read_text(encoding="utf-8"))
+    colab_canary.check(mf_cont_ruler, ROOT)
+    colab_schema.validate_manifest(mf_cont_ruler)
+    ops_dispatch.require_resume_policy(mf_cont_ruler)
+    colab_supervisor.validate(mf_cont_ruler)
+
+    staged_ruler_inputs = _stage_manifest_inputs(mf_cont_ruler, tmp_path / "exec_cont_ruler_in")
+    res_cont_ruler = run_ruler(
+        output_dir=Path(mf_cont_ruler["output_dir"]),
+        device="cpu",
+        input_dir=staged_ruler_inputs,
+        envs_list=[2, 4],
+        net_sizes=["S"],
+        burnin_ticks=4,
+        warmup_ticks=1,
+        collect_ticks=2,
+        rollout_len=3,
+        ppo_epochs=1,
+        minibatch_size=12,
+        max_capacity=64,
+        include_best_compile=False,
+        measure_larger_minibatch=False,
+    )
+    assert res_cont_ruler["reused_cells"] == ["E2_S"]
+    assert [c["cell_id"] for c in res_cont_ruler["cells"]] == ["E2_S", "E4_S"]
+
+
+def test_minor3_minor5_minor10_r3_nanquantile_compile180s_and_mid_tick_ruler_signal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify MINOR 3 nanquantile, MINOR 5 >=180s compile est, MINOR 10 mid-tick ruler signal."""
+    # MINOR 3: _WorldMaturityTracker stores fixed-shape NaN-masked tensors (no boolean indexing)
+    sim = TrainSim.create(2, device="cpu", seed=123, max_capacity=64)
+    sim.prepare()
+    sim.sim.alive[:] = torch.tensor(
+        [[True, False, True, True, False, True], [False, True, False, False, True, False]]
+    )
+    sim.sim.length[:] = torch.tensor([[10, 999, 20, 30, 888, 40], [777, 50, 666, 555, 100, 444]])
+    tracker = _WorldMaturityTracker(torch.device("cpu"))
+    died_zero = torch.zeros((2, 6), dtype=torch.bool)
+    tracker.record_tick(sim, died_zero, sample_stride=1)
+    assert len(tracker._length_samples) == 1
+    assert tracker._length_samples[0].shape == (12,)
+    assert int(torch.isnan(tracker._length_samples[0]).sum().item()) == 6
+    summary = tracker.summarize()
+    # Alive lengths are [10, 20, 30, 40, 50, 100] -> mean = 250 / 6 = 41.667
+    assert abs(summary["mean_length"] - (250.0 / 6.0)) < 1e-2
+    assert 50.0 <= summary["p95_length"] <= 100.0
+
+    # All-dead tick must produce finite 0.0 p95_length without NaN crash
+    empty_tracker = _WorldMaturityTracker(torch.device("cpu"))
+    sim.sim.alive.fill_(False)
+    empty_tracker.record_tick(sim, died_zero, sample_stride=1)
+    assert empty_tracker.summarize()["p95_length"] == 0.0
+
+    # MINOR 5: compile projection adds >= 180s
+    cpu_dev = torch.device("cpu")
+    est_no_compile = ruler_mod._project_cell_seconds(
+        num_envs=1024, net_sz="S", is_compile=False, device=cpu_dev, sec_per_env_by_net={}
+    )
+    est_compile = ruler_mod._project_cell_seconds(
+        num_envs=1024, net_sz="S", is_compile=True, device=cpu_dev, sec_per_env_by_net={}
+    )
+    assert est_no_compile == 0.0
+    assert est_compile >= 180.0
+
+    est_base = ruler_mod._project_cell_seconds(
+        num_envs=1024,
+        net_sz="S",
+        is_compile=False,
+        device=cpu_dev,
+        sec_per_env_by_net={"S": 0.02},
+    )
+    est_comp_after_base = ruler_mod._project_cell_seconds(
+        num_envs=1024,
+        net_sz="S",
+        is_compile=True,
+        device=cpu_dev,
+        sec_per_env_by_net={"S": 0.02},
+    )
+    assert (est_comp_after_base - est_base) >= 180.0
+
+    # MINOR 10: mid-tick SIGUSR1 inside run_ruler (during cell E4_S after E2_S completes)
+    if hasattr(signal, "SIGUSR1"):
+        orig_step = TrainSim.step
+        fired = {"done": False}
+
+        def _mid_tick_ruler_sig(self: TrainSim, actions: torch.Tensor) -> StepInfo:
+            out = orig_step(self, actions)
+            # Fire inside timed collection of E4_S (burnin_ticks=0 -> very first E=4 step is timed!)
+            if self.E == 4 and not fired["done"]:
+                fired["done"] = True
+                os.kill(os.getpid(), signal.SIGUSR1)
+            return out
+
+        monkeypatch.setattr(TrainSim, "step", _mid_tick_ruler_sig)
+        mid_sig_dir = tmp_path / "ruler_mid_tick_sig"
+        res_mid = run_ruler(
+            output_dir=mid_sig_dir,
+            device="cpu",
+            envs_list=[2, 4],
+            net_sizes=["S"],
+            burnin_ticks=0,
+            warmup_ticks=1,
+            collect_ticks=3,
+            rollout_len=4,
+            ppo_epochs=1,
+            minibatch_size=12,
+            max_capacity=64,
+            include_best_compile=False,
+            measure_larger_minibatch=False,
+        )
+        assert fired["done"] is True
+        assert res_mid["partial"] is True
+        assert res_mid["stopped_reason"] == "signal:SIGUSR1"
+        assert [c["cell_id"] for c in res_mid["cells"]] == ["E2_S"]
+        assert verify_completed_artifact(mid_sig_dir / "cells" / "E2_S.json")
+        assert not (mid_sig_dir / "cells" / "E4_S.json").exists()
+        assert verify_completed_artifact(mid_sig_dir / "ruler_result.json")

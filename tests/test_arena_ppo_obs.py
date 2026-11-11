@@ -251,3 +251,62 @@ def test_parameterized_obs_gpu_equals_cpu_custom_board_and_snakes() -> None:
     assert np.array_equal(solo_obs.arena.numpy(), solo_a)
     assert np.array_equal(solo_obs.ego.numpy(), solo_e)
     assert np.array_equal(solo_obs.scalars.numpy(), solo_s)
+
+
+def test_minor9_r3_respawn_after_fatal_boost_clears_stale_boost_flag_gpu_and_cpu() -> None:
+    """MINOR 9: respawned snake (`alive=True, prev_alive=False`) must NOT show stale boost flag."""
+    train_sim = TrainSim.create(2, device="cpu", seed=2026, max_capacity=128)
+    train_sim.prepare()
+    # Seat (0, 0) boosts straight into the right border wall and dies; seat (0, 1) boosts safely
+    hp00 = int(train_sim.sim.head_ptr[0, 0].item())
+    train_sim.sim.bodies[0, 0, hp00] = torch.tensor([train_sim.grid_w - 1, 20], dtype=torch.long)
+    train_sim.sim.direction[0, 0] = 1
+    train_sim.sim.length[0, 0] = 10
+
+    hp01 = int(train_sim.sim.head_ptr[0, 1].item())
+    train_sim.sim.bodies[0, 1, hp01] = torch.tensor([40, 40], dtype=torch.long)
+    train_sim.sim.direction[0, 1] = 1
+    train_sim.sim.length[0, 1] = 10
+
+    actions = torch.ones((2, 6), dtype=torch.long)
+    actions[0, 0] = 4  # boost straight -> fatal wall collision
+    actions[0, 1] = 4  # boost straight -> survives
+    info = train_sim.step(actions)
+    assert bool(info.died[0, 0].item()) is True
+    assert bool(info.survived[0, 1].item()) is True
+
+    # Force immediate respawn on next prepare() while _boosted_this_step[0, 0] is still True
+    train_sim.sim.respawn_timer[0, 0] = 0
+    train_sim.prepare()
+    assert bool(train_sim.sim.alive[0, 0].item()) is True
+    assert bool(train_sim.prev_alive[0, 0].item()) is False
+    assert bool(train_sim.sim._boosted_this_step[0, 0].item()) is True
+    assert bool(train_sim.prev_alive[0, 1].item()) is True
+    assert bool(train_sim.sim._boosted_this_step[0, 1].item()) is True
+
+    gpu_obs = build_arena_ego_obs_gpu(train_sim)
+    cpu_arena, cpu_ego, cpu_scalars = build_arena_ego_obs_cpu(
+        train_sim.sim,
+        train_sim.prev_heads.numpy(),
+        train_sim.prev_alive.numpy(),
+    )
+    assert np.array_equal(gpu_obs.arena.numpy(), cpu_arena)
+    assert np.array_equal(gpu_obs.ego.numpy(), cpu_ego)
+    assert np.array_equal(gpu_obs.scalars.numpy(), cpu_scalars)
+
+    respawn_head = train_sim.sim.bodies[0, 0, int(train_sim.sim.head_ptr[0, 0].item())]
+    rx, ry = int(respawn_head[0].item()), int(respawn_head[1].item())
+    survive_head = train_sim.sim.bodies[0, 1, int(train_sim.sim.head_ptr[0, 1].item())]
+    sx, sy = int(survive_head[0].item()), int(survive_head[1].item())
+
+    # Respawned seat (0, 0) must NOT appear on CH_BOOST_FLAGS for self (row 0) or enemy (row 1),
+    # whereas surviving boosting seat (0, 1) MUST appear as 1.0!
+    assert float(gpu_obs.arena[0, CH_BOOST_FLAGS, ry, rx].item()) == 0.0
+    assert float(gpu_obs.arena[1, CH_BOOST_FLAGS, ry, rx].item()) == 0.0
+    assert float(cpu_arena[0, CH_BOOST_FLAGS, ry, rx]) == 0.0
+    assert float(cpu_arena[1, CH_BOOST_FLAGS, ry, rx]) == 0.0
+    assert float(gpu_obs.ego[0, CH_BOOST_FLAGS, 23, 23].item()) == 0.0
+    assert float(cpu_ego[0, CH_BOOST_FLAGS, 23, 23]) == 0.0
+
+    assert float(gpu_obs.arena[0, CH_BOOST_FLAGS, sy, sx].item()) == 1.0
+    assert float(cpu_arena[0, CH_BOOST_FLAGS, sy, sx]) == 1.0

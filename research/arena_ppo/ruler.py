@@ -5,8 +5,10 @@ from __future__ import annotations
 import argparse
 import gc
 import json
+import math
 import os
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable
 
@@ -26,6 +28,7 @@ from research.arena_ppo.ppo import (
     ArenaPPOConfig,
     ArenaPPOTrainer,
     StopRequestedError,
+    estimate_rollout_buffer_bytes,
     run_training_job,
 )
 from research.arena_ppo.runtime import (
@@ -35,6 +38,7 @@ from research.arena_ppo.runtime import (
     normalize_device,
     phase_stamp,
     preload_native_sim_extensions,
+    sha256_file,
     synchronize_device,
     verify_completed_artifact,
     write_create_only_json,
@@ -50,6 +54,8 @@ from research.arena_ppo.sim import (
 DEFAULT_RULER_ENVS: tuple[int, ...] = (1024, 2048, 4096, 8192)
 DEFAULT_RULER_NETS: tuple[NetSize, ...] = ("S", "M")
 DEFAULT_BURNIN_TICKS: int = 200
+DEFAULT_TRAIN_ROLLOUT_LEN: int = 256
+COMPILE_ESTIMATE_SECONDS: float = 180.0
 MIN_ACTOR_CHUNK_ENVS: int = 64
 MIN_MINIBATCH_ROWS: int = 192
 
@@ -241,13 +247,14 @@ class _WorldMaturityTracker:
             self.corpse_world_max = torch.maximum(self.corpse_world_max, corpse_per_world.max())
 
         if self.ticks_recorded % max(1, sample_stride) == 0:
-            # Subsample up to 4096 alive snake lengths on device for accurate p95 quantile
+            # Subsample up to 4096 seats on device with NaN masking (zero host stream sync)
             flat_len = sim.length.reshape(-1)
             flat_alive = alive.reshape(-1)
             step = max(1, flat_len.numel() // 4096)
-            sub_len = flat_len[::step]
+            sub_len = flat_len[::step].to(torch.float32)
             sub_alive = flat_alive[::step]
-            self._length_samples.append(sub_len[sub_alive].to(torch.float32))
+            nan_fill = torch.full_like(sub_len, float("nan"))
+            self._length_samples.append(torch.where(sub_alive, sub_len, nan_fill))
         self.ticks_recorded += 1
 
     @torch.no_grad()
@@ -256,9 +263,11 @@ class _WorldMaturityTracker:
         mean_len = float(self.length_sum.detach().cpu().item()) / float(max(1, alive_n))
         p95_len = mean_len
         if self._length_samples:
-            cat = torch.cat([s for s in self._length_samples if s.numel() > 0], dim=0)
+            cat = torch.cat(self._length_samples, dim=0)
             if cat.numel() > 0:
-                p95_len = float(torch.quantile(cat.detach().cpu(), 0.95).item())
+                q_val = float(torch.nanquantile(cat, 0.95).detach().cpu().item())
+                if not math.isnan(q_val):
+                    p95_len = q_val
         mean_corpse = float(self.corpse_cells_sum.detach().cpu().item()) / float(
             max(1, self.worlds_recorded)
         )
@@ -323,7 +332,7 @@ def measure_batch6_forward_ms(
     compile_model: bool = False,
 ) -> dict[str, Any]:
     """Measure single-world (`batch = num_snakes`) policy `act` latency in milliseconds."""
-    cfg = ArenaNetConfig.from_size(net_size)
+    cfg = ArenaNetConfig.from_size(net_size, grid_h=grid_h, grid_w=grid_w)
     net = ArenaNet(cfg, compile_model=compile_model).to(device).eval()
     params = net.parameter_count()
     b_rows = int(num_snakes)
@@ -346,6 +355,7 @@ def measure_batch6_forward_ms(
     return {
         "net_size": net_size,
         "parameter_count": int(params),
+        "token_grid": [int(cfg.token_grid_h), int(cfg.token_grid_w)],
         "batch_size": b_rows,
         "warmup_iters": int(warmup_iters),
         "bench_iters": int(bench_iters),
@@ -385,7 +395,12 @@ def _measure_collection_only_once(
     )
     sim.load_state_dict(mature_sim_state)
     net = (
-        ArenaNet(ArenaNetConfig.from_size(net_size), compile_model=compile_model).to(device).eval()
+        ArenaNet(
+            ArenaNetConfig.from_size(net_size, grid_h=grid_h, grid_w=grid_w),
+            compile_model=compile_model,
+        )
+        .to(device)
+        .eval()
     )
     chunk = max(1, min(num_envs, int(actor_chunk_envs)))
     ring_chunk = min(512, max_capacity)
@@ -797,6 +812,24 @@ def _measure_integrated_once(
     agent_steps = int(rollout_len) * int(num_envs) * int(trainer.sim.S)
     world_steps = int(rollout_len) * int(num_envs)
     sum_stages, untracked, stage_pct, untracked_pct = _summarize_stage_timing(wall_sec, stage_sec)
+    rollout_buffer_bytes = int(trainer.buffer.nbytes())
+    train_rollout_len = max(int(rollout_len), DEFAULT_TRAIN_ROLLOUT_LEN)
+    train_rollout_buffer_bytes = int(
+        estimate_rollout_buffer_bytes(
+            rollout_len=train_rollout_len,
+            num_envs=num_envs,
+            num_snakes=num_snakes,
+            max_capacity=max_capacity,
+            grid_h=grid_h,
+            grid_w=grid_w,
+            food_capacity=trainer.sim.sim.food_capacity,
+        )
+    )
+    projected_train_peak_vram_bytes = (
+        int(peak_vram) + max(0, train_rollout_buffer_bytes - rollout_buffer_bytes)
+        if peak_vram is not None
+        else None
+    )
 
     del trainer
     _cleanup_device_memory(device)
@@ -818,6 +851,10 @@ def _measure_integrated_once(
         "untracked_share_pct": untracked_pct,
         "stage_peak_vram_bytes": stage_peaks,
         "peak_vram_bytes": peak_vram,
+        "rollout_buffer_bytes": rollout_buffer_bytes,
+        "train_rollout_len": train_rollout_len,
+        "train_rollout_buffer_bytes": train_rollout_buffer_bytes,
+        "projected_train_peak_vram_bytes": projected_train_peak_vram_bytes,
         "world_maturity": maturity,
         "ppo_stats": ppo_stats,
         "epoch0_approx_kl": ppo_stats["epoch0_approx_kl"],
@@ -945,6 +982,7 @@ def _project_cell_seconds(
     is_compile: bool,
     device: torch.device,
     sec_per_env_by_net: dict[str, float],
+    measured_compile_overhead_sec: float = 0.0,
 ) -> float:
     if net_sz in sec_per_env_by_net:
         base = sec_per_env_by_net[net_sz] * float(num_envs)
@@ -954,7 +992,9 @@ def _project_cell_seconds(
         base = (sec_per_env_by_net["M"] / 3.0) * float(num_envs)
     else:
         base = 0.0
-    compile_extra = (45.0 if device.type == "cuda" else 5.0) if is_compile else 0.0
+    compile_extra = (
+        max(COMPILE_ESTIMATE_SECONDS, float(measured_compile_overhead_sec)) if is_compile else 0.0
+    )
     return base * 1.15 + compile_extra
 
 
@@ -1021,6 +1061,7 @@ def run_ruler(
     reused_cells: list[str] = []
     mature_cache: dict[int, dict[str, Any]] = {}
     sec_per_env_by_net: dict[str, float] = {}
+    measured_compile_overhead_sec: float = 0.0
     stopped_reason = "completed"
     partial = False
 
@@ -1107,6 +1148,7 @@ def run_ruler(
                         is_compile=cell_compile,
                         device=resolved_dev,
                         sec_per_env_by_net=sec_per_env_by_net,
+                        measured_compile_overhead_sec=measured_compile_overhead_sec,
                     )
                     if max_wall_seconds is not None and (
                         elapsed_now >= (float(max_wall_seconds) - export_reserve_sec)
@@ -1193,6 +1235,7 @@ def run_ruler(
                         "compile_model": bool(cell_compile),
                         "burnin_ticks": int(burnin_ticks),
                         "parameter_count": batch6_bench[net_sz]["parameter_count"],
+                        "token_grid": list(batch6_bench[net_sz]["token_grid"]),
                         "oom": False,
                         "collection_only": None,
                         "integrated": None,
@@ -1270,11 +1313,22 @@ def run_ruler(
                                 should_stop=should_stop,
                             )
                             cell_record["integrated"] = integ
+                            cell_record["rollout_buffer_bytes"] = integ["rollout_buffer_bytes"]
+                            cell_record["train_rollout_len"] = integ["train_rollout_len"]
+                            cell_record["train_rollout_buffer_bytes"] = integ[
+                                "train_rollout_buffer_bytes"
+                            ]
+                            cell_record["projected_train_peak_vram_bytes"] = integ[
+                                "projected_train_peak_vram_bytes"
+                            ]
                             phase_stamp(
                                 f"{cell_id}_integrated",
                                 "END",
                                 agent_steps_per_sec=integ["agent_steps_per_sec"],
                                 peak_vram_bytes=integ["peak_vram_bytes"],
+                                projected_train_peak_vram_bytes=integ[
+                                    "projected_train_peak_vram_bytes"
+                                ],
                             )
                         except StopRequestedError:
                             raise
@@ -1295,6 +1349,11 @@ def run_ruler(
                     cell_record["cell_wall_seconds"] = round(cell_wall, 4)
                     if not cell_record["oom"] and not cell_compile:
                         sec_per_env_by_net[net_sz] = cell_wall / float(max(1, num_envs))
+                    elif not cell_record["oom"] and cell_compile and net_sz in sec_per_env_by_net:
+                        base_est = sec_per_env_by_net[net_sz] * float(num_envs)
+                        measured_compile_overhead_sec = max(
+                            measured_compile_overhead_sec, max(0.0, cell_wall - base_est)
+                        )
 
                     # Persist cell immediately as create-only artifact so timeouts never lose work
                     write_create_only_json(cells_dir / f"{cell_id}.json", cell_record)
@@ -1423,7 +1482,66 @@ def run_canary_suite(
     write_create_only_json(out / "indexed_parity.json", parity_res)
     phase_stamp("canary_indexed_parity", "END", deaths=parity_res["total_deaths"])
 
-    # 2. Tiny REAL ruler cell (writes real cells/E<num_envs>_S.json + ruler_result.json)
+    # 2. Verify any staged continuation inputs (checkpoint or partial ruler cells) up front.
+    # For a staged checkpoint we instantiate its config and verify `load_checkpoint` (0 updates),
+    # keeping the tiny 2-update canary train below independent of production world count/size.
+    staged_verification: dict[str, Any] | None = None
+    if ledger_path is not None and ledger_path.is_file() and input_dir is not None:
+        ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+        resume_entry = ledger.get("resume_checkpoint")
+        if isinstance(resume_entry, dict):
+            staged_ckpt = Path(input_dir) / str(resume_entry["relpath"])
+            if not staged_ckpt.is_file():
+                raise FileNotFoundError(f"Missing staged resume checkpoint at {staged_ckpt}")
+            actual_sha = sha256_file(staged_ckpt)
+            if actual_sha != resume_entry.get("sha256"):
+                raise ValueError(
+                    f"Staged resume checkpoint SHA mismatch at {staged_ckpt}: "
+                    f"{actual_sha!r} != {resume_entry.get('sha256')!r}"
+                )
+            ckpt_obj = torch.load(staged_ckpt, map_location="cpu", weights_only=False)
+            staged_cfg = replace(
+                ArenaPPOConfig.from_dict(ckpt_obj["config"]),
+                compile_model=False,
+            )
+            staged_trainer = ArenaPPOTrainer(staged_cfg, device=resolved_dev)
+            staged_trainer.load_checkpoint(staged_ckpt, verify_markers=False)
+            staged_verification = {
+                "kind": "checkpoint",
+                "relpath": str(resume_entry["relpath"]),
+                "sha256": actual_sha,
+                "updates_completed": int(staged_trainer.updates_completed),
+            }
+            del staged_trainer, ckpt_obj
+            _cleanup_device_memory(resolved_dev)
+        else:
+            cell_units = [
+                u
+                for u in ledger.get("verified_units", [])
+                if isinstance(u, dict) and str(u.get("unit_id", "")).startswith("cell:")
+            ]
+            if cell_units:
+                verified_cell_ids: list[str] = []
+                for unit in cell_units:
+                    staged_cell = Path(input_dir) / str(unit["relpath"])
+                    if not staged_cell.is_file():
+                        raise FileNotFoundError(f"Missing staged ruler cell at {staged_cell}")
+                    actual_sha = sha256_file(staged_cell)
+                    if actual_sha != unit.get("sha256"):
+                        raise ValueError(
+                            f"Staged ruler cell SHA mismatch at {staged_cell}: "
+                            f"{actual_sha!r} != {unit.get('sha256')!r}"
+                        )
+                    parsed_cell = json.loads(staged_cell.read_text(encoding="utf-8"))
+                    if not isinstance(parsed_cell, dict) or "cell_id" not in parsed_cell:
+                        raise ValueError(f"Invalid staged ruler cell JSON at {staged_cell}")
+                    verified_cell_ids.append(str(parsed_cell["cell_id"]))
+                staged_verification = {
+                    "kind": "ruler_cells",
+                    "verified_cells": verified_cell_ids,
+                }
+
+    # 3. Tiny REAL ruler cell (writes real cells/E<num_envs>_S.json + ruler_result.json)
     ruler_budget = (
         max(30.0, (float(max_wall_seconds) - (time.monotonic() - wall_t0)) * 0.45)
         if max_wall_seconds is not None
@@ -1450,7 +1568,7 @@ def run_canary_suite(
         seed=seed,
     )
 
-    # 3. Tiny REAL run_training_job (real periodic + final.pt + arena_ppo_weights.pth + reload)
+    # 4. Tiny REAL 2-update run_training_job (own tiny config; exercises periodic + final exports)
     train_cfg = ArenaPPOConfig(
         net_size="S",
         num_envs=int(num_envs),
@@ -1461,23 +1579,9 @@ def run_canary_suite(
         max_capacity=256,
         total_updates=2,
         checkpoint_every_updates=1,
+        output_publish_interval_sec=1.0e-6,
         seed=seed,
     )
-    if ledger_path is not None and ledger_path.is_file() and input_dir is not None:
-        ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
-        resume_entry = ledger.get("resume_checkpoint")
-        if isinstance(resume_entry, dict):
-            staged_ckpt = Path(input_dir) / str(resume_entry["relpath"])
-            if staged_ckpt.is_file():
-                ckpt_obj = torch.load(staged_ckpt, map_location="cpu", weights_only=False)
-                prior_u = int((ckpt_obj.get("counters") or {}).get("updates_completed", 0))
-                train_cfg = ArenaPPOConfig(
-                    **{
-                        **ckpt_obj["config"],
-                        "total_updates": prior_u + 1,
-                        "checkpoint_every_updates": 1,
-                    }
-                )
 
     remaining_budget = (
         max(30.0, float(max_wall_seconds) - (time.monotonic() - wall_t0))
@@ -1488,8 +1592,8 @@ def run_canary_suite(
         cfg=train_cfg,
         output_dir=out,
         device=resolved_dev,
-        input_dir=input_dir,
-        ledger_path=ledger_path,
+        input_dir=None,
+        ledger_path=None,
         max_wall_seconds=remaining_budget,
     )
 
@@ -1508,6 +1612,7 @@ def run_canary_suite(
     phase_stamp("canary_suite", "END", wall_seconds=round(time.monotonic() - wall_t0, 4))
     return {
         "indexed_parity": parity_res,
+        "staged_input_verification": staged_verification,
         "ruler_result": ruler_res,
         "train_result": train_res,
     }

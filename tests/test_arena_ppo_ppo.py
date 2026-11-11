@@ -2,25 +2,32 @@
 
 from __future__ import annotations
 
+import json
 import math
 import os
 import signal
+import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 import torch
 
+from research.arena_ppo import ppo as ppo_mod
 from research.arena_ppo.obs import build_arena_ego_obs_gpu
 from research.arena_ppo.ppo import (
     ArenaPPOConfig,
     ArenaPPOTrainer,
+    build_training_plan,
     estimate_checkpoint_bytes,
     estimate_max_export_bytes,
+    estimate_rollout_buffer_bytes,
     find_newest_verified_checkpoint,
     run_training_job,
 )
 from research.arena_ppo.runtime import verify_completed_artifact
 from research.arena_ppo.sim import _SIM_STATE_TENSORS, StepInfo, TrainSim
+from research.colab_cli.runtime import _exports as supervisor_scan_exports
 
 
 def test_ppo_config_json_roundtrip_and_defaults(tmp_path: Path) -> None:
@@ -34,6 +41,11 @@ def test_ppo_config_json_roundtrip_and_defaults(tmp_path: Path) -> None:
     assert cfg_s.actor_chunk_envs == 1024
     assert cfg_s.keep_periodic_checkpoints == 3
     assert cfg_s.max_update_seconds == 1200.0
+    assert cfg_s.output_publish_interval_sec == 2400.0
+    assert cfg_s.eval_every_updates == 0
+    assert cfg_s.late_reset_enabled is False
+    assert cfg_s.late_reset_min_length == 600
+    assert cfg_s.late_reset_prob == 0.5
 
     cfg_m = ArenaPPOConfig(net_size="M")
     assert cfg_m.minibatch_size == 768
@@ -292,11 +304,13 @@ def test_resume_rejects_mismatched_config_and_skips_corrupt_checkpoint(tmp_path:
 def test_run_training_job_real_sigusr1_boundary_and_mid_tick(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Verify MINOR 9a & M5: real SIGUSR1 stops cleanly at boundary AND mid-tick."""
+    """Verify MINOR 9a, M5 & R3 MINOR 2: boundary single-save hard-link + mid-tick SIGUSR1."""
     if not hasattr(signal, "SIGUSR1"):
         pytest.skip("SIGUSR1 not available on this platform")
 
-    cfg = ArenaPPOConfig(
+    # 1. Real SIGUSR1 at boundary with checkpoint_every_updates=0 so export phase does ONE save
+    # and hard-links ckpt_sig_u0000001.pt + final.pt to the exact same inode inside grace window.
+    cfg_boundary = ArenaPPOConfig(
         net_size="S",
         num_envs=2,
         rollout_len=4,
@@ -304,28 +318,47 @@ def test_run_training_job_real_sigusr1_boundary_and_mid_tick(
         minibatch_size=12,
         max_capacity=128,
         total_updates=3,
-        checkpoint_every_updates=1,
+        checkpoint_every_updates=0,
         seed=77,
         deterministic=True,
     )
+    save_calls = {"n": 0}
+    orig_save_ckpt = ArenaPPOTrainer.save_checkpoint
 
-    # 1. Real SIGUSR1 delivered at update boundary via step_hook
-    out_boundary = tmp_path / "sig_boundary"
+    def _spy_save_ckpt(self: ArenaPPOTrainer, path: Path | str, *, reason: str = "periodic") -> str:
+        save_calls["n"] += 1
+        return orig_save_ckpt(self, path, reason=reason)
+
+    monkeypatch.setattr(ArenaPPOTrainer, "save_checkpoint", _spy_save_ckpt)
+    cli_root_b = tmp_path / "sig_boundary_root"
+    out_boundary = cli_root_b / "output"
+    cache_b: dict[str, tuple[int, int, int, int, int]] = {}
+    cap_b = estimate_max_export_bytes(cfg_boundary)
+
     res_b = run_training_job(
-        cfg=cfg,
+        cfg=cfg_boundary,
         output_dir=out_boundary,
+        work_dir=cli_root_b / "work",
         device="cpu",
         step_hook=lambda _tr, u: os.kill(os.getpid(), signal.SIGUSR1) if u == 1 else None,
     )
+    assert save_calls["n"] == 1, "Boundary SIGUSR1 must write one checkpoint and hard-link final.pt"
     assert res_b["stopped_reason"] == "signal:SIGUSR1"
     assert res_b["aborted_mid_update"] is False
     assert res_b["updates_completed"] == 1
-    assert verify_completed_artifact(out_boundary / "checkpoints" / "ckpt_sig_u0000001.pt")
-    assert verify_completed_artifact(out_boundary / "checkpoints" / "final.pt")
+    sig_pt = out_boundary / "checkpoints" / "ckpt_sig_u0000001.pt"
+    fin_pt = out_boundary / "checkpoints" / "final.pt"
+    assert verify_completed_artifact(sig_pt)
+    assert verify_completed_artifact(fin_pt)
+    assert sig_pt.stat().st_ino == fin_pt.stat().st_ino, "ckpt_sig and final.pt must share inode"
     assert verify_completed_artifact(out_boundary / "arena_ppo_weights.pth")
     assert verify_completed_artifact(out_boundary / "train_result.json")
+    supervisor_scan_exports(cli_root_b, cap_b, cache_b)
 
-    # 2. Real SIGUSR1 delivered mid-rollout tick during update 2
+    monkeypatch.setattr(ArenaPPOTrainer, "save_checkpoint", orig_save_ckpt)
+
+    # 2. Real SIGUSR1 delivered mid-rollout tick during update 2 -> publishes newest periodic ckpt
+    cfg_mid = ArenaPPOConfig(**{**cfg_boundary.to_dict(), "checkpoint_every_updates": 1})
     orig_step = TrainSim.step
     step_calls = {"n": 0}
 
@@ -338,18 +371,26 @@ def test_run_training_job_real_sigusr1_boundary_and_mid_tick(
         return out
 
     monkeypatch.setattr(TrainSim, "step", _step_with_mid_signal)
-    out_mid = tmp_path / "sig_mid_tick"
-    res_m = run_training_job(cfg=cfg, output_dir=out_mid, device="cpu")
+    cli_root_m = tmp_path / "sig_mid_root"
+    out_mid = cli_root_m / "output"
+    cache_m: dict[str, tuple[int, int, int, int, int]] = {}
+    res_m = run_training_job(
+        cfg=cfg_mid,
+        output_dir=out_mid,
+        work_dir=cli_root_m / "work",
+        device="cpu",
+    )
     assert res_m["stopped_reason"] == "signal:SIGUSR1"
     assert res_m["aborted_mid_update"] is True
     assert res_m["updates_completed"] == 1
     assert verify_completed_artifact(out_mid / "checkpoints" / "ckpt_u0000001.pt")
     assert not (out_mid / "checkpoints" / "final.pt").exists()
     assert verify_completed_artifact(out_mid / "train_result.json")
+    supervisor_scan_exports(cli_root_m, cap_b, cache_m)
 
 
 def test_m5_projected_wall_guard_and_max_update_seconds(tmp_path: Path) -> None:
-    """Verify M5 projected wall-budget stop and max_update_seconds runaway refusal."""
+    """Verify M5 + R3 MAJOR-2: projected wall guard AND max_update_seconds stop cleanly & export."""
     cfg = ArenaPPOConfig(
         net_size="S",
         num_envs=2,
@@ -367,17 +408,33 @@ def test_m5_projected_wall_guard_and_max_update_seconds(tmp_path: Path) -> None:
     assert res_proj["updates_completed"] == 1
     assert res_proj["stopped_reason"] == "wall_budget_projected_guard"
     assert verify_completed_artifact(out_proj / "checkpoints" / "final.pt")
+    assert verify_completed_artifact(out_proj / "train_result.json")
 
-    # Exceeding max_update_seconds saves periodic checkpoint and raises RuntimeError
+    # MAJOR-2: Exceeding max_update_seconds stops cleanly (no RuntimeError!) and exports all files
     cfg_slow = ArenaPPOConfig(**{**cfg.to_dict(), "max_update_seconds": 1e-6})
-    out_slow = tmp_path / "slow_update"
-    with pytest.raises(RuntimeError, match="max_update_seconds"):
-        run_training_job(cfg=cfg_slow, output_dir=out_slow, device="cpu")
+    cli_slow = tmp_path / "slow_update_root"
+    out_slow = cli_slow / "output"
+    cache_slow: dict[str, tuple[int, int, int, int, int]] = {}
+    res_slow = run_training_job(
+        cfg=cfg_slow,
+        output_dir=out_slow,
+        work_dir=cli_slow / "work",
+        device="cpu",
+    )
+    assert res_slow["stopped_reason"] == "max_update_seconds_guard"
+    assert res_slow["aborted_mid_update"] is False
+    assert res_slow["updates_completed"] == 1
     assert verify_completed_artifact(out_slow / "checkpoints" / "ckpt_u0000001.pt")
+    assert verify_completed_artifact(out_slow / "checkpoints" / "final.pt")
+    assert verify_completed_artifact(out_slow / "arena_ppo_weights.pth")
+    assert verify_completed_artifact(out_slow / "train_result.json")
+    supervisor_scan_exports(cli_slow, estimate_max_export_bytes(cfg_slow), cache_slow)
 
 
-def test_m6_periodic_checkpoint_pruning_and_export_sizing(tmp_path: Path) -> None:
-    """Verify M6 keeps newest K periodic checkpoints and sizes max_export_bytes accurately."""
+def test_t1_work_dir_pruning_45m_hardlink_snapshots_and_supervisor_exports_scanner(
+    tmp_path: Path,
+) -> None:
+    """BLOCKER T1 + R3 MINOR 6: prune in work_dir only; drive colab_cli _exports across saves."""
     cfg = ArenaPPOConfig(
         net_size="S",
         num_envs=2,
@@ -385,27 +442,97 @@ def test_m6_periodic_checkpoint_pruning_and_export_sizing(tmp_path: Path) -> Non
         ppo_epochs=1,
         minibatch_size=12,
         max_capacity=128,
-        total_updates=5,
+        total_updates=6,
         checkpoint_every_updates=1,
-        keep_periodic_checkpoints=3,
+        keep_periodic_checkpoints=2,
+        output_publish_interval_sec=1e-6,  # publish periodic hard-linked snapshot every update
+        log_rotate_every_updates=2,
         seed=91,
         deterministic=True,
     )
-    out_dir = tmp_path / "prune_out"
-    res = run_training_job(cfg=cfg, output_dir=out_dir, device="cpu")
-    assert res["updates_completed"] == 5
-    ckpt_dir = out_dir / "checkpoints"
-    assert not (ckpt_dir / "ckpt_u0000001.pt").exists()
-    assert not (ckpt_dir / "ckpt_u0000001.pt.complete").exists()
-    assert not (ckpt_dir / "ckpt_u0000002.pt").exists()
-    for kept in ("ckpt_u0000003.pt", "ckpt_u0000004.pt", "ckpt_u0000005.pt", "final.pt"):
-        assert verify_completed_artifact(ckpt_dir / kept)
+    cli_root = tmp_path / "colab_t1_root"
+    out_dir = cli_root / "output"
+    work_dir = cli_root / "work" / "arena_ppo"
+    cap = estimate_max_export_bytes(cfg)
+    scanner_cache: dict[str, tuple[int, int, int, int, int]] = {}
+    observed_counts: list[int] = []
 
-    measured_bytes = (ckpt_dir / "final.pt").stat().st_size
-    est_bytes = estimate_checkpoint_bytes(cfg)
+    def _poll_supervisor_scanner(_tr: ArenaPPOTrainer, _u: int) -> None:
+        inv = supervisor_scan_exports(cli_root, cap, scanner_cache)
+        observed_counts.append(len(inv))
+
+    res_all_pub = run_training_job(
+        cfg=cfg,
+        output_dir=out_dir,
+        work_dir=work_dir,
+        device="cpu",
+        step_hook=_poll_supervisor_scanner,
+    )
+    final_inv = supervisor_scan_exports(cli_root, cap, scanner_cache)
+    assert res_all_pub["updates_completed"] == 6
+    assert observed_counts == sorted(observed_counts), "output/ completed exports must never shrink"
+    assert len(final_inv) >= observed_counts[-1]
+    for u in range(1, 7):
+        assert verify_completed_artifact(out_dir / "checkpoints" / f"ckpt_u{u:07d}.pt")
+    assert verify_completed_artifact(out_dir / "checkpoints" / "final.pt")
+    assert verify_completed_artifact(out_dir / "arena_ppo_weights.pth")
+    assert verify_completed_artifact(out_dir / "train_result.json")
+
+    # Subcase B: long output_publish_interval_sec -> 6 saves in work_dir (pruned to keep=2),
+    # 0 periodic files unlinked in output/, and scanner passes on every single update + end.
+    cfg_prune = ArenaPPOConfig(**{**cfg.to_dict(), "output_publish_interval_sec": 2400.0})
+    cli_root_b = tmp_path / "colab_t1_prune_root"
+    out_dir_b = cli_root_b / "output"
+    work_dir_b = cli_root_b / "work" / "arena_ppo"
+    cache_b: dict[str, tuple[int, int, int, int, int]] = {}
+
+    def _poll_b(_tr: ArenaPPOTrainer, _u: int) -> None:
+        supervisor_scan_exports(cli_root_b, cap, cache_b)
+
+    res_prune = run_training_job(
+        cfg=cfg_prune,
+        output_dir=out_dir_b,
+        work_dir=work_dir_b,
+        device="cpu",
+        step_hook=_poll_b,
+    )
+    supervisor_scan_exports(cli_root_b, cap, cache_b)
+    assert len(res_prune["pruned_periodic_checkpoints"]) == 4
+    work_ckpts = sorted(p.name for p in (work_dir_b / "checkpoints").glob("ckpt_u*.pt"))
+    assert work_ckpts == ["ckpt_u0000005.pt", "ckpt_u0000006.pt"]
+    assert verify_completed_artifact(out_dir_b / "checkpoints" / "final.pt")
+
+    # Refuse work_dir inside output_dir
+    with pytest.raises(ValueError, match="outside output_dir"):
+        run_training_job(
+            cfg=cfg_prune,
+            output_dir=tmp_path / "bad_out",
+            work_dir=tmp_path / "bad_out" / "nested_work",
+            device="cpu",
+        )
+
+    # MINOR 6: per-file sizing from full max_capacity x 1.25 (independent of keep count)
+    measured_bytes = (out_dir_b / "checkpoints" / "final.pt").stat().st_size
+    est_bytes = estimate_checkpoint_bytes(cfg_prune)
     assert est_bytes >= measured_bytes
-    sized_cap = estimate_max_export_bytes(cfg, measured_checkpoint_bytes=measured_bytes)
-    assert 64 * 1024 * 1024 <= sized_cap <= 2 * 1024 * 1024 * 1024
+    est_cap_small = estimate_checkpoint_bytes(
+        ArenaPPOConfig(net_size="S", num_envs=1024, max_capacity=400)
+    )
+    est_cap_large = estimate_checkpoint_bytes(
+        ArenaPPOConfig(net_size="S", num_envs=1024, max_capacity=1600)
+    )
+    assert est_cap_large > est_cap_small, "estimate_checkpoint_bytes must scale with max_capacity"
+
+    cfg_e4096_k3 = ArenaPPOConfig(
+        net_size="M", num_envs=4096, max_capacity=1600, keep_periodic_checkpoints=3
+    )
+    cfg_e4096_k9 = ArenaPPOConfig(
+        net_size="M", num_envs=4096, max_capacity=1600, keep_periodic_checkpoints=9
+    )
+    cap_k3 = estimate_max_export_bytes(cfg_e4096_k3)
+    cap_k9 = estimate_max_export_bytes(cfg_e4096_k9)
+    assert cap_k3 == cap_k9
+    assert 64 * 1024 * 1024 <= cap_k3 <= 2 * 1024 * 1024 * 1024
 
 
 def test_m7_max_world_frames_keeps_non_hit_worlds_byte_identical() -> None:
@@ -497,3 +624,209 @@ def test_ppo_trainer_custom_board_and_snake_count(tmp_path: Path) -> None:
     )
     wide_trainer = ArenaPPOTrainer(wide_cfg, device="cpu")
     assert wide_trainer.buffer.food_xy.dtype == torch.int16
+    assert (trainer.model.cfg.token_grid_h, trainer.model.cfg.token_grid_w) == (6, 8)
+    assert trainer.buffer.nbytes() == estimate_rollout_buffer_bytes(
+        rollout_len=cfg.rollout_len,
+        num_envs=cfg.num_envs,
+        num_snakes=cfg.num_snakes,
+        max_capacity=cfg.max_capacity,
+        grid_h=cfg.grid_h,
+        grid_w=cfg.grid_w,
+        food_capacity=trainer.sim.sim.food_capacity,
+    )
+
+
+def test_minor7_r3_resume_allows_speed_keys_and_features_abc_plan_logs_eval_late_resets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Verify MINOR 7 speed keys + Features (a) plan, (b) JSONL logs/eval, (c) late resets."""
+    monkeypatch.setattr(torch, "compile", lambda fn, **_kw: fn)
+
+    # MINOR 7: save with actor_chunk_envs=2, ring_chunk=64, compile_model=False; resume with
+    # actor_chunk_envs=1, ring_chunk=128, compile_model=True!
+    cfg_orig = ArenaPPOConfig(
+        net_size="S",
+        num_envs=2,
+        rollout_len=4,
+        ppo_epochs=1,
+        minibatch_size=12,
+        actor_chunk_envs=2,
+        ring_chunk=64,
+        compile_model=False,
+        max_capacity=128,
+        seed=515,
+        deterministic=True,
+    )
+    tr_orig = ArenaPPOTrainer(cfg_orig, device="cpu")
+    tr_orig.step_update()
+    ckpt_m7 = tmp_path / "m7_speed" / "ckpt_u0000001.pt"
+    tr_orig.save_checkpoint(ckpt_m7)
+
+    cfg_speed_override = ArenaPPOConfig(
+        **{
+            **cfg_orig.to_dict(),
+            "actor_chunk_envs": 1,
+            "ring_chunk": 128,
+            "compile_model": True,
+        }
+    )
+    tr_override = ArenaPPOTrainer(cfg_speed_override, device="cpu")
+    loaded = tr_override.load_checkpoint(ckpt_m7)
+    assert loaded["counters"]["updates_completed"] == 1
+    m2 = tr_override.step_update()
+    assert math.isfinite(m2.policy_loss)
+
+    # Feature (a) & (b): --hours + --expected-steps-per-sec plan printed before starting,
+    # rotating create-only JSONL training logs written every update, eval hook OFF by default.
+    plan = build_training_plan(
+        ArenaPPOConfig(net_size="S", num_envs=1024, rollout_len=256),
+        hours=6.0,
+        expected_steps_per_sec=150_000.0,
+    )
+    assert plan["expected_agent_steps"] == 6 * 3600 * 150_000
+    assert plan["expected_updates"] == (6 * 3600 * 150_000) // (256 * 1024 * 6)
+
+    cli_root = tmp_path / "features_ab_root"
+    out_ab = cli_root / "output"
+    cache_ab: dict[str, tuple[int, int, int, int, int]] = {}
+    eval_calls: list[int] = []
+    cfg_ab = ArenaPPOConfig(
+        net_size="S",
+        num_envs=2,
+        rollout_len=4,
+        ppo_epochs=1,
+        minibatch_size=12,
+        max_capacity=128,
+        total_updates=5,
+        log_rotate_every_updates=2,
+        eval_every_updates=0,  # OFF by default
+        seed=707,
+        deterministic=True,
+    )
+    res_ab = run_training_job(
+        cfg=cfg_ab,
+        output_dir=out_ab,
+        work_dir=cli_root / "work",
+        device="cpu",
+        hours=0.5,
+        expected_steps_per_sec=2400.0,
+        eval_hook=lambda _tr, u: eval_calls.append(u) or {"u": u},
+        step_hook=lambda _tr, _u: supervisor_scan_exports(
+            cli_root, estimate_max_export_bytes(cfg_ab), cache_ab
+        )
+        and None,
+    )
+    supervisor_scan_exports(cli_root, estimate_max_export_bytes(cfg_ab), cache_ab)
+    captured = capsys.readouterr()
+    assert "ARENA_PPO_PLAN " in captured.out
+    assert res_ab["training_plan"] is not None
+    assert res_ab["training_plan"]["expected_updates"] > 0
+    assert eval_calls == [], "eval_hook must remain OFF when eval_every_updates == 0"
+
+    # Verify rotating create-only JSONL segments (5 updates @ rotate=2 -> 3 sealed files)
+    log_files = sorted((out_ab / "train_logs").glob("train_log_*.jsonl"))
+    assert len(log_files) == 3
+    parsed_records: list[dict[str, Any]] = []
+    for lf in log_files:
+        assert verify_completed_artifact(lf)
+        for line in lf.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                parsed_records.append(json.loads(line))
+    assert [r["update_idx"] for r in parsed_records] == [1, 2, 3, 4, 5]
+    required_keys = {
+        "update_idx",
+        "agent_steps",
+        "steps_per_sec",
+        "mean_length",
+        "p95_length",
+        "deaths_per_1k_agent_steps",
+        "mean_episode_return",
+        "entropy",
+        "approx_kl",
+        "value_explained_variance",
+        "clip_fraction",
+        "aux_losses",
+    }
+    for rec in parsed_records:
+        assert required_keys.issubset(rec.keys())
+        assert set(rec["aux_losses"].keys()) == {"total", "h16", "h64", "h256"}
+
+    # Also verify CLI ppo.main() lifts default total_updates when --hours drives the run
+    cli_main_out = tmp_path / "cli_main_out"
+    partial_cfg_path = tmp_path / "partial_cfg.json"
+    partial_cfg_path.write_text(
+        json.dumps(
+            {
+                "net_size": "S",
+                "num_envs": 2,
+                "rollout_len": 3,
+                "ppo_epochs": 1,
+                "minibatch_size": 12,
+                "max_capacity": 64,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "research.arena_ppo.ppo",
+            "--config-json",
+            str(partial_cfg_path),
+            "--output-dir",
+            str(cli_main_out),
+            "--device",
+            "cpu",
+            "--hours",
+            "2.0",
+            "--expected-steps-per-sec",
+            "50000",
+            "--max-wall-seconds",
+            "1.0",
+        ],
+    )
+    assert ppo_mod.main() == 0
+    cli_res = json.loads((cli_main_out / "train_result.json").read_text(encoding="utf-8"))
+    assert cli_res["config"]["total_updates"] > 100
+
+    # Feature (c): end-to-end training + checkpoint/resume with late_reset_enabled=True
+    cfg_late = ArenaPPOConfig(
+        net_size="S",
+        num_envs=4,
+        rollout_len=6,
+        ppo_epochs=1,
+        minibatch_size=12,
+        max_capacity=128,
+        max_world_frames=4,
+        late_reset_enabled=True,
+        late_reset_min_length=5,
+        late_reset_prob=1.0,
+        late_reset_reservoir_size=8,
+        seed=909,
+        deterministic=True,
+    )
+    # 1. Uninterrupted 2 updates with late_reset_enabled=True
+    tr_late_unint = ArenaPPOTrainer(cfg_late, device="cpu")
+    tr_late_unint.sim.prepare()
+    tr_late_unint.sim.sim.length[:, 0] = 8
+    tr_late_unint.sim.sim._reward_prev_length.copy_(tr_late_unint.sim.sim.length)
+    _ = tr_late_unint.step_update()
+    m_next_a = tr_late_unint.step_update()
+
+    # 2. Split 1 update -> save_checkpoint -> fresh trainer load_checkpoint -> 2nd update
+    tr_late_part1 = ArenaPPOTrainer(cfg_late, device="cpu")
+    tr_late_part1.sim.prepare()
+    tr_late_part1.sim.sim.length[:, 0] = 8
+    tr_late_part1.sim.sim._reward_prev_length.copy_(tr_late_part1.sim.sim.length)
+    tr_late_part1.step_update()
+    assert tr_late_part1.late_reservoir is not None
+    assert tr_late_part1.late_reservoir.total_harvested > 0
+    assert tr_late_part1.late_reservoir.total_restored > 0
+
+    late_ckpt = tmp_path / "late_ckpt" / "ckpt_u0000001.pt"
+    tr_late_part1.save_checkpoint(late_ckpt)
+    tr_late_resumed = ArenaPPOTrainer(cfg_late, device="cpu")
+    tr_late_resumed.load_checkpoint(late_ckpt)
+    m_next_b = tr_late_resumed.step_update()
+    assert math.isclose(m_next_a.policy_loss, m_next_b.policy_loss, rel_tol=0.0, abs_tol=1e-7)

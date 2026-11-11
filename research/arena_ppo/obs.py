@@ -323,7 +323,7 @@ def build_arena_ego_obs_from_tensors(
             inb_p, one_vec, arena_flat[env_idx, j_slot, CH_OWN_HEAD_PREV, flat_p]
         )
 
-        inb_boost = inb_c & boosted[:, j_slot]
+        inb_boost = inb_c & prev_alive[:, j_slot] & boosted[:, j_slot]
         for s_slot in range(num_snakes):
             arena_flat[env_idx, s_slot, CH_BOOST_FLAGS, flat_c] = torch.where(
                 inb_boost, one_vec, arena_flat[env_idx, s_slot, CH_BOOST_FLAGS, flat_c]
@@ -625,7 +625,7 @@ def build_arena_ego_obs_cpu(
                 px, py = int(prev_heads_np[env, j_slot, 0]), int(prev_heads_np[env, j_slot, 1])
                 inb_p = prev_alive_np[env, j_slot] and 0 <= px < grid_w and 0 <= py < grid_h
 
-                if inb_c and boosted[env, j_slot]:
+                if inb_c and prev_alive_np[env, j_slot] and boosted[env, j_slot]:
                     arena[env, s_slot, CH_BOOST_FLAGS, hy, hx] = 1.0
 
                 if j_slot == s_slot:
