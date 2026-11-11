@@ -272,7 +272,9 @@ def run_mature_cohort_row_subset_parity(
     rows_dev = rows_cpu.to(device=dev)
     n_sub = int(rows_cpu.shape[0])
 
-    # 1. Parity Check: flood_cuda.flood via v8_decide(..., features=True) on row subsets
+    # 1. Parity Check: flood_cuda.flood & flood_cuda.static_capped via v8_decide / fast_v8_decide
+    # on row subsets AND on all E hero rows (slot_layout="hero") + all E*(S-1) opponent rows
+    # (slot_layout="opp_slot_major")
     t_p1 = _log_smoke_phase("PHASE_START", "parity_1_v8_flood", proc_t0)
     gen = torch.Generator(device="cpu")
     gen.manual_seed(20261109)
@@ -283,6 +285,54 @@ def run_mature_cohort_row_subset_parity(
     adv_sub_cpu = adv_all_cpu[rows_cpu[:, 0], rows_cpu[:, 1]]
     adv_sub_dev = adv_sub_cpu.to(device=dev)
 
+    hero_rows_cpu = torch.stack(
+        [
+            torch.arange(n_roots, dtype=torch.long, device="cpu"),
+            torch.zeros(n_roots, dtype=torch.long, device="cpu"),
+        ],
+        dim=1,
+    )
+    hero_rows_dev = hero_rows_cpu.to(device=dev)
+    q_hero_cpu = torch.randn((n_roots, 6), generator=gen, dtype=torch.float32)
+    q_hero_dev = q_hero_cpu.to(device=dev)
+    adv_hero_cpu = adv_all_cpu[:, 0] & sim_cpu.alive[:, 0:1]
+    adv_hero_dev = adv_hero_cpu.to(device=dev)
+
+    s_opp = max(0, int(sim_cpu.S) - 1)
+    n_opp = n_roots * s_opp
+    opp_rows_cpu = torch.stack(
+        [
+            torch.arange(n_roots, dtype=torch.long, device="cpu").repeat(s_opp),
+            torch.arange(1, int(sim_cpu.S), dtype=torch.long, device="cpu").repeat_interleave(
+                n_roots
+            ),
+        ],
+        dim=1,
+    )
+    opp_rows_dev = opp_rows_cpu.to(device=dev)
+    q_opp_cpu = torch.randn((n_opp, 6), generator=gen, dtype=torch.float32)
+    q_opp_dev = q_opp_cpu.to(device=dev)
+    adv_opp_cpu = adv_all_cpu[opp_rows_cpu[:, 0], opp_rows_cpu[:, 1]]
+    adv_opp_dev = adv_opp_cpu.to(device=dev)
+
+    def _v8_all_fields_equal(ref_res: Any, cand_res: Any, *, check_planes: bool) -> bool:
+        import dataclasses
+
+        for fld in dataclasses.fields(ref_res):
+            ref_t = getattr(ref_res, fld.name)
+            cand_t = getattr(cand_res, fld.name)
+            if not torch.equal(ref_t, cand_t.cpu()):
+                return False
+        if not torch.equal(ref_res.spacious, cand_res.spacious.cpu()):
+            return False
+        if not torch.equal(ref_res.landing_ok, cand_res.landing_ok.cpu()):
+            return False
+        if check_planes and not torch.equal(
+            ref_res.feature_planes(), cand_res.feature_planes().cpu()
+        ):
+            return False
+        return True
+
     with _maybe_cpu_fast_flood(False):
         v8_ref = gpu_v8_decide(
             sim_cpu,
@@ -290,6 +340,46 @@ def run_mature_cohort_row_subset_parity(
             q_sub_cpu,
             adv_sub_cpu,
             float(OPEN_STOP_V8_LAMBDA),
+            features=True,
+        )
+        v8_hero_ref_feat = gpu_v8_decide(
+            sim_cpu,
+            hero_rows_cpu,
+            q_hero_cpu,
+            adv_hero_cpu,
+            float(OPEN_STOP_V8_LAMBDA),
+            features=True,
+        )
+        v8_hero_ref_nofeat = gpu_v8_decide(
+            sim_cpu,
+            hero_rows_cpu,
+            q_hero_cpu,
+            adv_hero_cpu,
+            float(OPEN_STOP_V8_LAMBDA),
+            features=False,
+        )
+        v8_hero_ref_zero = gpu_v8_decide(
+            sim_cpu,
+            hero_rows_cpu,
+            torch.zeros((n_roots, 6), dtype=torch.float32, device="cpu"),
+            adv_hero_cpu,
+            float(OPEN_STOP_V8_LAMBDA),
+            features=True,
+        )
+        v8_opp_ref_nofeat = gpu_v8_decide(
+            sim_cpu,
+            opp_rows_cpu,
+            q_opp_cpu,
+            adv_opp_cpu,
+            8.0,
+            features=False,
+        )
+        v8_opp_ref_feat = gpu_v8_decide(
+            sim_cpu,
+            opp_rows_cpu,
+            q_opp_cpu,
+            adv_opp_cpu,
+            8.0,
             features=True,
         )
     with _maybe_cpu_fast_flood(bool(dev.type == "cpu")):
@@ -309,6 +399,62 @@ def run_mature_cohort_row_subset_parity(
             float(OPEN_STOP_V8_LAMBDA),
             features=True,
         )
+        v8_hero_fast_feat = fast_v8_decide(
+            sim_dev,
+            hero_rows_dev,
+            q_hero_dev,
+            adv_hero_dev,
+            float(OPEN_STOP_V8_LAMBDA),
+            features=True,
+            slot_layout="hero",
+        )
+        v8_hero_fast_nofeat = fast_v8_decide(
+            sim_dev,
+            hero_rows_dev,
+            q_hero_dev,
+            adv_hero_dev,
+            float(OPEN_STOP_V8_LAMBDA),
+            features=False,
+            slot_layout="hero",
+        )
+        v8_hero_fast_only_feat = fast_v8_decide(
+            sim_dev,
+            hero_rows_dev,
+            torch.zeros((n_roots, 6), dtype=torch.float32, device=dev),
+            adv_hero_dev,
+            float(OPEN_STOP_V8_LAMBDA),
+            features=True,
+            slot_layout="hero",
+            _only_features=True,
+        )
+        v8_opp_fast_nofeat = fast_v8_decide(
+            sim_dev,
+            opp_rows_dev,
+            q_opp_dev,
+            adv_opp_dev,
+            8.0,
+            features=False,
+            slot_layout="opp_slot_major",
+        )
+        v8_opp_fast_feat = fast_v8_decide(
+            sim_dev,
+            opp_rows_dev,
+            q_opp_dev,
+            adv_opp_dev,
+            8.0,
+            features=True,
+            slot_layout="opp_slot_major",
+        )
+        v8_opp_fast_only_act = fast_v8_decide(
+            sim_dev,
+            opp_rows_dev,
+            q_opp_dev,
+            adv_opp_dev,
+            8.0,
+            features=False,
+            slot_layout="opp_slot_major",
+            _only_action=True,
+        )
 
     v8_action_match = bool(torch.equal(v8_ref.action, v8_cand.action.cpu()))
     v8_outcome_match = bool(torch.equal(v8_ref.outcome, v8_cand.outcome.cpu()))
@@ -325,17 +471,18 @@ def run_mature_cohort_row_subset_parity(
     fast_v8_feat_max_abs = float(
         (v8_ref.feature_planes() - v8_fast_cand.feature_planes().cpu()).abs().max().item()
     )
-    fast_v8_parity_ok = bool(
-        torch.equal(v8_ref.action, v8_fast_cand.action.cpu())
-        and torch.equal(v8_ref.outcome, v8_fast_cand.outcome.cpu())
-        and torch.equal(v8_ref.counts, v8_fast_cand.counts.cpu())
-        and torch.equal(v8_ref.area, v8_fast_cand.area.cpu())
-        and torch.equal(v8_ref.cap, v8_fast_cand.cap.cpu())
-        and torch.equal(v8_ref.landing, v8_fast_cand.landing.cpu())
-        and torch.equal(v8_ref.spacious, v8_fast_cand.spacious.cpu())
-        and torch.equal(v8_ref.landing_ok, v8_fast_cand.landing_ok.cpu())
-        and torch.equal(v8_ref.head_risky, v8_fast_cand.head_risky.cpu())
-        and fast_v8_feat_max_abs <= 1e-6
+    fast_v8_parity_ok = bool(_v8_all_fields_equal(v8_ref, v8_fast_cand, check_planes=True))
+    fast_v8_hero_layout_ok = bool(
+        _v8_all_fields_equal(v8_hero_ref_feat, v8_hero_fast_feat, check_planes=True)
+        and _v8_all_fields_equal(v8_hero_ref_nofeat, v8_hero_fast_nofeat, check_planes=False)
+        and torch.equal(
+            v8_hero_ref_zero.feature_planes(), v8_hero_fast_only_feat.feature_planes().cpu()
+        )
+    )
+    fast_v8_opp_layout_ok = bool(
+        _v8_all_fields_equal(v8_opp_ref_nofeat, v8_opp_fast_nofeat, check_planes=False)
+        and _v8_all_fields_equal(v8_opp_ref_feat, v8_opp_fast_feat, check_planes=True)
+        and torch.equal(v8_opp_ref_nofeat.action, v8_opp_fast_only_act.action.cpu())
     )
     v8_parity_ok = bool(
         v8_action_match
@@ -349,15 +496,19 @@ def run_mature_cohort_row_subset_parity(
         and v8_head_risky_match
         and v8_feat_max_abs <= 1e-6
         and fast_v8_parity_ok
+        and fast_v8_hero_layout_ok
+        and fast_v8_opp_layout_ok
     )
     if not v8_parity_ok:
         raise RuntimeError(
-            "Step B1b-Smoke parity failure in flood_cuda.flood / v8_decide on row subsets: "
+            "Step B1b-Smoke parity failure in flood_cuda.flood / v8_decide / fast_v8_decide: "
             f"action={v8_action_match}, outcome={v8_outcome_match}, counts={v8_counts_match}, "
             f"area={v8_area_match}, cap={v8_cap_match}, landing={v8_landing_match}, "
             f"spacious={v8_spacious_match}, landing_ok={v8_landing_ok_match}, "
             f"head_risky={v8_head_risky_match}, feat_max_abs={v8_feat_max_abs}, "
-            f"fast_v8_parity_ok={fast_v8_parity_ok} (fast_feat_max_abs={fast_v8_feat_max_abs})"
+            f"fast_v8_parity_ok={fast_v8_parity_ok} (fast_feat_max_abs={fast_v8_feat_max_abs}), "
+            f"fast_v8_hero_layout_ok={fast_v8_hero_layout_ok}, "
+            f"fast_v8_opp_layout_ok={fast_v8_opp_layout_ok}"
         )
     t_p1_end = _log_smoke_phase("PHASE_END", "parity_1_v8_flood", proc_t0, phase_start=t_p1)
     p1_elapsed = max(0.0, t_p1_end - t_p1)
@@ -365,7 +516,12 @@ def run_mature_cohort_row_subset_parity(
         on_phase_complete(
             "parity_1_v8_flood",
             p1_elapsed,
-            {"ok": v8_parity_ok, "fast_v8_decide_exact_match": fast_v8_parity_ok},
+            {
+                "ok": v8_parity_ok,
+                "fast_v8_decide_exact_match": fast_v8_parity_ok,
+                "fast_v8_hero_slot_layout_exact_match": fast_v8_hero_layout_ok,
+                "fast_v8_opp_slot_major_exact_match": fast_v8_opp_layout_ok,
+            },
         )
 
     # 2. Parity Check: flood_cuda.components via ego_device._component_sizes on row subsets
@@ -650,6 +806,8 @@ def run_mature_cohort_row_subset_parity(
             "feature_planes_max_abs_diff": v8_feat_max_abs,
             "fast_v8_decide_exact_match": fast_v8_parity_ok,
             "fast_v8_feature_planes_max_abs_diff": fast_v8_feat_max_abs,
+            "fast_v8_hero_slot_layout_exact_match": fast_v8_hero_layout_ok,
+            "fast_v8_opp_slot_major_exact_match": fast_v8_opp_layout_ok,
         },
         "flood_cuda_components_row_subset": {
             "ok": comp_match,
@@ -2102,6 +2260,8 @@ def run_cuda_shakeout(
     probe_horizon: int = 4,
     train_total_updates: int = 2,
     train_stop_after_updates: int = 1,
+    v2_parity_envs: int | None = None,
+    v2_parity_ticks: int | None = None,
     seed: int = 20261110,
     require_cuda: bool = False,
     enforce_projection_gate: bool | None = None,
@@ -2326,6 +2486,11 @@ def run_cuda_shakeout(
         )
         if not bool(audit["ok"]):
             raise RuntimeError(f"Shake-out seed isolation audit failed: {audit}")
+        t_b1b_audit = time.perf_counter()
+        b1b_audit = audit_b1b_seeds()
+        b1b_audit_elapsed = max(0.0, time.perf_counter() - t_b1b_audit)
+        if not bool(b1b_audit["ok"]):
+            raise RuntimeError(f"Registered Step B1b seed isolation audit failed: {b1b_audit}")
         forbidden_namespaces = {
             SELECTIVITY_NAMESPACE,
             SCREEN_NAMESPACE,
@@ -2339,7 +2504,12 @@ def run_cuda_shakeout(
         }
         if active_namespaces & forbidden_namespaces:
             raise RuntimeError("Shake-out namespaces overlap forbidden registered namespaces")
-        return audit
+        return {
+            **audit,
+            "b1b_seed_audit": b1b_audit,
+            "b1b_seed_audit_ok": True,
+            "b1b_seed_audit_elapsed_sec": float(b1b_audit_elapsed),
+        }
 
     with tempfile.TemporaryDirectory(prefix="gpu_sitl_shakeout_work_") as tmp_work_str:
         work_dir = Path(tmp_work_str)
@@ -2636,12 +2806,78 @@ def run_cuda_shakeout(
                 "subresult_json_sha256": part2["result_json_sha256"],
             }
 
+        def _phase_7_devicesim_v2_parity() -> dict[str, Any]:
+            from research.devicesim_v2_parity.harness import (
+                derive_world_seeds,
+                run_v2_parity_rollout,
+            )
+
+            dev = resolved_dev_holder["dev"]
+            rollout_dev = dev if dev.type in ("cuda", "cpu") else torch.device("cpu")
+            eff_envs = (
+                max(1, int(v2_parity_envs))
+                if v2_parity_envs is not None
+                else (64 if dev.type == "cuda" else 4)
+            )
+            eff_ticks = (
+                max(1, int(v2_parity_ticks))
+                if v2_parity_ticks is not None
+                else (200 if dev.type == "cuda" else 12)
+            )
+            seeds_v2 = derive_world_seeds(0, eff_envs)
+            v2_rep = run_v2_parity_rollout(
+                seeds=seeds_v2,
+                ticks=eff_ticks,
+                device=rollout_dev,
+                b8_checkpoint=b8_path,
+                frp3_checkpoint=opp_path,
+                check_ct_sim=True,
+                ego_check_stride=25,
+                mature_fraction=0.5,
+                max_capacity=1600,
+            )
+            if (
+                v2_rep.get("verdict") != "PASS"
+                or int(v2_rep.get("discrete_mismatches", -1)) != 0
+                or int(v2_rep.get("ct_discrete_mismatches", -1)) != 0
+                or int(v2_rep.get("ego_obs_mismatches", -1)) != 0
+                or int(v2_rep.get("unexplained_mismatches", -1)) != 0
+                or v2_rep.get("move_backend") != "indexed"
+                or not bool(v2_rep.get("check_ct_sim"))
+            ):
+                raise RuntimeError(
+                    "Shake-out CTDeviceSim vs GridBatchSim mechanics-v2 parity failed: "
+                    f"verdict={v2_rep.get('verdict')}, "
+                    f"discrete_mismatches={v2_rep.get('discrete_mismatches')}, "
+                    f"ct_discrete_mismatches={v2_rep.get('ct_discrete_mismatches')}, "
+                    f"ego_obs_mismatches={v2_rep.get('ego_obs_mismatches')}, "
+                    f"unexplained_mismatches={v2_rep.get('unexplained_mismatches')}, "
+                    f"samples={v2_rep.get('mismatch_samples')}"
+                )
+            return {
+                "device": str(v2_rep["device"]),
+                "move_backend": str(v2_rep["move_backend"]),
+                "check_ct_sim": bool(v2_rep["check_ct_sim"]),
+                "num_envs": int(v2_rep["num_envs"]),
+                "ticks": int(v2_rep["ticks"]),
+                "world_ticks": int(v2_rep["world_ticks"]),
+                "snake_ticks": int(v2_rep["snake_ticks"]),
+                "discrete_mismatches": int(v2_rep["discrete_mismatches"]),
+                "ct_discrete_mismatches": int(v2_rep["ct_discrete_mismatches"]),
+                "ego_obs_mismatches": int(v2_rep["ego_obs_mismatches"]),
+                "unexplained_mismatches": int(v2_rep["unexplained_mismatches"]),
+                "tie_explained_decisions": int(v2_rep["tie_explained_decisions"]),
+                "events": dict(v2_rep["events"]),
+                "verdict": str(v2_rep["verdict"]),
+            }
+
         _run_phase("phase_1_cuda_init_and_allocator_stats", _phase_1_cuda_init)
         _run_phase("phase_2_native_extensions_and_arch_list", _phase_2_native_extensions)
         _run_phase("phase_3_seed_isolation_audit", _phase_3_seed_isolation)
         _run_phase("phase_4_b1b_smoke_reduced", _phase_4_b1b_smoke_reduced)
         _run_phase("phase_5_tiny_probe_harvest", _phase_5_tiny_probe_harvest)
         _run_phase("phase_6_tiny_sitl_training_and_resume", _phase_6_tiny_sitl_training_and_resume)
+        _run_phase("phase_7_devicesim_v2_parity", _phase_7_devicesim_v2_parity)
 
     all_ok = bool(phase_reports) and all(bool(p["ok"]) for p in phase_reports)
     failed_phases = [str(p["phase"]) for p in phase_reports if not bool(p["ok"])]

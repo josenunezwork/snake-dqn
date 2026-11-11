@@ -220,8 +220,8 @@ def audit_shakeout_seeds(
             "probe": SHAKEOUT_PROBE_NAMESPACE,
             "train": SHAKEOUT_TRAIN_NAMESPACE,
         },
+        "read_only_mature_splice_namespace": PREFLIGHT_NAMESPACE,
         "forbidden_registered_namespaces_untouched": [
-            PREFLIGHT_NAMESPACE,
             T34_PREFLIGHT_NAMESPACE,
             SELECTIVITY_NAMESPACE,
             SCREEN_NAMESPACE,

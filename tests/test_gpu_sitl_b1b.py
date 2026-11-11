@@ -2478,7 +2478,8 @@ def test_cuda_shakeout_end_to_end_and_continues_past_failing_phase(
     assert res["not_evidence"] is True
     assert res["evidence_class"] == "SHAKEOUT_NOT_EVIDENCE"
     assert res["failed_phases"] == []
-    assert len(res["phases"]) == 6
+    assert len(res["phases"]) == 7
+    assert res["phases"][6]["phase"] == "phase_7_devicesim_v2_parity"
     assert all(p["ok"] is True and p["status"] == "PASS" for p in res["phases"])
 
     # Verify mature cohort splice exercised length >= 80 and flood cap 160 in Phase 4
@@ -3438,7 +3439,8 @@ def test_review_search_findings_se1_to_se9(
     assert b1b_rep["heldout_code_reference_hits"] == {}
     assert b1b_rep["namespaces"][PROBE32_NAMESPACE]["prefix_horizon"] == 600
     shake_rep = sc.audit_shakeout_seeds(smoke_envs=2, probe_worlds=2, train_envs=2)
-    assert PREFLIGHT_NAMESPACE in shake_rep["forbidden_registered_namespaces_untouched"]
+    assert PREFLIGHT_NAMESPACE not in shake_rep["forbidden_registered_namespaces_untouched"]
+    assert shake_rep["read_only_mature_splice_namespace"] == PREFLIGHT_NAMESPACE
     assert T34_PREFLIGHT_NAMESPACE in shake_rep["forbidden_registered_namespaces_untouched"]
 
     fake_code_dir = tmp_path / "fake_code"
@@ -5318,5 +5320,129 @@ def test_a2_fast_label_search_and_suffix_batching_bit_identical_cpu_and_mps() ->
             assert torch.equal(sc.food_cells, sim_mps.food_cells.cpu())
             assert torch.equal(sc.food_present, sim_mps.food_present.cpu())
             assert torch.equal(sc.corpse_food, sim_mps.corpse_food.cpu())
+
+
+def test_opus_s3_parity1_checks_hero_and_opp_slot_major_all_v8_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """S3: parity_1 runs fast_v8_decide on all E hero rows (slot_layout='hero') and all E*5
+    opponent rows ('opp_slot_major') and checks every V8DeviceResult field with torch.equal."""
+    import dataclasses
+
+    from research.gpu_sitl import smoke as smoke_mod
+
+    b8_path, opp_path = resolve_product_checkpoints()
+    seen_layouts: list[str | None] = []
+    orig_fast = smoke_mod.fast_v8_decide
+
+    def _spy_fast(sim: Any, rows: torch.Tensor, *args: Any, **kwargs: Any) -> Any:
+        seen_layouts.append(kwargs.get("slot_layout"))
+        return orig_fast(sim, rows, *args, **kwargs)
+
+    monkeypatch.setattr(smoke_mod, "fast_v8_decide", _spy_fast)
+    rep = smoke_mod.run_mature_cohort_row_subset_parity(
+        b8_path,
+        opp_path,
+        device="cpu",
+        slice_indices=(0, 24),
+        branch_horizon=2,
+        dry_run=True,
+    )
+    assert "hero" in seen_layouts
+    assert "opp_slot_major" in seen_layouts
+    sub = rep["flood_cuda_v8_decide_row_subset"]
+    assert sub["fast_v8_hero_slot_layout_exact_match"] is True
+    assert sub["fast_v8_opp_slot_major_exact_match"] is True
+
+    # Fail-closed proof: perturbing a non-action V8DeviceResult field (`v5_reason`) ONLY when
+    # slot_layout == 'opp_slot_major' must fail parity_1 (would have passed before S3!).
+    def _corrupt_opp_reason(sim: Any, rows: torch.Tensor, *args: Any, **kwargs: Any) -> Any:
+        res = orig_fast(sim, rows, *args, **kwargs)
+        if kwargs.get("slot_layout") == "opp_slot_major" and not kwargs.get("_only_action", False):
+            bad_reason = res.v5_reason.clone()
+            bad_reason[0] = bad_reason[0] + 1
+            return dataclasses.replace(res, v5_reason=bad_reason)
+        return res
+
+    monkeypatch.setattr(smoke_mod, "fast_v8_decide", _corrupt_opp_reason)
+    with pytest.raises(RuntimeError, match="fast_v8_opp_layout_ok=False"):
+        smoke_mod.run_mature_cohort_row_subset_parity(
+            b8_path,
+            opp_path,
+            device="cpu",
+            slice_indices=(0, 24),
+            branch_horizon=2,
+            dry_run=True,
+        )
+
+
+def test_opus_s4_s5_s6_shakeout_v2_parity_b1b_seed_audit_and_truthful_untouched_list(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """S4/S5/S6: shake-out runs phase_7 CTDeviceSim vs GridBatchSim v2 parity (0 mismatches,
+    indexed move backend), times audit_b1b_seeds in phase_3, and excludes PREFLIGHT_NAMESPACE
+    from forbidden_registered_namespaces_untouched."""
+    import research.devicesim_v2_parity.harness as v2_harness
+    from research.gpu_sitl import seed_check as sc
+    from research.gpu_sitl import smoke as smoke_mod
+    from research.gpu_sitl.seed_check import PREFLIGHT_NAMESPACE, T34_PREFLIGHT_NAMESPACE
+
+    # S6 check
+    audit_s = sc.audit_shakeout_seeds(smoke_envs=4, probe_worlds=2, train_envs=4)
+    assert PREFLIGHT_NAMESPACE not in audit_s["forbidden_registered_namespaces_untouched"]
+    assert audit_s["read_only_mature_splice_namespace"] == PREFLIGHT_NAMESPACE
+    assert T34_PREFLIGHT_NAMESPACE in audit_s["forbidden_registered_namespaces_untouched"]
+
+    # End-to-end pass check for S4 + S5
+    b8_path, opp_path = resolve_product_checkpoints()
+    res = smoke_mod.run_cuda_shakeout(
+        tmp_path / "shake_s456_pass",
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+        v2_parity_envs=2,
+        v2_parity_ticks=6,
+    )
+    assert res["ok"] is True
+    by_phase = {p["phase"]: p for p in res["phases"]}
+    p3 = by_phase["phase_3_seed_isolation_audit"]["detail"]
+    assert p3["b1b_seed_audit_ok"] is True
+    assert p3["b1b_seed_audit_elapsed_sec"] >= 0.0
+    assert p3["b1b_seed_audit"]["ok"] is True
+
+    p7 = by_phase["phase_7_devicesim_v2_parity"]["detail"]
+    assert p7["verdict"] == "PASS"
+    assert p7["move_backend"] == "indexed"
+    assert p7["check_ct_sim"] is True
+    assert p7["ct_discrete_mismatches"] == 0
+    assert p7["discrete_mismatches"] == 0
+    assert p7["ego_obs_mismatches"] == 0
+    assert p7["unexplained_mismatches"] == 0
+
+    # Fail-closed check for S4 (ct_discrete_mismatches > 0) and S5 (audit_b1b_seeds fails)
+    orig_v2 = v2_harness.run_v2_parity_rollout
+
+    def _bad_v2(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        out = dict(orig_v2(*args, **kwargs))
+        out["ct_discrete_mismatches"] = 1
+        out["unexplained_mismatches"] = 1
+        out["verdict"] = "FAIL"
+        return out
+
+    monkeypatch.setattr(v2_harness, "run_v2_parity_rollout", _bad_v2)
+    monkeypatch.setattr(smoke_mod, "audit_b1b_seeds", lambda: {"ok": False, "reason": "synthetic"})
+    res_fail = smoke_mod.run_cuda_shakeout(
+        tmp_path / "shake_s456_fail",
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+        v2_parity_envs=2,
+        v2_parity_ticks=2,
+    )
+    assert res_fail["ok"] is False
+    assert "phase_3_seed_isolation_audit" in res_fail["failed_phases"]
+    assert "phase_7_devicesim_v2_parity" in res_fail["failed_phases"]
+
 
 
