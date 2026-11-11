@@ -878,9 +878,7 @@ def _compute_release_area_active_lanes(
             include_self=True,
         )
         hi = head_pos[..., 1].clamp(0, h - 1) * w + head_pos[..., 0].clamp(0, w - 1)
-        rel_map.scatter_(
-            2, hi[..., None], torch.zeros((ns, 6, 1), dtype=torch.long, device=device)
-        )
+        rel_map.scatter_(2, hi[..., None], torch.zeros((ns, 6, 1), dtype=torch.long, device=device))
         hp_eff = (
             torch.where(act_mask[..., None], head_pos, torch.full_like(head_pos, -1))
             if act_mask is not None
@@ -1121,9 +1119,7 @@ def fast_v8_decide(
     legal = torch.where(legal.any(1, keepdim=True), legal, torch.arange(6, device=device)[None] < 3)
     actions6 = torch.arange(6, device=device)[None].expand(n, -1)
 
-    head_pos, first_pos, lpost, boosted = _post_geom_with_table(
-        sim, env, slot, actions6, heads, r2
-    )
+    head_pos, first_pos, lpost, boosted = _post_geom_with_table(sim, env, slot, actions6, heads, r2)
 
     boost3 = boosted[:, 3:]
     land_col_mask = (boost3 & legal[:, 3:] & spacious) if _only_action else boost3
@@ -1216,12 +1212,7 @@ def fast_v8_decide(
     path_valid = (
         torch.arange(2, device=device)[None, None, :] < torch.where(boosted, 2, 1)[:, :, None]
     )
-    if (
-        slot_layout == "opp_slot_major"
-        and e_sim > 0
-        and s_sim > 1
-        and n == e_sim * (s_sim - 1)
-    ):
+    if slot_layout == "opp_slot_major" and e_sim > 0 and s_sim > 1 and n == e_sim * (s_sim - 1):
         s_opp = s_sim - 1
         reach_w, rvalid_w_base, bound_w = _world_opp_reach(sim, r2)
         opp_mask = (
@@ -1257,9 +1248,9 @@ def fast_v8_decide(
         reach = reach_w[env]
         rvalid = rvalid_w_base[env] & opp[:, :, None]
         bound = bound_w[env]
-        equal = (paths[:, :, :, None, None, :] == reach[:, None, None, :, :, :]).all(
-            -1
-        ) & rvalid[:, None, None]
+        equal = (paths[:, :, :, None, None, :] == reach[:, None, None, :, :, :]).all(-1) & rvalid[
+            :, None, None
+        ]
         bmax_point = torch.where(
             equal, bound[:, None, None], torch.full_like(bound[:, None, None], -1)
         ).amax(dim=(-1, -2))
@@ -1778,6 +1769,10 @@ def concat_sims_and_policies(
     """Concatenate multiple ``(sim, policy)`` snapshots along world dimension ``dim=0``."""
     if not sims or len(sims) != len(policies):
         raise ValueError("sims and policies must be non-empty sequences of equal length")
+    if len({p.vector_runtime is None for p in policies}) > 1:
+        raise ValueError(
+            "concat_sims_and_policies requires all policies to either have vector_runtime or None"
+        )
     target_dev = normalize_device(sims[0].device)
     if len(sims) == 1:
         out_sim = sims[0].clone()
@@ -1960,9 +1955,9 @@ def evaluate_terminal_openness_device(sim: DeviceSim) -> dict[str, torch.Tensor]
             ttl_grid = ttl_flat.to(torch.long).reshape(e_count, int(sim.S), h, w)
         else:
             ttl_grid = _ttl_by_owner(sim)
-        reg_a = ego_device._component_sizes(
-            sim, hero_rows.index_select(0, adv_rows), ttl_grid
-        ).to(torch.long)
+        reg_a = ego_device._component_sizes(sim, hero_rows.index_select(0, adv_rows), ttl_grid).to(
+            torch.long
+        )
         dir_idx = torch.tensor([0, 1, 2, 0, 1, 2], device=device, dtype=torch.long)
         reg_actions_a = reg_a.index_select(1, dir_idx)
         legal_reg_a = torch.where(

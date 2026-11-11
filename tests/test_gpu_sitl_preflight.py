@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import pytest
 
 from research.bl_served_search import ceiling
 from research.devicesim_v2_parity.harness import prepare_cpu_policy_phase
@@ -596,13 +597,20 @@ def test_review_preflight_findings_pf1_pf2_pf4_pf5_pf6_pf7_pf8(
     )
     assert [3, 3, 3, 3, 3, 3] not in seen_serp_lengths
     assert b1a_sum["verdict"] == "PASS"
-    assert b1a_sum["bar_checks"]["long_hero_min_length_ge_800"] is True
-    assert b1a_sum["bar_checks"]["wavefront_24certs_exact_agree"] is True
+    assert b1a_sum["integrity_pass"] is True
+    assert set(b1a_sum["bar_checks"]) == {
+        "natural_agreement_ge_99pct",
+        "combined_agreement_ge_99pct",
+        "all_gradients_finite",
+    }
+    assert b1a_sum["integrity_checks"]["long_hero_min_length_ge_800"] is True
+    assert b1a_sum["integrity_checks"]["wavefront_24certs_exact_agree"] is True
     b1a_gz = b1a_dir / "gpu_sitl_preflight_certificates_20261109.json.gz"
     assert Path(f"{b1a_gz}.complete").is_file()
     assert struct.unpack("<I", b1a_gz.read_bytes()[4:8])[0] == 0
 
-    # PF5 + PF1: if long-hero length drops below 800, verdict must be FAIL and main() returns 1
+    # P3: if long-hero length drops below 800 while registered bars (>=99.0% + finite non-zero
+    # gradients) pass, verdict stays PASS (rc == 0) and integrity_pass reports False.
     monkeypatch.setattr(
         preflight_mod,
         "LONG_HERO_LENGTH_PROFILES",
@@ -613,6 +621,43 @@ def test_review_preflight_findings_pf1_pf2_pf4_pf5_pf6_pf7_pf8(
             [960, 96, 72, 56, 40, 28],
         ),
     )
+    b1a_diag_dir = tmp_path / "b1a_integrity_diag"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "preflight.py",
+            "--mode",
+            "b1a",
+            "--out-dir",
+            str(b1a_diag_dir),
+            "--natural-ticks",
+            "1",
+            "--long-hero-ticks",
+            "1",
+            "--branch-horizon",
+            "1",
+        ],
+    )
+    rc_diag = preflight_mod.main()
+    assert rc_diag == 0
+    diag_sum = json.loads(
+        (b1a_diag_dir / "gpu_sitl_preflight_summary_20261109.json").read_text(encoding="utf-8")
+    )
+    assert diag_sum["verdict"] == "PASS"
+    assert diag_sum["integrity_pass"] is False
+    assert diag_sum["integrity_checks"]["long_hero_min_length_ge_800"] is False
+
+    # PF5: when a registered Step B1a bar fails (e.g. non-finite/zero trainable grad), verdict is
+    # FAIL and main() returns 1.
+    orig_grad_check = preflight_mod.margin_loss_gradient_check
+
+    def _failing_grad_check(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        rep = dict(orig_grad_check(*args, **kwargs))
+        rep["all_non_value_grads_finite_and_nonzero"] = False
+        return rep
+
+    monkeypatch.setattr(preflight_mod, "margin_loss_gradient_check", _failing_grad_check)
     b1a_fail_dir = tmp_path / "b1a_fail"
     monkeypatch.setattr(
         sys,
@@ -637,4 +682,127 @@ def test_review_preflight_findings_pf1_pf2_pf4_pf5_pf6_pf7_pf8(
         (b1a_fail_dir / "gpu_sitl_preflight_summary_20261109.json").read_text(encoding="utf-8")
     )
     assert fail_sum["verdict"] == "FAIL"
-    assert fail_sum["bar_checks"]["long_hero_min_length_ge_800"] is False
+    assert fail_sum["bar_checks"]["all_gradients_finite"] is False
+
+
+def test_opus_p3_and_p4_verdicts_use_only_registered_bars(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """P3 & P4: B1a and B1a-ext verdicts gate only on registered bars; extras are integrity."""
+    import json
+    import sys
+
+    import research.gpu_sitl.preflight as preflight_mod
+
+    # P3: Wavefront 23/24 mismatch with >=99.0% natural & combined agreement + finite non-zero grads
+    # must yield verdict == "PASS" (exit 0) and integrity_pass == False.
+    orig_batched_os = preflight_mod.batched_open_stop_h32
+
+    def _wavefront_one_flip(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        out = orig_batched_os(*args, **kwargs)
+        if kwargs.get("cpu_fast_flood") is False and out.get("roots"):
+            roots_copy = [dict(r) for r in out["roots"]]
+            r0 = dict(roots_copy[0])
+            outcomes0 = {int(k): dict(v) for k, v in r0["all_outcomes"].items()}
+            outcomes0[0]["certified"] = not bool(outcomes0[0]["certified"])
+            r0["all_outcomes"] = outcomes0
+            roots_copy[0] = r0
+            out = {**out, "roots": roots_copy}
+        return out
+
+    monkeypatch.setattr(preflight_mod, "batched_open_stop_h32", _wavefront_one_flip)
+    p3_dir = tmp_path / "p3_wavefront_23_of_24"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "preflight.py",
+            "--mode",
+            "b1a",
+            "--out-dir",
+            str(p3_dir),
+            "--natural-ticks",
+            "1",
+            "--long-hero-ticks",
+            "1",
+            "--branch-horizon",
+            "1",
+        ],
+    )
+    rc_p3 = preflight_mod.main()
+    assert rc_p3 == 0
+    p3_sum = json.loads(
+        (p3_dir / "gpu_sitl_preflight_summary_20261109.json").read_text(encoding="utf-8")
+    )
+    assert p3_sum["verdict"] == "PASS"
+    assert p3_sum["bar_checks"] == {
+        "natural_agreement_ge_99pct": True,
+        "combined_agreement_ge_99pct": True,
+        "all_gradients_finite": True,
+    }
+    assert p3_sum["integrity_pass"] is False
+    assert p3_sum["integrity_checks"]["wavefront_24certs_exact_agree"] is False
+    assert (
+        p3_sum["throughput"]["pure_torch_wavefront_4roots_24certs_sample"]["agreed_certificates"]
+        == 23
+    )
+    monkeypatch.setattr(preflight_mod, "batched_open_stop_h32", orig_batched_os)
+
+    # P4: B1a-ext finalize where each per-field exact-int rate >= 0.98 (189/192 = 0.984375)
+    # while joint all_three_rate < 0.98 (183/192 = 0.953125) must PASS verdict and report
+    # joint all_three_rate under integrity_checks (integrity_pass == False).
+    one_spec = preflight_mod.MATURE_EXTENSION_SPECS[:1]
+    monkeypatch.setattr(preflight_mod, "MATURE_EXTENSION_SPECS", one_spec)
+    monkeypatch.setattr(
+        preflight_mod,
+        "EXTENSION_MATURE_WORLD_INDICES",
+        tuple(int(s["world_index"]) for s in one_spec),
+    )
+    monkeypatch.setattr(preflight_mod, "EXT_MIN_SURVIVING_ENCLOSED", 0)
+    monkeypatch.setattr(preflight_mod, "EXT_MIN_NEAR_THRESHOLD_SURVIVING", 0)
+    monkeypatch.setattr(preflight_mod, "EXT_MIN_RESCUE_ROOTS", 0)
+
+    orig_eval_comp = preflight_mod.evaluate_cpu_cohort_reference
+
+    def _fast_comp(*a: Any, **kw: Any) -> tuple[Any, dict[str, Any], float]:
+        roots_c, comp_c, wall_c = orig_eval_comp(*a, **kw)
+        comp_c = {**comp_c, "composition_bars_met": True}
+        return roots_c, comp_c, wall_c
+
+    monkeypatch.setattr(preflight_mod, "evaluate_cpu_cohort_reference", _fast_comp)
+    ext_dir = tmp_path / "p4_ext"
+    preflight_mod.freeze_mature_cohort_cpu(out_dir=ext_dir, branch_horizon=1)
+    preflight_mod.run_extension_shard(out_dir=ext_dir, shard_start=0, shard_end=1, branch_horizon=1)
+
+    orig_sum_agree = preflight_mod.summarize_agreement
+
+    def _fake_ext_summary(
+        cert_rows: list[dict[str, Any]], root_rows: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        base = dict(orig_sum_agree(cert_rows, root_rows))
+        per_field = 189.0 / 192.0  # 0.984375 >= 0.98
+        joint = 183.0 / 192.0  # 0.953125 < 0.98
+        int_block = {
+            "denominator": 192,
+            "length_rate": per_field,
+            "v8_best_safe_area_rate": per_field,
+            "max_pocket_r_rate": per_field,
+            "all_three_rate": joint,
+        }
+        base["certificates_total"] = 192
+        base["agreed_certificates"] = 192
+        base["roots_total"] = 32
+        base["roots_chosen_agreed"] = 32
+        base["exact_int_surviving_branches"] = dict(int_block)
+        base["exact_int_all_certificates"] = dict(int_block)
+        return base
+
+    monkeypatch.setattr(preflight_mod, "summarize_agreement", _fake_ext_summary)
+    p4_sum = preflight_mod.finalize_extension_preflight(out_dir=ext_dir)
+    assert p4_sum["verdict"] == "PASS"
+    assert p4_sum["bar_checks"]["part1_matched_rng_exact_int_ge_98pct"] is True
+    assert "seed_audit_ok" not in p4_sum["bar_checks"]
+    assert p4_sum["integrity_pass"] is False
+    assert p4_sum["integrity_checks"]["part1_matched_rng_surviving_all_three_ge_98pct"] is False
+    assert p4_sum["integrity_checks"]["part1_matched_rng_all_certs_all_three_ge_98pct"] is False

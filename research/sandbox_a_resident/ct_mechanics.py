@@ -943,9 +943,9 @@ class CTDeviceSim(TrainingDeviceSim):
                         eq_rem = (trav_rem[:, :, :, None, :] == fc_rem[:, None, None, :, :]).all(
                             dim=-1
                         )
-                        poss_rem = (
-                            eq_rem & fp_rem[:, None, None, :] & tval_rem[..., None]
-                        ).any(dim=(2, 3)) & self.alive.index_select(0, eat_rows)[:, slot + 1 :]
+                        poss_rem = (eq_rem & fp_rem[:, None, None, :] & tval_rem[..., None]).any(
+                            dim=(2, 3)
+                        ) & self.alive.index_select(0, eat_rows)[:, slot + 1 :]
                         possible[eat_rows, slot + 1 :] = poss_rem
                         rem_flags = possible[:, slot + 1 :].any(dim=0).tolist()
                         for k_off, flg in enumerate(rem_flags):
@@ -997,17 +997,15 @@ class CTDeviceSim(TrainingDeviceSim):
             if m_died > 0:
                 died_sub = died if m_died == self.E else died.index_select(0, died_rows)
                 seg_sub = (
-                    self.seg_count if m_died == self.E else self.seg_count.index_select(0, died_rows)
+                    self.seg_count
+                    if m_died == self.E
+                    else self.seg_count.index_select(0, died_rows)
                 )
                 c_span = min(
                     int(self.cap),
                     max(
                         1,
-                        int(
-                            torch.where(died_sub, seg_sub, torch.zeros_like(seg_sub))
-                            .max()
-                            .item()
-                        ),
+                        int(torch.where(died_sub, seg_sub, torch.zeros_like(seg_sub)).max().item()),
                     ),
                 )
                 if body is None or int(body.shape[2]) < c_span:

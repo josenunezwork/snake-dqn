@@ -562,6 +562,7 @@ def harvest_probe32_bank(
     harvest_batch_roots: int = 256,
     checkpoint_every_seconds: float = 900.0,
     resume_ckpt_path: Path | str | None = None,
+    resume_ckpt_expected_sha256: str | None = None,
     cpu_fast_flood: bool = True,
     dry_run: bool = False,
     shakeout: bool = False,
@@ -667,11 +668,33 @@ def harvest_probe32_bank(
     active_resume_ckpt = (
         Path(resume_ckpt_path) if resume_ckpt_path is not None else default_ckpt_path
     )
-    if active_resume_ckpt.is_file() and Path(f"{active_resume_ckpt}.sha256").is_file():
-        verify_file_sha256(
-            active_resume_ckpt,
-            require_complete=Path(f"{active_resume_ckpt}.complete").is_file(),
+    if resume_ckpt_path is not None and not active_resume_ckpt.is_file():
+        raise FileNotFoundError(
+            f"Probe harvest resume_ckpt_path does not exist: {active_resume_ckpt}"
         )
+    should_load_resume_ckpt = active_resume_ckpt.is_file() and (
+        resume_ckpt_path is not None
+        or resume_ckpt_expected_sha256 is not None
+        or Path(f"{active_resume_ckpt}.sha256").is_file()
+    )
+    if should_load_resume_ckpt:
+        if resume_ckpt_expected_sha256 is not None:
+            actual_resume_sha = sha256_file(active_resume_ckpt)
+            if actual_resume_sha != str(resume_ckpt_expected_sha256):
+                raise ValueError(
+                    f"Probe harvest checkpoint SHA256 mismatch at {active_resume_ckpt}: "
+                    f"expected {resume_ckpt_expected_sha256}, got {actual_resume_sha}"
+                )
+            if Path(f"{active_resume_ckpt}.sha256").is_file():
+                verify_file_sha256(
+                    active_resume_ckpt,
+                    require_complete=Path(f"{active_resume_ckpt}.complete").is_file(),
+                )
+        else:
+            verify_file_sha256(
+                active_resume_ckpt,
+                require_complete=Path(f"{active_resume_ckpt}.complete").is_file(),
+            )
         ckpt_payload = torch.load(active_resume_ckpt, map_location="cpu", weights_only=False)
         if ckpt_payload.get("namespace") != active_namespace:
             raise ValueError(

@@ -1076,6 +1076,7 @@ def run_sitl_training(
                 raise RuntimeError("Published probe32_bank SHA256 mismatch after staging")
 
     staged_harvest_ckpt: Path | None = None
+    staged_harvest_ckpt_sha: str | None = None
     if resume and not _has_complete_probe_bank():
         staged_hckpt_info = loaded_ledger.get("probe32_harvest_ckpt")
         if isinstance(staged_hckpt_info, dict) and staged_hckpt_info.get("relpath"):
@@ -1089,6 +1090,7 @@ def run_sitl_training(
             if sha256_file(cand_hckpt) != expected_h_sha:
                 raise ValueError("Staged probe32 harvest checkpoint SHA256 mismatch")
             staged_harvest_ckpt = cand_hckpt
+            staged_harvest_ckpt_sha = expected_h_sha
 
     signal_requested = {"stop": False}
 
@@ -1122,6 +1124,7 @@ def run_sitl_training(
                 pause_after_seconds=rem_pause,
                 should_pause_fn=lambda: bool(signal_requested["stop"]),
                 resume_ckpt_path=staged_harvest_ckpt,
+                resume_ckpt_expected_sha256=staged_harvest_ckpt_sha,
                 cpu_fast_flood=cpu_fast_flood,
                 dry_run=eff_dry_run,
                 shakeout=is_shakeout,
@@ -1139,7 +1142,7 @@ def run_sitl_training(
                 "unit_kind": "update",
                 "skip_verified": True,
                 "probe32_harvest_ckpt": {
-                    "relpath": Path(str(harvest_res["harvest_ckpt_path"])).name,
+                    "relpath": f"checkpoints/{Path(str(harvest_res['harvest_ckpt_path'])).name}",
                     "sha256": str(harvest_res["harvest_ckpt_sha256"]),
                     "size_bytes": int(harvest_res["harvest_ckpt_size_bytes"]),
                     "completed_tick": int(harvest_res["completed_tick"]),
@@ -1431,7 +1434,11 @@ def run_sitl_training(
     _write_verified_ledger(last_latest_ckpt_info, mark_complete=False)
 
     last_ckpt_wall = time.perf_counter()
-    last_ckpt_state: tuple[int, int] = (-1, -1)
+    last_ckpt_state: tuple[int, int] = (
+        (int(updates_completed), int(collection_steps))
+        if resumed_from_checkpoint is not None
+        else (-1, -1)
+    )
     paused_early = False
     prev_sigterm = signal.getsignal(signal.SIGTERM)
     prev_sigusr1 = signal.getsignal(signal.SIGUSR1) if hasattr(signal, "SIGUSR1") else None

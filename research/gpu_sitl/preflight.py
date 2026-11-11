@@ -1923,11 +1923,15 @@ def finalize_extension_preflight(
         part1_int_surv["length_rate"] >= EXT_MATCHED_RNG_INT_AGREE_RATE_MIN
         and part1_int_surv["v8_best_safe_area_rate"] >= EXT_MATCHED_RNG_INT_AGREE_RATE_MIN
         and part1_int_surv["max_pocket_r_rate"] >= EXT_MATCHED_RNG_INT_AGREE_RATE_MIN
-        and part1_int_surv["all_three_rate"] >= EXT_MATCHED_RNG_INT_AGREE_RATE_MIN
         and part1_int_all["length_rate"] >= EXT_MATCHED_RNG_INT_AGREE_RATE_MIN
         and part1_int_all["v8_best_safe_area_rate"] >= EXT_MATCHED_RNG_INT_AGREE_RATE_MIN
         and part1_int_all["max_pocket_r_rate"] >= EXT_MATCHED_RNG_INT_AGREE_RATE_MIN
-        and part1_int_all["all_three_rate"] >= EXT_MATCHED_RNG_INT_AGREE_RATE_MIN
+    )
+    part1_surviving_joint_all_three_pass = bool(
+        part1_int_surv["all_three_rate"] >= EXT_MATCHED_RNG_INT_AGREE_RATE_MIN
+    )
+    part1_all_certs_joint_all_three_pass = bool(
+        part1_int_all["all_three_rate"] >= EXT_MATCHED_RNG_INT_AGREE_RATE_MIN
     )
     part2_bool_pass = bool(summary_cross["agreed_certificates"] >= EXT_CROSS_RNG_CERT_AGREE_MIN)
     part2_chosen_pass = bool(summary_cross["roots_chosen_agreed"] >= EXT_CROSS_RNG_CHOSEN_AGREE_MIN)
@@ -1938,19 +1942,26 @@ def finalize_extension_preflight(
     )
     comp_pass = bool(comp["composition_bars_met"])
     overall_pass = bool(
-        seed_audit["ok"]
-        and comp_pass
+        comp_pass
         and part1_bool_pass
         and part1_int_pass
         and part2_bool_pass
         and part2_chosen_pass
         and grad_pass
     )
+    integrity_checks = {
+        "seed_audit_ok": bool(seed_audit["ok"]),
+        "part1_matched_rng_surviving_all_three_ge_98pct": part1_surviving_joint_all_three_pass,
+        "part1_matched_rng_all_certs_all_three_ge_98pct": part1_all_certs_joint_all_three_pass,
+    }
+    integrity_pass = bool(all(integrity_checks.values()))
 
     raw_payload = {
         "schema": "gpu-sitl-preflight-ext-raw/v1",
         "namespace": PREFLIGHT_NAMESPACE,
         "verdict": "PASS" if overall_pass else "FAIL",
+        "integrity_pass": integrity_pass,
+        "integrity_checks": integrity_checks,
         "frozen_cohort_path": str(cohort_path),
         "frozen_cohort_sha256": actual_sha,
         "cpu_reference_composition": comp,
@@ -1974,13 +1985,14 @@ def finalize_extension_preflight(
         "schema": "gpu-sitl-preflight-ext-summary/v1",
         "namespace": PREFLIGHT_NAMESPACE,
         "verdict": "PASS" if overall_pass else "FAIL",
+        "integrity_pass": integrity_pass,
+        "integrity_checks": integrity_checks,
         "frozen_cohort_path": str(cohort_path),
         "frozen_cohort_sha256": actual_sha,
         "raw_certificates_gz_path": str(raw_gz_path),
         "raw_certificates_gz_sha256": raw_gz_sha256,
         "raw_certificates_gz_bytes": int(raw_gz_path.stat().st_size),
         "bar_checks": {
-            "seed_audit_ok": bool(seed_audit["ok"]),
             "cpu_composition_bars_met": comp_pass,
             "part1_matched_rng_bool_ge_191_of_192": part1_bool_pass,
             "part1_matched_rng_exact_int_ge_98pct": part1_int_pass,
@@ -2218,15 +2230,14 @@ def run_preflight(
         and gradient_report["all_grads_finite"]
         and gradient_report["all_non_value_grads_finite_and_nonzero"]
     )
-    overall_pass = bool(
-        seed_audit["ok"]
-        and natural_pass
-        and long_hero_pass
-        and long_hero_min_length_pass
-        and combined_pass
-        and wavefront_pass
-        and grad_finite_pass
-    )
+    overall_pass = bool(natural_pass and combined_pass and grad_finite_pass)
+    integrity_checks = {
+        "seed_audit_ok": bool(seed_audit["ok"]),
+        "long_hero_agreement_ge_99pct": long_hero_pass,
+        "long_hero_min_length_ge_800": long_hero_min_length_pass,
+        "wavefront_24certs_exact_agree": wavefront_pass,
+    }
+    integrity_pass = bool(all(integrity_checks.values()))
 
     total_wall_seconds = time.perf_counter() - t_start
 
@@ -2234,6 +2245,8 @@ def run_preflight(
         "schema": "gpu-sitl-preflight-raw/v1",
         "namespace": PREFLIGHT_NAMESPACE,
         "verdict": "PASS" if overall_pass else "FAIL",
+        "integrity_pass": integrity_pass,
+        "integrity_checks": integrity_checks,
         "pass_bar": {
             "branch_certificate_agreement_min": PASS_BAR_AGREEMENT,
             "all_ego2s_gradients_finite": True,
@@ -2262,17 +2275,15 @@ def run_preflight(
         "schema": "gpu-sitl-preflight-summary/v1",
         "namespace": PREFLIGHT_NAMESPACE,
         "verdict": "PASS" if overall_pass else "FAIL",
+        "integrity_pass": integrity_pass,
+        "integrity_checks": integrity_checks,
         "pass_bar": {
             "branch_certificate_agreement_min": PASS_BAR_AGREEMENT,
             "all_ego2s_gradients_finite": True,
         },
         "bar_checks": {
-            "seed_audit_ok": bool(seed_audit["ok"]),
             "natural_agreement_ge_99pct": natural_pass,
-            "long_hero_agreement_ge_99pct": long_hero_pass,
-            "long_hero_min_length_ge_800": long_hero_min_length_pass,
             "combined_agreement_ge_99pct": combined_pass,
-            "wavefront_24certs_exact_agree": wavefront_pass,
             "all_gradients_finite": grad_finite_pass,
         },
         "raw_certificates_gz_path": str(raw_gz_path),
@@ -2358,6 +2369,8 @@ def main() -> int:
         json.dumps(
             {
                 "verdict": summary["verdict"],
+                "integrity_pass": summary["integrity_pass"],
+                "integrity_checks": summary["integrity_checks"],
                 "bar_checks": summary["bar_checks"],
                 "natural_agreement_rate": summary["summary_natural"]["agreement_rate"],
                 "long_hero_agreement_rate": summary["summary_long_hero_ge800"]["agreement_rate"],

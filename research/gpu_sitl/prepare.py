@@ -536,7 +536,7 @@ def prepare_b1b_packet(
     base_seconds: float | None = None,
     prior_output_dir: Path | str | None = None,
     attempt: str = "attempt-01",
-    allow_non_evidence_smoke: bool = True,
+    allow_non_evidence_smoke: bool = False,
 ) -> dict[str, Any]:
     """Prepare a Colab CLI packet for Step B1b-Smoke, Shakeout, or Pilot (no dispatch)."""
     if mode not in ("smoke", "shakeout", "pilot"):
@@ -766,10 +766,13 @@ def prepare_b1b_packet(
                     f"not_evidence={smoke_data.get('not_evidence')!r})"
                 )
             if not allow_non_evidence_smoke and (
-                bool(smoke_data.get("dry_run")) or bool(smoke_data.get("non_registration_evidence"))
+                bool(smoke_data.get("dry_run"))
+                or bool(smoke_data.get("non_registration_evidence"))
+                or smoke_data.get("evidence_class") != "REGISTERED_STEP_B1B_SMOKE_EVIDENCE"
             ):
                 raise ValueError(
-                    f"Refusing dry_run / non-evidence smoke result {smoke_res_path} for --mode pilot"
+                    f"Refusing dry_run / non-evidence smoke result {smoke_res_path} "
+                    "for --mode pilot"
                 )
             verify_file_sha256(smoke_res_path, require_complete=True)
             if not bool((smoke_data.get("parity_check") or {}).get("ok")):

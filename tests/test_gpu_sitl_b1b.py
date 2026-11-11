@@ -684,6 +684,7 @@ def test_step_b1b_smoke_parity_and_prepare_packets(tmp_path: Path) -> None:
         opponent_checkpoint=opp_path,
         smoke_result_json=smoke_res["result_json_path"],
         attempt="test-01",
+        allow_non_evidence_smoke=True,
     )
     manifest_pilot = json.loads(Path(info_pilot["manifest_path"]).read_text(encoding="utf-8"))
     assert "resume_exemption" not in manifest_pilot
@@ -1630,6 +1631,7 @@ def test_b3_canary_check_accepts_pilot_manifest_against_smoke_receipt(
             smoke_result_json=smoke_res["result_json_path"],
             canary_receipt=rcpt_file,
             attempt=f"pilot-{hw_kind.lower()}-01",
+            allow_non_evidence_smoke=True,
         )
         pilot_manifest = json.loads(Path(info_pilot["manifest_path"]).read_text(encoding="utf-8"))
         assert pilot_manifest["requirements"]["gpu"] == hw_kind
@@ -5282,7 +5284,11 @@ def test_a2_fast_label_search_and_suffix_batching_bit_identical_cpu_and_mps() ->
                 assert torch.equal(vb, vs), f"suffix {k}"
             elif isinstance(vb, dict):
                 for sk in vb:
-                    assert torch.equal(vb[sk], vs[sk]) if isinstance(vb[sk], torch.Tensor) else vb[sk] == vs[sk]
+                    assert (
+                        torch.equal(vb[sk], vs[sk])
+                        if isinstance(vb[sk], torch.Tensor)
+                        else vb[sk] == vs[sk]
+                    )
             else:
                 assert vb == vs
 
@@ -5445,4 +5451,311 @@ def test_opus_s4_s5_s6_shakeout_v2_parity_b1b_seed_audit_and_truthful_untouched_
     assert "phase_7_devicesim_v2_parity" in res_fail["failed_phases"]
 
 
+def test_opus_p2_and_safe_oneline_minors(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """P2 harvest resume without sidecars + 5 clearly safe one-line MINOR fixes."""
+    import shutil
 
+    import research.gpu_sitl.open_stop_gpu as osg
+    import research.gpu_sitl.probe_bank as pb_mod
+    import research.gpu_sitl.train_sitl as ts
+    from research.gpu_sitl.prepare import prepare_b1b_packet
+    from research.gpu_sitl.probe_bank import (
+        build_watch6_ct_device_bundle,
+        harvest_probe32_bank,
+        load_probe32_bank,
+        write_atomic_with_sha256,
+    )
+    from research.gpu_sitl.smoke import run_step_b1b_smoke
+
+    b8_path, opp_path = resolve_product_checkpoints()
+
+    # 1. P2: missing explicit resume_ckpt_path must raise FileNotFoundError (never restart tick 0).
+    with pytest.raises(FileNotFoundError, match="resume_ckpt_path"):
+        harvest_probe32_bank(
+            tmp_path / "pb_missing_resume.pt",
+            b8_checkpoint=b8_path,
+            opponent_checkpoint=opp_path,
+            device="cpu",
+            num_worlds=2,
+            horizon=4,
+            branch_horizon=1,
+            ordinary_per_world=2,
+            resume_ckpt_path=tmp_path / "does_not_exist.ckpt.pt",
+            dry_run=True,
+        )
+
+    # 2. P2 + MINOR 1 (train_sitl.py:1142 checkpoints/ relpath):
+    # Pause run_sitl_training mid-harvest after 2 ticks, then resume BOTH:
+    # (a) in-place in the same out_dir (relies on checkpoints/ prefix in relpath), and
+    # (b) staged into a Colab-style input_dir with NO .sha256/.complete sidecars next to payload!
+    orig_harvest = ts.harvest_probe32_bank
+    seen_harvest_calls: list[dict[str, Any]] = []
+
+    def _pause_first_harvest(out_p: Any, **kwargs: Any) -> dict[str, Any]:
+        call_rec: dict[str, Any] = {
+            "resume_ckpt_path": kwargs.get("resume_ckpt_path"),
+            "resume_ckpt_expected_sha256": kwargs.get("resume_ckpt_expected_sha256"),
+        }
+        seen_harvest_calls.append(call_rec)
+        if len(seen_harvest_calls) == 1:
+            tick_counter = {"n": 0}
+            orig_step = pb_mod.CTDeviceSim.step
+
+            def _counting_step(self_sim: Any, actions: Any) -> Any:
+                if int(self_sim.E) == 2:
+                    tick_counter["n"] += 1
+                return orig_step(self_sim, actions)
+
+            monkeypatch.setattr(pb_mod.CTDeviceSim, "step", _counting_step)
+            kwargs["should_pause_fn"] = lambda: tick_counter["n"] >= 2
+            try:
+                return orig_harvest(out_p, **kwargs)
+            finally:
+                monkeypatch.setattr(pb_mod.CTDeviceSim, "step", orig_step)
+        return orig_harvest(out_p, **kwargs)
+
+    monkeypatch.setattr(ts, "harvest_probe32_bank", _pause_first_harvest)
+
+    h_pause_dir = tmp_path / "harvest_pause_attempt1"
+    h_pause_res = run_sitl_training(
+        h_pause_dir,
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+        num_envs=2,
+        total_updates=1,
+        warmup_rescue_roots=1,
+        min_unique_rescue_roots=1,
+        rescue_batch_size=2,
+        ordinary_batch_size=2,
+        ordinary_uniform_half=1,
+        ordinary_hard_neg_half=1,
+        branch_horizon=1,
+        stop_after_collection_steps=1,
+        dry_run=True,
+    )
+    assert h_pause_res["status"] == "PAUSED_FOR_RESUME"
+    assert h_pause_res["phase"] == "probe32_harvest"
+    assert int(h_pause_res["completed_tick"]) == 2
+    pause_ledger = json.loads((h_pause_dir / "verified-ledger.json").read_text(encoding="utf-8"))
+    # MINOR 1: relpath includes checkpoints/
+    assert str(pause_ledger["probe32_harvest_ckpt"]["relpath"]).startswith("checkpoints/")
+
+    # Copy paused attempt1 dir to test in-place resume via checkpoints/... relpath (remove default
+    # root probe32_bank.pt.ckpt.pt so ONLY staged_harvest_ckpt from checkpoints/ can be used).
+    inplace_dir = tmp_path / "harvest_pause_inplace"
+    shutil.copytree(h_pause_dir, inplace_dir)
+    for p_def in inplace_dir.glob("probe32_bank.pt.ckpt.pt*"):
+        p_def.unlink()
+
+    step_ticks_inplace = {"n": 0}
+    orig_ct_step = pb_mod.CTDeviceSim.step
+
+    def _count_env2_steps_inplace(self_sim: Any, actions: Any) -> Any:
+        if int(self_sim.E) == 2:
+            step_ticks_inplace["n"] += 1
+        return orig_ct_step(self_sim, actions)
+
+    monkeypatch.setattr(pb_mod.CTDeviceSim, "step", _count_env2_steps_inplace)
+    res_inplace = run_sitl_training(
+        inplace_dir,
+        resume=True,
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+        num_envs=2,
+        total_updates=1,
+        warmup_rescue_roots=1,
+        min_unique_rescue_roots=1,
+        rescue_batch_size=2,
+        ordinary_batch_size=2,
+        ordinary_uniform_half=1,
+        ordinary_hard_neg_half=1,
+        branch_horizon=1,
+        stop_after_collection_steps=1,
+        dry_run=True,
+    )
+    monkeypatch.setattr(pb_mod.CTDeviceSim, "step", orig_ct_step)
+    assert (inplace_dir / "probe32_bank.pt.complete").is_file()
+    # Horizon in dry_run is 6; paused at tick 2 -> 4 harvest steps + 1 train step == 5 (not 7)
+    assert step_ticks_inplace["n"] == 5
+    assert res_inplace["status"] == "PAUSED_FOR_RESUME"
+
+    # P2 Colab-staged simulation: stage attempt1 into pkt_h_retry, then copy ONLY raw payloads
+    # (NO .sha256 or .complete sidecars!) into colab_uploaded_inputs, matching Colab CLI upload.
+    pkt_h_retry = tmp_path / "pkt_harvest_retry"
+    prepare_b1b_packet(
+        pkt_h_retry,
+        commit="origin/main",
+        mode="pilot",
+        output_dir=tmp_path / "harvest_attempt2_out",
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        base_seconds=600.0,
+        prior_output_dir=h_pause_dir,
+        attempt="pilot-h-02",
+    )
+    colab_in_dir = tmp_path / "colab_uploaded_inputs"
+    colab_in_dir.mkdir(parents=True)
+    for src_in in (pkt_h_retry / "inputs").iterdir():
+        if src_in.name.endswith(".sha256") or src_in.name.endswith(".complete"):
+            continue
+        shutil.copyfile(src_in, colab_in_dir / src_in.name)
+    assert (colab_in_dir / "probe32_bank.pt.ckpt.pt").is_file()
+    assert not (colab_in_dir / "probe32_bank.pt.ckpt.pt.sha256").exists()
+
+    # Tampered expected SHA on sidecar-less checkpoint must raise ValueError
+    with pytest.raises(ValueError, match="SHA256 mismatch"):
+        harvest_probe32_bank(
+            tmp_path / "pb_bad_expected_sha.pt",
+            b8_checkpoint=b8_path,
+            opponent_checkpoint=opp_path,
+            device="cpu",
+            num_worlds=2,
+            horizon=6,
+            branch_horizon=1,
+            ordinary_per_world=4,
+            resume_ckpt_path=colab_in_dir / "probe32_bank.pt.ckpt.pt",
+            resume_ckpt_expected_sha256="0" * 64,
+            dry_run=True,
+        )
+
+    step_ticks_staged = {"n": 0}
+
+    def _count_env2_steps_staged(self_sim: Any, actions: Any) -> Any:
+        if int(self_sim.E) == 2:
+            step_ticks_staged["n"] += 1
+        return orig_ct_step(self_sim, actions)
+
+    monkeypatch.setattr(pb_mod.CTDeviceSim, "step", _count_env2_steps_staged)
+    h_attempt2_out = tmp_path / "harvest_attempt2_out"
+    run_sitl_training(
+        h_attempt2_out,
+        input_dir=colab_in_dir,
+        ledger_path=colab_in_dir / "verified-ledger.json",
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+        num_envs=2,
+        total_updates=1,
+        warmup_rescue_roots=1,
+        min_unique_rescue_roots=1,
+        rescue_batch_size=2,
+        ordinary_batch_size=2,
+        ordinary_uniform_half=1,
+        ordinary_hard_neg_half=1,
+        branch_horizon=1,
+        stop_after_collection_steps=1,
+        dry_run=True,
+    )
+    monkeypatch.setattr(pb_mod.CTDeviceSim, "step", orig_ct_step)
+    monkeypatch.setattr(ts, "harvest_probe32_bank", orig_harvest)
+    assert (
+        step_ticks_staged["n"] == 5
+    )  # resumed from tick 2 (4 harvest ticks + 1 train step), NOT 7!
+
+    # Verify resumed Probe32 bank matches uninterrupted harvest bit-for-bit
+    pb_uninterrupted = tmp_path / "pb_uninterrupted_ref.pt"
+    harvest_probe32_bank(
+        pb_uninterrupted,
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+        num_worlds=2,
+        horizon=6,
+        branch_horizon=1,
+        ordinary_per_world=4,
+        harvest_batch_roots=4,
+        dry_run=True,
+    )
+    bank_resumed = load_probe32_bank(h_attempt2_out / "probe32_bank.pt")
+    bank_ref = load_probe32_bank(pb_uninterrupted)
+    for k, v in bank_ref["ordinary"].items():
+        if isinstance(v, torch.Tensor):
+            assert torch.equal(bank_resumed["ordinary"][k], v), f"ordinary.{k} mismatch"
+
+    # 3. MINOR 2 (train_sitl.py:1434): immediate pause after resume must NOT write a duplicate
+    # checkpoint at the already-checkpointed (updates_completed, collection_steps) state.
+    ckpts_before = sorted((h_attempt2_out / "checkpoints").glob("sitl_state_*.pt"))
+    assert len(ckpts_before) == 1
+    immediate_pause_res = run_sitl_training(
+        h_attempt2_out,
+        resume=True,
+        pause_after_seconds=0.0,
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+        num_envs=2,
+        total_updates=2,
+        warmup_rescue_roots=1,
+        min_unique_rescue_roots=1,
+        rescue_batch_size=2,
+        ordinary_batch_size=2,
+        ordinary_uniform_half=1,
+        ordinary_hard_neg_half=1,
+        branch_horizon=1,
+        dry_run=True,
+    )
+    assert immediate_pause_res["status"] == "PAUSED_FOR_RESUME"
+    ckpts_after = sorted((h_attempt2_out / "checkpoints").glob("sitl_state_*.pt"))
+    assert ckpts_after == ckpts_before
+
+    # 4. MINOR 3 (smoke.py:1332): num_envs=1 must NOT splice over the sole online row.
+    smoke_e1_dir = tmp_path / "smoke_e1"
+    smoke_e1 = run_step_b1b_smoke(
+        smoke_e1_dir,
+        b8_checkpoint=b8_path,
+        opponent_checkpoint=opp_path,
+        device="cpu",
+        num_envs=1,
+        branch_horizon=1,
+        parity_slice_indices=(0, 8),
+        bench_env_steps=1,
+        bench_label_batches=1,
+        bench_learner_updates=1,
+        dry_run=True,
+    )
+    assert smoke_e1["throughput"]["mature_spliced_worlds"] == 0
+
+    # 5. MINOR 4: concat_sims_and_policies rejects mixed vector_runtime=None vs non-None.
+    seeds2 = preflight_seeds((0, 1))
+    sim_a, pol_a = build_watch6_ct_device_bundle([seeds2[0]], b8_path, opp_path, device="cpu")
+    sim_b, pol_b = build_watch6_ct_device_bundle([seeds2[1]], b8_path, opp_path, device="cpu")
+    pol_b_none = pol_b.repeat_interleave(1)
+    pol_b_none.vector_runtime = None
+    with pytest.raises(ValueError, match="vector_runtime"):
+        osg.concat_sims_and_policies([sim_a, sim_b], [pol_a, pol_b_none])
+
+    # 6. MINOR 5 (prepare.py:539, 768): allow_non_evidence_smoke defaults to False AND requires
+    # evidence_class == "REGISTERED_STEP_B1B_SMOKE_EVIDENCE".
+    with pytest.raises(ValueError, match="non-evidence|dry_run"):
+        prepare_b1b_packet(
+            tmp_path / "pkt_default_rejects_dry_smoke",
+            commit="origin/main",
+            mode="pilot",
+            b8_checkpoint=b8_path,
+            opponent_checkpoint=opp_path,
+            smoke_result_json=smoke_e1["result_json_path"],
+        )
+    spoof_smoke_path = tmp_path / "spoof_smoke_result.json"
+    spoof_data = json.loads(Path(smoke_e1["result_json_path"]).read_text(encoding="utf-8"))
+    spoof_data["dry_run"] = False
+    spoof_data["non_registration_evidence"] = False
+    spoof_data["evidence_class"] = "CUSTOM_UNREGISTERED_CLASS"
+    write_atomic_with_sha256(
+        spoof_smoke_path,
+        lambda tmp: tmp.write_text(json.dumps(spoof_data, indent=2) + "\n", encoding="utf-8"),
+        write_complete_marker=True,
+    )
+    with pytest.raises(ValueError, match="non-evidence|dry_run"):
+        prepare_b1b_packet(
+            tmp_path / "pkt_rejects_bad_evidence_class",
+            commit="origin/main",
+            mode="pilot",
+            b8_checkpoint=b8_path,
+            opponent_checkpoint=opp_path,
+            smoke_result_json=spoof_smoke_path,
+        )

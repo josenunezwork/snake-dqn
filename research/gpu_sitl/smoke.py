@@ -1329,7 +1329,7 @@ def run_step_b1b_smoke(
             sim.step(policy.actions(sim, bare_w_act))
             policy.after_step(sim)
 
-    n_mature_splice = min(len(parity_slice_indices), max(1, int(num_envs) // 2))
+    n_mature_splice = min(len(parity_slice_indices), int(num_envs) // 2)
     splice_sim: CTDeviceSim | None = None
     splice_pol: Any = None
     label_world_seeds = [int(s) for s in world_seeds]
@@ -2189,7 +2189,9 @@ def _describe_resume_determinism_mismatch(
             diff_keys: list[str] = []
             for key in sorted(set(row_r.keys()) | set(row_u.keys())):
                 if row_r.get(key) != row_u.get(key):
-                    diff_keys.append(f"{key}: resumed={row_r.get(key)!r} vs unint={row_u.get(key)!r}")
+                    diff_keys.append(
+                        f"{key}: resumed={row_r.get(key)!r} vs unint={row_u.get(key)!r}"
+                    )
             shown = "; ".join(diff_keys[:4])
             first_update_diff = f"first_differing_update_index={idx} (update={upd_num}; {shown})"
             break
@@ -2230,13 +2232,12 @@ def _describe_resume_determinism_mismatch(
             elif t_r != t_u:
                 first_tensor_diff = f"first_differing_tensor={t_name} (non-tensor mismatch)"
                 break
-        if (
-            first_tensor_diff is None
-            and resumed_result.get("final_student_checkpoint_sha256")
-            != uninterrupted_result.get("final_student_checkpoint_sha256")
-        ):
+        if first_tensor_diff is None and resumed_result.get(
+            "final_student_checkpoint_sha256"
+        ) != uninterrupted_result.get("final_student_checkpoint_sha256"):
             first_tensor_diff = (
-                "first_differing_tensor=none_in_state_dict (checkpoint metadata/serialization differs)"
+                "first_differing_tensor=none_in_state_dict "
+                "(checkpoint metadata/serialization differs)"
             )
     parts.append(first_tensor_diff or "first_differing_tensor=none")
     return ", ".join(parts)
@@ -2954,7 +2955,10 @@ def main() -> int:
         "--enforce-projection-gate",
         action="store_true",
         default=None,
-        help="Fail shake-out if projected same-HW smoke wall time exceeds --target-same-hw-limit-sec.",
+        help=(
+            "Fail shake-out if projected same-HW smoke wall time exceeds "
+            "--target-same-hw-limit-sec."
+        ),
     )
     parser.add_argument(
         "--target-same-hw-limit-sec",
