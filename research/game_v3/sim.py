@@ -256,6 +256,11 @@ class GameV3Sim:
         self._resp_slot_x = resp_slots * 3
         self._resp_slot_y = resp_slots * 3 + 1
         self._resp_slot_t = resp_slots * 3 + 2
+        env_idx = torch.arange(self.E, dtype=torch.int64, device=self.device)[:, None]
+        self._env_base_1x = env_idx * (self.G * self.G)
+        self._env_base_4x = env_idx * (self.G4 * self.G4)
+        self._env_base_16x = env_idx * (self.G16 * self.G16)
+        self._occ_sentinel_idx = int(self.E * self.G * self.G)
 
         # Mutable simulation state tensors.
         es = (self.E, self.N)
@@ -289,18 +294,20 @@ class GameV3Sim:
         self.prev_length = torch.zeros(es, dtype=torch.int32, device=self.device)
 
         # Incremental occupancy grid: packed int32 = (seq << 6) | owner_id, -1 if never stamped.
-        self.occ_packed = torch.full(
-            (self.E, self.G, self.G), -1, dtype=torch.int32, device=self.device
+        # Backed by +1 trailing sentinel slot so disjoint index_put_ discards masked lanes in O(1).
+        self._occ_storage = torch.full(
+            (self.E * self.G * self.G + 1,), -1, dtype=torch.int32, device=self.device
         )
-        # Incremental food mass grids (1x, 4x, 16x).
+        self.occ_packed = self._occ_storage[:-1].view(self.E, self.G, self.G)
+        # Incremental food mass grids (1x, 4x, 16x) in int32 for native 32-bit GPU atomics.
         self.ambient_grid = torch.zeros(
-            (self.E, self.G, self.G), dtype=torch.int16, device=self.device
+            (self.E, self.G, self.G), dtype=torch.int32, device=self.device
         )
         self.ambient_grid_4x = torch.zeros(
-            (self.E, self.G4, self.G4), dtype=torch.int16, device=self.device
+            (self.E, self.G4, self.G4), dtype=torch.int32, device=self.device
         )
         self.ambient_grid_16x = torch.zeros(
-            (self.E, self.G16, self.G16), dtype=torch.int16, device=self.device
+            (self.E, self.G16, self.G16), dtype=torch.int32, device=self.device
         )
         self.corpse_grid = torch.zeros(
             (self.E, self.G, self.G), dtype=torch.int32, device=self.device
@@ -380,6 +387,8 @@ class GameV3Sim:
         r_sq: torch.Tensor,
         active: torch.Tensor,
         seq: int,
+        *,
+        disjoint: bool = False,
     ) -> None:
         """Stamp head discs of ``active`` snakes into ``occ_packed`` with ``(seq << 6) | id``."""
         sx = gx[:, :, None] + self._disc_dx[None, None, :]
@@ -393,8 +402,18 @@ class GameV3Sim:
             + sx.clamp(0, self.G - 1).to(torch.int64)
         ).reshape(self.E, -1)
         stamp_val = ((int(seq) << 6) | self._snake_ids)[:, :, None].expand_as(sx)
-        src = torch.where(valid, stamp_val, torch.full_like(stamp_val, -1)).reshape(self.E, -1)
 
+        if disjoint:
+            valid_flat = valid.reshape(self.E, -1)
+            global_idx = torch.where(
+                valid_flat, self._env_base_1x + flat_idx, self._occ_sentinel_idx
+            )
+            self._occ_storage.index_put_(
+                (global_idx.reshape(-1),), stamp_val.reshape(-1), accumulate=False
+            )
+            return
+
+        src = torch.where(valid, stamp_val, torch.full_like(stamp_val, -1)).reshape(self.E, -1)
         occ_flat = self.occ_packed.view(self.E, -1)
         occ_flat.scatter_reduce_(1, flat_idx, src, reduce="amax", include_self=True)
 
@@ -445,23 +464,26 @@ class GameV3Sim:
         rank = cand_valid.to(torch.int32).cumsum(dim=1) - 1
         accept = cand_valid & (rank < deficit[:, None])
 
-        pellet_i16 = int(self.cfg.ambient_pellet_value)
-        add_i16 = torch.where(
-            accept,
-            torch.full_like(amb_val, pellet_i16),
-            torch.zeros_like(amb_val),
+        pellet_i32 = int(self.cfg.ambient_pellet_value)
+        add_i32 = torch.where(accept, pellet_i32, 0).to(torch.int32)
+        add_flat = add_i32.reshape(-1)
+        self.ambient_grid.view(-1).index_put_(
+            ((self._env_base_1x + flat).reshape(-1),), add_flat, accumulate=True
         )
-        self.ambient_grid.view(self.E, -1).scatter_add_(1, flat, add_i16)
 
         flat4 = (gy_c >> 2) * self.G4 + (gx_c >> 2)
-        self.ambient_grid_4x.view(self.E, -1).scatter_add_(1, flat4, add_i16)
+        self.ambient_grid_4x.view(-1).index_put_(
+            ((self._env_base_4x + flat4).reshape(-1),), add_flat, accumulate=True
+        )
         flat16 = (gy_c >> 4) * self.G16 + (gx_c >> 4)
-        self.ambient_grid_16x.view(self.E, -1).scatter_add_(1, flat16, add_i16)
+        self.ambient_grid_16x.view(-1).index_put_(
+            ((self._env_base_16x + flat16).reshape(-1),), add_flat, accumulate=True
+        )
 
         added_count = accept.to(torch.int32).sum(dim=1)
         self.ambient_count = self.ambient_count + added_count
         self.total_spawned_ambient_mass = (
-            self.total_spawned_ambient_mass + added_count.to(torch.int64) * pellet_i16
+            self.total_spawned_ambient_mass + added_count.to(torch.int64) * pellet_i32
         )
 
     def reset(self, seeds: Sequence[int] | torch.Tensor | None = None) -> None:
@@ -815,7 +837,7 @@ class GameV3Sim:
         )
         self.boost_ticks = torch.where(died, torch.zeros_like(self.boost_ticks), self.boost_ticks)
 
-        self._stamp_discs(cand_gx, cand_gy, r_sq, survives, seq=seq)
+        self._stamp_discs(cand_gx, cand_gy, r_sq, survives, seq=seq, disjoint=True)
 
         if timed:
             self._sync_device()
@@ -831,38 +853,32 @@ class GameV3Sim:
 
         amb_flat = self.ambient_grid.view(self.E, -1)
         cor_flat = self.corpse_grid.view(self.E, -1)
-        eaten_amb = torch.where(
-            eat_mask_flat,
-            amb_flat.gather(1, flat_eat),
-            torch.zeros_like(eat_mask_flat, dtype=torch.int16),
-        )
-        eaten_cor = torch.where(
-            eat_mask_flat,
-            cor_flat.gather(1, flat_eat),
-            torch.zeros_like(eat_mask_flat, dtype=torch.int32),
-        )
+        eaten_amb = torch.where(eat_mask_flat, amb_flat.gather(1, flat_eat), 0)
+        eaten_cor = torch.where(eat_mask_flat, cor_flat.gather(1, flat_eat), 0)
 
-        # Surviving snakes' head discs are strictly pairwise disjoint, so scatter_add_ of
-        # -eaten clears each eaten cell exactly once with zero write conflicts.
-        amb_flat.scatter_add_(1, flat_eat, -eaten_amb)
-        cor_flat.scatter_add_(1, flat_eat, -eaten_cor)
+        neg_amb_1d = (-eaten_amb).reshape(-1)
+        self.ambient_grid.view(-1).index_put_(
+            ((self._env_base_1x + flat_eat).reshape(-1),), neg_amb_1d, accumulate=True
+        )
 
         hx4_k = hx_k.clamp(0, self.G - 1).to(torch.int64) >> 2
         hy4_k = hy_k.clamp(0, self.G - 1).to(torch.int64) >> 2
         flat4_eat = (hy4_k * self.G4 + hx4_k).view(self.E, -1)
-        self.ambient_grid_4x.view(self.E, -1).scatter_add_(1, flat4_eat, -eaten_amb)
-        self.corpse_grid_4x.view(self.E, -1).scatter_add_(1, flat4_eat, -eaten_cor)
+        self.ambient_grid_4x.view(-1).index_put_(
+            ((self._env_base_4x + flat4_eat).reshape(-1),), neg_amb_1d, accumulate=True
+        )
 
         hx16_k = hx_k.clamp(0, self.G - 1).to(torch.int64) >> 4
         hy16_k = hy_k.clamp(0, self.G - 1).to(torch.int64) >> 4
         flat16_eat = (hy16_k * self.G16 + hx16_k).view(self.E, -1)
-        self.ambient_grid_16x.view(self.E, -1).scatter_add_(1, flat16_eat, -eaten_amb)
-        self.corpse_grid_16x.view(self.E, -1).scatter_add_(1, flat16_eat, -eaten_cor)
+        self.ambient_grid_16x.view(-1).index_put_(
+            ((self._env_base_16x + flat16_eat).reshape(-1),), neg_amb_1d, accumulate=True
+        )
 
         eaten_amb_count = (eaten_amb > 0).to(torch.int32).sum(dim=1)
         self.ambient_count = self.ambient_count - eaten_amb_count
 
-        mass_eaten = (eaten_amb.view_as(hx_k).to(torch.int32) + eaten_cor.view_as(hx_k)).sum(dim=-1)
+        mass_eaten = (eaten_amb.view_as(hx_k) + eaten_cor.view_as(hx_k)).sum(dim=-1)
         uncapped_len = self.length + mass_eaten
         capped_len = uncapped_len.clamp_max(int(self.cfg.max_length))
         cap_overflow = (uncapped_len - capped_len).clamp_min(0)
@@ -871,30 +887,16 @@ class GameV3Sim:
         )
         self.length = torch.where(survives, capped_len, self.length)
 
-        # 4b. Drop shed boost trail pellets at pre-step tail cells.
+        # 4b. Shed boost trail pellets at pre-step tail cells.
         tail_gx_c = old_tail_gx.clamp(0, self.G - 1)
         tail_gy_c = old_tail_gy.clamp(0, self.G - 1)
         tail_flat = tail_gy_c * self.G + tail_gx_c
-        shed_val = torch.where(
-            shed,
-            torch.full(
-                (self.E, self.N),
-                int(self.cfg.boost_shed_mass),
-                dtype=torch.int32,
-                device=self.device,
-            ),
-            torch.zeros((self.E, self.N), dtype=torch.int32, device=self.device),
-        )
-        cor_flat.scatter_add_(1, tail_flat, shed_val)
-        self.corpse_grid_4x.view(self.E, -1).scatter_add_(
-            1, (tail_gy_c >> 2) * self.G4 + (tail_gx_c >> 2), shed_val
-        )
-        self.corpse_grid_16x.view(self.E, -1).scatter_add_(
-            1, (tail_gy_c >> 4) * self.G16 + (tail_gx_c >> 4), shed_val
-        )
+        tail_flat4 = (tail_gy_c >> 2) * self.G4 + (tail_gx_c >> 2)
+        tail_flat16 = (tail_gy_c >> 4) * self.G16 + (tail_gx_c >> 4)
+        shed_val = torch.where(shed, int(self.cfg.boost_shed_mass), 0).to(torch.int32)
 
         # 4c. Convert dying snakes into up to corpse_max_pellets orbs along their ring path.
-        dead_len = torch.where(died, self.length, torch.zeros_like(self.length))
+        dead_len = torch.where(died, self.length, 0)
         corpse_mass = self._corpse_mass_table[
             dead_len.clamp(0, self.cfg.max_length).to(torch.int64)
         ]
@@ -902,7 +904,7 @@ class GameV3Sim:
         self.total_corpse_Criteria_sink = self.total_corpse_Criteria_sink + corpse_sink.to(
             torch.int64
         ).sum(dim=1)
-        self.length = torch.where(died, torch.zeros_like(self.length), self.length)
+        self.length = torch.where(died, 0, self.length)
 
         p_cnt = torch.minimum(
             corpse_mass,
@@ -928,16 +930,26 @@ class GameV3Sim:
         orb_val = torch.where(
             active_orb,
             base_orb + (k_idx < rem_orb).to(torch.int32),
-            torch.zeros_like(active_orb, dtype=torch.int32),
+            0,
         ).reshape(self.E, -1)
+        orb_flat = (orb_gy * self.G + orb_gx).reshape(self.E, -1)
+        orb_flat4 = ((orb_gy >> 2) * self.G4 + (orb_gx >> 2)).reshape(self.E, -1)
+        orb_flat16 = ((orb_gy >> 4) * self.G16 + (orb_gx >> 4)).reshape(self.E, -1)
 
-        cor_flat.scatter_add_(1, (orb_gy * self.G + orb_gx).reshape(self.E, -1), orb_val)
-        self.corpse_grid_4x.view(self.E, -1).scatter_add_(
-            1, ((orb_gy >> 2) * self.G4 + (orb_gx >> 2)).reshape(self.E, -1), orb_val
-        )
-        self.corpse_grid_16x.view(self.E, -1).scatter_add_(
-            1, ((orb_gy >> 4) * self.G16 + (orb_gx >> 4)).reshape(self.E, -1), orb_val
-        )
+        # Single fused 1D atomic accumulation per corpse-grid scale (-eaten + shed + corpse orbs).
+        cor_delta_1d = torch.cat((-eaten_cor, shed_val, orb_val), dim=1).reshape(-1)
+        cor_idx_1x = (
+            self._env_base_1x + torch.cat((flat_eat, tail_flat, orb_flat), dim=1)
+        ).reshape(-1)
+        cor_idx_4x = (
+            self._env_base_4x + torch.cat((flat4_eat, tail_flat4, orb_flat4), dim=1)
+        ).reshape(-1)
+        cor_idx_16x = (
+            self._env_base_16x + torch.cat((flat16_eat, tail_flat16, orb_flat16), dim=1)
+        ).reshape(-1)
+        self.corpse_grid.view(-1).index_put_((cor_idx_1x,), cor_delta_1d, accumulate=True)
+        self.corpse_grid_4x.view(-1).index_put_((cor_idx_4x,), cor_delta_1d, accumulate=True)
+        self.corpse_grid_16x.view(-1).index_put_((cor_idx_16x,), cor_delta_1d, accumulate=True)
 
         # 4d. Refill ambient pellets toward target density.
         self._spawn_ambient_batch(
@@ -1028,7 +1040,7 @@ class GameV3Sim:
         )
 
         spawn_r_sq = self._r_sq_table[int(self.cfg.start_length)].expand(self.E, self.N)
-        self._stamp_discs(sel_gx, sel_gy, spawn_r_sq, spawn_now, seq=seq)
+        self._stamp_discs(sel_gx, sel_gy, spawn_r_sq, spawn_now, seq=seq, disjoint=True)
         self.total_spawned_snake_mass = self.total_spawned_snake_mass + spawn_now.to(
             torch.int64
         ).sum(dim=1) * int(self.cfg.start_length)

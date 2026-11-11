@@ -68,6 +68,7 @@ CH_ENEMY_SIZE_T1: int = 12
 
 NUM_RASTER_CHANNELS: int = 13
 NUM_SCALAR_FEATURES: int = 5
+OBS_ENV_CHUNK: int = 64
 
 
 @dataclass
@@ -150,7 +151,6 @@ def allocate_obs_batch(sim: GameV3Sim) -> ObservationBatch:
 
 
 def _splat_heads_torch(
-    dst_4ch: torch.Tensor,
     *,
     obs_alive: torch.Tensor,
     obs_pos: torch.Tensor,
@@ -165,9 +165,8 @@ def _splat_heads_torch(
     tril_nnn: torch.Tensor,
     scale: float,
     raster_size: int,
-) -> None:
-    """Project and splat 4 enemy head channels into ``dst_4ch`` ``(E, N, 4, S, S)``."""
-    dst_4ch.zero_()
+) -> torch.Tensor:
+    """Project and splat 4 contiguous enemy head channels ``(E_c, N, 4, S, S)``."""
     e_cnt, n_cnt = obs_alive.shape
     num_pix = raster_size * raster_size
     inv_s = float(np.float32(1.0 / scale))
@@ -212,23 +211,175 @@ def _splat_heads_torch(
     ego_dy = cos_j * cos_i + sin_j * sin_i
     sz_j = enemy_size_norm[:, None, :].expand_as(ego_dx)
 
-    zeros = torch.zeros_like(ego_dx)
-    ones = torch.ones_like(ego_dx)
+    src_4 = torch.stack(
+        (
+            keep.to(torch.float32),
+            torch.where(keep, ego_dx, 0.0),
+            torch.where(keep, ego_dy, 0.0),
+            torch.where(keep, sz_j, 0.0),
+        ),
+        dim=2,
+    ).view(e_cnt * n_cnt, 4, n_cnt)
+    pix_4 = pix.view(e_cnt * n_cnt, 1, n_cnt).expand(e_cnt * n_cnt, 4, n_cnt)
 
-    flat_dst = dst_4ch.view(e_cnt * n_cnt, 4, num_pix)
-    pix_flat = pix.view(e_cnt * n_cnt, n_cnt)
+    buf = torch.zeros((e_cnt * n_cnt, 4, num_pix), dtype=torch.float32, device=obs_pos.device)
+    buf.scatter_add_(2, pix_4, src_4)
+    return buf.view(e_cnt, n_cnt, 4, raster_size, raster_size)
 
-    flat_dst[:, 0, :].scatter_add_(
-        1, pix_flat, torch.where(keep, ones, zeros).view(e_cnt * n_cnt, n_cnt)
+
+def _fill_scale_raster_chunk_torch(
+    dst_c: torch.Tensor,
+    sim: GameV3Sim,
+    cache: _ObsStaticCache,
+    scale_idx: int,
+    e0: int,
+    e1: int,
+    sin_t0: torch.Tensor,
+    cos_t0: torch.Tensor,
+    size_norm_t0: torch.Tensor,
+    sin_t1: torch.Tensor,
+    cos_t1: torch.Tensor,
+    size_norm_t1: torch.Tensor,
+) -> None:
+    """Populate all 13 channels of world slice ``[e0:e1]`` for one scale raster in place."""
+    cfg = sim.cfg
+    e_cnt = e1 - e0
+    sz = cfg.obs_raster_size
+    num_pix = sz * sz
+    scale = cfg.obs_scales[scale_idx]
+
+    ego_x_1d = cache.ego_x_by_scale[scale_idx]
+    ego_y_1d = cache.ego_y_by_scale[scale_idx]
+
+    head_c = sim.head_pos[e0:e1]
+    alive_c = sim.alive[e0:e1]
+    prev_alive_c = sim.prev_alive[e0:e1]
+    prev_head_c = sim.prev_head_pos[e0:e1]
+    sin0_c = sin_t0[e0:e1]
+    cos0_c = cos_t0[e0:e1]
+    sin1_c = sin_t1[e0:e1]
+    cos1_c = cos_t1[e0:e1]
+
+    hx = head_c[:, :, 0]
+    hy = head_c[:, :, 1]
+    right_x = sin0_c
+    right_y = -cos0_c
+    fwd_x = cos0_c
+    fwd_y = sin0_c
+
+    wx_row = hx[:, :, None] + fwd_x[:, :, None] * ego_y_1d[None, None, :]
+    wx_col = right_x[:, :, None] * ego_x_1d[None, None, :]
+    wy_row = hy[:, :, None] + fwd_y[:, :, None] * ego_y_1d[None, None, :]
+    wy_col = right_y[:, :, None] * ego_x_1d[None, None, :]
+
+    wx = wx_row[:, :, :, None] + wx_col[:, :, None, :]
+    wy = wy_row[:, :, :, None] + wy_col[:, :, None, :]
+    del wx_row, wx_col, wy_row, wy_col
+
+    alive_mask = alive_c[:, :, None, None]
+    r_sq_world = float(np.float32(cfg.arena_radius * cfg.arena_radius))
+    ch_out = (alive_mask & ((wx * wx + wy * wy) >= r_sq_world)).to(torch.float32)
+
+    inv_c = float(np.float32(1.0 / cfg.cell_size))
+    gx = torch.floor(wx * inv_c).to(torch.int32) + sim.half_grid
+    gy = torch.floor(wy * inv_c).to(torch.int32) + sim.half_grid
+    del wx, wy
+    in_grid = alive_mask & (gx >= 0) & (gx < sim.G) & (gy >= 0) & (gy < sim.G)
+
+    gx_c = gx.clamp(0, sim.G - 1).to(torch.int64)
+    gy_c = gy.clamp(0, sim.G - 1).to(torch.int64)
+    del gx, gy
+    flat_1x = (gy_c * sim.G + gx_c).view(e_cnt, sim.N * num_pix)
+
+    occ_sample = sim.occ_packed[e0:e1].view(e_cnt, -1).gather(1, flat_1x).view(e_cnt, sim.N, sz, sz)
+    owner = occ_sample & 63
+    owner_tail = (
+        sim.tail_seq[e0:e1]
+        .gather(1, owner.clamp(0, sim.N - 1).to(torch.int64).view(e_cnt, -1))
+        .view(e_cnt, sim.N, sz, sz)
     )
-    flat_dst[:, 1, :].scatter_add_(
-        1, pix_flat, torch.where(keep, ego_dx, zeros).view(e_cnt * n_cnt, n_cnt)
+    occ_active = in_grid & (occ_sample >= 0) & ((occ_sample >> 6) >= owner_tail)
+    del occ_sample, owner_tail
+
+    own_id = sim._snake_ids[:, :, None, None]
+    ch_own = (occ_active & (owner == own_id)).to(torch.float32)
+    ch_enemy = (occ_active & (owner != own_id)).to(torch.float32)
+    del owner, occ_active
+
+    # Scale-matched block-summed food lookup.
+    if scale >= 16.0:
+        del flat_1x
+        flat_f = ((gy_c >> 4) * sim.G16 + (gx_c >> 4)).view(e_cnt, sim.N * num_pix)
+        del gx_c, gy_c
+        amb_raw = sim.ambient_grid_16x[e0:e1].view(e_cnt, -1).gather(1, flat_f)
+        cor_raw = sim.corpse_grid_16x[e0:e1].view(e_cnt, -1).gather(1, flat_f)
+        del flat_f
+    elif scale >= 4.0:
+        del flat_1x
+        flat_f = ((gy_c >> 2) * sim.G4 + (gx_c >> 2)).view(e_cnt, sim.N * num_pix)
+        del gx_c, gy_c
+        amb_raw = sim.ambient_grid_4x[e0:e1].view(e_cnt, -1).gather(1, flat_f)
+        cor_raw = sim.corpse_grid_4x[e0:e1].view(e_cnt, -1).gather(1, flat_f)
+        del flat_f
+    else:
+        del gx_c, gy_c
+        amb_raw = sim.ambient_grid[e0:e1].view(e_cnt, -1).gather(1, flat_1x)
+        cor_raw = sim.corpse_grid[e0:e1].view(e_cnt, -1).gather(1, flat_1x)
+        del flat_1x
+
+    amb_f = amb_raw.view(e_cnt, sim.N, sz, sz).to(torch.float32)
+    del amb_raw
+    ch_amb = torch.where(in_grid, amb_f / (1.0 + amb_f), 0.0)
+    del amb_f
+
+    cor_f = cor_raw.view(e_cnt, sim.N, sz, sz).to(torch.float32)
+    del cor_raw
+    ch_cor = torch.where(in_grid, cor_f / (1.0 + cor_f), 0.0)
+    del cor_f, in_grid
+
+    # 2-frame stack of enemy head channels: T0 (current) and T1 (previous tick).
+    heads_t0 = _splat_heads_torch(
+        obs_alive=alive_c,
+        obs_pos=head_c,
+        obs_sin=sin0_c,
+        obs_cos=cos0_c,
+        enemy_alive=alive_c,
+        enemy_pos=head_c,
+        enemy_sin=sin0_c,
+        enemy_cos=cos0_c,
+        enemy_size_norm=size_norm_t0[e0:e1],
+        not_eye=sim._not_eye_nn,
+        tril_nnn=cache.tril_nnn,
+        scale=scale,
+        raster_size=sz,
     )
-    flat_dst[:, 2, :].scatter_add_(
-        1, pix_flat, torch.where(keep, ego_dy, zeros).view(e_cnt * n_cnt, n_cnt)
+    heads_t1 = _splat_heads_torch(
+        obs_alive=alive_c & prev_alive_c,
+        obs_pos=prev_head_c,
+        obs_sin=sin1_c,
+        obs_cos=cos1_c,
+        enemy_alive=prev_alive_c,
+        enemy_pos=prev_head_c,
+        enemy_sin=sin1_c,
+        enemy_cos=cos1_c,
+        enemy_size_norm=size_norm_t1[e0:e1],
+        not_eye=sim._not_eye_nn,
+        tril_nnn=cache.tril_nnn,
+        scale=scale,
+        raster_size=sz,
     )
-    flat_dst[:, 3, :].scatter_add_(
-        1, pix_flat, torch.where(keep, sz_j, zeros).view(e_cnt * n_cnt, n_cnt)
+    torch.cat(
+        (
+            ch_own[:, :, None],
+            ch_enemy[:, :, None],
+            ch_amb[:, :, None],
+            ch_cor[:, :, None],
+            ch_out[:, :, None],
+            heads_t0,
+            heads_t1,
+        ),
+        dim=2,
+        out=dst_c,
     )
 
 
@@ -244,107 +395,23 @@ def _fill_scale_raster_torch(
     cos_t1: torch.Tensor,
     size_norm_t1: torch.Tensor,
 ) -> None:
-    """Populate all 13 channels of one scale raster ``(E, N, 13, S, S)`` in place."""
-    cfg = sim.cfg
-    sz = cfg.obs_raster_size
-    num_pix = sz * sz
-    scale = cfg.obs_scales[scale_idx]
-
-    ego_x_1d = cache.ego_x_by_scale[scale_idx]
-    ego_y_1d = cache.ego_y_by_scale[scale_idx]
-
-    hx = sim.head_pos[:, :, 0]
-    hy = sim.head_pos[:, :, 1]
-    right_x = sin_t0
-    right_y = -cos_t0
-    fwd_x = cos_t0
-    fwd_y = sin_t0
-
-    wx_row = hx[:, :, None] + fwd_x[:, :, None] * ego_y_1d[None, None, :]
-    wx_col = right_x[:, :, None] * ego_x_1d[None, None, :]
-    wy_row = hy[:, :, None] + fwd_y[:, :, None] * ego_y_1d[None, None, :]
-    wy_col = right_y[:, :, None] * ego_x_1d[None, None, :]
-
-    wx = wx_row[:, :, :, None] + wx_col[:, :, None, :]
-    wy = wy_row[:, :, :, None] + wy_col[:, :, None, :]
-
-    alive_mask = sim.alive[:, :, None, None]
-    r_sq_world = float(np.float32(cfg.arena_radius * cfg.arena_radius))
-    out_arena = alive_mask & ((wx * wx + wy * wy) >= r_sq_world)
-    dst[:, :, CH_OUT_OF_ARENA, :, :] = out_arena.to(torch.float32)
-
-    inv_c = float(np.float32(1.0 / cfg.cell_size))
-    gx = torch.floor(wx * inv_c).to(torch.int32) + sim.half_grid
-    gy = torch.floor(wy * inv_c).to(torch.int32) + sim.half_grid
-    in_grid = alive_mask & (gx >= 0) & (gx < sim.G) & (gy >= 0) & (gy < sim.G)
-
-    gx_c = gx.clamp(0, sim.G - 1).to(torch.int64)
-    gy_c = gy.clamp(0, sim.G - 1).to(torch.int64)
-    flat_1x = (gy_c * sim.G + gx_c).view(sim.E, sim.N * num_pix)
-
-    occ_sample = sim.occ_packed.view(sim.E, -1).gather(1, flat_1x).view(sim.E, sim.N, sz, sz)
-    owner = occ_sample & 63
-    owner_tail = sim.tail_seq.gather(
-        1, owner.clamp(0, sim.N - 1).to(torch.int64).view(sim.E, -1)
-    ).view(sim.E, sim.N, sz, sz)
-    occ_active = in_grid & (occ_sample >= 0) & ((occ_sample >> 6) >= owner_tail)
-
-    own_id = sim._snake_ids[:, :, None, None]
-    dst[:, :, CH_OWN_BODY, :, :] = (occ_active & (owner == own_id)).to(torch.float32)
-    dst[:, :, CH_ENEMY_BODY, :, :] = (occ_active & (owner != own_id)).to(torch.float32)
-
-    # Scale-matched block-summed food lookup.
-    if scale >= 16.0:
-        flat_f = ((gy_c >> 4) * sim.G16 + (gx_c >> 4)).view(sim.E, sim.N * num_pix)
-        amb_raw = sim.ambient_grid_16x.view(sim.E, -1).gather(1, flat_f)
-        cor_raw = sim.corpse_grid_16x.view(sim.E, -1).gather(1, flat_f)
-    elif scale >= 4.0:
-        flat_f = ((gy_c >> 2) * sim.G4 + (gx_c >> 2)).view(sim.E, sim.N * num_pix)
-        amb_raw = sim.ambient_grid_4x.view(sim.E, -1).gather(1, flat_f)
-        cor_raw = sim.corpse_grid_4x.view(sim.E, -1).gather(1, flat_f)
-    else:
-        amb_raw = sim.ambient_grid.view(sim.E, -1).gather(1, flat_1x)
-        cor_raw = sim.corpse_grid.view(sim.E, -1).gather(1, flat_1x)
-
-    amb_f = amb_raw.view(sim.E, sim.N, sz, sz).to(torch.float32)
-    cor_f = cor_raw.view(sim.E, sim.N, sz, sz).to(torch.float32)
-    zeros_f = torch.zeros_like(amb_f)
-    dst[:, :, CH_AMBIENT_FOOD, :, :] = torch.where(in_grid, amb_f / (1.0 + amb_f), zeros_f)
-    dst[:, :, CH_CORPSE_FOOD, :, :] = torch.where(in_grid, cor_f / (1.0 + cor_f), zeros_f)
-
-    # 2-frame stack of enemy head channels: T0 (current) and T1 (previous tick).
-    _splat_heads_torch(
-        dst[:, :, CH_ENEMY_HEADS_T0 : CH_ENEMY_SIZE_T0 + 1, :, :],
-        obs_alive=sim.alive,
-        obs_pos=sim.head_pos,
-        obs_sin=sin_t0,
-        obs_cos=cos_t0,
-        enemy_alive=sim.alive,
-        enemy_pos=sim.head_pos,
-        enemy_sin=sin_t0,
-        enemy_cos=cos_t0,
-        enemy_size_norm=size_norm_t0,
-        not_eye=sim._not_eye_nn,
-        tril_nnn=cache.tril_nnn,
-        scale=scale,
-        raster_size=sz,
-    )
-    _splat_heads_torch(
-        dst[:, :, CH_ENEMY_HEADS_T1 : CH_ENEMY_SIZE_T1 + 1, :, :],
-        obs_alive=sim.alive & sim.prev_alive,
-        obs_pos=sim.prev_head_pos,
-        obs_sin=sin_t1,
-        obs_cos=cos_t1,
-        enemy_alive=sim.prev_alive,
-        enemy_pos=sim.prev_head_pos,
-        enemy_sin=sin_t1,
-        enemy_cos=cos_t1,
-        enemy_size_norm=size_norm_t1,
-        not_eye=sim._not_eye_nn,
-        tril_nnn=cache.tril_nnn,
-        scale=scale,
-        raster_size=sz,
-    )
+    """Populate all 13 channels of one scale raster ``(E, N, 13, S, S)`` in world chunks."""
+    for e0 in range(0, sim.E, OBS_ENV_CHUNK):
+        e1 = min(e0 + OBS_ENV_CHUNK, sim.E)
+        _fill_scale_raster_chunk_torch(
+            dst[e0:e1],
+            sim,
+            cache,
+            scale_idx,
+            e0,
+            e1,
+            sin_t0,
+            cos_t0,
+            size_norm_t0,
+            sin_t1,
+            cos_t1,
+            size_norm_t1,
+        )
 
 
 def build_obs(sim: GameV3Sim, *, out: ObservationBatch | None = None) -> ObservationBatch:
