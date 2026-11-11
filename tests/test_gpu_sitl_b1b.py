@@ -5949,3 +5949,37 @@ def test_opus_n5_multi_suffix_marks_hero_terminal_before_prepare() -> None:
     assert res_single[0]["safe_by_scoring_suffix"][4] == [False] * 6
     assert res_multi[0]["safe_by_scoring_suffix"][4] == [False] * 6
     assert res_multi[0]["safe_by_scoring_suffix"][5] == [False] * 6
+
+
+def test_opus_n6_smoke_cli_rejects_stale_target_a100_limit_sec_flag(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """N6: smoke.py CLI rejects the removed --target-a100-limit-sec alias."""
+    import sys
+
+    from research.gpu_sitl import smoke as smoke_mod
+
+    called = {"n": 0}
+
+    def _stub_shakeout(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        called["n"] += 1
+        raise AssertionError("run_cuda_shakeout should not be reached with stale flag")
+
+    monkeypatch.setattr(smoke_mod, "run_cuda_shakeout", _stub_shakeout)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "smoke.py",
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--shakeout",
+            "--target-a100-limit-sec",
+            "700",
+        ],
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        smoke_mod.main()
+    assert exc_info.value.code == 2
+    assert called["n"] == 0
