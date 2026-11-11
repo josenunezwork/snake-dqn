@@ -7,6 +7,7 @@ import os
 import shutil
 import signal
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +15,12 @@ import pytest
 import torch
 
 from research.arena_ppo import ruler as ruler_mod
-from research.arena_ppo.ppo import ArenaPPOConfig, ArenaPPOTrainer, run_training_job
+from research.arena_ppo.ppo import (
+    ArenaPPOConfig,
+    ArenaPPOTrainer,
+    StopRequestedError,
+    run_training_job,
+)
 from research.arena_ppo.prepare import (
     CANARY_REQUIRED_EXPORTS,
     ROOT,
@@ -298,7 +304,9 @@ def test_canary_suite_real_exports_no_stubs_and_custom_board_ruler(tmp_path: Pat
 
     for rel in CANARY_REQUIRED_EXPORTS:
         assert verify_completed_artifact(canary_dir / rel)
+    assert verify_completed_artifact(canary_dir / "cells" / "E4_ego_only_S.json")
     assert verify_completed_artifact(canary_dir / "cells" / "E4_shared_trunk_S.json")
+    assert verify_completed_artifact(canary_dir / "cells" / "E4_per_seat_S.json")
     assert verify_completed_artifact(canary_dir / "checkpoints" / "ckpt_u0000001.pt")
 
     # Prove final.pt from canary_suite is a genuine loadable trainer checkpoint, not a stub
@@ -985,3 +993,222 @@ def test_multi_arch_ruler_grid_cheapest_first_one_epoch_cell_learner_report_and_
     assert cfg_t["num_envs"] == 2048
     assert cfg_t["actor_chunk_envs"] == 2048
     assert cfg_t["minibatch_size"] == 3072
+
+
+def test_m1_ruler_isolates_non_oom_cell_and_bench_errors_and_canary_probes_all_archs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """M1: per-cell/per-bench non-OOM isolation, exit 0 if >=1 cell succeeds, 3-arch canary."""
+    # 1. Verify prepare.py canary docstring and exemption reason match 14/28 (not <= 12 min)
+    assert prepare_arena_ppo_packet.__doc__ is not None
+    assert "<= 12 min" not in prepare_arena_ppo_packet.__doc__
+    assert "14 min" in prepare_arena_ppo_packet.__doc__
+    assert "28 min" in prepare_arena_ppo_packet.__doc__
+    pkt_c = prepare_arena_ppo_packet(
+        tmp_path / "pkt_canary_14_28",
+        commit="HEAD",
+        mode="canary",
+        gpu="L4",
+        output_dir=tmp_path / "out_canary_14_28",
+        allow_unmerged_commit=True,
+    )
+    mf_c = json.loads(Path(pkt_c["manifest_path"]).read_text(encoding="utf-8"))
+    reason_text = mf_c["resume_exemption"]["reason"]
+    assert "<= 12 min" not in reason_text
+    assert "14 min" in reason_text and "28 min" in reason_text
+
+    # 2. Non-OOM exceptions in batch6_forward (ego_only) and in cells (ego_only collection,
+    # per_seat integrated) must NOT abort shared_trunk; CLI exits 0 and ruler_result.json PASSes.
+    orig_bench = ruler_mod.measure_batch6_forward_ms
+    orig_coll = ruler_mod._measure_collection_only_cell
+    orig_integ = ruler_mod._measure_integrated_cell
+    long_detail = "x" * 2400
+
+    def _faulty_bench(device: torch.device, net_sz: Any, **kwargs: Any) -> dict[str, Any]:
+        if kwargs.get("net_arch") == "ego_only":
+            raise ValueError(f"synthetic batch6 bug on ego_only {long_detail}")
+        return orig_bench(device, net_sz, **kwargs)
+
+    def _faulty_coll(**kwargs: Any) -> dict[str, Any]:
+        if kwargs.get("net_arch") == "ego_only":
+            raise RuntimeError(f"synthetic collection bug on ego_only {long_detail}")
+        return orig_coll(**kwargs)
+
+    def _faulty_integ(**kwargs: Any) -> dict[str, Any]:
+        if kwargs.get("net_arch") == "per_seat":
+            raise ArithmeticError("synthetic integrated learner bug on per_seat")
+        return orig_integ(**kwargs)
+
+    monkeypatch.setattr(ruler_mod, "measure_batch6_forward_ms", _faulty_bench)
+    monkeypatch.setattr(ruler_mod, "_measure_collection_only_cell", _faulty_coll)
+    monkeypatch.setattr(ruler_mod, "_measure_integrated_cell", _faulty_integ)
+
+    out_partial = tmp_path / "ruler_partial_errors"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "research.arena_ppo.ruler",
+            "--output-dir",
+            str(out_partial),
+            "--device",
+            "cpu",
+            "--envs",
+            "2",
+            "--nets",
+            "S",
+            "--net-arch",
+            "ego_only,shared_trunk,per_seat",
+            "--burnin-ticks",
+            "2",
+            "--warmup-ticks",
+            "1",
+            "--collect-ticks",
+            "2",
+            "--rollout-len",
+            "2",
+            "--ppo-epochs",
+            "1",
+            "--no-one-epoch-cell",
+            "--no-best-compile",
+            "--no-larger-minibatch",
+            "--max-capacity",
+            "64",
+        ],
+    )
+    rc = ruler_mod.main()
+    assert rc == 0
+    assert verify_completed_artifact(out_partial / "ruler_result.json")
+    for cid in ("E2_ego_only_S", "E2_shared_trunk_S", "E2_per_seat_S"):
+        assert verify_completed_artifact(out_partial / "cells" / f"{cid}.json")
+
+    res_p = json.loads((out_partial / "ruler_result.json").read_text(encoding="utf-8"))
+    assert res_p["succeeded_cell_ids"] == ["E2_shared_trunk_S"]
+    assert res_p["failed_cell_ids"] == ["E2_ego_only_S", "E2_per_seat_S"]
+    assert len(res_p["failed_benchmarks"]) == 1
+    assert res_p["failed_benchmarks"][0]["benchmark_key"] == "ego_only_S"
+    assert res_p["failed_benchmarks"][0]["error"].startswith("ValueError: synthetic batch6 bug")
+    assert 0 < len(res_p["failed_benchmarks"][0]["traceback"]) <= 2000
+
+    ego_cell = json.loads(
+        (out_partial / "cells" / "E2_ego_only_S.json").read_text(encoding="utf-8")
+    )
+    assert ego_cell["error"].startswith("RuntimeError: synthetic collection bug on ego_only")
+    assert 0 < len(ego_cell["traceback"]) <= 2000
+    assert ego_cell["integrated"] == {"skipped_after_collection_error": True}
+
+    ps_cell = json.loads((out_partial / "cells" / "E2_per_seat_S.json").read_text(encoding="utf-8"))
+    assert ps_cell["error"] == "ArithmeticError: synthetic integrated learner bug on per_seat"
+    assert 0 < len(ps_cell["traceback"]) <= 2000
+
+    assert res_p["status_summary"].startswith("PARTIAL_PASS: 1/3 cells succeeded")
+    assert "E2_ego_only_S" in res_p["status_summary"]
+    assert "E2_per_seat_S" in res_p["status_summary"]
+
+    # 3. With that same per_seat bug active, run_canary_suite MUST fail loudly so CUDA-only bugs
+    # in ANY of the 3 architectures fail the canary immediately after probing all 3.
+    with pytest.raises(RuntimeError, match="E2_per_seat_S"):
+        run_canary_suite(
+            output_dir=tmp_path / "canary_catches_arch_bug",
+            device="cpu",
+            num_envs=2,
+            rollout_len=2,
+            seed=99,
+        )
+
+    # 4. If ZERO cells succeed (every cell raises non-OOM error), ruler writes ruler_result.json
+    # and raises RuntimeError (exits non-zero).
+    monkeypatch.setattr(
+        ruler_mod,
+        "_measure_collection_only_cell",
+        lambda **_kw: (_ for _ in ()).throw(RuntimeError("all cells broken")),
+    )
+    all_fail_dir = tmp_path / "ruler_all_fail"
+    with pytest.raises(RuntimeError, match="FAIL: 0/1 cells succeeded"):
+        run_ruler(
+            output_dir=all_fail_dir,
+            device="cpu",
+            envs_list=[2],
+            net_sizes=["S"],
+            net_archs=["shared_trunk"],
+            burnin_ticks=2,
+            warmup_ticks=1,
+            collect_ticks=2,
+            rollout_len=2,
+            ppo_epochs=1,
+            include_one_epoch_cell=False,
+            include_best_compile=False,
+            measure_larger_minibatch=False,
+            max_capacity=64,
+        )
+    assert verify_completed_artifact(all_fail_dir / "ruler_result.json")
+
+    # 5. StopRequestedError and KeyboardInterrupt must still re-raise (never swallowed as cell err)
+    monkeypatch.setattr(ruler_mod, "measure_batch6_forward_ms", orig_bench)
+    monkeypatch.setattr(
+        ruler_mod,
+        "_measure_collection_only_cell",
+        lambda **_kw: (_ for _ in ()).throw(KeyboardInterrupt("ctrl-c")),
+    )
+    with pytest.raises(KeyboardInterrupt, match="ctrl-c"):
+        run_ruler(
+            output_dir=tmp_path / "ruler_kb_interrupt",
+            device="cpu",
+            envs_list=[2],
+            net_sizes=["S"],
+            net_archs=["shared_trunk"],
+            burnin_ticks=2,
+            warmup_ticks=1,
+            collect_ticks=2,
+            rollout_len=2,
+            ppo_epochs=1,
+            include_one_epoch_cell=False,
+            include_best_compile=False,
+            measure_larger_minibatch=False,
+            max_capacity=64,
+        )
+    monkeypatch.setattr(
+        ruler_mod,
+        "_measure_collection_only_cell",
+        lambda **_kw: (_ for _ in ()).throw(StopRequestedError("sigusr1")),
+    )
+    stop_res = run_ruler(
+        output_dir=tmp_path / "ruler_stop_req",
+        device="cpu",
+        envs_list=[2],
+        net_sizes=["S"],
+        net_archs=["shared_trunk"],
+        burnin_ticks=2,
+        warmup_ticks=1,
+        collect_ticks=2,
+        rollout_len=2,
+        ppo_epochs=1,
+        include_one_epoch_cell=False,
+        include_best_compile=False,
+        measure_larger_minibatch=False,
+        max_capacity=64,
+    )
+    assert stop_res["stopped_reason"].startswith("signal:")
+    assert stop_res["failed_cell_ids"] == []
+
+    # 6. Restore real functions and verify healthy 3-arch canary runs 1 minibatch per arch
+    monkeypatch.setattr(ruler_mod, "_measure_collection_only_cell", orig_coll)
+    monkeypatch.setattr(ruler_mod, "_measure_integrated_cell", orig_integ)
+    healthy_canary_dir = tmp_path / "canary_3arch_ok"
+    healthy_suite = run_canary_suite(
+        output_dir=healthy_canary_dir,
+        device="cpu",
+        num_envs=4,
+        rollout_len=4,
+        seed=1234,
+    )
+    rr = healthy_suite["ruler_result"]
+    assert rr["succeeded_cell_ids"] == [
+        "E4_ego_only_S",
+        "E4_shared_trunk_S",
+        "E4_per_seat_S",
+    ]
+    for cell in rr["cells"]:
+        ls = cell["integrated"]["learner_settings"]
+        assert ls["ppo_epochs"] == 1
+        assert ls["minibatch_size"] == ls["total_rows_per_epoch"]

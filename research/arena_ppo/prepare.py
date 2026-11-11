@@ -185,6 +185,9 @@ def _find_verified_prior_cells(prior_dir: Path) -> list[Path]:
             ):
                 continue
             verify_completed_artifact(cell_json)
+            parsed_cell = json.loads(cell_json.read_text(encoding="utf-8"))
+            if isinstance(parsed_cell, dict) and "error" in parsed_cell:
+                continue
             found.append(cell_json)
         if found:
             return found
@@ -341,9 +344,9 @@ def prepare_arena_ppo_packet(
         packet_dir: Fresh target packet directory on Mac.
         commit: Git revision to pin (must be an ancestor of ``origin/main`` unless
             ``allow_unmerged_commit=True`` is explicitly requested for local pre-merge checks).
-        mode: ``"canary"`` (<= 12 min instrumented family probe), ``"ruler"`` (<= 60 min
-            uninstrumented science ruler bound to canary receipt), or ``"train"`` (resumable
-            training session bound to canary receipt).
+        mode: ``"canary"`` (14 min base / 28 min timeout instrumented family probe), ``"ruler"``
+            (<= 60 min uninstrumented science ruler bound to canary receipt), or ``"train"``
+            (resumable training session bound to canary receipt).
         gpu: Target GPU in ``{"L4", "A100", "H100"}`` (default ``"L4"``).
         hours: Session wall timeout in hours for ``mode="train"`` (`timeout = hours * 60` min).
         expected_steps_per_sec: Expected agent-steps/s for ``train`` plan calculation.
@@ -486,8 +489,9 @@ def prepare_arena_ppo_packet(
             "resume_exemption": {
                 "kind": "short-canary",
                 "reason": (
-                    f"Stage 1 Arena PPO {gpu_norm} family canary probe (<= 12 min): real "
-                    "indexed parity + tiny ruler + tiny 2-update train/checkpoint/resume"
+                    f"Stage 1 Arena PPO {gpu_norm} family canary probe (14 min base / 28 min "
+                    "timeout): real indexed parity + tiny 3-arch ruler + tiny 2-update "
+                    "train/checkpoint/resume"
                 ),
             }
         }

@@ -27,6 +27,7 @@ from research.arena_ppo import ARENA_GRID_H, ARENA_GRID_W, EGO_CROP_SIZE, SCALAR
 from research.arena_ppo.obs import (
     NUM_OBS_CHANNELS,
     NUM_WORLD_CHANNELS,
+    WCH_WALL,
     SharedWorldObs,
     _ego_tables,
 )
@@ -814,6 +815,21 @@ class SharedTrunkNetConfig:
         return asdict(self)
 
 
+def _pad_shared_world_arena(world_arena: torch.Tensor) -> torch.Tensor:
+    """Pad `(W, 9, H, W)` to multiples of 4, filling `WCH_WALL` (`channel 8`) with `1.0`."""
+    gh, gw = int(world_arena.shape[-2]), int(world_arena.shape[-1])
+    pad_h = (4 - (gh % 4)) % 4
+    pad_w = (4 - (gw % 4)) % 4
+    if pad_h == 0 and pad_w == 0:
+        return world_arena
+    world_padded = F.pad(world_arena, (0, pad_w, 0, pad_h))
+    if pad_h > 0:
+        world_padded[:, WCH_WALL, gh:, :] = 1.0
+    if pad_w > 0:
+        world_padded[:, WCH_WALL, :, gw:] = 1.0
+    return world_padded
+
+
 class SharedTrunkArenaNet(nn.Module):
     """World-once allocentric trunk + per-seat 47x47 ego, 5x5 ROI gather, and cross-attention."""
 
@@ -990,12 +1006,7 @@ class SharedTrunkArenaNet(nn.Module):
         num_snakes = int(head_xy.shape[1])
         total_rows = w_bsz * num_snakes
 
-        pad_h = (4 - (gh % 4)) % 4
-        pad_w = (4 - (gw % 4)) % 4
-        if pad_h > 0 or pad_w > 0:
-            world_padded = F.pad(world_arena, (0, pad_w, 0, pad_h))
-        else:
-            world_padded = world_arena
+        world_padded = _pad_shared_world_arena(world_arena)
 
         # 1. Shared allocentric trunk (runs ONCE per world, batch = W)
         mid_map = self.arena_mid_blocks(self.arena_patch_stem(world_padded))

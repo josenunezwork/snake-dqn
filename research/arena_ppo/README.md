@@ -91,7 +91,7 @@ tick.
 ### 1. Fresh `L4` Canary, Multi-Arch `L4` Ruler, and 6-Hour `L4` Train
 
 ```bash
-# Step 1: Prepare L4 family canary (<= 12 min)
+# Step 1: Prepare L4 family canary (14 min base / 28 min timeout)
 nice -n 15 env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
   NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 OMP_THREAD_LIMIT=1 \
   TORCHINDUCTOR_COMPILE_THREADS=1 \

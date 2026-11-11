@@ -17,6 +17,7 @@ from research.arena_ppo.net import (
     EgoOnlyNetConfig,
     SharedTrunkArenaNet,
     SharedTrunkNetConfig,
+    _pad_shared_world_arena,
     build_arena_model,
     default_actor_chunk_envs,
     default_minibatch_size,
@@ -27,7 +28,7 @@ from research.arena_ppo.net import (
     symlog_two_hot_value,
     two_hot_encode,
 )
-from research.arena_ppo.obs import NUM_OBS_CHANNELS, NUM_WORLD_CHANNELS, SharedWorldObs
+from research.arena_ppo.obs import NUM_OBS_CHANNELS, NUM_WORLD_CHANNELS, WCH_WALL, SharedWorldObs
 from research.arena_ppo.runtime import normalize_device
 
 
@@ -324,3 +325,45 @@ def test_shared_trunk_and_ego_only_variants_params_flops_roi_and_backward(
         )
         out_c = custom_m.act(obs_c, legal_mask=torch.ones((8, 6), dtype=torch.bool, device=dev))
         assert out_c.actions.shape == (8,) and torch.isfinite(out_c.values).all()
+
+
+def test_shared_trunk_wall_channel_padded_with_ones() -> None:
+    """Verify `SharedTrunkArenaNet` pads `83x145 -> 84x148` with `1.0` in `WCH_WALL` (`ch 8`)."""
+    wa = torch.zeros((2, NUM_WORLD_CHANNELS, ARENA_GRID_H, ARENA_GRID_W), dtype=torch.float32)
+    padded = _pad_shared_world_arena(wa)
+    assert padded.shape == (2, NUM_WORLD_CHANNELS, 84, 148)
+    assert torch.all(padded[:, WCH_WALL, ARENA_GRID_H:, :] == 1.0)
+    assert torch.all(padded[:, WCH_WALL, :, ARENA_GRID_W:] == 1.0)
+    assert torch.all(padded[:, WCH_WALL, :ARENA_GRID_H, :ARENA_GRID_W] == 0.0)
+    non_wall = [c for c in range(NUM_WORLD_CHANNELS) if c != WCH_WALL]
+    assert torch.all(padded[:, non_wall, :, :] == 0.0)
+
+    # Also verify `SharedTrunkArenaNet._forward_backbone_impl` actually feeds the 1-padded wall
+    # strip into `arena_patch_stem`: zero the stem except for the bottom-right `(3, 3)` tap on
+    # `WCH_WALL`, which reads `(y=83, x=147)` in patch `(20, 36)`.
+    model = SharedTrunkArenaNet(SharedTrunkNetConfig.from_size("S")).eval()
+    stem_conv = model.arena_patch_stem[0]
+    assert isinstance(stem_conv, torch.nn.Conv2d)
+    captured: list[torch.Tensor] = []
+    handle = stem_conv.register_forward_hook(lambda _m, inp, _out: captured.append(inp[0].detach()))
+    try:
+        obs = SharedWorldObs(
+            world_arena=wa,
+            ego=torch.zeros((12, NUM_OBS_CHANNELS, EGO_CROP_SIZE, EGO_CROP_SIZE)),
+            scalars=torch.zeros((12, SCALAR_DIM)),
+            head_xy=torch.zeros((2, 6, 2), dtype=torch.long),
+            direction=torch.zeros((2, 6), dtype=torch.long),
+            alive=torch.ones((2, 6), dtype=torch.bool),
+        )
+        with torch.no_grad():
+            model.forward(obs, legal_mask=torch.ones((12, 6), dtype=torch.bool))
+    finally:
+        handle.remove()
+
+    assert len(captured) == 1
+    stem_in = captured[0]
+    assert stem_in.shape == (2, NUM_WORLD_CHANNELS, 84, 148)
+    assert torch.all(stem_in[:, WCH_WALL, 83, :] == 1.0)
+    assert torch.all(stem_in[:, WCH_WALL, :, 145:] == 1.0)
+    assert torch.all(stem_in[:, non_wall, 83, :] == 0.0)
+    assert torch.all(stem_in[:, non_wall, :, 145:] == 0.0)

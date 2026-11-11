@@ -8,6 +8,7 @@ import json
 import math
 import os
 import time
+import traceback
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Sequence
@@ -101,6 +102,26 @@ def _is_oom_exception(exc: BaseException) -> bool:
         or "cuda error: out of memory" in msg
         or "cublas_status_alloc_failed" in msg
         or "mps backend out of memory" in msg
+    )
+
+
+def _format_exception_payload(exc: BaseException) -> dict[str, str]:
+    tb_text = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    return {
+        "error": f"{type(exc).__name__}: {exc}",
+        "traceback": tb_text[-2000:],
+    }
+
+
+def _cell_succeeded(cell: dict[str, Any]) -> bool:
+    if cell.get("oom", False) or "error" in cell:
+        return False
+    integ = cell.get("integrated")
+    return (
+        isinstance(integ, dict)
+        and not integ.get("oom", True)
+        and "error" not in integ
+        and "agent_steps_per_sec" in integ
     )
 
 
@@ -1113,7 +1134,8 @@ def _best_completed_env_for_variant(
     best_sps = -1.0
     for c in cells:
         if (
-            c.get("net_arch", "per_seat") != net_arch
+            "error" in c
+            or c.get("net_arch", "per_seat") != net_arch
             or c.get("net_size") != net_sz
             or bool(c.get("compile_model"))
             or bool(c.get("is_one_epoch_probe"))
@@ -1277,6 +1299,7 @@ def run_ruler(
     cells_dir.mkdir(parents=True, exist_ok=True)
 
     batch6_bench: dict[str, Any] = {}
+    failed_benchmarks: list[dict[str, Any]] = []
     cells: list[dict[str, Any]] = []
     skipped_cells: list[dict[str, Any]] = []
     reused_cells: list[str] = []
@@ -1303,6 +1326,8 @@ def run_ruler(
             staged_cell = Path(input_dir) / "cells" / f"{cid}.json"
             if staged_cell.is_file():
                 data = json.loads(staged_cell.read_text(encoding="utf-8"))
+                if isinstance(data, dict) and "error" in data:
+                    return None
                 write_create_only_json(local_cell, data)
                 return data
         return None
@@ -1321,25 +1346,46 @@ def run_ruler(
                         net_arch=net_arch,
                         net_size=net_sz,
                     )
-                    bench_entry = measure_batch6_forward_ms(
-                        resolved_dev,
-                        net_sz,
-                        net_arch=net_arch,
-                        num_snakes=num_snakes,
-                        grid_h=grid_h,
-                        grid_w=grid_w,
-                        compile_model=compile_model,
-                    )
-                    batch6_bench[bkey] = bench_entry
-                    if len(resolved_archs) == 1 and net_sz not in batch6_bench:
-                        batch6_bench[net_sz] = bench_entry
-                    phase_stamp(
-                        f"batch6_forward_{bkey}",
-                        "END",
-                        forward_ms=bench_entry["forward_ms"],
-                        params=bench_entry["parameter_count"],
-                        forward_flops_per_row=bench_entry["forward_flops_per_row"],
-                    )
+                    try:
+                        bench_entry = measure_batch6_forward_ms(
+                            resolved_dev,
+                            net_sz,
+                            net_arch=net_arch,
+                            num_snakes=num_snakes,
+                            grid_h=grid_h,
+                            grid_w=grid_w,
+                            compile_model=compile_model,
+                        )
+                        batch6_bench[bkey] = bench_entry
+                        if len(resolved_archs) == 1 and net_sz not in batch6_bench:
+                            batch6_bench[net_sz] = bench_entry
+                        phase_stamp(
+                            f"batch6_forward_{bkey}",
+                            "END",
+                            forward_ms=bench_entry["forward_ms"],
+                            params=bench_entry["parameter_count"],
+                            forward_flops_per_row=bench_entry["forward_flops_per_row"],
+                        )
+                    except (StopRequestedError, KeyboardInterrupt, SystemExit):
+                        raise
+                    except Exception as exc:
+                        _cleanup_device_memory(resolved_dev)
+                        err_payload = _format_exception_payload(exc)
+                        err_entry = {
+                            "benchmark_key": bkey,
+                            "net_arch": net_arch,
+                            "net_size": net_sz,
+                            **err_payload,
+                        }
+                        batch6_bench[bkey] = err_entry
+                        if len(resolved_archs) == 1 and net_sz not in batch6_bench:
+                            batch6_bench[net_sz] = err_entry
+                        failed_benchmarks.append(err_entry)
+                        phase_stamp(
+                            f"batch6_forward_{bkey}",
+                            "ERROR",
+                            error=err_payload["error"],
+                        )
 
             ordered_base = sorted(
                 [
@@ -1469,26 +1515,6 @@ def run_ruler(
                         ppo_epochs=int(cell_epochs),
                         compile=bool(cell_compile),
                     )
-                    if num_envs not in mature_cache:
-                        phase_stamp(
-                            f"burnin_E{num_envs}",
-                            "START",
-                            burnin_ticks=int(burnin_ticks),
-                        )
-                        mature_cache[num_envs] = _build_mature_sim_state(
-                            device=resolved_dev,
-                            num_envs=int(num_envs),
-                            grid_h=grid_h,
-                            grid_w=grid_w,
-                            num_snakes=num_snakes,
-                            max_capacity=max_capacity,
-                            burnin_ticks=burnin_ticks,
-                            seed=seed,
-                            should_stop=should_stop,
-                        )
-                        phase_stamp(f"burnin_E{num_envs}", "END")
-
-                    mature_state = mature_cache[num_envs]
                     eff_actor_chunk = (
                         int(actor_chunk_envs)
                         if actor_chunk_envs is not None
@@ -1499,6 +1525,7 @@ def run_ruler(
                         if minibatch_size is not None
                         else default_minibatch_size(net_sz, net_arch=net_arch)
                     )
+                    bench_meta = batch6_bench.get(bkey, {})
                     cell_record: dict[str, Any] = {
                         "cell_id": cell_id,
                         "num_envs": int(num_envs),
@@ -1511,10 +1538,12 @@ def run_ruler(
                         "is_one_epoch_probe": bool(is_ep1),
                         "compile_model": bool(cell_compile),
                         "burnin_ticks": int(burnin_ticks),
-                        "parameter_count": batch6_bench[bkey]["parameter_count"],
-                        "forward_flops_per_row": batch6_bench[bkey]["forward_flops_per_row"],
-                        "learner_flops_per_row": batch6_bench[bkey]["learner_flops_per_row"],
-                        "token_grid": list(batch6_bench[bkey]["token_grid"]),
+                        "parameter_count": bench_meta.get("parameter_count"),
+                        "forward_flops_per_row": bench_meta.get("forward_flops_per_row"),
+                        "learner_flops_per_row": bench_meta.get("learner_flops_per_row"),
+                        "token_grid": (
+                            list(bench_meta["token_grid"]) if "token_grid" in bench_meta else None
+                        ),
                         "learner_settings": {
                             "ppo_epochs": int(cell_epochs),
                             "rollout_len": int(rollout_len),
@@ -1526,60 +1555,33 @@ def run_ruler(
                         "integrated": None,
                     }
 
-                    # 1. Collection-only
-                    phase_stamp(f"{cell_id}_collection_only", "START")
-                    coll_chunk_used = eff_actor_chunk
                     try:
-                        coll = _measure_collection_only_cell(
-                            device=resolved_dev,
-                            mature_sim_state=mature_state,
-                            num_envs=int(num_envs),
-                            grid_h=grid_h,
-                            grid_w=grid_w,
-                            num_snakes=num_snakes,
-                            net_size=net_sz,
-                            net_arch=net_arch,
-                            warmup_ticks=warmup_ticks,
-                            collect_ticks=collect_ticks,
-                            actor_chunk_envs=eff_actor_chunk,
-                            max_capacity=max_capacity,
-                            compile_model=bool(cell_compile),
-                            seed=seed,
-                            should_stop=should_stop,
-                        )
-                        cell_record["collection_only"] = coll
-                        coll_chunk_used = int(coll["actor_chunk_envs_used"])
-                        phase_stamp(
-                            f"{cell_id}_collection_only",
-                            "END",
-                            agent_steps_per_sec=coll["agent_steps_per_sec"],
-                            peak_vram_bytes=coll["peak_vram_bytes"],
-                        )
-                    except StopRequestedError:
-                        raise
-                    except BaseException as exc:
-                        if not _is_oom_exception(exc):
-                            raise
-                        peak_b = _peak_vram_bytes(resolved_dev)
-                        _cleanup_device_memory(resolved_dev)
-                        cell_record["oom"] = True
-                        cell_record["collection_only"] = {
-                            "oom": True,
-                            "error": str(exc),
-                            "peak_vram_bytes": peak_b,
-                        }
-                        phase_stamp(f"{cell_id}_collection_only", "END", oom=True)
+                        if num_envs not in mature_cache:
+                            phase_stamp(
+                                f"burnin_E{num_envs}",
+                                "START",
+                                burnin_ticks=int(burnin_ticks),
+                            )
+                            mature_cache[num_envs] = _build_mature_sim_state(
+                                device=resolved_dev,
+                                num_envs=int(num_envs),
+                                grid_h=grid_h,
+                                grid_w=grid_w,
+                                num_snakes=num_snakes,
+                                max_capacity=max_capacity,
+                                burnin_ticks=burnin_ticks,
+                                seed=seed,
+                                should_stop=should_stop,
+                            )
+                            phase_stamp(f"burnin_E{num_envs}", "END")
 
-                    # 2. Integrated (collect + learn)
-                    if cell_record["oom"]:
-                        cell_record["integrated"] = {
-                            "oom": True,
-                            "skipped_after_collection_oom": True,
-                        }
-                    else:
-                        phase_stamp(f"{cell_id}_integrated", "START")
+                        mature_state = mature_cache[num_envs]
+
+                        # 1. Collection-only
+                        phase_stamp(f"{cell_id}_collection_only", "START")
+                        coll_chunk_used = eff_actor_chunk
                         try:
-                            integ = _measure_integrated_cell(
+                            coll = _measure_collection_only_cell(
                                 device=resolved_dev,
                                 mature_sim_state=mature_state,
                                 num_envs=int(num_envs),
@@ -1589,58 +1591,146 @@ def run_ruler(
                                 net_size=net_sz,
                                 net_arch=net_arch,
                                 warmup_ticks=warmup_ticks,
-                                rollout_len=rollout_len,
-                                ppo_epochs=int(cell_epochs),
-                                minibatch_size=eff_mb_init,
-                                actor_chunk_envs=coll_chunk_used,
+                                collect_ticks=collect_ticks,
+                                actor_chunk_envs=eff_actor_chunk,
                                 max_capacity=max_capacity,
                                 compile_model=bool(cell_compile),
-                                measure_larger_minibatch=bool(
-                                    measure_larger_minibatch and not is_ep1
-                                ),
                                 seed=seed,
                                 should_stop=should_stop,
                             )
-                            cell_record["integrated"] = integ
-                            cell_record["learner_settings"] = integ["learner_settings"]
-                            cell_record["rollout_buffer_bytes"] = integ["rollout_buffer_bytes"]
-                            cell_record["train_rollout_len"] = integ["train_rollout_len"]
-                            cell_record["train_rollout_buffer_bytes"] = integ[
-                                "train_rollout_buffer_bytes"
-                            ]
-                            cell_record["projected_train_peak_vram_bytes"] = integ[
-                                "projected_train_peak_vram_bytes"
-                            ]
+                            cell_record["collection_only"] = coll
+                            coll_chunk_used = int(coll["actor_chunk_envs_used"])
                             phase_stamp(
-                                f"{cell_id}_integrated",
+                                f"{cell_id}_collection_only",
                                 "END",
-                                agent_steps_per_sec=integ["agent_steps_per_sec"],
-                                peak_vram_bytes=integ["peak_vram_bytes"],
-                                projected_train_peak_vram_bytes=integ[
-                                    "projected_train_peak_vram_bytes"
-                                ],
+                                agent_steps_per_sec=coll["agent_steps_per_sec"],
+                                peak_vram_bytes=coll["peak_vram_bytes"],
                             )
-                        except StopRequestedError:
+                        except (StopRequestedError, KeyboardInterrupt, SystemExit):
                             raise
-                        except BaseException as exc:
-                            if not _is_oom_exception(exc):
-                                raise
-                            peak_b = _peak_vram_bytes(resolved_dev)
-                            _cleanup_device_memory(resolved_dev)
-                            cell_record["oom"] = True
+                        except Exception as exc:
+                            if _is_oom_exception(exc):
+                                peak_b = _peak_vram_bytes(resolved_dev)
+                                _cleanup_device_memory(resolved_dev)
+                                cell_record["oom"] = True
+                                cell_record["collection_only"] = {
+                                    "oom": True,
+                                    "error": str(exc),
+                                    "peak_vram_bytes": peak_b,
+                                }
+                                phase_stamp(f"{cell_id}_collection_only", "END", oom=True)
+                            else:
+                                _cleanup_device_memory(resolved_dev)
+                                err_payload = _format_exception_payload(exc)
+                                cell_record.update(err_payload)
+                                cell_record["collection_only"] = dict(err_payload)
+                                phase_stamp(
+                                    f"{cell_id}_collection_only",
+                                    "ERROR",
+                                    error=err_payload["error"],
+                                )
+
+                        # 2. Integrated (collect + learn)
+                        if cell_record["oom"]:
                             cell_record["integrated"] = {
                                 "oom": True,
-                                "error": str(exc),
-                                "peak_vram_bytes": peak_b,
+                                "skipped_after_collection_oom": True,
                             }
-                            phase_stamp(f"{cell_id}_integrated", "END", oom=True)
+                        elif "error" in cell_record:
+                            cell_record["integrated"] = {
+                                "skipped_after_collection_error": True,
+                            }
+                        else:
+                            phase_stamp(f"{cell_id}_integrated", "START")
+                            try:
+                                integ = _measure_integrated_cell(
+                                    device=resolved_dev,
+                                    mature_sim_state=mature_state,
+                                    num_envs=int(num_envs),
+                                    grid_h=grid_h,
+                                    grid_w=grid_w,
+                                    num_snakes=num_snakes,
+                                    net_size=net_sz,
+                                    net_arch=net_arch,
+                                    warmup_ticks=warmup_ticks,
+                                    rollout_len=rollout_len,
+                                    ppo_epochs=int(cell_epochs),
+                                    minibatch_size=eff_mb_init,
+                                    actor_chunk_envs=coll_chunk_used,
+                                    max_capacity=max_capacity,
+                                    compile_model=bool(cell_compile),
+                                    measure_larger_minibatch=bool(
+                                        measure_larger_minibatch and not is_ep1
+                                    ),
+                                    seed=seed,
+                                    should_stop=should_stop,
+                                )
+                                cell_record["integrated"] = integ
+                                cell_record["learner_settings"] = integ["learner_settings"]
+                                cell_record["rollout_buffer_bytes"] = integ["rollout_buffer_bytes"]
+                                cell_record["train_rollout_len"] = integ["train_rollout_len"]
+                                cell_record["train_rollout_buffer_bytes"] = integ[
+                                    "train_rollout_buffer_bytes"
+                                ]
+                                cell_record["projected_train_peak_vram_bytes"] = integ[
+                                    "projected_train_peak_vram_bytes"
+                                ]
+                                phase_stamp(
+                                    f"{cell_id}_integrated",
+                                    "END",
+                                    agent_steps_per_sec=integ["agent_steps_per_sec"],
+                                    peak_vram_bytes=integ["peak_vram_bytes"],
+                                    projected_train_peak_vram_bytes=integ[
+                                        "projected_train_peak_vram_bytes"
+                                    ],
+                                )
+                            except (StopRequestedError, KeyboardInterrupt, SystemExit):
+                                raise
+                            except Exception as exc:
+                                if _is_oom_exception(exc):
+                                    peak_b = _peak_vram_bytes(resolved_dev)
+                                    _cleanup_device_memory(resolved_dev)
+                                    cell_record["oom"] = True
+                                    cell_record["integrated"] = {
+                                        "oom": True,
+                                        "error": str(exc),
+                                        "peak_vram_bytes": peak_b,
+                                    }
+                                    phase_stamp(f"{cell_id}_integrated", "END", oom=True)
+                                else:
+                                    _cleanup_device_memory(resolved_dev)
+                                    err_payload = _format_exception_payload(exc)
+                                    cell_record.update(err_payload)
+                                    cell_record["integrated"] = dict(err_payload)
+                                    phase_stamp(
+                                        f"{cell_id}_integrated",
+                                        "ERROR",
+                                        error=err_payload["error"],
+                                    )
+                    except (StopRequestedError, KeyboardInterrupt, SystemExit):
+                        raise
+                    except Exception as exc:
+                        _cleanup_device_memory(resolved_dev)
+                        err_payload = _format_exception_payload(exc)
+                        cell_record.update(err_payload)
+                        phase_stamp(cell_id, "ERROR", error=err_payload["error"])
 
                     cell_wall = max(1e-6, time.monotonic() - cell_t0)
                     cell_record["cell_wall_seconds"] = round(cell_wall, 4)
                     vkey = (net_arch, net_sz)
-                    if not cell_record["oom"] and not cell_compile and not is_ep1:
+                    if (
+                        not cell_record["oom"]
+                        and "error" not in cell_record
+                        and not cell_compile
+                        and not is_ep1
+                    ):
                         sec_per_env_by_variant[vkey] = cell_wall / float(max(1, num_envs))
-                    elif not cell_record["oom"] and cell_compile and vkey in sec_per_env_by_variant:
+                    elif (
+                        not cell_record["oom"]
+                        and "error" not in cell_record
+                        and cell_compile
+                        and vkey in sec_per_env_by_variant
+                    ):
                         base_est = sec_per_env_by_variant[vkey] * float(num_envs)
                         measured_compile_overhead_sec = max(
                             measured_compile_overhead_sec, max(0.0, cell_wall - base_est)
@@ -1649,7 +1739,12 @@ def run_ruler(
                     # Persist cell immediately as create-only artifact so timeouts never lose work
                     write_create_only_json(cells_dir / f"{cell_id}.json", cell_record)
                     cells.append(cell_record)
-                    phase_stamp(cell_id, "END", oom=cell_record["oom"])
+                    phase_stamp(
+                        cell_id,
+                        "END",
+                        oom=cell_record["oom"],
+                        failed=("error" in cell_record),
+                    )
                     if step_hook is not None:
                         step_hook(cell_id)
 
@@ -1677,15 +1772,71 @@ def run_ruler(
             raise
         finally:
             if not result_path.exists():
+                succeeded_cell_ids = [str(c["cell_id"]) for c in cells if _cell_succeeded(c)]
+                failed_cell_ids = [str(c["cell_id"]) for c in cells if "error" in c]
+                oom_cell_ids = [str(c["cell_id"]) for c in cells if c.get("oom", False)]
+                failed_cells = [
+                    {
+                        "cell_id": str(c["cell_id"]),
+                        "num_envs": int(c["num_envs"]),
+                        "net_arch": c.get("net_arch"),
+                        "net_size": c.get("net_size"),
+                        "error": str(c["error"]),
+                        "traceback": str(c.get("traceback", "")),
+                    }
+                    for c in cells
+                    if "error" in c
+                ]
+                if failed_cells or failed_benchmarks:
+                    partial = True
+                    if stopped_reason == "completed":
+                        stopped_reason = (
+                            "completed_with_cell_errors"
+                            if succeeded_cell_ids
+                            else "all_cells_failed"
+                        )
+
+                failed_cell_desc = [f"{fc['cell_id']} ({fc['error']})" for fc in failed_cells]
+                failed_bench_desc = [
+                    f"{fb['benchmark_key']} ({fb['error']})" for fb in failed_benchmarks
+                ]
+                if not failed_cells and not failed_benchmarks and succeeded_cell_ids:
+                    status_summary = (
+                        f"PASS: {len(succeeded_cell_ids)}/{len(cells)} cells succeeded; "
+                        "failed cells: none."
+                    )
+                elif succeeded_cell_ids:
+                    status_summary = (
+                        f"PARTIAL_PASS: {len(succeeded_cell_ids)}/{len(cells)} cells succeeded "
+                        f"({', '.join(succeeded_cell_ids)}); "
+                        f"failed cells ({len(failed_cells)}): "
+                        f"{', '.join(failed_cell_desc) if failed_cell_desc else 'none'}"
+                    )
+                    if failed_bench_desc:
+                        status_summary += (
+                            f"; failed benchmarks ({len(failed_benchmarks)}): "
+                            f"{', '.join(failed_bench_desc)}"
+                        )
+                    status_summary += "."
+                else:
+                    status_summary = (
+                        f"FAIL: 0/{len(cells)} cells succeeded; "
+                        f"failed cells ({len(failed_cells)}): "
+                        f"{', '.join(failed_cell_desc) if failed_cell_desc else 'none'}"
+                    )
+                    if failed_bench_desc:
+                        status_summary += (
+                            f"; failed benchmarks ({len(failed_benchmarks)}): "
+                            f"{', '.join(failed_bench_desc)}"
+                        )
+                    status_summary += "."
+
                 phase_stamp("ruler_export", "START", partial=partial, reason=stopped_reason)
                 best_integrated_sps = max(
                     (
                         float(c["integrated"]["agent_steps_per_sec"])
                         for c in cells
-                        if not c.get("is_one_epoch_probe", False)
-                        and isinstance(c.get("integrated"), dict)
-                        and not c["integrated"].get("oom", True)
-                        and "agent_steps_per_sec" in c["integrated"]
+                        if not c.get("is_one_epoch_probe", False) and _cell_succeeded(c)
                     ),
                     default=0.0,
                 )
@@ -1693,8 +1844,10 @@ def run_ruler(
                     (
                         float(c["collection_only"]["agent_steps_per_sec"])
                         for c in cells
-                        if isinstance(c.get("collection_only"), dict)
+                        if "error" not in c
+                        and isinstance(c.get("collection_only"), dict)
                         and not c["collection_only"].get("oom", True)
+                        and "error" not in c["collection_only"]
                         and "agent_steps_per_sec" in c["collection_only"]
                     ),
                     default=0.0,
@@ -1707,9 +1860,7 @@ def run_ruler(
                             for c in cells
                             if c.get("net_arch", "per_seat") == arch
                             and not c.get("is_one_epoch_probe", False)
-                            and isinstance(c.get("integrated"), dict)
-                            and not c["integrated"].get("oom", True)
-                            and "agent_steps_per_sec" in c["integrated"]
+                            and _cell_succeeded(c)
                         ),
                         default=0.0,
                     )
@@ -1718,8 +1869,10 @@ def run_ruler(
                             float(c["collection_only"]["agent_steps_per_sec"])
                             for c in cells
                             if c.get("net_arch", "per_seat") == arch
+                            and "error" not in c
                             and isinstance(c.get("collection_only"), dict)
                             and not c["collection_only"].get("oom", True)
+                            and "error" not in c["collection_only"]
                             and "agent_steps_per_sec" in c["collection_only"]
                         ),
                         default=0.0,
@@ -1730,7 +1883,7 @@ def run_ruler(
                     }
 
                 one_epoch_comparison: dict[str, Any] | None = None
-                ep1_cells = [c for c in cells if c.get("is_one_epoch_probe") and not c.get("oom")]
+                ep1_cells = [c for c in cells if c.get("is_one_epoch_probe") and _cell_succeeded(c)]
                 if ep1_cells:
                     ep1_c = ep1_cells[0]
                     base_matches = [
@@ -1738,7 +1891,7 @@ def run_ruler(
                         for c in cells
                         if not c.get("is_one_epoch_probe")
                         and not c.get("compile_model")
-                        and not c.get("oom")
+                        and _cell_succeeded(c)
                         and c.get("num_envs") == ep1_c.get("num_envs")
                         and c.get("net_arch") == ep1_c.get("net_arch")
                         and c.get("net_size") == ep1_c.get("net_size")
@@ -1785,6 +1938,12 @@ def run_ruler(
                     "schema": "arena-ppo-ruler-result/v1",
                     "partial": bool(partial),
                     "stopped_reason": stopped_reason,
+                    "status_summary": status_summary,
+                    "succeeded_cell_ids": succeeded_cell_ids,
+                    "failed_cell_ids": failed_cell_ids,
+                    "oom_cell_ids": oom_cell_ids,
+                    "failed_cells": failed_cells,
+                    "failed_benchmarks": failed_benchmarks,
                     "device": str(resolved_dev),
                     "device_name": device_name,
                     "total_vram_bytes": total_vram_bytes,
@@ -1832,10 +1991,19 @@ def run_ruler(
                     result_path=str(result_path),
                     partial=partial,
                     completed_cells=len(cells),
+                    succeeded_cells=len(succeeded_cell_ids),
+                    failed_cells=len(failed_cells),
                     skipped_cells=len(skipped_cells),
                 )
 
-    return json.loads(result_path.read_text(encoding="utf-8"))
+    out_result = json.loads(result_path.read_text(encoding="utf-8"))
+    if (
+        not out_result.get("succeeded_cell_ids")
+        and (out_result.get("failed_cells") or out_result.get("failed_benchmarks"))
+        and not str(out_result.get("stopped_reason", "")).startswith("signal:")
+    ):
+        raise RuntimeError(str(out_result["status_summary"]))
+    return out_result
 
 
 def run_canary_suite(
@@ -1931,27 +2099,31 @@ def run_canary_suite(
                     "verified_cells": verified_cell_ids,
                 }
 
-    # 3. Tiny REAL ruler cell exercising the new default `shared_trunk` architecture
+    # 3. Tiny REAL ruler probing ONE cell of EACH arch (ego_only, shared_trunk, per_seat;
+    # smallest E, a few ticks, single learner minibatch) so any CUDA-only bug surfaces in canary.
+    canary_ruler_envs = max(1, min(int(num_envs), 4))
+    canary_ruler_rollout = max(2, min(int(rollout_len), 4))
+    canary_ruler_rows = canary_ruler_rollout * canary_ruler_envs * DEFAULT_NUM_SNAKES
     ruler_budget = (
-        max(30.0, (float(max_wall_seconds) - (time.monotonic() - wall_t0)) * 0.45)
+        max(30.0, (float(max_wall_seconds) - (time.monotonic() - wall_t0)) * 0.55)
         if max_wall_seconds is not None
         else None
     )
     ruler_res = run_ruler(
         output_dir=out,
         device=resolved_dev,
-        input_dir=input_dir,
-        envs_list=[int(num_envs)],
+        input_dir=None,
+        envs_list=[canary_ruler_envs],
         net_sizes=["S"],
-        net_archs=["shared_trunk"],
-        burnin_ticks=20,
-        warmup_ticks=2,
-        collect_ticks=8,
-        rollout_len=int(rollout_len),
+        net_archs=list(DEFAULT_RULER_ARCHS),
+        burnin_ticks=12,
+        warmup_ticks=1,
+        collect_ticks=4,
+        rollout_len=canary_ruler_rollout,
         ppo_epochs=1,
         include_one_epoch_cell=False,
-        minibatch_size=min(192, int(num_envs) * DEFAULT_NUM_SNAKES * 2),
-        actor_chunk_envs=int(num_envs),
+        minibatch_size=canary_ruler_rows,
+        actor_chunk_envs=canary_ruler_envs,
         max_capacity=256,
         compile_model=False,
         include_best_compile=False,
@@ -1959,6 +2131,21 @@ def run_canary_suite(
         max_wall_seconds=ruler_budget,
         seed=seed,
     )
+    succeeded_archs = {
+        str(c.get("net_arch"))
+        for c in ruler_res.get("cells", [])
+        if str(c.get("cell_id")) in set(ruler_res.get("succeeded_cell_ids", []))
+    }
+    if (
+        ruler_res.get("failed_cells")
+        or ruler_res.get("failed_benchmarks")
+        or ruler_res.get("oom_cell_ids")
+        or succeeded_archs != set(DEFAULT_RULER_ARCHS)
+    ):
+        raise RuntimeError(
+            "Canary multi-arch ruler probe failed: "
+            f"{ruler_res.get('status_summary', ruler_res.get('failed_cell_ids'))}"
+        )
 
     # 4. Tiny REAL 2-update run_training_job (own tiny config; exercises periodic + final exports)
     train_cfg = ArenaPPOConfig(
