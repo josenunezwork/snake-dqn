@@ -1,4 +1,4 @@
-"""MPS backend execution, discrete-outcome parity vs CPU, and benchmark smoke tests."""
+"""Exact bitwise parity tests on Apple Silicon MPS vs CPU & ReferenceWorld, plus bench smoke."""
 
 from __future__ import annotations
 
@@ -10,10 +10,12 @@ import pytest
 import torch
 
 from research.game_v3.bench import STAGE_ORDER, run_benchmark
-from research.game_v3.config import GameV3Config
-from research.game_v3.obs import build_obs
+from research.game_v3.config import NUM_ACTIONS, GameV3Config
+from research.game_v3.obs import allocate_obs_batch, build_obs
+from research.game_v3.reference import ReferenceWorld
 from research.game_v3.scripted import food_seeking_actions, random_safe_actions
 from research.game_v3.sim import GameV3Sim
+from tests.test_game_v3_parity import assert_full_state_and_obs_parity, assert_step_info_parity
 
 pytestmark = pytest.mark.skipif(
     not torch.backends.mps.is_available(),
@@ -21,131 +23,225 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def measure_mps_vs_cpu_agreement(
-    *, num_envs: int = 32, num_snakes: int = 24, num_ticks: int = 500
-) -> dict[str, float]:
-    """Run paired CPU and MPS simulations and measure discrete agreement and float drift."""
-    cfg = GameV3Config(num_snakes=num_snakes)
+def _assert_mps_equals_cpu_bitwise(sim_mps: GameV3Sim, sim_cpu: GameV3Sim, tick: int) -> None:
+    """Assert every state and pyramid tensor on MPS is bitwise-identical to CPU."""
+    tensor_attrs = (
+        "head_pos",
+        "theta",
+        "alive",
+        "boosting",
+        "length",
+        "seg_count",
+        "head_ptr",
+        "oldest_active_subtick",
+        "dist_accum_fp",
+        "boost_ticks",
+        "boost_drop_fp_accum",
+        "respawn_timer",
+        "life_age",
+        "life_start",
+        "truncated_pending",
+        "occ_hi",
+        "occ_lo",
+        "occ_subtick_4x",
+        "occ_subtick_16x",
+        "ambient_grid",
+        "ambient_grid_4x",
+        "ambient_grid_16x",
+        "corpse_grid",
+        "corpse_grid_4x",
+        "corpse_grid_16x",
+        "ambient_count",
+        "total_spawned_snake_mass",
+        "total_spawned_ambient_mass",
+        "total_corpse_decay_sink",
+        "total_boost_decay_sink",
+        "total_length_cap_sink",
+        "total_truncation_sink",
+    )
+    for attr in tensor_attrs:
+        gm = getattr(sim_mps, attr).detach().cpu()
+        gc = getattr(sim_cpu, attr).detach().cpu()
+        assert torch.equal(gm, gc), f"MPS vs CPU tensor {attr} diverged at tick={tick}"
+
+
+def test_fast_mps_vs_cpu_and_reference_bitwise_parity() -> None:
+    """Fast MPS smoke: 8 worlds x 120 ticks at N=24 bitwise-exact vs CPU and ReferenceWorld."""
+    cfg = GameV3Config(
+        arena_radius=120.0,
+        num_snakes=24,
+        respawn_delay=8,
+        max_life_ticks=55,
+        ambient_food_density=0.015,
+    )
+    num_envs = 8
+    seeds = [3000 + e for e in range(num_envs)]
+    sim_mps = GameV3Sim(cfg, num_envs=num_envs, device="mps", seeds=seeds)
+    sim_cpu = GameV3Sim(cfg, num_envs=num_envs, device="cpu", seeds=seeds)
+    refs = [ReferenceWorld(cfg, seed=s) for s in seeds]
+
+    rng = np.random.default_rng(271828)
+    mask_cpu = torch.from_numpy(rng.random((num_envs, cfg.num_snakes)) < (8.0 / 24.0))
+    mask_mps = mask_cpu.to("mps")
+
+    _assert_mps_equals_cpu_bitwise(sim_mps, sim_cpu, 0)
+    assert_full_state_and_obs_parity(
+        sim_mps, refs, 0, check_rings=True, check_obs=True, learner_mask=mask_mps, label="mps"
+    )
+
+    action_counts = np.zeros(NUM_ACTIONS, dtype=np.int64)
+    for t in range(1, 121):
+        mode = t % 3
+        if mode == 0:
+            act_mps = food_seeking_actions(sim_mps)
+            act_cpu = food_seeking_actions(sim_cpu)
+            assert torch.equal(act_mps.cpu(), act_cpu)
+        elif mode == 1:
+            act_mps = random_safe_actions(sim_mps)
+            act_cpu = random_safe_actions(sim_cpu)
+            assert torch.equal(act_mps.cpu(), act_cpu)
+        else:
+            act_np = rng.integers(0, NUM_ACTIONS, size=(num_envs, cfg.num_snakes), dtype=np.int64)
+            act_cpu = torch.from_numpy(act_np)
+            act_mps = act_cpu.to("mps")
+
+        act_np = act_cpu.numpy()
+        np.add.at(action_counts, act_np.ravel(), 1)
+
+        info_mps = sim_mps.step(act_mps)
+        info_cpu = sim_cpu.step(act_cpu)
+        ref_infos = [refs[e].step(act_np[e]) for e in range(num_envs)]
+
+        assert_step_info_parity(info_mps, ref_infos, t, label="mps")
+        for k in info_cpu.__dataclass_fields__:
+            assert torch.equal(getattr(info_mps, k).cpu(), getattr(info_cpu, k))
+
+        if t in (1, 20, 55, 56, 90, 120):
+            _assert_mps_equals_cpu_bitwise(sim_mps, sim_cpu, t)
+            assert_full_state_and_obs_parity(
+                sim_mps,
+                refs,
+                t,
+                check_rings=True,
+                check_obs=True,
+                learner_mask=mask_mps,
+                label="mps",
+            )
+
+    assert np.all(action_counts > 0)
+
+
+@pytest.mark.slow
+def test_32_worlds_x_1000_ticks_n24_exact_bitwise_parity_mps() -> None:
+    """Contract (Rule 8): 32 worlds x 1,000 ticks at N=24 on MPS vs CPU & ReferenceWorld."""
+    cfg = GameV3Config(
+        arena_radius=180.0,
+        num_snakes=24,
+        respawn_delay=15,
+        max_life_ticks=350,
+        ambient_food_density=0.006,
+    )
+    num_envs = 32
+    num_ticks = 1000
     seeds = [20_000 + e * 19 for e in range(num_envs)]
 
-    sim_cpu = GameV3Sim(cfg, num_envs=num_envs, seeds=seeds, device="cpu")
-    sim_mps = GameV3Sim(cfg, num_envs=num_envs, seeds=seeds, device="mps")
+    sim_mps = GameV3Sim(cfg, num_envs=num_envs, device="mps", seeds=seeds)
+    sim_cpu = GameV3Sim(cfg, num_envs=num_envs, device="cpu", seeds=seeds)
+    refs = [ReferenceWorld(cfg, seed=s) for s in seeds]
 
-    total_snake_ticks = num_envs * num_snakes * num_ticks
-    alive_matches = 0
-    length_matches = 0
-    died_matches = 0
-    killer_matches = 0
-    credit_matches = 0
-    eaten_matches = 0
-    pos_bitwise_diffs = 0
-    theta_bitwise_diffs = 0
-    max_pos_abs_diff = 0.0
+    rng = np.random.default_rng(987654321)
+    mask_cpu = torch.tensor(
+        [[j < 8 for j in range(cfg.num_snakes)] for _ in range(num_envs)], dtype=torch.bool
+    )
+    mask_mps = mask_cpu.to("mps")
+    out_sub_mps = allocate_obs_batch(sim_mps, learner_mask=mask_mps)
 
-    half_n = num_snakes // 2
+    _assert_mps_equals_cpu_bitwise(sim_mps, sim_cpu, 0)
+    assert_full_state_and_obs_parity(
+        sim_mps,
+        refs,
+        0,
+        check_rings=True,
+        check_obs=True,
+        learner_mask=mask_mps,
+        label="mps-32x1000",
+    )
+
+    action_counts = np.zeros(NUM_ACTIONS, dtype=np.int64)
+    total_deaths = 0
+    total_kills = 0
+    total_truncs = 0
+
     for t in range(1, num_ticks + 1):
-        # Compute scripted actions independently on each device to test full closed-loop parity.
-        act_cpu = torch.cat(
-            (food_seeking_actions(sim_cpu)[:, :half_n], random_safe_actions(sim_cpu)[:, half_n:]),
-            dim=1,
-        )
-        act_mps = torch.cat(
-            (food_seeking_actions(sim_mps)[:, :half_n], random_safe_actions(sim_mps)[:, half_n:]),
-            dim=1,
-        )
+        mode = t % 4
+        if mode == 0:
+            act_mps = food_seeking_actions(sim_mps)
+            act_cpu = food_seeking_actions(sim_cpu)
+            assert torch.equal(act_mps.cpu(), act_cpu)
+        elif mode == 1:
+            act_mps = random_safe_actions(sim_mps)
+            act_cpu = random_safe_actions(sim_cpu)
+            assert torch.equal(act_mps.cpu(), act_cpu)
+        elif mode == 2:
+            act_np = rng.integers(0, NUM_ACTIONS, size=(num_envs, cfg.num_snakes), dtype=np.int64)
+            act_cpu = torch.from_numpy(act_np)
+            act_mps = act_cpu.to("mps")
+        else:
+            act_mps = food_seeking_actions(sim_mps).clone()
+            act_cpu = food_seeking_actions(sim_cpu).clone()
+            rand_tail = torch.from_numpy(
+                rng.integers(0, NUM_ACTIONS, size=(num_envs, 8), dtype=np.int64)
+            )
+            act_cpu[:, 16:] = rand_tail
+            act_mps[:, 16:] = rand_tail.to("mps")
+            assert torch.equal(act_mps.cpu(), act_cpu)
 
-        info_cpu = sim_cpu.step(act_cpu)
+        act_np = act_cpu.numpy()
+        np.add.at(action_counts, act_np.ravel(), 1)
+
         info_mps = sim_mps.step(act_mps)
+        info_cpu = sim_cpu.step(act_cpu)
+        ref_infos = [refs[e].step(act_np[e]) for e in range(num_envs)]
 
-        alive_matches += int((info_cpu.alive == info_mps.alive.cpu()).sum().item())
-        length_matches += int((info_cpu.length == info_mps.length.cpu()).sum().item())
-        died_matches += int((info_cpu.died == info_mps.died.cpu()).sum().item())
-        killer_matches += int((info_cpu.killer_id == info_mps.killer_id.cpu()).sum().item())
-        credit_matches += int((info_cpu.kill_credit == info_mps.kill_credit.cpu()).sum().item())
-        eaten_matches += int((info_cpu.mass_eaten == info_mps.mass_eaten.cpu()).sum().item())
+        assert_step_info_parity(info_mps, ref_infos, t, label="mps-32x1000")
+        for k in info_cpu.__dataclass_fields__:
+            assert torch.equal(getattr(info_mps, k).cpu(), getattr(info_cpu, k))
 
-        pos_cpu_np = sim_cpu.head_pos.numpy()
-        pos_mps_np = sim_mps.head_pos.cpu().numpy()
-        pos_bitwise_diffs += int(
-            np.any(pos_cpu_np.view(np.uint32) != pos_mps_np.view(np.uint32), axis=-1).sum()
-        )
-        max_pos_abs_diff = max(max_pos_abs_diff, float(np.max(np.abs(pos_cpu_np - pos_mps_np))))
+        total_deaths += int(info_cpu.died.sum().item())
+        total_kills += int(info_cpu.kill_credit.sum().item())
+        total_truncs += int(info_cpu.truncated.sum().item())
 
-        th_cpu_np = sim_cpu.theta.numpy()
-        th_mps_np = sim_mps.theta.cpu().numpy()
-        theta_bitwise_diffs += int((th_cpu_np.view(np.uint32) != th_mps_np.view(np.uint32)).sum())
+        if t % 100 == 0 or t in (1, 350, 351, num_ticks):
+            _assert_mps_equals_cpu_bitwise(sim_mps, sim_cpu, t)
+            assert_full_state_and_obs_parity(
+                sim_mps,
+                refs,
+                t,
+                check_rings=(t in (350, num_ticks)),
+                check_obs=True,
+                learner_mask=mask_mps,
+                label="mps-32x1000",
+            )
+            obs_sub = build_obs(sim_mps, learner_mask=mask_mps, out=out_sub_mps)
+            obs_cpu = build_obs(sim_cpu)
+            assert torch.equal(obs_sub.raster_s1.cpu(), obs_cpu.raster_s1[mask_cpu])
 
-    occ_match_rate = float(
-        (sim_cpu.active_occupancy_grid() == sim_mps.active_occupancy_grid().cpu())
-        .to(torch.float64)
-        .mean()
-        .item()
-    )
-    amb_match_rate = float(
-        (sim_cpu.ambient_grid == sim_mps.ambient_grid.cpu()).to(torch.float64).mean().item()
-    )
-    cor_match_rate = float(
-        (sim_cpu.corpse_grid == sim_mps.corpse_grid.cpu()).to(torch.float64).mean().item()
-    )
-
-    obs_cpu = build_obs(sim_cpu)
-    obs_mps = build_obs(sim_mps)
-    assert torch.isfinite(obs_mps.raster_s1).all()
-    assert torch.isfinite(obs_mps.raster_s4).all()
-    assert torch.isfinite(obs_mps.raster_s16).all()
-    assert torch.isfinite(obs_mps.scalars).all()
-
-    obs_s1_max_diff = float((obs_cpu.raster_s1 - obs_mps.raster_s1.cpu()).abs().max().item())
-    obs_s4_max_diff = float((obs_cpu.raster_s4 - obs_mps.raster_s4.cpu()).abs().max().item())
-    obs_s16_max_diff = float((obs_cpu.raster_s16 - obs_mps.raster_s16.cpu()).abs().max().item())
-    obs_scalar_max_diff = float((obs_cpu.scalars - obs_mps.scalars.cpu()).abs().max().item())
-
-    return {
-        "total_snake_ticks": float(total_snake_ticks),
-        "alive_agreement": alive_matches / total_snake_ticks,
-        "length_agreement": length_matches / total_snake_ticks,
-        "died_agreement": died_matches / total_snake_ticks,
-        "killer_id_agreement": killer_matches / total_snake_ticks,
-        "kill_credit_agreement": credit_matches / total_snake_ticks,
-        "mass_eaten_agreement": eaten_matches / total_snake_ticks,
-        "final_occ_grid_agreement": occ_match_rate,
-        "final_ambient_grid_agreement": amb_match_rate,
-        "final_corpse_grid_agreement": cor_match_rate,
-        "pos_bitwise_divergence_rate": pos_bitwise_diffs / total_snake_ticks,
-        "theta_bitwise_divergence_rate": theta_bitwise_diffs / total_snake_ticks,
-        "max_pos_abs_diff_units": max_pos_abs_diff,
-        "obs_s1_max_abs_diff": obs_s1_max_diff,
-        "obs_s4_max_abs_diff": obs_s4_max_diff,
-        "obs_s16_max_abs_diff": obs_s16_max_diff,
-        "obs_scalar_max_abs_diff": obs_scalar_max_diff,
-    }
-
-
-def test_mps_sim_obs_and_discrete_agreement() -> None:
-    """MPS sim + obs executes cleanly and matches CPU discrete outcomes."""
-    metrics = measure_mps_vs_cpu_agreement(num_envs=32, num_snakes=24, num_ticks=500)
-    print("MPS_VS_CPU_METRICS:", json.dumps(metrics, sort_keys=True))
-
-    assert metrics["alive_agreement"] >= 0.999
-    assert metrics["length_agreement"] >= 0.999
-    assert metrics["died_agreement"] >= 0.999
-    assert metrics["killer_id_agreement"] >= 0.999
-    assert metrics["kill_credit_agreement"] >= 0.999
-    assert metrics["mass_eaten_agreement"] >= 0.999
-    assert metrics["final_occ_grid_agreement"] >= 0.9999
-    assert metrics["final_ambient_grid_agreement"] >= 0.9999
-    assert metrics["final_corpse_grid_agreement"] >= 0.9999
+    assert np.all(action_counts >= 10_000), f"Expected all 10 actions heavily used: {action_counts}"
+    assert total_deaths >= 200
+    assert total_kills >= 50
+    assert total_truncs >= 50
 
 
 def test_mps_benchmark_entrypoint_writes_valid_json(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Real benchmark entrypoint runs on MPS, prints START/END stamps, and writes JSON."""
+    """Real benchmark entrypoint runs on MPS, reports all-learner & 8-learner, and writes JSON."""
     out_json = tmp_path / "bench_mps_smoke.json"
     summary = run_benchmark(
         device="mps",
         envs_list=(16,),
-        num_snakes=12,
+        num_snakes=24,
+        learner_slots=8,
         arena_radius=300.0,
         warmup_steps=2,
         bench_steps=5,
@@ -158,11 +254,14 @@ def test_mps_benchmark_entrypoint_writes_valid_json(
     assert out_json.is_file()
 
     loaded = json.loads(out_json.read_text(encoding="utf-8"))
-    assert loaded["schema"] == "game-v3-bench/v1"
+    assert loaded["schema"] == "game-v3-bench/v2"
     assert loaded["device"] in ("mps", "mps:0")
     assert len(loaded["cases"]) == 1
     case = loaded["cases"][0]
     assert case["agent_steps_per_sec"] > 0.0
+    assert case["learner_masked_agent_steps_per_sec"] > 0.0
+    assert case["learner_masked_learner_steps_per_sec"] > 0.0
     assert case["memory"]["peak_memory_mib"] > 0.0
+    assert case["memory"]["footprint_mib_per_world"] > 0.0
     assert set(case["stage_ms_per_tick"].keys()) == set(STAGE_ORDER)
     assert summary == loaded
