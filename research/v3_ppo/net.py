@@ -35,10 +35,11 @@ def symexp(x: torch.Tensor) -> torch.Tensor:
 
 def two_hot_encode(targets: torch.Tensor, bin_centers: torch.Tensor) -> torch.Tensor:
     """Encode scalar targets in symlog space as two-hot distributions over ``bin_centers``."""
-    z = symlog(targets.float()).clamp(min=float(bin_centers[0]), max=float(bin_centers[-1]))
-    num_bins = int(bin_centers.numel())
-    step = (bin_centers[-1] - bin_centers[0]) / float(num_bins - 1)
-    scaled = (z - bin_centers[0]) / step
+    centers = bin_centers.to(device=targets.device, dtype=torch.float32)
+    z = torch.clamp(symlog(targets.float()), min=centers[0], max=centers[-1])
+    num_bins = int(centers.numel())
+    step = (centers[-1] - centers[0]) / float(num_bins - 1)
+    scaled = (z - centers[0]) / step
     low_idx = torch.floor(scaled).to(torch.long).clamp(0, num_bins - 1)
     high_idx = (low_idx + 1).clamp(0, num_bins - 1)
     high_weight = (scaled - low_idx.to(scaled.dtype)).clamp(0.0, 1.0)
@@ -439,12 +440,9 @@ class EgoMultiScaleNet(nn.Module):
             )
         mask_bool = action_mask.to(dtype=torch.bool)
         has_any = mask_bool.any(dim=-1, keepdim=True)
-        if bool(has_any.all()):
-            safe_mask = mask_bool
-        else:
-            fallback = torch.zeros_like(mask_bool)
-            fallback[..., :NUM_TURN_LEVELS] = True
-            safe_mask = torch.where(has_any, mask_bool, fallback)
+        fallback = torch.zeros_like(mask_bool)
+        fallback[..., :NUM_TURN_LEVELS] = True
+        safe_mask = torch.where(has_any, mask_bool, fallback)
         return logits_f32.masked_fill(~safe_mask, MASK_FILL_VALUE), safe_mask
 
     def encode_trunk(

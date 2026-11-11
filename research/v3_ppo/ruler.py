@@ -22,7 +22,6 @@ from research.arena_ppo.runtime import (
     ensure_cuda_initialized,
     normalize_device,
     phase_stamp,
-    sha256_file,
     synchronize_device,
     verify_completed_artifact,
     write_create_only_artifact,
@@ -40,14 +39,20 @@ from research.v3_ppo.config import (
     V3PPOConfig,
     default_actor_chunk_learners,
     estimate_sim_memory_bytes,
+    estimate_training_memory,
 )
 from research.v3_ppo.eval import derive_world_seeds
 from research.v3_ppo.net import build_ego_multiscale_net
 from research.v3_ppo.ppo import (
     StopRequestedError,
     V3PPOTrainer,
-    _publish_checkpoint_manifest,
+    _validate_staged_ledger_resume,
+    pack_sim_state_dict,
+    publish_checkpoint_to_output,
+    resolve_resume_checkpoint,
     run_training_job,
+    unpack_sim_state_dict,
+    verify_full_checkpoint_set,
     verify_staged_checkpoint,
 )
 
@@ -57,6 +62,9 @@ V3_PPO_CANARY_SCHEMA = "v3-ppo-canary-checks/v1"
 DEFAULT_RULER_ENVS: tuple[int, ...] = (128, 256, 512)
 DEFAULT_RULER_NETS: tuple[NetSize, ...] = ("S", "M")
 DEFAULT_RULER_LEARNERS: tuple[int, ...] = (24, 8)
+DEFAULT_RULER_ROLLOUT_LEN: int = 32
+DEFAULT_RULER_WARMUP_UPDATES: int = 1
+DEFAULT_RULER_TIMED_UPDATES: int = 2
 
 RULER_REQUIRED_EXPORTS: tuple[str, ...] = ("ruler_result.json",)
 TRAIN_REQUIRED_EXPORTS: tuple[str, ...] = (
@@ -115,7 +123,7 @@ def _read_peak_memory_bytes(device: torch.device, *, fallback_bytes: int = 0) ->
         return int(fallback_bytes)
 
 
-def _build_mature_sim_state(
+def _build_packed_mature_sim_state(
     *,
     game_cfg: GameV3Config,
     num_envs: int,
@@ -124,6 +132,11 @@ def _build_mature_sim_state(
     seed: int,
     should_stop: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
+    """Advance ``num_envs`` worlds for ``burnin_ticks`` and return compressed CPU state dict.
+
+    Packing via :func:`pack_sim_state_dict` shrinks ``E=512`` host RAM from `~14 GB` raw grids to
+    `< 0.5 GB`, and ``run_ruler`` retains at most one ``num_envs`` slot at a time.
+    """
     seeds = derive_world_seeds(seed, num_envs, stream_id=500)
     sim = GameV3Sim(game_cfg, num_envs=num_envs, device=device, seeds=seeds)
     for _ in range(int(burnin_ticks)):
@@ -132,17 +145,20 @@ def _build_mature_sim_state(
         acts = food_seeking_actions(sim)
         sim.step(acts)
     synchronize_device(device)
-    state = sim.state_dict()
+    raw_state = sim.state_dict()
     del sim
     _cleanup_device_memory(device)
-    return state
+    packed_state = pack_sim_state_dict(raw_state)
+    del raw_state
+    gc.collect()
+    return packed_state
 
 
 @torch.no_grad()
 def _measure_collection_only_cell(
     *,
     game_cfg: GameV3Config,
-    mature_sim_state: dict[str, Any],
+    packed_mature_sim_state: dict[str, Any],
     num_envs: int,
     learner_slots: int,
     net_size: NetSize,
@@ -155,7 +171,9 @@ def _measure_collection_only_cell(
     should_stop: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     sim = GameV3Sim(game_cfg, num_envs=num_envs, device=device, seeds=[1] * int(num_envs))
-    sim.load_state_dict(mature_sim_state)
+    unpacked_state = unpack_sim_state_dict(packed_mature_sim_state)
+    sim.load_state_dict(unpacked_state)
+    del unpacked_state
 
     k_slots = min(max(1, int(learner_slots)), sim.N)
     mask = torch.zeros((sim.E, sim.N), dtype=torch.bool, device=device)
@@ -267,6 +285,8 @@ def _measure_collection_only_cell(
         "oom": False,
         "ticks": int(collect_ticks),
         "wall_seconds": round(wall_sec, 6),
+        "collect_seconds": round(sim_sec + obs_sec + fwd_sec, 6),
+        "learn_seconds": 0.0,
         "agent_steps": total_agent_steps,
         "learner_steps": total_learner_steps,
         "agent_steps_per_sec": round(float(total_agent_steps) / wall_sec, 2),
@@ -291,7 +311,7 @@ def _measure_collection_only_cell(
 def _measure_integrated_cell(
     *,
     game_cfg: GameV3Config,
-    mature_sim_state: dict[str, Any],
+    packed_mature_sim_state: dict[str, Any],
     num_envs: int,
     learner_slots: int,
     net_size: NetSize,
@@ -302,10 +322,16 @@ def _measure_integrated_cell(
     use_channels_last: bool,
     compile_model: bool,
     warmup_updates: int,
+    timed_updates: int,
     seed: int,
     device: torch.device,
     should_stop: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
+    if int(timed_updates) < 1:
+        raise ValueError(f"timed_updates must be >= 1, got {timed_updates}")
+    if int(warmup_updates) < 0:
+        raise ValueError(f"warmup_updates must be >= 0, got {warmup_updates}")
+
     cfg = V3PPOConfig(
         game_config=game_cfg,
         num_envs=num_envs,
@@ -318,10 +344,16 @@ def _measure_integrated_cell(
         rollout_len=rollout_len,
         ppo_epochs=ppo_epochs,
         minibatch_size=minibatch_size,
+        eval_every_minutes=0.0,
         eval_every_updates=0,
         seed=seed,
     )
-    trainer = V3PPOTrainer(cfg, device=device, mature_sim_state=mature_sim_state)
+    unpacked_state = unpack_sim_state_dict(packed_mature_sim_state)
+    trainer = V3PPOTrainer(cfg, device=device, mature_sim_state=unpacked_state)
+    del unpacked_state
+
+    # Untimed warm-up updates populate `_bootstrap_obs` (1 `build_obs`/tick steady state),
+    # initialize AdamW moments, and run cuDNN kernel autotuning before steady-state measurement.
     for _ in range(int(warmup_updates)):
         if should_stop is not None and should_stop():
             raise StopRequestedError("Stop requested during integrated warmup")
@@ -329,8 +361,26 @@ def _measure_integrated_cell(
     synchronize_device(device)
 
     _reset_peak_memory(device)
+    sim_sec = 0.0
+    obs_sec = 0.0
+    fwd_sec = 0.0
+    lrn_sec = 0.0
+    total_agent_steps = 0
+    total_learner_steps = 0
+    last_step_out: dict[str, Any] = {}
+
     t0 = time.perf_counter()
-    step_out = trainer.train_step(should_stop=should_stop, stage_timing=True)
+    for _ in range(int(timed_updates)):
+        if should_stop is not None and should_stop():
+            raise StopRequestedError("Stop requested during integrated measurement")
+        step_out = trainer.train_step(should_stop=should_stop, stage_timing=True)
+        sim_sec += float(step_out["sim_seconds"])
+        obs_sec += float(step_out["obs_seconds"])
+        fwd_sec += float(step_out["forward_seconds"])
+        lrn_sec += float(step_out["learn_seconds"])
+        total_agent_steps += int(step_out["agent_steps"])
+        total_learner_steps += int(step_out["learner_steps"])
+        last_step_out = step_out
     synchronize_device(device)
     wall_sec = max(1.0e-9, time.perf_counter() - t0)
 
@@ -344,14 +394,8 @@ def _measure_integrated_cell(
     )
     peak_bytes = _read_peak_memory_bytes(device, fallback_bytes=fallback_mem)
 
-    sim_sec = float(step_out["sim_seconds"])
-    obs_sec = float(step_out["obs_seconds"])
-    fwd_sec = float(step_out["forward_seconds"])
-    lrn_sec = float(step_out["learn_seconds"])
-    split_total = max(1.0e-9, sim_sec + obs_sec + fwd_sec + lrn_sec)
-
-    total_agent_steps = int(step_out["agent_steps"])
-    total_learner_steps = int(step_out["learner_steps"])
+    collect_sec = sim_sec + obs_sec + fwd_sec
+    split_total = max(1.0e-9, collect_sec + lrn_sec)
     param_count = trainer.raw_model.parameter_count()
 
     del trainer
@@ -361,8 +405,14 @@ def _measure_integrated_cell(
         "oom": False,
         "rollout_len": int(rollout_len),
         "ppo_epochs": int(ppo_epochs),
+        "warmup_updates": int(warmup_updates),
+        "timed_updates": int(timed_updates),
         "parameter_count": int(param_count),
         "wall_seconds": round(wall_sec, 6),
+        "collect_seconds": round(collect_sec, 6),
+        "learn_seconds": round(lrn_sec, 6),
+        "collect_pct": round(100.0 * collect_sec / split_total, 2),
+        "learn_pct": round(100.0 * lrn_sec / split_total, 2),
         "agent_steps": total_agent_steps,
         "learner_steps": total_learner_steps,
         "agent_steps_per_sec": round(float(total_agent_steps) / wall_sec, 2),
@@ -384,11 +434,11 @@ def _measure_integrated_cell(
         "peak_memory_bytes": int(peak_bytes),
         "peak_memory_mib": round(peak_bytes / float(1024 * 1024), 2),
         "ppo_stats": {
-            "policy_loss": step_out["policy_loss"],
-            "value_loss": step_out["value_loss"],
-            "entropy": step_out["entropy"],
-            "epoch0_approx_kl": step_out["epoch0_approx_kl"],
-            "grad_norm": step_out["grad_norm"],
+            "policy_loss": last_step_out["policy_loss"],
+            "value_loss": last_step_out["value_loss"],
+            "entropy": last_step_out["entropy"],
+            "epoch0_approx_kl": last_step_out["epoch0_approx_kl"],
+            "grad_norm": last_step_out["grad_norm"],
         },
     }
 
@@ -417,18 +467,30 @@ def run_ruler(
     burnin_ticks: int = 60,
     warmup_ticks: int = 4,
     collect_ticks: int = 24,
-    warmup_updates: int = 0,
-    rollout_len: int = 16,
+    warmup_updates: int = DEFAULT_RULER_WARMUP_UPDATES,
+    timed_updates: int = DEFAULT_RULER_TIMED_UPDATES,
+    rollout_len: int = DEFAULT_RULER_ROLLOUT_LEN,
     ppo_epochs: int = 2,
     minibatch_size: int | None = None,
     amp: bool = True,
     use_channels_last: bool = True,
     compile_model: bool = False,
     include_fp32: bool = False,
+    vram_budget_bytes: int | None = None,
     max_wall_seconds: float | None = None,
     seed: int = 20261111,
 ) -> dict[str, Any]:
-    """Sweep ``worlds x net_size x learners`` and export create-only ``ruler_result.json``."""
+    """Sweep ``worlds x net_size x learners`` and export create-only ``ruler_result.json``.
+
+    Pre-checks estimated VRAM before allocating each cell (`precheck_oom=True` if exceeding
+    ``vram_budget_bytes`` or CUDA physical VRAM) and caches at most one compressed mature
+    simulator state in host RAM across consecutive cells sharing ``num_envs``.
+    """
+    if int(timed_updates) < 1:
+        raise ValueError(f"timed_updates must be >= 1, got {timed_updates}")
+    if int(warmup_updates) < 0:
+        raise ValueError(f"warmup_updates must be >= 0, got {warmup_updates}")
+
     out = Path(output_dir).resolve()
     out.mkdir(parents=True, exist_ok=True)
     cells_dir = out / "cells"
@@ -446,15 +508,17 @@ def run_ruler(
         if resolved_dev.type == "cuda"
         else None
     )
+    eff_vram_limit = int(vram_budget_bytes) if vram_budget_bytes is not None else total_vram_bytes
 
     game_cfg = GameV3Config(arena_radius=float(arena_radius), num_snakes=int(num_snakes))
-    eff_learners = []
+    eff_learners: list[int] = []
     for k in learners_list:
         k_clamped = min(max(1, int(k)), int(num_snakes))
         if k_clamped not in eff_learners:
             eff_learners.append(k_clamped)
 
-    # Order cheapest cells first: (num_envs, learner_slots, is_M)
+    # Order cheapest cells first: (num_envs, learner_slots, is_M) so all cells sharing `num_envs`
+    # execute back-to-back and share a single compressed mature sim snapshot.
     ordered_grid: list[tuple[int, int, NetSize, bool, bool]] = []
     for e in sorted(int(x) for x in envs_list):
         for k_slots in sorted(eff_learners):
@@ -468,7 +532,9 @@ def run_ruler(
         min(30.0, max(2.0, float(max_wall_seconds) * 0.05)) if max_wall_seconds is not None else 0.0
     )
 
-    mature_cache: dict[int, dict[str, Any]] = {}
+    cached_mature_envs: int | None = None
+    cached_packed_mature_state: dict[str, Any] | None = None
+
     cells: list[dict[str, Any]] = []
     reused_cell_ids: list[str] = []
     skipped_cells: list[dict[str, Any]] = []
@@ -536,7 +602,26 @@ def run_ruler(
                     net_size=net_sz,
                     amp=cell_amp,
                 )
+
+                cell_cfg = V3PPOConfig(
+                    game_config=game_cfg,
+                    num_envs=num_envs,
+                    learner_slots=k_slots,
+                    net_size=net_sz,
+                    amp=cell_amp,
+                    use_channels_last=use_channels_last,
+                    compile_model=compile_model,
+                    rollout_len=rollout_len,
+                    ppo_epochs=ppo_epochs,
+                    minibatch_size=minibatch_size,
+                    eval_every_minutes=0.0,
+                    eval_every_updates=0,
+                )
+                mem_est = estimate_training_memory(cell_cfg)
+                est_peak_bytes = int(mem_est["estimated_peak_bytes"])
+
                 cell_record: dict[str, Any] = {
+                    "namespace": V3_PPO_NAMESPACE,
                     "cell_id": cid,
                     "num_envs": int(num_envs),
                     "num_snakes": int(num_snakes),
@@ -547,14 +632,38 @@ def run_ruler(
                     "is_fp32_probe": bool(is_fp32_probe),
                     "use_channels_last": bool(use_channels_last),
                     "compile_model": bool(compile_model),
+                    "estimated_peak_bytes": est_peak_bytes,
+                    "estimated_peak_mib": round(est_peak_bytes / float(1024 * 1024), 2),
+                    "precheck_oom": False,
                     "oom": False,
                     "collection_only": None,
                     "integrated": None,
                 }
 
+                if eff_vram_limit is not None and est_peak_bytes > eff_vram_limit:
+                    cell_record["oom"] = True
+                    cell_record["precheck_oom"] = True
+                    cell_record["oom_error"] = (
+                        f"Memory precheck refused cell {cid}: estimated_peak_bytes="
+                        f"{est_peak_bytes} > vram_limit_bytes={eff_vram_limit}"
+                    )
+                    cell_record["cell_wall_seconds"] = round(time.monotonic() - cell_t0, 4)
+                    write_create_only_json(cells_dir / f"{cid}.json", cell_record)
+                    cells.append(cell_record)
+                    print(
+                        f"V3_PPO_RULER_CELL cell={cid} status=PRECHECK_OOM "
+                        f"est_mib={cell_record['estimated_peak_mib']:.1f} "
+                        f"limit_mib={eff_vram_limit / float(1024 * 1024):.1f}",
+                        flush=True,
+                    )
+                    continue
+
                 try:
-                    if num_envs not in mature_cache:
-                        mature_cache[num_envs] = _build_mature_sim_state(
+                    if cached_mature_envs != num_envs or cached_packed_mature_state is None:
+                        cached_packed_mature_state = None
+                        cached_mature_envs = None
+                        gc.collect()
+                        cached_packed_mature_state = _build_packed_mature_sim_state(
                             game_cfg=game_cfg,
                             num_envs=num_envs,
                             burnin_ticks=burnin_ticks,
@@ -562,11 +671,11 @@ def run_ruler(
                             seed=seed,
                             should_stop=should_stop,
                         )
-                    mature_state = mature_cache[num_envs]
+                        cached_mature_envs = num_envs
 
                     coll = _measure_collection_only_cell(
                         game_cfg=game_cfg,
-                        mature_sim_state=mature_state,
+                        packed_mature_sim_state=cached_packed_mature_state,
                         num_envs=num_envs,
                         learner_slots=k_slots,
                         net_size=net_sz,
@@ -582,7 +691,7 @@ def run_ruler(
 
                     integ = _measure_integrated_cell(
                         game_cfg=game_cfg,
-                        mature_sim_state=mature_state,
+                        packed_mature_sim_state=cached_packed_mature_state,
                         num_envs=num_envs,
                         learner_slots=k_slots,
                         net_size=net_sz,
@@ -593,6 +702,7 @@ def run_ruler(
                         use_channels_last=use_channels_last,
                         compile_model=compile_model,
                         warmup_updates=warmup_updates,
+                        timed_updates=timed_updates,
                         seed=seed,
                         device=resolved_dev,
                         should_stop=should_stop,
@@ -601,6 +711,8 @@ def run_ruler(
                     cell_record["parameter_count"] = integ["parameter_count"]
                     cell_record["collection_agent_steps_per_sec"] = coll["agent_steps_per_sec"]
                     cell_record["integrated_agent_steps_per_sec"] = integ["agent_steps_per_sec"]
+                    cell_record["collect_seconds"] = integ["collect_seconds"]
+                    cell_record["learn_seconds"] = integ["learn_seconds"]
                     cell_record["time_split_pct"] = integ["time_split_pct"]
                     cell_record["peak_memory_bytes"] = max(
                         int(coll["peak_memory_bytes"]), int(integ["peak_memory_bytes"])
@@ -636,6 +748,8 @@ def run_ruler(
                         f"V3_PPO_RULER_CELL cell={cid} status=OK "
                         f"coll_sps={cell_record['collection_agent_steps_per_sec']:.1f} "
                         f"int_sps={cell_record['integrated_agent_steps_per_sec']:.1f} "
+                        f"collect_s={cell_record['collect_seconds']:.3f} "
+                        f"learn_s={cell_record['learn_seconds']:.3f} "
                         f"sim_pct={sp['sim']:.1f} obs_pct={sp['obs']:.1f} "
                         f"fwd_pct={sp['forward']:.1f} lrn_pct={sp['learner']:.1f} "
                         f"peak_mib={cell_record['peak_memory_mib']:.1f}",
@@ -644,6 +758,10 @@ def run_ruler(
 
         except StopRequestedError:
             stopped_reason = f"signal:{stop_flag.signal_name or 'STOP'}"
+        finally:
+            cached_packed_mature_state = None
+            cached_mature_envs = None
+            gc.collect()
 
     succeeded_ids = [
         str(c["cell_id"])
@@ -685,12 +803,15 @@ def run_ruler(
         "device": str(resolved_dev),
         "device_name": device_name,
         "total_vram_bytes": total_vram_bytes,
+        "vram_limit_bytes": eff_vram_limit,
         "requested_envs": [int(x) for x in envs_list],
         "requested_net_sizes": list(net_sizes),
         "requested_learners": eff_learners,
         "arena_radius": float(arena_radius),
         "num_snakes": int(num_snakes),
         "rollout_len": int(rollout_len),
+        "warmup_updates": int(warmup_updates),
+        "timed_updates": int(timed_updates),
         "ppo_epochs": int(ppo_epochs),
         "amp": bool(amp),
         "use_channels_last": bool(use_channels_last),
@@ -758,7 +879,7 @@ def run_canary_suite(
     canary_rollout_len: int = 4,
     seed: int = 20261111,
 ) -> dict[str, Any]:
-    """Run instrumented family canary exercising ruler (S/M, all/subset, bf16/fp32) + resume."""
+    """Run instrumented family canary exercising ruler (S/M, all/subset, bf16/fp32) & resume."""
     out = Path(output_dir).resolve()
     out.mkdir(parents=True, exist_ok=True)
     resolved_dev = normalize_device(device)
@@ -768,28 +889,21 @@ def run_canary_suite(
 
     # 1. Verify staged continuation input if present in `verified-ledger.json`
     staged_verification: dict[str, Any] | None = None
-    if ledger_path is not None and Path(ledger_path).is_file() and input_dir is not None:
-        ledger = json.loads(Path(ledger_path).read_text(encoding="utf-8"))
-        resume_entry = ledger.get("resume_checkpoint")
-        if isinstance(resume_entry, dict):
-            staged_ckpt = Path(input_dir) / str(resume_entry["relpath"])
-            if not staged_ckpt.is_file():
-                raise FileNotFoundError(f"Missing staged checkpoint at {staged_ckpt}")
-            actual_sha = sha256_file(staged_ckpt)
-            if actual_sha != resume_entry.get("sha256"):
-                raise ValueError(
-                    f"Staged checkpoint SHA mismatch: {actual_sha} != {resume_entry.get('sha256')}"
-                )
-            verified_meta = verify_staged_checkpoint(
-                staged_ckpt, device=resolved_dev, verify_markers=False
-            )
-            staged_verification = {
-                "kind": "checkpoint",
-                "relpath": str(resume_entry["relpath"]),
-                "sha256": actual_sha,
-                "updates_completed": int(verified_meta["updates_completed"]),
-            }
-            _cleanup_device_memory(resolved_dev)
+    staged_meta = _validate_staged_ledger_resume(input_dir=input_dir, ledger_path=ledger_path)
+    if staged_meta is not None:
+        verified_meta = verify_staged_checkpoint(
+            Path(staged_meta["path"]),
+            device=resolved_dev,
+            verify_markers=False,
+        )
+        staged_verification = {
+            "kind": str(verified_meta["checkpoint_kind"]),
+            "relpath": str(staged_meta["relpath"]),
+            "sha256": str(staged_meta["sha256"]),
+            "num_shards": int(verified_meta["num_shards"]),
+            "updates_completed": int(verified_meta["updates_completed"]),
+        }
+        _cleanup_device_memory(resolved_dev)
 
     # 2. Tiny ruler sweep probing S and M, all snakes and subset learners, plus fp32 on CUDA
     n_snakes = max(6, int(canary_num_snakes))
@@ -818,7 +932,8 @@ def run_canary_suite(
         burnin_ticks=8,
         warmup_ticks=1,
         collect_ticks=4,
-        warmup_updates=0,
+        warmup_updates=1,
+        timed_updates=2,
         rollout_len=max(2, int(canary_rollout_len)),
         ppo_epochs=1,
         minibatch_size=max(8, int(canary_envs) * subset_learners),
@@ -838,7 +953,7 @@ def run_canary_suite(
             f"oom={ruler_res.get('oom_cell_ids')}, failed={ruler_res.get('failed_cell_ids')}"
         )
 
-    # 3. Real 2-update train + atomic checkpoint + staged ledger resume + deterministic eval
+    # 3. Real 2-update train + sharded FULL checkpoint + staged ledger resume + deterministic eval
     tmp_dir = Path(tempfile.mkdtemp(prefix=f".{out.name}_canary_", dir=str(out.parent)))
     try:
         game_cfg = GameV3Config(arena_radius=float(canary_arena_radius), num_snakes=n_snakes)
@@ -851,9 +966,11 @@ def run_canary_suite(
             ppo_epochs=1,
             minibatch_size=max(8, int(canary_envs) * n_snakes),
             total_updates=1,
-            checkpoint_every_updates=1,
+            full_checkpoint_every_updates=1,
+            eval_every_minutes=0.0,
             eval_every_updates=1,
             eval_envs=2,
+            eval_burnin_ticks=4,
             eval_ticks=12,
             eval_learner_slots=subset_learners,
             seed=seed,
@@ -875,15 +992,30 @@ def run_canary_suite(
         if res_u1.get("status") != "PASS":
             raise RuntimeError(f"Canary update-1 train failed: {res_u1}")
 
-        u1_ckpt = u1_out / "checkpoints" / "ckpt_u0000001.pt"
-        verify_staged_checkpoint(u1_ckpt, device=resolved_dev, verify_markers=True)
+        u1_full_idx = u1_out / "checkpoints" / "full_u0000001.index.json"
+        full_meta = verify_full_checkpoint_set(u1_full_idx, require_markers=True)
+        verify_staged_checkpoint(u1_full_idx, device=resolved_dev, verify_markers=True)
 
         staged_in = tmp_dir / "resume_in"
         staged_in.mkdir(parents=True, exist_ok=True)
-        staged_ckpt_dst = staged_in / u1_ckpt.name
-        u1_sha = write_create_only_artifact(
-            staged_ckpt_dst, lambda tmp, src=u1_ckpt: shutil.copyfile(src, tmp)
+        staged_idx_dst = staged_in / u1_full_idx.name
+        u1_idx_sha = write_create_only_artifact(
+            staged_idx_dst, lambda tmp, src=u1_full_idx: shutil.copyfile(src, tmp)
         )
+        companion_entries: list[dict[str, Any]] = []
+        for comp_src in [full_meta["light_path"], *full_meta["shard_paths"]]:
+            comp_dst = staged_in / comp_src.name
+            comp_sha = write_create_only_artifact(
+                comp_dst, lambda tmp, src=comp_src: shutil.copyfile(src, tmp)
+            )
+            companion_entries.append(
+                {
+                    "relpath": comp_src.name,
+                    "sha256": comp_sha,
+                    "size_bytes": int(comp_dst.stat().st_size),
+                }
+            )
+
         staged_ledger = staged_in / "verified-ledger.json"
         write_create_only_json(
             staged_ledger,
@@ -893,25 +1025,25 @@ def run_canary_suite(
                 "unit_kind": "checkpoint",
                 "skip_verified": True,
                 "resume_checkpoint": {
-                    "relpath": u1_ckpt.name,
-                    "sha256": u1_sha,
-                    "size_bytes": int(staged_ckpt_dst.stat().st_size),
+                    "relpath": u1_full_idx.name,
+                    "checkpoint_kind": "full",
+                    "sha256": u1_idx_sha,
+                    "size_bytes": int(staged_idx_dst.stat().st_size),
+                    "companion_files": companion_entries,
                 },
                 "verified_units": [],
             },
         )
 
-        _publish_checkpoint_manifest(
-            u1_ckpt,
+        publish_checkpoint_to_output(
+            u1_full_idx,
             out / "checkpoints",
-            export_names=[u1_ckpt.name],
             reason="canary_u1_snapshot",
             counters={
                 "updates_completed": 1,
                 "agent_steps_collected": res_u1["agent_steps_collected"],
                 "world_steps_collected": res_u1["world_steps_collected"],
             },
-            write_latest_manifest=False,
         )
 
         cfg_u2 = V3PPOConfig.from_dict({**cfg_u1.to_dict(), "total_updates": 2})
@@ -935,7 +1067,9 @@ def run_canary_suite(
             or int(res_u2.get("updates_completed", 0)) != 2
         ):
             raise RuntimeError(f"Canary resumed update-2 train failed: {res_u2}")
-        verify_completed_artifact(out / "checkpoints" / "final.pt")
+        final_resolved = resolve_resume_checkpoint(out / "checkpoints", require_markers=True)
+        if final_resolved is None or int(final_resolved["updates_completed"]) != 2:
+            raise RuntimeError(f"Canary output missing verified u2 checkpoint: {final_resolved}")
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -1004,10 +1138,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--burnin-ticks", type=int, default=60)
     parser.add_argument("--warmup-ticks", type=int, default=4)
     parser.add_argument("--collect-ticks", type=int, default=24)
-    parser.add_argument("--warmup-updates", type=int, default=0)
-    parser.add_argument("--rollout-len", type=int, default=16)
+    parser.add_argument("--warmup-updates", type=int, default=DEFAULT_RULER_WARMUP_UPDATES)
+    parser.add_argument("--timed-updates", type=int, default=DEFAULT_RULER_TIMED_UPDATES)
+    parser.add_argument("--rollout-len", type=int, default=DEFAULT_RULER_ROLLOUT_LEN)
     parser.add_argument("--ppo-epochs", type=int, default=2)
     parser.add_argument("--minibatch-size", type=int, default=None)
+    parser.add_argument("--vram-budget-bytes", type=int, default=None)
     parser.add_argument("--compile", action="store_true")
     parser.add_argument("--include-fp32", action="store_true")
 
@@ -1065,6 +1201,7 @@ def main(argv: list[str] | None = None) -> int:
         warmup_ticks=args.warmup_ticks,
         collect_ticks=args.collect_ticks,
         warmup_updates=args.warmup_updates,
+        timed_updates=args.timed_updates,
         rollout_len=args.rollout_len,
         ppo_epochs=args.ppo_epochs,
         minibatch_size=args.minibatch_size,
@@ -1072,6 +1209,7 @@ def main(argv: list[str] | None = None) -> int:
         use_channels_last=bool(args.use_channels_last),
         compile_model=bool(args.compile),
         include_fp32=bool(args.include_fp32),
+        vram_budget_bytes=args.vram_budget_bytes,
         max_wall_seconds=args.max_wall_seconds,
         seed=args.seed,
     )

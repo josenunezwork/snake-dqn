@@ -1,4 +1,4 @@
-"""Preflight tests for `research.v3_ppo.prepare`, `job.sh`, VRAM refusals, and CLI exit codes."""
+"""Preflight tests for `research.v3_ppo.prepare`, `ruler`, `job.sh`, VRAM & export-cap refusals."""
 
 from __future__ import annotations
 
@@ -10,12 +10,22 @@ from typing import Any
 
 import pytest
 
+import research.v3_ppo.ruler as ruler_mod
 from research.arena_ppo.runtime import sha256_file, verify_completed_artifact
 from research.colab_cli import canary as colab_canary
 from research.colab_cli import schema as colab_schema
 from research.colab_cli import source as colab_source
 from research.colab_cli import supervisor as colab_supervisor
+from research.game_v3.config import GameV3Config
+from research.v3_ppo.config import V3PPOConfig, estimate_training_memory
+from research.v3_ppo.ppo import (
+    V3PPOTrainer,
+)
 from research.v3_ppo.ppo import main as ppo_main
+from research.v3_ppo.ppo import (
+    publish_checkpoint_to_output,
+    verify_full_checkpoint_set,
+)
 from research.v3_ppo.prepare import (
     ROOT,
 )
@@ -25,12 +35,16 @@ from research.v3_ppo.prepare import (
 )
 from research.v3_ppo.ruler import (
     CANARY_REQUIRED_EXPORTS,
+    DEFAULT_RULER_ROLLOUT_LEN,
+    DEFAULT_RULER_TIMED_UPDATES,
+    DEFAULT_RULER_WARMUP_UPDATES,
     RULER_REQUIRED_EXPORTS,
     TRAIN_REQUIRED_EXPORTS,
 )
 from research.v3_ppo.ruler import main as ruler_main
 from research.v3_ppo.ruler import (
     run_canary_suite,
+    run_ruler,
 )
 from tools.ops import dispatch as ops_dispatch
 
@@ -149,8 +163,10 @@ def _build_synthetic_canary_receipt(
     return receipt_path
 
 
-def test_prepare_canary_ruler_and_train_validate_with_colab_cli(tmp_path: Path) -> None:
-    """Validate L4 and A100 canary, ruler, and train packets with all colab_cli validators."""
+def test_prepare_canary_ruler_train_and_continuation_validate_with_colab_cli(
+    tmp_path: Path,
+) -> None:
+    """Validate L4 and A100 canary, ruler, train, & sharded FULL continuation packets."""
     for rel in (*CANARY_REQUIRED_EXPORTS, *RULER_REQUIRED_EXPORTS, *TRAIN_REQUIRED_EXPORTS):
         assert not rel.endswith(".sha256")
         assert not rel.endswith(".complete")
@@ -238,10 +254,85 @@ def test_prepare_canary_ruler_and_train_validate_with_colab_cli(tmp_path: Path) 
         allow_unmerged_commit=True,
     )
 
+    # Prepare a continuation train packet staging a multi-shard FULL checkpoint set
+    prior_sim_dir = tmp_path / "prior_train_exports"
+    prior_cfg = V3PPOConfig(
+        game_config=GameV3Config(arena_radius=60.0, num_snakes=6),
+        num_envs=4,
+        rollout_len=4,
+        eval_every_minutes=0.0,
+    )
+    prior_tr = V3PPOTrainer(prior_cfg, device="cpu")
+    prior_tr.train_step()
+    probe_idx = prior_tr.save_full_checkpoint(tmp_path / "prior_probe", tag="u0000001")
+    prior_shard_cap = verify_full_checkpoint_set(probe_idx)["shard_paths"][0].stat().st_size - 1024
+    work_c = tmp_path / "prior_work_ckpts"
+    idx_prior = prior_tr.save_full_checkpoint(
+        work_c, tag="u0000001", max_shard_bytes=prior_shard_cap
+    )
+    assert verify_full_checkpoint_set(idx_prior)["num_shards"] >= 2
+    publish_checkpoint_to_output(
+        idx_prior,
+        prior_sim_dir / "exports" / "checkpoints",
+        reason="completed",
+        counters={"updates_completed": 1, "agent_steps_collected": 96, "world_steps_collected": 4},
+    )
+
+    canary_cont_l4 = prepare_v3_ppo_packet(
+        tmp_path / "pkt_canary_cont_l4",
+        commit="HEAD",
+        mode="canary",
+        gpu="L4",
+        prior_output_dir=prior_sim_dir,
+        output_dir=tmp_path / "out_canary_cont_l4",
+        allow_unmerged_commit=True,
+    )
+    mf_c_cont_l4 = json.loads(Path(canary_cont_l4["manifest_path"]).read_text(encoding="utf-8"))
+    rcpt_cont_l4 = _build_synthetic_canary_receipt(mf_c_cont_l4, "L4")
+
+    cont_l4 = prepare_v3_ppo_packet(
+        tmp_path / "pkt_cont_l4",
+        commit="HEAD",
+        mode="train",
+        gpu="L4",
+        hours=2.0,
+        prior_output_dir=prior_sim_dir,
+        canary_receipt=rcpt_cont_l4,
+        output_dir=tmp_path / "out_cont_l4",
+        allow_unmerged_commit=True,
+    )
+    cont_ledger = json.loads(
+        (Path(cont_l4["packet_dir"]) / "verified-ledger.json").read_text(encoding="utf-8")
+    )
+    assert cont_ledger["resume_checkpoint"]["checkpoint_kind"] == "full"
+    assert len(cont_ledger["resume_checkpoint"]["companion_files"]) >= 3  # light + >=2 shards
+
+    # Verify `prepare_v3_ppo_packet` falls back cleanly to staging LIGHT if a FULL shard is missing
+    broken_prior_dir = tmp_path / "broken_prior_exports"
+    shutil.copytree(prior_sim_dir, broken_prior_dir)
+    next((broken_prior_dir / "exports" / "checkpoints").glob("full_*.sim_shard_*.pt")).unlink()
+    cont_light_l4 = prepare_v3_ppo_packet(
+        tmp_path / "pkt_cont_light_l4",
+        commit="HEAD",
+        mode="train",
+        gpu="L4",
+        hours=2.0,
+        prior_output_dir=broken_prior_dir,
+        allow_missing_canary_receipt=True,
+        output_dir=tmp_path / "out_cont_light_l4",
+        allow_unmerged_commit=True,
+    )
+    light_ledger = json.loads(
+        (Path(cont_light_l4["packet_dir"]) / "verified-ledger.json").read_text(encoding="utf-8")
+    )
+    assert light_ledger["resume_checkpoint"]["checkpoint_kind"] == "light"
+    assert light_ledger["resume_checkpoint"].get("companion_files", []) == []
+
     for summary, expected_mode in (
         (ruler_l4, "ruler"),
         (train_l4, "train"),
         (train_a100, "train"),
+        (cont_l4, "train"),
     ):
         mf = json.loads(Path(summary["manifest_path"]).read_text(encoding="utf-8"))
         assert "SNAKE_COLAB_CANARY" not in mf["env"]
@@ -252,9 +343,186 @@ def test_prepare_canary_ruler_and_train_validate_with_colab_cli(tmp_path: Path) 
         colab_canary.check(mf, ROOT)
 
 
+def test_prepare_refuses_checkpoint_shard_and_session_export_cap_violations(
+    tmp_path: Path,
+) -> None:
+    """Verify `prepare` enforces single-world shard, 2 GiB supervisor, and session export caps."""
+    # 1. Shard smaller than 1 single worst-case world (~30.22 MiB at R=600, N=24) -> refused
+    tiny_shard_cfg = V3PPOConfig(num_envs=8, checkpoint_shard_bytes=4 * 1024 * 1024)
+    with pytest.raises(ValueError, match="exceeds checkpoint_shard_bytes"):
+        prepare_v3_ppo_packet(
+            tmp_path / "pkt_bad_shard",
+            commit="HEAD",
+            mode="train",
+            gpu="L4",
+            ppo_config=tiny_shard_cfg,
+            allow_missing_canary_receipt=True,
+            output_dir=tmp_path / "out_bad_shard",
+            allow_unmerged_commit=True,
+        )
+    assert not (tmp_path / "pkt_bad_shard").exists()
+
+    # 2. Shard cap whose 1.25x file envelope exceeds the 2.00 GiB supervisor per-file ceiling
+    huge_shard_cfg = V3PPOConfig(num_envs=16, checkpoint_shard_bytes=1800 * 1024 * 1024)
+    with pytest.raises(ValueError, match="supervisor 2.00 GiB per-file limit"):
+        prepare_v3_ppo_packet(
+            tmp_path / "pkt_huge_shard",
+            commit="HEAD",
+            mode="train",
+            gpu="L4",
+            ppo_config=huge_shard_cfg,
+            allow_missing_canary_receipt=True,
+            output_dir=tmp_path / "out_huge_shard",
+            allow_unmerged_commit=True,
+        )
+
+    # 3. Total session export volume exceeding GPU session cap (`6.00 GiB` on L4)
+    bloated_keep_cfg = V3PPOConfig(num_envs=128, keep_full_checkpoints=4, keep_light_checkpoints=6)
+    with pytest.raises(ValueError, match="exceeds L4 session export cap"):
+        prepare_v3_ppo_packet(
+            tmp_path / "pkt_bloated_session",
+            commit="HEAD",
+            mode="train",
+            gpu="L4",
+            ppo_config=bloated_keep_cfg,
+            allow_missing_canary_receipt=True,
+            output_dir=tmp_path / "out_bloated_session",
+            allow_unmerged_commit=True,
+        )
+
+    # 4. Explicit high `measured_packed_bytes_per_world` pushing E=128 over 6.00 GiB L4 cap
+    with pytest.raises(ValueError, match="exceeds L4 session export cap"):
+        prepare_v3_ppo_packet(
+            tmp_path / "pkt_high_measured",
+            commit="HEAD",
+            mode="train",
+            gpu="L4",
+            num_envs=128,
+            measured_packed_bytes_per_world=6 * 1024 * 1024,  # 6 MiB * 4.8x = 28.8 MiB/world
+            allow_missing_canary_receipt=True,
+            output_dir=tmp_path / "out_high_measured",
+            allow_unmerged_commit=True,
+        )
+
+
+def test_ruler_defaults_warmup_timed_split_precheck_and_single_slot_cache(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify ruler default T=32, warmup>=1, timed>=2, collect/learn split, & VRAM precheck."""
+    assert DEFAULT_RULER_ROLLOUT_LEN == 32
+    assert DEFAULT_RULER_WARMUP_UPDATES == 1
+    assert DEFAULT_RULER_TIMED_UPDATES == 2
+
+    # Default ruler packet uses training rollout_len=32 (so env override is absent at 32)
+    ruler_pkt = prepare_v3_ppo_packet(
+        tmp_path / "pkt_ruler_def",
+        commit="HEAD",
+        mode="ruler",
+        gpu="A100",
+        allow_missing_canary_receipt=True,
+        output_dir=tmp_path / "out_ruler_def",
+        allow_unmerged_commit=True,
+    )
+    ruler_mf = json.loads(Path(ruler_pkt["manifest_path"]).read_text(encoding="utf-8"))
+    assert "V3_PPO_RULER_ROLLOUT_LEN" not in ruler_mf["env"]
+
+    gcfg = GameV3Config(arena_radius=60.0, num_snakes=6)
+    est_e2 = estimate_training_memory(
+        V3PPOConfig(
+            game_config=gcfg,
+            num_envs=2,
+            learner_slots=4,
+            net_size="S",
+            amp=False,
+            use_channels_last=False,
+            rollout_len=4,
+            ppo_epochs=1,
+            minibatch_size=8,
+            eval_every_minutes=0.0,
+            eval_every_updates=0,
+        )
+    )["estimated_peak_bytes"]
+    est_e4 = estimate_training_memory(
+        V3PPOConfig(
+            game_config=gcfg,
+            num_envs=4,
+            learner_slots=2,
+            net_size="S",
+            amp=False,
+            use_channels_last=False,
+            rollout_len=4,
+            ppo_epochs=1,
+            minibatch_size=8,
+            eval_every_minutes=0.0,
+            eval_every_updates=0,
+        )
+    )["estimated_peak_bytes"]
+    assert est_e4 > est_e2
+    mid_vram_budget = (est_e2 + est_e4) // 2
+
+    built_envs: list[int] = []
+    real_build_packed = ruler_mod._build_packed_mature_sim_state
+
+    def _spy_build_packed(**kwargs: Any) -> dict[str, Any]:
+        built_envs.append(int(kwargs["num_envs"]))
+        packed = real_build_packed(**kwargs)
+        assert "_zlib_tensors" in packed
+        return packed
+
+    monkeypatch.setattr(ruler_mod, "_build_packed_mature_sim_state", _spy_build_packed)
+
+    res = run_ruler(
+        output_dir=tmp_path / "ruler_exec",
+        device="cpu",
+        envs_list=[2, 4],
+        net_sizes=["S"],
+        learners_list=[4, 2],
+        arena_radius=60.0,
+        num_snakes=6,
+        burnin_ticks=4,
+        warmup_ticks=1,
+        collect_ticks=2,
+        warmup_updates=1,
+        timed_updates=2,
+        rollout_len=4,
+        ppo_epochs=1,
+        minibatch_size=8,
+        amp=False,
+        use_channels_last=False,
+        vram_budget_bytes=mid_vram_budget,
+    )
+
+    assert res["status"] == "PASS"
+    assert res["warmup_updates"] == 1
+    assert res["timed_updates"] == 2
+    assert set(res["succeeded_cell_ids"]) == {"E2_L2_S", "E2_L4_S"}
+    assert set(res["oom_cell_ids"]) == {"E4_L2_S", "E4_L4_S"}
+    # Mature sim state built ONLY once for E=2 (shared across L2 & L4), and NEVER built for E=4!
+    assert built_envs == [2]
+
+    by_id = {c["cell_id"]: c for c in res["cells"]}
+    ok_cell = by_id["E2_L4_S"]
+    assert ok_cell["precheck_oom"] is False
+    integ = ok_cell["integrated"]
+    assert integ["warmup_updates"] == 1
+    assert integ["timed_updates"] == 2
+    # 2 timed updates * 4 ticks * 2 worlds * 6 snakes = 96 agent steps
+    assert integ["agent_steps"] == 2 * 4 * 2 * 6
+    assert integ["collect_seconds"] > 0.0
+    assert integ["learn_seconds"] > 0.0
+    assert ok_cell["collect_seconds"] == integ["collect_seconds"]
+    assert ok_cell["learn_seconds"] == integ["learn_seconds"]
+
+    oom_cell = by_id["E4_L2_S"]
+    assert oom_cell["oom"] is True
+    assert oom_cell["precheck_oom"] is True
+    assert oom_cell["integrated"] is None
+
+
 def test_prepare_refuses_bad_configs_and_oom_vram_budgets(tmp_path: Path) -> None:
     """Verify `prepare` refuses VRAM overflows, missing/wrong receipts, T4, and bad configs."""
-    # 1. E=256 x 24 learners x T=32 (~26.7 GB) MUST be refused on 22 GB L4, accepted on 40 GB A100
+    # 1. E=256 x 24 learners x T=32 (~27.4 GB) MUST be refused on 22 GB L4, accepted on 40 GB A100
     with pytest.raises(ValueError, match="exceeds L4 memory budget"):
         prepare_v3_ppo_packet(
             tmp_path / "pkt_oom_l4",
@@ -270,7 +538,7 @@ def test_prepare_refuses_bad_configs_and_oom_vram_budgets(tmp_path: Path) -> Non
         )
     assert not (tmp_path / "pkt_oom_l4").exists(), "Failed prepare must clean up packet_dir!"
 
-    # 2. E=512 x 24 learners x T=32 (~51.2 GB) MUST be refused on 40 GB A100, accepted on 80 GB H100
+    # 2. E=512 x 24 learners x T=32 (~51.9 GB) MUST be refused on 40 GB A100, accepted on 80 GB H100
     with pytest.raises(ValueError, match="exceeds A100 memory budget"):
         prepare_v3_ppo_packet(
             tmp_path / "pkt_oom_a100",
@@ -413,6 +681,8 @@ def test_non_pass_outcomes_exit_nonzero(tmp_path: Path) -> None:
             "4",
             "--total-updates",
             "5",
+            "--eval-every-minutes",
+            "0.0",
             "--eval-every-updates",
             "0",
             "--max-wall-seconds",

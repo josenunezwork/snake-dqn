@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 import torch
 from torch import nn
@@ -15,6 +17,7 @@ from research.v3_ppo.config import (
     BYTES_PER_LEARNER_STEP,
     OBS_RASTER_BYTES_PER_STEP,
     V3PPOConfig,
+    estimate_training_memory,
 )
 from research.v3_ppo.eval import compute_step_reward
 from research.v3_ppo.net import (
@@ -22,8 +25,13 @@ from research.v3_ppo.net import (
     EgoMultiScaleNet,
     EgoMultiScaleNetConfig,
     build_ego_multiscale_net,
+    symlog_two_hot_loss,
 )
-from research.v3_ppo.ppo import V3PPOTrainer
+from research.v3_ppo.ppo import (
+    V3PPOTrainer,
+    _build_adamw_optimizer,
+    _move_optimizer_state_to_device,
+)
 
 
 def test_network_sizes_flags_and_recurrent_seam() -> None:
@@ -78,6 +86,40 @@ def test_network_sizes_flags_and_recurrent_seam() -> None:
     out_rnn = net_plain(r_s1, r_s4, r_s16, scalars, action_mask=mask, hidden_state=h_init)
     assert out_rnn.next_hidden is not None
     assert out_rnn.next_hidden.shape == (b, net_plain.cfg.trunk_dim)
+
+
+def test_no_host_sync_in_net_forward_act_evaluate_and_two_hot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ensure `net.forward`, `act`, `evaluate_actions`, & `symlog_two_hot_loss` never sync host."""
+    net = build_ego_multiscale_net("S", use_channels_last=False, use_bf16_autocast=False)
+    b = 8
+    r_s1 = torch.randint(0, 256, (b, 13, 64, 64), dtype=torch.uint8)
+    r_s4 = torch.randint(0, 256, (b, 13, 32, 32), dtype=torch.uint8)
+    r_s16 = torch.randint(0, 256, (b, 13, 32, 32), dtype=torch.uint8)
+    scalars = torch.randn(b, 8, dtype=torch.float32)
+    mixed_mask = torch.zeros((b, 10), dtype=torch.bool)
+    mixed_mask[:4, :5] = True  # rows 4..7 are all-False fallback rows
+    targets = torch.linspace(-50.0, 250.0, steps=b, dtype=torch.float32)
+    gen = torch.Generator(device="cpu").manual_seed(77)
+
+    def _forbid_sync(self: torch.Tensor) -> object:
+        raise AssertionError("Unexpected host synchronization (.item() or bool(Tensor)) in net.py!")
+
+    monkeypatch.setattr(torch.Tensor, "item", _forbid_sync)
+    monkeypatch.setattr(torch.Tensor, "__bool__", _forbid_sync)
+
+    fwd = net(r_s1, r_s4, r_s16, scalars, action_mask=mixed_mask)
+    act_out = net.act(r_s1, r_s4, r_s16, scalars, action_mask=mixed_mask, generator=gen)
+    greedy_out = net.act(r_s1, r_s4, r_s16, scalars, action_mask=mixed_mask, greedy=True)
+    eval_out = net.evaluate_actions(
+        r_s1, r_s4, r_s16, scalars, act_out.actions, action_mask=mixed_mask
+    )
+    loss = symlog_two_hot_loss(eval_out.value_logits, targets, net.bin_centers)
+
+    assert fwd.policy_logits.shape == (b, 10)
+    assert greedy_out.actions.shape == (b,)
+    assert loss.ndim == 0
 
 
 def test_action_masking_never_samples_masked_boost() -> None:
@@ -218,6 +260,7 @@ def test_uint8_rollout_buffer_indexing_and_single_obs_per_tick(
         rollout_len=6,
         ppo_epochs=2,
         minibatch_size=8,
+        eval_every_minutes=0.0,
         eval_every_updates=0,
     )
     trainer = V3PPOTrainer(cfg, device="cpu")
@@ -231,14 +274,149 @@ def test_uint8_rollout_buffer_indexing_and_single_obs_per_tick(
     assert trainer.obs_builds_executed == call_counter["count"]
 
 
+def test_ppo_update_single_sync_uniform_minibatch_and_fused_adamw_helper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify uniform minibatch sizing (drop/pad), <=1 host sync in `ppo_update`, & AdamW helper."""
+    gcfg = GameV3Config(arena_radius=60.0, num_snakes=6, ambient_food_density=0.02)
+    cfg = V3PPOConfig(
+        game_config=gcfg,
+        num_envs=2,
+        learner_slots=4,
+        rollout_len=4,
+        ppo_epochs=2,
+        minibatch_size=8,
+        amp=False,
+        use_channels_last=False,
+        eval_every_minutes=0.0,
+        eval_every_updates=0,
+    )
+    trainer = V3PPOTrainer(cfg, device="cpu")
+    trainer.collect_rollout()
+
+    # Force exact 20 valid rows (`20 = 2 * 8 + 4` -> drops 4-row remainder => 2 batches/epoch)
+    trainer.buffer.acted.zero_()
+    flat_acted = trainer.buffer.acted.view(-1)
+    flat_acted[:20] = True
+    trainer.buffer.actions.view(-1)[:20] = 2
+
+    batch_sizes_seen: list[int] = []
+    real_eval_actions = trainer.raw_model.evaluate_actions
+
+    def _spy_eval_actions(*args, **kwargs):  # type: ignore[no-untyped-def]
+        batch_sizes_seen.append(int(args[0].shape[0]))
+        return real_eval_actions(*args, **kwargs)
+
+    monkeypatch.setattr(trainer.raw_model, "evaluate_actions", _spy_eval_actions)
+
+    real_item = torch.Tensor.item
+    real_bool = torch.Tensor.__bool__
+    v3_ppo_syncs: list[str] = []
+
+    def _counted_item(self: torch.Tensor) -> object:
+        caller_file = sys._getframe(1).f_code.co_filename
+        if "research/v3_ppo" in caller_file.replace("\\", "/"):
+            v3_ppo_syncs.append(f"item:{caller_file}:{sys._getframe(1).f_lineno}")
+        return real_item(self)
+
+    def _counted_bool(self: torch.Tensor) -> bool:
+        caller_file = sys._getframe(1).f_code.co_filename
+        if "research/v3_ppo" in caller_file.replace("\\", "/"):
+            v3_ppo_syncs.append(f"bool:{caller_file}:{sys._getframe(1).f_lineno}")
+        return real_bool(self)
+
+    monkeypatch.setattr(torch.Tensor, "item", _counted_item)
+    monkeypatch.setattr(torch.Tensor, "__bool__", _counted_bool)
+
+    stats_drop, learn_sec_drop = trainer.ppo_update()
+    # 2 epochs * 2 full minibatches of exact size 8 (4-row remainder dropped)
+    assert batch_sizes_seen == [8, 8, 8, 8]
+    assert stats_drop["minibatches"] == 4.0
+    assert learn_sec_drop >= 0.0
+    # Zero `.item()` / `bool(Tensor)` syncs anywhere in `research/v3_ppo` (single `tolist()` at end)
+    assert v3_ppo_syncs == []
+
+    # Now test `n_valid = 5 < minibatch_size = 8`: pads to uniform size 8 with masked zero weights
+    batch_sizes_seen.clear()
+    flat_acted.zero_()
+    flat_acted[:5] = True
+    stats_pad, learn_sec_pad = trainer.ppo_update()
+    assert batch_sizes_seen == [8, 8]
+    assert stats_pad["minibatches"] == 2.0
+    assert learn_sec_pad >= 0.0
+    assert v3_ppo_syncs == []
+
+    # Verify AdamW builder & state transfer helper
+    lin = nn.Linear(4, 2)
+    opt = _build_adamw_optimizer(
+        lin.parameters(), lr=3e-4, eps=1e-5, weight_decay=1e-4, device=torch.device("cpu")
+    )
+    loss = lin(torch.ones((2, 4))).sum()
+    loss.backward()
+    opt.step()
+    opt.defaults["fused"] = True
+    _move_optimizer_state_to_device(opt, torch.device("cpu"))
+    for st in opt.state.values():
+        assert isinstance(st["step"], torch.Tensor)
+        assert st["step"].dtype == torch.float32
+
+
+def test_memory_estimate_includes_actor_chunk_and_eval_overhead() -> None:
+    """Verify `estimate_training_memory` accounts for actor chunk float copy and eval worlds."""
+    cfg_with_eval = V3PPOConfig(
+        num_envs=128,
+        net_size="S",
+        rollout_len=32,
+        eval_every_minutes=30.0,
+        eval_envs=16,
+    )
+    cfg_no_eval = V3PPOConfig(
+        num_envs=128,
+        net_size="S",
+        rollout_len=32,
+        eval_every_minutes=0.0,
+        eval_every_updates=0,
+        eval_envs=16,
+    )
+    est_eval = estimate_training_memory(cfg_with_eval, gpu="L4")
+    est_no_eval = estimate_training_memory(cfg_no_eval, gpu="L4")
+
+    assert est_eval["actor_chunk_temp_bytes"] > 0
+    assert est_eval["eval_overhead_bytes"] > 0
+    assert est_no_eval["eval_overhead_bytes"] == 0
+    assert (
+        est_eval["estimated_peak_bytes"] - est_no_eval["estimated_peak_bytes"]
+        == est_eval["eval_overhead_bytes"]
+    )
+    assert est_eval["fits_gpu_budget"] is True
+
+    # Raising `actor_chunk_learners` above learner activation size increases estimated peak VRAM
+    cfg_big_chunk = V3PPOConfig(
+        num_envs=256,
+        net_size="S",
+        rollout_len=32,
+        minibatch_size=512,
+        actor_chunk_learners=6144,
+        eval_every_minutes=0.0,
+    )
+    cfg_small_chunk = V3PPOConfig(
+        num_envs=256,
+        net_size="S",
+        rollout_len=32,
+        minibatch_size=512,
+        actor_chunk_learners=512,
+        eval_every_minutes=0.0,
+    )
+    assert (
+        estimate_training_memory(cfg_big_chunk)["estimated_peak_bytes"]
+        > estimate_training_memory(cfg_small_chunk)["estimated_peak_bytes"]
+    )
+
+
 def test_gae_death_vs_truncation_and_respawn_gaps() -> None:
     """Verify death zeros bootstrap, truncation bootstraps V(s'), and dead ticks stay isolated."""
     gamma = 0.99
     lam = 0.95
-    # 3 learner columns across T = 4 ticks:
-    # Col 0: normal step t=0 -> DIES at t=1 -> inactive respawn wait at t=2 -> respawns at t=3
-    # Col 1: normal step t=0 -> TRUNCATED at t=1 -> continues at t=2 -> TRUNCATED at t=3 (boundary)
-    # Col 2: survives uninterrupted t=0..2 -> TRUNCATED at t=3 (rollout boundary)
     rewards = torch.tensor(
         [
             [1.0, 2.0, 0.5],
@@ -294,26 +472,16 @@ def test_gae_death_vs_truncation_and_respawn_gaps() -> None:
         gae_lambda=lam,
     )
 
-    # Col 0 checks:
-    # t=3: truncated -> delta_3 = 0.2 + 0.99 * 3.0 - 1.0 = 2.17
     assert pytest.approx(float(adv[3, 0].item()), abs=1e-5) == 0.2 + gamma * 3.0 - 1.0
-    # t=2: inactive -> adv=0, ret=0
     assert float(adv[2, 0].item()) == 0.0
     assert float(ret[2, 0].item()) == 0.0
-    # t=1: DIED -> next_val = 0.0 AND trace cut: adv_1 = -1.0 + 0 - 8.0 = -9.0; ret_1 = -1.0
     assert pytest.approx(float(adv[1, 0].item()), abs=1e-5) == -9.0
     assert pytest.approx(float(ret[1, 0].item()), abs=1e-5) == -1.0
-    # t=0: survives into t=1 -> delta_0 = 1.0 + 0.99 * 8.0 - 10.0 = -1.08;
-    # adv_0 = delta_0 + gamma*lam*(-9.0)
     expected_adv_0_0 = (1.0 + gamma * 8.0 - 10.0) + gamma * lam * (-9.0)
     assert pytest.approx(float(adv[0, 0].item()), abs=1e-5) == expected_adv_0_0
 
-    # Col 1 checks (mid-rollout truncation at t=1 bootstraps values[2, 1]=7.0 AND cuts GAE trace!):
-    # t=3: truncated -> adv_3 = 4.0 + 0.99 * 20.0 - 8.0 = 15.8
     adv_3_1 = 4.0 + gamma * 20.0 - 8.0
-    # t=2: normal -> delta_2 = 1.5 + 0.99 * 8.0 - 7.0 = 2.42; adv_2 = delta_2 + gamma*lam*adv_3_1
     adv_2_1 = (1.5 + gamma * 8.0 - 7.0) + gamma * lam * adv_3_1
-    # t=1: TRUNCATED -> bootstraps values[2, 1]=7.0, trace cut (does NOT include gamma*lam*adv_2_1!)
     adv_1_1 = 3.0 + gamma * 7.0 - 6.0
     adv_0_1 = (2.0 + gamma * 6.0 - 5.0) + gamma * lam * adv_1_1
     assert pytest.approx(float(adv[3, 1].item()), abs=1e-5) == adv_3_1
@@ -323,15 +491,17 @@ def test_gae_death_vs_truncation_and_respawn_gaps() -> None:
 
     # Verify rollout-boundary truncation in V3PPOTrainer keeps surviving snakes alive in GameV3Sim
     gcfg = GameV3Config(arena_radius=80.0, num_snakes=6, ambient_food_density=0.02)
-    cfg = V3PPOConfig(game_config=gcfg, num_envs=2, rollout_len=4, eval_every_updates=0)
+    cfg = V3PPOConfig(
+        game_config=gcfg, num_envs=2, rollout_len=4, eval_every_minutes=0.0, eval_every_updates=0
+    )
     trainer = V3PPOTrainer(cfg, device="cpu")
     trainer.collect_rollout()
     assert int(trainer.buffer.truncated[-1].sum().item()) > 0
     assert int(trainer.sim.alive.sum().item()) > 0  # surviving snakes remain in the world!
 
 
-def test_step_reward_coefficients_and_dying_snake_only_penalty() -> None:
-    """Verify alive length, length delta without death-zeroing leak, kills, and death penalty."""
+def test_step_reward_coefficients_and_simultaneous_kill_death_rule() -> None:
+    """Verify survivor reward, dying-snake-only penalty, and no kill bonus on simultaneous death."""
     cfg = V3PPOConfig(
         reward_alive_length_coef=0.002,
         reward_alive_const=0.05,
@@ -339,34 +509,33 @@ def test_step_reward_coefficients_and_dying_snake_only_penalty() -> None:
         reward_kill_coef=0.75,
         reward_death_penalty=1.5,
     )
-    # 1 world, 4 snakes:
+    # 1 world, 5 snakes:
     # Slot 0: survives, grows from 10 -> 13 (+3 delta), gets 1 kill (killed slot 1)
     # Slot 1: was length 20, DIES on this tick (info.length becomes 0 in GameV3Sim!)
     # Slot 2: survives, shrinks from 18 -> 17 (-1 boost shed), 0 kills
     # Slot 3: already dead waiting to respawn (`acted = False`)
-    acted = torch.tensor([[True, True, True, False]])
+    # Slot 4: gets 1 `kill_credit` in GameV3Sim AND simultaneously dies on the same tick ->
+    #         trainer deliberately pays ONLY `-reward_death_penalty` (never rewards kamikaze trades)
+    acted = torch.tensor([[True, True, True, False, True]])
     info = StepInfo(
-        alive=torch.tensor([[True, False, True, False]]),
-        life_start=torch.tensor([[False, False, False, False]]),
-        died=torch.tensor([[False, True, False, False]]),
-        truncated=torch.tensor([[False, False, False, False]]),
-        in_respawn_delay=torch.tensor([[False, False, False, True]]),
-        length=torch.tensor([[13, 0, 17, 0]], dtype=torch.int32),
-        prev_length=torch.tensor([[10, 20, 18, 0]], dtype=torch.int32),
-        mass_eaten=torch.tensor([[3, 0, 0, 0]], dtype=torch.int32),
-        killer_id=torch.tensor([[-1, 0, -1, -1]], dtype=torch.int32),
-        kill_credit=torch.tensor([[1, 0, 0, 0]], dtype=torch.int32),
-        life_age=torch.tensor([[12, 0, 9, 0]], dtype=torch.int32),
+        alive=torch.tensor([[True, False, True, False, False]]),
+        life_start=torch.tensor([[False, False, False, False, False]]),
+        died=torch.tensor([[False, True, False, False, True]]),
+        truncated=torch.tensor([[False, False, False, False, False]]),
+        in_respawn_delay=torch.tensor([[False, False, False, True, False]]),
+        length=torch.tensor([[13, 0, 17, 0, 0]], dtype=torch.int32),
+        prev_length=torch.tensor([[10, 20, 18, 0, 15]], dtype=torch.int32),
+        mass_eaten=torch.tensor([[3, 0, 0, 0, 0]], dtype=torch.int32),
+        killer_id=torch.tensor([[-1, 0, -1, -1, 2]], dtype=torch.int32),
+        kill_credit=torch.tensor([[1, 0, 0, 0, 1]], dtype=torch.int32),
+        life_age=torch.tensor([[12, 0, 9, 0, 0]], dtype=torch.int32),
     )
 
     rew = compute_step_reward(info, acted, cfg)
-    assert rew.shape == (1, 4)
+    assert rew.shape == (1, 5)
 
-    # Slot 0 (survivor + killer): 0.05 + 0.002*13 + 0.25*(13-10) + 0.75*1 = 1.576
     assert pytest.approx(float(rew[0, 0].item()), abs=1e-6) == 0.05 + 0.026 + 0.75 + 0.75
-    # Slot 1 (dying snake ONLY pays -1.5; NO -20 * 0.25 leak from length zeroing on death!)
     assert pytest.approx(float(rew[0, 1].item()), abs=1e-6) == -1.5
-    # Slot 2 (survivor with -1 boost shed): 0.05 + 0.002*17 + 0.25*(-1) = -0.166
     assert pytest.approx(float(rew[0, 2].item()), abs=1e-6) == 0.05 + 0.034 - 0.25
-    # Slot 3 (inactive dead slot): exact 0.0
     assert float(rew[0, 3].item()) == 0.0
+    assert pytest.approx(float(rew[0, 4].item()), abs=1e-6) == -1.5

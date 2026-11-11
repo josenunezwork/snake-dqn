@@ -53,6 +53,12 @@ elif [ "$MODE" = "ruler" ]; then
   if [ -n "${V3_PPO_RULER_ROLLOUT_LEN:-}" ]; then
     RULER_ARGS+=(--rollout-len "$V3_PPO_RULER_ROLLOUT_LEN")
   fi
+  if [ -n "${V3_PPO_RULER_WARMUP_UPDATES:-}" ]; then
+    RULER_ARGS+=(--warmup-updates "$V3_PPO_RULER_WARMUP_UPDATES")
+  fi
+  if [ -n "${V3_PPO_RULER_TIMED_UPDATES:-}" ]; then
+    RULER_ARGS+=(--timed-updates "$V3_PPO_RULER_TIMED_UPDATES")
+  fi
   if [ -n "${V3_PPO_BURNIN_TICKS:-}" ]; then
     RULER_ARGS+=(--burnin-ticks "$V3_PPO_BURNIN_TICKS")
   fi

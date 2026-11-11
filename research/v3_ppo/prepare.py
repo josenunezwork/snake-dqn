@@ -37,6 +37,7 @@ from research.colab_cli import canary as colab_canary
 from research.game_v3.config import GameV3Config
 from research.v3_ppo.config import (
     GPU_VRAM_BUDGET_BYTES,
+    MAX_SUPERVISOR_EXPORT_BYTES,
     V3_PPO_NAMESPACE,
     VALID_NET_SIZES,
     VALID_OPPONENT_POLICIES,
@@ -44,18 +45,21 @@ from research.v3_ppo.config import (
     OpponentPolicy,
     V3PPOConfig,
     estimate_training_memory,
+    validate_checkpoint_export_caps,
     validate_memory_budget,
 )
 from research.v3_ppo.ppo import (
     _RESUME_MUTABLE_CONFIG_KEYS,
-    V3_PPO_CHECKPOINT_SCHEMA,
-    find_newest_verified_checkpoint,
+    resolve_resume_checkpoint,
 )
 from research.v3_ppo.ruler import (
     CANARY_REQUIRED_EXPORTS,
     DEFAULT_RULER_ENVS,
     DEFAULT_RULER_LEARNERS,
     DEFAULT_RULER_NETS,
+    DEFAULT_RULER_ROLLOUT_LEN,
+    DEFAULT_RULER_TIMED_UPDATES,
+    DEFAULT_RULER_WARMUP_UPDATES,
     RULER_REQUIRED_EXPORTS,
     TRAIN_REQUIRED_EXPORTS,
     _parse_int_csv,
@@ -69,7 +73,6 @@ REQUIREMENTS_RELPATH = "research/v3_ppo/requirements.txt"
 
 PREPARE_MODES: tuple[str, ...] = ("canary", "ruler", "train")
 UNLIMITED_HOURS_TOTAL_UPDATES: int = 1_000_000_000
-MAX_SUPERVISOR_EXPORT_BYTES: int = 2 * 1024 * 1024 * 1024  # 2 GiB supervisor hard cap
 
 
 def runtime_source_paths(commit: str) -> list[str]:
@@ -147,24 +150,24 @@ def runtime_source_paths(commit: str) -> list[str]:
 def estimate_max_export_bytes(
     cfg: V3PPOConfig,
     *,
+    gpu: str = "L4",
+    measured_packed_bytes_per_world: int | None = None,
     measured_checkpoint_bytes: int | None = None,
 ) -> int:
-    """Estimate bounded ``max_export_bytes`` (capped <= 1.5 GiB under supervisor 2 GiB ceiling)."""
-    if measured_checkpoint_bytes is not None:
+    """Validate checkpoint export caps for ``cfg`` and return per-file ``max_export_bytes``."""
+    eff_world_bytes = measured_packed_bytes_per_world
+    if eff_world_bytes is None and measured_checkpoint_bytes is not None:
         if int(measured_checkpoint_bytes) < 1:
             raise ValueError(
                 f"measured_checkpoint_bytes must be >= 1, got {measured_checkpoint_bytes}"
             )
-        single_ckpt = int(measured_checkpoint_bytes)
-    else:
-        # Compressed GameV3Sim grids (~1.5-2.5 MiB/world via zlib level 1) + model + optimizer:
-        est_sim_comp = int(cfg.num_envs) * 2 * 1024 * 1024
-        est_net_optim = (18 if cfg.net_size == "S" else 80) * 1024 * 1024
-        single_ckpt = max(64 * 1024 * 1024, est_sim_comp + est_net_optim)
-
-    num_ckpts = int(cfg.keep_periodic_checkpoints) + 1  # periodic + final.pt
-    raw_cap = int(math.ceil(num_ckpts * single_ckpt * 1.25)) + 64 * 1024 * 1024
-    return min(1536 * 1024 * 1024, max(256 * 1024 * 1024, raw_cap))
+        eff_world_bytes = max(1, int(math.ceil(int(measured_checkpoint_bytes) / cfg.num_envs)))
+    caps = validate_checkpoint_export_caps(
+        cfg,
+        gpu,
+        measured_packed_bytes_per_world=eff_world_bytes,
+    )
+    return int(caps["per_file_max_export_bytes"])
 
 
 def build_training_plan(
@@ -191,8 +194,24 @@ def build_training_plan(
     }
 
 
-def _find_verified_prior_checkpoint(prior_dir: Path) -> Path | None:
-    """Locate newest verified V3 PPO checkpoint under ``prior_dir`` (or ``prior_dir/exports``)."""
+def _check_foreign_checkpoints(ckpt_sub: Path) -> None:
+    """Raise ``ValueError`` if completed checkpoints in ``ckpt_sub`` have a foreign namespace."""
+    for idx_cand in sorted(ckpt_sub.glob("*.index.json")):
+        if Path(f"{idx_cand}.complete").is_file() and Path(f"{idx_cand}.sha256").is_file():
+            verify_completed_artifact(idx_cand)
+            obj = json.loads(idx_cand.read_text(encoding="utf-8"))
+            if isinstance(obj, dict) and obj.get("namespace") != V3_PPO_NAMESPACE:
+                raise ValueError(f"Foreign checkpoint namespace at {idx_cand}")
+    for pt_cand in sorted(ckpt_sub.glob("*.pt")):
+        if Path(f"{pt_cand}.complete").is_file() and Path(f"{pt_cand}.sha256").is_file():
+            verify_completed_artifact(pt_cand)
+            obj = torch.load(pt_cand, map_location="cpu", weights_only=False)
+            if isinstance(obj, dict) and obj.get("namespace") != V3_PPO_NAMESPACE:
+                raise ValueError(f"Foreign checkpoint schema/namespace at {pt_cand}")
+
+
+def _resolve_verified_prior_checkpoint(prior_dir: Path) -> dict[str, Any] | None:
+    """Locate newest verified V3 PPO checkpoint set (FULL first, else LIGHT) under ``prior_dir``."""
     search_roots = [prior_dir]
     if (prior_dir / "exports").is_dir():
         search_roots.append(prior_dir / "exports")
@@ -201,16 +220,17 @@ def _find_verified_prior_checkpoint(prior_dir: Path) -> Path | None:
         ckpt_sub = root_cand / "checkpoints"
         if not ckpt_sub.is_dir():
             continue
-        newest = find_newest_verified_checkpoint(ckpt_sub)
-        if newest is not None:
-            obj = torch.load(newest, map_location="cpu", weights_only=False)
-            if not isinstance(obj, dict) or (
-                obj.get("schema") != V3_PPO_CHECKPOINT_SCHEMA
-                or obj.get("namespace") != V3_PPO_NAMESPACE
-            ):
-                raise ValueError(f"Foreign checkpoint schema/namespace at {newest}")
-            return newest
+        _check_foreign_checkpoints(ckpt_sub)
+        resolved = resolve_resume_checkpoint(ckpt_sub, require_markers=True)
+        if resolved is not None:
+            return resolved
     return None
+
+
+def _find_verified_prior_checkpoint(prior_dir: Path) -> Path | None:
+    """Return primary path of newest verified checkpoint under ``prior_dir``."""
+    resolved = _resolve_verified_prior_checkpoint(prior_dir)
+    return Path(resolved["path"]) if resolved is not None else None
 
 
 def _find_verified_prior_cells(prior_dir: Path) -> list[Path]:
@@ -231,7 +251,7 @@ def _find_verified_prior_cells(prior_dir: Path) -> list[Path]:
                 continue
             verify_completed_artifact(cell_json)
             parsed = json.loads(cell_json.read_text(encoding="utf-8"))
-            if isinstance(parsed, dict) and parsed.get("namespace") != V3_PPO_NAMESPACE:
+            if isinstance(parsed, dict) and parsed.get("namespace") not in (None, V3_PPO_NAMESPACE):
                 raise ValueError(f"Foreign ruler cell namespace at {cell_json}")
             if isinstance(parsed, dict) and "error" in parsed:
                 continue
@@ -245,7 +265,7 @@ def _detect_prior_kind(prior_output_dir: Path) -> str:
     prior_dir = Path(prior_output_dir).resolve()
     if not prior_dir.is_dir():
         raise FileNotFoundError(f"prior_output_dir does not exist: {prior_dir}")
-    has_ckpt = _find_verified_prior_checkpoint(prior_dir) is not None
+    has_ckpt = _resolve_verified_prior_checkpoint(prior_dir) is not None
     has_cells = bool(_find_verified_prior_cells(prior_dir))
     if has_ckpt and has_cells:
         raise ValueError(
@@ -270,27 +290,64 @@ def _stage_prior_checkpoint(
     prior_dir = Path(prior_output_dir).resolve()
     if not prior_dir.is_dir():
         raise FileNotFoundError(f"prior_output_dir does not exist: {prior_dir}")
-    chosen_ckpt = _find_verified_prior_checkpoint(prior_dir)
-    if chosen_ckpt is None:
+    chosen = _resolve_verified_prior_checkpoint(prior_dir)
+    if chosen is None:
         raise FileNotFoundError(f"No verified V3 PPO checkpoint found under {prior_dir}")
-    dst_ckpt = pkt_inputs_dir / chosen_ckpt.name
-    ckpt_sha = write_create_only_artifact(
-        dst_ckpt, lambda tmp, src=chosen_ckpt: shutil.copyfile(src, tmp)
+
+    primary_src = Path(chosen["path"])
+    dst_primary = pkt_inputs_dir / primary_src.name
+    primary_sha = write_create_only_artifact(
+        dst_primary, lambda tmp, src=primary_src: shutil.copyfile(src, tmp)
     )
     inputs_list.append(
         {
-            "path": str(dst_ckpt),
-            "dest": chosen_ckpt.name,
-            "sha256": ckpt_sha,
+            "path": str(dst_primary),
+            "dest": primary_src.name,
+            "sha256": primary_sha,
         }
     )
-    entry = {
-        "relpath": chosen_ckpt.name,
-        "sha256": ckpt_sha,
-        "size_bytes": int(dst_ckpt.stat().st_size),
+
+    companion_entries: list[dict[str, Any]] = []
+    for comp_src in chosen.get("files", [])[1:]:
+        c_src = Path(comp_src)
+        dst_comp = pkt_inputs_dir / c_src.name
+        c_sha = write_create_only_artifact(
+            dst_comp, lambda tmp, src=c_src: shutil.copyfile(src, tmp)
+        )
+        c_size = int(dst_comp.stat().st_size)
+        inputs_list.append(
+            {
+                "path": str(dst_comp),
+                "dest": c_src.name,
+                "sha256": c_sha,
+            }
+        )
+        comp_rec = {
+            "relpath": c_src.name,
+            "sha256": c_sha,
+            "size_bytes": c_size,
+        }
+        companion_entries.append(comp_rec)
+        ledger["verified_units"].append({"unit_id": f"staged:{c_src.stem}", **comp_rec})
+
+    entry: dict[str, Any] = {
+        "relpath": primary_src.name,
+        "checkpoint_kind": str(chosen["kind"]),
+        "sha256": primary_sha,
+        "size_bytes": int(dst_primary.stat().st_size),
     }
+    if companion_entries:
+        entry["companion_files"] = companion_entries
+
     ledger["resume_checkpoint"] = entry
-    ledger["verified_units"].append({"unit_id": f"staged:{chosen_ckpt.stem}", **entry})
+    ledger["verified_units"].append(
+        {
+            "unit_id": f"staged:{primary_src.stem}",
+            "relpath": primary_src.name,
+            "sha256": primary_sha,
+            "size_bytes": int(dst_primary.stat().st_size),
+        }
+    )
     return entry
 
 
@@ -332,6 +389,26 @@ def _stage_prior_ruler_cells(
     return staged_ids
 
 
+def _extract_staged_checkpoint_config(
+    pkt_inputs_dir: Path,
+    resume_entry: dict[str, Any],
+) -> V3PPOConfig | None:
+    staged_primary = pkt_inputs_dir / str(resume_entry["relpath"])
+    if staged_primary.name.endswith(".index.json"):
+        idx_obj = json.loads(staged_primary.read_text(encoding="utf-8"))
+        light_name = str(idx_obj["light_checkpoint"]["filename"])
+        light_payload = torch.load(
+            pkt_inputs_dir / light_name, map_location="cpu", weights_only=False
+        )
+        if isinstance(light_payload, dict) and isinstance(light_payload.get("config"), dict):
+            return V3PPOConfig.from_dict(light_payload["config"])
+        return None
+    ckpt_payload = torch.load(staged_primary, map_location="cpu", weights_only=False)
+    if isinstance(ckpt_payload, dict) and isinstance(ckpt_payload.get("config"), dict):
+        return V3PPOConfig.from_dict(ckpt_payload["config"])
+    return None
+
+
 def prepare_v3_ppo_packet(
     packet_dir: Path | str,
     *,
@@ -350,7 +427,9 @@ def prepare_v3_ppo_packet(
     ruler_envs: str | None = None,
     ruler_nets: str | None = None,
     ruler_learners: str | None = None,
-    ruler_rollout_len: int = 16,
+    ruler_rollout_len: int = DEFAULT_RULER_ROLLOUT_LEN,
+    ruler_warmup_updates: int = DEFAULT_RULER_WARMUP_UPDATES,
+    ruler_timed_updates: int = DEFAULT_RULER_TIMED_UPDATES,
     ruler_base_minutes: float | None = None,
     amp: bool | None = None,
     use_channels_last: bool | None = None,
@@ -363,14 +442,17 @@ def prepare_v3_ppo_packet(
     allow_missing_canary_receipt: bool = False,
     ppo_config: V3PPOConfig | None = None,
     explicit_total_updates: bool = False,
+    measured_packed_bytes_per_world: int | None = None,
     measured_checkpoint_bytes: int | None = None,
     attempt: str = "attempt-01",
     allow_unmerged_commit: bool = False,
 ) -> dict[str, Any]:
     """Prepare a Colab CLI packet for Game V3.1 PPO (`canary`, `ruler`, or `train`).
 
-    Refuses configurations whose estimated simulator + uint8 rollout buffer + learner peak VRAM
-    would exceed the target GPU memory budget (`22 GB` L4, `40 GB` A100, `80 GB` H100).
+    Refuses configurations whose estimated VRAM exceeds the target GPU memory budget (`22 GB` L4,
+    `40 GB` A100, `80 GB` H100) OR whose single-world/per-file/total-session checkpoint exports
+    exceed calibrated shard (`256 MiB` default), supervisor (`2 GiB`/file), or session export caps
+    (`6 GiB` L4, `12 GiB` A100, `20 GiB` H100).
     """
     if mode not in PREPARE_MODES:
         raise ValueError(f"mode must be one of {PREPARE_MODES}, got {mode!r}")
@@ -477,6 +559,7 @@ def prepare_v3_ppo_packet(
         canary_block: dict[str, Any] | None = None
         training_plan: dict[str, Any] | None = None
         memory_estimate: dict[str, Any] | None = None
+        checkpoint_export_caps: dict[str, Any] | None = None
 
         if mode == "canary":
             est_minutes = CANARY_BASE_MINUTES
@@ -488,13 +571,13 @@ def prepare_v3_ppo_packet(
             extra_env["SNAKE_COLAB_CANARY_PACKAGE"] = FAMILY_PACKAGE
             job_id = f"v3-ppo-canary-{gpu_slug}-{attempt}"
             required_exports = list(CANARY_REQUIRED_EXPORTS)
-            max_export_bytes = 256 * 1024 * 1024
+            max_export_bytes = 320 * 1024 * 1024
             resume_fields: dict[str, Any] = {
                 "resume_exemption": {
                     "kind": "short-canary",
                     "reason": (
                         f"Game V3.1 PPO {gpu_norm} family canary probe (15 min base / 30 min "
-                        "timeout): tiny S/M ruler cells + 2-update train/checkpoint/resume/eval"
+                        "timeout): tiny S/M ruler cells + 2-update train/FULL-resume/eval"
                     ),
                 }
             }
@@ -534,6 +617,15 @@ def prepare_v3_ppo_packet(
             eff_r_snakes = 24 if num_snakes is None else int(num_snakes)
             eff_r_radius = 600.0 if arena_radius is None else float(arena_radius)
             eff_r_rollout = int(ruler_rollout_len)
+            eff_r_warmup = int(ruler_warmup_updates)
+            eff_r_timed = int(ruler_timed_updates)
+            if eff_r_rollout < 1:
+                raise ValueError(f"--ruler-rollout-len must be >= 1, got {eff_r_rollout}")
+            if eff_r_warmup < 0:
+                raise ValueError(f"--ruler-warmup-updates must be >= 0, got {eff_r_warmup}")
+            if eff_r_timed < 1:
+                raise ValueError(f"--ruler-timed-updates must be >= 1, got {eff_r_timed}")
+
             eff_r_amp = True if amp is None else bool(amp)
             eff_r_cl = True if use_channels_last is None else bool(use_channels_last)
 
@@ -561,6 +653,8 @@ def prepare_v3_ppo_packet(
                             amp=eff_r_amp,
                             use_channels_last=eff_r_cl,
                             rollout_len=eff_r_rollout,
+                            eval_every_minutes=0.0,
+                            eval_every_updates=0,
                         )
                         est = estimate_training_memory(cell_cfg)
                         tot_b = int(est["estimated_peak_bytes"])
@@ -595,8 +689,12 @@ def prepare_v3_ppo_packet(
                 extra_env["V3_PPO_ARENA_RADIUS"] = str(eff_r_radius)
             if num_snakes is not None:
                 extra_env["V3_PPO_NUM_SNAKES"] = str(eff_r_snakes)
-            if int(ruler_rollout_len) != 16:
+            if eff_r_rollout != DEFAULT_RULER_ROLLOUT_LEN:
                 extra_env["V3_PPO_RULER_ROLLOUT_LEN"] = str(eff_r_rollout)
+            if eff_r_warmup != DEFAULT_RULER_WARMUP_UPDATES:
+                extra_env["V3_PPO_RULER_WARMUP_UPDATES"] = str(eff_r_warmup)
+            if eff_r_timed != DEFAULT_RULER_TIMED_UPDATES:
+                extra_env["V3_PPO_RULER_TIMED_UPDATES"] = str(eff_r_timed)
             extra_env["V3_PPO_AMP"] = "1" if eff_r_amp else "0"
             extra_env["V3_PPO_CHANNELS_LAST"] = "1" if eff_r_cl else "0"
             if include_fp32:
@@ -633,10 +731,9 @@ def prepare_v3_ppo_packet(
 
             staged_base_cfg: V3PPOConfig | None = None
             if "resume_checkpoint" in ledger:
-                staged_ckpt_path = pkt_inputs_dir / str(ledger["resume_checkpoint"]["relpath"])
-                ckpt_payload = torch.load(staged_ckpt_path, map_location="cpu", weights_only=False)
-                if isinstance(ckpt_payload, dict) and isinstance(ckpt_payload.get("config"), dict):
-                    staged_base_cfg = V3PPOConfig.from_dict(ckpt_payload["config"])
+                staged_base_cfg = _extract_staged_checkpoint_config(
+                    pkt_inputs_dir, ledger["resume_checkpoint"]
+                )
 
             base_cfg = ppo_config or staged_base_cfg or V3PPOConfig()
             cfg_dict = base_cfg.to_dict()
@@ -681,8 +778,23 @@ def prepare_v3_ppo_packet(
                             f"ckpt={staged_dict.get(key)!r} vs requested={curr_dict.get(key)!r}"
                         )
 
-            # Enforce GPU VRAM budget before generating manifest!
+            # Enforce GPU VRAM budget AND calibrated single-file + session checkpoint export caps!
             memory_estimate = validate_memory_budget(cfg_obj, gpu_norm)
+
+            eff_world_bytes = measured_packed_bytes_per_world
+            if eff_world_bytes is None and measured_checkpoint_bytes is not None:
+                if int(measured_checkpoint_bytes) < 1:
+                    raise ValueError(
+                        f"measured_checkpoint_bytes must be >= 1, got {measured_checkpoint_bytes}"
+                    )
+                eff_world_bytes = max(
+                    1, int(math.ceil(int(measured_checkpoint_bytes) / cfg_obj.num_envs))
+                )
+            checkpoint_export_caps = validate_checkpoint_export_caps(
+                cfg_obj,
+                gpu_norm,
+                measured_packed_bytes_per_world=eff_world_bytes,
+            )
 
             if expected_steps_per_sec is not None:
                 if (
@@ -726,9 +838,7 @@ def prepare_v3_ppo_packet(
             extra_env["V3_PPO_CONFIG_JSON"] = json.dumps(cfg_obj.to_dict(), sort_keys=True)
             job_id = f"v3-ppo-train-{gpu_slug}-{attempt}"
             required_exports = list(TRAIN_REQUIRED_EXPORTS)
-            max_export_bytes = estimate_max_export_bytes(
-                cfg_obj, measured_checkpoint_bytes=measured_checkpoint_bytes
-            )
+            max_export_bytes = int(checkpoint_export_caps["per_file_max_export_bytes"])
             resume_fields = {
                 "resume": {
                     "unit_kind": "checkpoint",
@@ -740,7 +850,37 @@ def prepare_v3_ppo_packet(
             if canary_receipt is not None:
                 canary_block = _build_canary_receipt_binding(canary_receipt, gpu_norm)
 
+        # Ensure any staged input file also satisfies supervisor per-file `max_export_bytes` check
+        largest_input_bytes = max(
+            (int(Path(inp["path"]).stat().st_size) for inp in inputs_list),
+            default=0,
+        )
+        if largest_input_bytes > MAX_SUPERVISOR_EXPORT_BYTES:
+            raise ValueError(
+                f"Staged input file ({largest_input_bytes / 2**30:.2f} GiB) exceeds supervisor "
+                f"2.00 GiB per-file limit."
+            )
+        if largest_input_bytes > max_export_bytes:
+            max_export_bytes = min(
+                MAX_SUPERVISOR_EXPORT_BYTES, int(math.ceil(largest_input_bytes * 1.10))
+            )
+
         unit_cap = math.ceil(((timeout_minutes * rate_uph) / 60.0 - 1e-12) * 10000.0) / 10000.0
+        tech_envelope: dict[str, Any] = {
+            "base_seconds": base_sec,
+            "effective_seconds": eff_sec,
+            "forecast_unit_cap": unit_cap,
+            "mode": mode,
+            "gpu": gpu_norm,
+        }
+        if checkpoint_export_caps is not None:
+            tech_envelope["session_total_export_cap_bytes"] = int(
+                checkpoint_export_caps["session_total_export_cap_bytes"]
+            )
+            tech_envelope["worst_case_session_export_bytes"] = int(
+                checkpoint_export_caps["worst_case_session_export_bytes"]
+            )
+
         manifest: dict[str, Any] = {
             "job_id": job_id[:64],
             "commit": resolved_commit,
@@ -775,13 +915,7 @@ def prepare_v3_ppo_packet(
             },
             **resume_fields,
             "requirements_file": REQUIREMENTS_RELPATH,
-            "technical_envelope": {
-                "base_seconds": base_sec,
-                "effective_seconds": eff_sec,
-                "forecast_unit_cap": unit_cap,
-                "mode": mode,
-                "gpu": gpu_norm,
-            },
+            "technical_envelope": tech_envelope,
         }
         if allow_unmerged_commit:
             manifest["unmerged_dev_packet"] = True
@@ -813,6 +947,8 @@ def prepare_v3_ppo_packet(
     }
     if memory_estimate is not None:
         summary["memory_estimate"] = memory_estimate
+    if checkpoint_export_caps is not None:
+        summary["checkpoint_export_caps"] = checkpoint_export_caps
     if training_plan is not None:
         summary["training_plan"] = training_plan
     return summary
@@ -850,7 +986,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ruler-envs", type=str, default=None)
     parser.add_argument("--ruler-nets", type=str, default=None)
     parser.add_argument("--ruler-learners", type=str, default=None)
-    parser.add_argument("--ruler-rollout-len", type=int, default=16)
+    parser.add_argument("--ruler-rollout-len", type=int, default=DEFAULT_RULER_ROLLOUT_LEN)
+    parser.add_argument("--ruler-warmup-updates", type=int, default=DEFAULT_RULER_WARMUP_UPDATES)
+    parser.add_argument("--ruler-timed-updates", type=int, default=DEFAULT_RULER_TIMED_UPDATES)
     parser.add_argument("--ruler-base-minutes", type=float, default=None)
 
     amp_group = parser.add_mutually_exclusive_group()
@@ -873,6 +1011,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--canary-receipt", type=Path, default=None)
     parser.add_argument("--allow-missing-canary-receipt", action="store_true")
     parser.add_argument("--ppo-config-json", type=str, default=None)
+    parser.add_argument("--measured-packed-bytes-per-world", type=int, default=None)
     parser.add_argument("--measured-checkpoint-bytes", type=int, default=None)
     parser.add_argument("--attempt", type=str, default="attempt-01")
     parser.add_argument("--allow-unmerged-commit", action="store_true")
@@ -922,6 +1061,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         ruler_nets=args.ruler_nets,
         ruler_learners=args.ruler_learners,
         ruler_rollout_len=args.ruler_rollout_len,
+        ruler_warmup_updates=args.ruler_warmup_updates,
+        ruler_timed_updates=args.ruler_timed_updates,
         ruler_base_minutes=args.ruler_base_minutes,
         amp=args.amp,
         use_channels_last=args.use_channels_last,
@@ -934,6 +1075,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         allow_missing_canary_receipt=bool(args.allow_missing_canary_receipt),
         ppo_config=ppo_cfg,
         explicit_total_updates=explicit_total_updates,
+        measured_packed_bytes_per_world=args.measured_packed_bytes_per_world,
         measured_checkpoint_bytes=args.measured_checkpoint_bytes,
         attempt=args.attempt,
         allow_unmerged_commit=bool(args.allow_unmerged_commit),
