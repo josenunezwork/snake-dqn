@@ -122,11 +122,14 @@ def test_owned_calibrated_assignment(tmp_path: Path) -> None:
     assert result["rates"] == {"ep": 0.08}
 
 
-def test_owned_calibrated_assignments_honor_account_cap(tmp_path: Path) -> None:
-    allowed = op.ACCOUNT_ASSIGNMENT_CAP - 1
-    lines = "".join(f"[cpu{i}] ep{i} | Hardware: CPU\n" for i in range(allowed))
-    config, proof = evidence(tmp_path, lines, round(0.08 * allowed, 4), allowed)
-    for i in range(allowed):
+def test_owned_calibrated_assignments_honor_cpu_l4_and_account_caps(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    allowed_cpu = op.ACCOUNT_TYPE_CAPS["CPU"]
+    assert allowed_cpu == 5
+    lines = "".join(f"[cpu{i}] ep{i} | Hardware: CPU\n" for i in range(allowed_cpu))
+    config, proof = evidence(tmp_path, lines, round(0.08 * allowed_cpu, 4), allowed_cpu)
+    for i in range(allowed_cpu):
         (Path(config["account_root"]) / f"active-cpu{i}.json").write_text(
             json.dumps(
                 {
@@ -138,15 +141,36 @@ def test_owned_calibrated_assignments_honor_account_cap(tmp_path: Path) -> None:
             )
         )
     result = op.live_checks(config, proof)
-    assert len(result["assignments"]) == allowed
+    assert len(result["assignments"]) == allowed_cpu
 
-    over_dir = tmp_path / "over"
-    over_dir.mkdir()
-    at_cap = op.ACCOUNT_ASSIGNMENT_CAP
-    over_lines = "".join(f"[cpu{i}] ep{i} | Hardware: CPU\n" for i in range(at_cap))
-    over_cfg, over_proof = evidence(over_dir, over_lines, round(0.08 * at_cap, 4), at_cap)
+    # 6th CPU session exceeds ACCOUNT_TYPE_CAPS["CPU"] = 5 and is rejected.
+    over_cpu_dir = tmp_path / "over-cpu"
+    over_cpu_dir.mkdir()
+    over_cpu = allowed_cpu + 1
+    over_lines = "".join(f"[cpu{i}] ep{i} | Hardware: CPU\n" for i in range(over_cpu))
+    over_cfg, over_proof = evidence(over_cpu_dir, over_lines, round(0.08 * over_cpu, 4), over_cpu)
     with pytest.raises(ValueError, match="cap/count mismatch"):
         op.live_checks(over_cfg, over_proof)
+
+    # 4th L4 session exceeds ACCOUNT_TYPE_CAPS["L4"] = 3 and is rejected.
+    over_l4_dir = tmp_path / "over-l4"
+    over_l4_dir.mkdir()
+    over_l4 = op.ACCOUNT_TYPE_CAPS["L4"] + 1
+    l4_lines = "".join(f"[l4-{i}] ep-l4-{i} | Hardware: L4\n" for i in range(over_l4))
+    l4_cfg, l4_proof = evidence(over_l4_dir, l4_lines, round(1.54 * over_l4, 4), over_l4)
+    with pytest.raises(ValueError, match="cap/count mismatch"):
+        op.live_checks(l4_cfg, l4_proof)
+
+    # Total assignments >= ACCOUNT_ASSIGNMENT_CAP is also rejected when per-type caps fit.
+    monkeypatch.setattr(op, "ACCOUNT_ASSIGNMENT_CAP", 8)
+    at_total_dir = tmp_path / "at-total"
+    at_total_dir.mkdir()
+    mixed_lines = "".join(f"[cpu{i}] ep{i} | Hardware: CPU\n" for i in range(5)) + "".join(
+        f"[l4-{i}] l4ep{i} | Hardware: L4\n" for i in range(3)
+    )
+    total_cfg, total_proof = evidence(at_total_dir, mixed_lines, round(0.08 * 5 + 1.54 * 3, 4), 8)
+    with pytest.raises(ValueError, match="cap/count mismatch"):
+        op.live_checks(total_cfg, total_proof)
 
 
 @pytest.mark.parametrize("cap", [0, -1, True, float("nan"), float("inf")])

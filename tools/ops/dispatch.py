@@ -20,7 +20,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, Mapping
 
 if __package__:
     from .qualification import OPS, select, tree
@@ -39,6 +39,7 @@ if str(HERE.parents[1]) not in sys.path:
     sys.path.insert(0, str(HERE.parents[1]))
 from research.colab_cli.accounting import (  # noqa: E402
     ACCOUNT_ASSIGNMENT_CAP,
+    ACCOUNT_TYPE_CAPS,
     budget_warning,
     warning_threshold,
 )
@@ -46,6 +47,7 @@ from research.compute.colab_control import POLICY_ID as CONTROL_POLICY_ID  # noq
 from research.compute.colab_control import RULING_SHA256 as CONTROL_RULING_SHA256  # noqa: E402
 from research.compute.gpu_preference import FALLBACK_SUFFIX, sibling_id, variants  # noqa: E402
 from tools.ops.processes import run as run_process_tree  # noqa: E402
+from tools.ops.ready_queue import effective_account_assignment_cap  # noqa: E402
 
 EXACT_ERROR = "AccountingError('assignment endpoints changed during allocation')"
 BLOCK = re.compile(r"^\s*(?:BLOCK|HOLD)\b|RUNTIME BLOCKED|do not run this|PREPARED_NOT_DISPATCHED")
@@ -872,6 +874,39 @@ def register(ops: Path, log: Path, name: str) -> None:
         stream.write(f"{log} {name}\n")
 
 
+BROKER_TRANSPORT_SCHEMA = "colab-broker-transport/v1"
+
+
+def _record_broker_transport(ops: Path, name: str, broker: Path) -> Path:
+    """Persist the launching broker's transport tree before touching the job log."""
+    broker_tree = tree(broker)
+    dispatch_dir = ops / "dispatch" / name
+    if (
+        name.endswith("-retry-1")
+        and not dispatch_dir.exists()
+        and (ops / "dispatch" / name.removesuffix("-retry-1")).is_dir()
+    ):
+        parent_record = ops / "dispatch" / name.removesuffix("-retry-1") / "broker-transport.json"
+        if parent_record.is_file():
+            existing = read_json(parent_record)
+            if (
+                existing.get("schema") != BROKER_TRANSPORT_SCHEMA
+                or existing.get("tree_hash") != broker_tree
+            ):
+                raise Refused("retry broker transport differs from primary attempt")
+            return parent_record
+    dispatch_dir.mkdir(parents=True, exist_ok=True)
+    target = dispatch_dir / "broker-transport.json"
+    write_create_only_json(
+        target,
+        {
+            "schema": BROKER_TRANSPORT_SCHEMA,
+            "tree_hash": broker_tree,
+        },
+    )
+    return target
+
+
 def start(
     broker: Path,
     cwd: Path,
@@ -895,9 +930,12 @@ def start(
         raise Refused("collector evidence path already exists")
     if collector is not None and (control_nice0 or small_bench_config is not None):
         raise Refused("collector-v2 cannot be combined with another host launch adapter")
+    if control_nice0 and control_admission is None:
+        raise Refused("missing create-only Colab control admission")
     colab = Path.home() / ".local/bin/colab"
     if collector is not None:
         colab = colab.resolve()
+    _record_broker_transport(log.parent.parent, name, broker)
     log.touch(exist_ok=False)
     register(log.parent.parent, log, name)
     launcher = [
@@ -915,8 +953,6 @@ def start(
         guard = HERE.parent / "small_bench_cli.py"
         launcher[launcher.index("--colab") + 1] = str(guard)
     if control_nice0:
-        if control_admission is None:
-            raise Refused("missing create-only Colab control admission")
         launcher.insert(1, "--control-nice0")
         launcher = [
             str(CONTROL_INTERPRETER),
@@ -1093,6 +1129,7 @@ def start_chain(
     deadline: float,
 ) -> None:
     """Submit one qualified serial chain; the broker retains/release-checks it."""
+    _record_broker_transport(log.parent.parent, name, broker)
     log.touch(exist_ok=False)
     register(log.parent.parent, log, name)
     launcher = [
@@ -1251,7 +1288,9 @@ def session_rows(stdout: str) -> list[tuple[str, str, str]]:
     for line in stdout.splitlines():
         if not line.startswith("[") or line.startswith("[colab]"):
             continue
-        match = re.fullmatch(r"\[([^\]]+)\]\s+(\S+)\s+\| Hardware:\s*([^|]+?)(?:\s+\|.*)?", line)
+        match = re.fullmatch(
+            r"\[([^\]]+)\]\s+(\S+)\s+\| Hardware:[ \t]*([^|\n]*?)[ \t]*(?:\|.*)?", line
+        )
         if match is None or not match[3].strip():
             raise Refused("unrecognized account session row")
         rows.append(match.groups())
@@ -1262,6 +1301,50 @@ def session_rows(stdout: str) -> list[tuple[str, str, str]]:
     if len({endpoint for _, endpoint, _ in rows}) != len(rows):
         raise Refused("duplicate endpoint in account sessions output")
     return rows
+
+
+def _refused_with_snapshot(
+    message: str, sessions: Mapping[str, str], sessions_stdout: str
+) -> Refused:
+    exc = Refused(message)
+    exc.sessions_snapshot = {  # type: ignore[attr-defined]
+        "sessions": dict(sessions),
+        "sessions_stdout": sessions_stdout,
+    }
+    return exc
+
+
+def _enforce_session_caps(
+    sessions: Mapping[str, str],
+    manifest_value: Mapping[str, Any],
+    *,
+    total_cap: int = ACCOUNT_ASSIGNMENT_CAP,
+    sessions_stdout: str = "",
+) -> None:
+    """Enforce account-wide ceiling and per-accelerator concurrency caps before allocation."""
+    for hardware in sessions.values():
+        if hardware.upper() not in ACCOUNT_TYPE_CAPS:
+            raise Refused(f"unregistered live hardware: {hardware}")
+    if len(sessions) >= total_cap:
+        raise _refused_with_snapshot(
+            f"account-wide assignment cap {total_cap} (including notebooks)",
+            sessions,
+            sessions_stdout,
+        )
+    req = manifest_value.get("requirements")
+    req_gpu = req.get("gpu") if isinstance(req, Mapping) else None
+    if isinstance(req_gpu, str) and req_gpu.strip():
+        req_hw = req_gpu.strip().upper()
+        type_cap = ACCOUNT_TYPE_CAPS.get(req_hw)
+        if (
+            type_cap is not None
+            and sum(1 for hw in sessions.values() if hw.upper() == req_hw) >= type_cap
+        ):
+            raise _refused_with_snapshot(
+                f"account {req_hw} assignment cap {type_cap} (including notebooks)",
+                sessions,
+                sessions_stdout,
+            )
 
 
 def refresh_assignments(manifest: Path, evidence: Path, deadline: float) -> Path:
@@ -1351,6 +1434,13 @@ def refresh_assignments(manifest: Path, evidence: Path, deadline: float) -> Path
         rates[endpoint] = rate
     original = manifest.read_bytes()
     value = json.loads(original)
+    ops_root = (
+        evidence.parents[2]
+        if len(evidence.parents) >= 3 and evidence.parents[1].name == "dispatch"
+        else Path(os.environ.get("OPS_DIR", OPS)).resolve()
+    )
+    total_cap = effective_account_assignment_cap(ops_root)
+    _enforce_session_caps(sessions, value, total_cap=total_cap, sessions_stdout=result.stdout)
     require_f5_plan_live_assignment_match(value, {"budget": {"other_assignments": rates}})
     value.setdefault("budget", {})["other_assignments"] = rates
     refreshed = manifest.with_name(f"{manifest.stem}.live.json")
@@ -1370,6 +1460,46 @@ def refresh_assignments(manifest: Path, evidence: Path, deadline: float) -> Path
         json.dump(proof, stream, indent=2, sort_keys=True)
         stream.write("\n")
     return refreshed
+
+
+_ORIG_REFRESH_ASSIGNMENTS = refresh_assignments
+
+
+def _preflight_session_caps(
+    packets: list[dict[str, Any]],
+    *,
+    ops: Path,
+    broker: Path,
+    deadline: float,
+) -> None:
+    """Enforce live session caps under alloc.lock before reserving dispatch identities."""
+    if refresh_assignments is not _ORIG_REFRESH_ASSIGNMENTS:
+        return
+    result = command(
+        [str(Path.home() / ".local/bin/colab"), "--auth", "oauth2", "sessions"],
+        deadline=deadline,
+        capture_output=True,
+        text=True,
+    )
+    rows = session_rows(result.stdout)
+    sessions = {endpoint: hardware.strip() for _, endpoint, hardware in rows}
+    total_cap = effective_account_assignment_cap(ops, repos=[broker])
+    if len(packets) == 1:
+        _enforce_session_caps(
+            sessions, packets[0], total_cap=total_cap, sessions_stdout=result.stdout
+        )
+        return
+    last_refused: Refused | None = None
+    for packet in packets:
+        try:
+            _enforce_session_caps(
+                sessions, packet, total_cap=total_cap, sessions_stdout=result.stdout
+            )
+            return
+        except Refused as exc:
+            last_refused = exc
+    assert last_refused is not None
+    raise last_refused
 
 
 # Owner's 2026-10-22 A0 work order explicitly selects PLAN_A100 §3's
@@ -2557,7 +2687,20 @@ def dispatch_preferred(
         seconds,
         wait=True,
         **({"handoff": handoff} if handoff is not None else {}),
-    ):
+    ) as lock_deadline:
+        for candidate in (
+            *(ops / "dispatch" / name for name in names),
+            *paths,
+            *logs,
+        ):
+            if candidate.exists():
+                raise Refused(f"dispatch identity already used: {candidate}")
+        _preflight_session_caps(
+            packets,
+            ops=ops,
+            broker=broker,
+            deadline=min(lock_deadline, time.monotonic() + seconds),
+        )
         # Reserve both identities before validation, and validate both before first submit.
         for name in names:
             (ops / "dispatch" / name).mkdir()
@@ -2604,6 +2747,7 @@ def dispatch_preferred(
             },
         )
         preference_deadline = time.monotonic() + seconds * len(packets)
+        h100_skip_proof: Path | None = None
         for index, (packet, path, lane, log, name) in enumerate(
             zip(packets, paths, states, logs, names)
         ):
@@ -2615,7 +2759,45 @@ def dispatch_preferred(
             qualified(broker, ops, deadline)
             qualified(broker, ops, deadline, ref=packet["commit"])
             evidence = ops / "dispatch" / name / f"{name}.accounting.json"
-            live = refresh_assignments(path, evidence, deadline)
+            try:
+                live = refresh_assignments(path, evidence, deadline)
+            except Refused as exc:
+                if index == 0 and str(exc) == (
+                    f"account H100 assignment cap {ACCOUNT_TYPE_CAPS['H100']}"
+                    " (including notebooks)"
+                ):
+                    snap = getattr(exc, "sessions_snapshot", {})
+                    snap_sessions = (
+                        dict(snap.get("sessions", {})) if isinstance(snap, Mapping) else {}
+                    )
+                    skip_path = ops / "dispatch" / name / "h100-type-cap-skip.json"
+                    write_create_only_json(
+                        skip_path,
+                        {
+                            "schema": "colab-gpu-type-cap-skip/v1",
+                            "skipped_gpu": "H100",
+                            "fallback_gpu": packets[1]["requirements"]["gpu"],
+                            "type_cap": ACCOUNT_TYPE_CAPS["H100"],
+                            "active_h100_endpoints": sorted(
+                                ep for ep, hw in snap_sessions.items() if str(hw).upper() == "H100"
+                            ),
+                            "sessions": snap_sessions,
+                            "sessions_stdout": (
+                                snap.get("sessions_stdout", "") if isinstance(snap, Mapping) else ""
+                            ),
+                            "manifest": str(path),
+                            "manifest_sha256": seals[index],
+                        },
+                    )
+                    h100_skip_proof = skip_path
+                    print(
+                        f"OPS_GPU_FALLBACK primary_skipped=H100_type_cap "
+                        f"preadmitted={paths[1]} proof={skip_path}",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                    continue
+                raise
             receipt = test_receipts[index]
             validate(
                 broker,
@@ -2663,6 +2845,12 @@ def dispatch_preferred(
                 gpu_receipt=ops / "dispatch" / name / "gpu-receipt.json",
                 **sandbox_launch,
             )
+            if h100_skip_proof is not None:
+                note(
+                    log,
+                    f"OPS_GPU_FALLBACK primary_skipped=H100_type_cap "
+                    f"preadmitted={paths[1]} proof={h100_skip_proof}",
+                )
             outcome = wait_allocation(Path(packet["output_dir"]), log, deadline, poll)
             if outcome == "failed":
                 while time.monotonic() < deadline and not re.search(
@@ -2844,7 +3032,20 @@ def dispatch(args: argparse.Namespace) -> str:
         seconds,
         wait=True,
         **({"handoff": handoff} if handoff is not None else {}),
-    ):
+    ) as lock_deadline:
+        for candidate in (
+            ops / "dispatch" / args.name,
+            ops / "logs" / f"{args.name}.log",
+            ops / "manifests" / f"{args.name}.json",
+        ):
+            if candidate.exists():
+                raise Refused(f"dispatch identity already used: {candidate}")
+        _preflight_session_caps(
+            [value],
+            ops=ops,
+            broker=broker,
+            deadline=min(lock_deadline, time.monotonic() + seconds),
+        )
         # Create-only name reservation also fences two clients dispatched concurrently.
         (ops / "dispatch" / args.name).mkdir()
         log = ops / "logs" / f"{args.name}.log"

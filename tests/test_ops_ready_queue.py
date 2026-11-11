@@ -164,16 +164,17 @@ def add_jobs(tmp_path, count):
 
 
 def test_capacity_dry_run_and_duplicate_claims(tmp_path, monkeypatch):
-    ops = add_jobs(tmp_path, 7)
+    cap = rq.ACCOUNT_ASSIGNMENT_CAP
+    ops = add_jobs(tmp_path, cap + 1)
     before = (ops / "ready-queue.json").read_bytes()
-    assert rq.tick(ops, dry_run=True)["would_dispatch"] == ["q0", "q1", "q2", "q3", "q4", "q5"]
+    assert rq.tick(ops, dry_run=True)["would_dispatch"] == [f"q{i}" for i in range(cap)]
     assert (ops / "ready-queue.json").read_bytes() == before
     calls = []
     monkeypatch.setattr(rq.subprocess, "Popen", lambda *a, **k: calls.append(a))
     with ThreadPoolExecutor(2) as pool:
         results = list(pool.map(lambda _: rq.tick(ops), range(2)))
-    assert sum(len(result["dispatched"]) for result in results) == 6
-    assert len(calls) == 6
+    assert sum(len(result["dispatched"]) for result in results) == cap
+    assert len(calls) == cap
     assert rq.tick(ops)["dispatched"] == []
     with pytest.raises(ValueError, match="already enqueued"):
         rq.enqueue(ops, "q0", command(tmp_path, tmp_path / "job0.json", "job0"))
@@ -721,7 +722,7 @@ def account_cap_receipt(manifest, log, cap: int = 6):
     return receipt
 
 
-@pytest.mark.parametrize("cap", [6, 3])
+@pytest.mark.parametrize("cap", [12, 6, 3])
 def test_account_cap_receipt_queues_fresh_completion_with_backoff(tmp_path, cap):
     ops = add_jobs(tmp_path, 1)
     manifest = write(ops / "manifests/job0.json", ar.read(tmp_path / "job0.json"))
@@ -838,8 +839,8 @@ def test_capacity_worker_backs_off_only_without_identity_residue(tmp_path, resid
         assert rq.occupancy(queue, {}, set()) == (0, 0)
 
 
-@pytest.mark.parametrize("cap", [6, 3])
-def test_capacity_refusal_supports_cap6_and_legacy_cap3_brokers(packet, tmp_path, cap):
+@pytest.mark.parametrize("cap", [12, 6, 3])
+def test_capacity_refusal_supports_cap12_cap6_and_legacy_cap3_brokers(packet, tmp_path, cap):
     ops = add_jobs(tmp_path, 1)
     script = tmp_path / "dispatch.sh"
     script.write_text(
@@ -1231,8 +1232,15 @@ def add_gpu_job(
 
 def test_l4_cap_skips_l4_without_holding_or_reordering_and_dispatches_a100(tmp_path, monkeypatch):
     assert rq.ACCOUNT_L4_CAP == 3
-    assert rq.ACCOUNT_GPU_SUBCAPS == {"L4": 3, "G4": 3, "T4": 3}
-    assert rq.ACCOUNT_ASSIGNMENT_CAP == 6
+    assert rq.ACCOUNT_GPU_SUBCAPS == {
+        "L4": 3,
+        "T4": 3,
+        "G4": 3,
+        "A100": 3,
+        "H100": 1,
+        "CPU": 5,
+    }
+    assert rq.ACCOUNT_ASSIGNMENT_CAP == 12
     ops = tmp_path / "ops"
     add_gpu_job(tmp_path, ops, "l4-first", "L4")
     add_gpu_job(tmp_path, ops, "l4-unsealed", "L4", unsealed=True)
@@ -1281,11 +1289,17 @@ def test_g4_and_t4_subcaps_skip_capped_gpu_and_dispatch_uncapped(
     assert queue["jobs"][1]["status"] == "DISPATCHING"
 
 
-def test_six_total_assignments_dispatches_nothing(tmp_path, monkeypatch):
+def test_six_l4_and_a100_holds_l4_a100_and_prefer_but_dispatches_t4_g4_h100_and_cpu(
+    tmp_path, monkeypatch
+):
     ops = tmp_path / "ops"
     add_gpu_job(tmp_path, ops, "l4-job", "L4")
     add_gpu_job(tmp_path, ops, "a100-job", "A100")
     add_gpu_job(tmp_path, ops, "h100-pref", "H100", prefer=["H100", "A100"])
+    add_gpu_job(tmp_path, ops, "t4-job", "T4")
+    add_gpu_job(tmp_path, ops, "g4-job", "G4")
+    add_gpu_job(tmp_path, ops, "h100-only", "H100")
+    add_gpu_job(tmp_path, ops, "cpu-job", "cpu")
 
     six_active = {
         "ep-l4-1": "L4",
@@ -1295,17 +1309,122 @@ def test_six_total_assignments_dispatches_nothing(tmp_path, monkeypatch):
         "ep-a100-2": "A100",
         "ep-a100-3": "A100",
     }
+    expected = ["t4-job", "g4-job", "h100-only", "cpu-job"]
     assert rq.tick(ops, dry_run=True, inventory=six_active) == {
         "active": 6,
         "reserved": 0,
-        "would_dispatch": [],
+        "would_dispatch": expected,
     }
     monkeypatch.setattr(rq.subprocess, "Popen", lambda *a, **k: None)
     assert rq.tick(ops, inventory=six_active) == {
         "active": 6,
         "reserved": 0,
-        "dispatched": [],
+        "dispatched": expected,
     }
+    by_id = {row["id"]: row["status"] for row in ar.read(ops / "ready-queue.json")["jobs"]}
+    assert by_id["l4-job"] == "READY"
+    assert by_id["a100-job"] == "READY"
+    assert by_id["h100-pref"] == "READY"
+    for job_id in expected:
+        assert by_id[job_id] == "DISPATCHING"
+
+
+def test_twelve_mixed_gpus_admitted_and_fourth_of_each_type_held(tmp_path, monkeypatch):
+    ops = tmp_path / "ops"
+    for gpu in ("L4", "T4", "G4", "A100"):
+        for idx in range(1, 5):
+            add_gpu_job(tmp_path, ops, f"{gpu.lower()}-{idx}", gpu)
+
+    expected_twelve = [
+        f"{gpu.lower()}-{idx}" for gpu in ("L4", "T4", "G4", "A100") for idx in (1, 2, 3)
+    ]
+    assert rq.tick(ops, dry_run=True, inventory={}) == {
+        "active": 0,
+        "reserved": 0,
+        "would_dispatch": expected_twelve,
+    }
+    monkeypatch.setattr(rq.subprocess, "Popen", lambda *a, **k: None)
+    assert rq.tick(ops, inventory={}) == {
+        "active": 0,
+        "reserved": 0,
+        "dispatched": expected_twelve,
+    }
+    by_id = {row["id"]: row["status"] for row in ar.read(ops / "ready-queue.json")["jobs"]}
+    for gpu in ("L4", "T4", "G4", "A100"):
+        for idx in (1, 2, 3):
+            assert by_id[f"{gpu.lower()}-{idx}"] == "DISPATCHING"
+        assert by_id[f"{gpu.lower()}-4"] == "READY"
+
+    add_gpu_job(tmp_path, ops, "cpu-sixth", "cpu")
+    five_cpu = {f"ep-cpu-{i}": "CPU" for i in range(1, 6)}
+    assert rq.tick(ops, dry_run=True, inventory=five_cpu)["would_dispatch"] == []
+
+
+def test_prefer_h100_a100_dispatches_to_a100_when_h100_at_cap_and_a100_has_headroom(
+    tmp_path, monkeypatch
+):
+    ops = tmp_path / "ops"
+    add_gpu_job(tmp_path, ops, "h100-only-second", "H100")
+    add_gpu_job(tmp_path, ops, "h100-pref-1", "H100", prefer=["H100", "A100"])
+    add_gpu_job(tmp_path, ops, "h100-pref-2", "H100", prefer=["H100", "A100"])
+
+    inventory = {
+        "ep-h100-1": "H100",
+        "ep-a100-1": "A100",
+        "ep-a100-2": "A100",
+    }
+    assert rq.tick(ops, dry_run=True, inventory=inventory) == {
+        "active": 3,
+        "reserved": 0,
+        "would_dispatch": ["h100-pref-1"],
+    }
+    monkeypatch.setattr(rq.subprocess, "Popen", lambda *a, **k: None)
+    assert rq.tick(ops, inventory=inventory) == {
+        "active": 3,
+        "reserved": 0,
+        "dispatched": ["h100-pref-1"],
+    }
+    by_id = {row["id"]: row["status"] for row in ar.read(ops / "ready-queue.json")["jobs"]}
+    assert by_id["h100-only-second"] == "READY"
+    assert by_id["h100-pref-1"] == "DISPATCHING"
+    assert by_id["h100-pref-2"] == "READY"
+
+
+@pytest.mark.parametrize(
+    ("hw_label", "cap"),
+    [("L4", 3), ("T4", 3), ("G4", 3), ("A100", 3), ("H100", 1), ("CPU", 5)],
+)
+def test_per_type_capacity_refusal_backs_off_and_auto_retries(packet, tmp_path, hw_label, cap):
+    ops = add_jobs(tmp_path, 1)
+    script = tmp_path / "dispatch.sh"
+    script.write_text(
+        "#!/bin/sh\n"
+        f'printf "REFUSE: account {hw_label} assignment cap {cap} (including notebooks)\\n"\n'
+        "exit 1\n"
+    )
+    script.chmod(0o755)
+    with rq.locked(ops) as queue:
+        queue["jobs"][0].update(status="DISPATCHING", token="claim")
+    rq.worker(ops, "q0", "claim")
+    row = ar.read(ops / "ready-queue.json")["jobs"][0]
+    assert row["status"] == "READY" and row["capacity_refusals"] == 1
+
+    log = tmp_path / f"type-cap-{hw_label}.log"
+    receipt = pending_fence_receipt(packet, log)
+    receipt.update(
+        failure_class="ACCOUNTING",
+        error=f"Refused('account {hw_label} assignment cap {cap} (including notebooks)')",
+        usage_before={"assignments": float(cap), "balance": 685.97, "rate": 4.62},
+        cli_calls=[
+            {"command": cmd, "operation": "control", "status": "completed", "attempt": 1}
+            for cmd in ("version", "sessions", "usage")
+        ],
+    )
+    write(Path(ar.read(packet)["output_dir"]) / "receipt.json", receipt)
+    value = ar.read(packet)
+    output = Path(value["output_dir"])
+    assert ar.blocked_before_allocation(value, output, log) is True
+    assert ar.eligible(value, output, log) == receipt
 
 
 def test_reserved_l4_and_prefer_actual_accelerator_accounting(tmp_path, monkeypatch):
@@ -1563,3 +1682,304 @@ def test_stale_other_assignments_refuses_allocation_residue_or_malformed_evidenc
         ar.eligible(value, output, log)
     with pytest.raises(ValueError):
         ar.prepare(packet, log, tmp_path / "retry", tmp_path)
+
+
+def test_real_dispatch_sh_race_cap_refusal_returns_worker_row_to_ready_without_burning_identity(
+    request, monkeypatch
+):
+    from tests import test_ops_dispatch as shared
+
+    f = request.getfixturevalue("dispatch_fixture")
+    f["change"](requirements={"gpu": "L4", "min_vcpu": 2, "est_minutes": 5}, timeout_minutes=10)
+    f["inventory"](
+        {f"ep-{i}": "L4" for i in range(3)},
+        [shared.active(f"ep-{i}", 1.54) for i in range(3)],
+    )
+    for key, val in f["env"].items():
+        monkeypatch.setenv(key, val)
+
+    ops = f["ops"]
+    rq.enqueue(
+        ops,
+        "q-race",
+        [
+            str(shared.SCRIPT),
+            "lane",
+            str(f["manifest"]),
+            "--broker",
+            str(f["broker"]),
+            "--cwd",
+            str(f["broker"]),
+        ],
+    )
+    with rq.locked(ops) as queue:
+        queue["jobs"][0].update(status="DISPATCHING", token="claim1")
+    rq.worker(ops, "q-race", "claim1")
+
+    row = ar.read(ops / "ready-queue.json")["jobs"][0]
+    assert row["status"] == "READY"
+    assert row["capacity_refusals"] == 1
+    assert not (ops / "dispatch/lane").exists()
+    assert not (ops / "manifests/lane.json").exists()
+
+    # Once one L4 finishes (2/3 active), the same row and identity dispatch cleanly.
+    f["inventory"](
+        {f"ep-{i}": "L4" for i in range(2)},
+        [shared.active(f"ep-{i}", 1.54) for i in range(2)],
+    )
+    with rq.locked(ops) as queue:
+        queue["jobs"][0].pop("not_before", None)
+        queue["jobs"][0].update(status="DISPATCHING", token="claim2", claimed=False)
+    rq.worker(ops, "q-race", "claim2")
+    row_after = ar.read(ops / "ready-queue.json")["jobs"][0]
+    assert row_after["status"] == "LAUNCHED"
+    assert (ops / "manifests/lane.json").is_file()
+
+
+@pytest.fixture
+def dispatch_fixture(tmp_path):
+    from tests import test_ops_dispatch as shared
+
+    gen = shared.fixture.__wrapped__(tmp_path / "dispatch-fx")
+    f = next(gen)
+    try:
+        yield f
+    finally:
+        try:
+            next(gen)
+        except StopIteration:
+            pass
+
+
+def test_ready_queue_clamps_total_slots_to_six_while_old_tree_job_is_active(tmp_path, monkeypatch):
+    import hashlib
+    import subprocess
+
+    repo = tmp_path / "repo"
+    transport = repo / "research/colab_cli"
+    transport.mkdir(parents=True)
+    (transport / "accounting.py").write_text("ACCOUNT_ASSIGNMENT_CAP = 6\n")
+    subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.name", "Queue Test"], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "config", "user.email", "queue@example.invalid"], check=True
+    )
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "legacy cap6"], check=True)
+    old_commit = subprocess.check_output(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"], text=True
+    ).strip()
+    old_tree = subprocess.check_output(
+        ["git", "-C", str(repo), "rev-parse", "HEAD:research/colab_cli"], text=True
+    ).strip()
+
+    (transport / "accounting.py").write_text("ACCOUNT_ASSIGNMENT_CAP = 12\n")
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "new cap12"], check=True)
+    new_commit = subprocess.check_output(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"], text=True
+    ).strip()
+    new_tree = subprocess.check_output(
+        ["git", "-C", str(repo), "rev-parse", "HEAD:research/colab_cli"], text=True
+    ).strip()
+
+    ops = tmp_path / "ops"
+    write(
+        ops / "colab-cli-qualified.json",
+        {
+            "schema": "snake-dqn-colab-cli-qualified/v1",
+            "registry_schema": "snake-dqn-colab-cli-qualified/v2",
+            "independent_review_status": "ACCEPT",
+            "tree_hash": old_tree,
+            "qualified_commit": old_commit,
+            "account_assignment_cap": 6,
+            "trees": [
+                {
+                    "schema": "snake-dqn-colab-cli-qualified/v1",
+                    "independent_review_status": "ACCEPT",
+                    "tree_hash": old_tree,
+                    "qualified_commit": old_commit,
+                    "account_assignment_cap": 6,
+                },
+                {
+                    "schema": "snake-dqn-colab-cli-qualified/v1",
+                    "independent_review_status": "ACCEPT",
+                    "tree_hash": new_tree,
+                    "qualified_commit": new_commit,
+                    "account_assignment_cap": 12,
+                },
+            ],
+        },
+    )
+
+    old_out = tmp_path / "old-active-out"
+    old_manifest = {
+        "job_id": "old-active",
+        "commit": old_commit,
+        "output_dir": str(old_out),
+        "requirements": {"gpu": "L4"},
+    }
+    write(ops / "manifests/old-active.json", old_manifest)
+    log = ops / "logs/old-active.log"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    log.write_text("running\n")
+    write(
+        tmp_path / "home/.config/colab-cli/snake/active-old.json",
+        {"output": str(old_out), "endpoint": "ep-l4-1"},
+    )
+
+    for job_id, gpu, commit in (
+        ("t4-old-pin", "T4", old_commit),
+        ("g4-new", "G4", new_commit),
+    ):
+        mf = write(
+            tmp_path / f"{job_id}.json",
+            {
+                "job_id": job_id,
+                "commit": commit,
+                "output_dir": str(tmp_path / f"out-{job_id}"),
+                "requirements": {"gpu": gpu},
+            },
+        )
+        rq.enqueue(
+            ops,
+            job_id,
+            [
+                str(tmp_path / "dispatch.sh"),
+                job_id,
+                str(mf),
+                "--broker",
+                str(repo),
+                "--cwd",
+                str(repo),
+            ],
+        )
+
+    six_active = {
+        "ep-l4-1": "L4",
+        "ep-l4-2": "L4",
+        "ep-l4-3": "L4",
+        "ep-a100-1": "A100",
+        "ep-a100-2": "A100",
+        "ep-a100-3": "A100",
+    }
+    # Pre-activation running supervisor (no broker-transport.json) clamps account ceiling to 6.
+    assert rq.effective_account_assignment_cap(ops) == 6
+    assert rq.tick(ops, dry_run=True, inventory=six_active) == {
+        "active": 6,
+        "reserved": 0,
+        "would_dispatch": [],
+    }
+    monkeypatch.setattr(rq.subprocess, "Popen", lambda *a, **k: None)
+    assert rq.tick(ops, inventory=six_active) == {
+        "active": 6,
+        "reserved": 0,
+        "dispatched": [],
+    }
+
+    # Explicit cap=6 broker-transport.json also clamps to 6 while running.
+    write(
+        ops / "dispatch/old-active/broker-transport.json",
+        {"schema": "colab-broker-transport/v1", "tree_hash": old_tree},
+    )
+    assert rq.effective_account_assignment_cap(ops) == 6
+    assert rq.tick(ops, dry_run=True, inventory=six_active)["would_dispatch"] == []
+
+    # Complete the old-tree job with verified stop; BOTH t4-old-pin (pinned to old_commit!) and
+    # g4-new now dispatch beyond 6 because no cap<=6 broker supervisor is running.
+    old_out.mkdir(parents=True)
+    old_bytes = json.dumps(old_manifest).encode()
+    (old_out / "manifest.json").write_bytes(old_bytes)
+    write(
+        old_out / "receipt.json",
+        {
+            "job_id": "old-active",
+            "commit": old_commit,
+            "manifest_sha256": hashlib.sha256(old_bytes).hexdigest(),
+            "status": "PASS",
+            "stop_verified": True,
+        },
+    )
+    log.write_text("EXIT=0\n")
+    (tmp_path / "home/.config/colab-cli/snake/active-old.json").unlink()
+
+    # Historical exited unverified receipt and dead-tmux cleaned-up orphan lacking
+    # broker-transport.json do NOT represent live supervisors and do not clamp to 6.
+    hist_out = tmp_path / "hist-unverified-out"
+    hist_manifest = {
+        "job_id": "hist-unverified",
+        "commit": old_commit,
+        "output_dir": str(hist_out),
+        "requirements": {"gpu": "L4"},
+    }
+    hist_out.mkdir(parents=True)
+    hist_bytes = json.dumps(hist_manifest).encode()
+    (hist_out / "manifest.json").write_bytes(hist_bytes)
+    write(ops / "manifests/hist-unverified.json", hist_manifest)
+    write(
+        hist_out / "receipt.json",
+        {
+            "job_id": "hist-unverified",
+            "commit": old_commit,
+            "manifest_sha256": hashlib.sha256(hist_bytes).hexdigest(),
+            "status": "INCOMPLETE",
+            "stop_verified": False,
+        },
+    )
+    (ops / "logs/hist-unverified.log").write_text("EXIT=1\n")
+
+    orphan_out = tmp_path / "dead-tmux-orphan-out"
+    orphan_manifest = {
+        "job_id": "dead-tmux-orphan",
+        "commit": old_commit,
+        "output_dir": str(orphan_out),
+        "requirements": {"gpu": "L4"},
+    }
+    orphan_out.mkdir(parents=True)
+    write(orphan_out / "hardware.json", {"hardware": {"kind": "L4"}})
+    write(ops / "manifests/dead-tmux-orphan.json", orphan_manifest)
+    (ops / "logs/dead-tmux-orphan.log").write_text("running before tmux died\n")
+
+    assert rq.effective_account_assignment_cap(ops) == 12
+    assert (
+        rq.reachable_underused_cap(
+            ops,
+            "".join(
+                f"[s{i}] {ep} | Hardware: {hw}\n" for i, (ep, hw) in enumerate(six_active.items())
+            ),
+        )
+        == 8
+    )
+    assert rq.tick(ops, dry_run=True, inventory=six_active) == {
+        "active": 6,
+        "reserved": 0,
+        "would_dispatch": ["t4-old-pin", "g4-new"],
+    }
+    assert rq.tick(ops, inventory=six_active) == {
+        "active": 6,
+        "reserved": 0,
+        "dispatched": ["t4-old-pin", "g4-new"],
+    }
+
+    # While t4-old-pin (manifest pinned to old_commit!) runs on the upgraded cap=12 broker,
+    # effective_account_assignment_cap remains 12 because broker-transport.json records new_tree.
+    t4_out = tmp_path / "out-t4-old-pin"
+    write(
+        ops / "manifests/t4-old-pin.json",
+        {
+            "job_id": "t4-old-pin",
+            "commit": old_commit,
+            "output_dir": str(t4_out),
+            "requirements": {"gpu": "T4"},
+        },
+    )
+    write(
+        ops / "dispatch/t4-old-pin/broker-transport.json",
+        {"schema": "colab-broker-transport/v1", "tree_hash": new_tree},
+    )
+    (ops / "logs/t4-old-pin.log").write_text("running on cap12 broker\n")
+    write(
+        tmp_path / "home/.config/colab-cli/snake/active-t4.json",
+        {"output": str(t4_out), "endpoint": "ep-t4-1"},
+    )
+    assert rq.effective_account_assignment_cap(ops) == 12
