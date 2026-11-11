@@ -72,7 +72,7 @@ for L1_PRIME, covering the requested workers, pending capacity and device.
 Missing authorization leaves expanded cells NOT_MEASURED. A serving flag cannot
 substitute for a probe file. CPU/W1/K1 probes need no expanded-cell authorization.
 No live authorization file is created by this implementation. See
-[docs/research/history/bl-served-tick.md](../../docs/research/history/bl-served-tick.md) for the exact schema and scope.
+[docs/research/history/bl-served-tick.md](../../docs/research/history/search.md#bl-served-tick) for the exact schema and scope.
 
 The transport configures the selected device in spawned workers; MPS is a
 probe-only backend and remains unmeasured here. Its caller-supplied worker must

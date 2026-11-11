@@ -7,4 +7,4 @@
 ## Key Files & Results
 
 - **Package entrypoints / artifacts:** [`protocol.md`](protocol.md), [`protocol-evaluation.md`](protocol-evaluation.md), [`contracts-learning.md`](contracts-learning.md), [`contracts-operations.md`](contracts-operations.md), [`adapter.py`](adapter.py), [`evaluation.py`](evaluation.py), [`runner.py`](runner.py)
-- **Related docs / results:** [`docs/experiments/task_aligned_cz_integration_2026-09-24/README.md`](../../docs/experiments/task_aligned_cz_integration_2026-09-24/README.md), [`docs/experiments/task_aligned_strict_pilot_2026-09-26/README.md`](../../docs/research/history/task-aligned-challenger.md), [`docs/research/catalog/legacy_packages.md`](../../docs/research/history/frp.md)
+- **Related docs / results:** [`docs/experiments/task_aligned_cz_integration_2026-09-24/README.md`](../../docs/experiments/task_aligned_cz_integration_2026-09-24/README.md), [`docs/experiments/task_aligned_strict_pilot_2026-09-26/README.md`](../../docs/research/history/rl-runs.md#task-aligned-challenger), [`docs/research/catalog/legacy_packages.md`](../../docs/research/history/served-agents.md#frp)

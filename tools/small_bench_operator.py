@@ -15,11 +15,12 @@ import re
 import subprocess
 import tempfile
 import uuid
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from research.colab_cli.accounting import ACCOUNT_ASSIGNMENT_CAP
+from research.colab_cli.accounting import ACCOUNT_ASSIGNMENT_CAP, ACCOUNT_TYPE_CAPS
 from tools import small_bench_register as register
 
 
@@ -167,7 +168,16 @@ def live_checks(config: dict[str, Any], evidence: dict[str, Any]) -> dict[str, A
     empty = "No active sessions found on server." in sessions_raw
     if (not sessions and not empty) or (sessions and empty):
         raise ValueError("unknown or contradictory allocation")
-    if len(sessions) >= ACCOUNT_ASSIGNMENT_CAP or usage["assignments"] != len(sessions):
+    hw_counts = Counter(session["hardware"] for session in sessions.values())
+    if (
+        len(sessions) >= ACCOUNT_ASSIGNMENT_CAP
+        or usage["assignments"] != len(sessions)
+        or any(
+            count > ACCOUNT_TYPE_CAPS[hw]
+            for hw, count in hw_counts.items()
+            if hw in ACCOUNT_TYPE_CAPS
+        )
+    ):
         raise ValueError("account assignment cap/count mismatch")
     account = Path(config["account_root"])
     if list(account.glob("pending-*.json")):

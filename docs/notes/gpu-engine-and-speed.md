@@ -1,7 +1,7 @@
 # GPU engine and speed program
 
 **Summary:** A100 R2 (padding repair) passed its speed bar, but GPU label routes remained closed; T4A (batch-invariance test) certified only the pinned padded development configuration. (src: docs/research/final_run_20261019/CAMPAIGN_LOG.md:279; docs/research/final_run_20261019/CAMPAIGN_LOG.md:1390)
-**As of:** 2026-10-25 PT · **Sources:** consolidated record [docs/research/history/gpu-sim-spike.md](../research/history/gpu-sim-spike.md); primary records cited inline.
+**As of:** 2026-10-25 PT · **Sources:** consolidated record [docs/research/history/gpu-sim-spike.md](../research/history/simulators-and-speed.md#gpu-sim-spike); primary records cited inline.
 **Related:** [Index](README.md), [GLOSSARY](GLOSSARY.md), [Governance and owner rules](governance-and-owner-rules.md), [Big-lever program](big-lever-program.md), [Label factory](label-factory.md), [Colab and compute infrastructure](colab-and-compute-infra.md), [Overview and serving](overview-and-serving.md).
 
 ## Platforms

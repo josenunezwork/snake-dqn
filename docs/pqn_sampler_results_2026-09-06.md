@@ -39,7 +39,7 @@ four degrees of freedom). The 60 learned-model/world cells per arm are not 60
 independent training replicates. Generalization is over training randomness,
 conditional on this fixed suite of twelve SIMD worlds and this opponent roster.
 Five seeds give a small exploratory screen; no power or non-inferiority claim is made.
-The [independent statistical review](research/history/pqn-redesign-and-sept-audit.md)
+The [independent statistical review](research/history/rl-runs.md#pqn-redesign-and-sept-audit)
 recomputed the result from all 204 raw world outcomes.
 
 Secondary comparisons with initialization are descriptive:

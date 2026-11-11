@@ -15,35 +15,45 @@ import sys
 import time
 import uuid
 from collections import Counter
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, Iterator
 
 if __package__:
     from . import auto_retry
-    from .qualification import OPS, save
+    from .qualification import OPS, save, tree_transport_cap
 else:
     import auto_retry
-    from qualification import OPS, save
+    from qualification import OPS, save, tree_transport_cap
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from research.colab_cli.accounting import ACCOUNT_ASSIGNMENT_CAP  # noqa: E402
+from research.colab_cli.accounting import (  # noqa: E402
+    ACCOUNT_ASSIGNMENT_CAP,
+    ACCOUNT_TYPE_CAPS,
+    LEGACY_ACCOUNT_ASSIGNMENT_CAP,
+)
 
-# Measured 2026-10-31: the Colab account allows at most 3 concurrent L4 runtimes
-# (4th L4 refused "Allocation refused (precondition failed)" with 3 L4 active at
-# 13:39 and 14:20 PT) and ACCOUNT_ASSIGNMENT_CAP=6 total (3 L4 + 3 A100 accepted
-# in the 08:49 PT probe; 7th refused).
-ACCOUNT_L4_CAP = 3
-# Measured 2026-11-02: G4 max 3, T4 max 3, CPU-only pool 5 separate.
-ACCOUNT_GPU_SUBCAPS: dict[str, int] = {
-    "L4": ACCOUNT_L4_CAP,
-    "G4": 3,
-    "T4": 3,
-}
+# Measured 2026-11-10 (/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/limits-probe):
+# 3 L4 + 3 T4 + 3 G4 + 3 A100 = 12 concurrent GPU sessions; CPU-only = 5 and 3 T4 + 5 CPU = 8
+# measured 2026-11-02; H100 = 1 until probed; ACCOUNT_ASSIGNMENT_CAP = 12 total ceiling.
+ACCOUNT_L4_CAP = ACCOUNT_TYPE_CAPS["L4"]
+ACCOUNT_GPU_SUBCAPS: dict[str, int] = dict(ACCOUNT_TYPE_CAPS)
+_CAPACITY_REFUSALS = frozenset(
+    {
+        *(
+            f"REFUSE: account-wide assignment cap {cap} (including notebooks)"
+            for cap in (ACCOUNT_ASSIGNMENT_CAP, LEGACY_ACCOUNT_ASSIGNMENT_CAP, 3)
+        ),
+        *(
+            f"REFUSE: account {hw} assignment cap {cap} (including notebooks)"
+            for hw, cap in ACCOUNT_TYPE_CAPS.items()
+        ),
+    }
+)
 
 SCHEMA = "snake-dqn-ready-queue/v1"
 # Cover the 600s lock wait, two 1200s host admissions, two 600s allocation
@@ -488,13 +498,13 @@ def provider_sessions() -> dict[str, str]:
         if not line.strip() or line.startswith("[colab]"):
             continue
         match = re.fullmatch(
-            r"\[.*?\]\s+(\S+)\s+\| Hardware:\s*([^|]+?)(?:\s+\|.*)?",
+            r"\[([^\]]+)\]\s+(\S+)\s+\| Hardware:[ \t]*([^|\n]*?)[ \t]*(?:\|.*)?",
             line.strip(),
         )
-        hardware = match[2].strip().upper() if match is not None else ""
-        if match is None or not hardware or match[1] in endpoints:
+        hardware = match[3].strip().upper() if match is not None else ""
+        if match is None or hardware not in ACCOUNT_TYPE_CAPS or match[2] in endpoints:
             raise ValueError("unrecognized account sessions inventory")
-        endpoints[match[1]] = hardware
+        endpoints[match[2]] = hardware
     if not endpoints:
         # colab-cli 0.7.4 prints nothing when idle; accept only a corroborated zero count.
         usage = subprocess.run(
@@ -514,8 +524,8 @@ def provider_sessions() -> dict[str, str]:
     return endpoints
 
 
-def _manifest_gpu(path: Path, prepare_command: Sequence[str] = ()) -> str | None:
-    """Read requirements.gpu from a manifest or its unsealed prepare template."""
+def _manifest_gpus(path: Path, prepare_command: Sequence[str] = ()) -> list[str]:
+    """Read declared primary and preference accelerators from a manifest or template."""
     candidates = [
         path,
         path.with_suffix(".pending.json"),
@@ -532,21 +542,65 @@ def _manifest_gpu(path: Path, prepare_command: Sequence[str] = ()) -> str | None
             with contextlib.suppress(OSError, ValueError):
                 data = auto_retry.read(candidate)
                 if isinstance(data, Mapping) and isinstance(data.get("requirements"), Mapping):
-                    gpu = data["requirements"].get("gpu")
+                    req = data["requirements"]
+                    gpus: list[str] = []
+                    gpu = req.get("gpu")
                     if isinstance(gpu, str) and gpu.strip():
-                        return gpu.strip().upper()
-                return None
-    return None
+                        gpus.append(gpu.strip().upper())
+                    prefer = req.get("prefer")
+                    if isinstance(prefer, Sequence) and not isinstance(prefer, (str, bytes)):
+                        for item in prefer:
+                            if isinstance(item, str) and item.strip():
+                                upper = item.strip().upper()
+                                if upper not in gpus:
+                                    gpus.append(upper)
+                    return gpus
+                return []
+    return []
 
 
-def row_gpu(row: Mapping[str, Any]) -> str | None:
-    """Return the declared primary accelerator for a queued row."""
+def _manifest_gpu(path: Path, prepare_command: Sequence[str] = ()) -> str | None:
+    """Read requirements.gpu from a manifest or its unsealed prepare template."""
+    gpus = _manifest_gpus(path, prepare_command)
+    return gpus[0] if gpus else None
+
+
+def row_gpus(row: Mapping[str, Any]) -> list[str]:
+    """Return declared primary and fallback accelerators for a queued row."""
     manifest = row.get("manifest")
     if isinstance(manifest, str) and manifest:
         manifest_path = Path(manifest)
     else:
         _, manifest_path, _, _ = dispatch_parts(list(row["argv"]))
-    return _manifest_gpu(manifest_path, row.get("prepare_command", ()))
+    return _manifest_gpus(manifest_path, row.get("prepare_command", ()))
+
+
+def row_gpu(row: Mapping[str, Any]) -> str | None:
+    """Return the declared primary accelerator for a queued row."""
+    gpus = row_gpus(row)
+    return gpus[0] if gpus else None
+
+
+def _reservable_gpus(row: Mapping[str, Any], by_gpu: Counter[str]) -> list[str] | None:
+    """Return accelerators to reserve for row, or None when held by a per-type cap."""
+    gpus = row_gpus(row)
+    if not gpus:
+        return []
+    if len(gpus) == 1:
+        gpu = gpus[0]
+        subcap = ACCOUNT_GPU_SUBCAPS.get(gpu)
+        if subcap is not None and by_gpu[gpu] >= subcap:
+            return None
+        return [gpu]
+    fallback = gpus[-1]
+    fallback_cap = ACCOUNT_GPU_SUBCAPS.get(fallback)
+    if fallback_cap is not None and by_gpu[fallback] >= fallback_cap:
+        return None
+    return [
+        gpu
+        for gpu in gpus
+        if ACCOUNT_GPU_SUBCAPS.get(gpu) is None or by_gpu[gpu] < ACCOUNT_GPU_SUBCAPS[gpu]
+    ]
 
 
 def occupancy(
@@ -618,10 +672,177 @@ def accelerator_occupancy(
             else state is not None and state.get("endpoint") in inventory
         )
         if not counted:
-            gpu = (state.get("gpu") if state else None) or row_gpu(row)
-            if gpu:
-                counts[gpu] += 1
+            if state is not None and state.get("gpu"):
+                counts[state["gpu"]] += 1
+            else:
+                for gpu in row_gpus(row):
+                    counts[gpu] += 1
     return counts
+
+
+BROKER_TRANSPORT_SCHEMA = "colab-broker-transport/v1"
+
+
+def _supervisor_still_running(state: Mapping[str, Any]) -> bool:
+    """Return True when state may still have a live Mac supervisor process."""
+    if not state.get("active") or state.get("exited"):
+        return False
+    manifest_value = state.get("manifest")
+    if isinstance(manifest_value, str) and manifest_value:
+        with contextlib.suppress(OSError, ValueError):
+            packet = auto_retry.read(Path(manifest_value))
+            output_dir = packet.get("output_dir") if isinstance(packet, Mapping) else None
+            if (
+                isinstance(output_dir, str)
+                and output_dir
+                and (Path(output_dir) / "hardware.json").is_file()
+                and not state.get("endpoint")
+            ):
+                return False
+    return True
+
+
+def _broker_transport_path(ops: Path, name: str) -> Path:
+    """Resolve broker-transport.json for a dispatch name or its -retry-1 attempt."""
+    direct = ops / "dispatch" / name / "broker-transport.json"
+    if direct.exists() or direct.is_symlink() or not name.endswith("-retry-1"):
+        return direct
+    parent = ops / "dispatch" / name.removesuffix("-retry-1") / "broker-transport.json"
+    return parent if parent.exists() or parent.is_symlink() else direct
+
+
+def _read_broker_transport_tree(path: Path) -> str | None:
+    """Read a valid 40-hex broker transport tree hash, or None when absent/malformed."""
+    if path.is_symlink() or not path.is_file():
+        return None
+    with contextlib.suppress(OSError, ValueError):
+        data = auto_retry.read(path)
+        if isinstance(data, Mapping) and data.get("schema") == BROKER_TRANSPORT_SCHEMA:
+            tree_hash = data.get("tree_hash")
+            if isinstance(tree_hash, str) and re.fullmatch(r"[0-9a-f]{40}", tree_hash):
+                return tree_hash
+    return None
+
+
+def effective_account_assignment_cap(
+    ops: Path,
+    *,
+    observed: Mapping[str, Mapping[str, Any]] | None = None,
+    queue: Mapping[str, Any] | None = None,
+    repos: Iterable[Path] = (),
+) -> int:
+    """Keep total assignments <= 6 while any running supervisor uses a cap<=6 broker tree."""
+    repo_list = list(repos)
+    if observed is None:
+        if (ops / "manifests").is_dir():
+            try:
+                observed = observations(ops)
+            except (OSError, ValueError):
+                assignments: dict[str, str] = {}
+                for active_path in (Path.home() / ".config/colab-cli/snake").glob("active-*.json"):
+                    with contextlib.suppress(OSError, ValueError):
+                        assignment = auto_retry.read(active_path)
+                        if (
+                            isinstance(assignment, Mapping)
+                            and assignment.get("output")
+                            and assignment.get("endpoint")
+                        ):
+                            assignments[str(Path(str(assignment["output"])).resolve())] = str(
+                                assignment["endpoint"]
+                            )
+                observed = {}
+                for manifest_file in sorted((ops / "manifests").glob("*.json")):
+                    if manifest_file.name.endswith(".live.json"):
+                        continue
+                    stem = manifest_file.stem
+                    log_file = ops / "logs" / f"{stem}.log"
+                    if not log_file.is_file():
+                        continue
+                    with contextlib.suppress(OSError, ValueError):
+                        mval = auto_retry.read(manifest_file)
+                        if not isinstance(mval, Mapping):
+                            continue
+                        out_path = Path(str(mval.get("output_dir", "")))
+                        exited = bool(re.search(r"^EXIT=\d+$", log_file.read_text(), re.MULTILINE))
+                        rec_file = out_path / "receipt.json"
+                        rec = auto_retry.read(rec_file) if rec_file.is_file() else None
+                        stopped = isinstance(rec, Mapping) and rec.get("stop_verified") is True
+                        never_started = exited and not out_path.exists()
+                        endpoint = (
+                            rec.get("endpoint")
+                            if isinstance(rec, Mapping) and rec.get("endpoint")
+                            else assignments.get(str(out_path.resolve()))
+                        )
+                        observed[stem] = {
+                            "active": not (exited and (stopped or never_started)),
+                            "exited": exited,
+                            "endpoint": endpoint,
+                            "manifest": str(manifest_file),
+                        }
+        else:
+            observed = {}
+    if queue is None and (ops / "ready-queue.json").is_file():
+        with contextlib.suppress(OSError, ValueError):
+            loaded = auto_retry.read(ops / "ready-queue.json")
+            if isinstance(loaded, Mapping):
+                queue = loaded
+    if isinstance(queue, Mapping) and isinstance(queue.get("jobs"), list):
+        for row in queue["jobs"]:
+            if isinstance(row, Mapping) and isinstance(row.get("argv"), list):
+                with contextlib.suppress(ValueError, TypeError):
+                    _, _, broker_repo, _ = dispatch_parts(list(row["argv"]))
+                    repo_list.append(broker_repo)
+    for name, state in observed.items():
+        if not _supervisor_still_running(state):
+            continue
+        tree_hash = _read_broker_transport_tree(_broker_transport_path(ops, name))
+        if tree_hash is None:
+            return LEGACY_ACCOUNT_ASSIGNMENT_CAP
+        cap = tree_transport_cap(tree_hash, ops=ops, repos=repo_list)
+        if cap is not None and cap <= LEGACY_ACCOUNT_ASSIGNMENT_CAP:
+            return LEGACY_ACCOUNT_ASSIGNMENT_CAP
+    return ACCOUNT_ASSIGNMENT_CAP
+
+
+def reachable_underused_cap(ops: Path, sessions_stdout: str = "") -> int:
+    """Compute watchd's reachable session target from active sessions and READY queue rows."""
+    total_cap = effective_account_assignment_cap(ops)
+    active_by_hw: Counter[str] = Counter()
+    for _, _, hw in re.findall(
+        r"^\[([^\]]+)\]\s+(\S+)\s+\| Hardware:[ \t]*([^|\n]*?)[ \t]*(?:\|.*)?$",
+        sessions_stdout,
+        re.M,
+    ):
+        label = hw.strip().upper()
+        if label:
+            active_by_hw[label] += 1
+    queue_path = ops / "ready-queue.json"
+    if not queue_path.is_file():
+        return total_cap
+    try:
+        queue = auto_retry.read(queue_path)
+    except (OSError, ValueError):
+        return total_cap
+    if not isinstance(queue, dict) or not isinstance(queue.get("jobs"), list):
+        return total_cap
+    total_cap = effective_account_assignment_cap(ops, queue=queue)
+    ready_rows = [
+        row for row in queue["jobs"] if row.get("status") == "READY" and ready(queue, row)
+    ]
+    if not ready_rows:
+        return total_cap
+    sim_by_gpu = Counter(active_by_hw)
+    sim_total = sum(active_by_hw.values())
+    for row in ready_rows:
+        if sim_total >= total_cap:
+            break
+        reservable = _reservable_gpus(row, sim_by_gpu)
+        if reservable is None:
+            continue
+        sim_total += 1
+        if reservable:
+            sim_by_gpu[reservable[0]] += 1
+    return min(sim_total, total_cap)
 
 
 def tick(
@@ -630,26 +851,28 @@ def tick(
     dry_run: bool = False,
     inventory: Mapping[str, str] | set[str] | None = None,
 ) -> dict[str, Any]:
-    """Reserve up to ACCOUNT_ASSIGNMENT_CAP occupied or pending runtime slots across all daemons."""
+    """Reserve up to effective_account_assignment_cap occupied or pending runtime slots."""
     if dry_run:
         queue = auto_retry.read(ops / "ready-queue.json")
         observed = observations(ops)
         active, pending = occupancy(queue, observed, inventory)
         by_gpu = accelerator_occupancy(queue, observed, inventory)
-        slots = max(0, ACCOUNT_ASSIGNMENT_CAP - active - pending)
+        total_cap = effective_account_assignment_cap(ops, observed=observed, queue=queue)
+        used = active + pending
+        slots = max(0, total_cap - used)
         would_dispatch = []
         for row in queue["jobs"]:
             if not slots:
                 break
             if row["status"] != "READY" or not ready(queue, row):
                 continue
-            gpu = row_gpu(row)
-            subcap = ACCOUNT_GPU_SUBCAPS.get(gpu) if gpu else None
-            if subcap is not None and by_gpu[gpu] >= subcap:
+            reservable = _reservable_gpus(row, by_gpu)
+            if reservable is None:
                 continue
             would_dispatch.append(row["id"])
+            used += 1
             slots -= 1
-            if gpu:
+            for gpu in reservable:
                 by_gpu[gpu] += 1
         return {
             "active": active,
@@ -677,17 +900,18 @@ def tick(
             return {"dispatched": [], "blocked_pending": [str(p) for p in pending_records]}
         active, reserved = occupancy(queue, observed, inventory)
         by_gpu = accelerator_occupancy(queue, observed, inventory)
-        slots = max(0, ACCOUNT_ASSIGNMENT_CAP - active - reserved)
+        total_cap = effective_account_assignment_cap(ops, observed=observed, queue=queue)
+        used = active + reserved
+        slots = max(0, total_cap - used)
         selected = []
-        # FIFO among ready entries: an unmet dependency or L4 cap doesn't idle other lanes.
+        # FIFO among ready entries: an unmet dependency or per-type cap doesn't idle other lanes.
         for row in queue["jobs"]:
             if not slots:
                 break
             if row["status"] != "READY" or not ready(queue, row):
                 continue
-            gpu = row_gpu(row)
-            subcap = ACCOUNT_GPU_SUBCAPS.get(gpu) if gpu else None
-            if subcap is not None and by_gpu[gpu] >= subcap:
+            reservable = _reservable_gpus(row, by_gpu)
+            if reservable is None:
                 continue
             row.update(status="DISPATCHING", token=uuid.uuid4().hex, claimed=False)
             save(ops / "ready-queue.json", queue)
@@ -723,8 +947,9 @@ def tick(
                 event(ops, "READY_HELD", id=row["id"], error=str(exc))
                 continue
             selected.append(row["id"])
+            used += 1
             slots -= 1
-            if gpu:
+            for gpu in reservable:
                 by_gpu[gpu] += 1
         return {"active": active, "reserved": reserved, "dispatched": selected}
 
@@ -790,11 +1015,7 @@ def worker(ops: Path, identity: str, token: str) -> None:
         )
         capacity_refused = (
             no_submission
-            and output.strip()
-            in {
-                f"REFUSE: account-wide assignment cap {cap} (including notebooks)"
-                for cap in (ACCOUNT_ASSIGNMENT_CAP, 3)
-            }
+            and output.strip() in _CAPACITY_REFUSALS
             and not (ops / "dispatch" / argv[1]).exists()
             and not (ops / "manifests" / (argv[1] + ".json")).exists()
             and not (ops / "manifests" / (argv[1] + ".live.json")).exists()

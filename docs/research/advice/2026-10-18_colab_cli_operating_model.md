@@ -6,7 +6,7 @@
 
 Advice only: no launch, registration, queue mutation or spending authorization. Acceptance thresholds below are prospective.
 
-**What changes now.** CLI authentication is reusable; runtime `drivemount` and `auth` remain human-interactive, with 600-second CLI timeouts. A longer timeout does not remove consent. Correct the [earlier findings](../history/colab-ops.md): background processes alone are insufficient; execute a kernel supervisor that waits for actual work. Backend kernel activity maintains liveness; no keep-alive daemon is needed ([official authentication/liveness documentation](https://github.com/googlecolab/google-colab-cli/blob/main/docs/04_automation_and_utility.md)).
+**What changes now.** CLI authentication is reusable; runtime `drivemount` and `auth` remain human-interactive, with 600-second CLI timeouts. A longer timeout does not remove consent. Correct the [earlier findings](../history/colab-and-process.md#colab-ops): background processes alone are insufficient; execute a kernel supervisor that waits for actual work. Backend kernel activity maintains liveness; no keep-alive daemon is needed ([official authentication/liveness documentation](https://github.com/googlecolab/google-colab-cli/blob/main/docs/04_automation_and_utility.md)).
 
 **Transition, in dependency order**
 

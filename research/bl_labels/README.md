@@ -8,7 +8,7 @@ caps, retry policy and kill rules are in [INTENT.md](INTENT.md).
 
 The reviewed CPU canary is **INCOMPLETE**, with 31/36 immutable completed
 session parents and no reported integrity mismatch in completed evidence.
-See [../../docs/research/history/bl-labels.md](../../docs/research/history/bl-labels.md) and
+See [../../docs/research/history/bl-labels.md](../../docs/research/history/teaching-search.md#bl-labels) and
 [CODEX_V_CANARY.json](CODEX_V_CANARY.json). The registered rescue outcome
 look and Mac-equivalent yield decision remain pending; this result does not
 admit tranche 1.

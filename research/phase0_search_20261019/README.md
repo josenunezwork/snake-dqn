@@ -16,7 +16,7 @@ selects the preserved old scorer; `device="mps"` or `device="cuda"` explicitly
 selects accelerator B8 forwards, retaining the CPU oracle for near ties.
 Batch Q values are not claimed bit-identical to rowwise inference.
 
-The speed follow-up is documented in [t34-search-teacher.md](../../docs/research/history/t34-search-teacher.md), with
+The speed follow-up is documented in [t34-search-teacher.md](../../docs/research/history/search.md#t34-search-teacher), with
 exclusive category profiles and reproducible
 conditional forecasts in `SPEED_FORECAST.json`. The original preflight below
 is historical; its immutable receipt and registered values are preserved.

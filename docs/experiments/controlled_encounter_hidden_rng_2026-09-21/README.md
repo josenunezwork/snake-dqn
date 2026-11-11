@@ -7,7 +7,7 @@ H4 survival set, or learner membership. That finite noncontrast does not prove
 that hidden future RNG is irrelevant or observable, and the conditional fatal
 case census is not a population effect or death-causation proof.
 
-The cases come from the completed [world-breadth learning comparison](../../research/history/controlled-encounter.md), whose learning curves and representative paths remain the source for learned-model behavior. This diagnostic repeats no model gameplay. It performed native replay and oracle queries, so only its final analysis stage is saved-only.
+The cases come from the completed [world-breadth learning comparison](../../research/history/teaching-search.md#controlled-encounter), whose learning curves and representative paths remain the source for learned-model behavior. This diagnostic repeats no model gameplay. It performed native replay and oracle queries, so only its final analysis stage is saved-only.
 
 ## Conditional fatal-case census
 

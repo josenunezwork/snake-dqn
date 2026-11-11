@@ -498,7 +498,7 @@ def test_prepare_three_modes_l4_a100_t4_rejected_and_offline_supervisor_validate
     mf_canary_a100 = json.loads(Path(canary_a100["manifest_path"]).read_text(encoding="utf-8"))
 
     for mf in (mf_canary_l4, mf_canary_a100):
-        assert mf["timeout_minutes"] == 12.0
+        assert mf["timeout_minutes"] == 28.0
         assert mf["env"]["SNAKE_COLAB_CANARY"] == "1"
         colab_schema.validate_manifest(mf)
         ops_dispatch.require_resume_policy(mf)

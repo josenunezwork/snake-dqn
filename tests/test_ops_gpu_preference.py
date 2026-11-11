@@ -966,3 +966,100 @@ def test_precondition_refusal_matches_with_or_without_update_notice(tmp_path, no
     receipt["error"] = f"Refused({detail.replace('precondition failed', 'quota')!r})"
     (tmp_path / "receipt.json").write_text(json.dumps(receipt))
     assert not d.allocation_unavailable(tmp_path, log, "L4")
+
+
+def test_h100_unavailable_fallback_respects_a100_cap_and_retires_h100_pending(fixture):
+    f = fixture
+    preferred(f, "gpu_unavailable")
+    for idx in range(1, 4):
+        owned_dispatch(f, f"a100-{idx}", name=f"a100-job-{idx}")
+    Path(f["env"]["INVENTORY"]).write_text(json.dumps({f"a100-{i}": "A100" for i in range(1, 4)}))
+    result = f["invoke"]()
+    assert result.returncode == 1
+    assert "account A100 assignment cap 3 (including notebooks)" in result.stderr
+    assert [row["job"] for row in trace(f, "run")] == ["job"]
+    proof = json.loads((f["ops"] / "dispatch/lane/unavailable.json").read_text())
+    assert proof["classification"] == "ALLOCATION_UNAVAILABLE"
+    assert not list((Path(f["env"]["HOME"]) / ".config/colab-cli/snake").glob("pending-*.json"))
+    assert not (f["tmp"] / "output-a100-fallback").exists()
+
+
+def test_h100_at_cap_skips_primary_writes_skip_record_and_uses_a100_when_uncapped(fixture):
+    f = fixture
+    preferred(f, "gpu_success")
+    f["inventory"](
+        {"h100-1": "H100"},
+        [shared.active("h100-1", 10.0)],
+    )
+    result = f["invoke"]()
+    assert result.returncode == 0, result.stderr
+    assert "requested_gpu=A100" in result.stdout
+    assert "OPS_GPU_FALLBACK primary_skipped=H100_type_cap" in result.stderr
+    assert [row["job"] for row in trace(f, "run")] == ["job-a100-fallback"]
+    assert not (f["tmp"] / "output").exists()
+    assert not (f["ops"] / "logs/lane.log").exists()
+
+    skip_path = f["ops"] / "dispatch/lane/h100-type-cap-skip.json"
+    assert skip_path.is_file()
+    skip_doc = json.loads(skip_path.read_text())
+    assert skip_doc["schema"] == "colab-gpu-type-cap-skip/v1"
+    assert skip_doc["skipped_gpu"] == "H100"
+    assert skip_doc["fallback_gpu"] == "A100"
+    assert skip_doc["type_cap"] == 1
+    assert skip_doc["active_h100_endpoints"] == ["h100-1"]
+    assert skip_doc["sessions"] == {"h100-1": "H100"}
+    fallback_log = (f["ops"] / "logs/lane-a100-fallback.log").read_text()
+    assert "OPS_GPU_FALLBACK primary_skipped=H100_type_cap" in fallback_log
+
+    f["change"](job_id="job2", output_dir=str(f["tmp"] / "output2"))
+    f["inventory"](
+        {
+            "h100-1": "H100",
+            **{f"a100-{i}": "A100" for i in range(1, 4)},
+        },
+        [shared.active("h100-1", 10.0)] + [shared.active(f"a100-{i}", 5.33) for i in range(1, 4)],
+    )
+    both_capped = f["invoke"]("lane2")
+    assert both_capped.returncode == 1
+    assert "account A100 assignment cap 3 (including notebooks)" in both_capped.stderr
+    assert [row["job"] for row in trace(f, "run")] == ["job-a100-fallback"]
+    assert not (f["ops"] / "dispatch/lane2").exists()
+    assert not (f["ops"] / "dispatch/lane2-a100-fallback").exists()
+    assert not (f["ops"] / "manifests/lane2.json").exists()
+
+
+def test_gpu_acceptance_probe_rejects_g4_and_accepts_cu126_gpus(tmp_path, monkeypatch):
+    from research.gpu_preference import acceptance
+
+    monkeypatch.setattr(acceptance.subprocess, "check_output", lambda *a, **k: "mock-smi\n")
+    monkeypatch.setattr(acceptance.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(acceptance.torch.cuda, "get_device_capability", lambda _idx: (8, 9))
+    monkeypatch.setattr(acceptance.torch.cuda, "synchronize", lambda: None)
+    monkeypatch.setattr(acceptance.torch.version, "cuda", "12.6")
+    real_arange = acceptance.torch.arange
+    real_ones = acceptance.torch.ones
+    monkeypatch.setattr(
+        acceptance.torch,
+        "arange",
+        lambda n, dtype=None, device=None: real_arange(n, dtype=dtype, device="cpu"),
+    )
+    monkeypatch.setattr(
+        acceptance.torch,
+        "ones",
+        lambda shape, device=None: real_ones(shape, device="cpu"),
+    )
+
+    monkeypatch.setattr(
+        acceptance.torch.cuda,
+        "get_device_name",
+        lambda _idx: "NVIDIA RTX PRO 6000 Blackwell (G4)",
+    )
+    with pytest.raises(AssertionError):
+        acceptance.run(tmp_path / "g4-out")
+
+    l4_out = tmp_path / "l4-out"
+    l4_out.mkdir()
+    monkeypatch.setattr(acceptance.torch.cuda, "get_device_name", lambda _idx: "NVIDIA L4")
+    report = acceptance.run(l4_out)
+    assert report["status"] == "PASS"
+    assert report["torch_device_name"] == "NVIDIA L4"

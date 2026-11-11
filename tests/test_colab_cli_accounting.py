@@ -330,74 +330,116 @@ def test_optional_or_invalid_budget_measurements_do_not_stop_accounting(budget):
     ] == pytest.approx(2 / 60)
 
 
-def test_account_assignment_cap_constant_admits_six_and_rejects_seven() -> None:
-    assert accounting.ACCOUNT_ASSIGNMENT_CAP == 6
+def test_account_assignment_cap_constants_admit_twelve_mixed_and_reject_thirteen() -> None:
+    assert accounting.ACCOUNT_H100_CAP == 1
+    assert accounting.ACCOUNT_TYPE_CAPS == {
+        "L4": 3,
+        "T4": 3,
+        "G4": 3,
+        "A100": 3,
+        "H100": 1,
+        "CPU": 5,
+    }
+    assert accounting.ACCOUNT_ASSIGNMENT_CAP == 12
+    assert accounting.LEGACY_ACCOUNT_ASSIGNMENT_CAP == 6
     assert (
         accounting.POLLING_ASSIGNMENT_CAP_ERROR
         == "account-wide assignment cap exceeded during polling"
     )
-    six_sessions = {f"ep-{idx}": f"s-{idx}" for idx in range(6)}
-    six_rates = {f"ep-{idx}": 1.0 for idx in range(6)}
-    tracker = accounting.admit_account(
-        six_sessions,
-        _usage(rate=6.0, assignments=6),
-        _budget(other_assignments=six_rates),
+    twelve_sessions = {f"ep-{idx}": f"s-{idx}" for idx in range(12)}
+    twelve_rates = {f"ep-{idx}": 1.0 for idx in range(12)}
+    tracker12 = accounting.admit_account(
+        twelve_sessions,
+        _usage(rate=12.0, assignments=12),
+        _budget(other_assignments=twelve_rates),
         now=10.0,
     )
-    assert len(tracker.accounted_assignments()["assignments"]) == 6
+    assert len(tracker12.accounted_assignments()["assignments"]) == 12
 
-    seven_sessions = {f"ep-{idx}": f"s-{idx}" for idx in range(7)}
-    seven_rates = {f"ep-{idx}": 1.0 for idx in range(7)}
+    over_sessions = {f"ep-{idx}": f"s-{idx}" for idx in range(13)}
+    over_rates = {f"ep-{idx}": 1.0 for idx in range(13)}
     with pytest.raises(
         accounting.AccountingError, match="account-wide assignment cap exceeded at admission"
     ):
         accounting.admit_account(
-            seven_sessions,
-            _usage(rate=7.0, assignments=7),
-            _budget(other_assignments=seven_rates),
+            over_sessions,
+            _usage(rate=13.0, assignments=13),
+            _budget(other_assignments=over_rates),
             now=10.0,
         )
 
 
-def test_account_assignment_cap_polling_accepts_six_and_rejects_seven() -> None:
-    other_sessions = {f"ep-{idx}": f"s-{idx}" for idx in range(5)}
-    other_rates = {f"ep-{idx}": 1.0 for idx in range(5)}
+def test_account_cap_polling_peer_stop_and_reallocation_at_twelve_rejects_thirteen() -> None:
+    other_11 = {f"ep-{idx}": f"s-{idx}" for idx in range(11)}
+    rates_11 = {f"ep-{idx}": 1.0 for idx in range(11)}
     tracker = accounting.admit_account(
-        other_sessions,
-        _usage(rate=5.0, assignments=5),
-        _budget(rate_units_per_hour=2.0, other_assignments=other_rates),
+        other_11,
+        _usage(rate=11.0, assignments=11),
+        _budget(rate_units_per_hour=2.0, other_assignments=rates_11),
         now=10.0,
     )
-    all_six = {**other_sessions, "own-ep": "own-session"}
-    tracker.confirm_own_assignment(all_six, _usage(rate=7.0, assignments=6), "own-ep")
+    all_twelve = {**other_11, "own-ep": "own-session"}
+    tracker.confirm_own_assignment(all_twelve, _usage(rate=13.0, assignments=12), "own-ep")
 
     checked = tracker.check(
-        _usage(balance=99.5, rate=7.0, assignments=6),
+        _usage(balance=99.5, rate=13.0, assignments=12),
         now=60.0,
-        sessions=all_six,
-        budget_other_assignments=other_rates,
+        sessions=all_twelve,
+        budget_other_assignments=rates_11,
     )
     assert checked["rate_crosscheck_status"] == "OK"
 
-    with pytest.raises(
-        accounting.AccountingError,
-        match=f"^{accounting.POLLING_ASSIGNMENT_CAP_ERROR}$",
-    ):
+    # Two peer jobs stop during polling (12 -> 10 active).
+    remaining_9 = {f"ep-{idx}": f"s-{idx}" for idx in range(9)}
+    remaining_rates_9 = {f"ep-{idx}": 1.0 for idx in range(9)}
+    after_stop = tracker.check(
+        _usage(balance=99.3, rate=11.0, assignments=10),
+        now=65.0,
+        sessions={**remaining_9, "own-ep": "own-session"},
+        budget_other_assignments=remaining_rates_9,
+    )
+    assert after_stop["rate_crosscheck_status"] == "OK"
+
+    # Two new broker-owned peer jobs allocate back to 12 concurrent (10 -> 12 active).
+    reallocated_11 = {**remaining_9, "ep-new-1": "s-new-1", "ep-new-2": "s-new-2"}
+    reallocated_rates_11 = {**remaining_rates_9, "ep-new-1": 1.54, "ep-new-2": 5.33}
+    after_realloc = tracker.check(
+        _usage(balance=99.1, rate=17.87, assignments=12),
+        now=70.0,
+        sessions={**reallocated_11, "own-ep": "own-session"},
+        budget_other_assignments=reallocated_rates_11,
+    )
+    assert after_realloc["rate_crosscheck_status"] == "OK"
+
+    # Unaccounted 12th session (replacing a departed peer without broker record) is rejected.
+    with pytest.raises(accounting.AccountingError, match="unaccounted active assignment"):
         tracker.check(
-            _usage(balance=99.0, rate=8.0, assignments=7),
-            now=90.0,
-            sessions=all_six,
-            budget_other_assignments=other_rates,
+            _usage(balance=99.0, rate=12.0, assignments=11),
+            now=75.0,
+            sessions={**remaining_9, "own-ep": "own-session", "foreign-ep": "foreign-session"},
+            budget_other_assignments=remaining_rates_9,
         )
 
-    seven_sessions = {**all_six, "extra-ep": "extra-session"}
+    # 13th usage assignment count or 13th session exceeds ACCOUNT_ASSIGNMENT_CAP = 12.
     with pytest.raises(
         accounting.AccountingError,
         match=f"^{accounting.POLLING_ASSIGNMENT_CAP_ERROR}$",
     ):
         tracker.check(
-            _usage(balance=99.0, rate=7.0, assignments=6),
+            _usage(balance=98.5, rate=19.0, assignments=13),
+            now=90.0,
+            sessions={**reallocated_11, "own-ep": "own-session"},
+            budget_other_assignments=reallocated_rates_11,
+        )
+
+    over_sessions = {**reallocated_11, "own-ep": "own-session", "extra-ep": "extra-session"}
+    with pytest.raises(
+        accounting.AccountingError,
+        match=f"^{accounting.POLLING_ASSIGNMENT_CAP_ERROR}$",
+    ):
+        tracker.check(
+            _usage(balance=98.5, rate=17.87, assignments=12),
             now=95.0,
-            sessions=seven_sessions,
-            budget_other_assignments={**other_rates, "extra-ep": 1.0},
+            sessions=over_sessions,
+            budget_other_assignments={**reallocated_rates_11, "extra-ep": 1.0},
         )

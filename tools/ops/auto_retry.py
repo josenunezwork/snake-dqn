@@ -22,6 +22,7 @@ if str(ROOT) not in sys.path:
 
 from research.colab_cli.accounting import (  # noqa: E402
     ACCOUNT_ASSIGNMENT_CAP,
+    ACCOUNT_TYPE_CAPS,
     POLLING_ASSIGNMENT_CAP_ERROR,
     AccountingError,
 )
@@ -145,8 +146,14 @@ def blocked_before_allocation(manifest: dict[str, Any], output: Path, log: Path)
     account_cap = (
         receipt.get("error")
         in {
-            f"Refused('account-wide assignment cap {cap} (including notebooks)')"
-            for cap in (ACCOUNT_ASSIGNMENT_CAP, 3)
+            *(
+                f"Refused('account-wide assignment cap {cap} (including notebooks)')"
+                for cap in (ACCOUNT_ASSIGNMENT_CAP, 6, 3)
+            ),
+            *(
+                f"Refused('account {hw} assignment cap {cap} (including notebooks)')"
+                for hw, cap in ACCOUNT_TYPE_CAPS.items()
+            ),
         }
         and receipt.get("failure_class") == "ACCOUNTING"
         and isinstance(receipt.get("usage_before"), dict)

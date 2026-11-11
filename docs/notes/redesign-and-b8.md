@@ -1,7 +1,7 @@
 # Redesign and the B8 release (October 2026)
 
 **Summary:** The October redesign produced B8 seed 3, released without a veto after T7 and serving qualification, while the tested late-death training arms closed without adoption. (src: docs/research/redesign_campaign_retrospective_2026-10-17.md:5-37)
-**As of:** 2026-10-25 PT · **Sources:** [consolidated redesign record](../research/history/m3-m7-redesign.md), October redesign onward; primary records cited inline.
+**As of:** 2026-10-25 PT · **Sources:** [consolidated redesign record](../research/history/rl-runs.md#m3-m7-redesign), October redesign onward; primary records cited inline.
 **Related:** [Index](README.md), [Glossary](GLOSSARY.md), [Earlier model and training lineage](models-and-training-history.md), [Overview and serving](overview-and-serving.md), [T34 campaign](t34-campaign.md)
 
 ## Scope and milestones

@@ -1,7 +1,7 @@
 # F4 frozen-B8 residual dose study
 
 **Summary:** F4's retention gain passed its funding bars, but D1024 failed the harm screen, producing terminal STOP_FUNDING and sealed D4096 discard; the post-mortem exporter was accepted conditionally. (src: big-lever/exp/astra-20261024/JUDGMENT_RA_STOP_FUNDING_f9c08082_20261025.md:7-9; docs/research/final_run_20261019/CAMPAIGN_LOG.md:1429)
-**As of:** 2026-10-25 PT · **Sources:** consolidated record [`docs/research/history/f4-f5.md`](../research/history/f4-f5.md); primary records cited inline.
+**As of:** 2026-10-25 PT · **Sources:** consolidated record [`docs/research/history/f4-f5.md`](../research/history/teaching-search.md#f4-f5); primary records cited inline.
 **Related:** [Index](README.md), [GLOSSARY](GLOSSARY.md), [Label factory](label-factory.md), [Successors](r30-r32-f5-successors.md), [Compute infrastructure](colab-and-compute-infra.md)
 
 ## Verdict sequence

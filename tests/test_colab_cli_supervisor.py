@@ -2235,6 +2235,274 @@ def test_retention_units_cli_default_is_unset(monkeypatch, tmp_path):
     assert seen == [None]
 
 
+def _seed_mixed_sessions(
+    tmp_path: Path, counts_by_hw: dict[str, int], *, rate_per_session: float = 1.5
+) -> dict[str, float]:
+    """Populate fake-state.json with explicit hardware assignments and return rates."""
+    state_path = tmp_path / "fake-state.json"
+    state = json.loads(state_path.read_text())
+    sessions: dict[str, dict[str, str]] = {}
+    other_rates: dict[str, float] = {}
+    for hw, count in counts_by_hw.items():
+        for idx in range(1, count + 1):
+            ep = f"ep-{hw.lower()}-{idx}"
+            sessions[ep] = {"name": f"nb-{hw.lower()}-{idx}", "gpu": hw}
+            other_rates[ep] = rate_per_session
+    state["sessions"] = sessions
+    state["rate"] = round(rate_per_session * len(sessions), 6)
+    state_path.write_text(json.dumps(state))
+    return other_rates
+
+
+def test_allocation_admits_twelfth_mixed_gpu_assignment_and_polls_without_abort(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """11 mixed GPUs + 1 L4 = 12 mixed GPU assignments admitted and polled cleanly."""
+    binary = _fake_env(monkeypatch, tmp_path)
+    monkeypatch.setattr(supervisor.time, "sleep", lambda _seconds: None)
+    other_rates = _seed_mixed_sessions(
+        tmp_path,
+        {"L4": 2, "T4": 3, "G4": 3, "A100": 3},
+    )
+    manifest = _manifest(tmp_path, gpu="L4", rate=1.54)
+    manifest["budget"]["other_assignments"] = other_rates
+
+    saw_twelve_active = False
+
+    def observer(event: str, _context: dict[str, object]) -> None:
+        nonlocal saw_twelve_active
+        if event == "ready":
+            state = json.loads((tmp_path / "fake-state.json").read_text())
+            assert len(state["sessions"]) == 12
+            saw_twelve_active = True
+
+    supervisor.Broker(tmp_path / "lanes", binary, observer=observer).run(manifest)
+
+    assert saw_twelve_active is True
+    receipt = json.loads((tmp_path / "job-output" / "receipt.json").read_text())
+    assert receipt["status"] == "PASS"
+    assert receipt["stop_verified"] is True
+    spend = json.loads((tmp_path / "job-output" / "spend-000000.json").read_text())
+    assert spend["provider_transition_status"] == "OK"
+    usage_poll = json.loads((tmp_path / "job-output" / "usage-000000.json").read_text())
+    assert usage_poll["assignments"] == 12.0
+    _assert_transport(tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("gpu", "hw_label", "cap"),
+    [
+        ("L4", "L4", 3),
+        ("T4", "T4", 3),
+        ("G4", "G4", 3),
+        ("A100", "A100", 3),
+        ("H100", "H100", 1),
+        ("cpu", "CPU", 5),
+    ],
+)
+def test_per_type_cap_refuses_fourth_gpu_second_h100_or_sixth_cpu_before_allocation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    gpu: str,
+    hw_label: str,
+    cap: int,
+) -> None:
+    binary = _fake_env(monkeypatch, tmp_path)
+    other_rates = _seed_mixed_sessions(tmp_path, {hw_label: cap})
+    manifest = _manifest(tmp_path, gpu=gpu)
+    manifest["budget"]["other_assignments"] = other_rates
+
+    with pytest.raises(
+        supervisor.Refused,
+        match=rf"account {hw_label} assignment cap {cap} \(including notebooks\)",
+    ):
+        supervisor.Broker(tmp_path / "lanes", binary).run(manifest)
+
+    events = _events(tmp_path)
+    assert not any(event["argv"][4] == "new" for event in events)
+    assert not list(supervisor.ACCOUNT_ROOT.glob("pending-*.json"))
+    _assert_transport(tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("raw_output", "expected_endpoints", "expected_hardware"),
+    [
+        (
+            "[a] ep1 | Hardware:\n[b] ep2 | Hardware: L4 | Shape: Standard\n",
+            {"ep1": "a", "ep2": "b"},
+            {"ep1": "", "ep2": "L4"},
+        ),
+        (
+            "[a] ep1 | Hardware:\n",
+            {"ep1": "a"},
+            {"ep1": ""},
+        ),
+        (
+            "[a] ep1 | Hardware: | Shape: Standard\n",
+            {"ep1": "a"},
+            {"ep1": ""},
+        ),
+    ],
+)
+def test_cli_sessions_parses_empty_and_pipe_hardware_labels_without_swallowing_rows(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    raw_output: str,
+    expected_endpoints: dict[str, str],
+    expected_hardware: dict[str, str],
+) -> None:
+    cli = supervisor.CLI("colab", tmp_path / "status.json")
+    assert not hasattr(cli, "session_hardware")
+    monkeypatch.setattr(cli, "call", lambda *a, **k: raw_output)
+    assert cli.sessions() == expected_endpoints
+    assert cli.sessions(include_hardware=True) == (expected_endpoints, expected_hardware)
+
+
+@pytest.mark.parametrize("bad_hw", ["", "UNKNOWN_XPU"])
+def test_broker_fails_closed_before_allocation_on_empty_or_unknown_hardware_label(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    bad_hw: str,
+) -> None:
+    binary = _fake_env(monkeypatch, tmp_path)
+    state_path = tmp_path / "fake-state.json"
+    state = json.loads(state_path.read_text())
+    state["sessions"] = {"ep-bad": {"name": "nb-bad", "gpu": bad_hw}}
+    state["rate"] = 1.54
+    state_path.write_text(json.dumps(state))
+
+    manifest = _manifest(tmp_path, gpu="L4", rate=1.54)
+    manifest["budget"]["other_assignments"] = {"ep-bad": 1.54}
+
+    with pytest.raises(
+        supervisor.Refused,
+        match=r"unrecognized or empty hardware label in account sessions: ep-bad=",
+    ):
+        supervisor.Broker(tmp_path / "lanes", binary).run(manifest)
+
+    events = _events(tmp_path)
+    assert not any(event["argv"][4] == "new" for event in events)
+    assert not list(supervisor.ACCOUNT_ROOT.glob("pending-*.json"))
+    _assert_transport(tmp_path)
+
+
+def test_supervisor_polls_across_peer_stop_and_reallocation_at_twelve_concurrent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """At 12 concurrent, a peer stopping and a new broker-owned peer allocating poll cleanly."""
+    binary = _fake_env(monkeypatch, tmp_path)
+    monkeypatch.setattr(supervisor.time, "sleep", lambda _seconds: None)
+    other_rates = _seed_mixed_sessions(
+        tmp_path,
+        {"L4": 2, "T4": 3, "G4": 3, "A100": 3},
+    )
+    manifest = _manifest(tmp_path, gpu="L4", rate=1.54)
+    manifest["budget"]["other_assignments"] = other_rates
+
+    transitioned = False
+
+    def observer(event: str, _context: dict[str, object]) -> None:
+        nonlocal transitioned
+        if event == "ready":
+            state_path = tmp_path / "fake-state.json"
+            state = json.loads(state_path.read_text())
+            assert len(state["sessions"]) == 12
+            # Peer ep-t4-1 stops and new broker-owned peer ep-t4-replacement allocates.
+            del state["sessions"]["ep-t4-1"]
+            state["sessions"]["ep-t4-replacement"] = {
+                "name": "snake-peer-repl",
+                "gpu": "T4",
+            }
+            supervisor.ACCOUNT_ROOT.mkdir(parents=True, exist_ok=True)
+            (supervisor.ACCOUNT_ROOT / "active-snake-peer-repl.json").write_text(
+                json.dumps(
+                    {
+                        "session": "snake-peer-repl",
+                        "endpoint": "ep-t4-replacement",
+                        "rate_units_per_hour": 1.5,
+                    }
+                )
+            )
+            state_path.write_text(json.dumps(state))
+            transitioned = True
+
+    supervisor.Broker(tmp_path / "lanes", binary, observer=observer).run(manifest)
+    assert transitioned is True
+    receipt = json.loads((tmp_path / "job-output" / "receipt.json").read_text())
+    assert receipt["status"] == "PASS"
+    assert receipt["stop_verified"] is True
+    _assert_transport(tmp_path)
+
+
+def test_unaccounted_endpoint_still_aborts_within_twelve_cap(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    binary = _fake_env(monkeypatch, tmp_path)
+    monkeypatch.setattr(supervisor.time, "sleep", lambda _seconds: None)
+    other_rates = _seed_mixed_sessions(
+        tmp_path,
+        {"L4": 2, "T4": 3, "G4": 3, "A100": 2},
+    )
+    manifest = _manifest(tmp_path, gpu="L4", rate=1.54)
+    manifest["budget"]["other_assignments"] = other_rates
+
+    def observer(event: str, _context: dict[str, object]) -> None:
+        if event == "ready":
+            state_path = tmp_path / "fake-state.json"
+            state = json.loads(state_path.read_text())
+            assert len(state["sessions"]) == 11
+            state["sessions"]["rogue-endpoint"] = {"name": "rogue-notebook", "gpu": "CPU"}
+            state_path.write_text(json.dumps(state))
+
+    with pytest.raises(supervisor.Refused, match="unaccounted active assignment.*rogue-endpoint"):
+        supervisor.Broker(tmp_path / "lanes", binary, observer=observer).run(manifest)
+
+    receipt = json.loads((tmp_path / "job-output" / "receipt.json").read_text())
+    assert receipt["status"] == "INCOMPLETE"
+    assert receipt["stop_verified"] is True
+    _assert_transport(tmp_path)
+
+
+def test_thirteenth_endpoint_during_polling_aborts_on_twelve_cap(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    binary = _fake_env(monkeypatch, tmp_path)
+    monkeypatch.setattr(supervisor.time, "sleep", lambda _seconds: None)
+    other_rates = _seed_mixed_sessions(
+        tmp_path,
+        {"L4": 2, "T4": 3, "G4": 3, "A100": 3},
+    )
+    manifest = _manifest(tmp_path, gpu="L4", rate=1.54)
+    manifest["budget"]["other_assignments"] = other_rates
+
+    def observer(event: str, _context: dict[str, object]) -> None:
+        if event == "ready":
+            state_path = tmp_path / "fake-state.json"
+            state = json.loads(state_path.read_text())
+            assert len(state["sessions"]) == 12
+            state["sessions"]["ep-cpu-13"] = {"name": "snake-peer-cpu-13", "gpu": "CPU"}
+            (supervisor.ACCOUNT_ROOT / "active-snake-peer-cpu-13.json").write_text(
+                json.dumps(
+                    {
+                        "session": "snake-peer-cpu-13",
+                        "endpoint": "ep-cpu-13",
+                        "rate_units_per_hour": 0.08,
+                    }
+                )
+            )
+            state_path.write_text(json.dumps(state))
+
+    with pytest.raises(
+        supervisor.Refused, match="account-wide assignment cap exceeded during polling"
+    ):
+        supervisor.Broker(tmp_path / "lanes", binary, observer=observer).run(manifest)
+
+    receipt = json.loads((tmp_path / "job-output" / "receipt.json").read_text())
+    assert receipt["status"] == "INCOMPLETE"
+    assert receipt["stop_verified"] is True
+    _assert_transport(tmp_path)
+
+
 def test_retained_chain_without_measured_rates_uses_informational_estimate(
     monkeypatch, tmp_path, capsys
 ):
