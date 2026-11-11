@@ -330,6 +330,11 @@ def prepare_arena_ppo_packet(
     ruler_envs: str | None = None,
     ruler_nets: str | None = None,
     no_one_epoch_cell: bool = False,
+    no_best_compile: bool = False,
+    no_larger_minibatch: bool = False,
+    ruler_base_minutes: float | None = None,
+    amp: bool = False,
+    include_amp: bool = False,
     output_dir: Path | str | None = None,
     prior_output_dir: Path | str | None = None,
     prior_kind: str = "auto",
@@ -505,11 +510,27 @@ def prepare_arena_ppo_packet(
             "family": FAMILY_SCRIPT,
         }
     elif mode == "ruler":
-        est_minutes = RULER_BASE_MINUTES
-        timeout_minutes = RULER_TIMEOUT_MINUTES
+        if ruler_base_minutes is not None:
+            if not math.isfinite(ruler_base_minutes) or float(ruler_base_minutes) < 3.0:
+                raise ValueError(
+                    f"--ruler-base-minutes must be >= 3.0 and <= 30.0, got {ruler_base_minutes}"
+                )
+            if float(ruler_base_minutes) > 30.0:
+                raise ValueError(
+                    f"--ruler-base-minutes must be <= 30.0 (2x <= 60m acceptance cap), "
+                    f"got {ruler_base_minutes}"
+                )
+            est_minutes = round(float(ruler_base_minutes), 2)
+            timeout_minutes = round(2.0 * est_minutes, 2)
+            headroom_min = min(8.0, max(2.0, 0.2 * timeout_minutes))
+            wall_guard_sec = int(max(60.0, (timeout_minutes - headroom_min) * 60.0))
+        else:
+            est_minutes = RULER_BASE_MINUTES
+            timeout_minutes = RULER_TIMEOUT_MINUTES
+            wall_guard_sec = int(RULER_WALL_GUARD_SECONDS)
         base_sec = est_minutes * 60.0
         eff_sec = timeout_minutes * 60.0
-        extra_env["ARENA_PPO_MAX_WALL_SECONDS"] = str(int(RULER_WALL_GUARD_SECONDS))
+        extra_env["ARENA_PPO_MAX_WALL_SECONDS"] = str(wall_guard_sec)
         if net_arch is not None:
             parsed_archs = _parse_archs_csv(net_arch)
             extra_env["ARENA_PPO_RULER_ARCHS"] = ",".join(parsed_archs)
@@ -521,6 +542,14 @@ def prepare_arena_ppo_packet(
             extra_env["ARENA_PPO_RULER_NETS"] = ",".join(parsed_nets)
         if no_one_epoch_cell:
             extra_env["ARENA_PPO_NO_ONE_EPOCH_CELL"] = "1"
+        if no_best_compile:
+            extra_env["ARENA_PPO_NO_BEST_COMPILE"] = "1"
+        if no_larger_minibatch:
+            extra_env["ARENA_PPO_NO_LARGER_MINIBATCH"] = "1"
+        if amp:
+            extra_env["ARENA_PPO_AMP"] = "1"
+        if include_amp:
+            extra_env["ARENA_PPO_INCLUDE_AMP"] = "1"
         if compile_model:
             extra_env["ARENA_PPO_COMPILE"] = "1"
         job_id = f"arena-ppo-ruler-{gpu_slug}-{attempt}"
@@ -577,7 +606,12 @@ def prepare_arena_ppo_packet(
 
         if ppo_config is not None:
             cfg_obj = ppo_config
-            if resolved_train_arch is not None or net_size is not None or num_envs is not None:
+            if (
+                resolved_train_arch is not None
+                or net_size is not None
+                or num_envs is not None
+                or amp
+            ):
                 d = cfg_obj.to_dict()
                 if resolved_train_arch is not None and resolved_train_arch != cfg_obj.net_arch:
                     d["net_arch"] = resolved_train_arch
@@ -589,6 +623,9 @@ def prepare_arena_ppo_packet(
                     d["actor_chunk_envs"] = None
                 if num_envs is not None:
                     d["num_envs"] = int(num_envs)
+                if amp:
+                    d["amp"] = True
+                    d["use_bf16_autocast"] = True
                 cfg_obj = ArenaPPOConfig.from_dict(d)
         elif staged_base_cfg is not None:
             d = staged_base_cfg.to_dict()
@@ -604,6 +641,9 @@ def prepare_arena_ppo_packet(
                 d["num_envs"] = int(num_envs)
             if compile_model:
                 d["compile_model"] = True
+            if amp:
+                d["amp"] = True
+                d["use_bf16_autocast"] = True
             cfg_obj = ArenaPPOConfig.from_dict(d)
         else:
             cfg_obj = ArenaPPOConfig(
@@ -611,7 +651,10 @@ def prepare_arena_ppo_packet(
                 net_size=net_size if net_size is not None else "S",
                 num_envs=int(num_envs) if num_envs is not None else 1024,
                 compile_model=compile_model,
+                amp=bool(amp),
             )
+        if bool(cfg_obj.amp):
+            extra_env["ARENA_PPO_AMP"] = "1"
 
         if staged_base_cfg is not None:
             staged_dict = staged_base_cfg.to_dict()
@@ -793,6 +836,11 @@ def main() -> int:
     parser.add_argument("--ruler-envs", type=str, default=None)
     parser.add_argument("--ruler-nets", type=str, default=None)
     parser.add_argument("--no-one-epoch-cell", action="store_true")
+    parser.add_argument("--no-best-compile", action="store_true")
+    parser.add_argument("--no-larger-minibatch", action="store_true")
+    parser.add_argument("--ruler-base-minutes", type=float, default=None)
+    parser.add_argument("--amp", action="store_true")
+    parser.add_argument("--include-amp", action="store_true")
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--prior-output-dir", type=Path, default=None)
     parser.add_argument(
@@ -842,6 +890,11 @@ def main() -> int:
         ruler_envs=args.ruler_envs,
         ruler_nets=args.ruler_nets,
         no_one_epoch_cell=bool(args.no_one_epoch_cell),
+        no_best_compile=bool(args.no_best_compile),
+        no_larger_minibatch=bool(args.no_larger_minibatch),
+        ruler_base_minutes=args.ruler_base_minutes,
+        amp=bool(args.amp),
+        include_amp=bool(args.include_amp),
         output_dir=args.output_dir,
         prior_output_dir=args.prior_output_dir,
         prior_kind=args.prior_kind,

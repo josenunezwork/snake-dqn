@@ -461,6 +461,26 @@ class TrainSim:
         self._learner_seat_mask: torch.Tensor = self._build_learner_seat_mask(
             self.world_opponent_kind
         )
+        if self.device.type == "cpu" and self.sim.seg_count.numel() > 0:
+            self._max_seg_bound: int = max(1, min(self.cap, int(self.sim.seg_count.max().item())))
+        else:
+            self._max_seg_bound = self.cap
+
+    @property
+    def max_seg_bound(self) -> int:
+        """Return sound upper bound `1 <= bound <= cap` on live `seg_count` (zero GPU sync)."""
+        if self.device.type == "cpu" and self.sim.seg_count.numel() > 0:
+            return max(1, min(self.cap, int(self.sim.seg_count.max().item())))
+        return max(1, min(self.cap, int(self._max_seg_bound)))
+
+    def refresh_max_seg_bound(self) -> int:
+        """Tighten `max_seg_bound` from live `sim.seg_count` (call only at host sync boundaries)."""
+        if self.sim.seg_count.numel() > 0:
+            actual = int(self.sim.seg_count.max().detach().cpu().item())
+            self._max_seg_bound = max(1, min(self.cap, actual))
+        else:
+            self._max_seg_bound = 1
+        return self._max_seg_bound
 
     def _parse_opponent_kinds(
         self, opponent_kinds: Sequence[OpponentKind] | torch.Tensor | None
@@ -607,7 +627,10 @@ class TrainSim:
         out.rng_key = torch.where(out.rng_key == 0, torch.ones_like(out.rng_key), out.rng_key)
         out.rng_counter = out.frame.clone() * 65536
         r2_cache.bump(out)
-        return cls(out, opponent_kinds=opponent_kinds)
+        inst = cls(out, opponent_kinds=opponent_kinds)
+        seg_arr = np.asarray(getattr(ref_sim, "seg_count"))
+        inst._max_seg_bound = max(1, min(inst.cap, int(np.max(seg_arr)) if seg_arr.size > 0 else 1))
+        return inst
 
     @classmethod
     def create(
@@ -697,7 +720,9 @@ class TrainSim:
         sim.frame.zero_()
         sim._prepared = False
         r2_cache.bump(sim)
-        return cls(sim, opponent_kinds=opponent_kinds)
+        inst = cls(sim, opponent_kinds=opponent_kinds)
+        inst._max_seg_bound = 1
+        return inst
 
     def prepare(self) -> None:
         """Advance pre-decision phase (`frame`, food maintenance, respawns) idempotently."""
@@ -882,6 +907,7 @@ class TrainSim:
         self.sim.prepare()
         decision_heads = self.sim.heads().clone()
         self.sim.step(actions)
+        self._max_seg_bound = min(self.cap, self._max_seg_bound + 2)
 
         acted = self.sim._last_transition_valid.clone()
         died = self.sim._last_done.clone()
@@ -989,6 +1015,7 @@ class TrainSim:
             self.sim.bodies.zero_()
             live = state["bodies_live_i16"].to(device=self.device, dtype=torch.long)
             max_seg = int(live.shape[2])
+            self._max_seg_bound = max(1, min(self.cap, max_seg))
             if max_seg > 0:
                 k_offsets = torch.arange(max_seg, device=self.device, dtype=torch.long)[
                     None, None, :
@@ -1002,6 +1029,7 @@ class TrainSim:
                 device=self.device, dtype=self.sim.bodies.dtype
             )
             self.sim.bodies.copy_(loaded_bodies)
+            self._max_seg_bound = self.cap
 
         self.sim._prepared = bool(state["prepared"])
         self.prev_heads.copy_(state["prev_heads"].to(device=self.device, dtype=torch.long))
@@ -1081,6 +1109,7 @@ class LateStateReservoir:
         self.write_ptr = 0
         self.total_harvested = 0
         self.total_restored = 0
+        self._max_seg_bound = 1
 
         self.rng = torch.Generator(device="cpu")
         self.rng.manual_seed(int(seed) + 40_003)
@@ -1150,6 +1179,7 @@ class LateStateReservoir:
         self.write_ptr = (self.write_ptr + n_elig) % self.max_size
         self.size = min(self.max_size, self.size + n_elig)
         self.total_harvested += n_elig
+        self._max_seg_bound = min(self.cap, max(self._max_seg_bound, train_sim.max_seg_bound))
         return n_elig
 
     def _restore_rows_from_reservoir(self, train_sim: TrainSim, late_rows: torch.Tensor) -> None:
@@ -1176,6 +1206,9 @@ class LateStateReservoir:
             torch.long
         )
         train_sim.prev_alive[late_rows] = self.prev_alive.index_select(0, slot_idx)
+        train_sim._max_seg_bound = min(
+            train_sim.cap, max(train_sim._max_seg_bound, self._max_seg_bound)
+        )
         r2_cache.bump(sim)
         self.total_restored += n_late
 
@@ -1314,6 +1347,12 @@ class LateStateReservoir:
             self.prev_alive[:n].copy_(state["prev_alive"].to(device=self.device, dtype=torch.bool))
             for k, dst in self.tensors.items():
                 dst[:n].copy_(state["tensors"][k].to(device=self.device, dtype=dst.dtype))
+            seg_t = state["tensors"]["seg_count"][:n]
+            self._max_seg_bound = (
+                max(1, min(self.cap, int(seg_t.max().item()))) if seg_t.numel() > 0 else 1
+            )
+        else:
+            self._max_seg_bound = 1
 
 
 def verify_indexed_vs_reference_parity(

@@ -446,7 +446,8 @@ def test_m5_projected_wall_guard_and_max_update_seconds(tmp_path: Path) -> None:
     assert verify_completed_artifact(out_proj / "checkpoints" / "final.pt")
     assert verify_completed_artifact(out_proj / "train_result.json")
 
-    # MAJOR-2: Exceeding max_update_seconds stops cleanly (no RuntimeError!) and exports all files
+    # MAJOR-2 + Task B.2: First update of a session is exempt from `max_update_seconds` (includes
+    # compile/warmup), while update 2 stops cleanly (no RuntimeError!) and exports all files.
     cfg_slow = ArenaPPOConfig(**{**cfg.to_dict(), "max_update_seconds": 1e-6})
     cli_slow = tmp_path / "slow_update_root"
     out_slow = cli_slow / "output"
@@ -459,12 +460,24 @@ def test_m5_projected_wall_guard_and_max_update_seconds(tmp_path: Path) -> None:
     )
     assert res_slow["stopped_reason"] == "max_update_seconds_guard"
     assert res_slow["aborted_mid_update"] is False
-    assert res_slow["updates_completed"] == 1
-    assert verify_completed_artifact(out_slow / "checkpoints" / "ckpt_u0000001.pt")
+    assert res_slow["updates_completed"] == 2
+    assert verify_completed_artifact(out_slow / "checkpoints" / "ckpt_u0000002.pt")
     assert verify_completed_artifact(out_slow / "checkpoints" / "final.pt")
     assert verify_completed_artifact(out_slow / "arena_ppo_weights.pth")
     assert verify_completed_artifact(out_slow / "train_result.json")
     supervisor_scan_exports(cli_slow, estimate_max_export_bytes(cfg_slow), cache_slow)
+
+    # Resumed session 2: update 3 is the first update of session 2 (exempt), update 4 triggers guard
+    out_slow_s2 = tmp_path / "slow_update_session2"
+    res_slow_s2 = run_training_job(
+        cfg=cfg_slow,
+        output_dir=out_slow_s2,
+        work_dir=cli_slow / "work",
+        device="cpu",
+    )
+    assert res_slow_s2["resumed_from"] is not None
+    assert res_slow_s2["stopped_reason"] == "max_update_seconds_guard"
+    assert res_slow_s2["updates_completed"] == 4
 
 
 def test_t1_work_dir_pruning_45m_hardlink_snapshots_and_supervisor_exports_scanner(
@@ -1247,3 +1260,276 @@ def test_minor6_max_world_frames_checks_host_bound_once_per_rollout(
 
     # Old code added +16 Tensor.item() host syncs (one per tick); new code adds +1 per rollout.
     assert (calls_bounded - calls_unbounded) == 1
+
+
+@pytest.mark.parametrize("net_arch", ["ego_only", "shared_trunk", "per_seat"])
+def test_task_a4_amp_off_bit_identical_cpu_fallback_and_grad_scaler_roundtrip(
+    tmp_path: Path, net_arch: NetArch
+) -> None:
+    """Task A.4: amp=False default is pure fp32; amp=True falls back bit-identically on CPU."""
+    assert ArenaPPOConfig().amp is False
+    assert ArenaPPOConfig().use_bf16_autocast is False
+
+    base_kw: dict[str, Any] = dict(
+        net_arch=net_arch,
+        net_size="S",
+        num_envs=2,
+        rollout_len=4,
+        ppo_epochs=2,
+        minibatch_size=12,
+        actor_chunk_envs=2,
+        max_capacity=64,
+        seed=20261112,
+        deterministic=True,
+    )
+    tr_off = ArenaPPOTrainer(ArenaPPOConfig(**base_kw, amp=False), device="cpu")
+    assert tr_off.grad_scaler.is_enabled() is False
+    m_off = tr_off.step_update()
+
+    tr_on_cpu = ArenaPPOTrainer(ArenaPPOConfig(**base_kw, amp=True), device="cpu")
+    assert tr_on_cpu.grad_scaler.is_enabled() is False
+    m_on = tr_on_cpu.step_update()
+
+    # Compare against unmodified full-cap (`max_seg=None`) reconstruction path
+    tr_unmod = ArenaPPOTrainer(ArenaPPOConfig(**base_kw, amp=False), device="cpu")
+    orig_rec_wt = tr_unmod.buffer.reconstruct_world_ticks
+    orig_rec_sh = tr_unmod.buffer.reconstruct_shared_world_ticks
+    tr_unmod.buffer.reconstruct_world_ticks = (  # type: ignore[method-assign]
+        lambda t_i, e_i, *, ring_chunk=512, max_seg=None: orig_rec_wt(
+            t_i, e_i, ring_chunk=ring_chunk, max_seg=None
+        )
+    )
+    tr_unmod.buffer.reconstruct_shared_world_ticks = (  # type: ignore[method-assign]
+        lambda t_i, e_i, *, ring_chunk=512, max_seg=None: orig_rec_sh(
+            t_i, e_i, ring_chunk=ring_chunk, max_seg=None
+        )
+    )
+    m_unmod = tr_unmod.step_update()
+
+    assert m_off.policy_loss == m_on.policy_loss == m_unmod.policy_loss
+    assert m_off.value_loss == m_on.value_loss == m_unmod.value_loss
+    assert m_off.aux_loss == m_on.aux_loss == m_unmod.aux_loss
+    assert m_off.epoch0_approx_kl == m_on.epoch0_approx_kl == m_unmod.epoch0_approx_kl
+    for k, v_off in tr_off.model.state_dict().items():
+        assert torch.equal(v_off, tr_on_cpu.model.state_dict()[k]), f"CPU amp fallback diff on {k}"
+        assert torch.equal(v_off, tr_unmod.model.state_dict()[k]), f"Unmodified path diff on {k}"
+
+    # Verify fp16 GradScaler learner path & checkpoint state_dict roundtrip via spy scaler
+    if net_arch == "ego_only":
+        calls: list[str] = []
+
+        class _SpyGradScaler:
+            def __init__(self) -> None:
+                self._scale = 512.0
+
+            def is_enabled(self) -> bool:
+                return True
+
+            def scale(self, loss: torch.Tensor) -> torch.Tensor:
+                calls.append("scale")
+                return loss * 2.0
+
+            def unscale_(self, optimizer: torch.optim.Optimizer) -> None:
+                calls.append("unscale_")
+                for group in optimizer.param_groups:
+                    for p in group["params"]:
+                        if p.grad is not None:
+                            p.grad.mul_(0.5)
+
+            def step(self, optimizer: torch.optim.Optimizer) -> None:
+                calls.append("step")
+                optimizer.step()
+
+            def update(self) -> None:
+                calls.append("update")
+                self._scale = 1024.0
+
+            def state_dict(self) -> dict[str, Any]:
+                return {"scale": self._scale}
+
+            def load_state_dict(self, sd: dict[str, Any]) -> None:
+                self._scale = float(sd["scale"])
+
+        tr_scaler = ArenaPPOTrainer(ArenaPPOConfig(**base_kw, amp=False), device="cpu")
+        spy = _SpyGradScaler()
+        tr_scaler.grad_scaler = spy  # type: ignore[assignment]
+        m_scaled = tr_scaler.step_update()
+        assert calls[:4] == ["scale", "unscale_", "step", "update"]
+        # Scaling by 2.0 and unscaling by 0.5 yields exact fp32 weights!
+        assert math.isclose(m_scaled.policy_loss, m_off.policy_loss, rel_tol=0.0, abs_tol=1e-7)
+        for k, v_off in tr_off.model.state_dict().items():
+            assert torch.allclose(v_off, tr_scaler.model.state_dict()[k], atol=1e-6, rtol=0.0)
+
+        ckpt_s = tmp_path / "scaler_ckpt" / "ckpt_u0000001.pt"
+        tr_scaler.save_checkpoint(ckpt_s)
+        tr_scaler2 = ArenaPPOTrainer(ArenaPPOConfig(**base_kw, amp=False), device="cpu")
+        spy2 = _SpyGradScaler()
+        tr_scaler2.grad_scaler = spy2  # type: ignore[assignment]
+        tr_scaler2.load_checkpoint(ckpt_s)
+        assert spy2._scale == 1024.0
+
+
+def test_task_b3_publish_gap_projection_uses_measured_publish_sec_and_safety_factor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Task B.3: 45-min publish bound includes measured publish time and 1.25x safety factor."""
+    import dataclasses
+
+    assert ppo_mod.PUBLISH_GAP_SAFETY_FACTOR >= 1.2
+    fake_now = {"t": 20_000.0}
+    monkeypatch.setattr(ppo_mod.time, "monotonic", lambda: fake_now["t"])
+
+    orig_step_update = ArenaPPOTrainer.step_update
+    orig_save_ckpt = ArenaPPOTrainer.save_checkpoint
+    orig_pub = ppo_mod._publish_work_checkpoint_to_output
+
+    update_durations = [1900.0, 500.0]
+    u_idx = {"i": 0}
+
+    def _timed_step(self: ArenaPPOTrainer, *, should_stop: Any = None) -> ppo_mod.PPOUpdateMetrics:
+        m = orig_step_update(self, should_stop=should_stop)
+        dur = update_durations[min(u_idx["i"], len(update_durations) - 1)]
+        u_idx["i"] += 1
+        fake_now["t"] += dur
+        return dataclasses.replace(m, collect_sec=0.5 * dur, learn_sec=0.5 * dur)
+
+    def _timed_save(self: ArenaPPOTrainer, path: Path | str, *, reason: str = "periodic") -> str:
+        out = orig_save_ckpt(self, path, reason=reason)
+        fake_now["t"] += 50.0
+        return out
+
+    def _timed_pub(*args: Any, **kwargs: Any) -> tuple[str | None, list[str]]:
+        out = orig_pub(*args, **kwargs)
+        fake_now["t"] += 120.0
+        return out
+
+    monkeypatch.setattr(ArenaPPOTrainer, "step_update", _timed_step)
+    monkeypatch.setattr(ArenaPPOTrainer, "save_checkpoint", _timed_save)
+    monkeypatch.setattr(ppo_mod, "_publish_work_checkpoint_to_output", _timed_pub)
+
+    # Update 1: 1900s + 50s save >= 1800s interval -> publishes ckpt_u0000001.pt (takes 120s).
+    # Update 2: elapsed_since_publish = 500s + 50s = 550s (< 2600s interval).
+    # Wait: set update 2 duration = 1850s!
+    # Without publish time (120s) + 1.25x safety factor:
+    #   elapsed_since_publish (1900) + update (500) + save (50) = 2450 < 2700 -> NO publish!
+    # With publish time (120s) + 1.25x safety factor:
+    #   elapsed_since_publish (1900) + 1.25 * (1850 + 50 + 120) > 2700; let's test the exact margin
+    #   where update 2 = 500s after a 1400s non-published update!
+    update_durations[:] = [1900.0, 1350.0, 500.0]
+    cfg = ArenaPPOConfig(
+        net_arch="ego_only",
+        net_size="S",
+        num_envs=1,
+        num_snakes=4,
+        grid_h=24,
+        grid_w=32,
+        rollout_len=2,
+        ppo_epochs=1,
+        minibatch_size=8,
+        max_capacity=32,
+        total_updates=3,
+        checkpoint_every_updates=1,
+        output_publish_interval_sec=2600.0,
+        max_update_seconds=5000.0,
+        seed=654,
+        deterministic=True,
+    )
+    # u1=2000s (+50s save) -> elapsed=2050, publishes u1 (+120s; last_output_publish_sec=120s).
+    # u2=800s (+50s save) -> elapsed=850 + 1.25*(800+50+120) = 2062.5 < 2700 -> does NOT publish.
+    # u3=800s (+50s save) -> elapsed=1700 + 1.25*(800+50+120) = 2912.5 >= 2700 -> publishes u3
+    # (whereas old formula without publish_sec & safety factor gave 1700 + 850 = 2550 < 2700).
+    update_durations[:] = [2000.0, 800.0, 800.0]
+    cfg_exact = ArenaPPOConfig(**{**cfg.to_dict(), "total_updates": 4})
+    update_durations.append(400.0)
+    out_dir = tmp_path / "pub_b3_out"
+    res = run_training_job(
+        cfg=cfg_exact,
+        output_dir=out_dir,
+        work_dir=tmp_path / "pub_b3_work",
+        device="cpu",
+    )
+    assert res["last_output_publish_seconds"] >= 120.0
+    assert verify_completed_artifact(out_dir / "checkpoints" / "ckpt_u0000001.pt")
+    assert not (out_dir / "checkpoints" / "ckpt_u0000002.pt").exists()
+    assert verify_completed_artifact(out_dir / "checkpoints" / "ckpt_u0000003.pt")
+
+
+def test_task_b5_resume_from_pending_late_restore_bit_identical_and_staged_validator(
+    tmp_path: Path,
+) -> None:
+    """Task B.5: resume with active pending_late_restore is exact; validator checks shape."""
+    cfg = ArenaPPOConfig(
+        net_arch="shared_trunk",
+        net_size="S",
+        num_envs=8,
+        rollout_len=4,
+        ppo_epochs=1,
+        minibatch_size=24,
+        actor_chunk_envs=8,
+        max_capacity=64,
+        max_world_frames=4,
+        late_reset_enabled=True,
+        late_reset_min_length=1,
+        late_reset_prob=0.5,
+        late_reset_reservoir_size=16,
+        seed=20261113,
+        deterministic=True,
+    )
+    # 1. Uninterrupted 3 updates (update 1 queues pending_late_restore; update 2 restores ~half)
+    unint = ArenaPPOTrainer(cfg, device="cpu")
+    _ = unint.step_update()
+    assert unint._has_pending_late_restore is True
+    assert bool(unint._pending_late_restore.all().item()) is True
+    m2_unint = unint.step_update()
+    m3_unint = unint.step_update()
+    assert unint.late_reservoir is not None and unint.late_reservoir.total_restored > 0
+
+    # 2. Save checkpoint right after update 1 WITH pending_late_restore active
+    part1 = ArenaPPOTrainer(cfg, device="cpu")
+    _ = part1.step_update()
+    assert part1._has_pending_late_restore is True
+    ckpt_u1 = tmp_path / "pending_late" / "ckpt_u0000001.pt"
+    part1.save_checkpoint(ckpt_u1)
+
+    # Staged validator accepts valid pending_late_restore shape (8,) bool
+    info = ppo_mod.verify_staged_checkpoint(ckpt_u1, device="cpu", verify_markers=True)
+    assert info["updates_completed"] == 1
+
+    # Fresh trainer loads ckpt_u1 and continues updates 2 and 3 bit-identically
+    resumed = ArenaPPOTrainer(cfg, device="cpu")
+    resumed.load_checkpoint(ckpt_u1)
+    assert resumed._has_pending_late_restore is True
+    assert torch.equal(resumed._pending_late_restore, part1._pending_late_restore)
+    m2_res = resumed.step_update()
+    m3_res = resumed.step_update()
+
+    assert m2_res.policy_loss == m2_unint.policy_loss
+    assert m2_res.value_loss == m2_unint.value_loss
+    assert m3_res.policy_loss == m3_unint.policy_loss
+    assert m3_res.value_loss == m3_unint.value_loss
+    assert resumed.late_reservoir is not None
+    assert resumed.late_reservoir.total_restored == unint.late_reservoir.total_restored
+    assert torch.equal(resumed._pending_late_restore, unint._pending_late_restore)
+    for k, v_u in unint.model.state_dict().items():
+        assert torch.equal(v_u, resumed.model.state_dict()[k]), f"Weight diff on {k}"
+    sd_u = unint.sim.state_dict()
+    sd_r = resumed.sim.state_dict()
+    assert torch.equal(sd_u["bodies_live_i16"], sd_r["bodies_live_i16"])
+    for k, t_u in sd_u["sim_tensors"].items():
+        assert torch.equal(t_u, sd_r["sim_tensors"][k]), f"Sim tensor diff on {k}"
+
+    # 3. Corrupt pending_late_restore shape and dtype -> verify_staged_checkpoint must reject both
+    raw_ckpt = torch.load(ckpt_u1, map_location="cpu", weights_only=False)
+    bad_shape_ckpt = tmp_path / "bad_shape.pt"
+    torch.save(
+        {**raw_ckpt, "pending_late_restore": torch.ones((9,), dtype=torch.bool)}, bad_shape_ckpt
+    )
+    with pytest.raises(ValueError, match="Invalid pending_late_restore"):
+        ppo_mod.verify_staged_checkpoint(bad_shape_ckpt, device="cpu", verify_markers=False)
+
+    bad_dtype_ckpt = tmp_path / "bad_dtype.pt"
+    torch.save(
+        {**raw_ckpt, "pending_late_restore": torch.ones((8,), dtype=torch.int64)}, bad_dtype_ckpt
+    )
+    with pytest.raises(ValueError, match="Invalid pending_late_restore"):
+        ppo_mod.verify_staged_checkpoint(bad_dtype_ckpt, device="cpu", verify_markers=False)

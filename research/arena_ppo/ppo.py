@@ -80,6 +80,7 @@ SUPERVISOR_GRACE_SAVE_LIMIT_SEC = 10.0
 UNLIMITED_HOURS_TOTAL_UPDATES: int = 1_000_000_000
 MIN_MAX_UPDATE_SECONDS: float = 1200.0
 HARD_KILL_MAX_LOSS_SEC: float = 2700.0
+PUBLISH_GAP_SAFETY_FACTOR: float = 1.25
 _RESUME_MUTABLE_CONFIG_KEYS: frozenset[str] = frozenset(
     {
         "total_updates",
@@ -90,6 +91,9 @@ _RESUME_MUTABLE_CONFIG_KEYS: frozenset[str] = frozenset(
         "actor_chunk_envs",
         "ring_chunk",
         "compile_model",
+        "amp",
+        "use_bf16_autocast",
+        "use_channels_last",
         "output_publish_interval_sec",
         "eval_every_updates",
         "log_rotate_every_updates",
@@ -134,8 +138,9 @@ class ArenaPPOConfig:
     seed: int = 20261110
     deterministic: bool = False
     compile_model: bool = False
+    amp: bool = False
     use_channels_last: bool = True
-    use_bf16_autocast: bool = True
+    use_bf16_autocast: bool = False
     checkpoint_interval_sec: float = 1200.0
     checkpoint_every_updates: int = 0
     keep_periodic_checkpoints: int = 3
@@ -155,6 +160,8 @@ class ArenaPPOConfig:
             raise ValueError(
                 f"Unsupported net_arch {self.net_arch!r}; expected one of {VALID_NET_ARCHS}"
             )
+        object.__setattr__(self, "amp", bool(self.amp))
+        object.__setattr__(self, "use_bf16_autocast", bool(self.amp))
         if self.minibatch_size is None:
             object.__setattr__(
                 self,
@@ -217,7 +224,10 @@ class ArenaPPOConfig:
         unknown = sorted(set(raw) - valid_fields)
         if unknown:
             raise ValueError(f"Unknown ArenaPPOConfig fields: {unknown}")
-        return cls(**raw)
+        merged = dict(raw)
+        if "amp" not in merged and "use_bf16_autocast" in merged:
+            merged["amp"] = bool(merged["use_bf16_autocast"])
+        return cls(**merged)
 
     @classmethod
     def from_json(cls, source: Path | str) -> "ArenaPPOConfig":
@@ -263,6 +273,7 @@ class CompactRolloutBuffer:
         self.E = int(num_envs)
         self.S = int(num_snakes)
         self.cap = int(cap)
+        self.max_seg_used: int = int(cap)
         self.food_capacity = int(food_capacity)
         self.min_boost_length = int(min_boost_length)
         self.grid_h = int(grid_h)
@@ -345,6 +356,7 @@ class CompactRolloutBuffer:
             )
             self.tape_cursor.fill_(self.cap)
             self.tape_head_idx[0].fill_(self.cap - 1)
+            self.max_seg_used = max(1, min(self.cap, int(train_sim.max_seg_bound)))
         else:
             hp = sim.head_ptr
             hp_m1 = (hp - 1) % self.cap
@@ -358,6 +370,7 @@ class CompactRolloutBuffer:
             inc = torch.where(two_push, self._two_i32, self._one_i32)
             self.tape_cursor = self.tape_cursor + inc
             self.tape_head_idx[t] = self.tape_cursor - 1
+            self.max_seg_used = min(self.cap, max(self.max_seg_used, int(train_sim.max_seg_bound)))
 
         self.seg_count[t] = sim.seg_count.to(torch.int16)
         self.length[t] = sim.length.to(torch.int16)
@@ -384,6 +397,7 @@ class CompactRolloutBuffer:
         e_idx: torch.Tensor,
         *,
         ring_chunk: int = 512,
+        max_seg: int | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Reconstruct bit-identical `(arena, ego, scalars, legal_mask)` for `(t_idx, e_idx)` pairs.
 
@@ -391,13 +405,15 @@ class CompactRolloutBuffer:
             t_idx: 1D long tensor `(M,)` of rollout step indices in `0 .. T - 1`.
             e_idx: 1D long tensor `(M,)` of world indices in `0 .. E - 1`.
             ring_chunk: Segment chunk width.
+            max_seg: Optional upper bound `1 <= max_seg <= cap` on active segments in rollout.
 
         Returns:
             Tuple `(arena, ego, scalars, legal_mask)` over all `M * S` seats.
         """
         m_worlds = int(t_idx.shape[0])
+        gather_k = self.cap if max_seg is None else max(1, min(self.cap, int(max_seg)))
         head_pos = self.tape_head_idx[t_idx, e_idx].to(torch.long)
-        k_offsets = torch.arange(self.cap, dtype=torch.long, device=self.device)[None, None, :]
+        k_offsets = torch.arange(gather_k, dtype=torch.long, device=self.device)[None, None, :]
         gather_pos = (head_pos[..., None] - k_offsets).clamp_min(0)
         e_3d = e_idx[:, None, None]
         s_3d = torch.arange(self.S, device=self.device)[None, :, None]
@@ -432,6 +448,7 @@ class CompactRolloutBuffer:
             grid_h=self.grid_h,
             grid_w=self.grid_w,
             ring_chunk=ring_chunk,
+            max_seg=gather_k,
         )
         normal = torch.ones((m_worlds, self.S, 3), dtype=torch.bool, device=self.device)
         can_boost = alive_sub & (len_sub >= self.min_boost_length)
@@ -446,6 +463,7 @@ class CompactRolloutBuffer:
         e_idx: torch.Tensor,
         *,
         ring_chunk: int = 512,
+        max_seg: int | None = None,
     ) -> tuple[SharedWorldObs, torch.Tensor]:
         """Reconstruct bit-identical ``(SharedWorldObs, legal_mask)`` for ``(t_idx, e_idx)`` pairs.
 
@@ -453,13 +471,15 @@ class CompactRolloutBuffer:
             t_idx: 1D long tensor ``(M,)`` of rollout step indices in ``0 .. T - 1``.
             e_idx: 1D long tensor ``(M,)`` of world indices in ``0 .. E - 1``.
             ring_chunk: Segment chunk width.
+            max_seg: Optional upper bound ``1 <= max_seg <= cap`` on active segments in rollout.
 
         Returns:
             Tuple ``(shared_obs, legal_mask)`` over ``M`` world-ticks (`M * S` seats).
         """
         m_worlds = int(t_idx.shape[0])
+        gather_k = self.cap if max_seg is None else max(1, min(self.cap, int(max_seg)))
         head_pos = self.tape_head_idx[t_idx, e_idx].to(torch.long)
-        k_offsets = torch.arange(self.cap, dtype=torch.long, device=self.device)[None, None, :]
+        k_offsets = torch.arange(gather_k, dtype=torch.long, device=self.device)[None, None, :]
         gather_pos = (head_pos[..., None] - k_offsets).clamp_min(0)
         e_3d = e_idx[:, None, None]
         s_3d = torch.arange(self.S, device=self.device)[None, :, None]
@@ -494,6 +514,7 @@ class CompactRolloutBuffer:
             grid_h=self.grid_h,
             grid_w=self.grid_w,
             ring_chunk=ring_chunk,
+            max_seg=gather_k,
         )
         normal = torch.ones((m_worlds, self.S, 3), dtype=torch.bool, device=self.device)
         can_boost = alive_sub & (len_sub >= self.min_boost_length)
@@ -915,18 +936,27 @@ class ArenaPPOTrainer:
             grid_h=cfg.grid_h,
             grid_w=cfg.grid_w,
             use_channels_last=cfg.use_channels_last,
-            use_bf16_autocast=cfg.use_bf16_autocast,
+            use_bf16_autocast=cfg.amp,
             compile_model=cfg.compile_model,
         ).to(self.device)
         self.snapshot_model: ArenaPolicyModel | None = (
             snapshot_model.to(self.device).eval() if snapshot_model is not None else None
         )
-        self.optimizer = torch.optim.AdamW(
-            self.model.parameters(),
-            lr=cfg.lr,
-            eps=cfg.adam_eps,
-            weight_decay=cfg.weight_decay,
+        use_fused_adamw = bool(self.device.type == "cuda" and torch.cuda.is_available())
+        adamw_kwargs: dict[str, Any] = {
+            "lr": cfg.lr,
+            "eps": cfg.adam_eps,
+            "weight_decay": cfg.weight_decay,
+        }
+        if use_fused_adamw:
+            adamw_kwargs["fused"] = True
+        self.optimizer = torch.optim.AdamW(self.model.parameters(), **adamw_kwargs)
+        use_fp16_scaler = bool(
+            self.device.type == "cuda"
+            and torch.cuda.is_available()
+            and self.model.uses_fp16_grad_scaler(self.device)
         )
+        self.grad_scaler = torch.amp.GradScaler("cuda", enabled=use_fp16_scaler)
 
         if train_sim is not None:
             if train_sim.device != self.device:
@@ -967,6 +997,7 @@ class ArenaPPOTrainer:
         self.updates_completed: int = 0
         self.agent_steps_collected: int = 0
         self.world_steps_collected: int = 0
+        self.time_limit_resets: int = 0
         self.checkpoints_written: int = 0
         self._last_checkpoint_wall: float = time.monotonic()
 
@@ -1129,6 +1160,7 @@ class ArenaPPOTrainer:
         # `CompactRolloutBuffer` body_tape remains 100% lossless; queue reservoir restore for
         # the next rollout start (`t=0`, before full body_tape snapshot).
         self.sim.reset_worlds(hit)
+        self.time_limit_resets += int(hit.sum().detach().cpu().item())
         if self.late_reservoir is not None and self.cfg.late_reset_enabled:
             self._pending_late_restore |= hit
             self._has_pending_late_restore = True
@@ -1307,12 +1339,48 @@ class ArenaPPOTrainer:
         vmax = float(self.model.cfg.value_symlog_max)
         is_per_seat = isinstance(self.model, ArenaNet)
 
+        # Single host sync per update to bound body-tape segment gather & tighten live sim bound.
+        if self.buffer.seg_count.numel() > 0 and self.sim.sim.seg_count.numel() > 0:
+            seg_max_pair = (
+                torch.stack(
+                    (
+                        self.buffer.seg_count.max().to(torch.int64),
+                        self.sim.sim.seg_count.max().to(torch.int64),
+                    )
+                )
+                .detach()
+                .cpu()
+                .tolist()
+            )
+            rollout_max_seg = max(1, min(self.buffer.cap, int(seg_max_pair[0])))
+            self.sim._max_seg_bound = max(1, min(self.sim.cap, int(seg_max_pair[1])))
+        else:
+            rollout_max_seg = 1
+            self.sim._max_seg_bound = 1
+
+        # Pre-flatten & cast static rollout targets once per update (avoid repeating per epoch).
+        n_aux = len(AUX_DEATH_HORIZONS)
+        s_seats = self.sim.S
+        valid_wt = valid_3d.reshape(total_world_ticks, s_seats)
+        valid_f_wt = valid_3d_f.reshape(total_world_ticks, s_seats)
+        raw_actions_wt = self.buffer.actions.reshape(total_world_ticks, s_seats).to(torch.long)
+        actions_wt = torch.where(valid_wt, raw_actions_wt, torch.zeros_like(raw_actions_wt))
+        old_logp_wt = torch.where(valid_3d, self.buffer.log_probs, zero_3d).reshape(
+            total_world_ticks, s_seats
+        )
+        adv_wt = norm_adv.reshape(total_world_ticks, s_seats)
+        returns_wt = ret_clean.reshape(total_world_ticks, s_seats)
+        aux_mask_wt = (
+            self.buffer.aux_valid.reshape(total_world_ticks, s_seats, n_aux) & valid_wt[:, :, None]
+        )
+        raw_aux_wt = self.buffer.aux_targets.reshape(total_world_ticks, s_seats, n_aux)
+        aux_targets_wt = torch.where(aux_mask_wt, raw_aux_wt, torch.zeros_like(raw_aux_wt))
+        aux_mask_f_wt = aux_mask_wt.to(torch.float32)
+
         policy_loss_acc = torch.zeros((), dtype=torch.float32, device=self.device)
         value_loss_acc = torch.zeros((), dtype=torch.float32, device=self.device)
         aux_loss_acc = torch.zeros((), dtype=torch.float32, device=self.device)
-        aux_per_h_acc = torch.zeros(
-            (len(AUX_DEATH_HORIZONS),), dtype=torch.float32, device=self.device
-        )
+        aux_per_h_acc = torch.zeros((n_aux,), dtype=torch.float32, device=self.device)
         entropy_acc = torch.zeros((), dtype=torch.float32, device=self.device)
         kl_acc = torch.zeros((), dtype=torch.float32, device=self.device)
         epoch0_kl_acc = torch.zeros((), dtype=torch.float32, device=self.device)
@@ -1331,43 +1399,35 @@ class ArenaPPOTrainer:
                 t_idx = torch.div(flat_wt, self.sim.E, rounding_mode="floor")
                 e_idx = flat_wt.remainder(self.sim.E)
 
-                mb_valid = valid_3d[t_idx, e_idx].reshape(-1)
-                raw_actions = self.buffer.actions[t_idx, e_idx].reshape(-1).to(torch.long)
-                mb_actions = torch.where(mb_valid, raw_actions, torch.zeros_like(raw_actions))
-                raw_old_logp = self.buffer.log_probs[t_idx, e_idx].reshape(-1)
-                zero_1d = torch.zeros_like(raw_old_logp)
-                mb_old_logp = torch.where(mb_valid, raw_old_logp, zero_1d)
-                mb_adv = torch.where(mb_valid, norm_adv[t_idx, e_idx].reshape(-1), zero_1d)
-                mb_returns = torch.where(
-                    mb_valid, self.buffer.returns[t_idx, e_idx].reshape(-1), zero_1d
-                )
-                raw_aux_targets = self.buffer.aux_targets[t_idx, e_idx].reshape(
-                    -1, len(AUX_DEATH_HORIZONS)
-                )
-                mb_aux_valid = self.buffer.aux_valid[t_idx, e_idx].reshape(
-                    -1, len(AUX_DEATH_HORIZONS)
-                )
-                aux_mask_bool = mb_aux_valid & mb_valid[:, None]
-                mb_aux_targets = torch.where(
-                    aux_mask_bool, raw_aux_targets, torch.zeros_like(raw_aux_targets)
-                )
+                valid_f = valid_f_wt.index_select(0, flat_wt).reshape(-1)
+                mb_actions = actions_wt.index_select(0, flat_wt).reshape(-1)
+                mb_old_logp = old_logp_wt.index_select(0, flat_wt).reshape(-1)
+                mb_adv = adv_wt.index_select(0, flat_wt).reshape(-1)
+                mb_returns = returns_wt.index_select(0, flat_wt).reshape(-1)
+                mb_aux_targets = aux_targets_wt.index_select(0, flat_wt).reshape(-1, n_aux)
+                aux_mask_f = aux_mask_f_wt.index_select(0, flat_wt).reshape(-1, n_aux)
 
                 if is_per_seat:
                     arena, ego, scalars, legal_mask = self.buffer.reconstruct_world_ticks(
-                        t_idx, e_idx, ring_chunk=self.cfg.ring_chunk
+                        t_idx,
+                        e_idx,
+                        ring_chunk=self.cfg.ring_chunk,
+                        max_seg=rollout_max_seg,
                     )
                     new_logp, entropy, val_logits, aux_logits = self.model.evaluate_actions(
                         arena, ego, scalars, legal_mask, mb_actions
                     )
                 else:
                     shared_obs, legal_mask = self.buffer.reconstruct_shared_world_ticks(
-                        t_idx, e_idx, ring_chunk=self.cfg.ring_chunk
+                        t_idx,
+                        e_idx,
+                        ring_chunk=self.cfg.ring_chunk,
+                        max_seg=rollout_max_seg,
                     )
                     new_logp, entropy, val_logits, aux_logits = self.model.evaluate_actions(
                         shared_obs, legal_mask, mb_actions
                     )
 
-                valid_f = mb_valid.to(torch.float32)
                 valid_count = valid_f.sum().clamp_min(1.0)
 
                 log_ratio = (new_logp - mb_old_logp).clamp(-20.0, 20.0)
@@ -1390,7 +1450,6 @@ class ArenaPPOTrainer:
 
                 ent_mean = (entropy * valid_f).sum() / valid_count
 
-                aux_mask_f = aux_mask_bool.to(torch.float32)
                 aux_denom = aux_mask_f.sum().clamp_min(1.0)
                 aux_bce = F.binary_cross_entropy_with_logits(
                     aux_logits, mb_aux_targets, reduction="none"
@@ -1405,11 +1464,20 @@ class ArenaPPOTrainer:
                 )
 
                 self.optimizer.zero_grad(set_to_none=True)
-                loss.backward()
-                grad_norm = torch.nn.utils.clip_grad_norm_(
-                    self.model.parameters(), max_norm=self.cfg.max_grad_norm
-                )
-                self.optimizer.step()
+                if self.grad_scaler.is_enabled():
+                    self.grad_scaler.scale(loss).backward()
+                    self.grad_scaler.unscale_(self.optimizer)
+                    grad_norm = torch.nn.utils.clip_grad_norm_(
+                        self.model.parameters(), max_norm=self.cfg.max_grad_norm
+                    )
+                    self.grad_scaler.step(self.optimizer)
+                    self.grad_scaler.update()
+                else:
+                    loss.backward()
+                    grad_norm = torch.nn.utils.clip_grad_norm_(
+                        self.model.parameters(), max_norm=self.cfg.max_grad_norm
+                    )
+                    self.optimizer.step()
 
                 with torch.no_grad():
                     approx_kl = (((ratio - 1.0) - log_ratio) * valid_f).sum() / valid_count
@@ -1491,17 +1559,14 @@ class ArenaPPOTrainer:
         with torch.no_grad():
             valid_mask = self.buffer.acted & self.buffer.learner_mask
             valid_f = valid_mask.to(torch.float32)
-            learner_rows = int(valid_mask.sum().detach().cpu().item())
-            acted_steps = int(self.buffer.acted.sum().detach().cpu().item())
-            mean_reward = float(
-                ((self.buffer.rewards * valid_f).sum() / valid_f.sum().clamp_min(1.0))
-                .detach()
-                .cpu()
-                .item()
-                if learner_rows > 0
-                else 0.0
+            valid_sum_t = valid_f.sum()
+            acted_sum_t = self.buffer.acted.to(torch.int64).sum()
+            deaths_sum_t = self.buffer.died.to(torch.int64).sum()
+            mean_rew_t = torch.where(
+                valid_sum_t > 0.0,
+                (self.buffer.rewards * valid_f).sum() / valid_sum_t.clamp_min(1.0),
+                torch.zeros((), dtype=torch.float32, device=self.device),
             )
-            deaths_count = int(self.buffer.died.sum().detach().cpu().item())
 
             alive_f = self.buffer.alive.to(torch.float32)
             alive_denom = alive_f.sum()
@@ -1517,9 +1582,21 @@ class ArenaPPOTrainer:
             nan_fill = torch.full_like(sub_len, float("nan"))
             masked_len = torch.where(sub_alive, sub_len, nan_fill).reshape(-1)
             p95_t = torch.nanquantile(masked_len, 0.95)
-            len_stats = torch.stack((mean_len_t, p95_t)).detach().cpu().tolist()
-            mean_length = 0.0 if math.isnan(len_stats[0]) else float(len_stats[0])
-            p95_length = 0.0 if math.isnan(len_stats[1]) else float(len_stats[1])
+
+            # Single host sync for all integer & float rollout summary scalars
+            int_host = (
+                torch.stack((valid_mask.to(torch.int64).sum(), acted_sum_t, deaths_sum_t))
+                .detach()
+                .cpu()
+                .tolist()
+            )
+            flt_host = torch.stack((mean_rew_t, mean_len_t, p95_t)).detach().cpu().tolist()
+            learner_rows = int(int_host[0])
+            acted_steps = int(int_host[1])
+            deaths_count = int(int_host[2])
+            mean_reward = float(flt_host[0]) if learner_rows > 0 else 0.0
+            mean_length = 0.0 if math.isnan(flt_host[1]) else float(flt_host[1])
+            p95_length = 0.0 if math.isnan(flt_host[2]) else float(flt_host[2])
 
         total_sec = max(1.0e-9, float(collect_sec + learn_sec))
         rollout_agent_steps = self.cfg.rollout_len * self.sim.E * self.sim.S
@@ -1572,6 +1649,9 @@ class ArenaPPOTrainer:
                 else None
             ),
             "optimizer_state_dict": self.optimizer.state_dict(),
+            "grad_scaler_state_dict": (
+                self.grad_scaler.state_dict() if self.grad_scaler.is_enabled() else None
+            ),
             "sim_state_dict": self.sim.state_dict(),
             "episode_return_acc": self.episode_return_acc.detach().cpu().clone(),
             "pending_late_restore": self._pending_late_restore.detach().cpu().clone(),
@@ -1589,6 +1669,7 @@ class ArenaPPOTrainer:
                 "updates_completed": int(self.updates_completed),
                 "agent_steps_collected": int(self.agent_steps_collected),
                 "world_steps_collected": int(self.world_steps_collected),
+                "time_limit_resets": int(self.time_limit_resets),
                 "checkpoints_written": int(self.checkpoints_written),
             },
         }
@@ -1675,6 +1756,12 @@ class ArenaPPOTrainer:
         if ckpt.get("snapshot_state_dict") is not None and self.snapshot_model is not None:
             self.snapshot_model.load_state_dict(ckpt["snapshot_state_dict"])
         self.optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+        use_fused_now = bool(self.device.type == "cuda" and torch.cuda.is_available())
+        for group in self.optimizer.param_groups:
+            if "fused" in group or use_fused_now:
+                group["fused"] = use_fused_now
+        if self.grad_scaler.is_enabled() and isinstance(ckpt.get("grad_scaler_state_dict"), dict):
+            self.grad_scaler.load_state_dict(ckpt["grad_scaler_state_dict"])
         self.sim.load_state_dict(ckpt["sim_state_dict"])
         if "episode_return_acc" in ckpt and ckpt["episode_return_acc"] is not None:
             self.episode_return_acc.copy_(
@@ -1683,9 +1770,19 @@ class ArenaPPOTrainer:
         else:
             self.episode_return_acc.zero_()
         if "pending_late_restore" in ckpt and ckpt["pending_late_restore"] is not None:
-            self._pending_late_restore.copy_(
-                ckpt["pending_late_restore"].to(device=self.device, dtype=torch.bool)
-            )
+            pending_lr = ckpt["pending_late_restore"]
+            if (
+                not isinstance(pending_lr, torch.Tensor)
+                or pending_lr.dtype != torch.bool
+                or tuple(pending_lr.shape) != (self.sim.E,)
+            ):
+                raise ValueError(
+                    f"Invalid pending_late_restore in {ckpt_path}: expected bool tensor of shape "
+                    f"{(self.sim.E,)}, got {type(pending_lr).__name__} "
+                    f"dtype={getattr(pending_lr, 'dtype', None)} "
+                    f"shape={getattr(pending_lr, 'shape', None)}"
+                )
+            self._pending_late_restore.copy_(pending_lr.to(device=self.device, dtype=torch.bool))
             self._has_pending_late_restore = bool(
                 self._pending_late_restore.any().detach().cpu().item()
             )
@@ -1700,6 +1797,7 @@ class ArenaPPOTrainer:
         self.updates_completed = int(counters["updates_completed"])
         self.agent_steps_collected = int(counters["agent_steps_collected"])
         self.world_steps_collected = int(counters["world_steps_collected"])
+        self.time_limit_resets = int(counters.get("time_limit_resets", 0))
         self.checkpoints_written = int(counters.get("checkpoints_written", 0))
 
         # Restore RNG states LAST so tensor loads/allocations above do not advance RNG streams.
@@ -1816,6 +1914,22 @@ def verify_staged_checkpoint(
     for req_sim_key in ("prev_heads", "prev_alive", "world_opponent_kind"):
         if req_sim_key not in sim_state:
             raise ValueError(f"Checkpoint sim_state_dict missing {req_sim_key!r} at {ckpt_path}")
+
+    if "pending_late_restore" in ckpt and ckpt["pending_late_restore"] is not None:
+        pending_lr = ckpt["pending_late_restore"]
+        if (
+            not isinstance(pending_lr, torch.Tensor)
+            or pending_lr.dtype != torch.bool
+            or tuple(pending_lr.shape) != (cfg.num_envs,)
+        ):
+            raise ValueError(
+                f"Invalid pending_late_restore in {ckpt_path}: expected bool tensor of shape "
+                f"{(cfg.num_envs,)}, got {type(pending_lr).__name__} "
+                f"dtype={getattr(pending_lr, 'dtype', None)} "
+                f"shape={getattr(pending_lr, 'shape', None)}"
+            )
+    elif cfg.late_reset_enabled or ckpt.get("late_reservoir") is not None:
+        raise ValueError(f"Checkpoint missing pending_late_restore tensor at {ckpt_path}")
 
     if ckpt.get("late_reservoir") is not None:
         lr_state = ckpt["late_reservoir"]
@@ -2038,9 +2152,11 @@ def run_training_job(
     last_output_publish_wall = wall_start
     last_metrics: dict[str, Any] = {}
     last_update_sec: float = 0.0
+    session_updates_completed: int = 0
     # Conservative initial estimate (~100 MiB/s) until first real checkpoint save is timed.
     est_ckpt_bytes = estimate_checkpoint_bytes(cfg)
     last_ckpt_save_sec: float = max(1.0, float(est_ckpt_bytes) / float(100 * 1024 * 1024))
+    last_output_publish_sec: float = max(0.5, 0.25 * last_ckpt_save_sec)
     aborted_mid_update = False
     stopped_reason = "completed_target_updates"
     pruned_checkpoints: list[str] = []
@@ -2091,6 +2207,7 @@ def run_training_job(
                     stopped_reason = f"signal:{stop_flag.signal_name or 'INTERRUPTED'}"
                     break
 
+                session_updates_completed += 1
                 last_metrics = asdict(metrics)
                 last_update_sec = float(metrics.collect_sec + metrics.learn_sec)
                 log_writer.append(_format_update_log_record(metrics))
@@ -2103,12 +2220,18 @@ def run_training_job(
                     cfg.checkpoint_every_updates > 0
                     and trainer.updates_completed % cfg.checkpoint_every_updates == 0
                 )
-                over_max_update = cfg.max_update_seconds > 0.0 and last_update_sec > float(
-                    cfg.max_update_seconds
+                # Exempt the first update of a session from `over_max_update` because it
+                # includes one-time torch.compile / kernel autotuning / allocator warmup.
+                over_max_update = (
+                    session_updates_completed > 1
+                    and cfg.max_update_seconds > 0.0
+                    and last_update_sec > float(cfg.max_update_seconds)
                 )
                 elapsed_since_publish = now_wall - last_output_publish_wall
-                projected_next_publish_gap = (
-                    elapsed_since_publish + max(0.0, last_update_sec) + max(0.0, last_ckpt_save_sec)
+                projected_next_publish_gap = elapsed_since_publish + PUBLISH_GAP_SAFETY_FACTOR * (
+                    max(0.0, last_update_sec)
+                    + max(0.0, last_ckpt_save_sec)
+                    + max(0.0, last_output_publish_sec)
                 )
                 due_output_publish = (
                     elapsed_since_publish >= float(cfg.output_publish_interval_sec)
@@ -2138,6 +2261,7 @@ def run_training_job(
                         newest_verified_work_ckpt = periodic_path
 
                     if due_output_publish and newest_verified_work_ckpt is not None:
+                        t_pub = time.monotonic()
                         _, pub_names = _publish_work_checkpoint_to_output(
                             newest_verified_work_ckpt,
                             ckpt_out_dir,
@@ -2146,8 +2270,9 @@ def run_training_job(
                             staging_dir=ckpt_work_dir,
                             fallback_counters=_current_counters(),
                         )
-                        published_checkpoints.extend(pub_names)
                         last_output_publish_wall = time.monotonic()
+                        last_output_publish_sec = last_output_publish_wall - t_pub
+                        published_checkpoints.extend(pub_names)
 
                 if (
                     cfg.eval_every_updates > 0
@@ -2278,9 +2403,11 @@ def run_training_job(
         "updates_completed": trainer.updates_completed,
         "agent_steps_collected": trainer.agent_steps_collected,
         "world_steps_collected": trainer.world_steps_collected,
+        "total_time_limit_resets": trainer.time_limit_resets,
         "wall_seconds": round(time.monotonic() - wall_start, 4),
         "last_update_seconds": round(last_update_sec, 4),
         "last_checkpoint_save_seconds": round(last_ckpt_save_sec, 4),
+        "last_output_publish_seconds": round(last_output_publish_sec, 4),
         "work_dir": str(resolved_work_dir),
         "pruned_periodic_checkpoints": pruned_checkpoints,
         "published_checkpoints": published_checkpoints,
@@ -2292,9 +2419,13 @@ def run_training_job(
                 "reservoir_size": trainer.late_reservoir.size,
                 "total_harvested": trainer.late_reservoir.total_harvested,
                 "total_restored": trainer.late_reservoir.total_restored,
+                "total_time_limit_resets": trainer.time_limit_resets,
             }
             if trainer.late_reservoir is not None
-            else {"enabled": False}
+            else {
+                "enabled": False,
+                "total_time_limit_resets": trainer.time_limit_resets,
+            }
         ),
         "last_update_metrics": last_metrics,
         "final_checkpoint_sha256": final_ckpt_sha,
@@ -2351,6 +2482,23 @@ def main() -> int:
             else None
         ),
     )
+    amp_group = parser.add_mutually_exclusive_group()
+    amp_group.add_argument(
+        "--amp",
+        dest="amp",
+        action="store_true",
+        default=None,
+        help=(
+            "Enable opt-in CUDA mixed precision "
+            "(bf16 on Ampere/Ada/Hopper, fp16+GradScaler else)."
+        ),
+    )
+    amp_group.add_argument(
+        "--no-amp",
+        dest="amp",
+        action="store_false",
+        help="Disable CUDA mixed precision (fp32 everywhere).",
+    )
     args = parser.parse_args()
 
     raw_cfg_dict: dict[str, Any] = {}
@@ -2360,6 +2508,11 @@ def main() -> int:
             raw_cfg_dict = json.loads(source)
         else:
             raw_cfg_dict = json.loads(Path(source).read_text(encoding="utf-8"))
+    env_amp = os.environ.get("ARENA_PPO_AMP")
+    if args.amp is not None:
+        raw_cfg_dict["amp"] = bool(args.amp)
+    elif env_amp in {"0", "1", "false", "true", "False", "True"} and "amp" not in raw_cfg_dict:
+        raw_cfg_dict["amp"] = env_amp.lower() in {"1", "true"}
     if args.net_arch is not None:
         prev_arch = raw_cfg_dict.get("net_arch")
         raw_cfg_dict["net_arch"] = args.net_arch

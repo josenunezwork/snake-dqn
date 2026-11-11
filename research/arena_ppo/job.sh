@@ -64,6 +64,15 @@ elif [ "$MODE" = "ruler" ]; then
   if [ "${ARENA_PPO_NO_BEST_COMPILE:-0}" = "1" ]; then
     RULER_ARGS+=(--no-best-compile)
   fi
+  if [ "${ARENA_PPO_NO_LARGER_MINIBATCH:-0}" = "1" ]; then
+    RULER_ARGS+=(--no-larger-minibatch)
+  fi
+  if [ "${ARENA_PPO_AMP:-0}" = "1" ]; then
+    RULER_ARGS+=(--amp)
+  fi
+  if [ "${ARENA_PPO_INCLUDE_AMP:-0}" = "1" ]; then
+    RULER_ARGS+=(--include-amp)
+  fi
   if [ -n "${ARENA_PPO_MAX_WALL_SECONDS:-}" ]; then
     RULER_ARGS+=(--max-wall-seconds "$ARENA_PPO_MAX_WALL_SECONDS")
   fi
@@ -82,6 +91,9 @@ elif [ "$MODE" = "train" ]; then
   fi
   if [ -n "${ARENA_PPO_NET_ARCH:-}" ]; then
     TRAIN_ARGS+=(--net-arch "$ARENA_PPO_NET_ARCH")
+  fi
+  if [ "${ARENA_PPO_AMP:-0}" = "1" ]; then
+    TRAIN_ARGS+=(--amp)
   fi
   if [ -n "${ARENA_PPO_MAX_WALL_SECONDS:-}" ]; then
     TRAIN_ARGS+=(--max-wall-seconds "$ARENA_PPO_MAX_WALL_SECONDS")

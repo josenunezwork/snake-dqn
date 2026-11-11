@@ -156,6 +156,14 @@ def test_m1_per_net_defaults_and_minor10_bf16_fallback_and_caching(
     assert default_minibatch_size("M", net_arch="per_seat") == 768
 
     fake_cuda = torch.device("cuda", 0)
+    # Default is opt-in OFF (`use_bf16_autocast=False`) across all 3 network configs
+    net_default = ArenaNet(ArenaNetConfig.from_size("S"))
+    assert net_default.cfg.use_bf16_autocast is False
+    assert SharedTrunkNetConfig.from_size("S").use_bf16_autocast is False
+    assert EgoOnlyNetConfig.from_size("S").use_bf16_autocast is False
+    assert getattr(net_default._autocast_ctx(fake_cuda), "fast_dtype", None) is None
+    assert net_default.uses_fp16_grad_scaler(fake_cuda) is False
+
     calls_fp16 = {"n": 0}
 
     def _no_bf16() -> bool:
@@ -163,10 +171,12 @@ def test_m1_per_net_defaults_and_minor10_bf16_fallback_and_caching(
         return False
 
     monkeypatch.setattr(torch.cuda, "is_bf16_supported", _no_bf16)
-    net_fp16 = ArenaNet(ArenaNetConfig.from_size("S"))
+    net_fp16 = ArenaNet(ArenaNetConfig.from_size("S", use_bf16_autocast=True))
     for _ in range(8):
         ctx_fp16 = net_fp16._autocast_ctx(fake_cuda)
         assert getattr(ctx_fp16, "fast_dtype", None) == torch.float16
+    assert net_fp16.uses_fp16_grad_scaler(fake_cuda) is True
+    assert net_fp16.uses_fp16_grad_scaler(torch.device("cpu")) is False
     assert calls_fp16["n"] == 1, "is_bf16_supported() must be cached per ArenaNet instance"
 
     calls_bf16 = {"n": 0}
@@ -176,10 +186,11 @@ def test_m1_per_net_defaults_and_minor10_bf16_fallback_and_caching(
         return True
 
     monkeypatch.setattr(torch.cuda, "is_bf16_supported", _yes_bf16)
-    net_bf16 = ArenaNet(ArenaNetConfig.from_size("S"))
+    net_bf16 = ArenaNet(ArenaNetConfig.from_size("S", use_bf16_autocast=True))
     for _ in range(8):
         ctx_bf16 = net_bf16._autocast_ctx(fake_cuda)
         assert getattr(ctx_bf16, "fast_dtype", None) == torch.bfloat16
+    assert net_bf16.uses_fp16_grad_scaler(fake_cuda) is False
     assert calls_bf16["n"] == 1
 
 
@@ -485,3 +496,73 @@ def test_minor5_shared_trunk_and_ego_only_seat_isolation_on_ego_and_scalars(
     assert torch.allclose(ent_base[other_rows], ent_pert[other_rows], atol=1e-6, rtol=0.0)
     assert torch.allclose(vl_base[other_rows], vl_pert[other_rows], atol=1e-6, rtol=0.0)
     assert torch.allclose(al_base[other_rows], al_pert[other_rows], atol=1e-6, rtol=0.0)
+
+
+@pytest.mark.parametrize("net_arch", ["ego_only", "shared_trunk", "per_seat"])
+def test_amp_cpu_fallback_channels_last_and_evaluate_actions_skip_value_bit_identical(
+    net_arch: str,
+) -> None:
+    """Task A: amp=True falls back cleanly on CPU; evaluate_actions(compute_value=False) exact."""
+    torch.manual_seed(20261112)
+    m_off = build_arena_model(net_arch, "S", amp=False).eval()  # type: ignore[arg-type]
+    m_on = build_arena_model(net_arch, "S", amp=True).eval()  # type: ignore[arg-type]
+    m_on.load_state_dict(m_off.state_dict())
+
+    assert m_off.cfg.use_bf16_autocast is False
+    assert m_on.cfg.use_bf16_autocast is True
+    assert m_on.uses_fp16_grad_scaler(torch.device("cpu")) is False
+
+    w_bsz, s_cnt = 2, 6
+    rows = w_bsz * s_cnt
+    ego = torch.randn((rows, NUM_OBS_CHANNELS, EGO_CROP_SIZE, EGO_CROP_SIZE))
+    scalars = torch.randn((rows, SCALAR_DIM))
+    legal_mask = torch.ones((rows, 6), dtype=torch.bool)
+    legal_mask[:4, 3:] = False
+    actions = torch.zeros((rows,), dtype=torch.long)
+
+    with torch.no_grad():
+        if isinstance(m_off, ArenaNet):
+            assert isinstance(m_on, ArenaNet)
+            arena = torch.randn((rows, NUM_OBS_CHANNELS, ARENA_GRID_H, ARENA_GRID_W))
+            f_off = m_off.forward(arena, ego, scalars, legal_mask=legal_mask, compute_value=True)
+            f_on = m_on.forward(arena, ego, scalars, legal_mask=legal_mask, compute_value=True)
+            f_noval = m_off.forward(arena, ego, scalars, legal_mask=legal_mask, compute_value=False)
+            lp_off, ent_off, vl_off, al_off = m_off.evaluate_actions(
+                arena, ego, scalars, legal_mask, actions
+            )
+            lp_on, ent_on, vl_on, al_on = m_on.evaluate_actions(
+                arena, ego, scalars, legal_mask, actions
+            )
+        else:
+            obs = SharedWorldObs(
+                world_arena=torch.randn((w_bsz, NUM_WORLD_CHANNELS, ARENA_GRID_H, ARENA_GRID_W)),
+                ego=ego,
+                scalars=scalars,
+                head_xy=torch.zeros((w_bsz, s_cnt, 2), dtype=torch.long),
+                direction=torch.zeros((w_bsz, s_cnt), dtype=torch.long),
+                alive=torch.ones((w_bsz, s_cnt), dtype=torch.bool),
+            )
+            f_off = m_off.forward(  # type: ignore[arg-type]
+                obs, legal_mask=legal_mask, compute_value=True
+            )
+            f_on = m_on.forward(  # type: ignore[arg-type]
+                obs, legal_mask=legal_mask, compute_value=True
+            )
+            f_noval = m_off.forward(  # type: ignore[arg-type]
+                obs, legal_mask=legal_mask, compute_value=False
+            )
+            lp_off, ent_off, vl_off, al_off = m_off.evaluate_actions(  # type: ignore[arg-type]
+                obs, legal_mask, actions
+            )
+            lp_on, ent_on, vl_on, al_on = m_on.evaluate_actions(  # type: ignore[arg-type]
+                obs, legal_mask, actions
+            )
+
+    assert torch.equal(f_off.masked_logits, f_on.masked_logits)
+    assert torch.equal(f_off.value, f_on.value)
+    assert torch.equal(f_off.value_logits, f_noval.value_logits)
+    assert torch.equal(f_noval.value, torch.zeros_like(f_off.value))
+    assert torch.equal(lp_off, lp_on) and lp_on.dtype == torch.float32
+    assert torch.equal(ent_off, ent_on) and ent_on.dtype == torch.float32
+    assert torch.equal(vl_off, vl_on) and vl_on.dtype == torch.float32
+    assert torch.equal(al_off, al_on) and al_on.dtype == torch.float32
