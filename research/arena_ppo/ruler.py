@@ -83,6 +83,7 @@ MIN_ACTOR_CHUNK_ENVS: int = 64
 MIN_MINIBATCH_ROWS: int = 192
 
 RULER_REQUIRED_EXPORTS: tuple[str, ...] = ("ruler_result.json",)
+EVAL_REQUIRED_EXPORTS: tuple[str, ...] = ("eval_result.json",)
 TRAIN_REQUIRED_EXPORTS: tuple[str, ...] = (
     "checkpoints/final.pt",
     "arena_ppo_weights.pth",
@@ -94,6 +95,7 @@ CANARY_REQUIRED_EXPORTS: tuple[str, ...] = (
     "checkpoints/final.pt",
     "arena_ppo_weights.pth",
     "train_result.json",
+    "eval_result.json",
 )
 
 
@@ -2410,6 +2412,7 @@ def run_canary_suite(
     # For a staged checkpoint we instantiate its config and verify `load_checkpoint` (0 updates),
     # keeping the tiny 2-update canary train below independent of production world count/size.
     staged_verification: dict[str, Any] | None = None
+    staged_eval_opp_spec: str = "greedy_food"
     if ledger_path is not None and ledger_path.is_file() and input_dir is not None:
         ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
         resume_entry = ledger.get("resume_checkpoint")
@@ -2461,6 +2464,21 @@ def run_canary_suite(
                     "kind": "ruler_cells",
                     "verified_cells": verified_cell_ids,
                 }
+        eval_opp_entry = ledger.get("eval_opponent_checkpoint")
+        if isinstance(eval_opp_entry, dict):
+            staged_opp = Path(input_dir) / str(eval_opp_entry["relpath"])
+            if not staged_opp.is_file():
+                raise FileNotFoundError(f"Missing staged eval opponent checkpoint at {staged_opp}")
+            opp_sha = sha256_file(staged_opp)
+            if opp_sha != eval_opp_entry.get("sha256"):
+                raise ValueError(
+                    f"Staged eval opponent checkpoint SHA mismatch at {staged_opp}: "
+                    f"{opp_sha!r} != {eval_opp_entry.get('sha256')!r}"
+                )
+            opp_kind_tag = str(eval_opp_entry.get("kind", "ckpt"))
+            staged_eval_opp_spec = (
+                f"b8:{staged_opp}" if opp_kind_tag == "b8" else f"ckpt:{staged_opp}"
+            )
 
     # 3. Tiny REAL ruler probing ONE cell of EACH arch (ego_only, shared_trunk, per_seat;
     # smallest E, a few ticks, single learner minibatch) under default precision (bf16 ON on
@@ -2740,6 +2758,22 @@ def run_canary_suite(
         shutil.rmtree(tmp_canary_dir, ignore_errors=True)
 
     assert train_res is not None and final_train_cfg is not None
+    from research.arena_ppo.evaluate import evaluate_policy
+
+    phase_stamp("canary_eval", "START", opponent=staged_eval_opp_spec)
+    eval_res = evaluate_policy(
+        checkpoint=out / "checkpoints" / "final.pt",
+        opponent=staged_eval_opp_spec,
+        learner_seats=1,
+        worlds=canary_ruler_envs,
+        ticks=2,
+        burnin=1,
+        seed=seed,
+        device=resolved_dev,
+        out=out / "eval_result.json",
+        create_only_sidecars=True,
+    )
+    phase_stamp("canary_eval", "END", wall_seconds=eval_res["timing"]["wall_seconds"])
     write_create_only_json(
         out / "canary_checks.json",
         {
@@ -2762,6 +2796,7 @@ def run_canary_suite(
         "ruler_result": ruler_res,
         "train_by_arch": train_by_arch,
         "train_result": train_res,
+        "eval_result": eval_res,
     }
 
 

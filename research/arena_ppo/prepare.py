@@ -1,4 +1,4 @@
-"""Prepare Stage 1 Arena PPO Colab CLI packets (`canary`, `ruler`, and `train` modes)."""
+"""Prepare Stage 1 Arena PPO Colab CLI packets (`canary`, `ruler`, `train`, and `eval` modes)."""
 
 from __future__ import annotations
 
@@ -12,6 +12,14 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+from research.arena_ppo.evaluate import (
+    DEFAULT_EVAL_BURNIN,
+    DEFAULT_EVAL_SEED,
+    DEFAULT_EVAL_TICKS,
+    DEFAULT_EVAL_WORLDS,
+    load_arena_ppo_policy,
+    resolve_b8_checkpoint_path,
+)
 from research.arena_ppo.net import VALID_NET_ARCHS, NetArch, NetSize
 from research.arena_ppo.ppo import (
     _RESUME_MUTABLE_CONFIG_KEYS,
@@ -26,6 +34,7 @@ from research.arena_ppo.ppo import (
 )
 from research.arena_ppo.ruler import (
     CANARY_REQUIRED_EXPORTS,
+    EVAL_REQUIRED_EXPORTS,
     RULER_REQUIRED_EXPORTS,
     TRAIN_REQUIRED_EXPORTS,
     _parse_archs_csv,
@@ -38,13 +47,14 @@ from research.arena_ppo.runtime import (
     write_create_only_artifact,
 )
 from research.colab_cli import canary as colab_canary
+from src.model.ego2s_network import load_ego2s_checkpoint
 
 ROOT = Path(__file__).resolve().parents[2]
 FAMILY_SCRIPT = "research/arena_ppo/job.sh"
 FAMILY_PACKAGE = "research/arena_ppo"
 REQUIREMENTS_RELPATH = "research/arena_ppo/requirements.txt"
 
-PREPARE_MODES: tuple[str, ...] = ("canary", "ruler", "train")
+PREPARE_MODES: tuple[str, ...] = ("canary", "ruler", "train", "eval")
 SUPPORTED_GPUS: tuple[str, ...] = ("L4", "A100", "H100")
 GPU_FORECAST_RATES_UPH: dict[str, float] = {
     "L4": 1.54,
@@ -63,6 +73,11 @@ RULER_BASE_MINUTES = 30.0
 RULER_TIMEOUT_MINUTES = 60.0
 RULER_WALL_GUARD_SECONDS = (RULER_TIMEOUT_MINUTES - 8.0) * 60.0  # 3120s (52 min)
 
+# Fixed-opponent evaluation envelope: 15 min base / 30 min 2x timeout (<= 60m acceptance cap)
+EVAL_BASE_MINUTES = 15.0
+EVAL_TIMEOUT_MINUTES = 30.0
+EVAL_WALL_GUARD_SECONDS = (EVAL_TIMEOUT_MINUTES - 6.0) * 60.0  # 1440s (24 min)
+
 
 def _write_json_create_only(path: Path, payload: dict[str, Any]) -> None:
     if path.exists():
@@ -80,9 +95,11 @@ def runtime_source_paths(commit: str) -> list[str]:
         "r2_cache.py",
         "anchors_device.py",
         "masks_device.py",
+        "ego_device.py",
+        "v8_device.py",
         *(
             f"{stem}.{suffix}"
-            for stem in ("move_cuda", "event_cuda")
+            for stem in ("move_cuda", "event_cuda", "flood_cuda", "v8_indexed")
             for suffix in ("py", "cpp", "cu")
         ),
     }
@@ -94,6 +111,7 @@ def runtime_source_paths(commit: str) -> list[str]:
         "net.py",
         "ppo.py",
         "ruler.py",
+        "evaluate.py",
         "job.sh",
         "requirements.txt",
     }
@@ -125,9 +143,10 @@ def runtime_source_paths(commit: str) -> list[str]:
             )
         )
     ]
+    req_files = ["__init__.py", "job.sh", "requirements.txt", "ruler.py", "ppo.py"]
     missing_core = sorted(
         f"research/arena_ppo/{req}"
-        for req in ("__init__.py", "job.sh", "requirements.txt", "ruler.py", "ppo.py")
+        for req in req_files
         if f"research/arena_ppo/{req}" not in selected
     )
     if missing_core:
@@ -297,6 +316,109 @@ def _stage_prior_ruler_cells(
     return staged_ids
 
 
+def _stage_eval_checkpoint_file(
+    ckpt_file: Path,
+    pkt_inputs_dir: Path,
+    inputs_list: list[dict[str, str]],
+    ledger: dict[str, Any],
+) -> dict[str, Any]:
+    """Validate and stage an explicit Arena PPO learner checkpoint for `canary` / `eval`."""
+    src_ckpt = Path(ckpt_file).resolve()
+    if not src_ckpt.is_file():
+        raise FileNotFoundError(f"eval_checkpoint does not exist: {src_ckpt}")
+    loaded = load_arena_ppo_policy(src_ckpt, "cpu")
+    dest_name = "eval_learner_checkpoint.pt"
+    dst_ckpt = pkt_inputs_dir / dest_name
+    ckpt_sha = write_create_only_artifact(
+        dst_ckpt, lambda tmp, src=src_ckpt: shutil.copyfile(src, tmp)
+    )
+    inputs_list.append(
+        {
+            "path": str(dst_ckpt),
+            "dest": dest_name,
+            "sha256": ckpt_sha,
+        }
+    )
+    entry = {
+        "relpath": dest_name,
+        "sha256": ckpt_sha,
+        "size_bytes": int(dst_ckpt.stat().st_size),
+    }
+    if loaded.metadata.get("schema") == ARENA_PPO_SCHEMA:
+        ledger["resume_checkpoint"] = entry
+    else:
+        ledger["eval_learner_checkpoint"] = entry
+    ledger["verified_units"].append({"unit_id": "staged:eval_learner", **entry})
+    return entry
+
+
+def _stage_eval_opponent_file(
+    opponent_spec: str,
+    pkt_inputs_dir: Path,
+    inputs_list: list[dict[str, str]],
+    ledger: dict[str, Any],
+    *,
+    explicit_opponent_checkpoint: Path | str | None = None,
+) -> tuple[str, dict[str, Any] | None]:
+    """Validate and stage opponent weights (`b8` or `ckpt:<path>`) when needed."""
+    raw = str(opponent_spec).strip()
+    if raw in ("random_safe", "greedy_food", "untrained"):
+        if explicit_opponent_checkpoint is not None:
+            raise ValueError(f"eval_opponent_checkpoint is not used with opponent={raw!r}")
+        return raw, None
+
+    if raw in ("b8", "b8-s3") or raw.startswith("b8:"):
+        b8_arg: str | Path | None = explicit_opponent_checkpoint
+        if raw.startswith("b8:"):
+            b8_arg = raw[len("b8:") :].strip()
+        src_b8, _ = resolve_b8_checkpoint_path(b8_arg)
+        _ = load_ego2s_checkpoint(str(src_b8), device="cpu")
+        dest_name = "eval_opponent_checkpoint.pt"
+        dst_b8 = pkt_inputs_dir / dest_name
+        b8_sha = write_create_only_artifact(
+            dst_b8, lambda tmp, src=src_b8: shutil.copyfile(src, tmp)
+        )
+        inputs_list.append({"path": str(dst_b8), "dest": dest_name, "sha256": b8_sha})
+        entry = {
+            "kind": "b8",
+            "relpath": dest_name,
+            "sha256": b8_sha,
+            "size_bytes": int(dst_b8.stat().st_size),
+        }
+        ledger["eval_opponent_checkpoint"] = entry
+        ledger["verified_units"].append({"unit_id": "staged:eval_opponent", **entry})
+        return "b8", entry
+
+    if raw == "ckpt" or raw.startswith("ckpt:"):
+        ckpt_arg: str | Path | None = explicit_opponent_checkpoint
+        if raw.startswith("ckpt:"):
+            ckpt_arg = raw[len("ckpt:") :].strip()
+        if ckpt_arg is None:
+            raise ValueError("opponent='ckpt' requires ckpt:<PATH> or --eval-opponent-checkpoint")
+        src_opp = Path(ckpt_arg).expanduser().resolve()
+        _ = load_arena_ppo_policy(src_opp, "cpu")
+        dest_name = "eval_opponent_checkpoint.pt"
+        dst_opp = pkt_inputs_dir / dest_name
+        opp_sha = write_create_only_artifact(
+            dst_opp, lambda tmp, src=src_opp: shutil.copyfile(src, tmp)
+        )
+        inputs_list.append({"path": str(dst_opp), "dest": dest_name, "sha256": opp_sha})
+        entry = {
+            "kind": "ckpt",
+            "relpath": dest_name,
+            "sha256": opp_sha,
+            "size_bytes": int(dst_opp.stat().st_size),
+        }
+        ledger["eval_opponent_checkpoint"] = entry
+        ledger["verified_units"].append({"unit_id": "staged:eval_opponent", **entry})
+        return "ckpt", entry
+
+    raise ValueError(
+        f"Unsupported eval_opponent {opponent_spec!r}; expected random_safe, greedy_food, "
+        "untrained, b8, b8-s3, b8:<PATH>, or ckpt:<PATH>"
+    )
+
+
 def _build_canary_receipt_binding(
     canary_receipt: Path | str,
     gpu_norm: str,
@@ -338,6 +460,16 @@ def prepare_arena_ppo_packet(
     output_dir: Path | str | None = None,
     prior_output_dir: Path | str | None = None,
     prior_kind: str = "auto",
+    eval_checkpoint: Path | str | None = None,
+    eval_opponent: str | None = None,
+    eval_opponent_checkpoint: Path | str | None = None,
+    eval_learner_seats: int = 1,
+    eval_worlds: int = DEFAULT_EVAL_WORLDS,
+    eval_ticks: int = DEFAULT_EVAL_TICKS,
+    eval_burnin: int = DEFAULT_EVAL_BURNIN,
+    eval_seed: int = DEFAULT_EVAL_SEED,
+    eval_greedy: bool = False,
+    eval_base_minutes: float | None = None,
     canary_receipt: Path | str | None = None,
     ppo_config: ArenaPPOConfig | None = None,
     explicit_total_updates: bool = False,
@@ -347,15 +479,16 @@ def prepare_arena_ppo_packet(
     attempt: str = "attempt-01",
     allow_unmerged_commit: bool = False,
 ) -> dict[str, Any]:
-    """Prepare a Colab CLI packet for Stage 1 Arena PPO (`canary`, `ruler`, or `train`).
+    """Prepare a Colab CLI packet for Stage 1 Arena PPO (`canary`, `ruler`, `train`, or `eval`).
 
     Args:
         packet_dir: Fresh target packet directory on Mac.
         commit: Git revision to pin (must be an ancestor of ``origin/main`` unless
             ``allow_unmerged_commit=True`` is explicitly requested for local pre-merge checks).
         mode: ``"canary"`` (15 min base / 30 min timeout instrumented family probe), ``"ruler"``
-            (<= 60 min uninstrumented science ruler bound to canary receipt), or ``"train"``
-            (resumable training session bound to canary receipt).
+            (<= 60 min uninstrumented science ruler bound to canary receipt), ``"train"``
+            (resumable training session bound to canary receipt), or ``"eval"``
+            (<= 60 min fixed-opponent evaluation bound to canary receipt).
         gpu: Target GPU in ``{"L4", "A100", "H100"}`` (default ``"L4"``).
         hours: Session wall timeout in hours for ``mode="train"`` (`timeout = hours * 60` min).
         expected_steps_per_sec: Expected agent-steps/s for ``train`` plan calculation.
@@ -367,9 +500,19 @@ def prepare_arena_ppo_packet(
         ruler_nets: Optional comma-separated sizes for ``ruler`` (e.g. ``"S,M"``).
         no_one_epoch_cell: Disable the 1-PPO-epoch probe cell in ``ruler`` mode.
         output_dir: Optional fresh absolute Mac output directory.
-        prior_output_dir: Optional prior attempt output directory for resume staging.
+        prior_output_dir: Optional prior attempt output directory for resume/eval staging.
         prior_kind: ``"auto"``, ``"checkpoint"``, or ``"ruler_cells"`` when staging prior output.
-        canary_receipt: Family canary `receipt.json` path to bind for ``ruler`` and ``train``.
+        eval_checkpoint: Optional explicit learner checkpoint path to stage for ``canary``/``eval``.
+        eval_opponent: Opponent spec for ``eval`` (or ``canary`` when staging opponent weights).
+        eval_opponent_checkpoint: Optional explicit opponent checkpoint path (`b8` or `ckpt`).
+        eval_learner_seats: Learner seats `K` per world for ``eval``.
+        eval_worlds: Parallel world count `W` for ``eval``.
+        eval_ticks: Post-burn-in ticks `T` for ``eval``.
+        eval_burnin: Burn-in ticks `B` for ``eval``.
+        eval_seed: Deterministic seed `S` for ``eval``.
+        eval_greedy: Greedy argmax learner actions for ``eval``.
+        eval_base_minutes: Optional base duration in `[3.0, 30.0]` min for ``eval`` (`2x <= 60m`).
+        canary_receipt: Family canary `receipt.json` path to bind for ``ruler``/``train``/``eval``.
         ppo_config: Optional ``ArenaPPOConfig`` serialized into ``env["ARENA_PPO_CONFIG_JSON"]``.
         measured_checkpoint_bytes: Optional empirically measured single-checkpoint size in bytes
             for ``train`` ``max_export_bytes`` sizing.
@@ -388,6 +531,8 @@ def prepare_arena_ppo_packet(
         raise ValueError(f"gpu must be one of {SUPPORTED_GPUS} (T4 unsupported), got {gpu!r}")
     if not re_safe_attempt(attempt):
         raise ValueError(f"Invalid attempt slug {attempt!r}")
+    if eval_checkpoint is not None and prior_output_dir is not None:
+        raise ValueError("Pass at most one of --eval-checkpoint or --prior-output-dir")
 
     resolved_commit = subprocess.check_output(
         ["git", "rev-parse", "--verify", f"{commit}^{{commit}}"], cwd=ROOT, text=True
@@ -439,17 +584,25 @@ def prepare_arena_ppo_packet(
         "verified_units": [],
     }
     inputs_list: list[dict[str, str]] = []
-    if prior_output_dir is not None:
+    staged_learner_relpath: str | None = None
+    if eval_checkpoint is not None:
+        if mode not in ("canary", "eval"):
+            raise ValueError("--eval-checkpoint is supported only for --mode canary or --mode eval")
+        staged_entry = _stage_eval_checkpoint_file(
+            Path(eval_checkpoint), pkt_inputs_dir, inputs_list, ledger
+        )
+        staged_learner_relpath = str(staged_entry["relpath"])
+    elif prior_output_dir is not None:
         if prior_kind not in ("auto", "checkpoint", "ruler_cells"):
             raise ValueError(f"Unsupported prior_kind={prior_kind!r}")
-        if mode == "train" and prior_kind == "ruler_cells":
-            raise ValueError("mode='train' requires prior_kind in {'auto', 'checkpoint'}")
+        if mode in ("train", "eval") and prior_kind == "ruler_cells":
+            raise ValueError(f"mode={mode!r} requires prior_kind in {{'auto', 'checkpoint'}}")
         if mode == "ruler" and prior_kind == "checkpoint":
             raise ValueError("mode='ruler' requires prior_kind in {'auto', 'ruler_cells'}")
 
         eff_prior_kind = prior_kind
         if eff_prior_kind == "auto":
-            if mode == "train":
+            if mode in ("train", "eval"):
                 eff_prior_kind = "checkpoint"
             elif mode == "ruler":
                 eff_prior_kind = "ruler_cells"
@@ -458,9 +611,34 @@ def prepare_arena_ppo_packet(
         if eff_prior_kind == "ruler_cells":
             _stage_prior_ruler_cells(Path(prior_output_dir), pkt_inputs_dir, inputs_list, ledger)
         elif eff_prior_kind == "checkpoint":
-            _stage_prior_checkpoint(Path(prior_output_dir), pkt_inputs_dir, inputs_list, ledger)
+            staged_entry = _stage_prior_checkpoint(
+                Path(prior_output_dir), pkt_inputs_dir, inputs_list, ledger
+            )
+            staged_learner_relpath = str(staged_entry["relpath"])
         else:
             raise ValueError(f"Unsupported prior_kind={prior_kind!r}")
+
+    staged_opp_kind: str | None = None
+    staged_opp_entry: dict[str, Any] | None = None
+    if mode == "eval":
+        eff_eval_opp = eval_opponent or "greedy_food"
+        staged_opp_kind, staged_opp_entry = _stage_eval_opponent_file(
+            eff_eval_opp,
+            pkt_inputs_dir,
+            inputs_list,
+            ledger,
+            explicit_opponent_checkpoint=eval_opponent_checkpoint,
+        )
+    elif mode == "canary" and (eval_opponent is not None or eval_opponent_checkpoint is not None):
+        if eval_opponent is None:
+            raise ValueError("--eval-opponent-checkpoint requires --eval-opponent")
+        staged_opp_kind, staged_opp_entry = _stage_eval_opponent_file(
+            eval_opponent,
+            pkt_inputs_dir,
+            inputs_list,
+            ledger,
+            explicit_opponent_checkpoint=eval_opponent_checkpoint,
+        )
 
     ledger_path = pkt_inputs_dir / "verified-ledger.json"
     ledger_bytes = (json.dumps(ledger, indent=2, sort_keys=True) + "\n").encode("utf-8")
@@ -561,6 +739,71 @@ def prepare_arena_ppo_packet(
                 "reason": (
                     f"Stage 1 Arena PPO {gpu_norm} throughput & VRAM science ruler (60m runaway "
                     "guard; per-cell create-only JSONs + signal-safe partial ruler_result.json)"
+                ),
+            }
+        }
+        if canary_receipt is not None:
+            canary_block = _build_canary_receipt_binding(canary_receipt, gpu_norm)
+    elif mode == "eval":
+        if int(eval_learner_seats) < 0:
+            raise ValueError(f"eval_learner_seats must be >= 0, got {eval_learner_seats}")
+        if int(eval_worlds) < 1:
+            raise ValueError(f"eval_worlds must be >= 1, got {eval_worlds}")
+        if int(eval_ticks) < 1:
+            raise ValueError(f"eval_ticks must be >= 1, got {eval_ticks}")
+        if int(eval_burnin) < 0:
+            raise ValueError(f"eval_burnin must be >= 0, got {eval_burnin}")
+        if (int(eval_learner_seats) > 0 or staged_opp_kind == "untrained") and (
+            staged_learner_relpath is None
+        ):
+            raise ValueError(
+                "mode='eval' with learner_seats > 0 or opponent='untrained' requires "
+                "--eval-checkpoint or --prior-output-dir"
+            )
+        if eval_base_minutes is not None:
+            if not math.isfinite(eval_base_minutes) or float(eval_base_minutes) < 3.0:
+                raise ValueError(
+                    f"--eval-base-minutes must be >= 3.0 and <= 30.0, got {eval_base_minutes}"
+                )
+            if float(eval_base_minutes) > 30.0:
+                raise ValueError(
+                    f"--eval-base-minutes must be <= 30.0 (2x <= 60m acceptance cap), "
+                    f"got {eval_base_minutes}"
+                )
+            est_minutes = round(float(eval_base_minutes), 2)
+            timeout_minutes = round(2.0 * est_minutes, 2)
+            headroom_min = min(6.0, max(2.0, 0.2 * timeout_minutes))
+            wall_guard_sec = int(max(60.0, (timeout_minutes - headroom_min) * 60.0))
+        else:
+            est_minutes = EVAL_BASE_MINUTES
+            timeout_minutes = EVAL_TIMEOUT_MINUTES
+            wall_guard_sec = int(EVAL_WALL_GUARD_SECONDS)
+        base_sec = est_minutes * 60.0
+        eff_sec = timeout_minutes * 60.0
+        extra_env["ARENA_PPO_MAX_WALL_SECONDS"] = str(wall_guard_sec)
+        if staged_learner_relpath is not None:
+            extra_env["ARENA_PPO_EVAL_CHECKPOINT_REL"] = staged_learner_relpath
+        if staged_opp_kind in ("b8", "ckpt") and staged_opp_entry is not None:
+            extra_env["ARENA_PPO_EVAL_OPPONENT_KIND"] = str(staged_opp_kind)
+            extra_env["ARENA_PPO_EVAL_OPPONENT_REL"] = str(staged_opp_entry["relpath"])
+        else:
+            extra_env["ARENA_PPO_EVAL_OPPONENT"] = str(staged_opp_kind or "greedy_food")
+        extra_env["ARENA_PPO_EVAL_LEARNER_SEATS"] = str(int(eval_learner_seats))
+        extra_env["ARENA_PPO_EVAL_WORLDS"] = str(int(eval_worlds))
+        extra_env["ARENA_PPO_EVAL_TICKS"] = str(int(eval_ticks))
+        extra_env["ARENA_PPO_EVAL_BURNIN"] = str(int(eval_burnin))
+        extra_env["ARENA_PPO_EVAL_SEED"] = str(int(eval_seed))
+        if eval_greedy:
+            extra_env["ARENA_PPO_EVAL_GREEDY"] = "1"
+        job_id = f"arena-ppo-eval-{gpu_slug}-{attempt}"
+        required_exports = list(EVAL_REQUIRED_EXPORTS)
+        max_export_bytes = 64 * 1024 * 1024
+        resume_fields = {
+            "resume_exemption": {
+                "kind": "acceptance",
+                "reason": (
+                    f"Stage 1 Arena PPO {gpu_norm} fixed-opponent evaluation (<= 60m runaway "
+                    "guard; atomic create-only eval_result.json export)"
                 ),
             }
         }
@@ -869,6 +1112,16 @@ def main() -> int:
     parser.add_argument(
         "--prior-kind", choices=("auto", "checkpoint", "ruler_cells"), default="auto"
     )
+    parser.add_argument("--eval-checkpoint", type=Path, default=None)
+    parser.add_argument("--eval-opponent", type=str, default=None)
+    parser.add_argument("--eval-opponent-checkpoint", type=Path, default=None)
+    parser.add_argument("--eval-learner-seats", type=int, default=1)
+    parser.add_argument("--eval-worlds", type=int, default=DEFAULT_EVAL_WORLDS)
+    parser.add_argument("--eval-ticks", type=int, default=DEFAULT_EVAL_TICKS)
+    parser.add_argument("--eval-burnin", type=int, default=DEFAULT_EVAL_BURNIN)
+    parser.add_argument("--eval-seed", type=int, default=DEFAULT_EVAL_SEED)
+    parser.add_argument("--eval-greedy", action="store_true")
+    parser.add_argument("--eval-base-minutes", type=float, default=None)
     parser.add_argument("--canary-receipt", type=Path, default=None)
     parser.add_argument("--allow-missing-canary-receipt", action="store_true")
     parser.add_argument("--ppo-config-json", type=str, default=None)
@@ -878,7 +1131,7 @@ def main() -> int:
     parser.add_argument("--allow-unmerged-commit", action="store_true")
     args = parser.parse_args()
 
-    if args.mode in ("ruler", "train") and args.canary_receipt is None:
+    if args.mode in ("ruler", "train", "eval") and args.canary_receipt is None:
         if not args.allow_missing_canary_receipt:
             parser.error(
                 f"--mode {args.mode} requires --canary-receipt <path/to/receipt.json> "
@@ -921,6 +1174,16 @@ def main() -> int:
         output_dir=args.output_dir,
         prior_output_dir=args.prior_output_dir,
         prior_kind=args.prior_kind,
+        eval_checkpoint=args.eval_checkpoint,
+        eval_opponent=args.eval_opponent,
+        eval_opponent_checkpoint=args.eval_opponent_checkpoint,
+        eval_learner_seats=args.eval_learner_seats,
+        eval_worlds=args.eval_worlds,
+        eval_ticks=args.eval_ticks,
+        eval_burnin=args.eval_burnin,
+        eval_seed=args.eval_seed,
+        eval_greedy=bool(args.eval_greedy),
+        eval_base_minutes=args.eval_base_minutes,
         canary_receipt=args.canary_receipt,
         ppo_config=ppo_cfg,
         explicit_total_updates=explicit_total_updates,

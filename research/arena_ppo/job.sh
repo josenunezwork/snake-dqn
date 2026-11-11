@@ -112,6 +112,30 @@ elif [ "$MODE" = "train" ]; then
     --output-dir "$COLAB_CLI_ROOT/output" \
     --device "$SNAKE_DQN_DEVICE" \
     "${TRAIN_ARGS[@]}"
+elif [ "$MODE" = "eval" ]; then
+  EVAL_ARGS=(
+    --learner-seats "${ARENA_PPO_EVAL_LEARNER_SEATS:-1}"
+    --worlds "${ARENA_PPO_EVAL_WORLDS:-256}"
+    --ticks "${ARENA_PPO_EVAL_TICKS:-4500}"
+    --burnin "${ARENA_PPO_EVAL_BURNIN:-250}"
+    --seed "${ARENA_PPO_EVAL_SEED:-20261111}"
+    --sidecars
+    --out "$COLAB_CLI_ROOT/output/eval_result.json"
+  )
+  if [ -n "${ARENA_PPO_EVAL_CHECKPOINT_REL:-}" ]; then
+    EVAL_ARGS+=(--checkpoint "$COLAB_INPUT_DIR/$ARENA_PPO_EVAL_CHECKPOINT_REL")
+  fi
+  if [ -n "${ARENA_PPO_EVAL_OPPONENT_KIND:-}" ] && [ -n "${ARENA_PPO_EVAL_OPPONENT_REL:-}" ]; then
+    EVAL_ARGS+=(--opponent "${ARENA_PPO_EVAL_OPPONENT_KIND}:$COLAB_INPUT_DIR/$ARENA_PPO_EVAL_OPPONENT_REL")
+  else
+    EVAL_ARGS+=(--opponent "${ARENA_PPO_EVAL_OPPONENT:-greedy_food}")
+  fi
+  if [ "${ARENA_PPO_EVAL_GREEDY:-0}" = "1" ]; then
+    EVAL_ARGS+=(--greedy)
+  fi
+  exec nice -n 15 python -m research.arena_ppo.evaluate \
+    --device "$SNAKE_DQN_DEVICE" \
+    "${EVAL_ARGS[@]}"
 else
   echo "Unsupported ARENA_PPO_MODE: $MODE" >&2
   exit 2
