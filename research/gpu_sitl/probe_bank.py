@@ -480,6 +480,7 @@ def _evaluate_scoring_suffixes_on_snapshots(
             )
             safe_by_suffix[suf_list[0]] = res_suf["safe_mask"].detach().cpu()
         elif k_suf > 1:
+            batch_sim.terminal_slots[:, 0] = True
             if batch_sim.device.type != "mps":
                 r2_cache.enable(batch_sim)
             if not batch_sim._prepared:

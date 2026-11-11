@@ -2962,7 +2962,6 @@ def main() -> int:
     )
     parser.add_argument(
         "--target-same-hw-limit-sec",
-        "--target-a100-limit-sec",
         dest="target_same_hw_limit_sec",
         type=float,
         default=SMOKE_SAME_HW_PROJECTION_LIMIT_SEC,

@@ -799,10 +799,33 @@ def test_opus_p3_and_p4_verdicts_use_only_registered_bars(
         return base
 
     monkeypatch.setattr(preflight_mod, "summarize_agreement", _fake_ext_summary)
+
+    # N1: a failing seed audit in finalize_extension_preflight (or CLI --mode ext-finalize)
+    # must raise RuntimeError instead of writing a PASS receipt.
+    orig_seed_audit = preflight_mod.audit_preflight_seeds
+    monkeypatch.setattr(
+        preflight_mod,
+        "audit_preflight_seeds",
+        lambda: {"ok": False, "overlaps": ["t34-gpu-sitl-selectivity-20261109-v1"]},
+    )
+    with pytest.raises(RuntimeError, match="Seed audit failed"):
+        preflight_mod.finalize_extension_preflight(out_dir=ext_dir)
+    assert not (ext_dir / "gpu_sitl_preflight_ext_summary_20261109.json").exists()
+    assert not (ext_dir / "gpu_sitl_preflight_ext_certificates_20261109.json.gz").exists()
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["preflight.py", "--mode", "ext-finalize", "--out-dir", str(ext_dir)],
+    )
+    with pytest.raises(RuntimeError, match="Seed audit failed"):
+        preflight_mod.main()
+    monkeypatch.setattr(preflight_mod, "audit_preflight_seeds", orig_seed_audit)
+
     p4_sum = preflight_mod.finalize_extension_preflight(out_dir=ext_dir)
     assert p4_sum["verdict"] == "PASS"
     assert p4_sum["bar_checks"]["part1_matched_rng_exact_int_ge_98pct"] is True
     assert "seed_audit_ok" not in p4_sum["bar_checks"]
+    assert p4_sum["integrity_checks"]["seed_audit_ok"] is True
     assert p4_sum["integrity_pass"] is False
     assert p4_sum["integrity_checks"]["part1_matched_rng_surviving_all_three_ge_98pct"] is False
     assert p4_sum["integrity_checks"]["part1_matched_rng_all_certs_all_three_ge_98pct"] is False

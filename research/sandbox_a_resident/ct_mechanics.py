@@ -22,6 +22,7 @@ Implements Ruling §4 ("C/T — corrected GPU premise test, before TRAIN-02"):
 from __future__ import annotations
 
 import hashlib
+import os
 from dataclasses import dataclass, replace
 from typing import Any, Mapping, Sequence
 
@@ -52,6 +53,13 @@ CT_SKILL_TASK_ID = "t34-cf-v1-terminal-hero-skill-instep-refill"
 SEPARATED_WATCH_V2_TASK_ID = "watch6-v2-continuous-respawn-product"
 
 _CARDINAL = ((0, -1), (1, 0), (0, 1), (-1, 0))
+
+
+def _ct_debug_asserts_enabled() -> bool:
+    return (
+        os.environ.get("SNAKE_GPU_SITL_DEBUG_ASSERTS") == "1" or "PYTEST_CURRENT_TEST" in os.environ
+    )
+
 
 RNG_CONSUMER_INVENTORY: tuple[dict[str, Any], ...] = (
     {
@@ -847,6 +855,10 @@ class CTDeviceSim(TrainingDeviceSim):
                 paid_flags = [
                     bool(x) for x in torch.cat((paid_by_slot, need_trim.unsqueeze(0))).tolist()
                 ]
+                if _ct_debug_asserts_enabled():
+                    assert not paid_flags[
+                        -1
+                    ], f"CTDeviceSim corpse_food exceeded cap ({cap_corpse}) at step start"
                 if any(paid_flags[:-1]):
                     for slot in range(self.S):
                         if not paid_flags[slot]:
@@ -855,7 +867,7 @@ class CTDeviceSim(TrainingDeviceSim):
                         self._append_corpse_single_rows(
                             slot_rows, paid_tail[:, slot].index_select(0, slot_rows)
                         )
-                if paid_flags[-1]:
+                elif paid_flags[-1]:
                     self._trim_corpse_food()
         traversed = torch.stack((head1, head2), dim=2)
         traversed_valid = torch.stack((move1, boost), dim=2)

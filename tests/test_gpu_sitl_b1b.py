@@ -5077,6 +5077,7 @@ def test_a2_fast_label_search_and_suffix_batching_bit_identical_cpu_and_mps() ->
         OPEN_STOP_V8_LAMBDA,
         OPEN_STOP_V8_NEED_CAP,
         OPEN_STOP_V8_NEED_FLOOR,
+        _repeat_sim_fast,
         _ttl_by_owner,
         batched_open_stop_h32,
         concat_sims_and_policies,
@@ -5109,6 +5110,9 @@ def test_a2_fast_label_search_and_suffix_batching_bit_identical_cpu_and_mps() ->
         _, _, ha = pol_n.evaluate(sim_n)
         sim_n.step(pol_n.actions(sim_n, ha))
         pol_n.after_step(sim_n)
+    sim_n_unprep = sim_n.clone()
+    pol_n_unprep = pol_n.repeat_interleave(1)
+    assert not sim_n_unprep._prepared and not pol_n_unprep.vector_prepared
     sim_m, pol_m = snapshot_worlds_to_device(worlds, pol_n, device="cpu", sim_cls=CTDeviceSim)
     sim_cpu, pol_cpu = concat_sims_and_policies([sim_m, sim_n], [pol_m, pol_n])
     r2_cache.enable(sim_cpu)
@@ -5213,7 +5217,19 @@ def test_a2_fast_label_search_and_suffix_batching_bit_identical_cpu_and_mps() ->
     assert torch.equal(op_fast["max_pocket_r"], ref_pkt)
     assert torch.equal(op_fast["un_enclosed"], ref_un_enc)
 
-    # 3. batched_open_stop_h32 compact_dead=True vs False + 4-suffix batching vs unbatched
+    # 3. _repeat_sim_fast vs repeat_interleave, clone path vs in-place, and 4x single-suffix ref
+    rep_fast = _repeat_sim_fast(sim_cpu, 6)
+    rep_ref = sim_cpu.repeat_interleave(6)
+    assert rep_fast.E == rep_ref.E == e_cnt * 6
+    assert r2_cache.enabled(rep_fast) == r2_cache.enabled(rep_ref)
+    ref_tensor_keys = {k for k, v in rep_ref.__dict__.items() if isinstance(v, torch.Tensor)}
+    fast_tensor_keys = {k for k, v in rep_fast.__dict__.items() if isinstance(v, torch.Tensor)}
+    assert ref_tensor_keys == fast_tensor_keys and len(ref_tensor_keys) > 0
+    for tk in sorted(ref_tensor_keys):
+        assert torch.equal(
+            getattr(rep_fast, tk), getattr(rep_ref, tk)
+        ), f"_repeat_sim_fast vs repeat_interleave mismatch on {tk}"
+
     ws = [int(w.seed) for w in worlds] + [301, 302, 303, 304]
     decs = [int(x) for x in sim_cpu.frame.tolist()]
     res_compact = batched_open_stop_h32(
@@ -5236,9 +5252,61 @@ def test_a2_fast_label_search_and_suffix_batching_bit_identical_cpu_and_mps() ->
         compact_dead=False,
         return_host_records=False,
     )
+    sim_r2_disabled = sim_cpu.clone()
+    r2_cache.disable(sim_r2_disabled)
+    pol_unprep_clone = pol_cpu.repeat_interleave(1)
+    pol_unprep_clone.vector_prepared = False
+    res_clone_r2_off = batched_open_stop_h32(
+        sim_r2_disabled,
+        pol_unprep_clone,
+        world_seeds=ws,
+        decisions=decs,
+        suffix_id=0,
+        branch_horizon=8,
+        compact_dead=False,
+        enable_r2=False,
+        return_host_records=False,
+    )
     for k, v_c in res_compact.items():
         if isinstance(v_c, torch.Tensor):
             assert torch.equal(v_c, res_dense[k]), f"compact vs dense mismatch on {k}"
+            assert torch.equal(v_c, res_clone_r2_off[k]), f"in-place vs clone/no-r2 mismatch on {k}"
+
+    # Also verify _prepared=False clone path vs _prepared=True in-place path on identical root state
+    sim_n_prep = sim_n_unprep.clone()
+    r2_cache.enable(sim_n_prep)
+    sim_n_prep.prepare()
+    pol_n_prep = pol_n_unprep.repeat_interleave(1)
+    pol_n_prep.vector_runtime.prepare(sim_n_prep)
+    pol_n_prep.vector_prepared = True
+    decs_n = [int(x) for x in sim_n_prep.frame.tolist()]
+    res_unprep_clone = batched_open_stop_h32(
+        sim_n_unprep,
+        pol_n_unprep,
+        world_seeds=[301, 302, 303, 304],
+        decisions=decs_n,
+        suffix_id=0,
+        branch_horizon=8,
+        compact_dead=False,
+        enable_r2=False,
+        return_host_records=False,
+    )
+    res_prep_inplace = batched_open_stop_h32(
+        sim_n_prep,
+        pol_n_prep,
+        world_seeds=[301, 302, 303, 304],
+        decisions=decs_n,
+        suffix_id=0,
+        branch_horizon=8,
+        compact_dead=True,
+        enable_r2=True,
+        return_host_records=False,
+    )
+    for k, v_p in res_prep_inplace.items():
+        if isinstance(v_p, torch.Tensor):
+            assert torch.equal(
+                v_p, res_unprep_clone[k]
+            ), f"prepared in-place vs unprepared clone mismatch on {k}"
 
     obs = extract_hero_root_observations(sim_cpu)
     snaps = [
@@ -5257,7 +5325,7 @@ def test_a2_fast_label_search_and_suffix_batching_bit_identical_cpu_and_mps() ->
             "root_q_b8": res_compact["root_q"][i],
             "row_state": slice_single_row_cpu_state(sim_cpu, pol_cpu, i),
         }
-        for i in range(3)
+        for i in range(e_cnt)
     ]
     suf_batched = _evaluate_scoring_suffixes_on_snapshots(
         snaps,
@@ -5265,9 +5333,9 @@ def test_a2_fast_label_search_and_suffix_batching_bit_identical_cpu_and_mps() ->
         template_pol=pol_cpu,
         scoring_suffixes=PROBE32_SCORING_SUFFIXES,
         branch_horizon=8,
-        batch_roots=12,
+        batch_roots=24,
     )
-    suf_single = _evaluate_scoring_suffixes_on_snapshots(
+    suf_chunked = _evaluate_scoring_suffixes_on_snapshots(
         snaps,
         template_sim=sim_cpu,
         template_pol=pol_cpu,
@@ -5275,22 +5343,53 @@ def test_a2_fast_label_search_and_suffix_batching_bit_identical_cpu_and_mps() ->
         branch_horizon=8,
         batch_roots=1,
     )
-    assert len(suf_batched) == len(suf_single) == 3
-    for rb, rs in zip(suf_batched, suf_single):
-        assert set(rb.keys()) == set(rs.keys())
-        for k in rb:
-            vb, vs = rb[k], rs[k]
-            if isinstance(vb, torch.Tensor):
-                assert torch.equal(vb, vs), f"suffix {k}"
-            elif isinstance(vb, dict):
-                for sk in vb:
-                    assert (
-                        torch.equal(vb[sk], vs[sk])
-                        if isinstance(vb[sk], torch.Tensor)
-                        else vb[sk] == vs[sk]
-                    )
-            else:
-                assert vb == vs
+    per_suffix_refs = {
+        int(s): _evaluate_scoring_suffixes_on_snapshots(
+            snaps,
+            template_sim=sim_cpu,
+            template_pol=pol_cpu,
+            scoring_suffixes=[int(s)],
+            branch_horizon=8,
+            batch_roots=1,
+        )
+        for s in PROBE32_SCORING_SUFFIXES
+    }
+    suf_ref: list[dict[str, Any]] = []
+    for i in range(len(snaps)):
+        rec_ref = dict(per_suffix_refs[int(PROBE32_SCORING_SUFFIXES[0])][i])
+        rec_ref["safe_by_scoring_suffix"] = {
+            int(s): per_suffix_refs[int(s)][i]["safe_by_scoring_suffix"][int(s)]
+            for s in PROBE32_SCORING_SUFFIXES
+        }
+        cons = snaps[i]["safe_mask_s0"].clone().cpu()
+        for s in PROBE32_SCORING_SUFFIXES:
+            cons &= per_suffix_refs[int(s)][i]["consensus_safe_mask"]
+        rec_ref["consensus_safe_mask"] = cons
+        rec_ref["n_diff_rescue"] = sum(
+            int(per_suffix_refs[int(s)][i]["n_diff_rescue"]) for s in PROBE32_SCORING_SUFFIXES
+        )
+        rec_ref["n_fail_ordinary"] = sum(
+            int(per_suffix_refs[int(s)][i]["n_fail_ordinary"]) for s in PROBE32_SCORING_SUFFIXES
+        )
+        suf_ref.append(rec_ref)
+
+    assert len(suf_batched) == len(suf_chunked) == len(suf_ref) == e_cnt
+    for cand_run in (suf_batched, suf_chunked):
+        for rb, rr in zip(cand_run, suf_ref):
+            assert set(rb.keys()) == set(rr.keys())
+            for k in rb:
+                vb, vr = rb[k], rr[k]
+                if isinstance(vb, torch.Tensor):
+                    assert torch.equal(vb, vr), f"suffix {k}"
+                elif isinstance(vb, dict):
+                    for sk in vb:
+                        assert (
+                            torch.equal(vb[sk], vr[sk])
+                            if isinstance(vb[sk], torch.Tensor)
+                            else vb[sk] == vr[sk]
+                        )
+                else:
+                    assert vb == vr
 
     # 4. MPS bit-identity where MPS runs (fast_v8_decide _only_features + CTDeviceSim.step)
     if torch.backends.mps.is_available():
@@ -5759,3 +5858,164 @@ def test_opus_p2_and_safe_oneline_minors(
             opponent_checkpoint=opp_path,
             smoke_result_json=spoof_smoke_path,
         )
+
+
+def test_opus_n4_fast_v8_decide_rejects_noncanonical_slot_layout_rows() -> None:
+    """N4: fast_v8_decide rejects permuted or wrong-slot rows for hero and opp_slot_major."""
+    from research.gpu_sitl.open_stop_gpu import fast_v8_decide
+    from src.simd_env.batch_sim import BatchSimConfig
+
+    sim = CTDeviceSim(BatchSimConfig(num_envs=3, num_snakes=6), device="cpu", train_mode=False)
+    sim.prepare()
+    q_h = torch.zeros((3, 6), dtype=torch.float32)
+    m_h = sim.advisory_mask()[:, 0]
+
+    # Permuted hero rows ([2,0], [1,0], [0,0]) must raise RuntimeError
+    bad_hero_perm = torch.tensor([[2, 0], [1, 0], [0, 0]], dtype=torch.long)
+    with pytest.raises(RuntimeError, match="slot_layout='hero'"):
+        fast_v8_decide(sim, bad_hero_perm, q_h, m_h, 8.0, slot_layout="hero")
+
+    # Wrong slot in hero layout ([0,0], [1,1], [2,0]) must raise RuntimeError
+    bad_hero_slot = torch.tensor([[0, 0], [1, 1], [2, 0]], dtype=torch.long)
+    with pytest.raises(RuntimeError, match="slot_layout='hero'"):
+        fast_v8_decide(sim, bad_hero_slot, q_h, m_h, 8.0, slot_layout="hero")
+
+    # Env-major instead of slot-major opponent rows must raise RuntimeError
+    env_major_opp = torch.stack(
+        (
+            torch.arange(3, dtype=torch.long).repeat_interleave(5),
+            torch.arange(1, 6, dtype=torch.long).repeat(3),
+        ),
+        dim=1,
+    )
+    q_o = torch.zeros((15, 6), dtype=torch.float32)
+    m_o = sim.advisory_mask()[env_major_opp[:, 0], env_major_opp[:, 1]]
+    with pytest.raises(RuntimeError, match="slot_layout='opp_slot_major'"):
+        fast_v8_decide(sim, env_major_opp, q_o, m_o, 8.0, slot_layout="opp_slot_major")
+
+    # Subset length with slot_layout='hero' must also raise RuntimeError
+    with pytest.raises(RuntimeError, match="slot_layout='hero'"):
+        fast_v8_decide(sim, bad_hero_perm[:2], q_h[:2], m_h[:2], 8.0, slot_layout="hero")
+
+
+def test_opus_n5_multi_suffix_marks_hero_terminal_before_prepare() -> None:
+    """N5: _evaluate_scoring_suffixes_on_snapshots marks hero terminal before prepare() on k_suf > 1."""
+    from research.gpu_sitl.probe_bank import (
+        _evaluate_scoring_suffixes_on_snapshots,
+        build_watch6_ct_device_bundle,
+        slice_single_row_cpu_state,
+    )
+
+    b8_path, opp_path = resolve_product_checkpoints()
+    sim, pol = build_watch6_ct_device_bundle(
+        [301], b8_path=b8_path, frp3_path=opp_path, device="cpu"
+    )
+    sim.alive[0, 0] = False
+    sim.seg_count[0, 0] = 0
+    sim.respawn_timer[0, 0] = 0
+    sim.terminal_slots[0, 0] = False
+    sim._prepared = False
+    pol.vector_prepared = False
+
+    snap = {
+        "world_seed": 301,
+        "world_index": 0,
+        "decision_frame": 1,
+        "hero_length": 0,
+        "local_u8": torch.zeros((9, 31, 31), dtype=torch.uint8),
+        "global_u8": torch.zeros((3, 25, 25), dtype=torch.uint8),
+        "scalars_f32": torch.zeros(60, dtype=torch.float32),
+        "legal_mask": torch.tensor([True, True, True, False, False, False], dtype=torch.bool),
+        "safe_mask_s0": torch.zeros(6, dtype=torch.bool),
+        "bare_action": 1,
+        "a_star_action": -1,
+        "root_q_b8": torch.zeros(6, dtype=torch.float32),
+        "row_state": slice_single_row_cpu_state(sim, pol, 0),
+    }
+    res_single = _evaluate_scoring_suffixes_on_snapshots(
+        [dict(snap)],
+        template_sim=sim,
+        template_pol=pol,
+        scoring_suffixes=[4],
+        branch_horizon=1,
+    )
+    res_multi = _evaluate_scoring_suffixes_on_snapshots(
+        [dict(snap)],
+        template_sim=sim,
+        template_pol=pol,
+        scoring_suffixes=[4, 5],
+        branch_horizon=1,
+    )
+    assert res_single[0]["safe_by_scoring_suffix"][4] == [False] * 6
+    assert res_multi[0]["safe_by_scoring_suffix"][4] == [False] * 6
+    assert res_multi[0]["safe_by_scoring_suffix"][5] == [False] * 6
+
+
+def test_opus_n6_smoke_cli_rejects_stale_target_a100_limit_sec_flag(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """N6: smoke.py CLI rejects the removed --target-a100-limit-sec alias."""
+    import sys
+
+    from research.gpu_sitl import smoke as smoke_mod
+
+    called = {"n": 0}
+
+    def _stub_shakeout(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        called["n"] += 1
+        raise AssertionError("run_cuda_shakeout should not be reached with stale flag")
+
+    monkeypatch.setattr(smoke_mod, "run_cuda_shakeout", _stub_shakeout)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "smoke.py",
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--shakeout",
+            "--target-a100-limit-sec",
+            "700",
+        ],
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        smoke_mod.main()
+    assert exc_info.value.code == 2
+    assert called["n"] == 0
+
+
+def test_opus_n7_ct_device_sim_debug_assert_catches_over_cap_corpse_at_step_start() -> None:
+    """N7: CTDeviceSim.step debug assert catches corpse_food > corpse_food_cap at step start."""
+    from src.core.mechanics_constants import corpse_food_cap
+    from src.simd_env.batch_sim import BatchSimConfig
+
+    cfg = BatchSimConfig(num_envs=1, num_snakes=2, max_food=20, mechanics_version=2)
+    cap_c = corpse_food_cap(int(cfg.max_food))
+    with torch.inference_mode():
+        sim = CTDeviceSim(cfg, device="cpu", train_mode=False, allow_respawn=True)
+        sim.prepare()
+
+        # Valid at-cap corpse count (== cap_c) runs cleanly
+        sim.food_present.zero_()
+        sim.corpse_food.zero_()
+        for k in range(cap_c):
+            sim.food_cells[0, k, 0] = 2 + k
+            sim.food_cells[0, k, 1] = 2
+            sim.food_present[0, k] = True
+            sim.corpse_food[0, k] = True
+        sim.food_count[0] = cap_c
+        sim.step(torch.ones((1, 2), dtype=torch.long))
+
+        # Over-cap corpse count (cap_c + 1) at step start must trigger the N7 debug assert
+        sim.prepare()
+        sim.food_present.zero_()
+        sim.corpse_food.zero_()
+        for k in range(cap_c + 1):
+            sim.food_cells[0, k, 0] = 2 + k
+            sim.food_cells[0, k, 1] = 3
+            sim.food_present[0, k] = True
+            sim.corpse_food[0, k] = True
+        sim.food_count[0] = cap_c + 1
+        with pytest.raises(AssertionError, match="corpse_food exceeded cap"):
+            sim.step(torch.ones((1, 2), dtype=torch.long))
