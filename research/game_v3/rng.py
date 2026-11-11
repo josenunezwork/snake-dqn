@@ -15,6 +15,7 @@ PURPOSE_INIT_FOOD: int = 2
 PURPOSE_AMBIENT_FOOD: int = 3
 PURPOSE_RESPAWN: int = 4
 PURPOSE_SCRIPTED: int = 5
+PURPOSE_KILL_CREDIT: int = 6
 
 # Signed 64-bit two's-complement representations of SplitMix64 / Murmur constants:
 #   0x9E3779B97F4A7C15, 0xBF58476D1CE4E5B9, 0x94D049BB133111EB, 0xC6BC279692B5C323.
@@ -73,12 +74,13 @@ def rng_int_torch(
     tick: torch.Tensor | int,
     purpose: int,
     slot: torch.Tensor | int,
-    high: int,
+    high: torch.Tensor | int,
 ) -> torch.Tensor:
     """Return deterministic int32 draws in ``[0, high)`` via 31-bit multiply-shift."""
     u63 = rng_u63_torch(world_seed, tick, purpose, slot)
     u31 = (u63 >> 32) & 0x7FFF_FFFF
-    return ((u31 * int(high)) >> 31).to(torch.int32)
+    high_i64 = high.to(torch.int64) if isinstance(high, torch.Tensor) else int(high)
+    return ((u31 * high_i64) >> 31).to(torch.int32)
 
 
 def rng_angle_idx_torch(
@@ -132,13 +134,14 @@ def rng_int_np(
     tick: np.ndarray | int,
     purpose: int,
     slot: np.ndarray | int,
-    high: int,
+    high: np.ndarray | int,
 ) -> np.ndarray:
     """Return deterministic int32 draws in ``[0, high)`` in NumPy."""
     u63 = rng_u63_np(world_seed, tick, purpose, slot)
     u31 = (u63 >> np.int64(32)) & np.int64(0x7FFF_FFFF)
+    high_i64 = np.asarray(high, dtype=np.int64)
     with np.errstate(over="ignore"):
-        return ((u31 * np.int64(high)) >> np.int64(31)).astype(np.int32)
+        return ((u31 * high_i64) >> np.int64(31)).astype(np.int32)
 
 
 def rng_angle_idx_np(

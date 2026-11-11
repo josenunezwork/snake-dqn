@@ -1338,6 +1338,7 @@ def run_ruler(
     include_amp: bool = False,
     measure_larger_minibatch: bool = True,
     max_wall_seconds: float | None = None,
+    disable_projection_skip: bool = False,
     seed: int = 20261110,
     step_hook: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
@@ -1668,14 +1669,26 @@ def run_ruler(
                         ppo_epochs_scale=ep_scale,
                         measured_compile_overhead_sec=measured_compile_overhead_sec,
                     )
-                    if max_wall_seconds is not None and (
-                        elapsed_now >= (float(max_wall_seconds) - export_reserve_sec)
-                        or (elapsed_now + projected_sec + export_reserve_sec)
+                    hard_wall_skip = max_wall_seconds is not None and elapsed_now >= (
+                        float(max_wall_seconds) - export_reserve_sec
+                    )
+                    proj_wall_skip = (
+                        max_wall_seconds is not None
+                        and not disable_projection_skip
+                        and (elapsed_now + projected_sec + export_reserve_sec)
                         > float(max_wall_seconds)
-                    ):
+                    )
+                    if hard_wall_skip or proj_wall_skip:
+                        skip_reason = (
+                            "elapsed_wall_budget_skip"
+                            if hard_wall_skip
+                            else "projected_wall_budget_skip"
+                        )
                         partial = True
                         if stopped_reason == "completed":
-                            stopped_reason = "wall_projection_guard"
+                            stopped_reason = (
+                                "wall_budget_guard" if hard_wall_skip else "wall_projection_guard"
+                            )
                         skipped_cells.append(
                             {
                                 "cell_id": cell_id,
@@ -1687,7 +1700,7 @@ def run_ruler(
                                 "amp": bool(cell_amp),
                                 "is_amp_probe": bool(is_amp_probe),
                                 "compile_model": bool(cell_compile),
-                                "reason": "projected_wall_budget_skip",
+                                "reason": skip_reason,
                                 "elapsed_wall_seconds": round(elapsed_now, 4),
                                 "projected_cell_seconds": round(projected_sec, 4),
                             }
@@ -1695,7 +1708,7 @@ def run_ruler(
                         phase_stamp(
                             cell_id,
                             "SKIP",
-                            reason="projected_wall_budget_skip",
+                            reason=skip_reason,
                             projected_sec=round(projected_sec, 2),
                         )
                         if is_base_cell:
@@ -2484,6 +2497,7 @@ def run_canary_suite(
         include_amp=run_amp_canary,
         measure_larger_minibatch=False,
         max_wall_seconds=ruler_budget,
+        disable_projection_skip=True,
         seed=seed,
     )
     succeeded_id_set = set(ruler_res.get("succeeded_cell_ids", []))
@@ -2497,16 +2511,33 @@ def run_canary_suite(
         for c in ruler_res.get("cells", [])
         if c.get("is_amp_probe") and str(c.get("cell_id")) in succeeded_id_set
     }
+    missing_archs = [arch for arch in DEFAULT_RULER_ARCHS if arch not in succeeded_base_archs]
+    if run_amp_canary:
+        missing_archs.extend(
+            f"{arch}_amp" for arch in DEFAULT_RULER_ARCHS if arch not in succeeded_amp_archs
+        )
+    skipped_entries = ruler_res.get("skipped_cells") or []
     if (
         ruler_res.get("failed_cells")
         or ruler_res.get("failed_benchmarks")
         or ruler_res.get("oom_cell_ids")
+        or skipped_entries
         or succeeded_base_archs != set(DEFAULT_RULER_ARCHS)
         or (run_amp_canary and succeeded_amp_archs != set(DEFAULT_RULER_ARCHS))
     ):
+        skipped_desc = (
+            ", ".join(
+                f"{sc.get('cell_id', '<unknown>')} ({sc.get('reason', 'unknown')})"
+                for sc in skipped_entries
+            )
+            if skipped_entries
+            else "none"
+        )
+        missing_desc = ", ".join(missing_archs) if missing_archs else "none"
         raise RuntimeError(
             "Canary multi-arch ruler probe failed: "
-            f"{ruler_res.get('status_summary', ruler_res.get('failed_cell_ids'))}"
+            f"{ruler_res.get('status_summary', ruler_res.get('failed_cell_ids'))} "
+            f"missing designs: {missing_desc}; skipped cells: {skipped_desc}"
         )
 
     if run_amp_canary:
