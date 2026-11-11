@@ -13,7 +13,10 @@ import tempfile
 from pathlib import Path
 from types import ModuleType
 
-from qualification import OPS, git, publish, save, tree
+if __package__:
+    from .qualification import OPS, git, publish, save, tree, tree_transport_cap
+else:
+    from qualification import OPS, git, publish, save, tree, tree_transport_cap
 
 
 def load_transport(repo: Path) -> tuple[ModuleType, ModuleType]:
@@ -159,6 +162,12 @@ def execute(saved: Path, registry: Path, token: str, oauth_python: str) -> Path:
         raise ValueError("broker changed during acceptance")
     if git(repo, "rev-parse", "HEAD") != review["commit"] or tree(repo) != review["tree_hash"]:
         raise ValueError("broker commit changed during acceptance")
+    cap = tree_transport_cap(review["tree_hash"], ops=registry.parent, repos=[repo])
+    if cap is None:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+        from research.colab_cli.accounting import ACCOUNT_ASSIGNMENT_CAP
+
+        cap = ACCOUNT_ASSIGNMENT_CAP
     (publish if registry.exists() else save)(
         registry,
         {
@@ -166,6 +175,7 @@ def execute(saved: Path, registry: Path, token: str, oauth_python: str) -> Path:
             "independent_review_status": "PENDING",
             "qualified_commit": review["commit"],
             "tree_hash": review["tree_hash"],
+            "account_assignment_cap": cap,
             "acceptance_id": saved.parent.name,
             "acceptance_result": str(result_path),
             "acceptance_result_sha256": hashlib.sha256(result_path.read_bytes()).hexdigest(),

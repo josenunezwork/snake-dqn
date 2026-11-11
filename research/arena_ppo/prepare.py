@@ -49,9 +49,10 @@ GPU_FORECAST_RATES_UPH: dict[str, float] = {
     "H100": 12.0,
 }
 
-# Instrumented family canary envelope: 6 min base / 12 min 2x timeout (<= 12 min cap)
-CANARY_BASE_MINUTES = 6.0
-CANARY_TIMEOUT_MINUTES = 12.0
+# Instrumented family canary envelope: 14 min base / 28 min 2x timeout. The job itself needs ~3 min
+# on L4; the rest is headroom for hung Colab control calls (attempt-02 lost a 12 min cap to them).
+CANARY_BASE_MINUTES = 14.0
+CANARY_TIMEOUT_MINUTES = 28.0
 CANARY_WALL_GUARD_SECONDS = 540.0
 
 # Uninstrumented science ruler envelope: 30 min base / 60 min runaway guard; Python guard = T - 8m

@@ -52,7 +52,7 @@ The A-2 successor was `packet-a2/reseal-03`. See
 per-cycle validity rule, and verification that supersedes the rejected
 `packet-a2/reseal-02` schedule. Earlier packets and verification files are preserved.
 
-[`docs/research/history/sandbox-a.md`](../../docs/research/history/sandbox-a.md) records the A-2 runtime protocol. It supersedes the
+[`docs/research/history/sandbox-a.md`](../../docs/research/history/simulators-and-speed.md#sandbox-a) records the A-2 runtime protocol. It supersedes the
 A-1 runtime description below while preserving it and every A-1 packet,
 verification file, receipt, and export as historical evidence.
 

@@ -91,7 +91,7 @@ N or drops required protocols to make a cap fit.
 ## Verification and handoff
 
 Targeted package tests only, plus selected offline supervisor validation/export
-tests. Do not run the whole suite for this isolated package. See [`docs/research/history/bl-prefix-e6-e7-e10.md`](../../docs/research/history/bl-prefix-e6-e7-e10.md)
+tests. Do not run the whole suite for this isolated package. See [`docs/research/history/bl-prefix-e6-e7-e10.md`](../../docs/research/history/rl-runs.md#bl-prefix-e6-e7-e10)
 for measured Mac numbers and limitations. Concrete plans, manifest paths,
 forecasts and operator handoff are stored outside Git at:
 `/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-e6e7/DISPATCH.txt`.
@@ -117,7 +117,7 @@ requires productive population coverage, feasible tau, and its envelope check.
 The bridge uses prevalence times EARLY-stratum mean, never balanced EPD.
 
 Run the reporting-only `research.bl_prefix.e10` entrypoint on verified completed
-scientific bank/E6/E7 exports. [`docs/research/history/bl-prefix-e6-e7-e10.md`](../../docs/research/history/bl-prefix-e6-e7-e10.md) distinguishes eligible sources not selected by design
+scientific bank/E6/E7 exports. [`docs/research/history/bl-prefix-e6-e7-e10.md`](../../docs/research/history/rl-runs.md#bl-prefix-e6-e7-e10) distinguishes eligible sources not selected by design
 from missing selected outcomes. U is prevalence times selected-world mean;
 missing selected training/confirmation rows make the envelope INCOMPLETE.
 Coverage, overlap-aware uncertainty and stopping sensitivity are exported.

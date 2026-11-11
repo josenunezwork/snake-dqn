@@ -24,12 +24,12 @@ In the November 2, 2026 documentation consolidation, 761 superseded/interim `.md
 
 | Date | Record | Lineage / Verdict |
 | :--- | :--- | :--- |
-| 2026-10-30 | [`watch6_forecast_fix_status_2026-10-30.md`](watch6_forecast_fix_status_2026-10-30.md) | Watch6 V2 forecast-calibration status and shard accounting note ([`history/watch6-confirmation.md`](history/watch6-confirmation.md)). |
-| 2026-10-30 | [`final_run_20261019/WATCH6_SHARD_FEASIBILITY_20261030.md`](final_run_20261019/WATCH6_SHARD_FEASIBILITY_20261030.md) | Shard feasibility and timeout sizing for Watch6 `H = 14,400` confirmation ([`history/watch6-confirmation.md`](history/watch6-confirmation.md)). |
-| 2026-10-26 | [`governance_a100_sandbox_20261026/ADOPTED.md`](governance_a100_sandbox_20261026/ADOPTED.md) & [`FABLE_ON_ARGON_VS_ASTRA_20261026.md`](governance_a100_sandbox_20261026/FABLE_ON_ARGON_VS_ASTRA_20261026.md) | Standing A100 development sandbox governance rule and Fable synthesis ([`history/sandbox-a.md`](history/sandbox-a.md)). |
-| 2026-10-25 | [`round30_postf4_20261025/RULING.md`](round30_postf4_20261025/RULING.md) & [`INTENT.md`](round30_postf4_20261025/INTENT.md) | Post-F4 Round 30 judge ruling (`R30-1` certificate audit, `R30-2` rescue-mass ranking, `G5` hold; [`history/bl-round30.md`](history/bl-round30.md)). |
-| 2026-10-21..25 | [`advice/2026-10-21_big_lever/`](advice/2026-10-21_big_lever/) | Big-Lever Charter, Plans `v1–v3`, Resume-by-Default ruling (`JUDGMENT_RESUME_POLICY.md`), `L2'` Mac & opponent rulings, and Rounds `01–15` judgments ([`history/t34-big-lever.md`](history/t34-big-lever.md)). |
-| 2026-10-20 | [`ops/COLAB_UNITS_LEDGER.md`](ops/COLAB_UNITS_LEDGER.md) | Colab Pro+ compute-unit ledger and rate-calibration baseline ([`history/colab-ops.md`](history/colab-ops.md)). |
+| 2026-10-30 | [`watch6_forecast_fix_status_2026-10-30.md`](watch6_forecast_fix_status_2026-10-30.md) | Watch6 V2 forecast-calibration status and shard accounting note ([`history/watch6-confirmation.md`](history/served-agents.md#watch6-confirmation)). |
+| 2026-10-30 | [`final_run_20261019/WATCH6_SHARD_FEASIBILITY_20261030.md`](final_run_20261019/WATCH6_SHARD_FEASIBILITY_20261030.md) | Shard feasibility and timeout sizing for Watch6 `H = 14,400` confirmation ([`history/watch6-confirmation.md`](history/served-agents.md#watch6-confirmation)). |
+| 2026-10-26 | [`governance_a100_sandbox_20261026/ADOPTED.md`](governance_a100_sandbox_20261026/ADOPTED.md) & [`FABLE_ON_ARGON_VS_ASTRA_20261026.md`](governance_a100_sandbox_20261026/FABLE_ON_ARGON_VS_ASTRA_20261026.md) | Standing A100 development sandbox governance rule and Fable synthesis ([`history/sandbox-a.md`](history/simulators-and-speed.md#sandbox-a)). |
+| 2026-10-25 | [`round30_postf4_20261025/RULING.md`](round30_postf4_20261025/RULING.md) & [`INTENT.md`](round30_postf4_20261025/INTENT.md) | Post-F4 Round 30 judge ruling (`R30-1` certificate audit, `R30-2` rescue-mass ranking, `G5` hold; [`history/bl-round30.md`](history/teaching-search.md#bl-round30)). |
+| 2026-10-21..25 | [`advice/2026-10-21_big_lever/`](advice/2026-10-21_big_lever/) | Big-Lever Charter, Plans `v1–v3`, Resume-by-Default ruling (`JUDGMENT_RESUME_POLICY.md`), `L2'` Mac & opponent rulings, and Rounds `01–15` judgments ([`history/t34-big-lever.md`](history/search.md#t34-big-lever)). |
+| 2026-10-20 | [`ops/COLAB_UNITS_LEDGER.md`](ops/COLAB_UNITS_LEDGER.md) | Colab Pro+ compute-unit ledger and rate-calibration baseline ([`history/colab-ops.md`](history/colab-and-process.md#colab-ops)). |
 
 ---
 
@@ -37,7 +37,7 @@ In the November 2, 2026 documentation consolidation, 761 superseded/interim `.md
 <a id="later-results-recorded-outside-docsresearch"></a>
 ## 3. B8 Release, Serving Qualification & T1–T15 Records (Oct 14–17, 2026)
 
-Full lineage syntheses: [`history/b8-release-serving.md`](history/b8-release-serving.md) and [`history/b8-late-death-t1-t11.md`](history/b8-late-death-t1-t11.md).
+Full lineage syntheses: [`history/b8-release-serving.md`](history/served-agents.md#b8-release-serving) and [`history/b8-late-death-t1-t11.md`](history/search.md#b8-late-death-t1-t11).
 
 | Date | Record | Verdict / Scope |
 | :--- | :--- | :--- |
@@ -55,7 +55,7 @@ Full lineage syntheses: [`history/b8-release-serving.md`](history/b8-release-ser
 | 2026-10-16 | [`t7_phase_r_result_2026-10-16.md`](t7_phase_r_result_2026-10-16.md) | **`STRICT_PASS`** — one-look Mac Phase R (`N = 192/96/96`): B8 beat `frp3-s12 + v8` by **`+138.67` H5000 mass** and cleared `survival_band_v2`. |
 | 2026-10-16 | [`t5_separability_2026-10-16.md`](t5_separability_2026-10-16.md), [`t5b_risk_and_fuse_2026-10-16.md`](t5b_risk_and_fuse_2026-10-16.md), & [`t5b_risk_and_fuse_2026-10-16_evidence/README.md`](t5b_risk_and_fuse_2026-10-16_evidence/README.md) | **`FAIL` (`T5`/`T5b` probes)** — static geometry added `+0.0088` AUC (`< +0.05`); `T5b` sized `T7` at `N = 192` scripted worlds/seed. |
 | 2026-10-16 | [`t4a_screen_result_2026-10-16.md`](t4a_screen_result_2026-10-16.md), [`t4c_screen_result_2026-10-16.md`](t4c_screen_result_2026-10-16.md), [`t4e_collection_result_2026-10-16.md`](t4e_collection_result_2026-10-16.md), & [`t4e_bugcheck_2026-10-16.md`](t4e_bugcheck_2026-10-16.md) | **`KILL` / `HALT_BOOST_DRIFT`** — two-sided margin (`T4a`/`T4c`) and 1-step-deviation return regression (`T4e`) results (`t4a` and `t4e_bugcheck` hash-pinned). |
-| 2026-10-16 | [`t3_diagnostics_2026-10-16_evidence/README.md`](t3_diagnostics_2026-10-16_evidence/README.md) | Evidence bundle for `T3` label-arm disagreement and boost-flip diagnostics ([`history/m3-m7-redesign.md`](history/m3-m7-redesign.md)). |
+| 2026-10-16 | [`t3_diagnostics_2026-10-16_evidence/README.md`](t3_diagnostics_2026-10-16_evidence/README.md) | Evidence bundle for `T3` label-arm disagreement and boost-flip diagnostics ([`history/m3-m7-redesign.md`](history/rl-runs.md#m3-m7-redesign)). |
 | 2026-10-15 | [`t3_ceiling_test_2026-10-15.md`](t3_ceiling_test_2026-10-15.md) & [`t3_screen_result_2026-10-15.md`](t3_screen_result_2026-10-15.md) | **Teacher `GO` (`+0.250` surv, `+92.2` mass) / Student `KILL`** — `T3-dense` rollout teacher ceiling vs 5-seed student screen (`t3_ceiling_test` hash-pinned). |
 | 2026-10-15 | [`t2b_delta_sweep_2026-10-15.md`](t2b_delta_sweep_2026-10-15.md) | **`KILL`** — Huber $\beta$ and LR sweep on B8 (`EXTEND` exhausted). |
 | 2026-10-15 | [`t1_commitment_study_2026-10-15.md`](t1_commitment_study_2026-10-15.md) & [`t1_fuse_probe_2026-10-15.md`](t1_fuse_probe_2026-10-15.md) | **`HEADROOM_CONFIRMED`** — `46/49` late B8 deaths had an escape within 300 steps (`median H_LAD = 100`); 256-D fuse probe `AUC ~0.77`. |
@@ -65,24 +65,24 @@ Full lineage syntheses: [`history/b8-release-serving.md`](history/b8-release-ser
 
 ## 4. Spatial Redesign (`M1`–`M4`), FRP, Apex Veto & Governance Records (Sep 24 – Oct 12, 2026)
 
-Full lineage syntheses: [`history/m3-m7-redesign.md`](history/m3-m7-redesign.md), [`history/frp.md`](history/frp.md), [`history/apex-veto.md`](history/apex-veto.md), [`history/sequential-gate.md`](history/sequential-gate.md), and [`history/governance.md`](history/governance.md).
+Full lineage syntheses: [`history/m3-m7-redesign.md`](history/rl-runs.md#m3-m7-redesign), [`history/frp.md`](history/served-agents.md#frp), [`history/apex-veto.md`](history/served-agents.md#apex-veto), [`history/sequential-gate.md`](history/evaluation-method.md#sequential-gate), and [`history/governance.md`](history/colab-and-process.md#governance).
 
 | Date | Record | Verdict / Scope |
 | :--- | :--- | :--- |
-| 2026-10-12 | [`m4a_design_2026-10-12.md`](m4a_design_2026-10-12.md) | `M4` (`ego2s-bv8` student + RL) design that produced `B8` ([`history/m3-m7-redesign.md`](history/m3-m7-redesign.md)). |
-| 2026-10-08 | [`m3c_design_2026-10-08.md`](m3c_design_2026-10-08.md) | `M3-C` multi-actor GPU learner + Numba `GridBatchSim` training architecture ([`history/m3-m7-redesign.md`](history/m3-m7-redesign.md)). |
+| 2026-10-12 | [`m4a_design_2026-10-12.md`](m4a_design_2026-10-12.md) | `M4` (`ego2s-bv8` student + RL) design that produced `B8` ([`history/m3-m7-redesign.md`](history/rl-runs.md#m3-m7-redesign)). |
+| 2026-10-08 | [`m3c_design_2026-10-08.md`](m3c_design_2026-10-08.md) | `M3-C` multi-actor GPU learner + Numba `GridBatchSim` training architecture ([`history/m3-m7-redesign.md`](history/rl-runs.md#m3-m7-redesign)). |
 | 2026-10-07 | [`redesign_scope_2026-10-07.md`](redesign_scope_2026-10-07.md) | October spatial redesign scope (`GridBatchSim` + `ego2s` raster + distilled DQN). |
-| 2026-10-07 | [`governance_amendment_sequential_phase_r_2026-10-07.md`](governance_amendment_sequential_phase_r_2026-10-07.md) & [`sequential_phase_r_design_2026-10-07.md`](sequential_phase_r_design_2026-10-07.md) | Ratified sequential Phase R screening protocol ([`history/sequential-gate.md`](history/sequential-gate.md)). |
-| 2026-10-06 | [`frp3_strict_result_2026-10-06.md`](frp3_strict_result_2026-10-06.md) & [`frp3_serving_result_and_release_2026-10-06.md`](frp3_serving_result_and_release_2026-10-06.md) | **`STRICT_PASS` & RELEASED (`frp3-s12 + v8`)** — served default from 2026-10-06 until `b8-s3` on 2026-10-17 ([`history/frp.md`](history/frp.md)). |
-| 2026-10-06 | [`governance_amendment_survival_band_v2_2026-10-06.md`](governance_amendment_survival_band_v2_2026-10-06.md) | Ratified `survival_band_v2` guard rule ([`history/sequential-gate.md`](history/sequential-gate.md)). |
+| 2026-10-07 | [`governance_amendment_sequential_phase_r_2026-10-07.md`](governance_amendment_sequential_phase_r_2026-10-07.md) & [`sequential_phase_r_design_2026-10-07.md`](sequential_phase_r_design_2026-10-07.md) | Ratified sequential Phase R screening protocol ([`history/sequential-gate.md`](history/evaluation-method.md#sequential-gate)). |
+| 2026-10-06 | [`frp3_strict_result_2026-10-06.md`](frp3_strict_result_2026-10-06.md) & [`frp3_serving_result_and_release_2026-10-06.md`](frp3_serving_result_and_release_2026-10-06.md) | **`STRICT_PASS` & RELEASED (`frp3-s12 + v8`)** — served default from 2026-10-06 until `b8-s3` on 2026-10-17 ([`history/frp.md`](history/served-agents.md#frp)). |
+| 2026-10-06 | [`governance_amendment_survival_band_v2_2026-10-06.md`](governance_amendment_survival_band_v2_2026-10-06.md) | Ratified `survival_band_v2` guard rule ([`history/sequential-gate.md`](history/evaluation-method.md#sequential-gate)). |
 | 2026-10-05..08 | [`governance_amendment_strict_on_runpod_2026-10-05.md`](governance_amendment_strict_on_runpod_2026-10-05.md) & [`governance_amendment_strict_on_runpod_2026-10-05_status_2026-10-08.md`](governance_amendment_strict_on_runpod_2026-10-05_status_2026-10-08.md) | **NOT RATIFIED / SUPERSEDED** — proposal to run strict gates on RunPod (hash-bound; superseded after x86 float32 tie divergence was proved). |
-| 2026-10-03 | [`governance_amendment_paired_bands_2026-10-03.md`](governance_amendment_paired_bands_2026-10-03.md) | Paired survival-band governance amendment ([`history/sequential-gate.md`](history/sequential-gate.md)). |
-| 2026-10-03 | [`serving_time_search_feasibility_2026-10-03.md`](serving_time_search_feasibility_2026-10-03.md) | Early serving-time search microbenchmark feasibility report ([`history/apex-veto.md`](history/apex-veto.md)). |
-| 2026-10-02 | [`compute_policy_2026-10-02.md`](compute_policy_2026-10-02.md) | Mac thermal/CPU-slot compute policy ([`history/colab-ops.md`](history/colab-ops.md)). |
-| 2026-10-02 | [`death_census_v5_2026-10-02.md`](death_census_v5_2026-10-02.md) | Death census of `champion_a5 + v5` veto motivating `v7`/`v8` ([`history/apex-veto.md`](history/apex-veto.md)). |
-| 2026-10-02 | [`governance_amendment_sequential_gates_2026-10-02.md`](governance_amendment_sequential_gates_2026-10-02.md) | Group-sequential O'Brien–Fleming strict-gate amendment ([`history/sequential-gate.md`](history/sequential-gate.md)). |
-| 2026-10-01 | [`trap_horizon_2026-10-01.md`](trap_horizon_2026-10-01.md) | Point-of-no-return trap-horizon study on `vector61` Apex ([`history/apex-veto.md`](history/apex-veto.md)). |
-| 2026-09-26 | [`governance_tiers_2026-09-26.md`](governance_tiers_2026-09-26.md) | Two-tier evaluation framework (Tier 1 screen / Tier 2 strict gate; [`history/sequential-gate.md`](history/sequential-gate.md)). |
-| 2026-09-26 | [`experiment_portfolio_review_2026-09-26.md`](experiment_portfolio_review_2026-09-26.md) | Portfolio review retiring `task_aligned_challenger` and launching `apex-veto` ([`history/task-aligned-challenger.md`](history/task-aligned-challenger.md)). |
-| 2026-09-26 | [`simd_vector61_plan_2026-09-26.md`](simd_vector61_plan_2026-09-26.md) | Batched SIMD `vector61` featurizer & policy plan ([`history/perf-20261013.md`](history/perf-20261013.md)). |
-| 2026-09-24 | [`task_aligned_challenger_design_draft_2026-09-24.md`](task_aligned_challenger_design_draft_2026-09-24.md) | Design draft for the September task-aligned CZ challenger ([`history/task-aligned-challenger.md`](history/task-aligned-challenger.md)). |
+| 2026-10-03 | [`governance_amendment_paired_bands_2026-10-03.md`](governance_amendment_paired_bands_2026-10-03.md) | Paired survival-band governance amendment ([`history/sequential-gate.md`](history/evaluation-method.md#sequential-gate)). |
+| 2026-10-03 | [`serving_time_search_feasibility_2026-10-03.md`](serving_time_search_feasibility_2026-10-03.md) | Early serving-time search microbenchmark feasibility report ([`history/apex-veto.md`](history/served-agents.md#apex-veto)). |
+| 2026-10-02 | [`compute_policy_2026-10-02.md`](compute_policy_2026-10-02.md) | Mac thermal/CPU-slot compute policy ([`history/colab-ops.md`](history/colab-and-process.md#colab-ops)). |
+| 2026-10-02 | [`death_census_v5_2026-10-02.md`](death_census_v5_2026-10-02.md) | Death census of `champion_a5 + v5` veto motivating `v7`/`v8` ([`history/apex-veto.md`](history/served-agents.md#apex-veto)). |
+| 2026-10-02 | [`governance_amendment_sequential_gates_2026-10-02.md`](governance_amendment_sequential_gates_2026-10-02.md) | Group-sequential O'Brien–Fleming strict-gate amendment ([`history/sequential-gate.md`](history/evaluation-method.md#sequential-gate)). |
+| 2026-10-01 | [`trap_horizon_2026-10-01.md`](trap_horizon_2026-10-01.md) | Point-of-no-return trap-horizon study on `vector61` Apex ([`history/apex-veto.md`](history/served-agents.md#apex-veto)). |
+| 2026-09-26 | [`governance_tiers_2026-09-26.md`](governance_tiers_2026-09-26.md) | Two-tier evaluation framework (Tier 1 screen / Tier 2 strict gate; [`history/sequential-gate.md`](history/evaluation-method.md#sequential-gate)). |
+| 2026-09-26 | [`experiment_portfolio_review_2026-09-26.md`](experiment_portfolio_review_2026-09-26.md) | Portfolio review retiring `task_aligned_challenger` and launching `apex-veto` ([`history/task-aligned-challenger.md`](history/rl-runs.md#task-aligned-challenger)). |
+| 2026-09-26 | [`simd_vector61_plan_2026-09-26.md`](simd_vector61_plan_2026-09-26.md) | Batched SIMD `vector61` featurizer & policy plan ([`history/perf-20261013.md`](history/simulators-and-speed.md#perf-20261013)). |
+| 2026-09-24 | [`task_aligned_challenger_design_draft_2026-09-24.md`](task_aligned_challenger_design_draft_2026-09-24.md) | Design draft for the September task-aligned CZ challenger ([`history/task-aligned-challenger.md`](history/rl-runs.md#task-aligned-challenger)). |

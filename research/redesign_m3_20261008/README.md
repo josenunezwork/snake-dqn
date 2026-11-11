@@ -7,4 +7,4 @@
 ## Key Files & Results
 
 - **Package entrypoints / artifacts:** [`PREREGISTRATION_M3.md`](PREREGISTRATION_M3.md), [`m3b_slope.py`](m3b_slope.py), [`phase_r.py`](phase_r.py), [`gpu_run.py`](gpu_run.py), [`results/m3b/slope_gate.json`](results/m3b/slope_gate.json), [`results/phase_r/audit.json`](results/phase_r/audit.json)
-- **Related docs / results:** [`docs/STATUS.md`](../../docs/STATUS.md), [`docs/research/history/m3-m7-redesign.md`](../../docs/research/history/m3-m7-redesign.md)
+- **Related docs / results:** [`docs/STATUS.md`](../../docs/STATUS.md), [`docs/research/history/m3-m7-redesign.md`](../../docs/research/history/rl-runs.md#m3-m7-redesign)

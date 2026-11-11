@@ -6,5 +6,5 @@
 
 ## Key Files & Results
 
-- **Package entrypoints / artifacts:** [`docs/research/history/bl-served-tick.md`](../../docs/research/history/bl-served-tick.md), [`RESULT_L1.md`](RESULT_L1.md), [`RECEIPTS.json`](RECEIPTS.json), [`ruler_run.py`](ruler_run.py), [`l1.py`](l1.py), [`audit_y1.py`](audit_y1.py)
+- **Package entrypoints / artifacts:** [`docs/research/history/bl-served-tick.md`](../../docs/research/history/search.md#bl-served-tick), [`RESULT_L1.md`](RESULT_L1.md), [`RECEIPTS.json`](RECEIPTS.json), [`ruler_run.py`](ruler_run.py), [`l1.py`](l1.py), [`audit_y1.py`](audit_y1.py)
 - **Related docs / results:** [`docs/notes/big-lever-experiments.md`](../../docs/notes/big-lever-experiments.md), [`docs/notes/gpu-engine-and-speed.md`](../../docs/notes/gpu-engine-and-speed.md)

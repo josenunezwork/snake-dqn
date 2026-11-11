@@ -1,7 +1,7 @@
 # T34 Claim A pipeline: student labels → replay/cache → fit → probe
 
 This package builds the Claim A distillation pipeline. The A100 advice round
-([SYNTHESIS](../../docs/research/history/t34-a100-advice.md)) found four gaps in it. The package
+([SYNTHESIS](../../docs/research/history/colab-and-process.md#t34-a100-advice)) found four gaps in it. The package
 only imports, wraps or subclasses the ratified packages `research/t34_exit_b8/` and
 `research/t34_exit_b8_fit/`. It changes no byte of those packages, of `t34_round0`, of `t34_pathb`, or of
 the frozen loss (`research/t34_exit_b8_fit/loss.py`). It grants no authority for research, gating,

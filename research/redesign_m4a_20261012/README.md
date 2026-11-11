@@ -7,4 +7,4 @@
 ## Key Files & Results
 
 - **Package entrypoints / artifacts:** [`plans/m4a_pod_plan.json`](plans/m4a_pod_plan.json), [`plans/m4a2_pod_plan.json`](plans/m4a2_pod_plan.json)
-- **Related docs / results:** [`docs/research/m4a_design_2026-10-12.md`](../../docs/research/m4a_design_2026-10-12.md), [`docs/research/history/m3-m7-redesign.md`](../../docs/research/history/m3-m7-redesign.md)
+- **Related docs / results:** [`docs/research/m4a_design_2026-10-12.md`](../../docs/research/m4a_design_2026-10-12.md), [`docs/research/history/m3-m7-redesign.md`](../../docs/research/history/rl-runs.md#m3-m7-redesign)

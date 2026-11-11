@@ -73,7 +73,7 @@ overview and command reference start at [INDEX.md](INDEX.md); for per-document s
 | [architecture/](architecture/) | Architecture maps: [WEB_MAP.md](architecture/WEB_MAP.md) (`web/`) and [TESTS_MAP.md](architecture/TESTS_MAP.md) (`tests/`). |
 | [architecture.svg](architecture.svg) | System architecture diagram. |
 | [ml_algorithm.md](ml_algorithm.md) | Apex DQN algorithm design (historical vector policy; limited current scope). |
-| [colab-cli.md](colab-cli.md) | Operator guide for the Mac-side Colab CLI supervisor (`research/colab_cli/`), consolidated with [`research/history/colab-ops.md`](research/history/colab-ops.md). |
+| [colab-cli.md](colab-cli.md) | Operator guide for the Mac-side Colab CLI supervisor (`research/colab_cli/`), consolidated with [`research/history/colab-ops.md`](research/history/colab-and-process.md#colab-ops). |
 | [colab-cli-pricing-notes-2026-10-18.md](colab-cli-pricing-notes-2026-10-18.md) | First live Colab CPU rate-calibration evidence. |
 | [research/colab_cli_receipts/](research/colab_cli_receipts/) | Colab CLI acceptance receipt (`dab00823`). |
 | [runpod_selfdelete_key.md](runpod_selfdelete_key.md) | RunPod runtime self-delete credential notes (updated 2026-10-17). |

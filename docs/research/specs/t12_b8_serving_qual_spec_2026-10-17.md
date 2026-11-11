@@ -1,7 +1,7 @@
 # Spec: B8 seed 3 extended Mac serving qualification (2026-10-17)
 
 The owner delegated the release decision to the cloud advisor, which decided RELEASE conditional on this
-qualification: see [`docs/research/history/b8-release-serving.md`](../history/b8-release-serving.md) (binding: checks 1-8, governance, release
+qualification: see [`docs/research/history/b8-release-serving.md`](../history/served-agents.md#b8-release-serving) (binding: checks 1-8, governance, release
 mechanics, rollback). Implementer: Codex. Read AGENTS.md, that note, `docs/research/t7_phase_r_result_2026-10-16.md`,
 the frp3 precedent (`frp3_serving_result_and_release_2026-10-06.md`, `research/frp3_checkpoint_serving_20261005/`
 protocol + harness + pin tool), `web/backend/served_checkpoint.py`, `served_checkpoint_pins.json`,
