@@ -841,3 +841,193 @@ def test_non_pass_outcomes_exit_nonzero(tmp_path: Path) -> None:
     verify_completed_artifact(ruler_res_path)
     ruler_res = json.loads(ruler_res_path.read_text(encoding="utf-8"))
     assert ruler_res["status"] == "FAIL"
+
+
+def test_canary_completed_exports_never_mutate_for_supervisor_and_have_st_nlink_1(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """B1-r3: Poll `colab_cli.runtime._exports` on publish + after cleanup (`st_nlink == 1`)."""
+    import research.arena_ppo.runtime as arena_rt
+    from research.colab_cli.runtime import _exports as scan_supervisor_exports
+
+    cli_root = tmp_path / "colab_cli_canary_root"
+    out_dir = cli_root / "output"
+    max_export_bytes = 320 * 1024 * 1024
+    supervisor_cache: dict[str, Any] = {}
+
+    orig_fsync = arena_rt._fsync_directory
+    scan_invocations = 0
+
+    def _polling_fsync(directory: Path) -> None:
+        nonlocal scan_invocations
+        orig_fsync(directory)
+        if out_dir.exists():
+            scan_invocations += 1
+            scan_supervisor_exports(cli_root, max_export_bytes, supervisor_cache)
+
+    monkeypatch.setattr(arena_rt, "_fsync_directory", _polling_fsync)
+
+    fast_eval_override = V3PPOConfig(
+        game_config=GameV3Config(arena_radius=60.0, num_snakes=6),
+        rollout_len=4,
+        eval_envs=4,
+        eval_burnin_ticks=4,
+        eval_ticks=12,
+        eval_learner_slots=2,
+    )
+    canary_res = run_canary_suite(
+        output_dir=out_dir,
+        device="cpu",
+        canary_envs=2,
+        canary_arena_radius=60.0,
+        canary_num_snakes=6,
+        canary_rollout_len=4,
+        canary_train_envs=4,
+        canary_eval_cfg_override=fast_eval_override,
+    )
+    assert canary_res["status"] == "PASS"
+
+    # Poll again AFTER `run_canary_suite`'s `finally: shutil.rmtree(tmp_dir)` has run!
+    final_records = scan_supervisor_exports(cli_root, max_export_bytes, supervisor_cache)
+    assert scan_invocations >= 15
+    exported_relpaths = {rec["path"] for rec in final_records}
+    for req in CANARY_REQUIRED_EXPORTS:
+        assert req in exported_relpaths
+        verify_completed_artifact(out_dir / req)
+
+    completed_markers = sorted(out_dir.rglob("*.complete"))
+    assert len(completed_markers) == len(supervisor_cache)
+    for marker in completed_markers:
+        payload = marker.with_name(marker.name[: -len(".complete")])
+        sha_sidecar = Path(f"{payload}.sha256")
+        assert payload.stat().st_nlink == 1, f"Expected st_nlink==1 on {payload}"
+        assert sha_sidecar.stat().st_nlink == 1, f"Expected st_nlink==1 on {sha_sidecar}"
+        assert marker.stat().st_nlink == 1, f"Expected st_nlink==1 on {marker}"
+
+
+def test_canary_eval_resident_train_sim_combined_peak_and_prepare_eval_estimate_propagation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """m3-r3 & m5-r3: Canary default eval holds GPU-default train sim resident & propagates wall."""
+    # 1. Verify `prepare --mode canary` sets GPU-default training world count (`128`/`256`/`512`)
+    expected_gpu_envs = {"L4": "128", "A100": "256", "H100": "512"}
+    canary_manifests: dict[str, dict[str, Any]] = {}
+    for gpu_kind, exp_envs in expected_gpu_envs.items():
+        pkt_info = prepare_v3_ppo_packet(
+            tmp_path / f"pkt_canary_{gpu_kind.lower()}",
+            commit="HEAD",
+            mode="canary",
+            gpu=gpu_kind,
+            output_dir=tmp_path / f"out_canary_{gpu_kind.lower()}",
+            allow_unmerged_commit=True,
+        )
+        mf = json.loads(Path(pkt_info["manifest_path"]).read_text(encoding="utf-8"))
+        assert mf["env"]["V3_PPO_CANARY_TRAIN_ENVS"] == exp_envs
+        canary_manifests[gpu_kind] = mf
+
+    # 2. Verify `run_canary_suite` keeps the resident training `V3PPOTrainer` (`sim` + `buffer`)
+    #    allocated concurrently while `evaluate_policy` runs!
+    import weakref
+
+    live_trainers: weakref.WeakSet[V3PPOTrainer] = weakref.WeakSet()
+    orig_trainer_cls = ruler_mod.V3PPOTrainer
+
+    def _tracking_trainer(*args: Any, **kwargs: Any) -> V3PPOTrainer:
+        inst = orig_trainer_cls(*args, **kwargs)
+        live_trainers.add(inst)
+        return inst
+
+    monkeypatch.setattr(ruler_mod, "V3PPOTrainer", _tracking_trainer)
+
+    real_eval_policy = ruler_mod.evaluate_policy
+    live_sim_world_counts_during_eval: list[list[int]] = []
+
+    def _spy_eval_policy(model: Any, eval_cfg: V3PPOConfig, **kwargs: Any) -> dict[str, Any]:
+        live_sim_world_counts_during_eval.append(
+            sorted(int(tr.sim.E) for tr in live_trainers if tr.buffer.nbytes_total() > 0)
+        )
+        res = real_eval_policy(model, eval_cfg, **kwargs)
+        # Override wall_seconds to a distinctive non-95 value to prove propagation into `prepare`!
+        res["wall_seconds"] = 37.25
+        return res
+
+    monkeypatch.setattr(ruler_mod, "evaluate_policy", _spy_eval_policy)
+
+    canary_l4_mf = canary_manifests["L4"]
+    canary_exports_dir = tmp_path / "shared_canary_exports"
+    remote_in = _stage_manifest_inputs(canary_l4_mf, tmp_path / "shared_remote_inputs")
+
+    fast_eval_override = V3PPOConfig(
+        game_config=GameV3Config(arena_radius=60.0, num_snakes=6),
+        rollout_len=4,
+        eval_envs=4,
+        eval_burnin_ticks=4,
+        eval_ticks=12,
+        eval_learner_slots=2,
+    )
+    canary_res = run_canary_suite(
+        output_dir=canary_exports_dir,
+        device="cpu",
+        input_dir=remote_in,
+        ledger_path=remote_in / "verified-ledger.json",
+        canary_envs=2,
+        canary_arena_radius=60.0,
+        canary_num_snakes=6,
+        canary_rollout_len=4,
+        canary_train_envs=6,
+        canary_eval_cfg_override=fast_eval_override,
+    )
+    monkeypatch.setattr(ruler_mod, "evaluate_policy", real_eval_policy)
+
+    # Resident 6-world training `GameV3Sim` MUST be live when `evaluate_policy` starts!
+    assert live_sim_world_counts_during_eval == [[6]]
+    assert canary_res["default_eval_resident_train_envs"] == 6
+    assert canary_res["default_eval_wall_seconds"] == pytest.approx(37.25)
+    assert canary_res["default_eval_peak_memory_bytes"] > 0
+    assert canary_res["default_eval_peak_memory_mib"] > 0.0
+    assert canary_res["default_eval_benchmark"]["resident_train_envs"] == 6
+    assert canary_res["default_eval_benchmark"]["peak_memory_bytes"] > 0
+
+    rcpt_l4 = _build_synthetic_canary_receipt(
+        canary_manifests["L4"],
+        "L4",
+        shared_exports_src=canary_exports_dir,
+    )
+    assert rcpt_l4.is_file()
+
+    # 3. `prepare --mode train` takes `eval_estimated_seconds` (`37.25`) from bound canary receipt!
+    train_pkt = prepare_v3_ppo_packet(
+        tmp_path / "pkt_train_from_canary_est",
+        commit="HEAD",
+        mode="train",
+        gpu="L4",
+        hours=2.0,
+        canary_receipt=rcpt_l4,
+        output_dir=tmp_path / "out_train_from_canary_est",
+        allow_unmerged_commit=True,
+    )
+    train_mf = json.loads(Path(train_pkt["manifest_path"]).read_text(encoding="utf-8"))
+    train_cfg = json.loads(train_mf["env"]["V3_PPO_CONFIG_JSON"])
+    assert train_cfg["eval_estimated_seconds"] == pytest.approx(37.25)
+    assert train_mf["technical_envelope"]["canary_eval_wall_seconds"] == pytest.approx(37.25)
+    assert train_mf["technical_envelope"]["canary_eval_peak_memory_bytes"] == int(
+        canary_res["default_eval_peak_memory_bytes"]
+    )
+
+    # Explicit caller override (`eval_estimated_seconds=110.0`) still takes precedence when passed!
+    train_override_pkt = prepare_v3_ppo_packet(
+        tmp_path / "pkt_train_explicit_eval_est",
+        commit="HEAD",
+        mode="train",
+        gpu="L4",
+        hours=2.0,
+        eval_estimated_seconds=110.0,
+        canary_receipt=rcpt_l4,
+        output_dir=tmp_path / "out_train_explicit_eval_est",
+        allow_unmerged_commit=True,
+    )
+    override_mf = json.loads(Path(train_override_pkt["manifest_path"]).read_text(encoding="utf-8"))
+    override_cfg = json.loads(override_mf["env"]["V3_PPO_CONFIG_JSON"])
+    assert override_cfg["eval_estimated_seconds"] == pytest.approx(110.0)

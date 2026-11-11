@@ -41,11 +41,16 @@ OBS_BATCH_BYTES_PER_ROW: int = OBS_RASTER_BYTES_PER_STEP + OBS_METADATA_BYTES_PE
 ROLLOUT_SCALAR_BYTES_PER_STEP: int = 1 + 5 * 4 + 3 * 1  # 24
 BYTES_PER_LEARNER_STEP: int = OBS_BATCH_BYTES_PER_ROW + ROLLOUT_SCALAR_BYTES_PER_STEP  # 79,938
 
-# Target GPU VRAM budgets (bytes) enforced at packet-preparation time.
+# Target GPU VRAM budgets (bytes) and default training world counts enforced at packet preparation.
 GPU_VRAM_BUDGET_BYTES: dict[str, int] = {
     "L4": 22 * 1_000_000_000,  # 22.0 GB usable budget on 22.03 GiB (23.62 GB) L4
     "A100": 40 * 1_000_000_000,  # 40.0 GB budget on A100-SXM4-40GB
     "H100": 80 * 1_000_000_000,  # 80.0 GB budget on H100-80GB
+}
+GPU_DEFAULT_TRAIN_ENVS: dict[str, int] = {
+    "L4": 128,
+    "A100": 256,
+    "H100": 512,
 }
 
 # Checkpoint sizing calibrated from real `pack_sim_state_dict` (`uint8` zlib level-1 chunks,
@@ -106,6 +111,14 @@ def default_eval_learner_slots(num_snakes: int) -> int:
     if num_snakes <= 1:
         return 1
     return min(8, max(1, num_snakes // 3))
+
+
+def default_train_envs_for_gpu(gpu: str) -> int:
+    """Return calibrated default training world count (`num_envs`) for ``gpu``."""
+    gpu_norm = str(gpu).strip().upper()
+    if gpu_norm not in GPU_DEFAULT_TRAIN_ENVS:
+        raise ValueError(f"gpu must be one of {tuple(GPU_DEFAULT_TRAIN_ENVS)}, got {gpu!r}")
+    return int(GPU_DEFAULT_TRAIN_ENVS[gpu_norm])
 
 
 @dataclass(frozen=True)

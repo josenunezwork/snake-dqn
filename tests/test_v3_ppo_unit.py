@@ -542,8 +542,8 @@ def test_step_reward_coefficients_and_simultaneous_kill_death_rule() -> None:
     assert pytest.approx(float(rew[0, 4].item()), abs=1e-6) == -1.5
 
 
-def test_fast_learner_ops_equivalence_and_compile_cli_wiring() -> None:
-    """Verify `fast_learner_ops` matches reference ops on CPU and `--compile` is wired on CLIs."""
+def test_fast_learner_ops_rounding_equivalence_and_compile_execution() -> None:
+    """Verify `fast_learner_ops` float32 rounding equivalence & `--compile` trunk execution."""
     torch.manual_seed(20261111)
     net_fast = build_ego_multiscale_net(
         "S", use_channels_last=True, use_bf16_autocast=False, fast_preprocess=True
@@ -562,13 +562,13 @@ def test_fast_learner_ops_equivalence_and_compile_cli_wiring() -> None:
     mask[:, 7:] = False
     actions = torch.randint(0, 7, (b,), dtype=torch.long)
 
-    # 1. `_prepare_raster` is bit-identical on CPU
+    # 1. Single-call `_prepare_raster` matches reference `uint8 -> float32 / 255` conversion
     prep_fast = net_fast._prepare_raster(r_s1, expected_hw=64)
     prep_slow = net_slow._prepare_raster(r_s1, expected_hw=64)
     assert torch.equal(prep_fast, prep_slow)
     assert prep_fast.is_contiguous(memory_format=torch.channels_last)
 
-    # 2. `evaluate_actions(compute_values=False)` matches reference `evaluate_actions`
+    # 2. `evaluate_actions(compute_values=False)` matches reference within float32 rounding
     ev_fast = net_fast.evaluate_actions(
         r_s1, r_s4, r_s16, scalars, actions, action_mask=mask, compute_values=False
     )
@@ -579,7 +579,7 @@ def test_fast_learner_ops_equivalence_and_compile_cli_wiring() -> None:
     assert torch.allclose(ev_fast.entropy, ev_slow.entropy, atol=1e-6, rtol=1e-6)
     assert torch.allclose(ev_fast.value_logits, ev_slow.value_logits, atol=1e-6, rtol=1e-6)
 
-    # 3. `symlog_two_hot_loss(fast=True)` matches `fast=False` values & gradients
+    # 3. `symlog_two_hot_loss(fast=True)` matches `fast=False` values & gradients within ~1e-6
     logits_a = torch.randn(b, 255, dtype=torch.float32, requires_grad=True)
     logits_b = logits_a.detach().clone().requires_grad_(True)
     targets = torch.tensor(
@@ -599,7 +599,9 @@ def test_fast_learner_ops_equivalence_and_compile_cli_wiring() -> None:
     assert logits_a.grad is not None and logits_b.grad is not None
     assert torch.allclose(logits_a.grad, logits_b.grad, atol=1e-6, rtol=1e-6)
 
-    # 4. Full `V3PPOTrainer.train_step()` equivalence on CPU (`fast_learner_ops=True` vs `False`)
+    # 4. Multi-update `V3PPOTrainer.train_step()` rounding-level equivalence (`~1e-7..1e-6` over 6
+    #    updates; NOT bit-for-bit identical because `log_probs.exp()` vs `softmax` and two-bin
+    #    gather vs 255-bin `scatter_add_` accumulate float32 ULP rounding differences).
     gcfg = GameV3Config(arena_radius=60.0, num_snakes=6, ambient_food_density=0.02)
     base_kw = dict(
         game_config=gcfg,
@@ -614,16 +616,61 @@ def test_fast_learner_ops_equivalence_and_compile_cli_wiring() -> None:
         eval_every_updates=0,
         seed=5150,
     )
+    assert V3PPOConfig().compile_model is False
     tr_fast = V3PPOTrainer(V3PPOConfig(**base_kw, fast_learner_ops=True), device="cpu")
-    out_fast = tr_fast.train_step()
-    tr_slow = V3PPOTrainer(V3PPOConfig(**base_kw, fast_learner_ops=False), device="cpu")
-    out_slow = tr_slow.train_step()
-    for metric_key in ("policy_loss", "value_loss", "entropy", "grad_norm"):
-        assert pytest.approx(out_fast[metric_key], abs=1e-5) == out_slow[metric_key]
-    for p_name, p_fast in tr_fast.raw_model.state_dict().items():
-        assert torch.allclose(p_fast, tr_slow.raw_model.state_dict()[p_name], atol=1e-5, rtol=1e-5)
+    assert tr_fast.raw_model.is_compiled is False
+    for _ in range(6):
+        out_fast = tr_fast.train_step()
+    assert tr_fast.raw_model.compiled_trunk_calls == 0
 
-    # 5. `--compile` and `--no-fast-learner-ops` parse cleanly on all 3 CLIs
+    tr_slow = V3PPOTrainer(V3PPOConfig(**base_kw, fast_learner_ops=False), device="cpu")
+    for _ in range(6):
+        out_slow = tr_slow.train_step()
+
+    for metric_key in ("policy_loss", "value_loss", "entropy", "grad_norm"):
+        assert pytest.approx(out_fast[metric_key], abs=1e-4) == out_slow[metric_key]
+    max_weight_diff = max(
+        float((p_fast - tr_slow.raw_model.state_dict()[p_name]).abs().max().item())
+        for p_name, p_fast in tr_fast.raw_model.state_dict().items()
+    )
+    assert max_weight_diff <= 2e-6
+    assert torch.equal(tr_fast.sim.length, tr_slow.sim.length)
+
+    # 5. `--compile` (`compile_model=True`) compiles the shared trunk and invokes the compiled
+    #    callable on BOTH rollout (`collect_rollout` -> `act` + bootstrap `forward`, no_grad)
+    #    AND PPO learner updates (`ppo_update` -> `evaluate_actions`, grad enabled).
+    tr_compiled = V3PPOTrainer(
+        V3PPOConfig(**base_kw, compile_model=True, fast_learner_ops=True),
+        device="cpu",
+    )
+    assert tr_compiled.raw_model.is_compiled is True
+    orig_compiled_fn = tr_compiled.raw_model._compiled_encode_trunk
+    assert orig_compiled_fn is not None and callable(orig_compiled_fn)
+    assert set(tr_compiled.raw_model.state_dict().keys()) == set(tr_fast.raw_model.state_dict())
+
+    grad_flags_seen: list[bool] = []
+
+    def _spy_compiled_trunk(*args, **kwargs):  # type: ignore[no-untyped-def]
+        grad_flags_seen.append(bool(torch.is_grad_enabled()))
+        return orig_compiled_fn(*args, **kwargs)
+
+    tr_compiled.raw_model._compiled_encode_trunk = _spy_compiled_trunk
+    tr_compiled.collect_rollout()
+    rollout_calls = len(grad_flags_seen)
+    # 4 rollout ticks (`act`) + 1 bootstrap `s_T` (`forward`) = 5 compiled calls, all no_grad!
+    assert rollout_calls >= 5
+    assert all(flag is False for flag in grad_flags_seen)
+
+    upd_stats, learn_sec = tr_compiled.ppo_update()
+    learner_flags = grad_flags_seen[rollout_calls:]
+    # 2 PPO epochs * (32 learner steps / minibatch_size 8 = 4 minibatches) = 8 compiled grad calls!
+    assert len(learner_flags) >= 4
+    assert all(flag is True for flag in learner_flags)
+    assert tr_compiled.raw_model.compiled_trunk_calls == len(grad_flags_seen)
+    assert upd_stats["grad_norm"] > 0.0
+    assert learn_sec >= 0.0
+
+    # 6. `--compile` and `--no-fast-learner-ops` parse cleanly on all 3 CLIs
     ppo_args = ppo_arg_parser().parse_args(
         ["--output-dir", "/tmp/o", "--compile", "--no-fast-learner-ops"]
     )

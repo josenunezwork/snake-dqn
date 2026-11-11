@@ -9,6 +9,8 @@ import io
 import json
 import os
 import random
+import shutil
+import tempfile
 import time
 import zlib
 from collections.abc import Callable, Sequence
@@ -19,20 +21,17 @@ import numpy as np
 import torch
 from torch import nn
 
+import research.arena_ppo.runtime as _arena_rt
 from research.arena_ppo.runtime import (
-    RotatingCreateOnlyJSONLWriter,
     SignalStopFlag,
     configure_determinism,
     ensure_cuda_initialized,
     normalize_device,
     phase_stamp,
-    publish_hardlinked_artifacts,
     remove_completed_artifact,
     sha256_file,
     synchronize_device,
     verify_completed_artifact,
-    write_create_only_artifact,
-    write_create_only_json,
 )
 from research.game_v3.config import GameV3Config
 from research.game_v3.obs import LearnerIndex, allocate_obs_batch, build_obs
@@ -102,6 +101,277 @@ _RESUME_MUTABLE_CONFIG_KEYS: frozenset[str] = frozenset(
 
 class StopRequestedError(RuntimeError):
     """Raised internally to unwind mid-rollout or mid-epoch cleanly on cooperative stop."""
+
+
+def _artifact_or_sidecar_exists(path: Path | str) -> bool:
+    """Return ``True`` if ``path`` or either of its ``.sha256`` / ``.complete`` sidecars exists."""
+    target = Path(path)
+    return (
+        target.exists() or Path(f"{target}.sha256").exists() or Path(f"{target}.complete").exists()
+    )
+
+
+def _publish_sidecars_for_existing_payload(target: Path, digest: str) -> None:
+    """Publish create-only ``.sha256`` and ``.complete`` sidecars with single-inode stability.
+
+    Uses ``os.replace`` from a single-inode temp file after verifying non-existence so
+    ``complete_path`` never transiently has ``st_nlink == 2`` or mutates ``st_ctime_ns`` after
+    becoming visible to ``research.colab_cli.runtime._exports``.
+    """
+    sha_path = Path(f"{target}.sha256")
+    complete_path = Path(f"{target}.complete")
+    for existing in (sha_path, complete_path):
+        if existing.exists():
+            raise FileExistsError(f"Refusing to overwrite immutable sidecar path: {existing}")
+
+    sha_tmp = Path(f"{sha_path}.tmp.{os.getpid()}.{time.monotonic_ns()}")
+    try:
+        with sha_tmp.open("w", encoding="utf-8") as handle:
+            handle.write(f"{digest}  {target.name}\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        if sha_path.exists():
+            raise FileExistsError(f"Refusing to overwrite immutable sidecar path: {sha_path}")
+        os.replace(sha_tmp, sha_path)
+    finally:
+        if sha_tmp.exists():
+            sha_tmp.unlink()
+
+    comp_tmp = Path(f"{complete_path}.tmp.{os.getpid()}.{time.monotonic_ns()}")
+    try:
+        with comp_tmp.open("w", encoding="utf-8") as handle:
+            handle.write(f"{digest}\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        if complete_path.exists():
+            raise FileExistsError(f"Refusing to overwrite immutable sidecar path: {complete_path}")
+        os.replace(comp_tmp, complete_path)
+    finally:
+        if comp_tmp.exists():
+            comp_tmp.unlink()
+
+
+def write_create_only_artifact(
+    path: Path | str,
+    writer: Callable[[Path], None] | bytes | bytearray | memoryview,
+) -> str:
+    """Write ``path`` once as a fresh single-inode (`st_nlink == 1`) artifact with sidecars."""
+    target = Path(path)
+    if _artifact_or_sidecar_exists(target):
+        raise FileExistsError(f"Refusing to overwrite immutable artifact path: {target}")
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f".{target.name}.tmp.",
+        dir=str(target.parent),
+    )
+    os.close(fd)
+    tmp_path = Path(tmp_name)
+    try:
+        if isinstance(writer, (bytes, bytearray, memoryview)):
+            with tmp_path.open("wb") as handle:
+                handle.write(bytes(writer))
+                handle.flush()
+                os.fsync(handle.fileno())
+        else:
+            writer(tmp_path)
+            with tmp_path.open("rb") as handle:
+                os.fsync(handle.fileno())
+
+        digest = sha256_file(tmp_path)
+        if _artifact_or_sidecar_exists(target):
+            raise FileExistsError(f"Refusing to overwrite immutable artifact path: {target}")
+        os.replace(tmp_path, target)
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink()
+
+    _publish_sidecars_for_existing_payload(target, digest)
+    _arena_rt._fsync_directory(target.parent)
+    return digest
+
+
+def write_create_only_json(path: Path | str, payload: dict[str, Any]) -> str:
+    """Serialize a JSON mapping with create-only ``.sha256`` and ``.complete`` markers."""
+    encoded = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    return write_create_only_artifact(path, encoded)
+
+
+def publish_hardlinked_artifacts(
+    source_path: Path | str,
+    targets: Sequence[Path | str],
+    *,
+    staging_dir: Path | str | None = None,
+) -> str:
+    """Publish a persistent work-dir file into immutable create-only paths via hard links.
+
+    Must ONLY be used when ``source_path`` lives in a persistent work directory that outlives
+    export scanning (never a temporary scratch directory that is deleted before exit).
+    """
+    src = Path(source_path)
+    if not src.is_file():
+        raise FileNotFoundError(f"Missing source payload for hard-link publication: {src}")
+    dst_list = [Path(t) for t in targets]
+    if not dst_list:
+        raise ValueError("targets must contain at least one destination path")
+    if len({str(p.resolve()) if p.parent.exists() else str(p) for p in dst_list}) != len(dst_list):
+        raise ValueError(f"Duplicate destination paths in targets: {dst_list}")
+
+    for dst in dst_list:
+        if _artifact_or_sidecar_exists(dst):
+            raise FileExistsError(f"Refusing to overwrite immutable artifact path: {dst}")
+    for dst in dst_list:
+        dst.parent.mkdir(parents=True, exist_ok=True)
+
+    digest = sha256_file(src)
+    src_stat = src.stat()
+    linked_directly = False
+    if src_stat.st_nlink == 1:
+        created_direct: list[Path] = []
+        try:
+            for dst in dst_list:
+                os.link(src, dst)
+                created_direct.append(dst)
+            linked_directly = True
+        except OSError:
+            for partial in created_direct:
+                partial.unlink(missing_ok=True)
+            linked_directly = False
+
+    if not linked_directly:
+        stage_parent = Path(staging_dir) if staging_dir is not None else dst_list[0].parent
+        stage_parent.mkdir(parents=True, exist_ok=True)
+        fd, stage_name = tempfile.mkstemp(
+            prefix=f".{dst_list[0].name}.stage.",
+            dir=str(stage_parent),
+        )
+        os.close(fd)
+        stage_path = Path(stage_name)
+        created_staged: list[Path] = []
+        try:
+            shutil.copyfile(src, stage_path)
+            with stage_path.open("rb") as handle:
+                os.fsync(handle.fileno())
+            for dst in dst_list:
+                try:
+                    os.link(stage_path, dst)
+                except OSError:
+                    fd_d, dst_tmp_name = tempfile.mkstemp(
+                        prefix=f".{dst.name}.tmp.",
+                        dir=str(dst.parent),
+                    )
+                    os.close(fd_d)
+                    dst_tmp = Path(dst_tmp_name)
+                    try:
+                        shutil.copyfile(stage_path, dst_tmp)
+                        with dst_tmp.open("rb") as h_d:
+                            os.fsync(h_d.fileno())
+                        os.replace(dst_tmp, dst)
+                    finally:
+                        dst_tmp.unlink(missing_ok=True)
+                created_staged.append(dst)
+        except BaseException:
+            for partial in created_staged:
+                partial.unlink(missing_ok=True)
+            raise
+        finally:
+            stage_path.unlink(missing_ok=True)
+
+    for dst in dst_list:
+        _publish_sidecars_for_existing_payload(dst, digest)
+
+    seen_parents: set[Path] = set()
+    for dst in dst_list:
+        parent = dst.parent.resolve()
+        if parent not in seen_parents:
+            seen_parents.add(parent)
+            _arena_rt._fsync_directory(dst.parent)
+    return digest
+
+
+class RotatingCreateOnlyJSONLWriter:
+    """Append-only rotating JSONL writer publishing single-inode ``.complete`` segments."""
+
+    def __init__(
+        self,
+        log_dir: Path | str,
+        *,
+        prefix: str = "train_log",
+        rotate_every_records: int = 64,
+        rotate_every_seconds: float = 900.0,
+    ) -> None:
+        if int(rotate_every_records) < 1:
+            raise ValueError(f"rotate_every_records must be >= 1, got {rotate_every_records}")
+        if float(rotate_every_seconds) <= 0.0:
+            raise ValueError(f"rotate_every_seconds must be > 0, got {rotate_every_seconds}")
+        self.log_dir = Path(log_dir)
+        self.prefix = str(prefix)
+        self.rotate_every_records = int(rotate_every_records)
+        self.rotate_every_seconds = float(rotate_every_seconds)
+
+        self._next_segment_idx = 1
+        self._active_path: Path | None = None
+        self._active_handle: Any = None
+        self._active_records = 0
+        self._active_opened_mono = 0.0
+        self.total_records = 0
+        self.completed_segments: list[Path] = []
+
+    def _open_next_segment(self) -> None:
+        self.log_dir.mkdir(parents=True, exist_ok=True)
+        seg_path = self.log_dir / f"{self.prefix}_{self._next_segment_idx:05d}.jsonl"
+        if _artifact_or_sidecar_exists(seg_path):
+            raise FileExistsError(f"Refusing to overwrite immutable log segment: {seg_path}")
+        self._active_handle = seg_path.open("xb")
+        self._active_path = seg_path
+        self._active_records = 0
+        self._active_opened_mono = time.monotonic()
+        self._next_segment_idx += 1
+
+    def append(self, record: dict[str, Any]) -> Path:
+        """Write a single JSON line to the active segment, rotating when thresholds hit."""
+        if self._active_handle is None:
+            self._open_next_segment()
+        assert self._active_path is not None
+        current_path = self._active_path
+        encoded = (json.dumps(record, sort_keys=True, allow_nan=False) + "\n").encode("utf-8")
+        self._active_handle.write(encoded)
+        self._active_handle.flush()
+        self._active_records += 1
+        self.total_records += 1
+
+        if (
+            self._active_records >= self.rotate_every_records
+            or (time.monotonic() - self._active_opened_mono) >= self.rotate_every_seconds
+        ):
+            self.seal_current_segment()
+        return current_path
+
+    def seal_current_segment(self) -> Path | None:
+        """Flush, fsync, close, and publish ``.sha256`` + ``.complete`` for the active segment."""
+        if self._active_handle is None or self._active_path is None:
+            return None
+        seg_path = self._active_path
+        handle = self._active_handle
+        self._active_handle = None
+        self._active_path = None
+        self._active_records = 0
+        try:
+            handle.flush()
+            os.fsync(handle.fileno())
+        finally:
+            handle.close()
+
+        digest = sha256_file(seg_path)
+        _publish_sidecars_for_existing_payload(seg_path, digest)
+        _arena_rt._fsync_directory(self.log_dir)
+        self.completed_segments.append(seg_path)
+        return seg_path
+
+    def close(self) -> list[Path]:
+        """Seal any open segment and return all completed segment paths."""
+        self.seal_current_segment()
+        return list(self.completed_segments)
 
 
 def seed_everything(seed: int) -> None:
@@ -896,9 +1166,8 @@ class V3PPOTrainer:
         )
         self.raw_model = EgoMultiScaleNet(net_cfg).to(self.device)
         if cfg.compile_model and hasattr(torch, "compile"):
-            self.model: EgoMultiScaleNet = torch.compile(self.raw_model)  # type: ignore[assignment]
-        else:
-            self.model = self.raw_model
+            self.raw_model.compile_execution_paths()
+        self.model: EgoMultiScaleNet = self.raw_model
 
         self._trainable_params: tuple[nn.Parameter, ...] = tuple(
             p for p in self.raw_model.parameters() if p.requires_grad
@@ -1864,11 +2133,13 @@ def publish_checkpoint_to_output(
     *,
     reason: str,
     counters: dict[str, Any],
+    copy_only: bool = False,
 ) -> list[str]:
-    """Hard-link a verified LIGHT `.pt` or FULL `.index.json` set into ``out_checkpoints_dir``.
+    """Publish a verified LIGHT `.pt` or FULL `.index.json` set into ``out_checkpoints_dir``.
 
-    For FULL sets, links `light_*.pt` and all `sim_shard_*.pt` BEFORE linking `full_*.index.json`
-    so the index becomes `.complete` strictly last.
+    For FULL sets, publishes `light_*.pt` and all `sim_shard_*.pt` BEFORE `full_*.index.json`
+    so the index becomes `.complete` strictly last. Uses hard links from persistent ``work/`` by
+    default (`copy_only=False`) or fresh single-inode copies when `copy_only=True`.
     """
     out_checkpoints_dir.mkdir(parents=True, exist_ok=True)
     src = Path(work_ckpt_path)
@@ -1880,11 +2151,14 @@ def publish_checkpoint_to_output(
         ordered_sources = [full_meta["light_path"], *full_meta["shard_paths"], src]
         for f_src in ordered_sources:
             dst = out_checkpoints_dir / f_src.name
-            if not dst.exists():
-                publish_hardlinked_artifacts(f_src, [dst], staging_dir=f_src.parent)
+            if not _artifact_or_sidecar_exists(dst):
+                if copy_only:
+                    write_create_only_artifact(dst, lambda tmp, s=f_src: shutil.copyfile(s, tmp))
+                else:
+                    publish_hardlinked_artifacts(f_src, [dst], staging_dir=f_src.parent)
                 published.append(dst.name)
         meta_path = (out_checkpoints_dir / src.name).with_suffix(".meta.json")
-        if not meta_path.exists():
+        if not _artifact_or_sidecar_exists(meta_path):
             write_create_only_json(
                 meta_path,
                 {
@@ -1903,15 +2177,18 @@ def publish_checkpoint_to_output(
 
     verify_completed_artifact(src)
     dst = out_checkpoints_dir / src.name
-    ckpt_sha = (
-        publish_hardlinked_artifacts(src, [dst], staging_dir=src.parent)
-        if not dst.exists()
-        else sha256_file(dst)
-    )
+    if not _artifact_or_sidecar_exists(dst):
+        ckpt_sha = (
+            write_create_only_artifact(dst, lambda tmp, s=src: shutil.copyfile(s, tmp))
+            if copy_only
+            else publish_hardlinked_artifacts(src, [dst], staging_dir=src.parent)
+        )
+    else:
+        ckpt_sha = sha256_file(dst)
     if dst.name not in published:
         published.append(dst.name)
     meta_path = dst.with_suffix(".meta.json")
-    if not meta_path.exists():
+    if not _artifact_or_sidecar_exists(meta_path):
         write_create_only_json(
             meta_path,
             {
@@ -1938,7 +2215,7 @@ def write_latest_checkpoint_manifest(
     """Write create-only ``checkpoints/latest_manifest.json`` summarizing exported checkpoints."""
     out_checkpoints_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = out_checkpoints_dir / "latest_manifest.json"
-    if manifest_path.exists():
+    if _artifact_or_sidecar_exists(manifest_path):
         verify_completed_artifact(manifest_path)
         return manifest_path
 
@@ -1989,7 +2266,8 @@ def _publish_checkpoint_manifest(
         extra_targets = [
             out_checkpoints_dir / name
             for name in dict.fromkeys(export_names)
-            if name != work_ckpt_path.name and not (out_checkpoints_dir / name).exists()
+            if name != work_ckpt_path.name
+            and not _artifact_or_sidecar_exists(out_checkpoints_dir / name)
         ]
         if extra_targets:
             publish_hardlinked_artifacts(
@@ -2261,7 +2539,7 @@ def run_training_job(
 
     # Idempotent create-only `config.json` (safe on in-session or directory re-entry)
     cfg_json_path = out / "config.json"
-    if cfg_json_path.exists():
+    if _artifact_or_sidecar_exists(cfg_json_path):
         verify_completed_artifact(cfg_json_path)
         existing_cfg = V3PPOConfig.from_dict(json.loads(cfg_json_path.read_text(encoding="utf-8")))
         ex_dict = existing_cfg.to_dict()
@@ -2318,7 +2596,7 @@ def run_training_job(
         # Save a lightweight u0000000 anchor in `work_ckpts` so a stop/error during update 1
         # can roll back cleanly without ever saving half-updated weights.
         init_anchor = work_ckpts / _INIT_ANCHOR_LIGHT_NAME
-        if not init_anchor.exists():
+        if not _artifact_or_sidecar_exists(init_anchor):
             trainer.save_light_checkpoint(init_anchor, restart_generation=0)
 
     def _snapshot_clean_state(t_ref: V3PPOTrainer) -> dict[str, Any]:
@@ -2356,6 +2634,7 @@ def run_training_job(
 
     now_init = time.monotonic()
     last_light_work_mono = now_init
+    last_light_export_mono = now_init
     last_full_work_mono = now_init
     last_eval_mono = now_init
 
@@ -2589,16 +2868,26 @@ def run_training_job(
                 due_full_u = int(cfg.full_checkpoint_every_updates) > 0 and (
                     trainer.updates_completed % int(cfg.full_checkpoint_every_updates) == 0
                 )
-                due_light_t = (now_mono - last_light_work_mono) >= float(
+                due_light_work_t = (now_mono - last_light_work_mono) >= float(
+                    cfg.light_checkpoint_interval_sec
+                )
+                due_light_export_t = (now_mono - last_light_export_mono) >= float(
                     cfg.light_checkpoint_interval_sec
                 )
                 due_full_t = (now_mono - last_full_work_mono) >= float(
                     cfg.full_checkpoint_interval_sec
                 )
 
+                need_light_in_work = (
+                    due_light_u
+                    or due_light_work_t
+                    or due_light_export_t
+                    or due_full_u
+                    or due_full_t
+                )
                 light_work_path = work_ckpts / f"light_{tag}.pt"
-                if due_light_u or due_light_t or due_full_u or due_full_t:
-                    if not light_work_path.exists():
+                if need_light_in_work:
+                    if not _artifact_or_sidecar_exists(light_work_path):
                         trainer.save_light_checkpoint(
                             light_work_path,
                             restart_generation=in_session_restarts,
@@ -2609,7 +2898,7 @@ def run_training_job(
                 full_work_meta: dict[str, Any] | None = None
                 if due_full_u or due_full_t:
                     cand_idx = work_ckpts / f"full_{tag}.index.json"
-                    if not cand_idx.exists():
+                    if not _artifact_or_sidecar_exists(cand_idx):
                         full_work_index = trainer.save_full_checkpoint(
                             work_ckpts,
                             tag=tag,
@@ -2622,7 +2911,7 @@ def run_training_job(
                     last_measured_full_bytes = int(full_work_meta["size_bytes"])
                     last_full_work_mono = now_mono
 
-                if due_light_u or due_light_t or due_full_u or due_full_t:
+                if need_light_in_work:
                     prune_old_checkpoints(
                         work_ckpts,
                         keep_full=int(cfg.keep_full_checkpoints),
@@ -2631,6 +2920,9 @@ def run_training_job(
 
                 # Publish periodic FULL if due and within `max_periodic_full_exports` + byte cap;
                 # otherwise still publish periodic LIGHT whenever due and within session byte cap.
+                # `last_light_export_mono` advances ONLY when an export containing a LIGHT (`FULL`
+                # or `LIGHT`) is actually published to `output/`, so capped `work/` FULL saves never
+                # stretch the real LIGHT export interval!
                 published_full_this_step = False
                 if (
                     full_work_index is not None
@@ -2647,13 +2939,14 @@ def run_training_job(
                     )
                     published_periodic_fulls += 1
                     published_full_this_step = True
+                    last_light_export_mono = now_mono
                     metrics_writer.seal_current_segment()
                     eval_writer.seal_current_segment()
 
                 if (
                     not published_full_this_step
                     and light_work_path.exists()
-                    and (due_light_t or due_light_u)
+                    and (due_light_export_t or due_light_u)
                     and _can_export_periodic_files([light_work_path], kind="periodic_light")
                 ):
                     publish_checkpoint_to_output(
@@ -2663,6 +2956,7 @@ def run_training_job(
                         counters=_counters_dict(trainer),
                     )
                     published_periodic_lights += 1
+                    last_light_export_mono = now_mono
                     metrics_writer.seal_current_segment()
                     eval_writer.seal_current_segment()
 
@@ -2744,7 +3038,7 @@ def run_training_job(
                 stop_tag = _ckpt_tag(trainer.updates_completed, in_session_restarts)
                 stop_light = work_ckpts / f"light_{stop_tag}.pt"
                 try:
-                    if not stop_light.exists():
+                    if not _artifact_or_sidecar_exists(stop_light):
                         trainer.save_light_checkpoint(
                             stop_light,
                             restart_generation=in_session_restarts,
@@ -2756,7 +3050,7 @@ def run_training_job(
                         counters=_counters_dict(trainer),
                     )
                     stop_full = work_ckpts / f"full_{stop_tag}.index.json"
-                    if not stop_full.exists():
+                    if not _artifact_or_sidecar_exists(stop_full):
                         stop_full = trainer.save_full_checkpoint(
                             work_ckpts,
                             tag=stop_tag,
@@ -2830,7 +3124,7 @@ def run_training_job(
                         fb_path = Path(clean_fallback["path"])
                         if (
                             bool(clean_fallback.get("require_markers", False))
-                            and fb_path.parent != out_ckpts
+                            and fb_path.resolve().parent != out_ckpts.resolve()
                             and fb_path.name != _INIT_ANCHOR_LIGHT_NAME
                         ):
                             publish_checkpoint_to_output(
@@ -2846,6 +3140,7 @@ def run_training_job(
                                         clean_fallback.get("world_steps_collected", 0)
                                     ),
                                 },
+                                copy_only=(fb_path.resolve().parent != work_ckpts.resolve()),
                             )
                         final_summary["updates_completed"] = int(
                             clean_fallback["updates_completed"]
@@ -2918,7 +3213,7 @@ def run_training_job(
                 else 0.0
             )
             result_path = out / "train_result.json"
-            if not result_path.exists():
+            if not _artifact_or_sidecar_exists(result_path):
                 result_payload = {
                     "schema": V3_PPO_TRAIN_RESULT_SCHEMA,
                     "namespace": V3_PPO_NAMESPACE,

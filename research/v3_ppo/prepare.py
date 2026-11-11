@@ -31,7 +31,6 @@ from research.arena_ppo.prepare import (
 from research.arena_ppo.runtime import (
     sha256_file,
     verify_completed_artifact,
-    write_create_only_artifact,
 )
 from research.colab_cli import canary as colab_canary
 from research.game_v3.config import GameV3Config
@@ -44,6 +43,7 @@ from research.v3_ppo.config import (
     NetSize,
     OpponentPolicy,
     V3PPOConfig,
+    default_train_envs_for_gpu,
     estimate_training_memory,
     validate_checkpoint_export_caps,
     validate_memory_budget,
@@ -51,6 +51,7 @@ from research.v3_ppo.config import (
 from research.v3_ppo.ppo import (
     _RESUME_MUTABLE_CONFIG_KEYS,
     resolve_resume_checkpoint,
+    write_create_only_artifact,
 )
 from research.v3_ppo.ruler import (
     CANARY_REQUIRED_EXPORTS,
@@ -433,6 +434,87 @@ def _extract_staged_checkpoint_config(
     return None
 
 
+def _extract_canary_eval_metrics(canary_receipt: Path | str) -> dict[str, Any] | None:
+    """Read measured default-eval wall seconds and combined peak bytes from a canary receipt."""
+    rcpt_path = Path(canary_receipt).expanduser().resolve()
+    if not rcpt_path.is_file():
+        return None
+    rcpt_obj = json.loads(rcpt_path.read_text(encoding="utf-8"))
+    if not isinstance(rcpt_obj, dict):
+        return None
+
+    expected_export_shas: dict[str, str] = {}
+    exports_list = rcpt_obj.get("exports")
+    if isinstance(exports_list, list):
+        for row in exports_list:
+            if isinstance(row, dict) and isinstance(row.get("path"), str) and row.get("sha256"):
+                expected_export_shas[row["path"]] = str(row["sha256"])
+
+    checks_obj: dict[str, Any] | None = None
+    for cand in (
+        rcpt_path.parent / "exports" / "canary_checks.json",
+        rcpt_path.parent / "canary_checks.json",
+    ):
+        if cand.is_file():
+            exp_sha = expected_export_shas.get("canary_checks.json")
+            if exp_sha is not None and sha256_file(cand) != exp_sha:
+                raise ValueError(f"Canary export hash mismatch for {cand}: expected {exp_sha}")
+            loaded = json.loads(cand.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                checks_obj = loaded
+                break
+
+    bench = (
+        checks_obj.get("default_eval_benchmark")
+        if isinstance(checks_obj, dict)
+        and isinstance(checks_obj.get("default_eval_benchmark"), dict)
+        else {}
+    )
+    raw_wall = (
+        checks_obj.get("default_eval_wall_seconds")
+        if isinstance(checks_obj, dict) and checks_obj.get("default_eval_wall_seconds") is not None
+        else (
+            bench.get("wall_seconds")
+            if bench.get("wall_seconds") is not None
+            else rcpt_obj.get("default_eval_wall_seconds")
+        )
+    )
+    if (
+        isinstance(raw_wall, bool)
+        or not isinstance(raw_wall, (int, float))
+        or not math.isfinite(float(raw_wall))
+        or float(raw_wall) <= 0.0
+    ):
+        return None
+
+    raw_peak = (
+        checks_obj.get("default_eval_peak_memory_bytes")
+        if isinstance(checks_obj, dict)
+        and checks_obj.get("default_eval_peak_memory_bytes") is not None
+        else (
+            bench.get("peak_memory_bytes")
+            if bench.get("peak_memory_bytes") is not None
+            else rcpt_obj.get("default_eval_peak_memory_bytes")
+        )
+    )
+    raw_res_envs = (
+        checks_obj.get("default_eval_resident_train_envs")
+        if isinstance(checks_obj, dict)
+        and checks_obj.get("default_eval_resident_train_envs") is not None
+        else bench.get("resident_train_envs")
+    )
+    out_metrics: dict[str, Any] = {"wall_seconds": float(raw_wall)}
+    if not isinstance(raw_peak, bool) and isinstance(raw_peak, (int, float)) and int(raw_peak) > 0:
+        out_metrics["peak_memory_bytes"] = int(raw_peak)
+    if (
+        not isinstance(raw_res_envs, bool)
+        and isinstance(raw_res_envs, (int, float))
+        and int(raw_res_envs) > 0
+    ):
+        out_metrics["resident_train_envs"] = int(raw_res_envs)
+    return out_metrics
+
+
 def prepare_v3_ppo_packet(
     packet_dir: Path | str,
     *,
@@ -462,6 +544,7 @@ def prepare_v3_ppo_packet(
     compile_model: bool = False,
     max_periodic_full_exports: int | None = None,
     light_resume_margin_minutes: float | None = None,
+    eval_estimated_seconds: float | None = None,
     output_dir: Path | str | None = None,
     prior_output_dir: Path | str | None = None,
     prior_kind: str = "auto",
@@ -469,6 +552,7 @@ def prepare_v3_ppo_packet(
     allow_missing_canary_receipt: bool = False,
     ppo_config: V3PPOConfig | None = None,
     explicit_total_updates: bool = False,
+    explicit_eval_estimated_seconds: bool = False,
     measured_packed_bytes_per_world: int | None = None,
     measured_checkpoint_bytes: int | None = None,
     attempt: str = "attempt-01",
@@ -603,12 +687,15 @@ def prepare_v3_ppo_packet(
         memory_estimate: dict[str, Any] | None = None
         checkpoint_export_caps: dict[str, Any] | None = None
 
+        canary_eval_metrics: dict[str, Any] | None = None
+
         if mode == "canary":
             est_minutes = CANARY_BASE_MINUTES
             timeout_minutes = CANARY_TIMEOUT_MINUTES
             base_sec = est_minutes * 60.0
             eff_sec = timeout_minutes * 60.0
             extra_env["V3_PPO_MAX_WALL_SECONDS"] = str(int(CANARY_WALL_GUARD_SECONDS))
+            extra_env["V3_PPO_CANARY_TRAIN_ENVS"] = str(default_train_envs_for_gpu(gpu_norm))
             extra_env["SNAKE_COLAB_CANARY"] = "1"
             extra_env["SNAKE_COLAB_CANARY_PACKAGE"] = FAMILY_PACKAGE
             if compile_model:
@@ -820,6 +907,24 @@ def prepare_v3_ppo_packet(
             if light_resume_margin_minutes is not None:
                 cfg_dict["light_resume_margin_minutes"] = float(light_resume_margin_minutes)
 
+            if canary_receipt is not None:
+                canary_block = _build_canary_receipt_binding(canary_receipt, gpu_norm)
+                canary_eval_metrics = _extract_canary_eval_metrics(canary_receipt)
+
+            default_eval_est = float(V3PPOConfig().eval_estimated_seconds)
+            caller_overrode_eval_est = (
+                eval_estimated_seconds is not None
+                or bool(explicit_eval_estimated_seconds)
+                or (
+                    ppo_config is not None
+                    and float(ppo_config.eval_estimated_seconds) != default_eval_est
+                )
+            )
+            if eval_estimated_seconds is not None:
+                cfg_dict["eval_estimated_seconds"] = float(eval_estimated_seconds)
+            elif not caller_overrode_eval_est and canary_eval_metrics is not None:
+                cfg_dict["eval_estimated_seconds"] = float(canary_eval_metrics["wall_seconds"])
+
             cfg_obj = V3PPOConfig.from_dict(cfg_dict)
 
             if staged_base_cfg is not None:
@@ -934,8 +1039,6 @@ def prepare_v3_ppo_packet(
                     "max_outcome_blind_retries": 2,
                 }
             }
-            if canary_receipt is not None:
-                canary_block = _build_canary_receipt_binding(canary_receipt, gpu_norm)
 
         # Ensure any staged input file also satisfies supervisor per-file `max_export_bytes` check
         largest_input_bytes = max(
@@ -967,6 +1070,12 @@ def prepare_v3_ppo_packet(
             tech_envelope["worst_case_session_export_bytes"] = int(
                 checkpoint_export_caps["worst_case_session_export_bytes"]
             )
+        if canary_eval_metrics is not None:
+            tech_envelope["canary_eval_wall_seconds"] = float(canary_eval_metrics["wall_seconds"])
+            if "peak_memory_bytes" in canary_eval_metrics:
+                tech_envelope["canary_eval_peak_memory_bytes"] = int(
+                    canary_eval_metrics["peak_memory_bytes"]
+                )
 
         manifest: dict[str, Any] = {
             "job_id": job_id[:64],
@@ -1038,6 +1147,8 @@ def prepare_v3_ppo_packet(
         summary["checkpoint_export_caps"] = checkpoint_export_caps
     if training_plan is not None:
         summary["training_plan"] = training_plan
+    if canary_eval_metrics is not None:
+        summary["canary_eval_metrics"] = canary_eval_metrics
     return summary
 
 
@@ -1098,6 +1209,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--compile", action="store_true")
     parser.add_argument("--max-periodic-full-exports", type=int, default=None)
     parser.add_argument("--light-resume-margin-minutes", type=float, default=None)
+    parser.add_argument("--eval-estimated-seconds", type=float, default=None)
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--prior-output-dir", type=Path, default=None)
     parser.add_argument(
@@ -1127,6 +1239,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     ppo_cfg: V3PPOConfig | None = None
     explicit_total_updates = False
+    explicit_eval_estimated_seconds = False
     if args.ppo_config_json is not None:
         raw_source = args.ppo_config_json
         if raw_source.lstrip().startswith("{"):
@@ -1136,6 +1249,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if not isinstance(raw_dict, dict):
             raise ValueError("--ppo-config-json root must be a JSON object")
         explicit_total_updates = "total_updates" in raw_dict
+        explicit_eval_estimated_seconds = "eval_estimated_seconds" in raw_dict
         ppo_cfg = V3PPOConfig.from_dict(raw_dict)
 
     info = prepare_v3_ppo_packet(
@@ -1166,6 +1280,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         compile_model=bool(args.compile),
         max_periodic_full_exports=args.max_periodic_full_exports,
         light_resume_margin_minutes=args.light_resume_margin_minutes,
+        eval_estimated_seconds=args.eval_estimated_seconds,
         output_dir=args.output_dir,
         prior_output_dir=args.prior_output_dir,
         prior_kind=args.prior_kind,
@@ -1173,6 +1288,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         allow_missing_canary_receipt=bool(args.allow_missing_canary_receipt),
         ppo_config=ppo_cfg,
         explicit_total_updates=explicit_total_updates,
+        explicit_eval_estimated_seconds=explicit_eval_estimated_seconds,
         measured_packed_bytes_per_world=args.measured_packed_bytes_per_world,
         measured_checkpoint_bytes=args.measured_checkpoint_bytes,
         attempt=args.attempt,

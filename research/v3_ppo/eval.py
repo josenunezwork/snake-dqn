@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
+import psutil
 import torch
 
 from research.arena_ppo.runtime import normalize_device, synchronize_device
@@ -263,6 +264,20 @@ def _partition_eval_worlds(
 
 
 @torch.no_grad()
+def _sample_eval_peak_memory_bytes(device: torch.device) -> int:
+    """Sample peak device memory (including any resident training allocations) during eval."""
+    if device.type == "cuda":
+        synchronize_device(device)
+        return int(torch.cuda.max_memory_allocated(device))
+    if device.type == "mps" and hasattr(torch.mps, "current_allocated_memory"):
+        synchronize_device(device)
+        return int(torch.mps.current_allocated_memory())
+    try:
+        return int(psutil.Process().memory_info().rss)
+    except Exception:
+        return 0
+
+
 def _run_single_pass_eval(
     *,
     cfg: V3PPOConfig,
@@ -278,7 +293,7 @@ def _run_single_pass_eval(
     greedy: bool = False,
     should_stop: Callable[[], bool] | None = None,
     poll_interval_ticks: int = 16,
-) -> tuple[list[_EvalMatchupRaw] | None, int, int, dict[str, int]]:
+) -> tuple[list[_EvalMatchupRaw] | None, int, int, dict[str, int], int]:
     """Run all ``opponents`` matchups simultaneously in ONE :class:`GameV3Sim` pass."""
     if (model is None) == (baseline_learner_policy is None):
         raise ValueError("Provide exactly one of `model` or `baseline_learner_policy`")
@@ -288,7 +303,7 @@ def _run_single_pass_eval(
     poll_every = max(1, int(poll_interval_ticks))
 
     if should_stop is not None and should_stop():
-        return None, 0, total_envs, matchup_envs
+        return None, 0, total_envs, matchup_envs, _sample_eval_peak_memory_bytes(device)
 
     all_world_seeds: list[int] = []
     for idx_opp, (_, w0, w1) in enumerate(world_slices):
@@ -296,6 +311,7 @@ def _run_single_pass_eval(
 
     if device.type == "cuda":
         torch.cuda.empty_cache()
+        torch.cuda.reset_peak_memory_stats(device)
 
     sim = GameV3Sim(
         cfg.game_config,
@@ -372,7 +388,13 @@ def _run_single_pass_eval(
         # 1. Burn-in phase: mature food/corpses/lengths; track ongoing life age & return from birth
         for t_burn in range(burnin):
             if should_stop is not None and (t_burn % poll_every == 0) and should_stop():
-                return None, ticks_completed, total_envs, matchup_envs
+                return (
+                    None,
+                    ticks_completed,
+                    total_envs,
+                    matchup_envs,
+                    _sample_eval_peak_memory_bytes(device),
+                )
             acted_es, info, step_rew = _step_all(sim, obs_buf, sim_slices)
             ticks_completed += 1
             l_acted = acted_es[:, :k_learners]
@@ -423,7 +445,13 @@ def _run_single_pass_eval(
         slot_in_buf = 0
         for t_win in range(window):
             if should_stop is not None and (t_win % poll_every == 0) and should_stop():
-                return None, ticks_completed, total_envs, matchup_envs
+                return (
+                    None,
+                    ticks_completed,
+                    total_envs,
+                    matchup_envs,
+                    _sample_eval_peak_memory_bytes(device),
+                )
             acted_es, info, step_rew = _step_all(sim, obs_buf, sim_slices)
             ticks_completed += 1
             l_acted = acted_es[:, :k_learners]
@@ -526,7 +554,8 @@ def _run_single_pass_eval(
                     alive_ticks=tot_alive_ticks,
                 )
             )
-        return raw_suites, ticks_completed, total_envs, matchup_envs
+        peak_mem_bytes = _sample_eval_peak_memory_bytes(device)
+        return raw_suites, ticks_completed, total_envs, matchup_envs, peak_mem_bytes
     finally:
         del sim_slices
         del obs_buf
@@ -616,7 +645,7 @@ def evaluate_policy(
 
     try:
         with preserve_rng_state():
-            raw_suites, ticks_done, total_envs, matchup_envs = _run_single_pass_eval(
+            raw_suites, ticks_done, total_envs, matchup_envs, peak_bytes = _run_single_pass_eval(
                 cfg=cfg,
                 device=resolved_dev,
                 opponents=opponents,
@@ -636,6 +665,7 @@ def evaluate_policy(
 
     synchronize_device(resolved_dev)
     elapsed = time.perf_counter() - t0
+    peak_mib = round(int(peak_bytes) / float(1024 * 1024), 2)
     if raw_suites is None:
         return {
             "aborted": True,
@@ -649,6 +679,8 @@ def evaluate_policy(
             "greedy": eff_greedy,
             "ticks_completed": int(ticks_done),
             "wall_seconds": round(elapsed, 4),
+            "peak_memory_bytes": int(peak_bytes),
+            "peak_memory_mib": peak_mib,
         }
 
     by_opponent = {f"vs_{opp}": raw.summary for opp, raw in zip(opponents, raw_suites, strict=True)}
@@ -664,6 +696,8 @@ def evaluate_policy(
         "num_snakes": cfg.num_snakes,
         "greedy": eff_greedy,
         "wall_seconds": round(elapsed, 4),
+        "peak_memory_bytes": int(peak_bytes),
+        "peak_memory_mib": peak_mib,
         "combined": combined,
         "matchups": by_opponent,
     }
@@ -696,7 +730,7 @@ def evaluate_scripted_baseline(
 
     t0 = time.perf_counter()
     with preserve_rng_state():
-        raw_suites, ticks_done, total_envs, matchup_envs = _run_single_pass_eval(
+        raw_suites, ticks_done, total_envs, matchup_envs, peak_bytes = _run_single_pass_eval(
             cfg=cfg,
             device=resolved_dev,
             opponents=opponents,
@@ -712,6 +746,7 @@ def evaluate_scripted_baseline(
 
     synchronize_device(resolved_dev)
     elapsed = time.perf_counter() - t0
+    peak_mib = round(int(peak_bytes) / float(1024 * 1024), 2)
     if raw_suites is None:
         return {
             "aborted": True,
@@ -725,6 +760,8 @@ def evaluate_scripted_baseline(
             "num_snakes": cfg.num_snakes,
             "ticks_completed": int(ticks_done),
             "wall_seconds": round(elapsed, 4),
+            "peak_memory_bytes": int(peak_bytes),
+            "peak_memory_mib": peak_mib,
         }
 
     by_opponent = {f"vs_{opp}": raw.summary for opp, raw in zip(opponents, raw_suites, strict=True)}
@@ -740,6 +777,8 @@ def evaluate_scripted_baseline(
         "eval_learner_slots": min(max(1, eff_slots), cfg.num_snakes),
         "num_snakes": cfg.num_snakes,
         "wall_seconds": round(elapsed, 4),
+        "peak_memory_bytes": int(peak_bytes),
+        "peak_memory_mib": peak_mib,
         "combined": combined,
         "matchups": by_opponent,
     }

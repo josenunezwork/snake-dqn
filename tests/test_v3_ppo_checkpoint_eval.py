@@ -1013,3 +1013,105 @@ def test_single_pass_eval_bit_identical_training_stop_abort_and_wall_skip(
     assert res_skip["eval_runs_skipped"] >= 1
     assert res_skip["eval_runs_completed"] == 0
     assert "V3_PPO_EVAL_SKIPPED" in skip_stdout
+
+
+def test_light_exports_maintain_real_interval_after_periodic_full_cap_reached(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """m1-r3: Capped `work/` FULL saves must never stretch periodic LIGHT export intervals."""
+    import research.arena_ppo.runtime as arena_rt
+    from research.colab_cli.runtime import _exports as scan_supervisor_exports
+
+    light_interval = 30.0
+    full_interval = 75.0
+    cfg_m1 = V3PPOConfig.from_dict(
+        {
+            **_tiny_cfg(num_envs=2, total_updates=20, eval_every_updates=0, seed=7331).to_dict(),
+            "light_checkpoint_interval_sec": light_interval,
+            "full_checkpoint_interval_sec": full_interval,
+            "max_periodic_full_exports": 1,
+        }
+    )
+
+    cli_root = tmp_path / "m1_cli_root"
+    out_dir = cli_root / "output"
+    work_dir = cli_root / "work" / "v3_ppo"
+
+    supervisor_cache: dict[str, object] = {}
+    orig_fsync = arena_rt._fsync_directory
+
+    def _hooked_fsync(directory: Path) -> None:
+        orig_fsync(directory)
+        if out_dir.exists():
+            scan_supervisor_exports(cli_root, 1024**3, supervisor_cache)
+
+    monkeypatch.setattr(arena_rt, "_fsync_directory", _hooked_fsync)
+
+    # Deterministic 10.0s/update clock:
+    # - u=3 (30s), u=6 (60s): periodic LIGHT
+    # - u=8 (80s >= 75s): 1st periodic FULL (hits `max_periodic_full_exports=1`)
+    # - u=11 (110s), u=14 (140s): periodic LIGHT
+    # - u=16 (160s, 160-80=80 >= 75s): `due_full_t` saves FULL in `work/`, cap blocks export;
+    #   previously reset the LIGHT timer to 160s and delayed the next LIGHT to u=19 (190s, 50s =
+    #   1.67x gap). With `last_light_export_mono`, u=17 (170s, 170-140=30s) and u=20 (200s) export
+    #   LIGHT right at 1.00x interval!
+    fake_clock = {"t": 1000.0}
+    monkeypatch.setattr(ppo_mod.time, "monotonic", lambda: fake_clock["t"])
+
+    periodic_events: list[tuple[str, int, float]] = []
+    real_publish = ppo_mod.publish_checkpoint_to_output
+
+    def _spy_publish(
+        work_ckpt_path: Path,
+        out_ckpts: Path,
+        *,
+        reason: str,
+        counters: dict[str, object],
+        **kwargs: object,
+    ) -> list[str]:
+        published = real_publish(
+            work_ckpt_path,
+            out_ckpts,
+            reason=reason,
+            counters=counters,
+            **kwargs,  # type: ignore[arg-type]
+        )
+        if reason in {"periodic_full", "periodic_light"}:
+            periodic_events.append(
+                (reason, int(counters["updates_completed"]), fake_clock["t"] - 1000.0)
+            )
+        return published
+
+    monkeypatch.setattr(ppo_mod, "publish_checkpoint_to_output", _spy_publish)
+
+    def _advance_clock(_tr: V3PPOTrainer, _next_u: int) -> None:
+        fake_clock["t"] += 10.0
+
+    res = run_training_job(
+        cfg=cfg_m1,
+        output_dir=out_dir,
+        work_dir=work_dir,
+        device="cpu",
+        step_hook=_advance_clock,
+    )
+    scan_supervisor_exports(cli_root, 1024**3, supervisor_cache)
+
+    assert res["status"] == "PASS"
+    assert res["periodic_full_exports_published"] == 1
+    assert res["periodic_light_exports_published"] == 6
+    assert periodic_events == [
+        ("periodic_light", 3, 30.0),
+        ("periodic_light", 6, 60.0),
+        ("periodic_full", 8, 80.0),
+        ("periodic_light", 11, 110.0),
+        ("periodic_light", 14, 140.0),
+        ("periodic_light", 17, 170.0),
+        ("periodic_light", 20, 200.0),
+    ]
+    # Capped FULL save at u=16 MUST exist in `work_dir` while u=17 LIGHT still exported at +30.0s!
+    assert (work_dir / "checkpoints" / "full_u0000016.index.json").is_file()
+    assert not (out_dir / "checkpoints" / "full_u0000016.index.json").exists()
+    times = [ev[2] for ev in periodic_events]
+    gaps = [b - a for a, b in zip(times, times[1:], strict=False)]
+    assert max(gaps) <= light_interval

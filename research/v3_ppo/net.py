@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+from collections.abc import Callable
 from contextlib import nullcontext
 from dataclasses import asdict, dataclass
 from typing import Any
@@ -69,7 +71,8 @@ def symlog_two_hot_loss(
     """Compute cross-entropy loss between ``value_logits`` and two-hot encoded ``targets``.
 
     When ``fast=True`` (default), gathers the two adjacent bin log-probabilities directly
-    instead of materializing a dense ``(*B, 255)`` two-hot tensor via ``scatter_add_``.
+    instead of materializing a dense ``(*B, 255)`` two-hot tensor via ``scatter_add_``
+    (float32 rounding-level equivalent, ``~1e-7..1e-6``, to the dense reference path).
     """
     log_probs = F.log_softmax(value_logits.float(), dim=-1)
     if fast:
@@ -373,11 +376,44 @@ class EgoMultiScaleNet(nn.Module):
         )
         self.register_buffer("bin_centers", centers, persistent=False)
 
+        self._compiled_encode_trunk: (
+            Callable[..., tuple[torch.Tensor, torch.Tensor | None]] | None
+        ) = None
+        self.compile_backend: str | None = None
+        self.compiled_trunk_calls: int = 0
+
         self._init_weights()
         if cfg.use_channels_last:
             self.stem_s1.to(memory_format=torch.channels_last)
             self.stem_s4.to(memory_format=torch.channels_last)
             self.stem_s16.to(memory_format=torch.channels_last)
+
+    @property
+    def is_compiled(self) -> bool:
+        """Return ``True`` when ``compile_execution_paths`` has compiled the shared trunk."""
+        return self._compiled_encode_trunk is not None
+
+    def compile_execution_paths(self, *, backend: str | None = None) -> EgoMultiScaleNet:
+        """Compile the shared trunk invoked by ``forward``, ``act``, and ``evaluate_actions``.
+
+        Wrapping ``EgoMultiScaleNet`` directly with ``torch.compile(net)`` only compiles
+        ``forward`` (`OptimizedModule.__call__`), leaving rollout (``act``) and PPO learner
+        updates (``evaluate_actions``) uncompiled. Compiling ``_encode_trunk_eager`` compiles
+        the multi-scale CNN + scalar stem + fusion MLP executed on all three paths while
+        preserving clean ``state_dict()`` parameter names and ``torch.Generator`` sampling.
+        """
+        if not hasattr(torch, "compile"):
+            return self
+        dev = next(self.parameters()).device
+        eff_backend = backend or (
+            "inductor" if (dev.type == "cuda" or sys.platform != "darwin") else "aot_eager"
+        )
+        self._compiled_encode_trunk = torch.compile(  # type: ignore[assignment]
+            self._encode_trunk_eager,
+            backend=eff_backend,
+        )
+        self.compile_backend = eff_backend
+        return self
 
     def _init_weights(self) -> None:
         for mod in self.modules():
@@ -478,7 +514,7 @@ class EgoMultiScaleNet(nn.Module):
         safe_mask = torch.where(has_any, mask_bool, fallback)
         return logits_f32.masked_fill(~safe_mask, MASK_FILL_VALUE), safe_mask
 
-    def encode_trunk(
+    def _encode_trunk_eager(
         self,
         raster_s1: torch.Tensor,
         raster_s4: torch.Tensor,
@@ -488,7 +524,7 @@ class EgoMultiScaleNet(nn.Module):
         hidden_state: torch.Tensor | None = None,
         episode_starts: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor | None]:
-        """Encode 3 multi-scale uint8/float rasters + 8 scalars into fused trunk features."""
+        """Eager implementation of multi-scale raster + scalar trunk encoding."""
         s1 = self._prepare_raster(raster_s1, expected_hw=FINE_RASTER_SIZE)
         s4 = self._prepare_raster(raster_s4, expected_hw=MID_RASTER_SIZE)
         s16 = self._prepare_raster(raster_s16, expected_hw=WIDE_RASTER_SIZE)
@@ -501,6 +537,36 @@ class EgoMultiScaleNet(nn.Module):
         fused = self.fusion(torch.cat((f1, f4, f16, fs), dim=-1))
         return self.apply_recurrent_core(
             fused,
+            hidden_state=hidden_state,
+            episode_starts=episode_starts,
+        )
+
+    def encode_trunk(
+        self,
+        raster_s1: torch.Tensor,
+        raster_s4: torch.Tensor,
+        raster_s16: torch.Tensor,
+        scalars: torch.Tensor,
+        *,
+        hidden_state: torch.Tensor | None = None,
+        episode_starts: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
+        """Encode 3 multi-scale uint8/float rasters + 8 scalars into fused trunk features."""
+        if self._compiled_encode_trunk is not None:
+            self.compiled_trunk_calls += 1
+            return self._compiled_encode_trunk(
+                raster_s1,
+                raster_s4,
+                raster_s16,
+                scalars,
+                hidden_state=hidden_state,
+                episode_starts=episode_starts,
+            )
+        return self._encode_trunk_eager(
+            raster_s1,
+            raster_s4,
+            raster_s16,
+            scalars,
             hidden_state=hidden_state,
             episode_starts=episode_starts,
         )

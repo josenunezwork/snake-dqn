@@ -26,6 +26,9 @@ fi
 
 if [ "$MODE" = "canary" ]; then
   CANARY_ARGS=(--canary-suite --input-dir "$COLAB_INPUT_DIR" --ledger "$LEDGER_FILE")
+  if [ -n "${V3_PPO_CANARY_TRAIN_ENVS:-}" ]; then
+    CANARY_ARGS+=(--canary-train-envs "$V3_PPO_CANARY_TRAIN_ENVS")
+  fi
   if [ "${V3_PPO_COMPILE:-0}" = "1" ]; then
     CANARY_ARGS+=(--compile)
   fi

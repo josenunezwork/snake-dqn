@@ -24,14 +24,13 @@ from research.arena_ppo.runtime import (
     phase_stamp,
     synchronize_device,
     verify_completed_artifact,
-    write_create_only_artifact,
-    write_create_only_json,
 )
 from research.game_v3.config import GameV3Config
 from research.game_v3.obs import LearnerIndex, allocate_obs_batch, build_obs
 from research.game_v3.scripted import food_seeking_actions
 from research.game_v3.sim import GameV3Sim
 from research.v3_ppo.config import (
+    GPU_DEFAULT_TRAIN_ENVS,
     OBS_BATCH_BYTES_PER_ROW,
     V3_PPO_NAMESPACE,
     VALID_NET_SIZES,
@@ -46,14 +45,18 @@ from research.v3_ppo.net import build_ego_multiscale_net
 from research.v3_ppo.ppo import (
     StopRequestedError,
     V3PPOTrainer,
+    _artifact_or_sidecar_exists,
+    _exported_payload_bytes,
     _validate_staged_ledger_resume,
     pack_sim_state_dict,
-    publish_checkpoint_to_output,
     resolve_resume_checkpoint,
     run_training_job,
     unpack_sim_state_dict,
     verify_full_checkpoint_set,
     verify_staged_checkpoint,
+    write_create_only_artifact,
+    write_create_only_json,
+    write_latest_checkpoint_manifest,
 )
 
 V3_PPO_RULER_SCHEMA = "v3-ppo-ruler-result/v1"
@@ -189,11 +192,9 @@ def _measure_collection_only_cell(
         fast_preprocess=bool(fast_learner_ops),
     ).to(device)
     raw_model.eval()
-    model = (
-        torch.compile(raw_model)  # type: ignore[assignment]
-        if (compile_model and hasattr(torch, "compile"))
-        else raw_model
-    )
+    if compile_model and hasattr(torch, "compile"):
+        raw_model.compile_execution_paths()
+    model = raw_model
     chunk_learners = default_actor_chunk_learners(net_size)
 
     def _step_once(
@@ -580,11 +581,7 @@ def run_ruler(
 
     def _load_staged_cell(cid: str) -> dict[str, Any] | None:
         local_path = cells_dir / f"{cid}.json"
-        if (
-            local_path.is_file()
-            and Path(f"{local_path}.sha256").is_file()
-            and Path(f"{local_path}.complete").is_file()
-        ):
+        if _artifact_or_sidecar_exists(local_path):
             verify_completed_artifact(local_path)
             return json.loads(local_path.read_text(encoding="utf-8"))
         if input_dir is not None:
@@ -871,7 +868,7 @@ def run_ruler(
         "wall_seconds": round(time.monotonic() - wall_t0, 4),
     }
     result_path = out / "ruler_result.json"
-    if not result_path.exists():
+    if not _artifact_or_sidecar_exists(result_path):
         write_create_only_json(result_path, result_payload)
     return json.loads(result_path.read_text(encoding="utf-8"))
 
@@ -910,6 +907,12 @@ def _verify_cardinal6_canary_decisions(
     return n_dec
 
 
+def _copy_verified_export_single_inode(src: Path, dst: Path) -> str:
+    """Copy a verified scratch file into ``output/`` as a single-inode (`st_nlink == 1`) export."""
+    verify_completed_artifact(src)
+    return write_create_only_artifact(dst, lambda tmp, s=src: shutil.copyfile(s, tmp))
+
+
 def run_canary_suite(
     *,
     output_dir: Path,
@@ -921,6 +924,7 @@ def run_canary_suite(
     canary_arena_radius: float = 120.0,
     canary_num_snakes: int = 12,
     canary_rollout_len: int = 4,
+    canary_train_envs: int | None = None,
     compile_model: bool = False,
     fast_learner_ops: bool = True,
     canary_eval_cfg_override: V3PPOConfig | None = None,
@@ -1084,18 +1088,9 @@ def run_canary_suite(
             },
         )
 
-        publish_checkpoint_to_output(
-            u1_full_idx,
-            out / "checkpoints",
-            reason="canary_u1_snapshot",
-            counters={
-                "updates_completed": 1,
-                "agent_steps_collected": res_u1["agent_steps_collected"],
-                "world_steps_collected": res_u1["world_steps_collected"],
-            },
-        )
-
         cfg_u2 = V3PPOConfig.from_dict({**cfg_u1.to_dict(), "total_updates": 2})
+        u2_out = tmp_dir / "u2_out"
+        u2_work = tmp_dir / "u2_work"
         rem_u2 = (
             max(20.0, float(max_wall_seconds) - (time.monotonic() - wall_t0))
             if max_wall_seconds is not None
@@ -1103,8 +1098,8 @@ def run_canary_suite(
         )
         res_u2 = run_training_job(
             cfg=cfg_u2,
-            output_dir=out,
-            work_dir=tmp_dir / "u2_work",
+            output_dir=u2_out,
+            work_dir=u2_work,
             device=resolved_dev,
             input_dir=staged_in,
             ledger_path=staged_ledger,
@@ -1116,13 +1111,59 @@ def run_canary_suite(
             or int(res_u2.get("updates_completed", 0)) != 2
         ):
             raise RuntimeError(f"Canary resumed update-2 train failed: {res_u2}")
-        final_resolved = resolve_resume_checkpoint(out / "checkpoints", require_markers=True)
+        u2_resolved = resolve_resume_checkpoint(u2_out / "checkpoints", require_markers=True)
+        if (
+            u2_resolved is None
+            or str(u2_resolved.get("kind")) != "full"
+            or int(u2_resolved["updates_completed"]) != 2
+        ):
+            raise RuntimeError(f"Canary scratch missing verified u2 FULL checkpoint: {u2_resolved}")
+
+        # Publish canary exports from scratch `u2_out` into `out` strictly as fresh single-inode
+        # (`st_nlink == 1`) create-only copies so `shutil.rmtree(tmp_dir)` never mutates `st_nlink`
+        # or `st_ctime_ns` on any completed export observed by `colab_cli.runtime._exports`.
+        _copy_verified_export_single_inode(u2_out / "config.json", out / "config.json")
+
+        u2_full_idx = Path(u2_resolved["path"])
+        u2_full_meta = verify_full_checkpoint_set(u2_full_idx, require_markers=True)
+        out_ckpts = out / "checkpoints"
+        out_ckpts.mkdir(parents=True, exist_ok=True)
+        for ckpt_src in [u2_full_meta["light_path"], *u2_full_meta["shard_paths"], u2_full_idx]:
+            _copy_verified_export_single_inode(ckpt_src, out_ckpts / ckpt_src.name)
+            ckpt_meta_src = ckpt_src.with_suffix(".meta.json")
+            if Path(f"{ckpt_meta_src}.complete").is_file():
+                _copy_verified_export_single_inode(ckpt_meta_src, out_ckpts / ckpt_meta_src.name)
+
+        write_latest_checkpoint_manifest(
+            out_ckpts,
+            reason="completed",
+            counters={
+                "updates_completed": int(res_u2["updates_completed"]),
+                "agent_steps_collected": int(res_u2["agent_steps_collected"]),
+                "world_steps_collected": int(res_u2["world_steps_collected"]),
+            },
+        )
+
+        for sub_name in ("metrics", "eval"):
+            src_sub = u2_out / sub_name
+            if src_sub.is_dir():
+                for seg_src in sorted(src_sub.glob("*.jsonl")):
+                    if Path(f"{seg_src}.complete").is_file():
+                        _copy_verified_export_single_inode(seg_src, out / sub_name / seg_src.name)
+
+        verify_completed_artifact(u2_out / "train_result.json")
+        u2_result_payload = json.loads((u2_out / "train_result.json").read_text(encoding="utf-8"))
+        u2_result_payload["session_export_bytes_published"] = int(_exported_payload_bytes(out))
+        write_create_only_json(out / "train_result.json", u2_result_payload)
+
+        final_resolved = resolve_resume_checkpoint(out_ckpts, require_markers=True)
         if final_resolved is None or int(final_resolved["updates_completed"]) != 2:
             raise RuntimeError(f"Canary output missing verified u2 checkpoint: {final_resolved}")
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
-    # 4. Run 1 evaluation at the DEFAULT evaluation config on `resolved_dev` and report wall seconds
+    # 4. Run 1 evaluation at the DEFAULT evaluation config on `resolved_dev` WITH a training-size
+    #    simulator + rollout buffer resident concurrently, recording wall seconds and combined peak!
     default_eval_cfg = (
         canary_eval_cfg_override
         if canary_eval_cfg_override is not None
@@ -1132,6 +1173,39 @@ def run_canary_suite(
             seed=seed,
         )
     )
+    env_train_envs = (
+        int(os.environ["V3_PPO_CANARY_TRAIN_ENVS"])
+        if os.environ.get("V3_PPO_CANARY_TRAIN_ENVS")
+        else None
+    )
+    explicit_train_envs = (
+        int(canary_train_envs) if canary_train_envs is not None else env_train_envs
+    )
+    if explicit_train_envs is not None:
+        if explicit_train_envs < 1:
+            raise ValueError(f"canary_train_envs must be >= 1, got {explicit_train_envs}")
+        eff_resident_train_envs = explicit_train_envs
+        eff_resident_game_cfg = default_eval_cfg.game_config
+        eff_resident_rollout_len = int(default_eval_cfg.rollout_len)
+    elif resolved_dev.type == "cuda":
+        vram_total = int(torch.cuda.get_device_properties(resolved_dev).total_memory)
+        if vram_total >= 60_000_000_000:
+            eff_resident_train_envs = int(GPU_DEFAULT_TRAIN_ENVS["H100"])
+        elif vram_total >= 32_000_000_000:
+            eff_resident_train_envs = int(GPU_DEFAULT_TRAIN_ENVS["A100"])
+        else:
+            eff_resident_train_envs = int(GPU_DEFAULT_TRAIN_ENVS["L4"])
+        eff_resident_game_cfg = default_eval_cfg.game_config
+        eff_resident_rollout_len = int(default_eval_cfg.rollout_len)
+    else:
+        eff_resident_train_envs = max(2, int(canary_envs))
+        eff_resident_game_cfg = (
+            canary_eval_cfg_override.game_config
+            if canary_eval_cfg_override is not None
+            else canary_game_cfg
+        )
+        eff_resident_rollout_len = max(2, int(canary_rollout_len))
+
     with SignalStopFlag() as eval_stop_flag:
         eval_guard_reserve = 10.0
 
@@ -1144,26 +1218,51 @@ def run_canary_suite(
                 )
             return False
 
-        default_eval_raw_net = build_ego_multiscale_net(
-            default_eval_cfg.net_size,
-            use_channels_last=bool(default_eval_cfg.use_channels_last),
-            use_bf16_autocast=bool(default_eval_cfg.amp),
-            fast_preprocess=bool(default_eval_cfg.fast_learner_ops),
-        ).to(resolved_dev)
-        default_eval_raw_net.eval()
-        default_eval_net: Any = (
-            torch.compile(default_eval_raw_net)
-            if (bool(default_eval_cfg.compile_model) and hasattr(torch, "compile"))
-            else default_eval_raw_net
-        )
-        default_eval_res = evaluate_policy(
-            default_eval_net,
-            default_eval_cfg,
-            device=resolved_dev,
-            should_stop=_canary_eval_should_stop,
-        )
-        del default_eval_net, default_eval_raw_net
         _cleanup_device_memory(resolved_dev)
+        resident_train_cfg = V3PPOConfig(
+            game_config=eff_resident_game_cfg,
+            num_envs=eff_resident_train_envs,
+            learner_slots=default_eval_cfg.learner_slots,
+            opponent_policy=default_eval_cfg.opponent_policy,
+            net_size=default_eval_cfg.net_size,
+            amp=bool(default_eval_cfg.amp),
+            use_channels_last=bool(default_eval_cfg.use_channels_last),
+            compile_model=bool(default_eval_cfg.compile_model),
+            fast_learner_ops=bool(default_eval_cfg.fast_learner_ops),
+            rollout_len=eff_resident_rollout_len,
+            eval_every_minutes=0.0,
+            eval_every_updates=0,
+            seed=seed,
+        )
+        resident_trainer = V3PPOTrainer(resident_train_cfg, device=resolved_dev)
+        try:
+            synchronize_device(resolved_dev)
+            _reset_peak_memory(resolved_dev)
+            default_eval_res = evaluate_policy(
+                resident_trainer.model,
+                default_eval_cfg,
+                device=resolved_dev,
+                should_stop=_canary_eval_should_stop,
+            )
+            resident_sim_bytes = estimate_sim_memory_bytes(
+                eff_resident_game_cfg, eff_resident_train_envs
+            )["sim_persistent_bytes"]
+            eval_sim_bytes = estimate_sim_memory_bytes(
+                default_eval_cfg.game_config, int(default_eval_res["eval_envs"])
+            )["sim_persistent_bytes"]
+            fallback_combined = (
+                int(resident_sim_bytes)
+                + int(resident_trainer.buffer.nbytes_total())
+                + int(eval_sim_bytes)
+                + int(resident_trainer.raw_model.parameter_count()) * 16
+            )
+            eval_peak_bytes = max(
+                int(default_eval_res.get("peak_memory_bytes", 0)),
+                _read_peak_memory_bytes(resolved_dev, fallback_bytes=fallback_combined),
+            )
+        finally:
+            del resident_trainer
+            _cleanup_device_memory(resolved_dev)
 
     if bool(default_eval_res.get("aborted", False)):
         raise RuntimeError(
@@ -1171,8 +1270,13 @@ def run_canary_suite(
             f"{default_eval_res}"
         )
 
+    eval_peak_mib = round(int(eval_peak_bytes) / float(1024 * 1024), 2)
     default_eval_benchmark = {
         "wall_seconds": float(default_eval_res["wall_seconds"]),
+        "peak_memory_bytes": int(eval_peak_bytes),
+        "peak_memory_mib": eval_peak_mib,
+        "resident_train_envs": int(eff_resident_train_envs),
+        "resident_rollout_len": int(eff_resident_rollout_len),
         "arena_radius": float(default_eval_cfg.game_config.arena_radius),
         "num_snakes": int(default_eval_cfg.num_snakes),
         "net_size": default_eval_cfg.net_size,
@@ -1191,6 +1295,8 @@ def run_canary_suite(
     }
     print(
         f"V3_PPO_CANARY_DEFAULT_EVAL wall_s={default_eval_benchmark['wall_seconds']:.3f} "
+        f"peak_mib={eval_peak_mib:.1f} "
+        f"resident_train_envs={eff_resident_train_envs} "
         f"eval_envs={default_eval_benchmark['eval_envs']} "
         f"burnin={default_eval_benchmark['eval_burnin_ticks']} "
         f"ticks={default_eval_benchmark['eval_ticks']} "
@@ -1210,6 +1316,9 @@ def run_canary_suite(
         "last_eval": res_u2.get("last_eval"),
         "default_eval_benchmark": default_eval_benchmark,
         "default_eval_wall_seconds": float(default_eval_benchmark["wall_seconds"]),
+        "default_eval_peak_memory_bytes": int(eval_peak_bytes),
+        "default_eval_peak_memory_mib": eval_peak_mib,
+        "default_eval_resident_train_envs": int(eff_resident_train_envs),
         "wall_seconds": round(time.monotonic() - wall_t0, 4),
     }
     write_create_only_json(out / "canary_checks.json", canary_payload)
@@ -1256,6 +1365,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--canary-arena-radius", type=float, default=120.0)
     parser.add_argument("--canary-num-snakes", type=int, default=12)
     parser.add_argument("--canary-rollout-len", type=int, default=4)
+    parser.add_argument(
+        "--canary-train-envs",
+        type=int,
+        default=(
+            int(os.environ["V3_PPO_CANARY_TRAIN_ENVS"])
+            if os.environ.get("V3_PPO_CANARY_TRAIN_ENVS")
+            else None
+        ),
+    )
 
     parser.add_argument("--envs", type=str, default="128,256,512")
     parser.add_argument("--nets", type=str, default="S,M")
@@ -1317,6 +1435,7 @@ def main(argv: list[str] | None = None) -> int:
             canary_arena_radius=args.canary_arena_radius,
             canary_num_snakes=args.canary_num_snakes,
             canary_rollout_len=args.canary_rollout_len,
+            canary_train_envs=args.canary_train_envs,
             compile_model=bool(args.compile),
             fast_learner_ops=bool(args.fast_learner_ops),
             seed=args.seed,
