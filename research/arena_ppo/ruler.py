@@ -9,7 +9,6 @@ import math
 import os
 import time
 import traceback
-from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
@@ -40,6 +39,7 @@ from research.arena_ppo.ppo import (
     StopRequestedError,
     estimate_rollout_buffer_bytes,
     run_training_job,
+    verify_staged_checkpoint,
 )
 from research.arena_ppo.runtime import (
     SignalStopFlag,
@@ -2055,22 +2055,17 @@ def run_canary_suite(
                     f"Staged resume checkpoint SHA mismatch at {staged_ckpt}: "
                     f"{actual_sha!r} != {resume_entry.get('sha256')!r}"
                 )
-            ckpt_obj = torch.load(staged_ckpt, map_location="cpu", weights_only=False)
-            raw_ckpt_cfg = dict(ckpt_obj["config"])
-            raw_ckpt_cfg.setdefault("net_arch", "per_seat")
-            staged_cfg = replace(
-                ArenaPPOConfig.from_dict(raw_ckpt_cfg),
-                compile_model=False,
+            verified_ckpt = verify_staged_checkpoint(
+                staged_ckpt,
+                device=resolved_dev,
+                verify_markers=False,
             )
-            staged_trainer = ArenaPPOTrainer(staged_cfg, device=resolved_dev)
-            staged_trainer.load_checkpoint(staged_ckpt, verify_markers=False)
             staged_verification = {
                 "kind": "checkpoint",
                 "relpath": str(resume_entry["relpath"]),
                 "sha256": actual_sha,
-                "updates_completed": int(staged_trainer.updates_completed),
+                "updates_completed": int(verified_ckpt["updates_completed"]),
             }
-            del staged_trainer, ckpt_obj
             _cleanup_device_memory(resolved_dev)
         else:
             cell_units = [

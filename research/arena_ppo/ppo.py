@@ -62,6 +62,7 @@ from research.arena_ppo.runtime import (
     write_create_only_json,
 )
 from research.arena_ppo.sim import (
+    _SIM_STATE_TENSORS,
     DEFAULT_GRID_H,
     DEFAULT_GRID_W,
     DEFAULT_NUM_SNAKES,
@@ -76,6 +77,9 @@ from src.core.mechanics_constants import corpse_food_cap
 ARENA_PPO_SCHEMA = "arena-ppo-stage1/v1"
 ARENA_PPO_NAMESPACE = "arena_ppo_stage1_scratch_v2_20261110"
 SUPERVISOR_GRACE_SAVE_LIMIT_SEC = 10.0
+UNLIMITED_HOURS_TOTAL_UPDATES: int = 1_000_000_000
+MIN_MAX_UPDATE_SECONDS: float = 1200.0
+HARD_KILL_MAX_LOSS_SEC: float = 2700.0
 _RESUME_MUTABLE_CONFIG_KEYS: frozenset[str] = frozenset(
     {
         "total_updates",
@@ -136,8 +140,8 @@ class ArenaPPOConfig:
     checkpoint_every_updates: int = 0
     keep_periodic_checkpoints: int = 3
     max_update_seconds: float = 1200.0
-    # 40 min default so even with update + checkpoint write latency, hard-kill loss stays <= 45 min
-    output_publish_interval_sec: float = 2400.0
+    # 30 min default + predictive <= 45 min guard so hard-kill loss never exceeds 45 min
+    output_publish_interval_sec: float = 1800.0
     eval_every_updates: int = 0
     log_rotate_every_updates: int = 64
     log_rotate_every_seconds: float = 900.0
@@ -191,6 +195,11 @@ class ArenaPPOConfig:
         if int(self.late_reset_reservoir_size) < 1:
             raise ValueError(
                 f"late_reset_reservoir_size must be >= 1, got {self.late_reset_reservoir_size}"
+            )
+        if self.late_reset_enabled and int(self.max_world_frames) <= 0:
+            raise ValueError(
+                "late_reset_enabled=True requires max_world_frames > 0, "
+                f"got max_world_frames={self.max_world_frames}"
             )
 
     def to_dict(self) -> dict[str, Any]:
@@ -648,6 +657,15 @@ def estimate_rollout_buffer_bytes(
     return int(body_bytes + cursor_bytes + per_seat_tick_bytes + food_bytes + helper_bytes)
 
 
+def compute_max_update_seconds(cfg: ArenaPPOConfig, expected_steps_per_sec: float) -> float:
+    """Scale `max_update_seconds` to `3x` expected update duration with a `1200 s` floor."""
+    if not math.isfinite(expected_steps_per_sec) or float(expected_steps_per_sec) <= 0.0:
+        raise ValueError(f"expected_steps_per_sec must be positive, got {expected_steps_per_sec}")
+    steps_per_update = int(cfg.rollout_len) * int(cfg.num_envs) * int(cfg.num_snakes)
+    expected_sec_per_update = float(steps_per_update) / float(expected_steps_per_sec)
+    return max(MIN_MAX_UPDATE_SECONDS, round(3.0 * expected_sec_per_update, 2))
+
+
 def build_training_plan(
     cfg: ArenaPPOConfig,
     *,
@@ -656,9 +674,9 @@ def build_training_plan(
     max_wall_seconds: float | None = None,
 ) -> dict[str, Any]:
     """Compute expected PPO updates and agent-steps for a `--hours` run given throughput."""
-    if float(hours) <= 0.0:
+    if not math.isfinite(hours) or float(hours) <= 0.0:
         raise ValueError(f"hours must be positive, got {hours}")
-    if float(expected_steps_per_sec) <= 0.0:
+    if not math.isfinite(expected_steps_per_sec) or float(expected_steps_per_sec) <= 0.0:
         raise ValueError(f"expected_steps_per_sec must be positive, got {expected_steps_per_sec}")
 
     steps_per_update = int(cfg.rollout_len) * int(cfg.num_envs) * int(cfg.num_snakes)
@@ -674,6 +692,7 @@ def build_training_plan(
     nominal_agent_steps = int(round(nominal_seconds * float(expected_steps_per_sec)))
     nominal_updates = max(1, int(math.floor(nominal_agent_steps / float(steps_per_update))))
     expected_sec_per_update = float(steps_per_update) / float(expected_steps_per_sec)
+    recommended_max_update_sec = compute_max_update_seconds(cfg, float(expected_steps_per_sec))
     return {
         "hours": float(hours),
         "nominal_seconds": round(nominal_seconds, 2),
@@ -681,6 +700,7 @@ def build_training_plan(
         "expected_steps_per_sec": float(expected_steps_per_sec),
         "agent_steps_per_update": steps_per_update,
         "expected_seconds_per_update": round(expected_sec_per_update, 4),
+        "recommended_max_update_seconds": recommended_max_update_sec,
         "expected_updates": expected_updates,
         "expected_agent_steps": expected_agent_steps,
         "expected_world_steps": expected_world_steps,
@@ -954,6 +974,11 @@ class ArenaPPOTrainer:
             (self.sim.E, self.sim.S), dtype=torch.float32, device=self.device
         )
         self._last_rollout_mean_ep_return: float = 0.0
+        self._pending_late_restore = torch.zeros(
+            (self.sim.E,), dtype=torch.bool, device=self.device
+        )
+        self._has_pending_late_restore: bool = False
+        self._rollout_max_frame_bound: int | None = None
         self.late_reservoir: LateStateReservoir | None = (
             LateStateReservoir(
                 max_size=cfg.late_reset_reservoir_size,
@@ -1076,6 +1101,11 @@ class ArenaPPOTrainer:
             self.buffer.trunc_bootstrap[t].zero_()
             return
 
+        if self._rollout_max_frame_bound is not None and self._rollout_max_frame_bound < max_frames:
+            self.buffer.truncated[t].zero_()
+            self.buffer.trunc_bootstrap[t].zero_()
+            return
+
         hit = self.sim.sim.frame >= max_frames
         if not bool(hit.any().detach().cpu().item()):
             self.buffer.truncated[t].zero_()
@@ -1095,13 +1125,15 @@ class ArenaPPOTrainer:
             trunc_mask, pre_reset_vals, torch.zeros_like(pre_reset_vals)
         )
 
-        # Reset (or restore from late-state reservoir) only hit worlds without touching ~hit worlds.
+        # Mid-rollout time-limit hits ALWAYS receive a fresh 1-segment reset so append-only
+        # `CompactRolloutBuffer` body_tape remains 100% lossless; queue reservoir restore for
+        # the next rollout start (`t=0`, before full body_tape snapshot).
+        self.sim.reset_worlds(hit)
         if self.late_reservoir is not None and self.cfg.late_reset_enabled:
-            self.late_reservoir.reset_or_restore_worlds(
-                self.sim, hit, restore_prob=self.cfg.late_reset_prob
-            )
-        else:
-            self.sim.reset_worlds(hit)
+            self._pending_late_restore |= hit
+            self._has_pending_late_restore = True
+        if self._rollout_max_frame_bound is not None:
+            self._rollout_max_frame_bound = int(self.sim.sim.frame.max().detach().cpu().item())
 
     @torch.no_grad()
     def collect_rollout(
@@ -1123,53 +1155,82 @@ class ArenaPPOTrainer:
         ep_ret_count = torch.zeros((), dtype=torch.float32, device=self.device)
         zero_es = torch.zeros((self.sim.E, self.sim.S), dtype=torch.float32, device=self.device)
 
-        for t in range(self.cfg.rollout_len):
-            if should_stop is not None and should_stop():
-                raise StopRequestedError("Signal stop requested during rollout collection")
-            self.sim.prepare()
-            self.buffer.record_pre_step(t, self.sim)
-            legal_mask = self.sim.legal_action_mask()
-
-            self_actions, log_probs, values = self._act_all_seats_chunked(
-                self.model, legal_mask, greedy=False
+        # Prepare t=0 pre-decision state and perform any queued LateStateReservoir restores
+        # strictly BEFORE `record_pre_step(0, ...)` snapshots the full ring buffer.
+        self.sim.prepare()
+        if (
+            self.late_reservoir is not None
+            and self.cfg.late_reset_enabled
+            and self._has_pending_late_restore
+        ):
+            restored_mask = self.late_reservoir.restore_from_reservoir(
+                self.sim,
+                self._pending_late_restore,
+                restore_prob=self.cfg.late_reset_prob,
             )
-            snap_actions = None
-            if self._has_snapshot_opp and self.snapshot_model is not None:
-                snap_actions, _, _ = self._act_all_seats_chunked(
-                    self.snapshot_model, legal_mask, greedy=False
+            self._pending_late_restore.zero_()
+            self._has_pending_late_restore = False
+            self.episode_return_acc[restored_mask] = 0.0
+
+        self._rollout_max_frame_bound = (
+            int(self.sim.sim.frame.max().detach().cpu().item())
+            if int(self.cfg.max_world_frames) > 0
+            else None
+        )
+        try:
+            for t in range(self.cfg.rollout_len):
+                if should_stop is not None and should_stop():
+                    raise StopRequestedError("Signal stop requested during rollout collection")
+                was_unprepared = not bool(self.sim.sim._prepared)
+                self.sim.prepare()
+                if was_unprepared and self._rollout_max_frame_bound is not None:
+                    self._rollout_max_frame_bound += 1
+                self.buffer.record_pre_step(t, self.sim)
+                legal_mask = self.sim.legal_action_mask()
+
+                self_actions, log_probs, values = self._act_all_seats_chunked(
+                    self.model, legal_mask, greedy=False
                 )
-            scripted_actions = None
-            if self._has_scripted_opp:
-                scripted_actions = self.sim.scripted_greedy_food_actions()
+                snap_actions = None
+                if self._has_snapshot_opp and self.snapshot_model is not None:
+                    snap_actions, _, _ = self._act_all_seats_chunked(
+                        self.snapshot_model, legal_mask, greedy=False
+                    )
+                scripted_actions = None
+                if self._has_scripted_opp:
+                    scripted_actions = self.sim.scripted_greedy_food_actions()
 
-            world_actions = self.sim.compose_world_actions(
-                self_actions,
-                snapshot_actions=snap_actions,
-                scripted_actions=scripted_actions,
-            )
-            info = self.sim.step(world_actions)
+                world_actions = self.sim.compose_world_actions(
+                    self_actions,
+                    snapshot_actions=snap_actions,
+                    scripted_actions=scripted_actions,
+                )
+                info = self.sim.step(world_actions)
 
-            self.buffer.actions[t] = self_actions.to(torch.uint8)
-            self.buffer.log_probs[t] = log_probs
-            self.buffer.values[t] = values
-            self.buffer.rewards[t] = info.reward
-            self.buffer.died[t] = info.died
-            self.buffer.acted[t] = info.acted
-            self.buffer.learner_mask[t] = info.learner_mask
-            self._maybe_apply_world_time_limits(t, info.survived)
+                self.buffer.actions[t] = self_actions.to(torch.uint8)
+                self.buffer.log_probs[t] = log_probs
+                self.buffer.values[t] = values
+                self.buffer.rewards[t] = info.reward
+                self.buffer.died[t] = info.died
+                self.buffer.acted[t] = info.acted
+                self.buffer.learner_mask[t] = info.learner_mask
+                self._maybe_apply_world_time_limits(t, info.survived)
 
-            self.episode_return_acc = torch.where(
-                info.acted, self.episode_return_acc + info.reward, zero_es
-            )
-            ep_done = info.acted & (info.died | self.buffer.truncated[t])
-            ep_done_learner = ep_done & info.learner_mask
-            ep_ret_sum = (
-                ep_ret_sum + torch.where(ep_done_learner, self.episode_return_acc, zero_es).sum()
-            )
-            ep_ret_count = ep_ret_count + ep_done_learner.to(torch.float32).sum()
-            self.episode_return_acc = torch.where(
-                ep_done | (~info.survived), zero_es, self.episode_return_acc
-            )
+                self.episode_return_acc = torch.where(
+                    info.acted, self.episode_return_acc + info.reward, zero_es
+                )
+                ep_done = info.acted & (info.died | self.buffer.truncated[t])
+                ep_done_learner = ep_done & info.learner_mask
+                ep_ret_sum = (
+                    ep_ret_sum
+                    + torch.where(ep_done_learner, self.episode_return_acc, zero_es).sum()
+                )
+                ep_ret_count = ep_ret_count + ep_done_learner.to(torch.float32).sum()
+                self.episode_return_acc = torch.where(
+                    ep_done | (~info.survived), zero_es, self.episode_return_acc
+                )
+        finally:
+            self._rollout_max_frame_bound = None
 
         self.sim.assert_no_capacity_overflow()
 
@@ -1513,6 +1574,7 @@ class ArenaPPOTrainer:
             "optimizer_state_dict": self.optimizer.state_dict(),
             "sim_state_dict": self.sim.state_dict(),
             "episode_return_acc": self.episode_return_acc.detach().cpu().clone(),
+            "pending_late_restore": self._pending_late_restore.detach().cpu().clone(),
             "late_reservoir": (
                 self.late_reservoir.state_dict() if self.late_reservoir is not None else None
             ),
@@ -1596,7 +1658,11 @@ class ArenaPPOTrainer:
             )
         ckpt_cfg = ArenaPPOConfig.from_dict(ckpt_cfg_input).to_dict()
         curr_cfg = self.cfg.to_dict()
-        for key in sorted(set(ckpt_cfg) | set(curr_cfg)):
+        priority_keys = ("net_arch", "net_size", "num_envs")
+        ordered_keys = list(priority_keys) + sorted(
+            (set(ckpt_cfg) | set(curr_cfg)) - set(priority_keys)
+        )
+        for key in ordered_keys:
             if key in _RESUME_MUTABLE_CONFIG_KEYS:
                 continue
             if ckpt_cfg.get(key) != curr_cfg.get(key):
@@ -1616,6 +1682,16 @@ class ArenaPPOTrainer:
             )
         else:
             self.episode_return_acc.zero_()
+        if "pending_late_restore" in ckpt and ckpt["pending_late_restore"] is not None:
+            self._pending_late_restore.copy_(
+                ckpt["pending_late_restore"].to(device=self.device, dtype=torch.bool)
+            )
+            self._has_pending_late_restore = bool(
+                self._pending_late_restore.any().detach().cpu().item()
+            )
+        else:
+            self._pending_late_restore.zero_()
+            self._has_pending_late_restore = False
         if self.late_reservoir is not None and ckpt.get("late_reservoir") is not None:
             self.late_reservoir.load_state_dict(ckpt["late_reservoir"])
         self.refresh_opponent_flags()
@@ -1636,6 +1712,137 @@ class ArenaPPOTrainer:
         np.random.set_state(rng["numpy"])
         self._last_checkpoint_wall = time.monotonic()
         return ckpt
+
+
+def verify_staged_checkpoint(
+    path: Path | str,
+    *,
+    device: str | torch.device = "cpu",
+    verify_markers: bool = False,
+) -> dict[str, Any]:
+    """Verify a staged continuation checkpoint without allocating rollout or simulator buffers."""
+    ckpt_path = Path(path)
+    if verify_markers:
+        verify_completed_artifact(ckpt_path)
+    ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+    if not isinstance(ckpt, dict) or bool(ckpt.get("canary_export_probe")):
+        raise ValueError(f"Refusing invalid or canary_export_probe checkpoint: {ckpt_path}")
+    if ckpt.get("schema") != ARENA_PPO_SCHEMA:
+        raise ValueError(f"Foreign checkpoint schema {ckpt.get('schema')!r} at {ckpt_path}")
+    if ckpt.get("namespace") != ARENA_PPO_NAMESPACE:
+        raise ValueError(f"Foreign checkpoint namespace {ckpt.get('namespace')!r} at {ckpt_path}")
+
+    ckpt_cfg_raw = ckpt.get("config")
+    if not isinstance(ckpt_cfg_raw, dict):
+        raise ValueError(f"Checkpoint missing config dictionary at {ckpt_path}")
+    ckpt_cfg_input = dict(ckpt_cfg_raw)
+    if "net_arch" not in ckpt_cfg_input:
+        ckpt_net_cfg = ckpt.get("net_config")
+        ckpt_cfg_input["net_arch"] = (
+            str(ckpt_net_cfg.get("net_arch", "per_seat"))
+            if isinstance(ckpt_net_cfg, dict)
+            else "per_seat"
+        )
+    cfg = ArenaPPOConfig.from_dict(ckpt_cfg_input)
+
+    resolved_dev = normalize_device(device)
+    model = build_arena_model(
+        cfg.net_arch,
+        cfg.net_size,
+        grid_h=cfg.grid_h,
+        grid_w=cfg.grid_w,
+        use_channels_last=cfg.use_channels_last,
+        use_bf16_autocast=cfg.use_bf16_autocast,
+        compile_model=False,
+    ).to(resolved_dev)
+    model.load_state_dict(ckpt["model_state_dict"])
+    if ckpt.get("snapshot_state_dict") is not None:
+        snap_model = build_arena_model(
+            cfg.net_arch,
+            cfg.net_size,
+            grid_h=cfg.grid_h,
+            grid_w=cfg.grid_w,
+            use_channels_last=cfg.use_channels_last,
+            use_bf16_autocast=cfg.use_bf16_autocast,
+            compile_model=False,
+        ).to(resolved_dev)
+        snap_model.load_state_dict(ckpt["snapshot_state_dict"])
+        del snap_model
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=cfg.lr,
+        eps=cfg.adam_eps,
+        weight_decay=cfg.weight_decay,
+    )
+    optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+    del optimizer, model
+
+    sim_state = ckpt.get("sim_state_dict")
+    if not isinstance(sim_state, dict):
+        raise ValueError(f"Checkpoint missing sim_state_dict at {ckpt_path}")
+    ckpt_shape = (
+        int(sim_state["E"]),
+        int(sim_state["S"]),
+        int(sim_state["cap"]),
+        int(sim_state.get("grid_h", cfg.grid_h)),
+        int(sim_state.get("grid_w", cfg.grid_w)),
+    )
+    exp_shape = (cfg.num_envs, cfg.num_snakes, cfg.max_capacity, cfg.grid_h, cfg.grid_w)
+    if ckpt_shape != exp_shape:
+        raise ValueError(
+            f"Checkpoint TrainSim shape mismatch at {ckpt_path}: "
+            f"ckpt={ckpt_shape} vs config={exp_shape}"
+        )
+    sim_tensors = sim_state.get("sim_tensors")
+    if not isinstance(sim_tensors, dict):
+        raise ValueError(f"Checkpoint missing sim_tensors at {ckpt_path}")
+    for name in _SIM_STATE_TENSORS:
+        if name == "bodies" and "bodies_live_i16" in sim_state:
+            continue
+        if name == "capacity_overflow" and name not in sim_tensors:
+            continue
+        tensor = sim_tensors.get(name)
+        if not isinstance(tensor, torch.Tensor) or tensor.shape[:1] != (cfg.num_envs,):
+            raise ValueError(f"Invalid sim_tensors[{name!r}] in {ckpt_path}")
+    if "bodies_live_i16" in sim_state:
+        live = sim_state["bodies_live_i16"]
+        if (
+            not isinstance(live, torch.Tensor)
+            or live.ndim != 4
+            or live.shape[:2] != (cfg.num_envs, cfg.num_snakes)
+            or live.shape[3] != 2
+        ):
+            raise ValueError(f"Invalid bodies_live_i16 shape in {ckpt_path}")
+    for req_sim_key in ("prev_heads", "prev_alive", "world_opponent_kind"):
+        if req_sim_key not in sim_state:
+            raise ValueError(f"Checkpoint sim_state_dict missing {req_sim_key!r} at {ckpt_path}")
+
+    if ckpt.get("late_reservoir") is not None:
+        lr_state = ckpt["late_reservoir"]
+        if (
+            not isinstance(lr_state, dict)
+            or int(lr_state["S"]) != cfg.num_snakes
+            or int(lr_state["cap"]) != cfg.max_capacity
+            or int(lr_state["size"]) > int(cfg.late_reset_reservoir_size)
+        ):
+            raise ValueError(f"Invalid late_reservoir state in {ckpt_path}")
+
+    counters = ckpt.get("counters")
+    rng = ckpt.get("rng")
+    if not isinstance(counters, dict) or not isinstance(rng, dict):
+        raise ValueError(f"Checkpoint missing counters/rng dictionaries at {ckpt_path}")
+    for req_rng_key in ("torch_cpu", "perm_gen", "python", "numpy"):
+        if req_rng_key not in rng:
+            raise ValueError(f"Checkpoint rng missing {req_rng_key!r} at {ckpt_path}")
+
+    return {
+        "schema": ARENA_PPO_SCHEMA,
+        "namespace": ARENA_PPO_NAMESPACE,
+        "config": cfg.to_dict(),
+        "updates_completed": int(counters["updates_completed"]),
+        "agent_steps_collected": int(counters["agent_steps_collected"]),
+        "world_steps_collected": int(counters["world_steps_collected"]),
+    }
 
 
 def _resolve_work_dir(output_dir: Path, work_dir: Path | None) -> Path:
@@ -1899,8 +2106,13 @@ def run_training_job(
                 over_max_update = cfg.max_update_seconds > 0.0 and last_update_sec > float(
                     cfg.max_update_seconds
                 )
-                due_output_publish = (now_wall - last_output_publish_wall) >= float(
-                    cfg.output_publish_interval_sec
+                elapsed_since_publish = now_wall - last_output_publish_wall
+                projected_next_publish_gap = (
+                    elapsed_since_publish + max(0.0, last_update_sec) + max(0.0, last_ckpt_save_sec)
+                )
+                due_output_publish = (
+                    elapsed_since_publish >= float(cfg.output_publish_interval_sec)
+                    or projected_next_publish_gap >= HARD_KILL_MAX_LOSS_SEC
                 )
                 if due_wall or due_updates or over_max_update or due_output_publish:
                     periodic_path = ckpt_work_dir / f"ckpt_u{trainer.updates_completed:07d}.pt"
@@ -2166,21 +2378,19 @@ def main() -> int:
     if max_wall_sec is None and args.hours is not None:
         max_wall_sec = float(args.hours) * 3600.0
 
-    # When `--hours` drives the run and `total_updates` was not explicitly pinned, lift the
-    # default 100-update cap so `max_wall_seconds` governs multi-hour sessions cleanly.
+    # When `--hours` drives the run and `total_updates` was not explicitly pinned, make the
+    # update cap effectively unlimited so `max_wall_seconds` governs multi-session continuations
+    # and fast GPUs cleanly without premature `completed_target_updates` stops.
     if args.hours is not None and "total_updates" not in raw_cfg_dict:
-        if args.expected_steps_per_sec is not None:
-            plan = build_training_plan(
-                cfg,
-                hours=float(args.hours),
-                expected_steps_per_sec=float(args.expected_steps_per_sec),
-            )
-            lifted_updates = max(
-                cfg.total_updates, int(math.ceil(plan["expected_updates"] * 3.0)) + 16
-            )
-        else:
-            lifted_updates = max(cfg.total_updates, 1_000_000)
-        cfg = replace(cfg, total_updates=lifted_updates)
+        cfg = replace(
+            cfg,
+            total_updates=max(int(cfg.total_updates), UNLIMITED_HOURS_TOTAL_UPDATES),
+        )
+    if args.expected_steps_per_sec is not None and "max_update_seconds" not in raw_cfg_dict:
+        cfg = replace(
+            cfg,
+            max_update_seconds=compute_max_update_seconds(cfg, float(args.expected_steps_per_sec)),
+        )
 
     run_training_job(
         cfg=cfg,

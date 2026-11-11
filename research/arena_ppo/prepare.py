@@ -14,10 +14,13 @@ from typing import Any
 
 from research.arena_ppo.net import VALID_NET_ARCHS, NetArch, NetSize
 from research.arena_ppo.ppo import (
+    _RESUME_MUTABLE_CONFIG_KEYS,
     ARENA_PPO_NAMESPACE,
     ARENA_PPO_SCHEMA,
+    UNLIMITED_HOURS_TOTAL_UPDATES,
     ArenaPPOConfig,
     build_training_plan,
+    compute_max_update_seconds,
     estimate_max_export_bytes,
     find_newest_verified_checkpoint,
 )
@@ -333,6 +336,7 @@ def prepare_arena_ppo_packet(
     canary_receipt: Path | str | None = None,
     ppo_config: ArenaPPOConfig | None = None,
     explicit_total_updates: bool = False,
+    explicit_max_update_seconds: bool = False,
     measured_checkpoint_bytes: int | None = None,
     compile_model: bool = False,
     attempt: str = "attempt-01",
@@ -560,6 +564,17 @@ def prepare_arena_ppo_packet(
             )
             extra_env["ARENA_PPO_NET_ARCH"] = resolved_train_arch
 
+        staged_base_cfg: ArenaPPOConfig | None = None
+        if "resume_checkpoint" in ledger:
+            staged_ckpt_path = pkt_inputs_dir / str(ledger["resume_checkpoint"]["relpath"])
+            import torch as _torch
+
+            ckpt_payload = _torch.load(staged_ckpt_path, map_location="cpu", weights_only=False)
+            if isinstance(ckpt_payload, dict) and isinstance(ckpt_payload.get("config"), dict):
+                raw_staged_cfg = dict(ckpt_payload["config"])
+                raw_staged_cfg.setdefault("net_arch", "per_seat")
+                staged_base_cfg = ArenaPPOConfig.from_dict(raw_staged_cfg)
+
         if ppo_config is not None:
             cfg_obj = ppo_config
             if resolved_train_arch is not None or net_size is not None or num_envs is not None:
@@ -575,6 +590,21 @@ def prepare_arena_ppo_packet(
                 if num_envs is not None:
                     d["num_envs"] = int(num_envs)
                 cfg_obj = ArenaPPOConfig.from_dict(d)
+        elif staged_base_cfg is not None:
+            d = staged_base_cfg.to_dict()
+            if resolved_train_arch is not None and resolved_train_arch != staged_base_cfg.net_arch:
+                d["net_arch"] = resolved_train_arch
+                d["minibatch_size"] = None
+                d["actor_chunk_envs"] = None
+            if net_size is not None and net_size != staged_base_cfg.net_size:
+                d["net_size"] = net_size
+                d["minibatch_size"] = None
+                d["actor_chunk_envs"] = None
+            if num_envs is not None:
+                d["num_envs"] = int(num_envs)
+            if compile_model:
+                d["compile_model"] = True
+            cfg_obj = ArenaPPOConfig.from_dict(d)
         else:
             cfg_obj = ArenaPPOConfig(
                 net_arch=resolved_train_arch if resolved_train_arch is not None else "shared_trunk",
@@ -583,8 +613,47 @@ def prepare_arena_ppo_packet(
                 compile_model=compile_model,
             )
 
+        if staged_base_cfg is not None:
+            staged_dict = staged_base_cfg.to_dict()
+            curr_dict = cfg_obj.to_dict()
+            priority_keys = ("net_arch", "net_size", "num_envs")
+            ordered_keys = list(priority_keys) + sorted(
+                (set(staged_dict) | set(curr_dict)) - set(priority_keys)
+            )
+            for key in ordered_keys:
+                if key in _RESUME_MUTABLE_CONFIG_KEYS:
+                    continue
+                if staged_dict.get(key) != curr_dict.get(key):
+                    raise ValueError(
+                        f"Continuation checkpoint config mismatch on {key!r}: "
+                        f"ckpt={staged_dict.get(key)!r} vs requested={curr_dict.get(key)!r}"
+                    )
+
         if expected_steps_per_sec is not None:
             extra_env["ARENA_PPO_EXPECTED_STEPS_PER_SEC"] = str(float(expected_steps_per_sec))
+            if not math.isfinite(expected_steps_per_sec) or float(expected_steps_per_sec) <= 0.0:
+                raise ValueError(
+                    f"expected_steps_per_sec must be finite and > 0, got {expected_steps_per_sec}"
+                )
+            steps_per_update = (
+                int(cfg_obj.rollout_len) * int(cfg_obj.num_envs) * int(cfg_obj.num_snakes)
+            )
+            expected_sec_per_update = float(steps_per_update) / float(expected_steps_per_sec)
+            half_session_sec = 0.5 * eff_sec
+            if expected_sec_per_update > half_session_sec:
+                raise ValueError(
+                    f"Refusing train packet whose single update ({expected_sec_per_update:.1f} s "
+                    f"at {expected_steps_per_sec:.1f} steps/s) exceeds half the {hours:g} h "
+                    f"session ({half_session_sec:.1f} s); reduce --num-envs/rollout_len or "
+                    "increase --hours."
+                )
+            if not explicit_max_update_seconds:
+                cfg_obj = replace(
+                    cfg_obj,
+                    max_update_seconds=compute_max_update_seconds(
+                        cfg_obj, float(expected_steps_per_sec)
+                    ),
+                )
             training_plan = build_training_plan(
                 cfg_obj,
                 hours=float(hours),
@@ -596,17 +665,11 @@ def prepare_arena_ppo_packet(
                 file=sys.stderr,
                 flush=True,
             )
-        if ppo_config is None or (
-            not explicit_total_updates and cfg_obj.total_updates == ArenaPPOConfig.total_updates
-        ):
-            if training_plan is not None:
-                lifted_updates = max(
-                    cfg_obj.total_updates,
-                    int(math.ceil(training_plan["nominal_expected_updates"] * 3.0)) + 16,
-                )
-            else:
-                lifted_updates = max(cfg_obj.total_updates, 1_000_000)
-            cfg_obj = replace(cfg_obj, total_updates=lifted_updates)
+        if ppo_config is None or not explicit_total_updates:
+            cfg_obj = replace(
+                cfg_obj,
+                total_updates=max(int(cfg_obj.total_updates), UNLIMITED_HOURS_TOTAL_UPDATES),
+            )
         extra_env["ARENA_PPO_CONFIG_JSON"] = json.dumps(cfg_obj.to_dict(), sort_keys=True)
         job_id = f"arena-ppo-train-{gpu_slug}-{attempt}"
         required_exports = list(TRAIN_REQUIRED_EXPORTS)
@@ -753,6 +816,7 @@ def main() -> int:
 
     ppo_cfg: ArenaPPOConfig | None = None
     explicit_total_updates = False
+    explicit_max_update_seconds = False
     if args.ppo_config_json is not None:
         raw_source = args.ppo_config_json
         if raw_source.lstrip().startswith("{"):
@@ -762,6 +826,7 @@ def main() -> int:
         if not isinstance(raw_dict, dict):
             raise ValueError("--ppo-config-json root must be a JSON object")
         explicit_total_updates = "total_updates" in raw_dict
+        explicit_max_update_seconds = "max_update_seconds" in raw_dict
         ppo_cfg = ArenaPPOConfig.from_dict(raw_dict)
 
     info = prepare_arena_ppo_packet(
@@ -783,6 +848,7 @@ def main() -> int:
         canary_receipt=args.canary_receipt,
         ppo_config=ppo_cfg,
         explicit_total_updates=explicit_total_updates,
+        explicit_max_update_seconds=explicit_max_update_seconds,
         measured_checkpoint_bytes=args.measured_checkpoint_bytes,
         compile_model=bool(args.compile),
         attempt=args.attempt,

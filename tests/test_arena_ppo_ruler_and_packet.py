@@ -606,6 +606,7 @@ def test_major1_r3_end_to_end_continuations_both_prior_kinds(tmp_path: Path) -> 
     # ---- Case A: Train checkpoint continuation (attempt-01 -> cont canary -> attempt-02) ----
     prior_train_out = tmp_path / "prior_train_attempt01"
     prior_train_cfg = ArenaPPOConfig(
+        net_arch="per_seat",
         net_size="S",
         num_envs=6,  # distinct from canary's num_envs=2 to prove 0-update staged load verification
         rollout_len=8,
@@ -1212,3 +1213,254 @@ def test_m1_ruler_isolates_non_oom_cell_and_bench_errors_and_canary_probes_all_a
         ls = cell["integrated"]["learner_settings"]
         assert ls["ppo_epochs"] == 1
         assert ls["minibatch_size"] == ls["total_rows_per_epoch"]
+
+
+def test_m2_five_session_continuation_chain_and_fast_gpu_with_fake_clock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """M2: 5-session continuation chain + fast single session stop on wall guard, never cap."""
+    from research.arena_ppo import ppo as ppo_mod
+
+    fake_now = {"t": 1_000.0}
+    step_wall_advance = {"sec": 110.0}
+    monkeypatch.setattr(ppo_mod.time, "monotonic", lambda: fake_now["t"])
+
+    base_cfg = ArenaPPOConfig(
+        net_arch="ego_only",
+        net_size="S",
+        num_envs=1,
+        num_snakes=4,
+        grid_h=24,
+        grid_w=32,
+        rollout_len=2,  # 8 agent-steps per update
+        ppo_epochs=1,
+        minibatch_size=8,
+        actor_chunk_envs=1,
+        max_capacity=32,
+        seed=20261111,
+        deterministic=True,
+    )
+
+    # At expected_steps_per_sec = 0.08 (8 / 0.08 = 100 s/update), 1h = 36 nominal updates ->
+    # old prepare.py set total_updates = max(100, ceil(36 * 3) + 16) = 124, so session 4 stopped
+    # early and session 5 exited immediately with 0 updates as completed_target_updates!
+    prior_out: Path | None = None
+    prev_updates = 0
+    for sess_idx in range(1, 6):
+        pkt_info = prepare_arena_ppo_packet(
+            tmp_path / f"pkt_chain_{sess_idx:02d}",
+            commit="HEAD",
+            mode="train",
+            gpu="L4",
+            hours=1.0,
+            expected_steps_per_sec=0.08,
+            prior_output_dir=prior_out,
+            prior_kind="checkpoint" if prior_out is not None else "auto",
+            ppo_config=base_cfg if prior_out is None else None,
+            output_dir=tmp_path / f"out_chain_{sess_idx:02d}",
+            attempt=f"attempt-{sess_idx:02d}",
+            allow_unmerged_commit=True,
+        )
+        mf = json.loads(Path(pkt_info["manifest_path"]).read_text(encoding="utf-8"))
+        staged_in = _stage_manifest_inputs(mf, tmp_path / f"in_chain_{sess_idx:02d}")
+        cfg_sess = ArenaPPOConfig.from_json(mf["env"]["ARENA_PPO_CONFIG_JSON"])
+        max_wall = float(mf["env"]["ARENA_PPO_MAX_WALL_SECONDS"])
+
+        res = run_training_job(
+            cfg=cfg_sess,
+            output_dir=Path(mf["output_dir"]),
+            work_dir=tmp_path / f"work_chain_{sess_idx:02d}",
+            device="cpu",
+            input_dir=staged_in,
+            ledger_path=staged_in / "verified-ledger.json",
+            max_wall_seconds=max_wall,
+            hours=1.0,
+            expected_steps_per_sec=0.08,
+            step_hook=lambda _tr, _u: fake_now.__setitem__(
+                "t", fake_now["t"] + step_wall_advance["sec"]
+            ),
+        )
+        assert res["stopped_reason"] == "wall_budget_guard", f"session {sess_idx}: {res}"
+        delta_updates = int(res["updates_completed"]) - prev_updates
+        assert delta_updates >= 25, f"session {sess_idx} ran only {delta_updates} updates"
+        if sess_idx > 1:
+            assert res["resumed_from"] is not None
+        prev_updates = int(res["updates_completed"])
+        prior_out = Path(mf["output_dir"])
+
+    assert prev_updates >= 150  # > 124 old cap
+
+    # Single session running 4x faster than expected_steps_per_sec (25 s/update vs 100 s est):
+    # must run > 124 updates and stop ONLY on wall_budget_guard, never completed_target_updates!
+    step_wall_advance["sec"] = 25.0
+    fast_pkt = prepare_arena_ppo_packet(
+        tmp_path / "pkt_fast_single",
+        commit="HEAD",
+        mode="train",
+        gpu="L4",
+        hours=1.0,
+        expected_steps_per_sec=0.08,
+        ppo_config=base_cfg,
+        output_dir=tmp_path / "out_fast_single",
+        attempt="fast-01",
+        allow_unmerged_commit=True,
+    )
+    mf_fast = json.loads(Path(fast_pkt["manifest_path"]).read_text(encoding="utf-8"))
+    staged_fast = _stage_manifest_inputs(mf_fast, tmp_path / "in_fast_single")
+    res_fast = run_training_job(
+        cfg=ArenaPPOConfig.from_json(mf_fast["env"]["ARENA_PPO_CONFIG_JSON"]),
+        output_dir=Path(mf_fast["output_dir"]),
+        work_dir=tmp_path / "work_fast_single",
+        device="cpu",
+        input_dir=staged_fast,
+        ledger_path=staged_fast / "verified-ledger.json",
+        max_wall_seconds=float(mf_fast["env"]["ARENA_PPO_MAX_WALL_SECONDS"]),
+        hours=1.0,
+        expected_steps_per_sec=0.08,
+        step_hook=lambda _tr, _u: fake_now.__setitem__(
+            "t", fake_now["t"] + step_wall_advance["sec"]
+        ),
+    )
+    assert res_fast["stopped_reason"] == "wall_budget_guard"
+    assert res_fast["updates_completed"] > 124
+
+
+def test_m3_prepare_scales_max_update_seconds_and_refuses_over_half_session_update(
+    tmp_path: Path,
+) -> None:
+    """M3: prepare sets max_update_seconds = max(1200, 3x update_sec) and refuses >0.5*session."""
+    # E=2048, T=256, S=6 -> 3,145,728 agent-steps/update.
+    # At 2,000 steps/s, 1 update = 1,572.864 s (> old 1200 s hardcoded cap) on a 6 h (21,600 s) run.
+    slow_info = prepare_arena_ppo_packet(
+        tmp_path / "pkt_m3_slow_ok",
+        commit="HEAD",
+        mode="train",
+        gpu="L4",
+        hours=6.0,
+        expected_steps_per_sec=2000.0,
+        net_arch="shared_trunk",
+        net_size="S",
+        num_envs=2048,
+        output_dir=tmp_path / "out_m3_slow_ok",
+        allow_unmerged_commit=True,
+    )
+    mf_slow = json.loads(Path(slow_info["manifest_path"]).read_text(encoding="utf-8"))
+    cfg_slow = json.loads(mf_slow["env"]["ARENA_PPO_CONFIG_JSON"])
+    expected_limit = round(3.0 * (2048 * 256 * 6) / 2000.0, 2)  # 4718.59 s
+    assert cfg_slow["max_update_seconds"] == expected_limit
+    assert cfg_slow["max_update_seconds"] > 1200.0
+
+    # At 25,000 steps/s, 3x update_sec = 377.49 s -> 1200.0 s floor applies.
+    fast_info = prepare_arena_ppo_packet(
+        tmp_path / "pkt_m3_fast_floor",
+        commit="HEAD",
+        mode="train",
+        gpu="L4",
+        hours=6.0,
+        expected_steps_per_sec=25000.0,
+        net_arch="shared_trunk",
+        net_size="S",
+        num_envs=2048,
+        output_dir=tmp_path / "out_m3_fast_floor",
+        allow_unmerged_commit=True,
+    )
+    mf_fast = json.loads(Path(fast_info["manifest_path"]).read_text(encoding="utf-8"))
+    cfg_fast = json.loads(mf_fast["env"]["ARENA_PPO_CONFIG_JSON"])
+    assert cfg_fast["max_update_seconds"] == 1200.0
+
+    # Single update (3,145,728 / 1,500 = 2,097.15 s) > half of 1.0 h session (1,800.0 s) -> refused!
+    with pytest.raises(ValueError, match="exceeds half"):
+        prepare_arena_ppo_packet(
+            tmp_path / "pkt_m3_refused",
+            commit="HEAD",
+            mode="train",
+            gpu="L4",
+            hours=1.0,
+            expected_steps_per_sec=1500.0,
+            net_arch="shared_trunk",
+            net_size="S",
+            num_envs=2048,
+            output_dir=tmp_path / "out_m3_refused",
+            allow_unmerged_commit=True,
+        )
+
+
+def test_minor3_continuation_canary_verifies_staged_checkpoint_without_rollout_buffer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Minor (3): run_canary_suite verifies staged ckpt without production rollout buffers."""
+    from research.arena_ppo import ppo as ppo_mod
+
+    prod_out = tmp_path / "prod_out"
+    prod_cfg = ArenaPPOConfig(
+        net_arch="shared_trunk",
+        net_size="S",
+        num_envs=10,
+        rollout_len=12,
+        ppo_epochs=1,
+        minibatch_size=24,
+        actor_chunk_envs=10,
+        max_capacity=64,
+        total_updates=1,
+        seed=2026,
+        deterministic=True,
+    )
+    run_training_job(
+        cfg=prod_cfg,
+        output_dir=prod_out,
+        work_dir=tmp_path / "prod_work",
+        device="cpu",
+    )
+
+    pkt_canary = prepare_arena_ppo_packet(
+        tmp_path / "pkt_m3_cont_canary",
+        commit="HEAD",
+        mode="canary",
+        gpu="L4",
+        prior_output_dir=prod_out,
+        prior_kind="checkpoint",
+        output_dir=tmp_path / "out_m3_cont_canary",
+        allow_unmerged_commit=True,
+    )
+    mf_canary = json.loads(Path(pkt_canary["manifest_path"]).read_text(encoding="utf-8"))
+    staged_inputs = _stage_manifest_inputs(mf_canary, tmp_path / "staged_m3_inputs")
+
+    allocated_buffers: list[tuple[int, int]] = []
+    orig_buf_init = ppo_mod.CompactRolloutBuffer.__init__
+
+    def _spy_buf_init(self: Any, *args: Any, **kwargs: Any) -> None:
+        allocated_buffers.append((int(kwargs["num_envs"]), int(kwargs["rollout_len"])))
+        orig_buf_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(ppo_mod.CompactRolloutBuffer, "__init__", _spy_buf_init)
+
+    suite = run_canary_suite(
+        output_dir=tmp_path / "canary_exec_out",
+        device="cpu",
+        input_dir=staged_inputs,
+        ledger_path=staged_inputs / "verified-ledger.json",
+        num_envs=2,
+        rollout_len=4,
+        seed=99,
+    )
+    assert suite["staged_input_verification"] is not None
+    assert suite["staged_input_verification"]["kind"] == "checkpoint"
+    assert suite["staged_input_verification"]["updates_completed"] == 1
+    # Production (num_envs=10, rollout_len=12) rollout buffer must NEVER be allocated!
+    assert (10, 12) not in allocated_buffers
+    assert all(ne <= 2 for ne, _ in allocated_buffers)
+
+    # Verify cross-arch continuation packet preparation is refused immediately on Mac (Minor 5a)
+    with pytest.raises(ValueError, match="Continuation checkpoint config mismatch on 'net_arch'"):
+        prepare_arena_ppo_packet(
+            tmp_path / "pkt_cross_arch_refused",
+            commit="HEAD",
+            mode="train",
+            gpu="L4",
+            hours=2.0,
+            net_arch="ego_only",
+            prior_output_dir=prod_out,
+            prior_kind="checkpoint",
+            output_dir=tmp_path / "out_cross_arch_refused",
+            allow_unmerged_commit=True,
+        )

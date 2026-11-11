@@ -142,10 +142,14 @@ def test_m1_per_net_defaults_and_minor10_bf16_fallback_and_caching(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Verify M1 per-variant L4 defaults, MINOR 10 bf16 fallback, and MINOR 11b caching."""
-    assert default_actor_chunk_envs("S") == 2048
-    assert default_actor_chunk_envs("M") == 1024
-    assert default_minibatch_size("S") == 3072
-    assert default_minibatch_size("M") == 1536
+    assert default_actor_chunk_envs("S", net_arch="shared_trunk") == 2048
+    assert default_actor_chunk_envs("M", net_arch="shared_trunk") == 1024
+    assert default_minibatch_size("S", net_arch="shared_trunk") == 3072
+    assert default_minibatch_size("M", net_arch="shared_trunk") == 1536
+    assert default_actor_chunk_envs("S", net_arch="ego_only") == 2048
+    assert default_actor_chunk_envs("M", net_arch="ego_only") == 1024
+    assert default_minibatch_size("S", net_arch="ego_only") == 3072
+    assert default_minibatch_size("M", net_arch="ego_only") == 1536
     assert default_actor_chunk_envs("S", net_arch="per_seat") == 512
     assert default_actor_chunk_envs("M", net_arch="per_seat") == 512
     assert default_minibatch_size("S", net_arch="per_seat") == 768
@@ -367,3 +371,117 @@ def test_shared_trunk_wall_channel_padded_with_ones() -> None:
     assert torch.all(stem_in[:, WCH_WALL, :, 145:] == 1.0)
     assert torch.all(stem_in[:, non_wall, 83, :] == 0.0)
     assert torch.all(stem_in[:, non_wall, :, 145:] == 0.0)
+
+
+@pytest.mark.parametrize("net_arch", ["shared_trunk", "ego_only"])
+@pytest.mark.parametrize("net_size", ["S", "M"])
+def test_minor5_shared_trunk_and_ego_only_seat_isolation_on_ego_and_scalars(
+    net_arch: str,
+    net_size: str,
+) -> None:
+    """Minor (5b): perturbing seat j's ego/scalars leaves every seat i != j unchanged."""
+    torch.manual_seed(20261111)
+    model = build_arena_model(
+        net_arch,  # type: ignore[arg-type]
+        net_size,  # type: ignore[arg-type]
+        grid_h=ARENA_GRID_H,
+        grid_w=ARENA_GRID_W,
+    ).eval()
+    with torch.no_grad():
+        torch.nn.init.normal_(model.policy_head.weight, std=0.5)
+        torch.nn.init.normal_(model.value_head.weight, std=0.5)
+        torch.nn.init.normal_(model.aux_head.weight, std=0.5)
+
+    w_bsz, s_cnt = 2, 6
+    rows = w_bsz * s_cnt
+    wa = torch.randn((w_bsz, NUM_WORLD_CHANNELS, ARENA_GRID_H, ARENA_GRID_W))
+    ego = torch.randn((rows, NUM_OBS_CHANNELS, EGO_CROP_SIZE, EGO_CROP_SIZE))
+    scalars = torch.randn((rows, SCALAR_DIM))
+    hxy = torch.tensor(
+        [
+            [[10, 12], [25, 30], [45, 20], [70, 50], [95, 40], [120, 65]],
+            [[15, 60], [35, 18], [55, 42], [80, 22], [105, 58], [130, 33]],
+        ],
+        dtype=torch.long,
+    )
+    direction = torch.arange(rows, dtype=torch.long).remainder(4).reshape(w_bsz, s_cnt)
+    alive = torch.ones((w_bsz, s_cnt), dtype=torch.bool)
+    legal_mask = torch.ones((rows, 6), dtype=torch.bool)
+    actions = torch.arange(rows, dtype=torch.long).remainder(6)
+
+    obs_base = SharedWorldObs(
+        world_arena=wa,
+        ego=ego,
+        scalars=scalars,
+        head_xy=hxy,
+        direction=direction,
+        alive=alive,
+    )
+
+    # Perturb seat j=2 in world 0 (row 2) and seat j=4 in world 1 (row 10) strongly
+    perturbed_rows = [2, 10]
+    other_rows = [r for r in range(rows) if r not in perturbed_rows]
+    ego_pert = ego.clone()
+    scalars_pert = scalars.clone()
+    ego_pert[perturbed_rows] = torch.randn_like(ego_pert[perturbed_rows]) * 5.0 + 3.0
+    scalars_pert[perturbed_rows] = torch.randn_like(scalars_pert[perturbed_rows]) * 5.0 - 2.0
+    obs_pert = SharedWorldObs(
+        world_arena=wa,
+        ego=ego_pert,
+        scalars=scalars_pert,
+        head_xy=hxy,
+        direction=direction,
+        alive=alive,
+    )
+
+    with torch.no_grad():
+        raw_base = model.forward(obs_base, legal_mask=None)
+        raw_pert = model.forward(obs_pert, legal_mask=None)
+        out_base = model.forward(obs_base, legal_mask=legal_mask)
+        out_pert = model.forward(obs_pert, legal_mask=legal_mask)
+        lp_base, ent_base, vl_base, al_base = model.evaluate_actions(obs_base, legal_mask, actions)
+        lp_pert, ent_pert, vl_pert, al_pert = model.evaluate_actions(obs_pert, legal_mask, actions)
+
+    # Perturbed seats j MUST change
+    assert not torch.allclose(
+        raw_base.masked_logits[perturbed_rows], raw_pert.masked_logits[perturbed_rows], atol=1e-4
+    )
+    assert not torch.allclose(
+        out_base.value_logits[perturbed_rows], out_pert.value_logits[perturbed_rows], atol=1e-4
+    )
+
+    # Every other seat i != j MUST remain unchanged
+    assert torch.allclose(
+        raw_base.masked_logits[other_rows],
+        raw_pert.masked_logits[other_rows],
+        atol=1e-6,
+        rtol=0.0,
+    )
+    assert torch.allclose(
+        out_base.masked_logits[other_rows],
+        out_pert.masked_logits[other_rows],
+        atol=1e-6,
+        rtol=0.0,
+    )
+    assert torch.allclose(
+        out_base.value[other_rows],
+        out_pert.value[other_rows],
+        atol=1e-6,
+        rtol=0.0,
+    )
+    assert torch.allclose(
+        out_base.value_logits[other_rows],
+        out_pert.value_logits[other_rows],
+        atol=1e-6,
+        rtol=0.0,
+    )
+    assert torch.allclose(
+        out_base.aux_logits[other_rows],
+        out_pert.aux_logits[other_rows],
+        atol=1e-6,
+        rtol=0.0,
+    )
+    assert torch.allclose(lp_base[other_rows], lp_pert[other_rows], atol=1e-6, rtol=0.0)
+    assert torch.allclose(ent_base[other_rows], ent_pert[other_rows], atol=1e-6, rtol=0.0)
+    assert torch.allclose(vl_base[other_rows], vl_pert[other_rows], atol=1e-6, rtol=0.0)
+    assert torch.allclose(al_base[other_rows], al_pert[other_rows], atol=1e-6, rtol=0.0)

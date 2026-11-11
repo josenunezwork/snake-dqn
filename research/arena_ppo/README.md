@@ -46,7 +46,12 @@ tick.
     from the seat query into the shared `11 x 19` tokens, and `6` scalars.
   - `ego_only`: cheapest reference — early-stride-2 `47 x 47` ego crop + `6` scalars +
     world-once `11 x 19` average-pooled `2`-conv coarse world summary.
-  - `per_seat`: original per-seat dual-stream `ArenaNet`, unchanged bit-for-bit.
+  - `per_seat`: original per-seat dual-stream `ArenaNet`, unchanged bit-for-bit. Note on
+    changed defaults from pre-multi-arch rounds: `ArenaPPOConfig.net_arch` default changed
+    from `"per_seat"` to `"shared_trunk"`, and `per_seat` size-`S` batch defaults changed
+    from `actor_chunk_envs=1024, minibatch_size=1536` to `actor_chunk_envs=512,
+    minibatch_size=768` (`1536` larger ruler probe) so `per_seat` fits L4 VRAM comfortably
+    alongside `shared_trunk` and `ego_only` (`2048` / `3072`).
 
 | Architecture | Size | Params | Fwd FLOPs/row | Learner FLOPs/row | Default `actor_chunk_envs` / `minibatch_size` |
 |---|---|---:|---:|---:|---|
@@ -60,28 +65,40 @@ tick.
 - `ppo.py`: `ArenaPPOConfig` (JSON-serializable), `CompactRolloutBuffer` (lossless
   append-only `int16` body tape), clipped PPO learner with GAE (`gamma=0.999`,
   `gae_lambda=0.97`, `r_t = L_t / 1000` per alive tick), `--hours` +
-  `--expected-steps-per-sec` pre-start training plan (`ARENA_PPO_PLAN`), per-update
-  create-only rotating JSONL logs under `output/train_logs/`, optional periodic eval
-  hook (`eval_every_updates=0` OFF by default), optional `LateStateReservoir` resets
-  (`late_reset_enabled=False` OFF by default), cooperative signal stop + clean
-  `max_update_seconds` (`<= 20` min) / wall-budget guards, scratch `work_dir` periodic
-  checkpoint retention (`keep=3` pruned only outside `output/`), create-only hard-link
-  publishing into `output/checkpoints/` (`final.pt` on clean stop, newest verified
-  periodic checkpoint on abort/guard stop, plus periodic snapshot hard-links every
-  `2400s` (`40` min) so hard runtime kills lose `<= 45` min with zero unlinks under
-  `output/`), and config-checked resume (allowing speed/operational overrides:
+  `--expected-steps-per-sec` pre-start training plan (`ARENA_PPO_PLAN`; when `--hours` is
+  set without an explicit `total_updates`, `total_updates` is lifted to `1,000,000,000` so
+  the wall-time guard governs multi-session continuations and fast GPUs; `prepare.py` sets
+  `max_update_seconds = max(1200s, 3 * steps_per_update / expected_steps_per_sec)` and
+  refuses packets whose single update exceeds half the session), per-update create-only
+  rotating JSONL logs under `output/train_logs/`, optional periodic eval hook
+  (`eval_every_updates=0` OFF by default), optional `LateStateReservoir` resets
+  (`late_reset_enabled=False` OFF by default, requiring `max_world_frames > 0`; restores
+  occur only at rollout start `t=0` before the full body-tape snapshot while mid-rollout
+  time-limit hits get fresh resets, and `max_world_frames` tracks a rollout-start frame
+  bound with 1 host sync per rollout instead of per tick), cooperative signal stop + clean
+  `max_update_seconds` / wall-budget guards, scratch `work_dir` periodic checkpoint
+  retention (`keep=3` pruned only outside `output/`), create-only hard-link publishing into
+  `output/checkpoints/` (`final.pt` on clean stop, newest verified periodic checkpoint on
+  abort/guard stop, plus periodic snapshot hard-links every `1800s` (`30` min) and whenever
+  `elapsed_since_publish + last_update_sec + last_ckpt_save_sec >= 2700s` (`45` min) so hard
+  runtime kills lose `<= 45` min with zero unlinks under `output/`), lightweight
+  `verify_staged_checkpoint` (validating staged checkpoints without allocating rollout or
+  simulator buffers), and config-checked resume (allowing speed/operational overrides:
   `actor_chunk_envs`, `ring_chunk`, `compile_model`).
 - `ruler.py`: Signal-safe throughput & VRAM ruler across
   `--net-arch in {ego_only, shared_trunk, per_seat} x {S, M} x E in {1024, 2048, 4096, 8192}`
-  (cheapest cells first), `1`-PPO-epoch learner-share probe cell (`_ep1`), learner
-  settings report (`ppo_epochs`, `minibatch_size`, `world_ticks_per_minibatch`),
-  `>= 200`-tick untimed `greedy_food` burn-in, zero-sync `nanquantile` world maturity
-  telemetry, 6-stage split + `untracked_seconds`, per-stage peak VRAM + projected `train`
-  (`T=256`) rollout-buffer and peak VRAM bytes, OOM halving retries, dual minibatch
-  probes, single-world (`batch=6`) latency + exact ATen FLOPs/row, `--compile` (`>= 180s`
-  compile budget projection), incremental `cells/<cell_id>.json` exports, and
-  `run_canary_suite` (zero-update verification of staged resume checkpoints + tiny
-  2-update `shared_trunk` train).
+  (cheapest cells first), per-cell and per-benchmark non-OOM exception isolation (recording
+  `{"error": ..., "traceback": ...}` in `cells/<cell_id>.json` and `ruler_result.json`,
+  continuing to later cells, and exiting `0` when `>= 1` cell succeeds), `1`-PPO-epoch
+  learner-share probe cell (`_ep1`), learner settings report (`ppo_epochs`,
+  `minibatch_size`, `world_ticks_per_minibatch`), `>= 200`-tick untimed `greedy_food`
+  burn-in, zero-sync `nanquantile` world maturity telemetry, 6-stage split +
+  `untracked_seconds`, per-stage peak VRAM + projected `train` (`T=256`) rollout-buffer and
+  peak VRAM bytes, OOM halving retries, dual minibatch probes, single-world (`batch=6`)
+  latency + exact ATen FLOPs/row, `--compile` (`>= 180s` compile budget projection),
+  incremental `cells/<cell_id>.json` exports, and `run_canary_suite` (lightweight staged
+  checkpoint verification + tiny 1-minibatch probe of all 3 architectures `ego_only`,
+  `shared_trunk`, `per_seat` + tiny 2-update `shared_trunk` train).
 - `prepare.py` / `job.sh` / `requirements.txt`: Three-mode Colab CLI packet builder
   supporting `L4`, `A100`, and `H100` (`T4` excluded; exports
   `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`).

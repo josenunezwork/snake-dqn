@@ -43,7 +43,7 @@ def test_ppo_config_json_roundtrip_and_defaults(tmp_path: Path) -> None:
     assert cfg_s.actor_chunk_envs == 2048
     assert cfg_s.keep_periodic_checkpoints == 3
     assert cfg_s.max_update_seconds == 1200.0
-    assert cfg_s.output_publish_interval_sec == 2400.0
+    assert cfg_s.output_publish_interval_sec == 1800.0
     assert cfg_s.eval_every_updates == 0
     assert cfg_s.late_reset_enabled is False
     assert cfg_s.late_reset_min_length == 600
@@ -66,6 +66,7 @@ def test_ppo_config_json_roundtrip_and_defaults(tmp_path: Path) -> None:
 def test_compact_rollout_buffer_reconstructs_bit_identical_obs() -> None:
     """Prove CompactRolloutBuffer reconstructs exact obs across deaths, respawns, and burns."""
     cfg = ArenaPPOConfig(
+        net_arch="per_seat",
         net_size="S",
         num_envs=6,
         rollout_len=36,
@@ -167,6 +168,7 @@ def test_compact_rollout_buffer_reconstructs_bit_identical_obs() -> None:
 def test_gae_death_no_bootstrap_and_ppo_update_changes_weights() -> None:
     """Verify death has zero bootstrap, rollout cut bootstraps, loss is finite, weights change."""
     cfg = ArenaPPOConfig(
+        net_arch="per_seat",
         net_size="S",
         num_envs=2,
         rollout_len=18,
@@ -220,6 +222,7 @@ def test_gae_death_no_bootstrap_and_ppo_update_changes_weights() -> None:
 def test_epoch0_approx_kl_near_zero_on_single_fp32_minibatch() -> None:
     """Verify MINOR 11 epoch0_approx_kl telemetry is ~0 on first minibatch in fp32."""
     cfg = ArenaPPOConfig(
+        net_arch="per_seat",
         net_size="S",
         num_envs=2,
         rollout_len=6,
@@ -295,6 +298,7 @@ def test_ppo_resume_bit_identical_to_uninterrupted_cpu(tmp_path: Path, net_arch:
 def test_resume_rejects_mismatched_config_and_skips_corrupt_checkpoint(tmp_path: Path) -> None:
     """Verify MINOR 6: load_checkpoint rejects mismatched config and scanner skips corrupt files."""
     cfg = ArenaPPOConfig(
+        net_arch="per_seat",
         net_size="S",
         num_envs=2,
         rollout_len=4,
@@ -341,6 +345,7 @@ def test_run_training_job_real_sigusr1_boundary_and_mid_tick(
     # 1. Real SIGUSR1 at boundary with checkpoint_every_updates=0 so export phase does ONE save
     # and hard-links ckpt_sig_u0000001.pt + final.pt to the exact same inode inside grace window.
     cfg_boundary = ArenaPPOConfig(
+        net_arch="per_seat",
         net_size="S",
         num_envs=2,
         rollout_len=4,
@@ -422,6 +427,7 @@ def test_run_training_job_real_sigusr1_boundary_and_mid_tick(
 def test_m5_projected_wall_guard_and_max_update_seconds(tmp_path: Path) -> None:
     """Verify M5 + R3 MAJOR-2: projected wall guard AND max_update_seconds stop cleanly & export."""
     cfg = ArenaPPOConfig(
+        net_arch="per_seat",
         net_size="S",
         num_envs=2,
         rollout_len=4,
@@ -466,6 +472,7 @@ def test_t1_work_dir_pruning_45m_hardlink_snapshots_and_supervisor_exports_scann
 ) -> None:
     """BLOCKER T1 + R3 MINOR 6: prune in work_dir only; drive colab_cli _exports across saves."""
     cfg = ArenaPPOConfig(
+        net_arch="per_seat",
         net_size="S",
         num_envs=2,
         rollout_len=3,
@@ -546,18 +553,26 @@ def test_t1_work_dir_pruning_45m_hardlink_snapshots_and_supervisor_exports_scann
     est_bytes = estimate_checkpoint_bytes(cfg_prune)
     assert est_bytes >= measured_bytes
     est_cap_small = estimate_checkpoint_bytes(
-        ArenaPPOConfig(net_size="S", num_envs=1024, max_capacity=400)
+        ArenaPPOConfig(net_arch="per_seat", net_size="S", num_envs=1024, max_capacity=400)
     )
     est_cap_large = estimate_checkpoint_bytes(
-        ArenaPPOConfig(net_size="S", num_envs=1024, max_capacity=1600)
+        ArenaPPOConfig(net_arch="per_seat", net_size="S", num_envs=1024, max_capacity=1600)
     )
     assert est_cap_large > est_cap_small, "estimate_checkpoint_bytes must scale with max_capacity"
 
     cfg_e4096_k3 = ArenaPPOConfig(
-        net_size="M", num_envs=4096, max_capacity=1600, keep_periodic_checkpoints=3
+        net_arch="per_seat",
+        net_size="M",
+        num_envs=4096,
+        max_capacity=1600,
+        keep_periodic_checkpoints=3,
     )
     cfg_e4096_k9 = ArenaPPOConfig(
-        net_size="M", num_envs=4096, max_capacity=1600, keep_periodic_checkpoints=9
+        net_arch="per_seat",
+        net_size="M",
+        num_envs=4096,
+        max_capacity=1600,
+        keep_periodic_checkpoints=9,
     )
     cap_k3 = estimate_max_export_bytes(cfg_e4096_k3)
     cap_k9 = estimate_max_export_bytes(cfg_e4096_k9)
@@ -567,7 +582,8 @@ def test_t1_work_dir_pruning_45m_hardlink_snapshots_and_supervisor_exports_scann
 
 def test_m7_max_world_frames_keeps_non_hit_worlds_byte_identical() -> None:
     """Verify M7: max_world_frames prepares s_{t+1} first and leaves ~hit worlds byte-identical."""
-    base_kwargs = dict(
+    base_kwargs: dict[str, Any] = dict(
+        net_arch="per_seat",
         net_size="S",
         num_envs=2,
         rollout_len=5,
@@ -617,6 +633,7 @@ def test_m7_max_world_frames_keeps_non_hit_worlds_byte_identical() -> None:
 def test_ppo_trainer_custom_board_and_snake_count(tmp_path: Path) -> None:
     """Verify Coordinator #7 end-to-end PPO update + checkpoint at non-default board & snakes."""
     cfg = ArenaPPOConfig(
+        net_arch="per_seat",
         net_size="S",
         num_envs=2,
         num_snakes=4,
@@ -644,6 +661,7 @@ def test_ppo_trainer_custom_board_and_snake_count(tmp_path: Path) -> None:
 
     # Also verify >256 board coordinate dtype switches food_xy from uint8 to int16
     wide_cfg = ArenaPPOConfig(
+        net_arch="per_seat",
         net_size="S",
         num_envs=1,
         num_snakes=4,
@@ -675,6 +693,7 @@ def test_minor7_r3_resume_allows_speed_keys_and_features_abc_plan_logs_eval_late
     # MINOR 7: save with actor_chunk_envs=2, ring_chunk=64, compile_model=False; resume with
     # actor_chunk_envs=1, ring_chunk=128, compile_model=True!
     cfg_orig = ArenaPPOConfig(
+        net_arch="per_seat",
         net_size="S",
         num_envs=2,
         rollout_len=4,
@@ -709,7 +728,7 @@ def test_minor7_r3_resume_allows_speed_keys_and_features_abc_plan_logs_eval_late
     # Feature (a) & (b): --hours + --expected-steps-per-sec plan printed before starting,
     # rotating create-only JSONL training logs written every update, eval hook OFF by default.
     plan = build_training_plan(
-        ArenaPPOConfig(net_size="S", num_envs=1024, rollout_len=256),
+        ArenaPPOConfig(net_arch="per_seat", net_size="S", num_envs=1024, rollout_len=256),
         hours=6.0,
         expected_steps_per_sec=150_000.0,
     )
@@ -721,6 +740,7 @@ def test_minor7_r3_resume_allows_speed_keys_and_features_abc_plan_logs_eval_late
     cache_ab: dict[str, tuple[int, int, int, int, int]] = {}
     eval_calls: list[int] = []
     cfg_ab = ArenaPPOConfig(
+        net_arch="per_seat",
         net_size="S",
         num_envs=2,
         rollout_len=4,
@@ -787,6 +807,7 @@ def test_minor7_r3_resume_allows_speed_keys_and_features_abc_plan_logs_eval_late
     partial_cfg_path.write_text(
         json.dumps(
             {
+                "net_arch": "per_seat",
                 "net_size": "S",
                 "num_envs": 2,
                 "rollout_len": 3,
@@ -821,7 +842,9 @@ def test_minor7_r3_resume_allows_speed_keys_and_features_abc_plan_logs_eval_late
     assert cli_res["config"]["total_updates"] > 100
 
     # Feature (c): end-to-end training + checkpoint/resume with late_reset_enabled=True
+    # (update 1 harvests mature states and queues rollout-start restore; update 2 restores at t=0)
     cfg_late = ArenaPPOConfig(
+        net_arch="per_seat",
         net_size="S",
         num_envs=4,
         rollout_len=6,
@@ -836,15 +859,16 @@ def test_minor7_r3_resume_allows_speed_keys_and_features_abc_plan_logs_eval_late
         seed=909,
         deterministic=True,
     )
-    # 1. Uninterrupted 2 updates with late_reset_enabled=True
+    # 1. Uninterrupted 3 updates with late_reset_enabled=True
     tr_late_unint = ArenaPPOTrainer(cfg_late, device="cpu")
     tr_late_unint.sim.prepare()
     tr_late_unint.sim.sim.length[:, 0] = 8
     tr_late_unint.sim.sim._reward_prev_length.copy_(tr_late_unint.sim.sim.length)
     _ = tr_late_unint.step_update()
+    _ = tr_late_unint.step_update()
     m_next_a = tr_late_unint.step_update()
 
-    # 2. Split 1 update -> save_checkpoint -> fresh trainer load_checkpoint -> 2nd update
+    # 2. Split 2 updates -> save_checkpoint -> fresh trainer load_checkpoint -> 3rd update
     tr_late_part1 = ArenaPPOTrainer(cfg_late, device="cpu")
     tr_late_part1.sim.prepare()
     tr_late_part1.sim.sim.length[:, 0] = 8
@@ -852,9 +876,11 @@ def test_minor7_r3_resume_allows_speed_keys_and_features_abc_plan_logs_eval_late
     tr_late_part1.step_update()
     assert tr_late_part1.late_reservoir is not None
     assert tr_late_part1.late_reservoir.total_harvested > 0
+    assert tr_late_part1.late_reservoir.total_restored == 0
+    tr_late_part1.step_update()
     assert tr_late_part1.late_reservoir.total_restored > 0
 
-    late_ckpt = tmp_path / "late_ckpt" / "ckpt_u0000001.pt"
+    late_ckpt = tmp_path / "late_ckpt" / "ckpt_u0000002.pt"
     tr_late_part1.save_checkpoint(late_ckpt)
     tr_late_resumed = ArenaPPOTrainer(cfg_late, device="cpu")
     tr_late_resumed.load_checkpoint(late_ckpt)
@@ -953,3 +979,271 @@ def test_shared_trunk_learner_samples_world_ticks_once_and_masks_dead_seats_exac
     for k, v_c in tr_clean.model.state_dict().items():
         v_p = tr_poison.model.state_dict()[k]
         assert torch.equal(v_c, v_p), f"Dead-seat poisoning leaked into parameter {k}"
+
+
+@pytest.mark.parametrize("net_arch", ["per_seat", "shared_trunk", "ego_only"])
+def test_b1_late_reservoir_rollout_start_restore_rebuilt_obs_match_live_all_archs(
+    net_arch: NetArch, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """B1: reservoir restores ONLY at rollout start t=0; rebuilt obs == live obs on all 3 archs."""
+    # Exact reviewer repro geometry: E=4, max_world_frames=6, late_reset_prob=1.0, T=24
+    cfg = ArenaPPOConfig(
+        net_arch=net_arch,
+        net_size="S",
+        num_envs=4,
+        rollout_len=24,
+        ppo_epochs=1,
+        minibatch_size=24,
+        actor_chunk_envs=4,
+        max_capacity=128,
+        max_world_frames=6,
+        late_reset_enabled=True,
+        late_reset_min_length=5,
+        late_reset_prob=1.0,
+        late_reset_reservoir_size=16,
+        seed=20261111,
+        deterministic=True,
+    )
+    trainer = ArenaPPOTrainer(cfg, device="cpu")
+    assert trainer.late_reservoir is not None
+
+    # Grow multi-segment bodies (seg_count >= 5, length >= 8) before rollout 1 so harvested
+    # reservoir states carry long bodies that exposed the old mid-rollout body_tape bug.
+    trainer.sim.prepare()
+    trainer.sim.sim.length[:] = 8
+    trainer.sim.sim._reward_prev_length.copy_(trainer.sim.sim.length)
+    for _ in range(4):
+        trainer.sim.step(torch.ones((4, 6), dtype=torch.long))
+    trainer.sim.sim.frame.zero_()
+    trainer.sim.sim._prepared = False
+
+    # Rollout 1 hits max_world_frames=6 four times, harvests mature states, and queues t=0 restore,
+    # performing ZERO mid-rollout reservoir restores.
+    trainer.step_update()
+    assert trainer.late_reservoir.total_harvested > 0
+    assert trainer.late_reservoir.total_restored == 0
+
+    # Poison episode_return_acc before rollout 2 to prove restored worlds zero it at t=0.
+    trainer.episode_return_acc.fill_(77.5)
+
+    orig_record_pre_step = ppo_mod.CompactRolloutBuffer.record_pre_step
+    live_per_tick: list[tuple[Any, torch.Tensor]] = []
+    ep_acc_at_t0: list[torch.Tensor] = []
+
+    def _spy_record_pre_step(
+        buf_self: ppo_mod.CompactRolloutBuffer, t: int, train_sim: TrainSim
+    ) -> None:
+        orig_record_pre_step(buf_self, t, train_sim)
+        if t == 0:
+            ep_acc_at_t0.append(trainer.episode_return_acc.clone())
+        live_mask = train_sim.legal_action_mask().reshape(-1, 6).clone()
+        if net_arch == "per_seat":
+            obs = build_arena_ego_obs_gpu(train_sim)
+            live_per_tick.append((obs, live_mask))
+        else:
+            sh_obs = build_shared_world_obs_gpu(train_sim)
+            live_per_tick.append((sh_obs, live_mask))
+
+    monkeypatch.setattr(ppo_mod.CompactRolloutBuffer, "record_pre_step", _spy_record_pre_step)
+    trainer.collect_rollout()
+    monkeypatch.setattr(ppo_mod.CompactRolloutBuffer, "record_pre_step", orig_record_pre_step)
+
+    # Exactly the 4 worlds restored at t=0 of rollout 2 (zero mid-rollout restores at t=5,11,17,23)
+    assert trainer.late_reservoir.total_restored == 4
+    assert len(ep_acc_at_t0) == 1
+    assert torch.all(ep_acc_at_t0[0] == 0.0), "Restored worlds must zero episode_return_acc at t=0"
+    assert len(live_per_tick) == cfg.rollout_len
+
+    e_idx = torch.arange(cfg.num_envs, dtype=torch.long)
+    for t in range(cfg.rollout_len):
+        t_idx = torch.full((cfg.num_envs,), t, dtype=torch.long)
+        live_obs, exp_mask = live_per_tick[t]
+        if net_arch == "per_seat":
+            rec_arena, rec_ego, rec_scalars, rec_mask = trainer.buffer.reconstruct_world_ticks(
+                t_idx, e_idx
+            )
+            assert torch.equal(rec_arena, live_obs.arena), f"arena mismatch at t={t}"
+            assert torch.equal(rec_ego, live_obs.ego), f"ego mismatch at t={t}"
+            assert torch.equal(rec_scalars, live_obs.scalars), f"scalars mismatch at t={t}"
+            assert torch.equal(rec_mask, exp_mask), f"mask mismatch at t={t}"
+        else:
+            rec_sh, rec_mask = trainer.buffer.reconstruct_shared_world_ticks(t_idx, e_idx)
+            assert torch.equal(
+                rec_sh.world_arena, live_obs.world_arena
+            ), f"world_arena mismatch at t={t} ({net_arch})"
+            assert torch.equal(rec_sh.ego, live_obs.ego), f"ego mismatch at t={t} ({net_arch})"
+            assert torch.equal(
+                rec_sh.scalars, live_obs.scalars
+            ), f"scalars mismatch at t={t} ({net_arch})"
+            assert torch.equal(rec_sh.head_xy, live_obs.head_xy), f"head_xy mismatch at t={t}"
+            assert torch.equal(rec_sh.direction, live_obs.direction), f"direction mismatch at t={t}"
+            assert torch.equal(rec_sh.alive, live_obs.alive), f"alive mismatch at t={t}"
+            assert torch.equal(rec_mask, exp_mask), f"mask mismatch at t={t}"
+
+    stats, _ = trainer.ppo_update()
+    assert math.isfinite(stats["policy_loss"])
+    assert math.isfinite(stats["value_loss"])
+
+
+def test_minor1_late_reset_requires_positive_max_world_frames() -> None:
+    """Minor (1): ArenaPPOConfig refuses late_reset_enabled=True with max_world_frames <= 0."""
+    with pytest.raises(ValueError, match="late_reset_enabled=True requires max_world_frames > 0"):
+        ArenaPPOConfig(late_reset_enabled=True, max_world_frames=0)
+    with pytest.raises(ValueError, match="late_reset_enabled=True requires max_world_frames > 0"):
+        ArenaPPOConfig(late_reset_enabled=True, max_world_frames=-10)
+
+
+def test_minor2_published_checkpoint_gap_never_exceeds_45_minutes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Minor (2): worst-case gap between published checkpoints is <= 45 min (2700 s)."""
+    assert ArenaPPOConfig().output_publish_interval_sec == 1800.0
+
+    fake_now = {"t": 10_000.0}
+    monkeypatch.setattr(ppo_mod.time, "monotonic", lambda: fake_now["t"])
+
+    orig_step_update = ArenaPPOTrainer.step_update
+
+    def _timed_step_update(
+        self: ArenaPPOTrainer, *, should_stop: Any = None
+    ) -> ppo_mod.PPOUpdateMetrics:
+        m = orig_step_update(self, should_stop=should_stop)
+        # Simulate a 1000 s (16.67 min) update: two updates = 2000 s (< 2400 s), while a third
+        # update would reach 3000 s (50 min > 45 min) unless update 2 publishes proactively!
+        fake_now["t"] += 1000.0
+        return dataclasses.replace(m, collect_sec=500.0, learn_sec=500.0)
+
+    import dataclasses
+
+    monkeypatch.setattr(ArenaPPOTrainer, "step_update", _timed_step_update)
+
+    publish_timestamps: list[float] = [fake_now["t"]]
+    orig_pub = ppo_mod._publish_work_checkpoint_to_output
+
+    def _spy_publish(*args: Any, **kwargs: Any) -> tuple[str | None, list[str]]:
+        sha, names = orig_pub(*args, **kwargs)
+        if names:
+            publish_timestamps.append(fake_now["t"])
+        return sha, names
+
+    monkeypatch.setattr(ppo_mod, "_publish_work_checkpoint_to_output", _spy_publish)
+
+    cfg = ArenaPPOConfig(
+        net_arch="shared_trunk",
+        net_size="S",
+        num_envs=1,
+        num_snakes=4,
+        grid_h=24,
+        grid_w=32,
+        rollout_len=2,
+        ppo_epochs=1,
+        minibatch_size=8,
+        max_capacity=32,
+        total_updates=5,
+        output_publish_interval_sec=2400.0,  # even with 40m interval, 45m predictive cap binds!
+        max_update_seconds=3600.0,
+        seed=321,
+        deterministic=True,
+    )
+    out_dir = tmp_path / "pub_45m_out"
+    res = run_training_job(
+        cfg=cfg,
+        output_dir=out_dir,
+        work_dir=tmp_path / "pub_45m_work",
+        device="cpu",
+    )
+    assert res["updates_completed"] == 5
+    # Update 2 (2000 s) + Update 4 (4000 s) + final export (5000 s) -> every gap <= 2000 s <= 2700 s
+    assert verify_completed_artifact(out_dir / "checkpoints" / "ckpt_u0000002.pt")
+    assert verify_completed_artifact(out_dir / "checkpoints" / "ckpt_u0000004.pt")
+    gaps = [
+        publish_timestamps[i + 1] - publish_timestamps[i]
+        for i in range(len(publish_timestamps) - 1)
+    ]
+    assert gaps and max(gaps) <= 2700.0, f"Published checkpoint gap exceeded 45 min: {gaps}"
+
+
+def test_minor5_checkpoint_cross_arch_load_refused(tmp_path: Path) -> None:
+    """Minor (5a): a checkpoint saved from one net_arch is refused by every other net_arch."""
+    archs: tuple[NetArch, ...] = ("per_seat", "shared_trunk", "ego_only")
+    saved_ckpts: dict[NetArch, Path] = {}
+    for arch in archs:
+        cfg = ArenaPPOConfig(
+            net_arch=arch,
+            net_size="S",
+            num_envs=2,
+            rollout_len=2,
+            ppo_epochs=1,
+            minibatch_size=12,
+            actor_chunk_envs=2,
+            max_capacity=64,
+            seed=2026,
+            deterministic=True,
+        )
+        tr = ArenaPPOTrainer(cfg, device="cpu")
+        ckpt_path = tmp_path / f"ckpt_{arch}" / "ckpt_u0000000.pt"
+        tr.save_checkpoint(ckpt_path)
+        saved_ckpts[arch] = ckpt_path
+
+    for src_arch in archs:
+        for dst_arch in archs:
+            if src_arch == dst_arch:
+                continue
+            dst_cfg = ArenaPPOConfig(
+                net_arch=dst_arch,
+                net_size="S",
+                num_envs=2,
+                rollout_len=2,
+                ppo_epochs=1,
+                minibatch_size=12,
+                actor_chunk_envs=2,
+                max_capacity=64,
+                seed=2026,
+                deterministic=True,
+            )
+            dst_tr = ArenaPPOTrainer(dst_cfg, device="cpu")
+            with pytest.raises(ValueError, match="Checkpoint config mismatch on 'net_arch'"):
+                dst_tr.load_checkpoint(saved_ckpts[src_arch])
+
+
+def test_minor6_max_world_frames_checks_host_bound_once_per_rollout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Minor (6): max_world_frames > 0 does 1 host sync per rollout, not 1 per tick."""
+    base = dict(
+        net_arch="shared_trunk",
+        net_size="S",
+        num_envs=4,
+        rollout_len=16,
+        ppo_epochs=1,
+        minibatch_size=24,
+        actor_chunk_envs=4,
+        max_capacity=64,
+        seed=8888,
+        deterministic=True,
+    )
+    # Warm module-level ego/grid tables once before counting Tensor.item() host syncs.
+    ArenaPPOTrainer(ArenaPPOConfig(**base, max_world_frames=0), device="cpu").collect_rollout()
+
+    orig_item = torch.Tensor.item
+    counts = {"n": 0}
+
+    def _counting_item(self: torch.Tensor) -> Any:
+        counts["n"] += 1
+        return orig_item(self)
+
+    tr_unbounded = ArenaPPOTrainer(ArenaPPOConfig(**base, max_world_frames=0), device="cpu")
+    monkeypatch.setattr(torch.Tensor, "item", _counting_item)
+    counts["n"] = 0
+    tr_unbounded.collect_rollout()
+    calls_unbounded = counts["n"]
+    monkeypatch.setattr(torch.Tensor, "item", orig_item)
+
+    tr_bounded = ArenaPPOTrainer(ArenaPPOConfig(**base, max_world_frames=100), device="cpu")
+    monkeypatch.setattr(torch.Tensor, "item", _counting_item)
+    counts["n"] = 0
+    tr_bounded.collect_rollout()
+    calls_bounded = counts["n"]
+
+    # Old code added +16 Tensor.item() host syncs (one per tick); new code adds +1 per rollout.
+    assert (calls_bounded - calls_unbounded) == 1

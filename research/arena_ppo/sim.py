@@ -1152,6 +1152,68 @@ class LateStateReservoir:
         self.total_harvested += n_elig
         return n_elig
 
+    def _restore_rows_from_reservoir(self, train_sim: TrainSim, late_rows: torch.Tensor) -> None:
+        """Overwrite `late_rows` in `train_sim` with randomly drawn mature reservoir slots."""
+        n_late = int(late_rows.numel())
+        if n_late == 0:
+            return
+        slot_idx = torch.randint(0, self.size, (n_late,), generator=self.rng, dtype=torch.long).to(
+            device=train_sim.device
+        )
+        sim = train_sim.sim
+        _ensure_capacity_overflow(sim)
+        sim.bodies[late_rows] = self.bodies_i16.index_select(0, slot_idx).to(torch.long)
+        sim.food_cells[late_rows] = self.food_cells_i16.index_select(0, slot_idx).to(torch.long)
+        for name in _RESERVOIR_DIRECT_TENSORS:
+            getattr(sim, name)[late_rows] = self.tensors[name].index_select(0, slot_idx)
+        for zero_name in _RESERVOIR_ZERO_ON_RESTORE:
+            getattr(sim, zero_name)[late_rows] = 0
+        # Start a fresh world time-limit window while preserving prepared pre-decision state
+        # and each world's disjoint RNG stream.
+        sim.frame[late_rows] = 1
+        sim.rng_counter[late_rows] = sim.rng_counter[late_rows] + 1
+        train_sim.prev_heads[late_rows] = self.prev_heads_i16.index_select(0, slot_idx).to(
+            torch.long
+        )
+        train_sim.prev_alive[late_rows] = self.prev_alive.index_select(0, slot_idx)
+        r2_cache.bump(sim)
+        self.total_restored += n_late
+
+    def restore_from_reservoir(
+        self,
+        train_sim: TrainSim,
+        candidate_mask: torch.Tensor,
+        *,
+        restore_prob: float = 0.5,
+    ) -> torch.Tensor:
+        """Restore a random `restore_prob` subset of `candidate_mask` worlds at rollout start.
+
+        Leaves non-selected worlds untouched and returns a boolean mask `(train_sim.E,)` on
+        `train_sim.device` marking the worlds actually restored from the reservoir.
+        """
+        if candidate_mask.shape != (train_sim.E,):
+            raise ValueError(
+                f"candidate_mask must have shape {(train_sim.E,)}, got {candidate_mask.shape}"
+            )
+        restored_mask = torch.zeros((train_sim.E,), dtype=torch.bool, device=train_sim.device)
+        prob = float(restore_prob)
+        if self.size == 0 or prob <= 0.0:
+            return restored_mask
+
+        cand_rows = candidate_mask.nonzero(as_tuple=False).flatten()
+        n_cand = int(cand_rows.numel())
+        if n_cand == 0:
+            return restored_mask
+
+        draws = torch.rand((n_cand,), generator=self.rng, dtype=torch.float32)
+        choose_late_cpu = draws < prob
+        n_late = int(choose_late_cpu.sum().item())
+        if n_late > 0:
+            late_rows = cand_rows[choose_late_cpu.to(device=cand_rows.device)]
+            self._restore_rows_from_reservoir(train_sim, late_rows)
+            restored_mask[late_rows] = True
+        return restored_mask
+
     def reset_or_restore_worlds(
         self,
         train_sim: TrainSim,
@@ -1160,6 +1222,10 @@ class LateStateReservoir:
         restore_prob: float = 0.5,
     ) -> tuple[int, int]:
         """Reset `hit_mask` worlds, restoring from the reservoir with probability `restore_prob`.
+
+        Note: `ArenaPPOTrainer` restores ONLY at rollout start (`t=0`, via
+        :meth:`restore_from_reservoir`) before the full body-tape snapshot and performs fresh
+        resets mid-rollout so `CompactRolloutBuffer` observations remain lossless.
 
         Returns:
             Tuple ``(num_restored_from_reservoir, num_fresh_resets)``.
@@ -1189,27 +1255,7 @@ class LateStateReservoir:
 
         if n_late > 0:
             late_rows = hit_rows[choose_late_cpu.to(device=hit_rows.device)]
-            slot_idx = torch.randint(
-                0, self.size, (n_late,), generator=self.rng, dtype=torch.long
-            ).to(device=train_sim.device)
-            sim = train_sim.sim
-            _ensure_capacity_overflow(sim)
-            sim.bodies[late_rows] = self.bodies_i16.index_select(0, slot_idx).to(torch.long)
-            sim.food_cells[late_rows] = self.food_cells_i16.index_select(0, slot_idx).to(torch.long)
-            for name in _RESERVOIR_DIRECT_TENSORS:
-                getattr(sim, name)[late_rows] = self.tensors[name].index_select(0, slot_idx)
-            for zero_name in _RESERVOIR_ZERO_ON_RESTORE:
-                getattr(sim, zero_name)[late_rows] = 0
-            # Start a fresh world time-limit window while preserving prepared pre-decision state
-            # and each world's disjoint RNG stream.
-            sim.frame[late_rows] = 1
-            sim.rng_counter[late_rows] = sim.rng_counter[late_rows] + 1
-            train_sim.prev_heads[late_rows] = self.prev_heads_i16.index_select(0, slot_idx).to(
-                torch.long
-            )
-            train_sim.prev_alive[late_rows] = self.prev_alive.index_select(0, slot_idx)
-            r2_cache.bump(sim)
-            self.total_restored += n_late
+            self._restore_rows_from_reservoir(train_sim, late_rows)
 
         return n_late, n_fresh
 
