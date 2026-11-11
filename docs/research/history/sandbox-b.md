@@ -1,49 +1,26 @@
-# Standing A100 Development Sandbox (B1/B2/B3 Probes) and Prospective Child Collector v2
+# Standing A100 Development Sandbox (`B1`/`B2`/`B3` Probes) and Prospective Child Collector v2
 
-## Question & Goal
+**Dates:** 2026-10-26 to 2026-10-27
+**Verdict:** No candidate passed across `60` B-1 configs, `240` B-2 config-threshold rows, and `432` B-3 points (`0/432` met `>= 0.70` rescue retention at `<= 0.01` ordinary flips and `<= 1` harm, peaking around `~4.5%` retention at `<= 1%` flips), prompting the owner to close `F5` with no fit while keeping `tools/sandbox/` active.
 
-Under the owner-adopted Standing A100 Development Sandbox rule (2026-10-26), can residual/auxiliary heads, cosine/gated/hinge loss variants, or direct action-survival veto classifiers with local crop geometry trained on the admitted D1024 counterfactual corpus (`730` lives / `291` parents / `65,825` rows after excluding a `248`-parent union of F4 fold-zero, census and R30-validation parents; split by parent salt `a100-dev/sandbox-b/split-v1` into `54,771` train / `11,054` validation rows, with `6,201` decisive validation rows and `936` ordinary validation rows in the B-2/B-3 reports) teach or assist `b8-s3` to retain `>= 70%` micro rescue agreement while keeping ordinary-state flips `<= 1%` and ordinary harm count `<= 1`—and can host-side sandbox supervision capture exact direct-child `wait4` CPU nanoseconds without modifying the qualified `research/colab_cli` transport?
+## What was tried
+- Admitted the filtered `D1024` counterfactual rescue corpus (`730` lives, `291` parents, `65,825` rows split into `54,771` train / `11,054` validation rows with `6,201` decisive and `936` ordinary validation rows after excluding `248` F4/census/R30 parents) under `tools/sandbox/{admission,preflight}.py`.
+- Ran `B-1` (`60` configs, `15,000` updates on A100): swept linear, length/margin-gated 2-layer MLP, and cosine-normalized residual heads on frozen 256-D B8 features (`phi`) across `5` ordinary KL weights `{1,2,4,8,16}` and `4` survival-pair weights `{1,2,4,8}`.
+- Ran `B-2` (`48` configs × `5` switch margins = `240` rows, `48,000` updates): swept `normed_linear`, `cosine_fastgain`, and `supervised_gated_normed` heads across `kl_pairs` vs `hinge_top`, ordinary:survival ratios `{0.5,2,8,32}`, and row-uniform vs life-balanced sampling.
+- Ran `B-3` (`432` points, `6,000` updates): tested cosine `k`-NN retrieval (`k in {5,15,50}`) plus `12` direct survival-veto configs adding `[phi, q_base]` context and `12`-D local crop geometry (`7` crop values + `5` v8 scalars, fixing neck-TTL blocking), alongside `tools/sandbox/supervisor_v2.py` (`wait4` child CPU collector).
 
-## Timeline of Versions & Steps
+## What happened
+- **`B-1` (`No candidate`, `68.18 s`):** Rescue retention reached `0.552`, but every configuration caused `>= 7` ordinary-harm-proxy cases on validation.
+- **`B-2` (`0/240` promising, `296.88 s`, `0.33 u`):** Best rescue retention `0.587` required a `0.925` ordinary flip rate; at ordinary flip rate `<= 0.01`, best retention was `0.038` of `6,201` decisive rows.
+- **`B-3` (`0/432` promising, `83.07 s`, `0.29 u`):** Best retention `0.571` came at `0.997` ordinary flips; at `<= 0.01` (`<= 1%`) ordinary flips, best retention was `0.045` (`~4.5%`), missing `>= 0.70` (`>= 70%`) retention with `<= 1` harm and forming the basis to close `F5` with no fit.
+- **Child Collector v2 (`ACCEPT` offline):** Passed `621` compatibility and `263` focused tests (`12,680,000 ns` CPU captured in local smoke), remaining `NOT_ADMISSIBLE` for live served panels pending host integration qualification.
 
-| Date | Step / Version | What Was Run / Built | Verdict / Status |
-|---|---|---|---|
-| 2026-10-26 | Sandbox admission & input registry (`tools/sandbox/README.md`) | Built `tools/sandbox/{admission,preflight}.py` and `SANDBOX_INPUT_REGISTRY.json` admitting filtered D256 (`136` lives, `12,512` rows) and D1024 (`730` lives, `291` parents, `65,825` rows; `248` excluded parents) under a 10-line `sandbox-manifest.json` contract (`60 min` base / `120 min` effective runaway guard, `16 u` at `8 u/h`). | Adopted under the owner sandbox rule |
-| 2026-10-26 | Sandbox B-1 frozen-trunk residual sweep (`research/sandbox_b_heads/README.md`) | Swept 60 configurations (`3` heads: F4 linear, length/margin-gated 2-layer MLP, cosine-normalized residual $\times$ `5` ordinary KL weights `{1,2,4,8,16}` $\times$ `4` survival-pair weights `{1,2,4,8}`, 250 Adam updates each = 15,000 updates) on frozen 256-D B8 features (A100 `a100-attempt-02`, `68.18 s` total). | No candidate (best rescue retention `0.552`, every config `>= 7` ordinary harms) |
-| 2026-10-26 | Sandbox B-2 bounded successor-head sweep (`B2.md`, `B2_PACKET_02.md`) | Swept 48 configurations (`normed_linear`, `cosine_fastgain`, `supervised_gated_normed` $\times$ `kl_pairs` vs `hinge_top` $\times$ ordinary:survival ratios `{0.5,2,8,32}` $\times$ `500` row-uniform vs `1,500` decisive-life-balanced updates = 48,000 updates, evaluated across 5 switch margins $\tau \in \{0, 0.1, 0.2, 0.4, 0.8\}$ = 240 rows) on A100 (`b2-packet-02`, runtime pin `c6e034b9`). | No point met the promising bar (`0/240`) |
-| 2026-10-26 | Sandbox B-3 retrieval, geometry & direct survival veto (`B3.md`, `B3_PACKET02_FIXES.md`) | Diagnostic 0 cosine retrieval (`k in {5,15,50}` in `phi` and `[phi, q_base]`) + 12 neural configurations (`phi`, `phi+q/context`, `phi+q/context+12D_geometry` $\times$ `500` / `1,500` updates = 6,000 updates, evaluated across 12 $\tau_{\text{veto}}$ thresholds $\times$ 3 survival advantages = 432 points) after Argon packet-02 neck-TTL and strict-veto fixes (runtime pin `7f84306e`). | No point met the promising bar (`0/432`) |
-| 2026-10-27 | Prospective Sandbox Child Collector v2 (`tools/sandbox/SUPERVISION_COLLECTOR_V2.md`) | Built `tools/sandbox/supervisor_v2.py` and `launch_v2.sh` wrapping `subprocess.Popen` to capture direct-child `wait4` user/system CPU nanoseconds and lifecycle journals without editing `research/colab_cli`. | Argon `ACCEPT` (offline verified; `NOT_ADMISSIBLE` for live served panels pending the 10-minute host-only integration qualification) |
+## Why
+Single-frame 256-D B8 features (`phi`), `[phi, q_base]`, and `31 × 31` local crop geometry overlap heavily between future self-traps and safe coiling states because full-arena multi-snake enclosures and off-crop tail release happen outside the `31 × 31` view, forcing every head onto one retention-vs-false-override curve.
 
-## Final Verdict & Key Numbers
+## What to reuse / what not to repeat
+- Reuse `tools/sandbox/{admission,preflight,supervisor_v2}.py` (`wait4` integer-nanosecond child CPU accounting without touching the qualified `research/colab_cli` tree).
+- Do not repeat post-hoc linear, MLP, retrieval, or local-crop veto heads on static frozen `ego2s-bv8` features expecting selective rescue retention (`>= 70%` at `<= 1%` ordinary flips).
 
-- **Sandbox B-1 through B-3 Overall Verdict:** no candidate — all three generations (60 B-1 configs, 240 B-2 config-threshold rows, 432 B-3 points incl. k-NN retrieval) collapse onto one retention-vs-ordinary-flip curve (best retention `0.587` at ~93% ordinary flips; at `<= 1%` flips only ~4.5% retention), and `0/432` B-3 points met the promising bar (`micro rescue retention >= 0.70`, `ordinary flip_rate <= 0.01`, `ordinary harm count <= 1`; [`research/sandbox_b_heads/README.md`](../../../research/sandbox_b_heads/README.md), [`research/sandbox_b_heads/B2.md`](../../../research/sandbox_b_heads/B2.md), [`research/sandbox_b_heads/B3.md`](../../../research/sandbox_b_heads/B3.md), `research/bl_residual/ledger/F5_CLOSURE_20261026/F5_CLOSED_NO_FIT.md`). These results were the owner's basis for closing F5 with no fit on 2026-10-26.
-- **Admitted Sandbox Corpus (`tools/sandbox/SANDBOX_INPUT_REGISTRY.json`):**
-  - D256 prefix: `192` lives before exclusions → `136` lives, `31` parents, `12,512` rows.
-  - D1024 (incl. prefix once): `960` lives before exclusions → `730` lives, `291` parents, `65,825` rows. The exclusion union is `248` parents (`167` F4 fold-zero, `29` census parents already among fold zero, `81` R30 validation parents), removing `230` of the `960` lives ([`tools/sandbox/README.md`](../../../tools/sandbox/README.md)). The development split gives `54,771` train / `11,054` validation rows (`results.json` in the A100 exports).
-- **B-1, B-2, and B-3 Key Diagnostic Numbers:**
-  - **B-1 (60 configs, 15,000 updates):** Completed on A100 (`68.18 s` total). Rescue retention ranged up to `0.552`, but every configuration had `>= 7` ordinary-harm-proxy cases on the validation split (`/Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-sandbox-b-20261026/a100-attempt-02/exports/results.json`, [`research/sandbox_b_heads/README.md`](../../../research/sandbox_b_heads/README.md)).
-  - **B-2 (`b2-packet-02`, 48 configs / 240 rows, 48,000 updates):** Completed on A100 (`296.88 s` total; `0.33 u` attributable debit). Best rescue retention `0.587` came at `0.925` ordinary flip rate; the best point with ordinary flip rate `<= 0.01` retained only `0.038` of `6,201` decisive rows; `0/240` points met the bar (`/Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-sandbox-b2-20261026/a100-packet02-attempt-01`, [`research/sandbox_b_heads/B2.md`](../../../research/sandbox_b_heads/B2.md)).
-  - **B-3 (`b3-packet-02`, k-NN retrieval + 12 neural configs / 432 points, 6,000 updates):** Completed on A100 (`83.07 s` total; `0.29 u` attributable debit). The 12-D action geometry is `7` crop-derived values + `5` existing v8 scalars. Best retention `0.571` came at `0.997` ordinary flip rate; at ordinary flip rate `<= 0.01` the best retention was `0.045`; `0/432` points promising (`/Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-sandbox-b3-20261026/a100-packet02-attempt-01`, [`research/sandbox_b_heads/B3.md`](../../../research/sandbox_b_heads/B3.md), [`research/sandbox_b_heads/B3_PACKET02_FIXES.md`](../../../research/sandbox_b_heads/B3_PACKET02_FIXES.md)).
-- **Prospective Child Collector v2 (`tools/sandbox/SUPERVISION_COLLECTOR_V2.md`):**
-  - Passed `621` broad compatibility tests in `727.80 s` (run began before the last five collector regression cases were added) and `263` focused tests; the local smoke's one child had five ordered lifecycle records and recorded **`8,707,000 ns` user + `3,973,000 ns` system = `12,680,000 ns` CPU** over a `17,326,250 ns` operation span — a tiny local smoke, not a timing qualification ([`tools/sandbox/SUPERVISION_COLLECTOR_V2.md`](../../../tools/sandbox/SUPERVISION_COLLECTOR_V2.md)).
-
-## What Was Learned
-
-1. **Single-Frame Representation Overlap Blocks Post-Hoc Residual & Veto Heads:** Across B-1, B-2, and B-3, neither frozen 256-D B8 trunk features (`phi`), `[phi, q_base]` context, nor 12-D local crop geometry separated decisive rescue states from ordinary states cleanly enough to recover `>= 70%` of rescues at `<= 1%` ordinary flip rate. Any threshold or weight aggressive enough to flip rescues triggered massive false-positive overrides on ordinary states.
-2. **Local Crop Geometry Cannot Reconstruct Full-Board Tail Reachability:** Even after fixing neck-occupancy TTL blocking (`ceil(length)` for previous head, `ceil(length) + 1` for boosted intermediate cell in `B3_PACKET02_FIXES.md`), the local $31 \times 31$ crop cannot see full-arena multi-snake enclosures or off-crop tail release.
-3. **Zero-Touch Subprocess Instrumentation:** A process-local subprocess facade (`tools/sandbox/supervisor_v2.py`) captures native `wait4` user/system counters converted exactly to integer nanoseconds without modifying a single byte of the qualified `research/colab_cli` tree.
-
-## Why It Closed / Current Status
-
-- **Sandbox B-1/B-2/B-3 Head Line:** Closed after B-3; on 2026-10-26 the owner closed F5 with no fit on the B, B-2 and B-3 evidence and redirected effort to served search on the Mac and GPU-resident training (`research/bl_residual/ledger/F5_CLOSURE_20261026/F5_CLOSED_NO_FIT.md`).
-- **Sandbox Infrastructure (`tools/sandbox/`):** Active and retained in the repository (`admission.py`, `preflight.py`, `supervisor_v2.py`).
-
-## Kept Files in This Lineage
-
-- [`tools/sandbox/README.md`](../../../tools/sandbox/README.md) — Primary documentation for the Standing A100 Development Sandbox admission, input registry, and preflight workflow.
-- [`tools/sandbox/SUPERVISION_COLLECTOR_V2.md`](../../../tools/sandbox/SUPERVISION_COLLECTOR_V2.md) — Technical specification and Argon review record for `tools/sandbox/supervisor_v2.py` and `launch_v2.sh`.
-- [`research/sandbox_b_heads/README.md`](../../../research/sandbox_b_heads/README.md) — Sandbox B-1 60-configuration frozen-trunk residual sweep specification and resume protocol.
-- [`research/sandbox_b_heads/B2.md`](../../../research/sandbox_b_heads/B2.md) — Sandbox B-2 48-configuration normalized/cosine-fastgain/gated-residual sweep specification.
-- [`research/sandbox_b_heads/B2_PACKET_02.md`](../../../research/sandbox_b_heads/B2_PACKET_02.md) — Sandbox B-2 Packet 02 handoff (runtime pin `c6e034b9` in `b2-packet-02/DISPATCH.txt`).
-- [`research/sandbox_b_heads/B3.md`](../../../research/sandbox_b_heads/B3.md) — Sandbox B-3 retrieval, 12-D crop geometry, and direct survival veto specification.
-- [`research/sandbox_b_heads/B3_PACKET02_FIXES.md`](../../../research/sandbox_b_heads/B3_PACKET02_FIXES.md) — Argon review fixes for B-3 Packet 02 (neck TTL blocking, zero-vote sentinel `1.0`, and strict survival inequality).
+## Full record
+Original: `git show 90b3db94:docs/research/history/sandbox-b.md` | Primary sources: [sandbox_b_heads/README.md](../../../research/sandbox_b_heads/README.md), [B2.md](../../../research/sandbox_b_heads/B2.md), [B3.md](../../../research/sandbox_b_heads/B3.md)
