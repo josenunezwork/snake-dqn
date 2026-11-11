@@ -10,8 +10,6 @@ from __future__ import annotations
 import numpy as np
 import torch
 
-from research.game_v3.config import PI_F32, TWO_PI_F32
-
 PURPOSE_INIT_SNAKE: int = 1
 PURPOSE_INIT_FOOD: int = 2
 PURPOSE_AMBIENT_FOOD: int = 3
@@ -83,6 +81,17 @@ def rng_int_torch(
     return ((u31 * int(high)) >> 31).to(torch.int32)
 
 
+def rng_angle_idx_torch(
+    world_seed: torch.Tensor,
+    tick: torch.Tensor | int,
+    purpose: int,
+    slot: torch.Tensor | int,
+    angle_steps: int = 4096,
+) -> torch.Tensor:
+    """Return deterministic int32 heading angle indices in ``[0, angle_steps)``."""
+    return rng_int_torch(world_seed, tick, purpose, slot, int(angle_steps))
+
+
 def rng_uniform_f32_torch(
     world_seed: torch.Tensor,
     tick: torch.Tensor | int,
@@ -93,17 +102,6 @@ def rng_uniform_f32_torch(
     u63 = rng_u63_torch(world_seed, tick, purpose, slot)
     u24 = ((u63 >> 39) & 0xFF_FFFF).to(torch.float32)
     return u24 * _INV_2POW24_F32
-
-
-def rng_angle_f32_torch(
-    world_seed: torch.Tensor,
-    tick: torch.Tensor | int,
-    purpose: int,
-    slot: torch.Tensor | int,
-) -> torch.Tensor:
-    """Return deterministic float32 heading angles in ``[-pi, pi)``."""
-    u = rng_uniform_f32_torch(world_seed, tick, purpose, slot)
-    return u * TWO_PI_F32 - PI_F32
 
 
 def rng_u63_np(
@@ -143,6 +141,17 @@ def rng_int_np(
         return ((u31 * np.int64(high)) >> np.int64(31)).astype(np.int32)
 
 
+def rng_angle_idx_np(
+    world_seed: np.ndarray | int,
+    tick: np.ndarray | int,
+    purpose: int,
+    slot: np.ndarray | int,
+    angle_steps: int = 4096,
+) -> np.ndarray:
+    """Return deterministic int32 heading angle indices in ``[0, angle_steps)`` in NumPy."""
+    return rng_int_np(world_seed, tick, purpose, slot, int(angle_steps))
+
+
 def rng_uniform_f32_np(
     world_seed: np.ndarray | int,
     tick: np.ndarray | int,
@@ -153,14 +162,3 @@ def rng_uniform_f32_np(
     u63 = rng_u63_np(world_seed, tick, purpose, slot)
     u24 = ((u63 >> np.int64(39)) & np.int64(0xFF_FFFF)).astype(np.float32)
     return (u24 * np.float32(_INV_2POW24_F32)).astype(np.float32)
-
-
-def rng_angle_f32_np(
-    world_seed: np.ndarray | int,
-    tick: np.ndarray | int,
-    purpose: int,
-    slot: np.ndarray | int,
-) -> np.ndarray:
-    """Return deterministic float32 heading angles in ``[-pi, pi)`` in NumPy."""
-    u = rng_uniform_f32_np(world_seed, tick, purpose, slot)
-    return (u * np.float32(TWO_PI_F32) - np.float32(PI_F32)).astype(np.float32)

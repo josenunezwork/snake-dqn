@@ -1,6 +1,6 @@
-"""Game V3: GPU-first continuous-angle large-arena slither-like simulator."""
+"""Game V3.1: GPU-first deterministic fixed-point slither-like simulator."""
 
-from research.game_v3.config import GameV3Config
+from research.game_v3.config import NUM_ACTIONS, NUM_TURN_LEVELS, GameV3Config
 from research.game_v3.obs import (
     NUM_RASTER_CHANNELS,
     NUM_SCALAR_FEATURES,
@@ -17,8 +17,10 @@ from research.game_v3.sim import GameV3Sim, StepInfo
 __all__ = [
     "GameV3Config",
     "GameV3Sim",
+    "NUM_ACTIONS",
     "NUM_RASTER_CHANNELS",
     "NUM_SCALAR_FEATURES",
+    "NUM_TURN_LEVELS",
     "ObservationBatch",
     "ReferenceObservation",
     "ReferenceStepInfo",

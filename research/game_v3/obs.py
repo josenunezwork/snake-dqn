@@ -1,56 +1,53 @@
-"""Multi-scale heading-aligned ego-raster and scalar observations for Game V3.
+"""Multi-scale pooled uint8 ego-raster and scalar observations for Game V3.1.
 
 Provides both the zero-host-sync batched PyTorch GPU builder (:func:`build_obs`)
-and an independent plain-NumPy single-world reference (:func:`build_obs_reference`).
+and an independent plain-NumPy single-world reference (:func:`build_obs_reference`),
+both supporting an optional boolean ``learner_mask`` ``(E, N)`` so observations
+are built ONLY for learner slots.
 
-Sampling & Coordinate Specification (identical on CPU and GPU):
-- Ego frame is centered on each snake's head ``(hx, hy)`` with **up** (decreasing
-  raster ``row``, ``row = 0`` ahead) aligned to ``fwd = (cos(theta), sin(theta))``
-  and **right** (increasing raster ``col``, ``col = S - 1`` right) aligned to
-  ``right = (sin(theta), -cos(theta))``.
-- For raster size ``S = 64`` and scale ``s in {1, 4, 16}`` units/cell, pixel
-  ``(row, col)`` has ego-center offset:
-  ``ego_x = (col - 31.5) * s``, ``ego_y = (31.5 - row) * s``,
-  and world sample point ``(wx, wy) = head_pos + ego_x * right + ego_y * fwd``.
-- ``own_body`` and ``enemy_body`` use nearest-cell sampling on the ``1x`` occupancy
-  grid at ``gx = floor(wx / c) + half_grid``, ``gy = floor(wy / c) + half_grid``.
-- ``ambient_food`` and ``corpse_food`` use nearest-cell sampling on scale-matched
-  exact block-summed food grids (``1x1`` at scale 1, ``4x4`` sum at scale 4,
-  ``16x16`` sum at scale 16) normalized via ``m / (1.0 + m)``.
-- ``out_of_arena`` is ``1.0`` where ``wx^2 + wy^2 >= arena_radius^2`` else ``0.0``.
-- Enemy head channels (current tick ``t`` in channels ``5..8`` and previous tick
-  ``t - 1`` in channels ``9..12``) bin each alive enemy head directly into its ego
-  pixel ``col = floor(ego_x / s + S / 2)``, ``row = floor(S / 2 - ego_y / s)``;
-  when multiple enemy heads map to the same coarse pixel, the lowest slot index
-  wins deterministically.
-- Dead observer lanes emit all zeros across rasters and scalars.
+Specification (v3.1 Rules 10 & 11):
+- Three uint8 rasters of 13 channels each:
+  - ``raster_s1``: ``(..., 13, 64, 64)`` at ``1`` unit/cell (nearest lookup on ``1x``).
+  - ``raster_s4``: ``(..., 13, 32, 32)`` at ``4`` units/cell (nearest lookup on
+    ``4x4`` max-pooled body & count/mass-pooled food pyramid levels).
+  - ``raster_s16``: ``(..., 13, 32, 32)`` at ``16`` units/cell (nearest lookup on
+    ``16x16`` max-pooled body & count/mass-pooled food pyramid levels).
+- Channels ``0..12`` (all ``uint8``):
+  - ``0``: ``own_body`` (``0`` or ``255``)
+  - ``1``: ``enemy_body`` (``0`` or max active enemy ``size_bucket`` in ``1..255``)
+  - ``2``: ``ambient_food`` (count/mass density LUT ``round(255 * m / (1 + m))``)
+  - ``3``: ``corpse_food`` (count/mass density LUT ``round(255 * m / (4 + m))``)
+  - ``4``: ``out_of_arena`` (``0`` inside arena, ``255`` outside)
+  - ``5..8``: current-tick ``t`` enemy heads (``size_bucket``, ``ego_dx``, ``ego_dy``,
+    ``boosting`` flag ``0/255``)
+  - ``9..12``: previous-tick ``t - 1`` enemy heads (2-frame head stack)
+- Scalars ``(..., 8)`` in ``float32`` (exact dyadic / table values, bitwise identical
+  across NumPy, CPU, MPS, and CUDA):
+  ``[log_length, body_radius, boost_allowed, own_boost_state, turn_rate,
+  boundary_dist, boundary_ego_dx, boundary_ego_dy]``.
+- ``action_mask`` ``(..., 10)`` in ``bool`` over the 10 discrete actions.
 """
 
 from __future__ import annotations
 
 import math
 import weakref
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 import torch
 
 from research.game_v3.config import (
-    COS_C2,
-    COS_C4,
-    COS_C6,
-    COS_C8,
-    COS_C10,
-    HALF_PI_F32,
-    PI_F32,
-    SIN_C3,
-    SIN_C5,
-    SIN_C7,
-    SIN_C9,
+    FP_ONE,
+    FP_SHIFT,
+    NUM_ACTIONS,
+    NUM_TURN_LEVELS,
+    TRIG_ONE,
+    TRIG_SHIFT,
     GameV3Config,
 )
 from research.game_v3.reference import ReferenceWorld
-from research.game_v3.sim import GameV3Sim, poly_sincos_torch
+from research.game_v3.sim import GameV3Sim
 
 CH_OWN_BODY: int = 0
 CH_ENEMY_BODY: int = 1
@@ -60,26 +57,67 @@ CH_OUT_OF_ARENA: int = 4
 CH_ENEMY_HEADS_T0: int = 5
 CH_ENEMY_DX_T0: int = 6
 CH_ENEMY_DY_T0: int = 7
-CH_ENEMY_SIZE_T0: int = 8
+CH_ENEMY_BOOST_T0: int = 8
 CH_ENEMY_HEADS_T1: int = 9
 CH_ENEMY_DX_T1: int = 10
 CH_ENEMY_DY_T1: int = 11
-CH_ENEMY_SIZE_T1: int = 12
+CH_ENEMY_BOOST_T1: int = 12
+
+# Alias kept for clear head-channel range indexing.
+CH_ENEMY_LAST_T0: int = CH_ENEMY_BOOST_T0
+CH_ENEMY_LAST_T1: int = CH_ENEMY_BOOST_T1
+
+SCALAR_LOG_LENGTH: int = 0
+SCALAR_BODY_RADIUS: int = 1
+SCALAR_BOOST_ALLOWED: int = 2
+SCALAR_OWN_BOOST: int = 3
+SCALAR_TURN_RATE: int = 4
+SCALAR_BOUNDARY_DIST: int = 5
+SCALAR_BOUNDARY_DX: int = 6
+SCALAR_BOUNDARY_DY: int = 7
 
 NUM_RASTER_CHANNELS: int = 13
-NUM_SCALAR_FEATURES: int = 5
-OBS_ENV_CHUNK: int = 64
+NUM_SCALAR_FEATURES: int = 8
+OBS_LEARNER_CHUNK: int = 1536
+_FOOD_LUT_MAX: int = 2048
+_INV_1024_F32: float = float(np.float32(1.0 / 1024.0))
+
+
+def _build_obs_luts_np(
+    sin_table: np.ndarray, cos_table: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Build exact uint8 lookup tables for food density and relative head orientation."""
+    amb_lut = np.empty(_FOOD_LUT_MAX + 1, dtype=np.uint8)
+    cor_lut = np.empty(_FOOD_LUT_MAX + 1, dtype=np.uint8)
+    for m in range(_FOOD_LUT_MAX + 1):
+        amb_lut[m] = min(255, int(round(255.0 * m / (1.0 + m))))
+        cor_lut[m] = min(255, int(round(255.0 * m / (4.0 + m))))
+
+    # Relative angle idx = (obs_theta - enemy_theta) & (angle_steps - 1):
+    # ego_dx = sin(obs_theta - enemy_theta), ego_dy = cos(obs_theta - enemy_theta).
+    dx_u8 = np.empty(len(sin_table), dtype=np.uint8)
+    dy_u8 = np.empty(len(cos_table), dtype=np.uint8)
+    for a in range(len(sin_table)):
+        dx_u8[a] = min(255, max(1, 128 + int(round(127.0 * int(sin_table[a]) / TRIG_ONE))))
+        dy_u8[a] = min(255, max(1, 128 + int(round(127.0 * int(cos_table[a]) / TRIG_ONE))))
+    return amb_lut, cor_lut, dx_u8, dy_u8
 
 
 @dataclass
 class ObservationBatch:
-    """Batched multi-scale observations on a single Torch device."""
+    """Batched multi-scale observations on a single Torch device.
+
+    Shapes are ``(E, N, ...)`` when ``learner_mask is None``, or ``(M, ...)`` for
+    the ``M`` ``True`` entries of ``learner_mask`` in row-major ``(e, n)`` order.
+    """
 
     raster_s1: torch.Tensor
     raster_s4: torch.Tensor
     raster_s16: torch.Tensor
     scalars: torch.Tensor
     action_mask: torch.Tensor
+    _learner_env_idx: torch.Tensor | None = field(default=None, repr=False, compare=False)
+    _learner_slot_idx: torch.Tensor | None = field(default=None, repr=False, compare=False)
 
 
 @dataclass
@@ -94,34 +132,52 @@ class ReferenceObservation:
 
 
 class _ObsStaticCache:
-    """Device-resident static lookup tables cached per GameV3Sim instance."""
+    """Device-resident static lookup tables cached per :class:`GameV3Sim` instance."""
 
     def __init__(self, sim: GameV3Sim) -> None:
         cfg = sim.cfg
         dev = sim.device
-        sz = cfg.obs_raster_size
-        half_r = float(np.float32(0.5 * sz - 0.5))
-        idx_1d = torch.arange(sz, dtype=torch.float32, device=dev)
-
-        self.ego_x_by_scale: list[torch.Tensor] = []
-        self.ego_y_by_scale: list[torch.Tensor] = []
-        for s in cfg.obs_scales:
-            s_f32 = float(np.float32(s))
-            self.ego_x_by_scale.append((idx_1d - half_r) * s_f32)
-            self.ego_y_by_scale.append((half_r - idx_1d) * s_f32)
-
-        denom_log = math.log2(1.0 + cfg.max_length)
-        len_log_np = np.array(
-            [
-                np.float32(math.log2(1.0 + length) / denom_log)
-                for length in range(cfg.max_length + 1)
-            ],
-            dtype=np.float32,
+        self.sizes: tuple[int, int, int] = (
+            cfg.obs_fine_size,
+            cfg.obs_coarse_size,
+            cfg.obs_coarse_size,
         )
-        self.len_log_table = torch.as_tensor(len_log_np, device=dev)
-        self.tril_nnn = torch.tril(
+        self.ego_x_2x: list[torch.Tensor] = []
+        self.ego_y_2x: list[torch.Tensor] = []
+        for scale, sz in zip(cfg.obs_scales, self.sizes):
+            idx = torch.arange(sz, dtype=torch.int32, device=dev)
+            # 2 * ego_coord in grid-cell units (exact integers).
+            s_cells = max(1, int(round(scale / cfg.cell_size)))
+            self.ego_x_2x.append((2 * idx - (sz - 1)) * s_cells)
+            self.ego_y_2x.append(((sz - 1) - 2 * idx) * s_cells)
+
+        sin_np = sim._sin_table.detach().cpu().numpy()
+        cos_np = sim._cos_table.detach().cpu().numpy()
+        amb_lut_np, cor_lut_np, dx_u8_np, dy_u8_np = _build_obs_luts_np(sin_np, cos_np)
+        self.amb_lut = torch.as_tensor(amb_lut_np, device=dev)
+        self.cor_lut = torch.as_tensor(cor_lut_np, device=dev)
+        self.head_dx_u8 = torch.as_tensor(dx_u8_np, device=dev)
+        self.head_dy_u8 = torch.as_tensor(dy_u8_np, device=dev)
+
+        self.all_env_idx = (
+            torch.arange(sim.E, dtype=torch.int64, device=dev)[:, None]
+            .expand(sim.E, sim.N)
+            .reshape(-1)
+        )
+        self.all_slot_idx = (
+            torch.arange(sim.N, dtype=torch.int64, device=dev)[None, :]
+            .expand(sim.E, sim.N)
+            .reshape(-1)
+        )
+        self.eye_n = torch.eye(sim.N, dtype=torch.bool, device=dev)
+        self.tril_nn = torch.tril(
             torch.ones((sim.N, sim.N), dtype=torch.bool, device=dev), diagonal=-1
-        )[None, None, :, :]
+        )[None, :, :]
+
+        # Last-used immutable learner_mask index cache for zero-host-sync reuse.
+        self.last_mask_key: tuple[int, int] | None = None
+        self.last_mask_env_idx: torch.Tensor | None = None
+        self.last_mask_slot_idx: torch.Tensor | None = None
 
 
 _OBS_CACHE: weakref.WeakKeyDictionary[GameV3Sim, _ObsStaticCache] = weakref.WeakKeyDictionary()
@@ -135,58 +191,118 @@ def _get_obs_cache(sim: GameV3Sim) -> _ObsStaticCache:
     return cached
 
 
-def allocate_obs_batch(sim: GameV3Sim) -> ObservationBatch:
-    """Preallocate an :class:`ObservationBatch` on ``sim.device`` for reuse."""
-    sz = sim.cfg.obs_raster_size
-    r_shape = (sim.E, sim.N, NUM_RASTER_CHANNELS, sz, sz)
+def _resolve_learner_indices(
+    sim: GameV3Sim,
+    cache: _ObsStaticCache,
+    learner_mask: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    if learner_mask.dtype != torch.bool or learner_mask.shape != (sim.E, sim.N):
+        raise ValueError(
+            f"learner_mask must be bool of shape ({sim.E}, {sim.N}), "
+            f"got {learner_mask.dtype} {tuple(learner_mask.shape)}"
+        )
+    if learner_mask.device != sim.device:
+        raise ValueError(f"learner_mask device {learner_mask.device} != sim device {sim.device}")
+
+    key = (int(learner_mask.data_ptr()), int(learner_mask._version))
+    if (
+        cache.last_mask_key == key
+        and cache.last_mask_env_idx is not None
+        and cache.last_mask_slot_idx is not None
+    ):
+        return cache.last_mask_env_idx, cache.last_mask_slot_idx
+
+    nz = torch.nonzero(learner_mask, as_tuple=False)
+    env_idx = nz[:, 0].contiguous()
+    slot_idx = nz[:, 1].contiguous()
+    cache.last_mask_key = key
+    cache.last_mask_env_idx = env_idx
+    cache.last_mask_slot_idx = slot_idx
+    return env_idx, slot_idx
+
+
+def allocate_obs_batch(
+    sim: GameV3Sim,
+    learner_mask: torch.Tensor | None = None,
+) -> ObservationBatch:
+    """Preallocate an :class:`ObservationBatch` on ``sim.device`` for zero-sync reuse."""
+    cache = _get_obs_cache(sim)
+    s1_sz, s4_sz, s16_sz = cache.sizes
+    if learner_mask is None:
+        lead: tuple[int, ...] = (sim.E, sim.N)
+        env_idx: torch.Tensor | None = None
+        slot_idx: torch.Tensor | None = None
+    else:
+        env_idx, slot_idx = _resolve_learner_indices(sim, cache, learner_mask)
+        lead = (int(env_idx.shape[0]),)
+
     return ObservationBatch(
-        raster_s1=torch.empty(r_shape, dtype=torch.float32, device=sim.device),
-        raster_s4=torch.empty(r_shape, dtype=torch.float32, device=sim.device),
-        raster_s16=torch.empty(r_shape, dtype=torch.float32, device=sim.device),
-        scalars=torch.empty(
-            (sim.E, sim.N, NUM_SCALAR_FEATURES), dtype=torch.float32, device=sim.device
+        raster_s1=torch.empty(
+            (*lead, NUM_RASTER_CHANNELS, s1_sz, s1_sz), dtype=torch.uint8, device=sim.device
         ),
-        action_mask=torch.empty((sim.E, sim.N, 6), dtype=torch.bool, device=sim.device),
+        raster_s4=torch.empty(
+            (*lead, NUM_RASTER_CHANNELS, s4_sz, s4_sz), dtype=torch.uint8, device=sim.device
+        ),
+        raster_s16=torch.empty(
+            (*lead, NUM_RASTER_CHANNELS, s16_sz, s16_sz), dtype=torch.uint8, device=sim.device
+        ),
+        scalars=torch.empty((*lead, NUM_SCALAR_FEATURES), dtype=torch.float32, device=sim.device),
+        action_mask=torch.empty((*lead, NUM_ACTIONS), dtype=torch.bool, device=sim.device),
+        _learner_env_idx=env_idx,
+        _learner_slot_idx=slot_idx,
     )
 
 
-def _splat_heads_torch(
+def _isqrt_i64_torch(val: torch.Tensor) -> torch.Tensor:
+    """Compute exact integer floor(sqrt(val)) for val in [0, 2^44) via 22-bit binary search."""
+    res = torch.zeros_like(val)
+    for bit in range(21, -1, -1):
+        cand = res | (1 << bit)
+        res = torch.where(cand * cand <= val, cand, res)
+    return res
+
+
+def _splat_heads_u8_torch(
     *,
     obs_alive: torch.Tensor,
     obs_pos: torch.Tensor,
+    obs_theta: torch.Tensor,
     obs_sin: torch.Tensor,
     obs_cos: torch.Tensor,
+    obs_slot: torch.Tensor,
     enemy_alive: torch.Tensor,
     enemy_pos: torch.Tensor,
-    enemy_sin: torch.Tensor,
-    enemy_cos: torch.Tensor,
-    enemy_size_norm: torch.Tensor,
-    not_eye: torch.Tensor,
-    tril_nnn: torch.Tensor,
-    scale: float,
+    enemy_theta: torch.Tensor,
+    enemy_boost: torch.Tensor,
+    enemy_bucket: torch.Tensor,
+    cache: _ObsStaticCache,
+    angle_steps: int,
+    scale_fp: int,
     raster_size: int,
 ) -> torch.Tensor:
-    """Project and splat 4 contiguous enemy head channels ``(E_c, N, 4, S, S)``."""
-    e_cnt, n_cnt = obs_alive.shape
+    """Project and splat 4 uint8 enemy head channels ``(M_c, 4, S, S)`` for learner chunk."""
+    m_cnt = obs_alive.shape[0]
+    n_cnt = enemy_alive.shape[1]
     num_pix = raster_size * raster_size
-    inv_s = float(np.float32(1.0 / scale))
-    half_sz = float(np.float32(0.5 * raster_size))
+    half_sz_fp = (raster_size // 2) * scale_fp
+    angle_mask = angle_steps - 1
 
-    rx = enemy_pos[:, None, :, 0] - obs_pos[:, :, None, 0]
-    ry = enemy_pos[:, None, :, 1] - obs_pos[:, :, None, 1]
+    rx = enemy_pos[:, :, 0].to(torch.int64) - obs_pos[:, None, 0].to(torch.int64)
+    ry = enemy_pos[:, :, 1].to(torch.int64) - obs_pos[:, None, 1].to(torch.int64)
 
-    sin_i = obs_sin[:, :, None]
-    cos_i = obs_cos[:, :, None]
-    ego_x = rx * sin_i - ry * cos_i
-    ego_y = rx * cos_i + ry * sin_i
+    sin_i = obs_sin[:, None].to(torch.int64)
+    cos_i = obs_cos[:, None].to(torch.int64)
+    ego_x_fp = ((rx * sin_i - ry * cos_i) >> TRIG_SHIFT).to(torch.int32)
+    ego_y_fp = ((rx * cos_i + ry * sin_i) >> TRIG_SHIFT).to(torch.int32)
 
-    col = torch.floor(ego_x * inv_s + half_sz).to(torch.int32)
-    row = torch.floor(half_sz - ego_y * inv_s).to(torch.int32)
+    col = torch.div(ego_x_fp + half_sz_fp, scale_fp, rounding_mode="floor")
+    row = torch.div(half_sz_fp - ego_y_fp, scale_fp, rounding_mode="floor")
 
+    not_self = ~cache.eye_n.index_select(0, obs_slot)
     valid = (
-        obs_alive[:, :, None]
-        & enemy_alive[:, None, :]
-        & not_eye
+        obs_alive[:, None]
+        & enemy_alive
+        & not_self
         & (col >= 0)
         & (col < raster_size)
         & (row >= 0)
@@ -196,268 +312,359 @@ def _splat_heads_torch(
         0, raster_size - 1
     ).to(torch.int64)
 
-    # Deduplicate same-pixel collisions deterministically: lowest enemy slot j wins.
+    # Lowest enemy slot index j wins deterministically on same-pixel collisions.
     same_pix = (
-        valid[:, :, :, None]
-        & valid[:, :, None, :]
-        & (pix[:, :, :, None] == pix[:, :, None, :])
-        & tril_nnn
+        valid[:, :, None] & valid[:, None, :] & (pix[:, :, None] == pix[:, None, :]) & cache.tril_nn
     )
     keep = valid & (~same_pix.any(dim=-1))
 
-    sin_j = enemy_sin[:, None, :]
-    cos_j = enemy_cos[:, None, :]
-    ego_dx = cos_j * sin_i - sin_j * cos_i
-    ego_dy = cos_j * cos_i + sin_j * sin_i
-    sz_j = enemy_size_norm[:, None, :].expand_as(ego_dx)
+    rel_ang = ((obs_theta[:, None] - enemy_theta) & angle_mask).to(torch.int64)
+    dx_u8 = cache.head_dx_u8[rel_ang]
+    dy_u8 = cache.head_dy_u8[rel_ang]
+    b_u8 = enemy_boost.to(torch.uint8) * 255
+    z_u8 = torch.zeros((1,), dtype=torch.uint8, device=obs_pos.device)
 
     src_4 = torch.stack(
         (
-            keep.to(torch.float32),
-            torch.where(keep, ego_dx, 0.0),
-            torch.where(keep, ego_dy, 0.0),
-            torch.where(keep, sz_j, 0.0),
+            torch.where(keep, enemy_bucket, z_u8),
+            torch.where(keep, dx_u8, z_u8),
+            torch.where(keep, dy_u8, z_u8),
+            torch.where(keep, b_u8, z_u8),
         ),
-        dim=2,
-    ).view(e_cnt * n_cnt, 4, n_cnt)
-    pix_4 = pix.view(e_cnt * n_cnt, 1, n_cnt).expand(e_cnt * n_cnt, 4, n_cnt)
+        dim=1,
+    )
+    pix_4 = pix[:, None, :].expand(m_cnt, 4, n_cnt)
 
-    buf = torch.zeros((e_cnt * n_cnt, 4, num_pix), dtype=torch.float32, device=obs_pos.device)
+    buf = torch.zeros((m_cnt, 4, num_pix), dtype=torch.uint8, device=obs_pos.device)
     buf.scatter_add_(2, pix_4, src_4)
-    return buf.view(e_cnt, n_cnt, 4, raster_size, raster_size)
+    return buf.view(m_cnt, 4, raster_size, raster_size)
 
 
-def _fill_scale_raster_chunk_torch(
-    dst_c: torch.Tensor,
+def _fill_scale_raster_learners_torch(
+    dst_flat: torch.Tensor,
     sim: GameV3Sim,
     cache: _ObsStaticCache,
     scale_idx: int,
-    e0: int,
-    e1: int,
-    sin_t0: torch.Tensor,
-    cos_t0: torch.Tensor,
-    size_norm_t0: torch.Tensor,
-    sin_t1: torch.Tensor,
-    cos_t1: torch.Tensor,
-    size_norm_t1: torch.Tensor,
+    env_idx: torch.Tensor,
+    slot_idx: torch.Tensor,
+    size_bucket_t0: torch.Tensor,
+    size_bucket_t1: torch.Tensor,
 ) -> None:
-    """Populate all 13 channels of world slice ``[e0:e1]`` for one scale raster in place."""
+    """Populate all 13 uint8 channels of ``dst_flat`` ``(M, 13, S, S)`` for learner rows."""
+    m_total = int(env_idx.shape[0])
+    if m_total == 0:
+        return
+
     cfg = sim.cfg
-    e_cnt = e1 - e0
-    sz = cfg.obs_raster_size
+    sz = cache.sizes[scale_idx]
     num_pix = sz * sz
-    scale = cfg.obs_scales[scale_idx]
+    scale_cells = max(1, int(round(cfg.obs_scales[scale_idx] / cfg.cell_size)))
+    scale_fp = scale_cells * FP_ONE
+    arena_r_sq_fp = int(cfg.arena_radius_fp) * int(cfg.arena_radius_fp)
 
-    ego_x_1d = cache.ego_x_by_scale[scale_idx]
-    ego_y_1d = cache.ego_y_by_scale[scale_idx]
+    ego_x_2x = cache.ego_x_2x[scale_idx]
+    ego_y_2x = cache.ego_y_2x[scale_idx]
 
-    head_c = sim.head_pos[e0:e1]
-    alive_c = sim.alive[e0:e1]
-    prev_alive_c = sim.prev_alive[e0:e1]
-    prev_head_c = sim.prev_head_pos[e0:e1]
-    sin0_c = sin_t0[e0:e1]
-    cos0_c = cos_t0[e0:e1]
-    sin1_c = sin_t1[e0:e1]
-    cos1_c = cos_t1[e0:e1]
+    occ_hi_1d = sim.occ_hi.view(-1)
+    occ_lo_1d = sim.occ_lo.view(-1)
+    occ_4x_2d = sim.occ_subtick_4x.view(-1, sim.N)
+    occ_16x_2d = sim.occ_subtick_16x.view(-1, sim.N)
+    amb_1x_1d = sim.ambient_grid.view(-1)
+    cor_1x_1d = sim.corpse_grid.view(-1)
+    amb_4x_1d = sim.ambient_grid_4x.view(-1)
+    cor_4x_1d = sim.corpse_grid_4x.view(-1)
+    amb_16x_1d = sim.ambient_grid_16x.view(-1)
+    cor_16x_1d = sim.corpse_grid_16x.view(-1)
 
-    hx = head_c[:, :, 0]
-    hy = head_c[:, :, 1]
-    right_x = sin0_c
-    right_y = -cos0_c
-    fwd_x = cos0_c
-    fwd_y = sin0_c
+    z_u8 = torch.zeros((1,), dtype=torch.uint8, device=sim.device)
+    max_u8 = torch.full((1,), 255, dtype=torch.uint8, device=sim.device)
 
-    wx_row = hx[:, :, None] + fwd_x[:, :, None] * ego_y_1d[None, None, :]
-    wx_col = right_x[:, :, None] * ego_x_1d[None, None, :]
-    wy_row = hy[:, :, None] + fwd_y[:, :, None] * ego_y_1d[None, None, :]
-    wy_col = right_y[:, :, None] * ego_x_1d[None, None, :]
+    for m0 in range(0, m_total, OBS_LEARNER_CHUNK):
+        m1 = min(m0 + OBS_LEARNER_CHUNK, m_total)
+        mc = m1 - m0
+        le = env_idx[m0:m1]
+        ln = slot_idx[m0:m1]
+        ln_i32 = ln.to(torch.int32)
 
-    wx = wx_row[:, :, :, None] + wx_col[:, :, None, :]
-    wy = wy_row[:, :, :, None] + wy_col[:, :, None, :]
-    del wx_row, wx_col, wy_row, wy_col
+        obs_alive = sim.alive[le, ln]
+        obs_pos = sim.head_pos[le, ln]
+        obs_theta = sim.theta[le, ln]
+        obs_th_i64 = obs_theta.to(torch.int64)
+        sin0 = sim._sin_table[obs_th_i64]
+        cos0 = sim._cos_table[obs_th_i64]
 
-    alive_mask = alive_c[:, :, None, None]
-    r_sq_world = float(np.float32(cfg.arena_radius * cfg.arena_radius))
-    ch_out = (alive_mask & ((wx * wx + wy * wy) >= r_sq_world)).to(torch.float32)
+        prev_obs_alive = obs_alive & sim.prev_alive[le, ln]
+        prev_obs_pos = sim.prev_head_pos[le, ln]
+        prev_obs_theta = sim.prev_theta[le, ln]
+        prev_th_i64 = prev_obs_theta.to(torch.int64)
+        sin1 = sim._sin_table[prev_th_i64]
+        cos1 = sim._cos_table[prev_th_i64]
 
-    inv_c = float(np.float32(1.0 / cfg.cell_size))
-    gx = torch.floor(wx * inv_c).to(torch.int32) + sim.half_grid
-    gy = torch.floor(wy * inv_c).to(torch.int32) + sim.half_grid
-    del wx, wy
-    in_grid = alive_mask & (gx >= 0) & (gx < sim.G) & (gy >= 0) & (gy < sim.G)
+        # Exact integer ego-to-world sample coordinates (in 1/1024 cell units).
+        # wx_fp = hx_fp + ((cos0 * ego_y_2x + sin0 * ego_x_2x + 16) >> 5)
+        # wy_fp = hy_fp + ((sin0 * ego_y_2x - cos0 * ego_x_2x + 16) >> 5)
+        rot_x = (
+            cos0[:, None, None] * ego_y_2x[None, :, None]
+            + sin0[:, None, None] * ego_x_2x[None, None, :]
+            + 16
+        ) >> 5
+        rot_y = (
+            sin0[:, None, None] * ego_y_2x[None, :, None]
+            - cos0[:, None, None] * ego_x_2x[None, None, :]
+            + 16
+        ) >> 5
+        wx_fp = obs_pos[:, 0, None, None] + rot_x
+        wy_fp = obs_pos[:, 1, None, None] + rot_y
+        del rot_x, rot_y
 
-    gx_c = gx.clamp(0, sim.G - 1).to(torch.int64)
-    gy_c = gy.clamp(0, sim.G - 1).to(torch.int64)
-    del gx, gy
-    flat_1x = (gy_c * sim.G + gx_c).view(e_cnt, sim.N * num_pix)
+        alive_pix = obs_alive[:, None, None]
+        d_sq = wx_fp.to(torch.int64).square() + wy_fp.to(torch.int64).square()
+        ch_out = torch.where(alive_pix & (d_sq >= arena_r_sq_fp), max_u8, z_u8)
+        del d_sq
 
-    occ_sample = sim.occ_packed[e0:e1].view(e_cnt, -1).gather(1, flat_1x).view(e_cnt, sim.N, sz, sz)
-    owner = occ_sample & 63
-    owner_tail = (
-        sim.tail_seq[e0:e1]
-        .gather(1, owner.clamp(0, sim.N - 1).to(torch.int64).view(e_cnt, -1))
-        .view(e_cnt, sim.N, sz, sz)
-    )
-    occ_active = in_grid & (occ_sample >= 0) & ((occ_sample >> 6) >= owner_tail)
-    del occ_sample, owner_tail
+        gx = (wx_fp >> FP_SHIFT) + sim.half_grid
+        gy = (wy_fp >> FP_SHIFT) + sim.half_grid
+        del wx_fp, wy_fp
+        in_grid = alive_pix & (gx >= 0) & (gx < sim.G) & (gy >= 0) & (gy < sim.G)
+        in_flat = in_grid.view(mc, num_pix)
 
-    own_id = sim._snake_ids[:, :, None, None]
-    ch_own = (occ_active & (owner == own_id)).to(torch.float32)
-    ch_enemy = (occ_active & (owner != own_id)).to(torch.float32)
-    del owner, occ_active
+        oldest_e = sim.oldest_active_subtick.index_select(0, le)
+        bkt_e = size_bucket_t0.index_select(0, le)
 
-    # Scale-matched block-summed food lookup.
-    if scale >= 16.0:
-        del flat_1x
-        flat_f = ((gy_c >> 4) * sim.G16 + (gx_c >> 4)).view(e_cnt, sim.N * num_pix)
-        del gx_c, gy_c
-        amb_raw = sim.ambient_grid_16x[e0:e1].view(e_cnt, -1).gather(1, flat_f)
-        cor_raw = sim.corpse_grid_16x[e0:e1].view(e_cnt, -1).gather(1, flat_f)
-        del flat_f
-    elif scale >= 4.0:
-        del flat_1x
-        flat_f = ((gy_c >> 2) * sim.G4 + (gx_c >> 2)).view(e_cnt, sim.N * num_pix)
-        del gx_c, gy_c
-        amb_raw = sim.ambient_grid_4x[e0:e1].view(e_cnt, -1).gather(1, flat_f)
-        cor_raw = sim.corpse_grid_4x[e0:e1].view(e_cnt, -1).gather(1, flat_f)
-        del flat_f
-    else:
-        del gx_c, gy_c
-        amb_raw = sim.ambient_grid[e0:e1].view(e_cnt, -1).gather(1, flat_1x)
-        cor_raw = sim.corpse_grid[e0:e1].view(e_cnt, -1).gather(1, flat_1x)
-        del flat_1x
+        if scale_idx == 0:
+            gx_c = gx.clamp(0, sim.G - 1).to(torch.int64)
+            gy_c = gy.clamp(0, sim.G - 1).to(torch.int64)
+            del gx, gy
+            g_idx = (le[:, None, None] * (sim.G * sim.G) + gy_c * sim.G + gx_c).view(-1)
+            del gx_c, gy_c
 
-    amb_f = amb_raw.view(e_cnt, sim.N, sz, sz).to(torch.float32)
-    del amb_raw
-    ch_amb = torch.where(in_grid, amb_f / (1.0 + amb_f), 0.0)
-    del amb_f
+            v_hi = occ_hi_1d.index_select(0, g_idx).view(mc, num_pix)
+            ow_hi = v_hi & 63
+            ow_hi_i64 = ow_hi.clamp(0, sim.N - 1).to(torch.int64)
+            act_hi = in_flat & (v_hi >= 0) & ((v_hi >> 6) >= oldest_e.gather(1, ow_hi_i64))
 
-    cor_f = cor_raw.view(e_cnt, sim.N, sz, sz).to(torch.float32)
-    del cor_raw
-    ch_cor = torch.where(in_grid, cor_f / (1.0 + cor_f), 0.0)
-    del cor_f, in_grid
+            v_lo = occ_lo_1d.index_select(0, g_idx).view(mc, num_pix)
+            ow_lo = 63 - (v_lo & 63)
+            ow_lo_i64 = ow_lo.clamp(0, sim.N - 1).to(torch.int64)
+            act_lo = in_flat & (v_lo >= 0) & ((v_lo >> 6) >= oldest_e.gather(1, ow_lo_i64))
 
-    # 2-frame stack of enemy head channels: T0 (current) and T1 (previous tick).
-    heads_t0 = _splat_heads_torch(
-        obs_alive=alive_c,
-        obs_pos=head_c,
-        obs_sin=sin0_c,
-        obs_cos=cos0_c,
-        enemy_alive=alive_c,
-        enemy_pos=head_c,
-        enemy_sin=sin0_c,
-        enemy_cos=cos0_c,
-        enemy_size_norm=size_norm_t0[e0:e1],
-        not_eye=sim._not_eye_nn,
-        tril_nnn=cache.tril_nnn,
-        scale=scale,
-        raster_size=sz,
-    )
-    heads_t1 = _splat_heads_torch(
-        obs_alive=alive_c & prev_alive_c,
-        obs_pos=prev_head_c,
-        obs_sin=sin1_c,
-        obs_cos=cos1_c,
-        enemy_alive=prev_alive_c,
-        enemy_pos=prev_head_c,
-        enemy_sin=sin1_c,
-        enemy_cos=cos1_c,
-        enemy_size_norm=size_norm_t1[e0:e1],
-        not_eye=sim._not_eye_nn,
-        tril_nnn=cache.tril_nnn,
-        scale=scale,
-        raster_size=sz,
-    )
-    torch.cat(
-        (
-            ch_own[:, :, None],
-            ch_enemy[:, :, None],
-            ch_amb[:, :, None],
-            ch_cor[:, :, None],
-            ch_out[:, :, None],
-            heads_t0,
-            heads_t1,
-        ),
-        dim=2,
-        out=dst_c,
-    )
+            self_col = ln_i32[:, None]
+            is_own = (act_hi & (ow_hi == self_col)) | (act_lo & (ow_lo == self_col))
+            ch_own = torch.where(is_own, max_u8, z_u8).view(mc, sz, sz)
 
+            eb_hi = torch.where(act_hi & (ow_hi != self_col), bkt_e.gather(1, ow_hi_i64), z_u8)
+            eb_lo = torch.where(act_lo & (ow_lo != self_col), bkt_e.gather(1, ow_lo_i64), z_u8)
+            ch_enemy = torch.maximum(eb_hi, eb_lo).view(mc, sz, sz)
+            del v_hi, v_lo, ow_hi, ow_lo, act_hi, act_lo, eb_hi, eb_lo
 
-def _fill_scale_raster_torch(
-    dst: torch.Tensor,
-    sim: GameV3Sim,
-    cache: _ObsStaticCache,
-    scale_idx: int,
-    sin_t0: torch.Tensor,
-    cos_t0: torch.Tensor,
-    size_norm_t0: torch.Tensor,
-    sin_t1: torch.Tensor,
-    cos_t1: torch.Tensor,
-    size_norm_t1: torch.Tensor,
-) -> None:
-    """Populate all 13 channels of one scale raster ``(E, N, 13, S, S)`` in world chunks."""
-    for e0 in range(0, sim.E, OBS_ENV_CHUNK):
-        e1 = min(e0 + OBS_ENV_CHUNK, sim.E)
-        _fill_scale_raster_chunk_torch(
-            dst[e0:e1],
-            sim,
-            cache,
-            scale_idx,
-            e0,
-            e1,
-            sin_t0,
-            cos_t0,
-            size_norm_t0,
-            sin_t1,
-            cos_t1,
-            size_norm_t1,
+            amb_m = amb_1x_1d.index_select(0, g_idx).view(mc, sz, sz).clamp(0, _FOOD_LUT_MAX)
+            cor_m = cor_1x_1d.index_select(0, g_idx).view(mc, sz, sz).clamp(0, _FOOD_LUT_MAX)
+            del g_idx
+        elif scale_idx == 1:
+            gx4 = (gx >> 2).clamp(0, sim.G4 - 1).to(torch.int64)
+            gy4 = (gy >> 2).clamp(0, sim.G4 - 1).to(torch.int64)
+            del gx, gy
+            g_idx4 = (le[:, None, None] * (sim.G4 * sim.G4) + gy4 * sim.G4 + gx4).view(-1)
+            del gx4, gy4
+
+            st_n = occ_4x_2d.index_select(0, g_idx4).view(mc, num_pix, sim.N)
+            act_n = in_flat[:, :, None] & (st_n >= oldest_e[:, None, :])
+            del st_n
+
+            own_act = act_n.gather(2, ln[:, None, None].expand(mc, num_pix, 1)).squeeze(2)
+            ch_own = torch.where(own_act, max_u8, z_u8).view(mc, sz, sz)
+
+            not_self = ~cache.eye_n.index_select(0, ln)[:, None, :]
+            ch_enemy = (
+                torch.where(act_n & not_self, bkt_e[:, None, :], z_u8).amax(dim=-1).view(mc, sz, sz)
+            )
+            del act_n, own_act
+
+            amb_m = amb_4x_1d.index_select(0, g_idx4).view(mc, sz, sz).clamp(0, _FOOD_LUT_MAX)
+            cor_m = cor_4x_1d.index_select(0, g_idx4).view(mc, sz, sz).clamp(0, _FOOD_LUT_MAX)
+            del g_idx4
+        else:
+            gx16 = (gx >> 4).clamp(0, sim.G16 - 1).to(torch.int64)
+            gy16 = (gy >> 4).clamp(0, sim.G16 - 1).to(torch.int64)
+            del gx, gy
+            g_idx16 = (le[:, None, None] * (sim.G16 * sim.G16) + gy16 * sim.G16 + gx16).view(-1)
+            del gx16, gy16
+
+            st_n = occ_16x_2d.index_select(0, g_idx16).view(mc, num_pix, sim.N)
+            act_n = in_flat[:, :, None] & (st_n >= oldest_e[:, None, :])
+            del st_n
+
+            own_act = act_n.gather(2, ln[:, None, None].expand(mc, num_pix, 1)).squeeze(2)
+            ch_own = torch.where(own_act, max_u8, z_u8).view(mc, sz, sz)
+
+            not_self = ~cache.eye_n.index_select(0, ln)[:, None, :]
+            ch_enemy = (
+                torch.where(act_n & not_self, bkt_e[:, None, :], z_u8).amax(dim=-1).view(mc, sz, sz)
+            )
+            del act_n, own_act
+
+            amb_m = amb_16x_1d.index_select(0, g_idx16).view(mc, sz, sz).clamp(0, _FOOD_LUT_MAX)
+            cor_m = cor_16x_1d.index_select(0, g_idx16).view(mc, sz, sz).clamp(0, _FOOD_LUT_MAX)
+            del g_idx16
+
+        ch_amb = torch.where(in_grid, cache.amb_lut[amb_m.to(torch.int64)], z_u8)
+        ch_cor = torch.where(in_grid, cache.cor_lut[cor_m.to(torch.int64)], z_u8)
+        del amb_m, cor_m, in_grid, in_flat
+
+        heads_t0 = _splat_heads_u8_torch(
+            obs_alive=obs_alive,
+            obs_pos=obs_pos,
+            obs_theta=obs_theta,
+            obs_sin=sin0,
+            obs_cos=cos0,
+            obs_slot=ln,
+            enemy_alive=sim.alive.index_select(0, le),
+            enemy_pos=sim.head_pos.index_select(0, le),
+            enemy_theta=sim.theta.index_select(0, le),
+            enemy_boost=sim.boosting.index_select(0, le),
+            enemy_bucket=bkt_e,
+            cache=cache,
+            angle_steps=cfg.angle_steps,
+            scale_fp=scale_fp,
+            raster_size=sz,
+        )
+        heads_t1 = _splat_heads_u8_torch(
+            obs_alive=prev_obs_alive,
+            obs_pos=prev_obs_pos,
+            obs_theta=prev_obs_theta,
+            obs_sin=sin1,
+            obs_cos=cos1,
+            obs_slot=ln,
+            enemy_alive=sim.prev_alive.index_select(0, le),
+            enemy_pos=sim.prev_head_pos.index_select(0, le),
+            enemy_theta=sim.prev_theta.index_select(0, le),
+            enemy_boost=sim.prev_boosting.index_select(0, le),
+            enemy_bucket=size_bucket_t1.index_select(0, le),
+            cache=cache,
+            angle_steps=cfg.angle_steps,
+            scale_fp=scale_fp,
+            raster_size=sz,
+        )
+
+        torch.cat(
+            (
+                ch_own[:, None],
+                ch_enemy[:, None],
+                ch_amb[:, None],
+                ch_cor[:, None],
+                ch_out[:, None],
+                heads_t0,
+                heads_t1,
+            ),
+            dim=1,
+            out=dst_flat[m0:m1],
         )
 
 
-def build_obs(sim: GameV3Sim, *, out: ObservationBatch | None = None) -> ObservationBatch:
-    """Build heading-aligned multi-scale observations on ``sim.device`` with zero host syncs."""
+def _signed_div_q10_torch(num: torch.Tensor, denom: torch.Tensor) -> torch.Tensor:
+    """Compute signedtrunc(num / denom) clamped to [-1024, +1024] using floor on abs."""
+    abs_q = torch.div(num.abs(), denom, rounding_mode="floor").clamp_max(1024)
+    return torch.where(num >= 0, abs_q, -abs_q)
+
+
+def build_obs(
+    sim: GameV3Sim,
+    learner_mask: torch.Tensor | None = None,
+    *,
+    out: ObservationBatch | None = None,
+) -> ObservationBatch:
+    """Build multi-scale uint8 pyramid observations on ``sim.device`` with zero host syncs.
+
+    Args:
+        sim: Active :class:`GameV3Sim` instance.
+        learner_mask: Optional bool mask ``(E, N)``. When provided, observations are
+            computed and returned ONLY for the ``M`` ``True`` slots as ``(M, ...)``.
+        out: Optional preallocated :class:`ObservationBatch` from :func:`allocate_obs_batch`.
+
+    Returns:
+        Populated :class:`ObservationBatch` on ``sim.device``.
+    """
     cache = _get_obs_cache(sim)
-    batch = out if out is not None else allocate_obs_batch(sim)
+    batch = out if out is not None else allocate_obs_batch(sim, learner_mask=learner_mask)
     cfg = sim.cfg
+    s1_sz, s4_sz, s16_sz = cache.sizes
 
-    sin_t0, cos_t0 = poly_sincos_torch(sim.theta)
-    sin_t1, cos_t1 = poly_sincos_torch(sim.prev_theta)
+    if learner_mask is None:
+        env_idx = cache.all_env_idx
+        slot_idx = cache.all_slot_idx
+        m_cnt = sim.E * sim.N
+    elif batch._learner_env_idx is not None and batch._learner_slot_idx is not None:
+        env_idx = batch._learner_env_idx
+        slot_idx = batch._learner_slot_idx
+        m_cnt = int(env_idx.shape[0])
+    else:
+        env_idx, slot_idx = _resolve_learner_indices(sim, cache, learner_mask)
+        m_cnt = int(env_idx.shape[0])
 
-    inv_max_w = float(np.float32(1.0 / cfg.max_body_radius))
-    len_i64 = sim.length.clamp(0, cfg.max_length).to(torch.int64)
-    prev_len_i64 = sim.prev_length.clamp(0, cfg.max_length).to(torch.int64)
-    w_t0 = sim._w_table[len_i64]
-    size_norm_t0 = w_t0 * inv_max_w
-    size_norm_t1 = sim._w_table[prev_len_i64] * inv_max_w
+    len_all_i64 = sim.length.clamp(0, cfg.max_length).to(torch.int64)
+    prev_len_all_i64 = sim.prev_length.clamp(0, cfg.max_length).to(torch.int64)
+    z_u8 = torch.zeros((1,), dtype=torch.uint8, device=sim.device)
+    size_bucket_t0 = torch.where(sim.alive, sim._size_bucket_table[len_all_i64], z_u8)
+    size_bucket_t1 = torch.where(sim.prev_alive, sim._size_bucket_table[prev_len_all_i64], z_u8)
 
-    _fill_scale_raster_torch(
-        batch.raster_s1, sim, cache, 0, sin_t0, cos_t0, size_norm_t0, sin_t1, cos_t1, size_norm_t1
+    r1_flat = batch.raster_s1.view(m_cnt, NUM_RASTER_CHANNELS, s1_sz, s1_sz)
+    r4_flat = batch.raster_s4.view(m_cnt, NUM_RASTER_CHANNELS, s4_sz, s4_sz)
+    r16_flat = batch.raster_s16.view(m_cnt, NUM_RASTER_CHANNELS, s16_sz, s16_sz)
+
+    _fill_scale_raster_learners_torch(
+        r1_flat, sim, cache, 0, env_idx, slot_idx, size_bucket_t0, size_bucket_t1
     )
-    _fill_scale_raster_torch(
-        batch.raster_s4, sim, cache, 1, sin_t0, cos_t0, size_norm_t0, sin_t1, cos_t1, size_norm_t1
+    _fill_scale_raster_learners_torch(
+        r4_flat, sim, cache, 1, env_idx, slot_idx, size_bucket_t0, size_bucket_t1
     )
-    _fill_scale_raster_torch(
-        batch.raster_s16, sim, cache, 2, sin_t0, cos_t0, size_norm_t0, sin_t1, cos_t1, size_norm_t1
+    _fill_scale_raster_learners_torch(
+        r16_flat, sim, cache, 2, env_idx, slot_idx, size_bucket_t0, size_bucket_t1
     )
 
-    # Scalar features: [log_length, body_radius, boost_allowed, wall_dist_norm, turn_rate_limit].
-    boost_ok = sim.alive & (sim.length > int(cfg.min_boost_length))
-    hx = sim.head_pos[:, :, 0]
-    hy = sim.head_pos[:, :, 1]
-    dist_center = torch.sqrt(hx * hx + hy * hy)
-    r_f32 = float(np.float32(cfg.arena_radius))
-    inv_r = float(np.float32(1.0 / cfg.arena_radius))
-    wall_dist = ((r_f32 - dist_center - w_t0) * inv_r).clamp(0.0, 1.0)
+    sc_flat = batch.scalars.view(m_cnt, NUM_SCALAR_FEATURES)
+    am_flat = batch.action_mask.view(m_cnt, NUM_ACTIONS)
+    if m_cnt == 0:
+        return batch
 
-    alive_f = sim.alive.to(torch.float32)
-    batch.scalars[:, :, 0] = cache.len_log_table[len_i64] * alive_f
-    batch.scalars[:, :, 1] = w_t0 * alive_f
-    batch.scalars[:, :, 2] = boost_ok.to(torch.float32)
-    batch.scalars[:, :, 3] = wall_dist * alive_f
-    batch.scalars[:, :, 4] = sim._turn_table[len_i64] * alive_f
+    l_alive = sim.alive[env_idx, slot_idx]
+    l_boost = sim.boosting[env_idx, slot_idx]
+    l_len = sim.length[env_idx, slot_idx]
+    l_len_i64 = l_len.clamp(0, cfg.max_length).to(torch.int64)
+    l_pos = sim.head_pos[env_idx, slot_idx]
+    l_th_i64 = sim.theta[env_idx, slot_idx].to(torch.int64)
 
-    batch.action_mask[:, :, :3] = True
-    batch.action_mask[:, :, 3:] = boost_ok[:, :, None]
+    boost_ok = l_alive & (l_len > int(cfg.min_boost_length))
+    alive_f = l_alive.to(torch.float32)
+
+    hx64 = l_pos[:, 0].to(torch.int64)
+    hy64 = l_pos[:, 1].to(torch.int64)
+    dist_c_fp = _isqrt_i64_torch(hx64 * hx64 + hy64 * hy64)
+
+    arena_r_fp = int(cfg.arena_radius_fp)
+    rad_fp = sim._radius_fp_table[l_len_i64].to(torch.int64)
+    clear_fp = (arena_r_fp - dist_c_fp - rad_fp).clamp(0, arena_r_fp)
+    wall_dist_q10 = torch.div(clear_fp * 1024, arena_r_fp, rounding_mode="floor")
+
+    sin_i = sim._sin_table[l_th_i64].to(torch.int64)
+    cos_i = sim._cos_table[l_th_i64].to(torch.int64)
+    denom = dist_c_fp.clamp_min(1) * TRIG_ONE
+    dx_q10_raw = _signed_div_q10_torch((hx64 * sin_i - hy64 * cos_i) * 1024, denom)
+    dy_q10_raw = _signed_div_q10_torch((hx64 * cos_i + hy64 * sin_i) * 1024, denom)
+    at_origin = dist_c_fp == 0
+    dx_q10 = torch.where(at_origin, torch.zeros_like(dx_q10_raw), dx_q10_raw)
+    dy_q10 = torch.where(at_origin, torch.full_like(dy_q10_raw, 1024), dy_q10_raw)
+
+    sc_flat[:, SCALAR_LOG_LENGTH] = sim._len_log_f32_table[l_len_i64] * alive_f
+    sc_flat[:, SCALAR_BODY_RADIUS] = sim._radius_norm_f32_table[l_len_i64] * alive_f
+    sc_flat[:, SCALAR_BOOST_ALLOWED] = boost_ok.to(torch.float32)
+    sc_flat[:, SCALAR_OWN_BOOST] = (l_alive & l_boost).to(torch.float32)
+    sc_flat[:, SCALAR_TURN_RATE] = sim._turn_norm_f32_table[l_len_i64] * alive_f
+    sc_flat[:, SCALAR_BOUNDARY_DIST] = wall_dist_q10.to(torch.float32) * _INV_1024_F32 * alive_f
+    sc_flat[:, SCALAR_BOUNDARY_DX] = dx_q10.to(torch.float32) * _INV_1024_F32 * alive_f
+    sc_flat[:, SCALAR_BOUNDARY_DY] = dy_q10.to(torch.float32) * _INV_1024_F32 * alive_f
+
+    am_flat[:, :NUM_TURN_LEVELS] = True
+    am_flat[:, NUM_TURN_LEVELS:] = boost_ok[:, None]
     return batch
 
 
@@ -466,219 +673,274 @@ def build_obs(sim: GameV3Sim, *, out: ObservationBatch | None = None) -> Observa
 # ==============================================================================
 
 
-def _sincos_ref_np(theta: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    f32 = np.float32
-    ab = np.abs(theta)
-    over = ab > f32(HALF_PI_F32)
-    xs = np.where(over, np.where(theta >= f32(0.0), f32(PI_F32) - ab, ab - f32(PI_F32)), theta)
-    xc = np.where(over, f32(PI_F32) - ab, ab)
-
-    x2s = xs * xs
-    p = x2s * f32(SIN_C9)
-    p = p + f32(SIN_C7)
-    p = p * x2s
-    p = p + f32(SIN_C5)
-    p = p * x2s
-    p = p + f32(SIN_C3)
-    sin_val = xs + xs * (x2s * p)
-
-    x2c = xc * xc
-    q = x2c * f32(COS_C10)
-    q = q + f32(COS_C8)
-    q = q * x2c
-    q = q + f32(COS_C6)
-    q = q * x2c
-    q = q + f32(COS_C4)
-    q = q * x2c
-    q = q + f32(COS_C2)
-    cos_val = f32(1.0) + x2c * q
-    cos_val = np.where(over, -cos_val, cos_val)
-    return sin_val.astype(np.float32), cos_val.astype(np.float32)
-
-
-def _splat_heads_ref_np(
+def _splat_heads_ref_u8_np(
     dst_4ch: np.ndarray,
     *,
+    learner_slots: list[int],
     obs_alive: np.ndarray,
     obs_pos: np.ndarray,
-    obs_sin: np.ndarray,
-    obs_cos: np.ndarray,
+    obs_theta: np.ndarray,
+    sin_table: np.ndarray,
+    cos_table: np.ndarray,
     enemy_alive: np.ndarray,
     enemy_pos: np.ndarray,
-    enemy_sin: np.ndarray,
-    enemy_cos: np.ndarray,
-    enemy_size_norm: np.ndarray,
-    scale: float,
+    enemy_theta: np.ndarray,
+    enemy_boost: np.ndarray,
+    enemy_bucket: np.ndarray,
+    dx_u8_lut: np.ndarray,
+    dy_u8_lut: np.ndarray,
+    angle_steps: int,
+    scale_fp: int,
     raster_size: int,
 ) -> None:
-    dst_4ch.fill(0.0)
-    n_cnt = obs_alive.shape[0]
-    inv_s = np.float32(1.0 / scale)
-    half_sz = np.float32(0.5 * raster_size)
+    dst_4ch.fill(0)
+    n_cnt = enemy_alive.shape[0]
+    half_sz_fp = (raster_size // 2) * scale_fp
+    angle_mask = angle_steps - 1
 
-    for i in range(n_cnt):
+    for out_row, i in enumerate(learner_slots):
         if not obs_alive[i]:
             continue
         occupied_pixels: set[tuple[int, int]] = set()
-        si = obs_sin[i]
-        ci = obs_cos[i]
+        th_i = int(obs_theta[i])
+        si = int(sin_table[th_i])
+        ci = int(cos_table[th_i])
+        ox, oy = int(obs_pos[i, 0]), int(obs_pos[i, 1])
+
         for j in range(n_cnt):
             if j == i or not enemy_alive[j]:
                 continue
-            rx = np.float32(enemy_pos[j, 0] - obs_pos[i, 0])
-            ry = np.float32(enemy_pos[j, 1] - obs_pos[i, 1])
-            ego_x = np.float32(rx * si - ry * ci)
-            ego_y = np.float32(rx * ci + ry * si)
-            col = int(np.floor(np.float32(ego_x * inv_s + half_sz)))
-            row = int(np.floor(np.float32(half_sz - ego_y * inv_s)))
+            rx = int(enemy_pos[j, 0]) - ox
+            ry = int(enemy_pos[j, 1]) - oy
+            ego_x_fp = (rx * si - ry * ci) >> TRIG_SHIFT
+            ego_y_fp = (rx * ci + ry * si) >> TRIG_SHIFT
+            col = (ego_x_fp + half_sz_fp) // scale_fp
+            row = (half_sz_fp - ego_y_fp) // scale_fp
             if not (0 <= col < raster_size and 0 <= row < raster_size):
                 continue
             key = (row, col)
             if key in occupied_pixels:
                 continue
             occupied_pixels.add(key)
-            sj = enemy_sin[j]
-            cj = enemy_cos[j]
-            dst_4ch[i, 0, row, col] = np.float32(1.0)
-            dst_4ch[i, 1, row, col] = np.float32(cj * si - sj * ci)
-            dst_4ch[i, 2, row, col] = np.float32(cj * ci + sj * si)
-            dst_4ch[i, 3, row, col] = enemy_size_norm[j]
+            rel_ang = (th_i - int(enemy_theta[j])) & angle_mask
+            dst_4ch[out_row, 0, row, col] = enemy_bucket[j]
+            dst_4ch[out_row, 1, row, col] = dx_u8_lut[rel_ang]
+            dst_4ch[out_row, 2, row, col] = dy_u8_lut[rel_ang]
+            dst_4ch[out_row, 3, row, col] = np.uint8(255 if enemy_boost[j] else 0)
 
 
-def build_obs_reference(ref: ReferenceWorld) -> ReferenceObservation:
+def _max_enemy_bucket_from_mask_grid_np(
+    mask_grid: np.ndarray, self_slot: int, size_buckets: np.ndarray
+) -> np.ndarray:
+    """Compute max active enemy size_bucket per cell directly from uint64 owner bitmasks."""
+    out = np.zeros(mask_grid.shape, dtype=np.uint8)
+    for j in range(len(size_buckets)):
+        if j == self_slot or size_buckets[j] == 0:
+            continue
+        bit_j = np.uint64(1) << np.uint64(j)
+        active_j = (mask_grid & bit_j) != 0
+        out = np.where(active_j, np.maximum(out, size_buckets[j]), out)
+    return out
+
+
+def build_obs_reference(
+    ref: ReferenceWorld,
+    learner_mask: np.ndarray | None = None,
+) -> ReferenceObservation:
     """Build single-world NumPy reference observations directly from :class:`ReferenceWorld`."""
     cfg: GameV3Config = ref.cfg
-    sz = cfg.obs_raster_size
     n_cnt = ref.N
     g_sz = ref.G
+    max_len = cfg.max_length
 
-    sin_t0, cos_t0 = _sincos_ref_np(ref.theta)
-    sin_t1, cos_t1 = _sincos_ref_np(ref.prev_theta)
+    if learner_mask is None:
+        learner_slots = list(range(n_cnt))
+    else:
+        mask_arr = np.asarray(learner_mask, dtype=bool)
+        if mask_arr.shape != (n_cnt,):
+            raise ValueError(f"learner_mask must have shape ({n_cnt},), got {mask_arr.shape}")
+        learner_slots = [int(i) for i in np.flatnonzero(mask_arr)]
 
-    inv_max_w = np.float32(1.0 / cfg.max_body_radius)
-    w_t0 = np.array(
-        [np.float32(cfg.body_radius_f64(int(ref.length[i]))) for i in range(n_cnt)],
-        dtype=np.float32,
+    m_cnt = len(learner_slots)
+    sizes = (cfg.obs_fine_size, cfg.obs_coarse_size, cfg.obs_coarse_size)
+    amb_lut, cor_lut, dx_u8_lut, dy_u8_lut = _build_obs_luts_np(ref.sin_table, ref.cos_table)
+
+    bkt_t0 = np.array(
+        [
+            (
+                ref.tables["size_bucket"][min(max(int(ref.length[j]), 0), max_len)]
+                if ref.alive[j]
+                else np.uint8(0)
+            )
+            for j in range(n_cnt)
+        ],
+        dtype=np.uint8,
     )
-    w_t1 = np.array(
-        [np.float32(cfg.body_radius_f64(int(ref.prev_length[i]))) for i in range(n_cnt)],
-        dtype=np.float32,
+    bkt_t1 = np.array(
+        [
+            (
+                ref.tables["size_bucket"][min(max(int(ref.prev_length[j]), 0), max_len)]
+                if ref.prev_alive[j]
+                else np.uint8(0)
+            )
+            for j in range(n_cnt)
+        ],
+        dtype=np.uint8,
     )
-    size_t0 = (w_t0 * inv_max_w).astype(np.float32)
-    size_t1 = (w_t1 * inv_max_w).astype(np.float32)
 
+    # Exact 4x4 and 16x16 max-pooled body bitmask pyramids and sum-pooled food pyramids!
+    occ_4x = np.bitwise_or.reduce(ref.occ_mask.reshape(g_sz // 4, 4, g_sz // 4, 4), axis=(1, 3))
+    occ_16x = np.bitwise_or.reduce(
+        ref.occ_mask.reshape(g_sz // 16, 16, g_sz // 16, 16), axis=(1, 3)
+    )
     amb_4x = ref.ambient_grid.reshape(g_sz // 4, 4, g_sz // 4, 4).sum(axis=(1, 3))
     cor_4x = ref.corpse_grid.reshape(g_sz // 4, 4, g_sz // 4, 4).sum(axis=(1, 3))
     amb_16x = ref.ambient_grid.reshape(g_sz // 16, 16, g_sz // 16, 16).sum(axis=(1, 3))
     cor_16x = ref.corpse_grid.reshape(g_sz // 16, 16, g_sz // 16, 16).sum(axis=(1, 3))
 
-    half_r = np.float32(0.5 * sz - 0.5)
-    idx_1d = np.arange(sz, dtype=np.float32)
-    inv_c = np.float32(1.0 / cfg.cell_size)
-    r_sq_world = np.float32(cfg.arena_radius * cfg.arena_radius)
+    arena_r_sq_fp = int(cfg.arena_radius_fp) * int(cfg.arena_radius_fp)
+    obs_alive_t0 = ref.alive
+    obs_alive_t1 = ref.alive & ref.prev_alive
 
     rasters: list[np.ndarray] = []
-    for scale in cfg.obs_scales:
-        s_f32 = np.float32(scale)
-        ego_x_1d = ((idx_1d - half_r) * s_f32).astype(np.float32)
-        ego_y_1d = ((half_r - idx_1d) * s_f32).astype(np.float32)
+    for scale_idx, (scale, sz) in enumerate(zip(cfg.obs_scales, sizes)):
+        s_cells = max(1, int(round(scale / cfg.cell_size)))
+        scale_fp = s_cells * FP_ONE
+        idx_1d = np.arange(sz, dtype=np.int32)
+        ego_x_2x = (2 * idx_1d - (sz - 1)) * s_cells
+        ego_y_2x = ((sz - 1) - 2 * idx_1d) * s_cells
 
-        ras = np.zeros((n_cnt, NUM_RASTER_CHANNELS, sz, sz), dtype=np.float32)
-        for i in range(n_cnt):
+        ras = np.zeros((m_cnt, NUM_RASTER_CHANNELS, sz, sz), dtype=np.uint8)
+        for out_row, i in enumerate(learner_slots):
             if not ref.alive[i]:
                 continue
-            hx = ref.head_pos[i, 0]
-            hy = ref.head_pos[i, 1]
-            rx = sin_t0[i]
-            ry = -cos_t0[i]
-            fx = cos_t0[i]
-            fy = sin_t0[i]
+            hx, hy = int(ref.head_pos[i, 0]), int(ref.head_pos[i, 1])
+            th_i = int(ref.theta[i])
+            si = int(ref.sin_table[th_i])
+            ci = int(ref.cos_table[th_i])
 
-            wx = (hx + fx * ego_y_1d)[:, None] + (rx * ego_x_1d)[None, :]
-            wy = (hy + fy * ego_y_1d)[:, None] + (ry * ego_x_1d)[None, :]
-            wx = wx.astype(np.float32)
-            wy = wy.astype(np.float32)
+            rot_x = ((ci * ego_y_2x[:, None] + si * ego_x_2x[None, :] + 16) >> 5).astype(np.int32)
+            rot_y = ((si * ego_y_2x[:, None] - ci * ego_x_2x[None, :] + 16) >> 5).astype(np.int32)
+            wx_fp = hx + rot_x
+            wy_fp = hy + rot_y
 
-            ras[i, CH_OUT_OF_ARENA] = ((wx * wx + wy * wy) >= r_sq_world).astype(np.float32)
+            d_sq = wx_fp.astype(np.int64) ** 2 + wy_fp.astype(np.int64) ** 2
+            ras[out_row, CH_OUT_OF_ARENA] = np.where(
+                d_sq >= arena_r_sq_fp, np.uint8(255), np.uint8(0)
+            )
 
-            gx = np.floor(wx * inv_c).astype(np.int32) + ref.half_grid
-            gy = np.floor(wy * inv_c).astype(np.int32) + ref.half_grid
+            gx = (wx_fp >> FP_SHIFT) + ref.half_grid
+            gy = (wy_fp >> FP_SHIFT) + ref.half_grid
             in_g = (gx >= 0) & (gx < g_sz) & (gy >= 0) & (gy < g_sz)
 
-            gx_c = np.clip(gx, 0, g_sz - 1)
-            gy_c = np.clip(gy, 0, g_sz - 1)
-            owners = ref.occ_grid[gy_c, gx_c]
-
-            ras[i, CH_OWN_BODY] = (in_g & (owners == i)).astype(np.float32)
-            ras[i, CH_ENEMY_BODY] = (in_g & (owners >= 0) & (owners != i)).astype(np.float32)
-
-            if scale >= 16.0:
-                af = amb_16x[gy_c >> 4, gx_c >> 4].astype(np.float32)
-                cf = cor_16x[gy_c >> 4, gx_c >> 4].astype(np.float32)
-            elif scale >= 4.0:
-                af = amb_4x[gy_c >> 2, gx_c >> 2].astype(np.float32)
-                cf = cor_4x[gy_c >> 2, gx_c >> 2].astype(np.float32)
+            self_bit = np.uint64(1) << np.uint64(i)
+            if scale_idx == 0:
+                gx_c = np.clip(gx, 0, g_sz - 1)
+                gy_c = np.clip(gy, 0, g_sz - 1)
+                m_grid = ref.occ_mask[gy_c, gx_c]
+                af = np.clip(ref.ambient_grid[gy_c, gx_c], 0, _FOOD_LUT_MAX)
+                cf = np.clip(ref.corpse_grid[gy_c, gx_c], 0, _FOOD_LUT_MAX)
+            elif scale_idx == 1:
+                gx4 = np.clip(gx >> 2, 0, (g_sz // 4) - 1)
+                gy4 = np.clip(gy >> 2, 0, (g_sz // 4) - 1)
+                m_grid = occ_4x[gy4, gx4]
+                af = np.clip(amb_4x[gy4, gx4], 0, _FOOD_LUT_MAX)
+                cf = np.clip(cor_4x[gy4, gx4], 0, _FOOD_LUT_MAX)
             else:
-                af = ref.ambient_grid[gy_c, gx_c].astype(np.float32)
-                cf = ref.corpse_grid[gy_c, gx_c].astype(np.float32)
+                gx16 = np.clip(gx >> 4, 0, (g_sz // 16) - 1)
+                gy16 = np.clip(gy >> 4, 0, (g_sz // 16) - 1)
+                m_grid = occ_16x[gy16, gx16]
+                af = np.clip(amb_16x[gy16, gx16], 0, _FOOD_LUT_MAX)
+                cf = np.clip(cor_16x[gy16, gx16], 0, _FOOD_LUT_MAX)
 
-            ras[i, CH_AMBIENT_FOOD] = np.where(in_g, af / (np.float32(1.0) + af), np.float32(0.0))
-            ras[i, CH_CORPSE_FOOD] = np.where(in_g, cf / (np.float32(1.0) + cf), np.float32(0.0))
+            ras[out_row, CH_OWN_BODY] = np.where(
+                in_g & ((m_grid & self_bit) != 0), np.uint8(255), np.uint8(0)
+            )
+            eb_raw = _max_enemy_bucket_from_mask_grid_np(m_grid, i, bkt_t0)
+            ras[out_row, CH_ENEMY_BODY] = np.where(in_g, eb_raw, np.uint8(0))
+            ras[out_row, CH_AMBIENT_FOOD] = np.where(in_g, amb_lut[af], np.uint8(0))
+            ras[out_row, CH_CORPSE_FOOD] = np.where(in_g, cor_lut[cf], np.uint8(0))
 
-        _splat_heads_ref_np(
-            ras[:, CH_ENEMY_HEADS_T0 : CH_ENEMY_SIZE_T0 + 1, :, :],
-            obs_alive=ref.alive,
+        _splat_heads_ref_u8_np(
+            ras[:, CH_ENEMY_HEADS_T0 : CH_ENEMY_BOOST_T0 + 1, :, :],
+            learner_slots=learner_slots,
+            obs_alive=obs_alive_t0,
             obs_pos=ref.head_pos,
-            obs_sin=sin_t0,
-            obs_cos=cos_t0,
+            obs_theta=ref.theta,
+            sin_table=ref.sin_table,
+            cos_table=ref.cos_table,
             enemy_alive=ref.alive,
             enemy_pos=ref.head_pos,
-            enemy_sin=sin_t0,
-            enemy_cos=cos_t0,
-            enemy_size_norm=size_t0,
-            scale=scale,
+            enemy_theta=ref.theta,
+            enemy_boost=ref.boosting,
+            enemy_bucket=bkt_t0,
+            dx_u8_lut=dx_u8_lut,
+            dy_u8_lut=dy_u8_lut,
+            angle_steps=cfg.angle_steps,
+            scale_fp=scale_fp,
             raster_size=sz,
         )
-        _splat_heads_ref_np(
-            ras[:, CH_ENEMY_HEADS_T1 : CH_ENEMY_SIZE_T1 + 1, :, :],
-            obs_alive=ref.alive & ref.prev_alive,
+        _splat_heads_ref_u8_np(
+            ras[:, CH_ENEMY_HEADS_T1 : CH_ENEMY_BOOST_T1 + 1, :, :],
+            learner_slots=learner_slots,
+            obs_alive=obs_alive_t1,
             obs_pos=ref.prev_head_pos,
-            obs_sin=sin_t1,
-            obs_cos=cos_t1,
+            obs_theta=ref.prev_theta,
+            sin_table=ref.sin_table,
+            cos_table=ref.cos_table,
             enemy_alive=ref.prev_alive,
             enemy_pos=ref.prev_head_pos,
-            enemy_sin=sin_t1,
-            enemy_cos=cos_t1,
-            enemy_size_norm=size_t1,
-            scale=scale,
+            enemy_theta=ref.prev_theta,
+            enemy_boost=ref.prev_boosting,
+            enemy_bucket=bkt_t1,
+            dx_u8_lut=dx_u8_lut,
+            dy_u8_lut=dy_u8_lut,
+            angle_steps=cfg.angle_steps,
+            scale_fp=scale_fp,
             raster_size=sz,
         )
         rasters.append(ras)
 
-    denom_log = math.log2(1.0 + cfg.max_length)
-    scalars = np.zeros((n_cnt, NUM_SCALAR_FEATURES), dtype=np.float32)
-    action_mask = np.zeros((n_cnt, 6), dtype=bool)
-    action_mask[:, :3] = True
+    scalars = np.zeros((m_cnt, NUM_SCALAR_FEATURES), dtype=np.float32)
+    action_mask = np.zeros((m_cnt, NUM_ACTIONS), dtype=bool)
+    action_mask[:, :NUM_TURN_LEVELS] = True
 
-    r_f32 = np.float32(cfg.arena_radius)
-    inv_r = np.float32(1.0 / cfg.arena_radius)
-    for i in range(n_cnt):
-        boost_ok = bool(ref.alive[i] and int(ref.length[i]) > cfg.min_boost_length)
-        action_mask[i, 3:] = boost_ok
+    arena_r_fp = int(cfg.arena_radius_fp)
+    inv_1024 = np.float32(_INV_1024_F32)
+
+    for out_row, i in enumerate(learner_slots):
+        li = min(max(int(ref.length[i]), 0), max_len)
+        boost_ok = bool(ref.alive[i] and li > cfg.min_boost_length)
+        action_mask[out_row, NUM_TURN_LEVELS:] = boost_ok
         if not ref.alive[i]:
             continue
-        li = int(ref.length[i])
-        hx = ref.head_pos[i, 0]
-        hy = ref.head_pos[i, 1]
-        dist_c = np.sqrt(np.float32(hx * hx + hy * hy))
-        wall_d = np.clip(
-            np.float32((r_f32 - dist_c - w_t0[i]) * inv_r), np.float32(0.0), np.float32(1.0)
-        )
-        scalars[i, 0] = np.float32(math.log2(1.0 + li) / denom_log)
-        scalars[i, 1] = w_t0[i]
-        scalars[i, 2] = np.float32(1.0 if boost_ok else 0.0)
-        scalars[i, 3] = wall_d
-        scalars[i, 4] = np.float32(cfg.turn_rate_f64(max(1, li)))
+
+        hx, hy = int(ref.head_pos[i, 0]), int(ref.head_pos[i, 1])
+        dist_c_fp = math.isqrt(hx * hx + hy * hy)
+        rad_fp = int(ref.tables["radius_fp"][li])
+        clear_fp = min(max(arena_r_fp - dist_c_fp - rad_fp, 0), arena_r_fp)
+        wall_dist_q10 = (clear_fp * 1024) // arena_r_fp
+
+        if dist_c_fp == 0:
+            dx_q10, dy_q10 = 0, 1024
+        else:
+            th_i = int(ref.theta[i])
+            si = int(ref.sin_table[th_i])
+            ci = int(ref.cos_table[th_i])
+            denom = dist_c_fp * TRIG_ONE
+            num_dx = (hx * si - hy * ci) * 1024
+            num_dy = (hx * ci + hy * si) * 1024
+            dx_q10 = min(1024, abs(num_dx) // denom) * (1 if num_dx >= 0 else -1)
+            dy_q10 = min(1024, abs(num_dy) // denom) * (1 if num_dy >= 0 else -1)
+
+        scalars[out_row, SCALAR_LOG_LENGTH] = ref.tables["len_log_f32"][li]
+        scalars[out_row, SCALAR_BODY_RADIUS] = ref.tables["radius_norm_f32"][li]
+        scalars[out_row, SCALAR_BOOST_ALLOWED] = np.float32(1.0 if boost_ok else 0.0)
+        scalars[out_row, SCALAR_OWN_BOOST] = np.float32(1.0 if ref.boosting[i] else 0.0)
+        scalars[out_row, SCALAR_TURN_RATE] = ref.tables["turn_norm_f32"][li]
+        scalars[out_row, SCALAR_BOUNDARY_DIST] = np.float32(wall_dist_q10) * inv_1024
+        scalars[out_row, SCALAR_BOUNDARY_DX] = np.float32(dx_q10) * inv_1024
+        scalars[out_row, SCALAR_BOUNDARY_DY] = np.float32(dy_q10) * inv_1024
 
     return ReferenceObservation(
         raster_s1=rasters[0],
