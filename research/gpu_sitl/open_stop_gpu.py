@@ -993,6 +993,72 @@ def _compute_release_area_active_lanes(
     return area_out
 
 
+_CANONICAL_LAYOUT_ROWS_CACHE: dict[tuple[torch.device, str, int, int], torch.Tensor] = {}
+
+
+def _debug_sync_asserts_enabled() -> bool:
+    return (
+        os.environ.get("SNAKE_GPU_SITL_DEBUG_ASSERTS") == "1" or "PYTEST_CURRENT_TEST" in os.environ
+    )
+
+
+def _canonical_slot_layout_rows(
+    device: torch.device,
+    slot_layout: str,
+    e_sim: int,
+    s_sim: int,
+) -> torch.Tensor:
+    key = (device, slot_layout, e_sim, s_sim)
+    cached = _CANONICAL_LAYOUT_ROWS_CACHE.get(key)
+    if cached is not None:
+        return cached
+    if len(_CANONICAL_LAYOUT_ROWS_CACHE) >= 32:
+        _CANONICAL_LAYOUT_ROWS_CACHE.clear()
+    if slot_layout == "hero":
+        expected = torch.stack(
+            (
+                torch.arange(e_sim, device=device, dtype=torch.long),
+                torch.zeros(e_sim, device=device, dtype=torch.long),
+            ),
+            dim=1,
+        )
+    elif slot_layout == "opp_slot_major":
+        s_opp = max(0, s_sim - 1)
+        e_ar = torch.arange(e_sim, device=device, dtype=torch.long)
+        s_ar = torch.arange(1, 1 + s_opp, device=device, dtype=torch.long)
+        expected = torch.stack(
+            (e_ar.repeat(s_opp), s_ar.repeat_interleave(e_sim)),
+            dim=1,
+        )
+    else:
+        raise ValueError(f"Unsupported slot_layout: {slot_layout!r}")
+    _CANONICAL_LAYOUT_ROWS_CACHE[key] = expected
+    return expected
+
+
+def _check_slot_layout_rows(
+    rows: torch.Tensor,
+    slot_layout: str | None,
+    e_sim: int,
+    s_sim: int,
+) -> None:
+    if slot_layout is None:
+        return
+    expected = _canonical_slot_layout_rows(rows.device, slot_layout, e_sim, s_sim)
+    msg = (
+        f"fast_v8_decide slot_layout={slot_layout!r} requires canonical rows of shape "
+        f"{tuple(expected.shape)}, got non-canonical rows of shape {tuple(rows.shape)}"
+    )
+    if rows.shape != expected.shape:
+        raise RuntimeError(msg)
+    if rows is expected or not v8_device._host_scalar_safe(rows):
+        return
+    if rows.device.type == "cuda" and not _debug_sync_asserts_enabled():
+        torch._assert_async((rows == expected).all(), msg)
+    elif not bool(torch.equal(rows, expected)):
+        raise RuntimeError(msg)
+
+
 def fast_v8_decide(
     sim: Any,
     rows: torch.Tensor,
@@ -1026,6 +1092,9 @@ def fast_v8_decide(
     rows = rows.to(device=device, dtype=torch.long)
     if n == 0:
         return gpu_v8_decide(sim, rows, q, mask, lam, features=features)
+    e_sim = int(sim.E)
+    s_sim = int(sim.S)
+    _check_slot_layout_rows(rows, slot_layout, e_sim, s_sim)
     env, slot = rows[:, 0], rows[:, 1]
     h, w = int(sim.grid_h), int(sim.grid_w)
     r2 = r2_cache.enabled(sim)
@@ -1052,8 +1121,6 @@ def fast_v8_decide(
     cap = (2 * length).clamp(v8_device._CAP_MIN, v8_device._CAP_MAX)
     need = length.clamp_min(1).minimum(cap)
 
-    e_sim = int(sim.E)
-    s_sim = int(sim.S)
     can_use_static_cuda = (
         device.type == "cuda"
         and v8_device._flood is _ORIG_V8_FLOOD

@@ -5858,3 +5858,41 @@ def test_opus_p2_and_safe_oneline_minors(
             opponent_checkpoint=opp_path,
             smoke_result_json=spoof_smoke_path,
         )
+
+
+def test_opus_n4_fast_v8_decide_rejects_noncanonical_slot_layout_rows() -> None:
+    """N4: fast_v8_decide rejects permuted or wrong-slot rows for hero and opp_slot_major."""
+    from research.gpu_sitl.open_stop_gpu import fast_v8_decide
+    from src.simd_env.batch_sim import BatchSimConfig
+
+    sim = CTDeviceSim(BatchSimConfig(num_envs=3, num_snakes=6), device="cpu", train_mode=False)
+    sim.prepare()
+    q_h = torch.zeros((3, 6), dtype=torch.float32)
+    m_h = sim.advisory_mask()[:, 0]
+
+    # Permuted hero rows ([2,0], [1,0], [0,0]) must raise RuntimeError
+    bad_hero_perm = torch.tensor([[2, 0], [1, 0], [0, 0]], dtype=torch.long)
+    with pytest.raises(RuntimeError, match="slot_layout='hero'"):
+        fast_v8_decide(sim, bad_hero_perm, q_h, m_h, 8.0, slot_layout="hero")
+
+    # Wrong slot in hero layout ([0,0], [1,1], [2,0]) must raise RuntimeError
+    bad_hero_slot = torch.tensor([[0, 0], [1, 1], [2, 0]], dtype=torch.long)
+    with pytest.raises(RuntimeError, match="slot_layout='hero'"):
+        fast_v8_decide(sim, bad_hero_slot, q_h, m_h, 8.0, slot_layout="hero")
+
+    # Env-major instead of slot-major opponent rows must raise RuntimeError
+    env_major_opp = torch.stack(
+        (
+            torch.arange(3, dtype=torch.long).repeat_interleave(5),
+            torch.arange(1, 6, dtype=torch.long).repeat(3),
+        ),
+        dim=1,
+    )
+    q_o = torch.zeros((15, 6), dtype=torch.float32)
+    m_o = sim.advisory_mask()[env_major_opp[:, 0], env_major_opp[:, 1]]
+    with pytest.raises(RuntimeError, match="slot_layout='opp_slot_major'"):
+        fast_v8_decide(sim, env_major_opp, q_o, m_o, 8.0, slot_layout="opp_slot_major")
+
+    # Subset length with slot_layout='hero' must also raise RuntimeError
+    with pytest.raises(RuntimeError, match="slot_layout='hero'"):
+        fast_v8_decide(sim, bad_hero_perm[:2], q_h[:2], m_h[:2], 8.0, slot_layout="hero")
