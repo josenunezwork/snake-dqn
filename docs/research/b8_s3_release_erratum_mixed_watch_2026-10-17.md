@@ -4,7 +4,7 @@
 **mixed**: the released **b8-s3 hero without a serving veto** at slot 0 faces
 **frp3-s12 opponents with the v8 veto** at slots 1 through N−1. The owner approved
 this switch after T15 `SERVING_PASS` and T13b's fixed roster rule, as recorded in
-the [consolidated B8 release & serving history](history/b8-release-serving.md).
+the [consolidated B8 release & serving history](history/served-agents.md#b8-release-serving).
 
 This sibling erratum publishes the draft in the unchanged
 [T15 qualification report](t15_mixed_roster_qualification_2026-10-17.md) and

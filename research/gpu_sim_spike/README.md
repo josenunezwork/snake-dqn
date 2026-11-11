@@ -55,7 +55,7 @@ must preserve higher-priority lanes and obtain a free account slot before dispat
 Round 02 E1b artifacts/manifests live under `snake-dqn-artifacts/big-lever/exp/bl-e1b/`.
 The earlier `PREFLIGHT.md` remains historical evidence for the pre-E1 implementation.
 
-The [Round 02 brief](../../docs/research/history/gpu-sim-spike.md) replaces CUDA min-label propagation with
+The [Round 02 brief](../../docs/research/history/simulators-and-speed.md#gpu-sim-spike) replaces CUDA min-label propagation with
 tiled connected-component union-find and CUDA v8 wavefront sweeps with per-lane
 sparse-frontier BFS. Native CUDA kernels require nvcc, a compatible compiler and
 ninja; a failed native load is an error, never a silent CUDA fallback. The Torch
@@ -78,5 +78,5 @@ writes. Full six-snake world-steps are counted once. The production-shape floor
 is evaluated from this workload; serial dense rates cannot establish it. CPU
 REALISTIC runs are explicitly bounded prechecks and cannot decide the L4 floor.
 
-See [docs/research/history/gpu-sim-spike.md](../../docs/research/history/gpu-sim-spike.md) for this revision's measured Mac evidence and undispatched
+See [docs/research/history/gpu-sim-spike.md](../../docs/research/history/simulators-and-speed.md#gpu-sim-spike) for this revision's measured Mac evidence and undispatched
 manifest forecast; `E1_PREFLIGHT.md` retains the prior implementation's evidence.

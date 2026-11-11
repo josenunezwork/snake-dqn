@@ -1,7 +1,7 @@
 # Colab, RunPod and Mac compute
 
 **Summary:** This note records compute operations and qualification history; new Colab work uses the Mac supervisor, while strict gates and serving qualification remain Mac-only. (src: AGENTS.md:43-45; AGENTS.md:53-59)
-**As of:** 2026-10-25 PT · **Sources:** consolidated record [`docs/research/history/colab-ops.md`](../research/history/colab-ops.md); primary records cited inline.
+**As of:** 2026-10-25 PT · **Sources:** consolidated record [`docs/research/history/colab-ops.md`](../research/history/colab-and-process.md#colab-ops); primary records cited inline.
 **Related:** [Index](README.md), [GLOSSARY](GLOSSARY.md), [Governance and owner rules](governance-and-owner-rules.md), [T34 campaign](t34-campaign.md), [F4 study](f4-study.md), [GPU engine and speed](gpu-engine-and-speed.md), [R30–R32 and F5 successors](r30-r32-f5-successors.md)
 
 ## Colab CLI operating model

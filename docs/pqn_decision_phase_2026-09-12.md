@@ -33,7 +33,7 @@ witness did not train a network or select a checkpoint.
 
 The portfolio ledger retains the failed witness attempts and the accepted v4
 outcome, along with the deferred learning probe:
-[consolidated PQN redesign and September audit record](research/history/pqn-redesign-and-sept-audit.md).
+[consolidated PQN redesign and September audit record](research/history/rl-runs.md#pqn-redesign-and-sept-audit).
 The planned two-seed LP1 learning probe consumed **zero** MPS arms and zero
 evaluation calls; its former manifest is a deferral record, not a negative
 PQN result.

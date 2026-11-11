@@ -8,7 +8,7 @@ experience-weighting test over a tie-only explanation. It did not train a
 learner, run a new confirmation world, or establish a promotion result.
 
 This diagnostic follows the completed
-[global-teacher learning comparison](../../research/history/controlled-encounter.md).
+[global-teacher learning comparison](../../research/history/teaching-search.md#controlled-encounter).
 It reverified every fatal final-1536 held trajectory: 48 games and 168 native
 frames, with no subsampling. The three lineages contributed 12, 16, and 20
 fatal games respectively.
@@ -32,7 +32,7 @@ action. That temporal association is not a branch-mechanism or causal result.
 The [residual-decision figure](residual-decisions.png) visualizes the saved
 replays. The full 48-game record is available in the
 [per-game CSV](per-game.csv).
-It should be read with the earlier [global-teacher learning curves](../../research/history/controlled-encounter.md), which report the matched learned-behavior comparison rather than this post-hoc diagnosis.
+It should be read with the earlier [global-teacher learning curves](../../research/history/teaching-search.md#controlled-encounter), which report the matched learned-behavior comparison rather than this post-hoc diagnosis.
 
 ## Coverage and teacher-prefix context
 

@@ -1,7 +1,7 @@
 # Round 30, Round 32 and F5 successor work
 
 **Summary:** Round 30’s calibration route closed operationally with its main on HOLD, Round 32 completed synthetic rehearsal, and F5 adoption remained on HOLD. (src: docs/research/final_run_20261019/CAMPAIGN_LOG.md:257; docs/research/final_run_20261019/CAMPAIGN_LOG.md:1428-1429)
-**As of:** 2026-10-25 17:40 PT · **Sources:** consolidated history [`docs/research/history/bl-round30.md`](../research/history/bl-round30.md); primary records cited inline.
+**As of:** 2026-10-25 17:40 PT · **Sources:** consolidated history [`docs/research/history/bl-round30.md`](../research/history/teaching-search.md#bl-round30); primary records cited inline.
 **Related:** [Index](README.md), [GLOSSARY](GLOSSARY.md), [F4 study](f4-study.md), [Big-lever program](big-lever-program.md), [GPU engine and speed](gpu-engine-and-speed.md), [Colab and compute infrastructure](colab-and-compute-infra.md)
 
 ## Round verdicts 30–37

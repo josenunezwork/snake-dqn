@@ -24,8 +24,8 @@ These were development screens or diagnostics, not promotion evidence.
 
 | Arm | Recorded result |
 | --- | --- |
-| M6 reward levers | [NULL / not adopted](history/m3-m7-redesign.md): tightness cost and length-scaled death did not close the scripted-survival gap. |
-| Huber T2 | [INCOMPLETE / no adoption](history/m3-m7-redesign.md): the available Huber survival gain carried a mass tax, ANCHOR0 exhausted its extension, and HUBER_ANCHOR0 was KILL. |
+| M6 reward levers | [NULL / not adopted](history/rl-runs.md#m3-m7-redesign): tightness cost and length-scaled death did not close the scripted-survival gap. |
+| Huber T2 | [INCOMPLETE / no adoption](history/rl-runs.md#m3-m7-redesign): the available Huber survival gain carried a mass tax, ANCHOR0 exhausted its extension, and HUBER_ANCHOR0 was KILL. |
 | Huber T2b | [Both delta-10 and delta-30 extensions exhausted](t2b_delta_sweep_2026-10-15.md): the survival/mass trade-off did not meet adoption criteria. |
 | T3 rollout labels | [No GO](t3_screen_result_2026-10-15.md): labels were learned, but the screen did not improve the primary survival endpoint and reduced mass. |
 | T4 TWO_SIDED | [KILL](t4a_screen_result_2026-10-16.md): two-sided bank labels left scripted episode survival below CTRL. |
@@ -39,7 +39,7 @@ These were development screens or diagnostics, not promotion evidence.
 ## T8–T10 mechanism record
 
 The diagnostics describe a failure mode that is not separated early by the
-tested inputs. The [T9 divergence record](history/m3-m7-redesign.md) found
+tested inputs. The [T9 divergence record](history/rl-runs.md#m3-m7-redesign) found
 that the fatal path builds a self-bounded pocket over roughly 50–100 decisions;
 there is no clean, consistent early separator among the requested quantities.
 

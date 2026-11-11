@@ -7,4 +7,4 @@
 ## Key Files & Results
 
 - **Package entrypoints / artifacts:** [`bench_throughput.py`](bench_throughput.py), [`bench_g1.py`](bench_g1.py), [`grid_h5000_identity.py`](grid_h5000_identity.py), [`ego_live_identity.py`](ego_live_identity.py), [`results/grid_identity_h5000/summary.json`](results/grid_identity_h5000/summary.json)
-- **Related docs / results:** [`docs/research/redesign_scope_2026-10-07.md`](../../docs/research/redesign_scope_2026-10-07.md), [`docs/research/history/m3-m7-redesign.md`](../../docs/research/history/m3-m7-redesign.md)
+- **Related docs / results:** [`docs/research/redesign_scope_2026-10-07.md`](../../docs/research/redesign_scope_2026-10-07.md), [`docs/research/history/m3-m7-redesign.md`](../../docs/research/history/rl-runs.md#m3-m7-redesign)

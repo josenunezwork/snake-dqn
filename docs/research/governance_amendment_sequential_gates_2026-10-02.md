@@ -14,7 +14,7 @@ unchanged.
 
 Implementation: `src/evaluation/sequential_gate.py` (opt-in), tests in
 `tests/test_sequential_gate.py`, and the operating characteristics in
-[research/sequential_gate_validation_20261002/README.md](history/sequential-gate.md).
+[research/sequential_gate_validation_20261002/README.md](history/evaluation-method.md#sequential-gate).
 
 ## Why
 
