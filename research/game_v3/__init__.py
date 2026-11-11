@@ -1,5 +1,32 @@
 """Game V3: GPU-first continuous-angle large-arena slither-like simulator."""
 
 from research.game_v3.config import GameV3Config
+from research.game_v3.obs import (
+    NUM_RASTER_CHANNELS,
+    NUM_SCALAR_FEATURES,
+    ObservationBatch,
+    ReferenceObservation,
+    allocate_obs_batch,
+    build_obs,
+    build_obs_reference,
+)
+from research.game_v3.reference import ReferenceStepInfo, ReferenceWorld
+from research.game_v3.scripted import food_seeking_actions, random_safe_actions
+from research.game_v3.sim import GameV3Sim, StepInfo
 
-__all__ = ["GameV3Config"]
+__all__ = [
+    "GameV3Config",
+    "GameV3Sim",
+    "NUM_RASTER_CHANNELS",
+    "NUM_SCALAR_FEATURES",
+    "ObservationBatch",
+    "ReferenceObservation",
+    "ReferenceStepInfo",
+    "ReferenceWorld",
+    "StepInfo",
+    "allocate_obs_batch",
+    "build_obs",
+    "build_obs_reference",
+    "food_seeking_actions",
+    "random_safe_actions",
+]
