@@ -19,10 +19,18 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from research.arena_ppo import ARENA_CHANNELS, ARENA_GRID_H, ARENA_GRID_W, EGO_CROP_SIZE, SCALAR_DIM
+from research.arena_ppo import (
+    ARENA_CHANNELS,
+    ARENA_GRID_H,
+    ARENA_GRID_W,
+    EGO_CROP_SIZE,
+    SCALAR_DIM,
+    WORLD_ARENA_CHANNELS,
+)
 from research.arena_ppo.sim import TrainSim
 
 NUM_OBS_CHANNELS = len(ARENA_CHANNELS)
+NUM_WORLD_CHANNELS = len(WORLD_ARENA_CHANNELS)
 EGO_HEAD_ROW = EGO_CROP_SIZE // 2
 EGO_HEAD_COL = EGO_CROP_SIZE // 2
 NORM_DIVISOR = 2048.0
@@ -42,10 +50,21 @@ CH_WALL = 10
 CH_ENEMY_LENGTH = 11
 CH_BOOST_FLAGS = 12
 
+WCH_BODY_TTL = 0
+WCH_HEAD_CURR = 1
+WCH_HEAD_DX = 2
+WCH_HEAD_DY = 3
+WCH_HEAD_LENGTH = 4
+WCH_BOOST_FLAGS = 5
+WCH_FOOD_AMBIENT = 6
+WCH_FOOD_CORPSE = 7
+WCH_WALL = 8
+
 _CARDINAL_NP = np.array([(0, -1), (1, 0), (0, 1), (-1, 0)], dtype=np.int64)
 _EGO_OFFSET_CACHE: dict[
     tuple[str, int | None, int], tuple[torch.Tensor, torch.Tensor, torch.Tensor]
 ] = {}
+_CARDINAL_I64_CACHE: dict[tuple[str, int | None], torch.Tensor] = {}
 _ARENA_BORDER_CACHE: dict[tuple[str, int | None, int, int], torch.Tensor] = {}
 
 
@@ -56,6 +75,18 @@ class ArenaEgoObs:
     arena: torch.Tensor
     ego: torch.Tensor
     scalars: torch.Tensor
+
+
+@dataclass(frozen=True)
+class SharedWorldObs:
+    """World-once `(E, 9, H, W)` arena planes + per-seat `(ego, scalars, head_xy, dir, alive)`."""
+
+    world_arena: torch.Tensor
+    ego: torch.Tensor
+    scalars: torch.Tensor
+    head_xy: torch.Tensor
+    direction: torch.Tensor
+    alive: torch.Tensor
 
 
 def _ego_tables(
@@ -685,3 +716,555 @@ def build_arena_ego_obs_cpu(
         ego.reshape(total, NUM_OBS_CHANNELS, crop, crop),
         scalars.reshape(total, SCALAR_DIM),
     )
+
+
+def _cardinal_i64(device: torch.device) -> torch.Tensor:
+    """Return cached `(4, 2)` int64 cardinal direction vectors on `device`."""
+    key = (device.type, device.index)
+    cached = _CARDINAL_I64_CACHE.get(key)
+    if cached is not None:
+        return cached
+    ten = torch.as_tensor(_CARDINAL_NP, dtype=torch.long, device=device)
+    _CARDINAL_I64_CACHE[key] = ten
+    return ten
+
+
+def build_shared_world_obs_from_tensors(
+    *,
+    ordered_bodies: torch.Tensor | None = None,
+    ring_bodies: torch.Tensor | None = None,
+    head_ptr: torch.Tensor | None = None,
+    seg_count: torch.Tensor,
+    length: torch.Tensor,
+    alive: torch.Tensor,
+    direction: torch.Tensor,
+    boosted: torch.Tensor,
+    prev_heads: torch.Tensor,
+    prev_alive: torch.Tensor,
+    food_cells: torch.Tensor,
+    food_present: torch.Tensor,
+    corpse_food: torch.Tensor,
+    min_boost_length: int = 5,
+    grid_h: int = ARENA_GRID_H,
+    grid_w: int = ARENA_GRID_W,
+    ego_crop_size: int = EGO_CROP_SIZE,
+    ring_chunk: int = 512,
+) -> SharedWorldObs:
+    """Build world-once `(E, 9, H, W)` + bit-identical per-seat `(ego, scalars)` on device.
+
+    Avoids ever allocating the `(E, S, 13, H * W)` float32 per-seat arena raster (`3.85 GB`
+    at `E=1024`), cutting peak observation VRAM and global-memory writes by ~8x while keeping
+    `ego` and `scalars` 100% bit-for-bit identical to ``build_arena_ego_obs_from_tensors``.
+
+    Args:
+        ordered_bodies: Optional ``(E, S, K, 2)`` segments ordered ``k = 0 .. K-1`` (head..tail).
+        ring_bodies: Optional ``(E, S, cap, 2)`` circular ring buffer.
+        head_ptr: Ring head pointer ``(E, S)``, required when ``ring_bodies`` is used.
+        seg_count: Active segment counts ``(E, S)``.
+        length: Snake lengths ``(E, S)``.
+        alive: Alive flags ``(E, S)``.
+        direction: Heading indices ``(E, S)`` in ``0..3``.
+        boosted: Boosted-on-last-step flags ``(E, S)``.
+        prev_heads: Previous decision head cells ``(E, S, 2)``.
+        prev_alive: Previous decision survival flags ``(E, S)``.
+        food_cells: Food cell coordinates ``(E, F, 2)``.
+        food_present: Live food mask ``(E, F)``.
+        corpse_food: Corpse food class mask ``(E, F)``.
+        min_boost_length: Minimum snake length required for legal boost (`5` in v2).
+        grid_h: Arena height in cells (`83`).
+        grid_w: Arena width in cells (`145`).
+        ego_crop_size: Odd heading-aligned ego crop side length (`47`).
+        ring_chunk: Segment chunk width to bound peak temporary memory at large ``E``.
+
+    Returns:
+        ``SharedWorldObs`` on ``alive.device``.
+    """
+    device = alive.device
+    num_envs, num_snakes = int(alive.shape[0]), int(alive.shape[1])
+    gh, gw = int(grid_h), int(grid_w)
+    crop = int(ego_crop_size)
+    crop_n = crop * crop
+    head_rc = crop // 2
+    board_n = gh * gw
+    dcol_table, drow_table, cardinal_f32 = _ego_tables(device, ego_crop_size=crop)
+    cardinal_i64 = _cardinal_i64(device)
+
+    per_snake_ttl = torch.zeros((num_envs, num_snakes, board_n), dtype=torch.int32, device=device)
+    seg_i32 = seg_count.to(torch.int32)
+    len_i32 = length.to(torch.int32)
+
+    if ordered_bodies is not None:
+        max_k = int(ordered_bodies.shape[2])
+        for k_start in range(0, max_k, max(1, int(ring_chunk))):
+            k_end = min(max_k, k_start + max(1, int(ring_chunk)))
+            k_vec = torch.arange(k_start, k_end, dtype=torch.int32, device=device)[None, None, :]
+            cells = ordered_bodies[:, :, k_start:k_end, :]
+            cx = cells[..., 0].to(torch.long)
+            cy = cells[..., 1].to(torch.long)
+            valid = (
+                alive[..., None]
+                & (k_vec < seg_i32[..., None])
+                & (cx >= 0)
+                & (cx < gw)
+                & (cy >= 0)
+                & (cy < gh)
+            )
+            ttl = (len_i32[..., None] - k_vec).clamp_min(0)
+            flat_idx = cy.clamp(0, gh - 1) * gw + cx.clamp(0, gw - 1)
+            per_snake_ttl.scatter_reduce_(
+                2,
+                flat_idx,
+                torch.where(valid, ttl, torch.zeros_like(ttl)),
+                reduce="amax",
+                include_self=True,
+            )
+        curr_heads = ordered_bodies[:, :, 0, :].to(torch.long)
+    else:
+        if ring_bodies is None or head_ptr is None:
+            raise ValueError("Either ordered_bodies or (ring_bodies, head_ptr) must be provided")
+        cap = int(ring_bodies.shape[2])
+        env_grid = torch.arange(num_envs, device=device)[:, None, None]
+        snake_grid = torch.arange(num_snakes, device=device)[None, :, None]
+        hp_long = head_ptr.to(torch.long)
+        for k_start in range(0, cap, max(1, int(ring_chunk))):
+            k_end = min(cap, k_start + max(1, int(ring_chunk)))
+            k_long = torch.arange(k_start, k_end, dtype=torch.long, device=device)[None, None, :]
+            k_i32 = k_long.to(torch.int32)
+            ring = (hp_long[..., None] - k_long) % cap
+            cells = ring_bodies[env_grid, snake_grid, ring]
+            cx = cells[..., 0]
+            cy = cells[..., 1]
+            valid = (
+                alive[..., None]
+                & (k_i32 < seg_i32[..., None])
+                & (cx >= 0)
+                & (cx < gw)
+                & (cy >= 0)
+                & (cy < gh)
+            )
+            ttl = (len_i32[..., None] - k_i32).clamp_min(0)
+            flat_idx = cy.clamp(0, gh - 1) * gw + cx.clamp(0, gw - 1)
+            per_snake_ttl.scatter_reduce_(
+                2,
+                flat_idx,
+                torch.where(valid, ttl, torch.zeros_like(ttl)),
+                reduce="amax",
+                include_self=True,
+            )
+        env_2d = torch.arange(num_envs, device=device)[:, None]
+        snake_2d = torch.arange(num_snakes, device=device)[None, :]
+        curr_heads = ring_bodies[env_2d, snake_2d, hp_long]
+
+    # 1. Shared world planes `(E, 9, H * W)` (once per world, no per-seat "own" channels)
+    world_flat = torch.zeros(
+        (num_envs, NUM_WORLD_CHANNELS, board_n), dtype=torch.float32, device=device
+    )
+    if num_snakes > 0:
+        world_flat[:, WCH_BODY_TTL, :] = (
+            per_snake_ttl.amax(dim=1).to(torch.float32) * INV_NORM_DIVISOR
+        )
+
+    fx = food_cells[..., 0].to(torch.long)
+    fy = food_cells[..., 1].to(torch.long)
+    food_inb = food_present & (fx >= 0) & (fx < gw) & (fy >= 0) & (fy < gh)
+    food_idx = fy.clamp(0, gh - 1) * gw + fx.clamp(0, gw - 1)
+    ones_food = torch.ones_like(fx, dtype=torch.int32)
+    zeros_food = torch.zeros_like(fx, dtype=torch.int32)
+
+    amb_plane_i32 = torch.zeros((num_envs, board_n), dtype=torch.int32, device=device)
+    amb_plane_i32.scatter_reduce_(
+        1,
+        food_idx,
+        torch.where(food_inb & (~corpse_food), ones_food, zeros_food),
+        reduce="amax",
+        include_self=True,
+    )
+    corpse_plane_i32 = torch.zeros((num_envs, board_n), dtype=torch.int32, device=device)
+    corpse_plane_i32.scatter_reduce_(
+        1,
+        food_idx,
+        torch.where(food_inb & corpse_food, ones_food, zeros_food),
+        reduce="amax",
+        include_self=True,
+    )
+    amb_plane_f32 = amb_plane_i32.to(torch.float32)
+    corpse_plane_f32 = corpse_plane_i32.to(torch.float32)
+    world_flat[:, WCH_FOOD_AMBIENT, :] = amb_plane_f32
+    world_flat[:, WCH_FOOD_CORPSE, :] = corpse_plane_f32
+    world_flat[:, WCH_WALL, :] = _arena_wall_border(gh, gw, device)[None, :]
+
+    env_idx = torch.arange(num_envs, device=device)
+    dir_clamped = direction.to(torch.long).clamp(0, 3)
+    head_dirs_f32 = cardinal_f32[dir_clamped]
+    head_dirs_i64 = cardinal_i64[dir_clamped]
+    len_norm_f32 = length.to(torch.float32) * INV_NORM_DIVISOR
+    one_vec = torch.ones((num_envs,), dtype=torch.float32, device=device)
+
+    for j_slot in range(num_snakes):
+        hx = curr_heads[:, j_slot, 0]
+        hy = curr_heads[:, j_slot, 1]
+        inb_c = (
+            alive[:, j_slot]
+            & (seg_count[:, j_slot] > 0)
+            & (hx >= 0)
+            & (hx < gw)
+            & (hy >= 0)
+            & (hy < gh)
+        )
+        flat_c = hy.clamp(0, gh - 1) * gw + hx.clamp(0, gw - 1)
+        inb_boost = inb_c & prev_alive[:, j_slot] & boosted[:, j_slot]
+
+        world_flat[env_idx, WCH_HEAD_CURR, flat_c] = torch.where(
+            inb_c, one_vec, world_flat[env_idx, WCH_HEAD_CURR, flat_c]
+        )
+        world_flat[env_idx, WCH_HEAD_DX, flat_c] = torch.where(
+            inb_c, head_dirs_f32[:, j_slot, 0], world_flat[env_idx, WCH_HEAD_DX, flat_c]
+        )
+        world_flat[env_idx, WCH_HEAD_DY, flat_c] = torch.where(
+            inb_c, head_dirs_f32[:, j_slot, 1], world_flat[env_idx, WCH_HEAD_DY, flat_c]
+        )
+        world_flat[env_idx, WCH_HEAD_LENGTH, flat_c] = torch.where(
+            inb_c, len_norm_f32[:, j_slot], world_flat[env_idx, WCH_HEAD_LENGTH, flat_c]
+        )
+        world_flat[env_idx, WCH_BOOST_FLAGS, flat_c] = torch.where(
+            inb_boost, one_vec, world_flat[env_idx, WCH_BOOST_FLAGS, flat_c]
+        )
+
+    # 2. Direct per-seat heading-aligned ego crop `(E, S, 13, crop*crop)` (no 3.85 GB intermediate)
+    enemy_ttl = _prefix_suffix_enemy_max_i32(per_snake_ttl)
+    wx = curr_heads[..., 0:1] + dcol_table[dir_clamped]
+    wy = curr_heads[..., 1:2] + drow_table[dir_clamped]
+    ego_inb = (wx >= 0) & (wx < gw) & (wy >= 0) & (wy < gh)
+    ego_idx = wy.clamp(0, gh - 1) * gw + wx.clamp(0, gw - 1)
+
+    ego_es = torch.zeros(
+        (num_envs, num_snakes, NUM_OBS_CHANNELS, crop_n), dtype=torch.float32, device=device
+    )
+    own_ttl_crop = per_snake_ttl.gather(2, ego_idx).to(torch.float32) * INV_NORM_DIVISOR
+    own_ttl_crop.masked_fill_(~ego_inb, 0.0)
+    ego_es[:, :, CH_OWN_TTL, :] = own_ttl_crop
+
+    enemy_ttl_crop = enemy_ttl.gather(2, ego_idx).to(torch.float32) * INV_NORM_DIVISOR
+    enemy_ttl_crop.masked_fill_(~ego_inb, 0.0)
+    ego_es[:, :, CH_ENEMY_TTL, :] = enemy_ttl_crop
+
+    ego_idx_world = ego_idx.reshape(num_envs, num_snakes * crop_n)
+    amb_crop = amb_plane_f32.gather(1, ego_idx_world).reshape(num_envs, num_snakes, crop_n)
+    amb_crop.masked_fill_(~ego_inb, 0.0)
+    ego_es[:, :, CH_FOOD_AMBIENT, :] = amb_crop
+
+    corpse_crop = corpse_plane_f32.gather(1, ego_idx_world).reshape(num_envs, num_snakes, crop_n)
+    corpse_crop.masked_fill_(~ego_inb, 0.0)
+    ego_es[:, :, CH_FOOD_CORPSE, :] = corpse_crop
+
+    ego_es[:, :, CH_WALL, :] = (alive[:, :, None] & (~ego_inb)).to(torch.float32)
+
+    obs_hx = curr_heads[:, :, 0]
+    obs_hy = curr_heads[:, :, 1]
+    obs_fx = head_dirs_i64[:, :, 0]
+    obs_fy = head_dirs_i64[:, :, 1]
+
+    for j_slot in range(num_snakes):
+        hx = curr_heads[:, j_slot, 0]
+        hy = curr_heads[:, j_slot, 1]
+        inb_c = (
+            alive[:, j_slot]
+            & (seg_count[:, j_slot] > 0)
+            & (hx >= 0)
+            & (hx < gw)
+            & (hy >= 0)
+            & (hy < gh)
+        )
+        inb_boost = inb_c & prev_alive[:, j_slot] & boosted[:, j_slot]
+
+        px = prev_heads[:, j_slot, 0].to(torch.long)
+        py = prev_heads[:, j_slot, 1].to(torch.long)
+        inb_p = (
+            alive[:, j_slot] & prev_alive[:, j_slot] & (px >= 0) & (px < gw) & (py >= 0) & (py < gh)
+        )
+
+        for s_slot in range(num_snakes):
+            dx_c = hx - obs_hx[:, s_slot]
+            dy_c = hy - obs_hy[:, s_slot]
+            fx_s = obs_fx[:, s_slot]
+            fy_s = obs_fy[:, s_slot]
+            r_c = head_rc - (dx_c * fx_s + dy_c * fy_s)
+            c_c = head_rc + (-dx_c * fy_s + dy_c * fx_s)
+            hit_c = alive[:, s_slot] & inb_c & (r_c >= 0) & (r_c < crop) & (c_c >= 0) & (c_c < crop)
+            flat_rc_c = r_c.clamp(0, crop - 1) * crop + c_c.clamp(0, crop - 1)
+
+            hit_boost = hit_c & inb_boost
+            ego_es[env_idx, s_slot, CH_BOOST_FLAGS, flat_rc_c] = torch.where(
+                hit_boost, one_vec, ego_es[env_idx, s_slot, CH_BOOST_FLAGS, flat_rc_c]
+            )
+
+            dx_p = px - obs_hx[:, s_slot]
+            dy_p = py - obs_hy[:, s_slot]
+            r_p = head_rc - (dx_p * fx_s + dy_p * fy_s)
+            c_p = head_rc + (-dx_p * fy_s + dy_p * fx_s)
+            hit_p = alive[:, s_slot] & inb_p & (r_p >= 0) & (r_p < crop) & (c_p >= 0) & (c_p < crop)
+            flat_rc_p = r_p.clamp(0, crop - 1) * crop + c_p.clamp(0, crop - 1)
+
+            if s_slot == j_slot:
+                ego_es[env_idx, s_slot, CH_OWN_HEAD_CURR, flat_rc_c] = torch.where(
+                    hit_c, one_vec, ego_es[env_idx, s_slot, CH_OWN_HEAD_CURR, flat_rc_c]
+                )
+                ego_es[env_idx, s_slot, CH_OWN_HEAD_PREV, flat_rc_p] = torch.where(
+                    hit_p, one_vec, ego_es[env_idx, s_slot, CH_OWN_HEAD_PREV, flat_rc_p]
+                )
+            else:
+                ego_es[env_idx, s_slot, CH_ENEMY_HEAD_CURR, flat_rc_c] = torch.where(
+                    hit_c, one_vec, ego_es[env_idx, s_slot, CH_ENEMY_HEAD_CURR, flat_rc_c]
+                )
+                ego_es[env_idx, s_slot, CH_ENEMY_HEAD_PREV, flat_rc_p] = torch.where(
+                    hit_p, one_vec, ego_es[env_idx, s_slot, CH_ENEMY_HEAD_PREV, flat_rc_p]
+                )
+                ego_es[env_idx, s_slot, CH_ENEMY_HEAD_DX, flat_rc_c] = torch.where(
+                    hit_c,
+                    head_dirs_f32[:, j_slot, 0],
+                    ego_es[env_idx, s_slot, CH_ENEMY_HEAD_DX, flat_rc_c],
+                )
+                ego_es[env_idx, s_slot, CH_ENEMY_HEAD_DY, flat_rc_c] = torch.where(
+                    hit_c,
+                    head_dirs_f32[:, j_slot, 1],
+                    ego_es[env_idx, s_slot, CH_ENEMY_HEAD_DY, flat_rc_c],
+                )
+                ego_es[env_idx, s_slot, CH_ENEMY_LENGTH, flat_rc_c] = torch.where(
+                    hit_c,
+                    len_norm_f32[:, j_slot],
+                    ego_es[env_idx, s_slot, CH_ENEMY_LENGTH, flat_rc_c],
+                )
+
+    total_rows = num_envs * num_snakes
+    alive_rows = alive.reshape(total_rows)
+    dirs_rows = dir_clamped.reshape(total_rows)
+    length_rows = length.reshape(total_rows)
+
+    ego_flat = ego_es.reshape(total_rows, NUM_OBS_CHANNELS, crop_n)
+    fwd = cardinal_f32[dirs_rows]
+    fx_ego = fwd[:, 0:1]
+    fy_ego = fwd[:, 1:2]
+    raw_dx = ego_flat[:, CH_ENEMY_HEAD_DX, :]
+    raw_dy = ego_flat[:, CH_ENEMY_HEAD_DY, :]
+    ego_dx = -raw_dx * fy_ego + raw_dy * fx_ego
+    ego_dy = -(raw_dx * fx_ego + raw_dy * fy_ego)
+    ego_flat[:, CH_ENEMY_HEAD_DX, :] = ego_dx + 0.0
+    ego_flat[:, CH_ENEMY_HEAD_DY, :] = ego_dy + 0.0
+    ego_flat.masked_fill_(~alive_rows[:, None, None], 0.0)
+
+    len_scalar = (length_rows.to(torch.float32) * INV_NORM_DIVISOR).unsqueeze(1)
+    boost_avail = (
+        (alive_rows & (length_rows >= int(min_boost_length))).to(torch.float32).unsqueeze(1)
+    )
+    heading_oh = F.one_hot(dirs_rows, num_classes=4).to(torch.float32)
+    scalars = torch.cat((len_scalar, boost_avail, heading_oh), dim=1)
+    scalars.masked_fill_(~alive_rows[:, None], 0.0)
+
+    head_xy_out = curr_heads.clone()
+    head_xy_out.masked_fill_(~alive[..., None], 0)
+    dir_out = dir_clamped.clone()
+    dir_out.masked_fill_(~alive, 0)
+
+    return SharedWorldObs(
+        world_arena=world_flat.reshape(num_envs, NUM_WORLD_CHANNELS, gh, gw),
+        ego=ego_flat.reshape(total_rows, NUM_OBS_CHANNELS, crop, crop),
+        scalars=scalars,
+        head_xy=head_xy_out,
+        direction=dir_out,
+        alive=alive.to(torch.bool),
+    )
+
+
+def build_shared_world_obs_gpu(
+    train_sim: TrainSim,
+    *,
+    env_slice: slice | None = None,
+    ego_crop_size: int = EGO_CROP_SIZE,
+    ring_chunk: int = 512,
+) -> SharedWorldObs:
+    """Build ``SharedWorldObs`` directly from a prepared ``TrainSim`` on device."""
+    sim = train_sim.sim
+    sl = slice(None) if env_slice is None else env_slice
+    return build_shared_world_obs_from_tensors(
+        ring_bodies=sim.bodies[sl],
+        head_ptr=sim.head_ptr[sl],
+        seg_count=sim.seg_count[sl],
+        length=sim.length[sl],
+        alive=sim.alive[sl],
+        direction=sim.direction[sl],
+        boosted=sim._boosted_this_step[sl],
+        prev_heads=train_sim.prev_heads[sl],
+        prev_alive=train_sim.prev_alive[sl],
+        food_cells=sim.food_cells[sl],
+        food_present=sim.food_present[sl],
+        corpse_food=sim.corpse_food[sl],
+        min_boost_length=train_sim.min_boost_length,
+        grid_h=train_sim.grid_h,
+        grid_w=train_sim.grid_w,
+        ego_crop_size=ego_crop_size,
+        ring_chunk=ring_chunk,
+    )
+
+
+def build_shared_world_obs_cpu(
+    ref_sim: Any,
+    prev_heads: np.ndarray,
+    prev_alive: np.ndarray,
+    *,
+    ego_crop_size: int = EGO_CROP_SIZE,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Build independent NumPy CPU reference for ``SharedWorldObs``.
+
+    Returns:
+        Tuple ``(world_arena, ego, scalars, head_xy, direction, alive)`` with shapes
+        ``(E, 9, H, W)``, ``(E * S, 13, crop, crop)``, ``(E * S, 6)``, ``(E, S, 2)``,
+        ``(E, S)``, and ``(E, S)``.
+    """
+    _, ego_cpu, scalars_cpu = build_arena_ego_obs_cpu(
+        ref_sim, prev_heads, prev_alive, ego_crop_size=ego_crop_size
+    )
+
+    bodies = np.asarray(
+        (
+            ref_sim.bodies.detach().cpu().numpy()
+            if isinstance(ref_sim.bodies, torch.Tensor)
+            else ref_sim.bodies
+        ),
+        dtype=np.int64,
+    )
+    head_ptr = np.asarray(
+        (
+            ref_sim.head_ptr.detach().cpu().numpy()
+            if isinstance(ref_sim.head_ptr, torch.Tensor)
+            else ref_sim.head_ptr
+        ),
+        dtype=np.int64,
+    )
+    seg_count = np.asarray(
+        (
+            ref_sim.seg_count.detach().cpu().numpy()
+            if isinstance(ref_sim.seg_count, torch.Tensor)
+            else ref_sim.seg_count
+        ),
+        dtype=np.int64,
+    )
+    length = np.asarray(
+        (
+            ref_sim.length.detach().cpu().numpy()
+            if isinstance(ref_sim.length, torch.Tensor)
+            else ref_sim.length
+        ),
+        dtype=np.int64,
+    )
+    alive = np.asarray(
+        (
+            ref_sim.alive.detach().cpu().numpy()
+            if isinstance(ref_sim.alive, torch.Tensor)
+            else ref_sim.alive
+        ),
+        dtype=bool,
+    )
+    direction = np.asarray(
+        (
+            ref_sim.direction.detach().cpu().numpy()
+            if isinstance(ref_sim.direction, torch.Tensor)
+            else ref_sim.direction
+        ),
+        dtype=np.int64,
+    )
+    boosted = np.asarray(
+        (
+            ref_sim._boosted_this_step.detach().cpu().numpy()
+            if isinstance(ref_sim._boosted_this_step, torch.Tensor)
+            else ref_sim._boosted_this_step
+        ),
+        dtype=bool,
+    )
+    prev_alive_np = np.asarray(prev_alive, dtype=bool)
+
+    num_envs, num_snakes, cap, _ = bodies.shape
+    grid_h = int(ref_sim.grid_h)
+    grid_w = int(ref_sim.grid_w)
+
+    world_arena = np.zeros((num_envs, NUM_WORLD_CHANNELS, grid_h, grid_w), dtype=np.float32)
+    head_xy = np.zeros((num_envs, num_snakes, 2), dtype=np.int64)
+    dir_out = np.zeros((num_envs, num_snakes), dtype=np.int64)
+
+    wall_plane = np.zeros((grid_h, grid_w), dtype=np.float32)
+    wall_plane[0, :] = 1.0
+    wall_plane[-1, :] = 1.0
+    wall_plane[:, 0] = 1.0
+    wall_plane[:, -1] = 1.0
+
+    has_device_food = isinstance(getattr(ref_sim, "food_present", None), torch.Tensor)
+    if has_device_food:
+        dev_food_cells = ref_sim.food_cells.detach().cpu().numpy()
+        dev_food_present = ref_sim.food_present.detach().cpu().numpy()
+        dev_corpse_food = ref_sim.corpse_food.detach().cpu().numpy()
+
+    for env in range(num_envs):
+        all_ttl = np.zeros((grid_h, grid_w), dtype=np.int32)
+        for j_slot in range(num_snakes):
+            if not alive[env, j_slot]:
+                continue
+            hp = int(head_ptr[env, j_slot])
+            hx, hy = int(bodies[env, j_slot, hp, 0]), int(bodies[env, j_slot, hp, 1])
+            d_j = int(direction[env, j_slot]) & 3
+            head_xy[env, j_slot, 0] = hx
+            head_xy[env, j_slot, 1] = hy
+            dir_out[env, j_slot] = d_j
+
+            n_seg = int(seg_count[env, j_slot])
+            if n_seg > 0:
+                s_len = int(length[env, j_slot])
+                k_arr = np.arange(n_seg, dtype=np.int64)
+                rings = (hp - k_arr) % cap
+                pts = bodies[env, j_slot, rings]
+                cx_arr, cy_arr = pts[:, 0], pts[:, 1]
+                inb_seg = (cx_arr >= 0) & (cx_arr < grid_w) & (cy_arr >= 0) & (cy_arr < grid_h)
+                if np.any(inb_seg):
+                    ttl_vals = np.maximum(s_len - k_arr[inb_seg], 0).astype(np.int32)
+                    np.maximum.at(all_ttl, (cy_arr[inb_seg], cx_arr[inb_seg]), ttl_vals)
+
+            inb_c = n_seg > 0 and 0 <= hx < grid_w and 0 <= hy < grid_h
+            if inb_c:
+                dx_j, dy_j = _CARDINAL_NP[d_j]
+                world_arena[env, WCH_HEAD_CURR, hy, hx] = np.float32(1.0)
+                world_arena[env, WCH_HEAD_DX, hy, hx] = np.float32(dx_j)
+                world_arena[env, WCH_HEAD_DY, hy, hx] = np.float32(dy_j)
+                world_arena[env, WCH_HEAD_LENGTH, hy, hx] = np.float32(
+                    length[env, j_slot]
+                ) * np.float32(INV_NORM_DIVISOR)
+                if prev_alive_np[env, j_slot] and boosted[env, j_slot]:
+                    world_arena[env, WCH_BOOST_FLAGS, hy, hx] = np.float32(1.0)
+
+        world_arena[env, WCH_BODY_TTL] = all_ttl.astype(np.float32) * np.float32(INV_NORM_DIVISOR)
+
+        amb_plane = np.zeros((grid_h, grid_w), dtype=np.float32)
+        corpse_plane = np.zeros((grid_h, grid_w), dtype=np.float32)
+        if has_device_food:
+            f_pres = dev_food_present[env]
+            if np.any(f_pres):
+                f_pts = dev_food_cells[env, f_pres]
+                f_corpse = dev_corpse_food[env, f_pres]
+                fx_arr, fy_arr = f_pts[:, 0], f_pts[:, 1]
+                f_inb = (fx_arr >= 0) & (fx_arr < grid_w) & (fy_arr >= 0) & (fy_arr < grid_h)
+                amb_sel = f_inb & (~f_corpse)
+                cor_sel = f_inb & f_corpse
+                amb_plane[fy_arr[amb_sel], fx_arr[amb_sel]] = 1.0
+                corpse_plane[fy_arr[cor_sel], fx_arr[cor_sel]] = 1.0
+        else:
+            corpse_set = ref_sim.corpse_cells[env]
+            for cell in ref_sim.food_cells[env]:
+                fx, fy = int(cell[0]), int(cell[1])
+                if 0 <= fx < grid_w and 0 <= fy < grid_h:
+                    if (fx, fy) in corpse_set:
+                        corpse_plane[fy, fx] = 1.0
+                    else:
+                        amb_plane[fy, fx] = 1.0
+
+        world_arena[env, WCH_FOOD_AMBIENT] = amb_plane
+        world_arena[env, WCH_FOOD_CORPSE] = corpse_plane
+        world_arena[env, WCH_WALL] = wall_plane
+
+    return world_arena, ego_cpu, scalars_cpu, head_xy, dir_out, alive.copy()

@@ -23,22 +23,39 @@ tick.
   `snapshot`, `scripted` `greedy_food`). Note on host syncs: `obs.py`, `net.py`, and
   `symlog_two_hot_loss` perform zero host syncs; the pinned `DeviceSim.step` itself
   performs scalar event syncs (`bool(...any())` / `_append_many`).
-- `obs.py`: Zero-sync GPU/MPS observation builder (`13 x grid_h x grid_w` allocentric
-  arena with 1-cell lethal perimeter border on `CH_WALL`, `13 x ego_crop x ego_crop`
-  heading-aligned ego crop with out-of-arena `CH_WALL`, `prev_alive`-gated boost flags,
-  `6` scalars, in-place dead-seat masking) and pure-NumPy CPU reference builder proven
-  bit-identical across `>= 64` worlds x `200` ticks.
-- `net.py`: Dual-stream `ArenaNet` presets `S` (`1,027,080` params) and `M`
-  (`5,017,480` params) with adaptive `ceil(grid_h / 8) x ceil(grid_w / 8)` (`11 x 19 = 209`
-  default) arena self-attention tokens, ego ResNet, masked 6-action policy head,
-  zero-sync symlog two-hot value head (`255` bins), and death-within-`{16, 64, 256}`
-  auxiliary heads (`channels_last`, cached CUDA `bf16` autocast with `fp16` fallback,
-  optional `torch.compile`).
+- `obs.py`: Zero-sync GPU/MPS observation builders and pure-NumPy CPU reference builders
+  proven bit-identical across `>= 64` worlds x `200` ticks:
+  - `build_shared_world_obs_gpu` / `build_shared_world_obs_cpu` (`shared_trunk` &
+    `ego_only`): world-once `9 x grid_h x grid_w` allocentric planes (`body_ttl`,
+    `head_curr`, `head_dx`, `head_dy`, `head_length`, `boost_flags`, `food_ambient`,
+    `food_corpse`, `wall`) + direct zero-sync per-seat `13 x ego_crop x ego_crop`
+    heading-aligned ego crop + `6` scalars (no `(E*S, 13, H, W)` intermediate).
+  - `build_arena_ego_obs_gpu` / `build_arena_ego_obs_cpu` (`per_seat` reference):
+    per-seat `13 x grid_h x grid_w` allocentric arena + `13 x ego_crop x ego_crop` ego
+    crop + `6` scalars, with `prev_alive`-gated boost flags and dead-seat masking.
+- `net.py`: Three selectable architectures (`--net-arch {shared_trunk,ego_only,per_seat}`),
+  each with `S` and `M` presets, adaptive `ceil(grid_h / 8) x ceil(grid_w / 8)` (`11 x 19`
+  default) token grids, masked 6-action policy head, zero-sync symlog two-hot value head
+  (`255` bins), death-within-`{16, 64, 256}` auxiliary heads, cached CUDA `bf16` autocast
+  (`fp16` fallback), optional `torch.compile`, and `measure_model_flops_per_row`
+  (`torch.utils.flop_counter.FlopCounterMode`):
+  - `shared_trunk` (default): ONE allocentric pass per world per tick (`4x4 stride-4`
+    patchify stem -> `21 x 37` ResBlocks -> `stride-2` `11 x 19` + `2` self-attention
+    layers) fused per seat with early-stride-2 `47 x 47` ego crop, `5 x 5`
+    heading-rotated ROI gather from the `21 x 37` shared map, `1` cross-attention read
+    from the seat query into the shared `11 x 19` tokens, and `6` scalars.
+  - `ego_only`: cheapest reference — early-stride-2 `47 x 47` ego crop + `6` scalars +
+    world-once `11 x 19` average-pooled `2`-conv coarse world summary.
+  - `per_seat`: original per-seat dual-stream `ArenaNet`, unchanged bit-for-bit.
 
-| Preset | Params | Arena channels (`stem / s1 / s2`, blocks/stage) | Token self-attn (`layers, heads, MLP`) | Ego channels (`stem / s1 / s2`, blocks) | Fuse dim | Default `actor_chunk_envs` / `minibatch_size` |
-|---|---:|---|---|---|---|---|
-| `S` | `1,027,080` | `32 / 64 / 96`, `1` block | `2` layers, `4` heads, `4x` MLP | `32 / 64 / 96`, `(1, 2)` blocks | `192` | `1024` / `1536` (`3072` larger ruler probe) |
-| `M` | `5,017,480` | `64 / 128 / 192`, `2` blocks | `2` layers, `6` heads, `4x` MLP | `64 / 128 / 192`, `(2, 2)` blocks | `320` | `512` / `768` (`1536` larger ruler probe) |
+| Architecture | Size | Params | Fwd FLOPs/row | Learner FLOPs/row | Default `actor_chunk_envs` / `minibatch_size` |
+|---|---|---:|---:|---:|---|
+| `shared_trunk` | `S` | `1,072,888` | `70.09M` | `206.61M` | `2048` / `3072` (`6144` larger ruler probe) |
+| `shared_trunk` | `M` | `4,593,584` | `282.41M` | `841.00M` | `1024` / `1536` (`3072` larger ruler probe) |
+| `ego_only` | `S` | `250,344` | `10.59M` | `29.43M` | `2048` / `3072` (`6144` larger ruler probe) |
+| `ego_only` | `M` | `1,382,160` | `47.06M` | `137.57M` | `1024` / `1536` (`3072` larger ruler probe) |
+| `per_seat` | `S` | `1,027,080` | `308.53M` | `898.32M` | `512` / `768` (`1536` larger ruler probe) |
+| `per_seat` | `M` | `5,017,480` | `1,999.46M` | `5,943.83M` | `512` / `768` (`1536` larger ruler probe) |
 
 - `ppo.py`: `ArenaPPOConfig` (JSON-serializable), `CompactRolloutBuffer` (lossless
   append-only `int16` body tape), clipped PPO learner with GAE (`gamma=0.999`,
@@ -54,20 +71,24 @@ tick.
   `2400s` (`40` min) so hard runtime kills lose `<= 45` min with zero unlinks under
   `output/`), and config-checked resume (allowing speed/operational overrides:
   `actor_chunk_envs`, `ring_chunk`, `compile_model`).
-- `ruler.py`: Signal-safe throughput & VRAM ruler with `>= 200`-tick untimed
-  `greedy_food` burn-in, zero-sync `nanquantile` world maturity telemetry, 6-stage split
-  + `untracked_seconds`, per-stage peak VRAM + projected `train` (`T=256`) rollout-buffer
-  and peak VRAM bytes, OOM halving retries, dual minibatch probes, `10` warmup / `40`
-  bench single-world forward iterations, cheapest-first ordering across
-  `E in {1024, 2048, 4096, 8192} x {S, M}` plus `--compile` (`>= 180s` compile budget
-  projection), incremental `cells/<cell_id>.json` exports, and `run_canary_suite`
-  (zero-update verification of staged resume checkpoints + tiny 2-update train).
+- `ruler.py`: Signal-safe throughput & VRAM ruler across
+  `--net-arch in {ego_only, shared_trunk, per_seat} x {S, M} x E in {1024, 2048, 4096, 8192}`
+  (cheapest cells first), `1`-PPO-epoch learner-share probe cell (`_ep1`), learner
+  settings report (`ppo_epochs`, `minibatch_size`, `world_ticks_per_minibatch`),
+  `>= 200`-tick untimed `greedy_food` burn-in, zero-sync `nanquantile` world maturity
+  telemetry, 6-stage split + `untracked_seconds`, per-stage peak VRAM + projected `train`
+  (`T=256`) rollout-buffer and peak VRAM bytes, OOM halving retries, dual minibatch
+  probes, single-world (`batch=6`) latency + exact ATen FLOPs/row, `--compile` (`>= 180s`
+  compile budget projection), incremental `cells/<cell_id>.json` exports, and
+  `run_canary_suite` (zero-update verification of staged resume checkpoints + tiny
+  2-update `shared_trunk` train).
 - `prepare.py` / `job.sh` / `requirements.txt`: Three-mode Colab CLI packet builder
-  supporting `L4`, `A100`, and `H100` (`T4` excluded).
+  supporting `L4`, `A100`, and `H100` (`T4` excluded; exports
+  `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`).
 
 ## Packet Preparation & Continuation Commands
 
-### 1. Fresh `L4` Canary + 6-Hour `L4` Train
+### 1. Fresh `L4` Canary, Multi-Arch `L4` Ruler, and 6-Hour `L4` Train
 
 ```bash
 # Step 1: Prepare L4 family canary (<= 12 min)
@@ -75,13 +96,26 @@ nice -n 15 env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
   NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 OMP_THREAD_LIMIT=1 \
   TORCHINDUCTOR_COMPILE_THREADS=1 \
   /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m research.arena_ppo.prepare \
-  --packet ../snake-dqn-artifacts/big-lever/exp/argon-20261026/pkt-arena-ppo-canary-l4-attempt-01 \
+  --packet ../snake-dqn-artifacts/big-lever/exp/argon-20261026/pkt-arena-ppo-canary-l4-attempt-04 \
   --commit <merged_commit_sha> \
   --mode canary \
   --gpu L4 \
-  --attempt attempt-01
+  --attempt attempt-04
 
-# Step 2: After canary receipt is verified on Mac, prepare 6-hour L4 train packet
+# Step 2: Prepare multi-arch L4 ruler (ego_only,shared_trunk,per_seat x {S,M} x E + 1-epoch probe)
+nice -n 15 env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
+  NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 OMP_THREAD_LIMIT=1 \
+  TORCHINDUCTOR_COMPILE_THREADS=1 \
+  /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m research.arena_ppo.prepare \
+  --packet ../snake-dqn-artifacts/big-lever/exp/argon-20261026/pkt-arena-ppo-ruler-l4-attempt-04 \
+  --commit <merged_commit_sha> \
+  --mode ruler \
+  --gpu L4 \
+  --net-arch ego_only,shared_trunk,per_seat \
+  --canary-receipt ../snake-dqn-artifacts/big-lever/exp/argon-20261026/arena-ppo-canary-l4-attempt-04/output/receipt.json \
+  --attempt attempt-04
+
+# Step 3: Prepare 6-hour L4 train packet (default --net-arch shared_trunk)
 nice -n 15 env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
   NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 OMP_THREAD_LIMIT=1 \
   TORCHINDUCTOR_COMPILE_THREADS=1 \
@@ -90,9 +124,12 @@ nice -n 15 env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
   --commit <merged_commit_sha> \
   --mode train \
   --gpu L4 \
+  --net-arch shared_trunk \
+  --net-size S \
+  --num-envs 2048 \
   --hours 6 \
   --expected-steps-per-sec <measured_ruler_steps_per_sec> \
-  --canary-receipt ../snake-dqn-artifacts/big-lever/exp/argon-20261026/arena-ppo-canary-l4-attempt-01/output/receipt.json \
+  --canary-receipt ../snake-dqn-artifacts/big-lever/exp/argon-20261026/arena-ppo-canary-l4-attempt-04/output/receipt.json \
   --attempt attempt-01
 ```
 

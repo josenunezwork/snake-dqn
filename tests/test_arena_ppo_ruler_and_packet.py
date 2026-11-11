@@ -298,7 +298,7 @@ def test_canary_suite_real_exports_no_stubs_and_custom_board_ruler(tmp_path: Pat
 
     for rel in CANARY_REQUIRED_EXPORTS:
         assert verify_completed_artifact(canary_dir / rel)
-    assert verify_completed_artifact(canary_dir / "cells" / "E4_S.json")
+    assert verify_completed_artifact(canary_dir / "cells" / "E4_shared_trunk_S.json")
     assert verify_completed_artifact(canary_dir / "checkpoints" / "ckpt_u0000001.pt")
 
     # Prove final.pt from canary_suite is a genuine loadable trainer checkpoint, not a stub
@@ -877,3 +877,111 @@ def test_minor3_minor5_minor10_r3_nanquantile_compile180s_and_mid_tick_ruler_sig
         assert verify_completed_artifact(mid_sig_dir / "cells" / "E2_S.json")
         assert not (mid_sig_dir / "cells" / "E4_S.json").exists()
         assert verify_completed_artifact(mid_sig_dir / "ruler_result.json")
+
+
+def test_multi_arch_ruler_grid_cheapest_first_one_epoch_cell_learner_report_and_prepare(
+    tmp_path: Path,
+) -> None:
+    """Verify --net-arch x size x E cheapest-first order, 1-epoch probe, FLOPs, MPS, and prepare."""
+    dev = "mps" if torch.backends.mps.is_available() else "cpu"
+    out_dir = tmp_path / "multi_arch_ruler"
+    res = run_ruler(
+        output_dir=out_dir,
+        device=dev,
+        envs_list=[4, 2],
+        net_sizes=["S"],
+        net_archs=["per_seat", "shared_trunk", "ego_only"],
+        burnin_ticks=4,
+        warmup_ticks=1,
+        collect_ticks=2,
+        rollout_len=4,
+        ppo_epochs=2,
+        include_one_epoch_cell=True,
+        minibatch_size=12,
+        actor_chunk_envs=2,
+        max_capacity=64,
+        include_best_compile=False,
+        measure_larger_minibatch=False,
+        seed=2026,
+    )
+
+    if torch.backends.mps.is_available():
+        canary_mps_out = tmp_path / "canary_mps_shared_trunk"
+        suite_mps = run_canary_suite(
+            output_dir=canary_mps_out,
+            device="mps",
+            num_envs=4,
+            rollout_len=4,
+            seed=2026,
+        )
+        assert suite_mps["train_result"]["updates_completed"] == 2
+        assert suite_mps["train_result"]["config"]["net_arch"] == "shared_trunk"
+
+    cell_ids = [c["cell_id"] for c in res["cells"]]
+    assert cell_ids == [
+        "E2_ego_only_S",
+        "E2_shared_trunk_S",
+        "E2_shared_trunk_S_ep1",
+        "E4_ego_only_S",
+        "E4_shared_trunk_S",
+        "E2_per_seat_S",
+        "E4_per_seat_S",
+    ]
+    assert res["include_one_epoch_cell"] is True
+    assert res["one_epoch_comparison"] is not None
+    assert res["one_epoch_comparison"]["base_cell_id"] == "E2_shared_trunk_S"
+    assert res["one_epoch_comparison"]["one_epoch_cell_id"] == "E2_shared_trunk_S_ep1"
+    assert res["one_epoch_comparison"]["base_ppo_epochs"] == 2
+
+    # Learner settings & FLOPs reported in top-level and per-cell artifacts
+    assert res["learner_settings"]["ppo_epochs"] == 2
+    assert "shared_trunk_S" in res["learner_settings"]["per_variant_defaults"]
+    for bkey in ("ego_only_S", "shared_trunk_S", "per_seat_S"):
+        assert res["batch6_forward"][bkey]["forward_flops_per_row"] > 0
+        assert res["batch6_forward"][bkey]["learner_flops_per_row"] > 0
+    for cell in res["cells"]:
+        assert cell["forward_flops_per_row"] > 0
+        assert cell["learner_flops_per_row"] > 0
+        assert cell["learner_settings"]["minibatch_size"] == 12
+        assert cell["learner_settings"]["world_ticks_per_minibatch"] == 2
+
+    # Verify job.sh and prepare.py set PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True + --net-arch
+    job_sh_text = (ROOT / "research" / "arena_ppo" / "job.sh").read_text(encoding="utf-8")
+    assert "expandable_segments:True" in job_sh_text
+
+    pkt_r = tmp_path / "pkt_ruler_arch"
+    info_r = prepare_arena_ppo_packet(
+        pkt_r,
+        commit="HEAD",
+        mode="ruler",
+        gpu="L4",
+        net_arch="ego_only,shared_trunk",
+        output_dir=tmp_path / "out_ruler_arch",
+        allow_unmerged_commit=True,
+    )
+    mf_r = json.loads(Path(info_r["manifest_path"]).read_text(encoding="utf-8"))
+    assert mf_r["env"]["PYTORCH_CUDA_ALLOC_CONF"] == "expandable_segments:True"
+    assert mf_r["env"]["ARENA_PPO_RULER_ARCHS"] == "ego_only,shared_trunk"
+
+    pkt_t = tmp_path / "pkt_train_arch"
+    info_t = prepare_arena_ppo_packet(
+        pkt_t,
+        commit="HEAD",
+        mode="train",
+        gpu="L4",
+        hours=6.0,
+        expected_steps_per_sec=20000.0,
+        net_arch="shared_trunk",
+        net_size="S",
+        num_envs=2048,
+        output_dir=tmp_path / "out_train_arch",
+        allow_unmerged_commit=True,
+    )
+    mf_t = json.loads(Path(info_t["manifest_path"]).read_text(encoding="utf-8"))
+    assert mf_t["env"]["PYTORCH_CUDA_ALLOC_CONF"] == "expandable_segments:True"
+    assert mf_t["env"]["ARENA_PPO_NET_ARCH"] == "shared_trunk"
+    cfg_t = json.loads(mf_t["env"]["ARENA_PPO_CONFIG_JSON"])
+    assert cfg_t["net_arch"] == "shared_trunk"
+    assert cfg_t["num_envs"] == 2048
+    assert cfg_t["actor_chunk_envs"] == 2048
+    assert cfg_t["minibatch_size"] == 3072

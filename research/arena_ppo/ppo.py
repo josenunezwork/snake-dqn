@@ -28,14 +28,23 @@ import torch.nn.functional as F
 
 from research.arena_ppo.net import (
     AUX_DEATH_HORIZONS,
+    VALID_NET_ARCHS,
     ArenaNet,
-    ArenaNetConfig,
+    ArenaPolicyModel,
+    NetArch,
     NetSize,
+    build_arena_model,
     default_actor_chunk_envs,
     default_minibatch_size,
     symlog_two_hot_loss,
 )
-from research.arena_ppo.obs import build_arena_ego_obs_from_tensors, build_arena_ego_obs_gpu
+from research.arena_ppo.obs import (
+    SharedWorldObs,
+    build_arena_ego_obs_from_tensors,
+    build_arena_ego_obs_gpu,
+    build_shared_world_obs_from_tensors,
+    build_shared_world_obs_gpu,
+)
 from research.arena_ppo.runtime import (
     RotatingCreateOnlyJSONLWriter,
     SignalStopFlag,
@@ -93,6 +102,7 @@ class StopRequestedError(RuntimeError):
 class ArenaPPOConfig:
     """Complete JSON-serializable hyperparameter configuration for Stage 1 Arena PPO."""
 
+    net_arch: NetArch = "shared_trunk"
     net_size: NetSize = "S"
     num_envs: int = 1024
     num_snakes: int = DEFAULT_NUM_SNAKES
@@ -137,10 +147,22 @@ class ArenaPPOConfig:
     late_reset_reservoir_size: int = 64
 
     def __post_init__(self) -> None:
+        if self.net_arch not in VALID_NET_ARCHS:
+            raise ValueError(
+                f"Unsupported net_arch {self.net_arch!r}; expected one of {VALID_NET_ARCHS}"
+            )
         if self.minibatch_size is None:
-            object.__setattr__(self, "minibatch_size", default_minibatch_size(self.net_size))
+            object.__setattr__(
+                self,
+                "minibatch_size",
+                default_minibatch_size(self.net_size, net_arch=self.net_arch),
+            )
         if self.actor_chunk_envs is None:
-            object.__setattr__(self, "actor_chunk_envs", default_actor_chunk_envs(self.net_size))
+            object.__setattr__(
+                self,
+                "actor_chunk_envs",
+                default_actor_chunk_envs(self.net_size, net_arch=self.net_arch),
+            )
         if int(self.keep_periodic_checkpoints) < 1:
             raise ValueError(
                 f"keep_periodic_checkpoints must be >= 1, got {self.keep_periodic_checkpoints}"
@@ -409,6 +431,68 @@ class CompactRolloutBuffer:
         )
         return obs.arena, obs.ego, obs.scalars, legal_mask
 
+    def reconstruct_shared_world_ticks(
+        self,
+        t_idx: torch.Tensor,
+        e_idx: torch.Tensor,
+        *,
+        ring_chunk: int = 512,
+    ) -> tuple[SharedWorldObs, torch.Tensor]:
+        """Reconstruct bit-identical ``(SharedWorldObs, legal_mask)`` for ``(t_idx, e_idx)`` pairs.
+
+        Args:
+            t_idx: 1D long tensor ``(M,)`` of rollout step indices in ``0 .. T - 1``.
+            e_idx: 1D long tensor ``(M,)`` of world indices in ``0 .. E - 1``.
+            ring_chunk: Segment chunk width.
+
+        Returns:
+            Tuple ``(shared_obs, legal_mask)`` over ``M`` world-ticks (`M * S` seats).
+        """
+        m_worlds = int(t_idx.shape[0])
+        head_pos = self.tape_head_idx[t_idx, e_idx].to(torch.long)
+        k_offsets = torch.arange(self.cap, dtype=torch.long, device=self.device)[None, None, :]
+        gather_pos = (head_pos[..., None] - k_offsets).clamp_min(0)
+        e_3d = e_idx[:, None, None]
+        s_3d = torch.arange(self.S, device=self.device)[None, :, None]
+        ordered_bodies = self.body_tape[e_3d, s_3d, gather_pos]
+
+        seg_sub = self.seg_count[t_idx, e_idx].to(torch.long)
+        len_sub = self.length[t_idx, e_idx].to(torch.long)
+        alive_sub = self.alive[t_idx, e_idx]
+        prev_alive_sub = self.prev_alive[t_idx, e_idx]
+        boosted_sub = self.boosted[t_idx, e_idx]
+        dir_sub = self.direction[t_idx, e_idx].to(torch.long)
+        prev_heads_sub = self.prev_heads[t_idx, e_idx].to(torch.long)
+
+        f_kind = self.food_kind[t_idx, e_idx]
+        f_xy = self.food_xy[t_idx, e_idx].to(torch.long)
+        f_pres = f_kind > 0
+        f_corpse = f_kind == 2
+
+        obs = build_shared_world_obs_from_tensors(
+            ordered_bodies=ordered_bodies,
+            seg_count=seg_sub,
+            length=len_sub,
+            alive=alive_sub,
+            direction=dir_sub,
+            boosted=boosted_sub,
+            prev_heads=prev_heads_sub,
+            prev_alive=prev_alive_sub,
+            food_cells=f_xy,
+            food_present=f_pres,
+            corpse_food=f_corpse,
+            min_boost_length=self.min_boost_length,
+            grid_h=self.grid_h,
+            grid_w=self.grid_w,
+            ring_chunk=ring_chunk,
+        )
+        normal = torch.ones((m_worlds, self.S, 3), dtype=torch.bool, device=self.device)
+        can_boost = alive_sub & (len_sub >= self.min_boost_length)
+        legal_mask = torch.cat((normal, can_boost[..., None].expand(-1, -1, 3)), dim=2).reshape(
+            m_worlds * self.S, 6
+        )
+        return obs, legal_mask
+
     def compute_gae_and_aux(
         self,
         *,
@@ -619,7 +703,10 @@ def estimate_checkpoint_bytes(cfg: ArenaPPOConfig) -> int:
     Returns:
         Worst-case single-checkpoint size in bytes.
     """
-    approx_params = 1_050_000 if cfg.net_size == "S" else 5_100_000
+    if cfg.net_arch == "ego_only":
+        approx_params = 300_000 if cfg.net_size == "S" else 1_400_000
+    else:
+        approx_params = 1_100_000 if cfg.net_size == "S" else 5_200_000
     model_and_opt_bytes = approx_params * 16
     sim_cfg = arena_v2_config(
         int(cfg.num_envs),
@@ -786,7 +873,7 @@ class ArenaPPOTrainer:
         *,
         device: str | torch.device = "cpu",
         train_sim: TrainSim | None = None,
-        snapshot_model: ArenaNet | None = None,
+        snapshot_model: ArenaPolicyModel | None = None,
     ) -> None:
         self.cfg = cfg
         self.device = normalize_device(device)
@@ -802,15 +889,16 @@ class ArenaPPOTrainer:
         self.perm_gen = torch.Generator(device="cpu")
         self.perm_gen.manual_seed((cfg.seed ^ 0x5050_4F5F_5045_524D) & 0x7FFF_FFFF_FFFF_FFFF)
 
-        net_cfg = ArenaNetConfig.from_size(
+        self.model: ArenaPolicyModel = build_arena_model(
+            cfg.net_arch,
             cfg.net_size,
             grid_h=cfg.grid_h,
             grid_w=cfg.grid_w,
             use_channels_last=cfg.use_channels_last,
             use_bf16_autocast=cfg.use_bf16_autocast,
-        )
-        self.model = ArenaNet(net_cfg, compile_model=cfg.compile_model).to(self.device)
-        self.snapshot_model: ArenaNet | None = (
+            compile_model=cfg.compile_model,
+        ).to(self.device)
+        self.snapshot_model: ArenaPolicyModel | None = (
             snapshot_model.to(self.device).eval() if snapshot_model is not None else None
         )
         self.optimizer = torch.optim.AdamW(
@@ -892,7 +980,7 @@ class ArenaPPOTrainer:
     @torch.no_grad()
     def _act_all_seats_chunked(
         self,
-        policy: ArenaNet,
+        policy: ArenaPolicyModel,
         legal_mask: torch.Tensor,
         *,
         greedy: bool = False,
@@ -900,11 +988,16 @@ class ArenaPPOTrainer:
         """Run observation build + policy `act` across `E` worlds in `actor_chunk_envs` slices."""
         e_total, s_total = self.sim.E, self.sim.S
         chunk = max(1, min(e_total, int(self.cfg.actor_chunk_envs)))
+        is_per_seat = isinstance(policy, ArenaNet)
         if chunk == e_total:
-            obs = build_arena_ego_obs_gpu(self.sim, ring_chunk=self.cfg.ring_chunk)
-            act_out = policy.act(
-                obs.arena, obs.ego, obs.scalars, legal_mask=legal_mask, greedy=greedy
-            )
+            if is_per_seat:
+                obs = build_arena_ego_obs_gpu(self.sim, ring_chunk=self.cfg.ring_chunk)
+                act_out = policy.act(
+                    obs.arena, obs.ego, obs.scalars, legal_mask=legal_mask, greedy=greedy
+                )
+            else:
+                shared_obs = build_shared_world_obs_gpu(self.sim, ring_chunk=self.cfg.ring_chunk)
+                act_out = policy.act(shared_obs, legal_mask=legal_mask, greedy=greedy)
             return (
                 act_out.actions.reshape(e_total, s_total),
                 act_out.log_probs.reshape(e_total, s_total),
@@ -917,14 +1010,26 @@ class ArenaPPOTrainer:
         for start in range(0, e_total, chunk):
             end = min(e_total, start + chunk)
             sl = slice(start, end)
-            obs = build_arena_ego_obs_gpu(self.sim, env_slice=sl, ring_chunk=self.cfg.ring_chunk)
-            act_out = policy.act(
-                obs.arena,
-                obs.ego,
-                obs.scalars,
-                legal_mask=legal_mask[sl],
-                greedy=greedy,
-            )
+            if is_per_seat:
+                obs = build_arena_ego_obs_gpu(
+                    self.sim, env_slice=sl, ring_chunk=self.cfg.ring_chunk
+                )
+                act_out = policy.act(
+                    obs.arena,
+                    obs.ego,
+                    obs.scalars,
+                    legal_mask=legal_mask[sl],
+                    greedy=greedy,
+                )
+            else:
+                shared_obs = build_shared_world_obs_gpu(
+                    self.sim, env_slice=sl, ring_chunk=self.cfg.ring_chunk
+                )
+                act_out = policy.act(
+                    shared_obs,
+                    legal_mask=legal_mask[sl],
+                    greedy=greedy,
+                )
             actions[sl] = act_out.actions.reshape(end - start, s_total)
             log_probs[sl] = act_out.log_probs.reshape(end - start, s_total)
             values[sl] = act_out.values.reshape(end - start, s_total)
@@ -936,17 +1041,30 @@ class ArenaPPOTrainer:
         e_total, s_total = self.sim.E, self.sim.S
         legal_mask = self.sim.legal_action_mask()
         chunk = max(1, min(e_total, int(self.cfg.actor_chunk_envs)))
+        is_per_seat = isinstance(self.model, ArenaNet)
         if chunk == e_total:
-            obs = build_arena_ego_obs_gpu(self.sim, ring_chunk=self.cfg.ring_chunk)
-            out = self.model.forward(obs.arena, obs.ego, obs.scalars, legal_mask=legal_mask)
+            if is_per_seat:
+                obs = build_arena_ego_obs_gpu(self.sim, ring_chunk=self.cfg.ring_chunk)
+                out = self.model.forward(obs.arena, obs.ego, obs.scalars, legal_mask=legal_mask)
+            else:
+                shared_obs = build_shared_world_obs_gpu(self.sim, ring_chunk=self.cfg.ring_chunk)
+                out = self.model.forward(shared_obs, legal_mask=legal_mask)
             return out.value.reshape(e_total, s_total)
 
         values = torch.empty((e_total, s_total), dtype=torch.float32, device=self.device)
         for start in range(0, e_total, chunk):
             end = min(e_total, start + chunk)
             sl = slice(start, end)
-            obs = build_arena_ego_obs_gpu(self.sim, env_slice=sl, ring_chunk=self.cfg.ring_chunk)
-            out = self.model.forward(obs.arena, obs.ego, obs.scalars, legal_mask=legal_mask[sl])
+            if is_per_seat:
+                obs = build_arena_ego_obs_gpu(
+                    self.sim, env_slice=sl, ring_chunk=self.cfg.ring_chunk
+                )
+                out = self.model.forward(obs.arena, obs.ego, obs.scalars, legal_mask=legal_mask[sl])
+            else:
+                shared_obs = build_shared_world_obs_gpu(
+                    self.sim, env_slice=sl, ring_chunk=self.cfg.ring_chunk
+                )
+                out = self.model.forward(shared_obs, legal_mask=legal_mask[sl])
             values[sl] = out.value.reshape(end - start, s_total)
         return values
 
@@ -1097,12 +1215,13 @@ class ArenaPPOTrainer:
         valid_3d = self.buffer.acted & self.buffer.learner_mask
         valid_3d_f = valid_3d.to(torch.float32)
         valid_3d_denom = valid_3d_f.sum().clamp_min(1.0)
+        zero_3d = torch.zeros_like(self.buffer.returns)
+        ret_clean = torch.where(valid_3d, self.buffer.returns, zero_3d)
+        val_clean = torch.where(valid_3d, self.buffer.values, zero_3d)
         with torch.no_grad():
-            ret_mean = (self.buffer.returns * valid_3d_f).sum() / valid_3d_denom
-            ret_var = (((self.buffer.returns - ret_mean).square()) * valid_3d_f).sum() / (
-                valid_3d_denom
-            )
-            val_err = self.buffer.returns - self.buffer.values
+            ret_mean = (ret_clean * valid_3d_f).sum() / valid_3d_denom
+            ret_var = (((ret_clean - ret_mean).square()) * valid_3d_f).sum() / valid_3d_denom
+            val_err = ret_clean - val_clean
             err_mean = (val_err * valid_3d_f).sum() / valid_3d_denom
             err_var = (((val_err - err_mean).square()) * valid_3d_f).sum() / valid_3d_denom
             explained_var_t = torch.where(
@@ -1111,13 +1230,13 @@ class ArenaPPOTrainer:
                 torch.zeros_like(ret_var),
             )
 
-        adv_all = self.buffer.advantages
+        adv_all = torch.where(valid_3d, self.buffer.advantages, zero_3d)
         if self.cfg.normalize_advantages:
             mean_adv = (adv_all * valid_3d_f).sum() / valid_3d_denom
             var_adv = (
                 ((adv_all - mean_adv) * valid_3d_f).square().sum() / valid_3d_denom
             ).clamp_min(1e-8)
-            norm_adv = (adv_all - mean_adv) * torch.rsqrt(var_adv)
+            norm_adv = torch.where(valid_3d, (adv_all - mean_adv) * torch.rsqrt(var_adv), zero_3d)
         else:
             norm_adv = adv_all
 
@@ -1125,6 +1244,7 @@ class ArenaPPOTrainer:
         mb_worlds = max(1, min(total_world_ticks, int(self.cfg.minibatch_size) // self.sim.S))
         vmin = float(self.model.cfg.value_symlog_min)
         vmax = float(self.model.cfg.value_symlog_max)
+        is_per_seat = isinstance(self.model, ArenaNet)
 
         policy_loss_acc = torch.zeros((), dtype=torch.float32, device=self.device)
         value_loss_acc = torch.zeros((), dtype=torch.float32, device=self.device)
@@ -1150,24 +1270,41 @@ class ArenaPPOTrainer:
                 t_idx = torch.div(flat_wt, self.sim.E, rounding_mode="floor")
                 e_idx = flat_wt.remainder(self.sim.E)
 
-                arena, ego, scalars, legal_mask = self.buffer.reconstruct_world_ticks(
-                    t_idx, e_idx, ring_chunk=self.cfg.ring_chunk
-                )
-                mb_actions = self.buffer.actions[t_idx, e_idx].reshape(-1).to(torch.long)
-                mb_old_logp = self.buffer.log_probs[t_idx, e_idx].reshape(-1)
-                mb_adv = norm_adv[t_idx, e_idx].reshape(-1)
-                mb_returns = self.buffer.returns[t_idx, e_idx].reshape(-1)
                 mb_valid = valid_3d[t_idx, e_idx].reshape(-1)
-                mb_aux_targets = self.buffer.aux_targets[t_idx, e_idx].reshape(
+                raw_actions = self.buffer.actions[t_idx, e_idx].reshape(-1).to(torch.long)
+                mb_actions = torch.where(mb_valid, raw_actions, torch.zeros_like(raw_actions))
+                raw_old_logp = self.buffer.log_probs[t_idx, e_idx].reshape(-1)
+                zero_1d = torch.zeros_like(raw_old_logp)
+                mb_old_logp = torch.where(mb_valid, raw_old_logp, zero_1d)
+                mb_adv = torch.where(mb_valid, norm_adv[t_idx, e_idx].reshape(-1), zero_1d)
+                mb_returns = torch.where(
+                    mb_valid, self.buffer.returns[t_idx, e_idx].reshape(-1), zero_1d
+                )
+                raw_aux_targets = self.buffer.aux_targets[t_idx, e_idx].reshape(
                     -1, len(AUX_DEATH_HORIZONS)
                 )
                 mb_aux_valid = self.buffer.aux_valid[t_idx, e_idx].reshape(
                     -1, len(AUX_DEATH_HORIZONS)
                 )
-
-                new_logp, entropy, val_logits, aux_logits = self.model.evaluate_actions(
-                    arena, ego, scalars, legal_mask, mb_actions
+                aux_mask_bool = mb_aux_valid & mb_valid[:, None]
+                mb_aux_targets = torch.where(
+                    aux_mask_bool, raw_aux_targets, torch.zeros_like(raw_aux_targets)
                 )
+
+                if is_per_seat:
+                    arena, ego, scalars, legal_mask = self.buffer.reconstruct_world_ticks(
+                        t_idx, e_idx, ring_chunk=self.cfg.ring_chunk
+                    )
+                    new_logp, entropy, val_logits, aux_logits = self.model.evaluate_actions(
+                        arena, ego, scalars, legal_mask, mb_actions
+                    )
+                else:
+                    shared_obs, legal_mask = self.buffer.reconstruct_shared_world_ticks(
+                        t_idx, e_idx, ring_chunk=self.cfg.ring_chunk
+                    )
+                    new_logp, entropy, val_logits, aux_logits = self.model.evaluate_actions(
+                        shared_obs, legal_mask, mb_actions
+                    )
 
                 valid_f = mb_valid.to(torch.float32)
                 valid_count = valid_f.sum().clamp_min(1.0)
@@ -1192,7 +1329,7 @@ class ArenaPPOTrainer:
 
                 ent_mean = (entropy * valid_f).sum() / valid_count
 
-                aux_mask_f = (mb_aux_valid & mb_valid[:, None]).to(torch.float32)
+                aux_mask_f = aux_mask_bool.to(torch.float32)
                 aux_denom = aux_mask_f.sum().clamp_min(1.0)
                 aux_bce = F.binary_cross_entropy_with_logits(
                     aux_logits, mb_aux_targets, reduction="none"
@@ -1419,9 +1556,11 @@ class ArenaPPOTrainer:
 
     def save_eval_weights(self, path: Path | str) -> str:
         """Export a compact eval-ready weights file (`arena_ppo_weights.pth`)."""
+        obs_spec = "arena_ego_v1" if isinstance(self.model, ArenaNet) else "shared_world_ego_v1"
         payload = {
             "schema": "arena-ppo-eval-weights/v1",
-            "obs_spec": "arena_ego_v1",
+            "obs_spec": obs_spec,
+            "net_arch": self.cfg.net_arch,
             "net_config": self.model.cfg.to_dict(),
             "state_dict": {k: v.detach().cpu().clone() for k, v in self.model.state_dict().items()},
             "updates_completed": int(self.updates_completed),
@@ -1447,7 +1586,15 @@ class ArenaPPOTrainer:
         ckpt_cfg_raw = ckpt.get("config")
         if not isinstance(ckpt_cfg_raw, dict):
             raise ValueError(f"Checkpoint missing config dictionary at {ckpt_path}")
-        ckpt_cfg = ArenaPPOConfig.from_dict(ckpt_cfg_raw).to_dict()
+        ckpt_cfg_input = dict(ckpt_cfg_raw)
+        if "net_arch" not in ckpt_cfg_input:
+            ckpt_net_cfg = ckpt.get("net_config")
+            ckpt_cfg_input["net_arch"] = (
+                str(ckpt_net_cfg.get("net_arch", "per_seat"))
+                if isinstance(ckpt_net_cfg, dict)
+                else "per_seat"
+            )
+        ckpt_cfg = ArenaPPOConfig.from_dict(ckpt_cfg_input).to_dict()
         curr_cfg = self.cfg.to_dict()
         for key in sorted(set(ckpt_cfg) | set(curr_cfg)):
             if key in _RESUME_MUTABLE_CONFIG_KEYS:
@@ -1623,7 +1770,13 @@ def run_training_job(
         phase_stamp("train_plan", "INFO", **training_plan)
 
     resolved_dev = normalize_device(device)
-    phase_stamp("train_setup", "START", device=str(resolved_dev), net_size=cfg.net_size)
+    phase_stamp(
+        "train_setup",
+        "START",
+        device=str(resolved_dev),
+        net_arch=cfg.net_arch,
+        net_size=cfg.net_size,
+    )
     ext_info = preload_native_sim_extensions(resolved_dev)
     trainer = ArenaPPOTrainer(cfg, device=resolved_dev)
 
@@ -1955,6 +2108,13 @@ def main() -> int:
     parser.add_argument("--input-dir", type=Path, default=None)
     parser.add_argument("--ledger", type=Path, default=None)
     parser.add_argument(
+        "--net-arch",
+        type=str,
+        choices=list(VALID_NET_ARCHS),
+        default=os.environ.get("ARENA_PPO_NET_ARCH") or None,
+        help="Policy network architecture (`shared_trunk`, `ego_only`, or `per_seat`).",
+    )
+    parser.add_argument(
         "--hours",
         type=float,
         default=(
@@ -1988,6 +2148,18 @@ def main() -> int:
             raw_cfg_dict = json.loads(source)
         else:
             raw_cfg_dict = json.loads(Path(source).read_text(encoding="utf-8"))
+    if args.net_arch is not None:
+        prev_arch = raw_cfg_dict.get("net_arch")
+        raw_cfg_dict["net_arch"] = args.net_arch
+        if prev_arch is not None and prev_arch != args.net_arch:
+            # Reset architecture-coupled batch defaults unless explicitly matching
+            ns: NetSize = raw_cfg_dict.get("net_size", "S")
+            if raw_cfg_dict.get("minibatch_size") == default_minibatch_size(ns, net_arch=prev_arch):
+                raw_cfg_dict.pop("minibatch_size", None)
+            if raw_cfg_dict.get("actor_chunk_envs") == default_actor_chunk_envs(
+                ns, net_arch=prev_arch
+            ):
+                raw_cfg_dict.pop("actor_chunk_envs", None)
     cfg = ArenaPPOConfig.from_dict(raw_cfg_dict) if raw_cfg_dict else ArenaPPOConfig()
 
     max_wall_sec = args.max_wall_seconds

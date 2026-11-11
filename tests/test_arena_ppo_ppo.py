@@ -14,7 +14,8 @@ import pytest
 import torch
 
 from research.arena_ppo import ppo as ppo_mod
-from research.arena_ppo.obs import build_arena_ego_obs_gpu
+from research.arena_ppo.net import NetArch, SharedTrunkArenaNet
+from research.arena_ppo.obs import build_arena_ego_obs_gpu, build_shared_world_obs_gpu
 from research.arena_ppo.ppo import (
     ArenaPPOConfig,
     ArenaPPOTrainer,
@@ -31,14 +32,15 @@ from research.colab_cli.runtime import _exports as supervisor_scan_exports
 
 
 def test_ppo_config_json_roundtrip_and_defaults(tmp_path: Path) -> None:
-    """Verify ArenaPPOConfig per-net defaults and JSON file/string serialization."""
+    """Verify ArenaPPOConfig per-arch/per-net defaults and JSON file/string serialization."""
     cfg_s = ArenaPPOConfig(net_size="S")
+    assert cfg_s.net_arch == "shared_trunk"
     assert cfg_s.rollout_len == 256
     assert cfg_s.gae_lambda == 0.97
     assert cfg_s.gamma == 0.999
     assert cfg_s.checkpoint_interval_sec == 1200.0
-    assert cfg_s.minibatch_size == 1536
-    assert cfg_s.actor_chunk_envs == 1024
+    assert cfg_s.minibatch_size == 3072
+    assert cfg_s.actor_chunk_envs == 2048
     assert cfg_s.keep_periodic_checkpoints == 3
     assert cfg_s.max_update_seconds == 1200.0
     assert cfg_s.output_publish_interval_sec == 2400.0
@@ -48,8 +50,12 @@ def test_ppo_config_json_roundtrip_and_defaults(tmp_path: Path) -> None:
     assert cfg_s.late_reset_prob == 0.5
 
     cfg_m = ArenaPPOConfig(net_size="M")
-    assert cfg_m.minibatch_size == 768
-    assert cfg_m.actor_chunk_envs == 512
+    assert cfg_m.minibatch_size == 1536
+    assert cfg_m.actor_chunk_envs == 1024
+
+    cfg_ps = ArenaPPOConfig(net_arch="per_seat", net_size="S")
+    assert cfg_ps.minibatch_size == 768
+    assert cfg_ps.actor_chunk_envs == 512
 
     cfg_path = tmp_path / "ppo_cfg.json"
     cfg_path.write_text(cfg_s.to_json(), encoding="utf-8")
@@ -93,12 +99,17 @@ def test_compact_rollout_buffer_reconstructs_bit_identical_obs() -> None:
 
         trainer.buffer.record_pre_step(t, trainer.sim)
         live_obs = build_arena_ego_obs_gpu(trainer.sim)
+        live_sh = build_shared_world_obs_gpu(trainer.sim)
         live_mask = trainer.sim.legal_action_mask().reshape(-1, 6)
         live_snapshots.append(
             (
                 live_obs.arena.clone(),
                 live_obs.ego.clone(),
                 live_obs.scalars.clone(),
+                live_sh.world_arena.clone(),
+                live_sh.head_xy.clone(),
+                live_sh.direction.clone(),
+                live_sh.alive.clone(),
                 live_mask.clone(),
             )
         )
@@ -129,11 +140,28 @@ def test_compact_rollout_buffer_reconstructs_bit_identical_obs() -> None:
         rec_arena, rec_ego, rec_scalars, rec_mask = trainer.buffer.reconstruct_world_ticks(
             t_idx, e_idx
         )
-        exp_arena, exp_ego, exp_scalars, exp_mask = live_snapshots[t]
+        rec_sh, rec_sh_mask = trainer.buffer.reconstruct_shared_world_ticks(t_idx, e_idx)
+        (
+            exp_arena,
+            exp_ego,
+            exp_scalars,
+            exp_world_arena,
+            exp_head_xy,
+            exp_dir,
+            exp_alive,
+            exp_mask,
+        ) = live_snapshots[t]
         assert torch.equal(rec_arena, exp_arena), f"Rollout tape arena mismatch at t={t}"
         assert torch.equal(rec_ego, exp_ego), f"Rollout tape ego mismatch at t={t}"
         assert torch.equal(rec_scalars, exp_scalars), f"Rollout tape scalars mismatch at t={t}"
         assert torch.equal(rec_mask, exp_mask), f"Rollout tape mask mismatch at t={t}"
+        assert torch.equal(rec_sh.world_arena, exp_world_arena)
+        assert torch.equal(rec_sh.ego, exp_ego)
+        assert torch.equal(rec_sh.scalars, exp_scalars)
+        assert torch.equal(rec_sh.head_xy, exp_head_xy)
+        assert torch.equal(rec_sh.direction, exp_dir)
+        assert torch.equal(rec_sh.alive, exp_alive)
+        assert torch.equal(rec_sh_mask, exp_mask)
 
 
 def test_gae_death_no_bootstrap_and_ppo_update_changes_weights() -> None:
@@ -207,9 +235,11 @@ def test_epoch0_approx_kl_near_zero_on_single_fp32_minibatch() -> None:
     assert abs(metrics.epoch0_approx_kl) < 1e-5
 
 
-def test_ppo_resume_bit_identical_to_uninterrupted_cpu(tmp_path: Path) -> None:
-    """Prove resumed == uninterrupted bit-for-bit on CPU across model, optimizer, and sim."""
+@pytest.mark.parametrize("net_arch", ["per_seat", "shared_trunk", "ego_only"])
+def test_ppo_resume_bit_identical_to_uninterrupted_cpu(tmp_path: Path, net_arch: NetArch) -> None:
+    """Prove resumed == uninterrupted bit-for-bit on CPU across all 3 net_arch variants."""
     cfg = ArenaPPOConfig(
+        net_arch=net_arch,
         net_size="S",
         num_envs=3,
         rollout_len=8,
@@ -830,3 +860,96 @@ def test_minor7_r3_resume_allows_speed_keys_and_features_abc_plan_logs_eval_late
     tr_late_resumed.load_checkpoint(late_ckpt)
     m_next_b = tr_late_resumed.step_update()
     assert math.isclose(m_next_a.policy_loss, m_next_b.policy_loss, rel_tol=0.0, abs_tol=1e-7)
+
+
+def test_shared_trunk_learner_samples_world_ticks_once_and_masks_dead_seats_exact() -> None:
+    """Prove shared_trunk runs once per (world, tick) group and masks dead/non-learner seats."""
+    cfg = ArenaPPOConfig(
+        net_arch="shared_trunk",
+        net_size="S",
+        num_envs=4,
+        rollout_len=6,
+        ppo_epochs=2,
+        minibatch_size=12,  # 2 world-ticks (12 seats) per minibatch
+        actor_chunk_envs=2,
+        max_capacity=128,
+        seed=7171,
+        deterministic=True,
+    )
+    tr_clean = ArenaPPOTrainer(cfg, device="cpu")
+    assert isinstance(tr_clean.model, SharedTrunkArenaNet)
+    tr_clean.collect_rollout()
+
+    # Force half of seats in several world-ticks to be dead/non-learner (`acted=False` or
+    # `learner_mask=False`) while keeping both trainers identical on valid learner seats.
+    tr_clean.buffer.acted[0, 0, [1, 3, 5]] = False
+    tr_clean.buffer.learner_mask[1, 2, [0, 2, 4]] = False
+    tr_clean.buffer.acted[3, 1, :] = False  # whole world-tick inactive
+
+    tr_poison = ArenaPPOTrainer(cfg, device="cpu")
+    tr_poison.model.load_state_dict(tr_clean.model.state_dict())
+    tr_poison.optimizer.load_state_dict(tr_clean.optimizer.state_dict())
+
+    # Copy rollout buffer tensors into tr_poison, then poison EVERY inactive seat's targets/stats
+    for attr in (
+        "body_tape",
+        "tape_cursor",
+        "tape_head_idx",
+        "seg_count",
+        "length",
+        "alive",
+        "prev_alive",
+        "boosted",
+        "direction",
+        "prev_heads",
+        "food_xy",
+        "food_kind",
+        "actions",
+        "log_probs",
+        "values",
+        "rewards",
+        "died",
+        "truncated",
+        "trunc_bootstrap",
+        "acted",
+        "learner_mask",
+        "advantages",
+        "returns",
+        "aux_targets",
+        "aux_valid",
+    ):
+        getattr(tr_poison.buffer, attr).copy_(getattr(tr_clean.buffer, attr))
+
+    invalid = ~(tr_poison.buffer.acted & tr_poison.buffer.learner_mask)
+    assert int(invalid.sum().item()) > 0
+    tr_poison.buffer.advantages[invalid] = float("nan")
+    tr_poison.buffer.returns[invalid] = float("nan")
+    tr_poison.buffer.values[invalid] = float("nan")
+    tr_poison.buffer.log_probs[invalid] = float("nan")
+    tr_poison.buffer.rewards[invalid] = 1.0e9
+    tr_poison.buffer.aux_targets[invalid] = float("nan")
+
+    # Spy on arena_patch_stem batch size during ppo_update: must be mb_worlds=2 (NOT 12 rows!)
+    stem_batch_sizes: list[int] = []
+    handle = tr_clean.model.arena_patch_stem.register_forward_hook(
+        lambda _mod, inp, _out: stem_batch_sizes.append(int(inp[0].shape[0]))
+    )
+    torch.manual_seed(424242)
+    stats_clean, _ = tr_clean.ppo_update()
+    handle.remove()
+
+    torch.manual_seed(424242)
+    stats_poison, _ = tr_poison.ppo_update()
+
+    # 4 worlds * 6 ticks = 24 world-ticks -> 12 minibatches/epoch * 2 epochs = 24 trunk calls,
+    # each with batch = 2 world-ticks (never 12 per-seat arena passes!).
+    assert len(stem_batch_sizes) == 24
+    assert all(b == 2 for b in stem_batch_sizes)
+
+    assert math.isfinite(stats_poison["policy_loss"])
+    assert math.isfinite(stats_poison["value_loss"])
+    assert math.isfinite(stats_poison["aux_loss"])
+    assert stats_clean == stats_poison
+    for k, v_c in tr_clean.model.state_dict().items():
+        v_p = tr_poison.model.state_dict()[k]
+        assert torch.equal(v_c, v_p), f"Dead-seat poisoning leaked into parameter {k}"

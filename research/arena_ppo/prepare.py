@@ -12,6 +12,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+from research.arena_ppo.net import VALID_NET_ARCHS, NetArch, NetSize
 from research.arena_ppo.ppo import (
     ARENA_PPO_NAMESPACE,
     ARENA_PPO_SCHEMA,
@@ -24,6 +25,9 @@ from research.arena_ppo.ruler import (
     CANARY_REQUIRED_EXPORTS,
     RULER_REQUIRED_EXPORTS,
     TRAIN_REQUIRED_EXPORTS,
+    _parse_archs_csv,
+    _parse_envs_csv,
+    _parse_nets_csv,
 )
 from research.arena_ppo.runtime import (
     sha256_file,
@@ -313,6 +317,12 @@ def prepare_arena_ppo_packet(
     gpu: str = "L4",
     hours: float = 2.0,
     expected_steps_per_sec: float | None = None,
+    net_arch: str | None = None,
+    net_size: NetSize | None = None,
+    num_envs: int | None = None,
+    ruler_envs: str | None = None,
+    ruler_nets: str | None = None,
+    no_one_epoch_cell: bool = False,
     output_dir: Path | str | None = None,
     prior_output_dir: Path | str | None = None,
     prior_kind: str = "auto",
@@ -335,6 +345,14 @@ def prepare_arena_ppo_packet(
             training session bound to canary receipt).
         gpu: Target GPU in ``{"L4", "A100", "H100"}`` (default ``"L4"``).
         hours: Session wall timeout in hours for ``mode="train"`` (`timeout = hours * 60` min).
+        expected_steps_per_sec: Expected agent-steps/s for ``train`` plan calculation.
+        net_arch: Architecture override (`shared_trunk`, `ego_only`, or `per_seat` for ``train``;
+            comma-separated list for ``ruler``).
+        net_size: Optional network size override (`"S"` or `"M"`) for ``train``.
+        num_envs: Optional world count override for ``train``.
+        ruler_envs: Optional comma-separated world counts for ``ruler`` (e.g. ``"1024,2048,4096"``).
+        ruler_nets: Optional comma-separated sizes for ``ruler`` (e.g. ``"S,M"``).
+        no_one_epoch_cell: Disable the 1-PPO-epoch probe cell in ``ruler`` mode.
         output_dir: Optional fresh absolute Mac output directory.
         prior_output_dir: Optional prior attempt output directory for resume staging.
         prior_kind: ``"auto"``, ``"checkpoint"``, or ``"ruler_cells"`` when staging prior output.
@@ -483,6 +501,17 @@ def prepare_arena_ppo_packet(
         base_sec = est_minutes * 60.0
         eff_sec = timeout_minutes * 60.0
         extra_env["ARENA_PPO_MAX_WALL_SECONDS"] = str(int(RULER_WALL_GUARD_SECONDS))
+        if net_arch is not None:
+            parsed_archs = _parse_archs_csv(net_arch)
+            extra_env["ARENA_PPO_RULER_ARCHS"] = ",".join(parsed_archs)
+        if ruler_envs is not None:
+            parsed_envs = _parse_envs_csv(ruler_envs)
+            extra_env["ARENA_PPO_RULER_ENVS"] = ",".join(str(v) for v in parsed_envs)
+        if ruler_nets is not None:
+            parsed_nets = _parse_nets_csv(ruler_nets)
+            extra_env["ARENA_PPO_RULER_NETS"] = ",".join(parsed_nets)
+        if no_one_epoch_cell:
+            extra_env["ARENA_PPO_NO_ONE_EPOCH_CELL"] = "1"
         if compile_model:
             extra_env["ARENA_PPO_COMPILE"] = "1"
         job_id = f"arena-ppo-ruler-{gpu_slug}-{attempt}"
@@ -512,9 +541,43 @@ def prepare_arena_ppo_packet(
         max_wall_sec_int = int(max(30.0, eff_sec - headroom_sec))
         extra_env["ARENA_PPO_MAX_WALL_SECONDS"] = str(max_wall_sec_int)
         extra_env["ARENA_PPO_HOURS"] = str(float(hours))
-        cfg_obj = (
-            ppo_config if ppo_config is not None else ArenaPPOConfig(compile_model=compile_model)
-        )
+        resolved_train_arch: NetArch | None = None
+        if net_arch is not None:
+            arch_norm = net_arch.strip().lower()
+            if arch_norm not in VALID_NET_ARCHS:
+                raise ValueError(
+                    f"train --net-arch must be one of {VALID_NET_ARCHS}, got {net_arch!r}"
+                )
+            resolved_train_arch = (
+                "shared_trunk"
+                if arch_norm == "shared_trunk"
+                else ("ego_only" if arch_norm == "ego_only" else "per_seat")
+            )
+            extra_env["ARENA_PPO_NET_ARCH"] = resolved_train_arch
+
+        if ppo_config is not None:
+            cfg_obj = ppo_config
+            if resolved_train_arch is not None or net_size is not None or num_envs is not None:
+                d = cfg_obj.to_dict()
+                if resolved_train_arch is not None and resolved_train_arch != cfg_obj.net_arch:
+                    d["net_arch"] = resolved_train_arch
+                    d["minibatch_size"] = None
+                    d["actor_chunk_envs"] = None
+                if net_size is not None and net_size != cfg_obj.net_size:
+                    d["net_size"] = net_size
+                    d["minibatch_size"] = None
+                    d["actor_chunk_envs"] = None
+                if num_envs is not None:
+                    d["num_envs"] = int(num_envs)
+                cfg_obj = ArenaPPOConfig.from_dict(d)
+        else:
+            cfg_obj = ArenaPPOConfig(
+                net_arch=resolved_train_arch if resolved_train_arch is not None else "shared_trunk",
+                net_size=net_size if net_size is not None else "S",
+                num_envs=int(num_envs) if num_envs is not None else 1024,
+                compile_model=compile_model,
+            )
+
         if expected_steps_per_sec is not None:
             extra_env["ARENA_PPO_EXPECTED_STEPS_PER_SEC"] = str(float(expected_steps_per_sec))
             training_plan = build_training_plan(
@@ -578,6 +641,7 @@ def prepare_arena_ppo_packet(
             "ARENA_PPO_SOURCE_COMMIT": resolved_commit,
             "ARENA_PPO_MODE": mode,
             "SNAKE_DQN_DEVICE": "cuda",
+            "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
             "MAX_JOBS": "4",
             **extra_env,
         },
@@ -650,6 +714,17 @@ def main() -> int:
         default=None,
         help="Expected agent-steps/s for --mode train plan calculation.",
     )
+    parser.add_argument(
+        "--net-arch",
+        type=str,
+        default=None,
+        help="Architecture (`shared_trunk`, `ego_only`, `per_seat`; CSV allowed for --mode ruler).",
+    )
+    parser.add_argument("--net-size", choices=("S", "M"), default=None)
+    parser.add_argument("--num-envs", type=int, default=None)
+    parser.add_argument("--ruler-envs", type=str, default=None)
+    parser.add_argument("--ruler-nets", type=str, default=None)
+    parser.add_argument("--no-one-epoch-cell", action="store_true")
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--prior-output-dir", type=Path, default=None)
     parser.add_argument(
@@ -691,6 +766,12 @@ def main() -> int:
         gpu=args.gpu,
         hours=args.hours,
         expected_steps_per_sec=args.expected_steps_per_sec,
+        net_arch=args.net_arch,
+        net_size=args.net_size,
+        num_envs=args.num_envs,
+        ruler_envs=args.ruler_envs,
+        ruler_nets=args.ruler_nets,
+        no_one_epoch_cell=bool(args.no_one_epoch_cell),
         output_dir=args.output_dir,
         prior_output_dir=args.prior_output_dir,
         prior_kind=args.prior_kind,

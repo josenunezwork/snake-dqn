@@ -16,9 +16,22 @@ from research.arena_ppo.obs import (
     CH_OWN_HEAD_PREV,
     CH_WALL,
     NUM_OBS_CHANNELS,
+    NUM_WORLD_CHANNELS,
+    WCH_BODY_TTL,
+    WCH_BOOST_FLAGS,
+    WCH_FOOD_AMBIENT,
+    WCH_FOOD_CORPSE,
+    WCH_HEAD_CURR,
+    WCH_HEAD_DX,
+    WCH_HEAD_DY,
+    WCH_HEAD_LENGTH,
+    WCH_WALL,
     build_arena_ego_obs_cpu,
     build_arena_ego_obs_from_tensors,
     build_arena_ego_obs_gpu,
+    build_shared_world_obs_cpu,
+    build_shared_world_obs_from_tensors,
+    build_shared_world_obs_gpu,
 )
 from research.arena_ppo.sim import TrainSim, arena_v2_config
 from research.devicesim_v2_parity.harness import install_splitmix_rng_proxies
@@ -310,3 +323,133 @@ def test_minor9_r3_respawn_after_fatal_boost_clears_stale_boost_flag_gpu_and_cpu
 
     assert float(gpu_obs.arena[0, CH_BOOST_FLAGS, sy, sx].item()) == 1.0
     assert float(cpu_arena[0, CH_BOOST_FLAGS, sy, sx]) == 1.0
+
+    # Also verify shared world planes clear stale respawn boost flag in BOTH GPU and CPU builders
+    sh_gpu = build_shared_world_obs_gpu(train_sim)
+    sh_world_cpu, sh_ego_cpu, sh_scal_cpu, _, _, _ = build_shared_world_obs_cpu(
+        train_sim.sim,
+        train_sim.prev_heads.numpy(),
+        train_sim.prev_alive.numpy(),
+    )
+    assert np.array_equal(sh_gpu.world_arena.numpy(), sh_world_cpu)
+    assert np.array_equal(sh_gpu.ego.numpy(), sh_ego_cpu)
+    assert np.array_equal(sh_gpu.scalars.numpy(), sh_scal_cpu)
+    assert float(sh_gpu.world_arena[0, WCH_BOOST_FLAGS, ry, rx].item()) == 0.0
+    assert float(sh_world_cpu[0, WCH_BOOST_FLAGS, ry, rx]) == 0.0
+    assert float(sh_gpu.world_arena[0, WCH_BOOST_FLAGS, sy, sx].item()) == 1.0
+    assert float(sh_world_cpu[0, WCH_BOOST_FLAGS, sy, sx]) == 1.0
+
+
+@pytest.mark.parametrize(
+    "device_name",
+    [
+        "cpu",
+        pytest.param(
+            "mps",
+            marks=pytest.mark.skipif(
+                not torch.backends.mps.is_available(), reason="MPS unavailable"
+            ),
+        ),
+    ],
+)
+def test_shared_world_obs_gpu_equals_cpu_exact_64_worlds_x_200_ticks(device_name: str) -> None:
+    """Prove shared 9-plane world obs + direct ego crop match CPU reference bit-for-bit (64x200)."""
+    num_envs = 64
+    ticks = 200
+    train_sim = TrainSim.create(num_envs, device=device_name, seed=20261111, max_capacity=384)
+    init_lengths = torch.tensor([2, 6, 9, 14, 20, 28], dtype=torch.long, device=train_sim.device)
+    train_sim.sim.length.copy_(init_lengths[None, :].expand(num_envs, -1))
+    train_sim.sim._reward_prev_length.copy_(train_sim.sim.length)
+
+    gen = torch.Generator(device="cpu").manual_seed(99887766)
+    saw_corpse = False
+    saw_boost = False
+    saw_ambient = False
+    saw_neg_heading = False
+
+    for tick in range(ticks):
+        train_sim.prepare()
+        sh_gpu = build_shared_world_obs_gpu(train_sim, ring_chunk=128)
+        w_gpu = sh_gpu.world_arena.detach().cpu().numpy()
+        e_gpu = sh_gpu.ego.detach().cpu().numpy()
+        s_gpu = sh_gpu.scalars.detach().cpu().numpy()
+        hxy_gpu = sh_gpu.head_xy.detach().cpu().numpy()
+        dir_gpu = sh_gpu.direction.detach().cpu().numpy()
+        alv_gpu = sh_gpu.alive.detach().cpu().numpy()
+
+        w_cpu, e_cpu, s_cpu, hxy_cpu, dir_cpu, alv_cpu = build_shared_world_obs_cpu(
+            train_sim.sim,
+            train_sim.prev_heads.detach().cpu().numpy(),
+            train_sim.prev_alive.detach().cpu().numpy(),
+        )
+
+        assert w_gpu.shape == (num_envs, NUM_WORLD_CHANNELS, ARENA_GRID_H, ARENA_GRID_W)
+        assert e_gpu.shape == (num_envs * 6, NUM_OBS_CHANNELS, EGO_CROP_SIZE, EGO_CROP_SIZE)
+        assert s_gpu.shape == (num_envs * 6, SCALAR_DIM)
+        assert np.array_equal(w_gpu, w_cpu), f"Shared world_arena mismatch at tick={tick}"
+        assert np.array_equal(e_gpu, e_cpu), f"Shared ego mismatch at tick={tick}"
+        assert np.array_equal(s_gpu, s_cpu), f"Shared scalars mismatch at tick={tick}"
+        assert np.array_equal(hxy_gpu, hxy_cpu)
+        assert np.array_equal(dir_gpu, dir_cpu)
+        assert np.array_equal(alv_gpu, alv_cpu)
+
+        # Verify direct zero-sync crop in shared builder is bit-identical to per_seat ego & scalars
+        if tick in (0, 50, 100, 150, 199):
+            ps_gpu = build_arena_ego_obs_gpu(train_sim, ring_chunk=128)
+            assert torch.equal(sh_gpu.ego, ps_gpu.ego)
+            assert torch.equal(sh_gpu.scalars, ps_gpu.scalars)
+
+        # Verify perimeter wall channel and non-trivial world plane coverage
+        assert (w_gpu[:, WCH_WALL, 0, :] == 1.0).all()
+        assert (w_gpu[:, WCH_WALL, -1, :] == 1.0).all()
+        assert (w_gpu[:, WCH_WALL, 1:-1, 1:-1] == 0.0).all()
+        saw_corpse = saw_corpse or bool((w_gpu[:, WCH_FOOD_CORPSE] > 0).any())
+        saw_boost = saw_boost or bool((w_gpu[:, WCH_BOOST_FLAGS] > 0).any())
+        saw_ambient = saw_ambient or bool((w_gpu[:, WCH_FOOD_AMBIENT] > 0).any())
+        saw_neg_heading = saw_neg_heading or bool(
+            (w_gpu[:, WCH_HEAD_DX] < 0).any() and (w_gpu[:, WCH_HEAD_DY] < 0).any()
+        )
+        assert (w_gpu[:, WCH_BODY_TTL] >= 0.0).all()
+        assert (w_gpu[:, WCH_HEAD_CURR] >= 0.0).all()
+        assert (w_gpu[:, WCH_HEAD_LENGTH] >= 0.0).all()
+
+        act = torch.randint(0, 6, (num_envs, 6), generator=gen, dtype=torch.long)
+        train_sim.step(act.to(train_sim.device))
+
+    assert saw_corpse
+    assert saw_boost
+    assert saw_ambient
+    assert saw_neg_heading
+
+    # Also verify ordered_bodies path and custom (48x64, S=4) board on shared world planes
+    custom_sim = TrainSim.create(
+        4, device="cpu", seed=5150, grid_h=48, grid_w=64, num_snakes=4, max_capacity=128
+    )
+    custom_sim.prepare()
+    sh_ring = build_shared_world_obs_gpu(custom_sim)
+    sim = custom_sim.sim
+    max_k = int(sim.seg_count.max().item()) + 2
+    k_vec = torch.arange(max_k, dtype=torch.long)[None, None, :]
+    rings = (sim.head_ptr[..., None] - k_vec) % sim.cap
+    ordered = sim.bodies[
+        torch.arange(sim.E)[:, None, None], torch.arange(sim.S)[None, :, None], rings
+    ]
+    sh_ord = build_shared_world_obs_from_tensors(
+        ordered_bodies=ordered,
+        seg_count=sim.seg_count,
+        length=sim.length,
+        alive=sim.alive,
+        direction=sim.direction,
+        boosted=sim._boosted_this_step,
+        prev_heads=custom_sim.prev_heads,
+        prev_alive=custom_sim.prev_alive,
+        food_cells=sim.food_cells,
+        food_present=sim.food_present,
+        corpse_food=sim.corpse_food,
+        min_boost_length=custom_sim.min_boost_length,
+        grid_h=48,
+        grid_w=64,
+    )
+    assert torch.equal(sh_ring.world_arena, sh_ord.world_arena)
+    assert torch.equal(sh_ring.ego, sh_ord.ego)
+    assert torch.equal(sh_ring.scalars, sh_ord.scalars)

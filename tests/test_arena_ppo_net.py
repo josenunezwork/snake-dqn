@@ -13,15 +13,21 @@ from research.arena_ppo.net import (
     MASK_FILL_VALUE,
     ArenaNet,
     ArenaNetConfig,
+    EgoOnlyArenaNet,
+    EgoOnlyNetConfig,
+    SharedTrunkArenaNet,
+    SharedTrunkNetConfig,
+    build_arena_model,
     default_actor_chunk_envs,
     default_minibatch_size,
+    measure_model_flops_per_row,
     symexp,
     symlog,
     symlog_two_hot_loss,
     symlog_two_hot_value,
     two_hot_encode,
 )
-from research.arena_ppo.obs import NUM_OBS_CHANNELS
+from research.arena_ppo.obs import NUM_OBS_CHANNELS, NUM_WORLD_CHANNELS, SharedWorldObs
 from research.arena_ppo.runtime import normalize_device
 
 
@@ -134,11 +140,15 @@ def test_minor2_symlog_two_hot_loss_performs_zero_host_item_syncs(
 def test_m1_per_net_defaults_and_minor10_bf16_fallback_and_caching(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Verify M1 per-net defaults, MINOR 10 bf16 fallback, and MINOR 11b per-instance caching."""
-    assert default_actor_chunk_envs("S") == 1024
-    assert default_actor_chunk_envs("M") <= 512
-    assert default_minibatch_size("S") == 1536
-    assert default_minibatch_size("M") <= 1024
+    """Verify M1 per-variant L4 defaults, MINOR 10 bf16 fallback, and MINOR 11b caching."""
+    assert default_actor_chunk_envs("S") == 2048
+    assert default_actor_chunk_envs("M") == 1024
+    assert default_minibatch_size("S") == 3072
+    assert default_minibatch_size("M") == 1536
+    assert default_actor_chunk_envs("S", net_arch="per_seat") == 512
+    assert default_actor_chunk_envs("M", net_arch="per_seat") == 512
+    assert default_minibatch_size("S", net_arch="per_seat") == 768
+    assert default_minibatch_size("M", net_arch="per_seat") == 768
 
     fake_cuda = torch.device("cuda", 0)
     calls_fp16 = {"n": 0}
@@ -198,3 +208,119 @@ def test_parameterized_board_resolutions_in_arenanet() -> None:
             loss = out.masked_logits.square().mean() + out.values.square().mean()
             loss.backward()
             net.zero_grad(set_to_none=True)
+
+
+@pytest.mark.parametrize(
+    "device_name",
+    [
+        "cpu",
+        pytest.param(
+            "mps",
+            marks=pytest.mark.skipif(
+                not torch.backends.mps.is_available(), reason="MPS unavailable"
+            ),
+        ),
+    ],
+)
+def test_shared_trunk_and_ego_only_variants_params_flops_roi_and_backward(
+    device_name: str,
+) -> None:
+    """Verify shared_trunk (~1M/~5M) & ego_only variants, FLOP ordering, ROI gather, CPU & MPS."""
+    st_s = SharedTrunkArenaNet(SharedTrunkNetConfig.from_size("S"))
+    st_m = SharedTrunkArenaNet(SharedTrunkNetConfig.from_size("M"))
+    eo_s = EgoOnlyArenaNet(EgoOnlyNetConfig.from_size("S"))
+    eo_m = EgoOnlyArenaNet(EgoOnlyNetConfig.from_size("M"))
+
+    assert 900_000 <= st_s.parameter_count() <= 1_200_000
+    assert 4_400_000 <= st_m.parameter_count() <= 5_300_000
+    assert 150_000 <= eo_s.parameter_count() <= 500_000
+    assert 900_000 <= eo_m.parameter_count() <= 2_000_000
+
+    # Exact FlopCounterMode ordering on CPU (run once on cpu parametrize)
+    if device_name == "cpu":
+        f_eo_s = measure_model_flops_per_row("ego_only", "S")
+        f_st_s = measure_model_flops_per_row("shared_trunk", "S")
+        f_ps_s = measure_model_flops_per_row("per_seat", "S")
+        assert (
+            0
+            < f_eo_s["forward_flops_per_row"]
+            < f_st_s["forward_flops_per_row"]
+            < f_ps_s["forward_flops_per_row"]
+        )
+        assert (
+            0
+            < f_eo_s["learner_flops_per_row"]
+            < f_st_s["learner_flops_per_row"]
+            < f_ps_s["learner_flops_per_row"]
+        )
+
+    dev = normalize_device(device_name)
+    w_bsz, s_cnt = 2, 6
+    rows = w_bsz * s_cnt
+    for arch in ("shared_trunk", "ego_only"):
+        model = build_arena_model(arch, "S", grid_h=ARENA_GRID_H, grid_w=ARENA_GRID_W).to(dev)
+        wa = torch.randn((w_bsz, NUM_WORLD_CHANNELS, ARENA_GRID_H, ARENA_GRID_W), device=dev)
+        ego = torch.randn((rows, NUM_OBS_CHANNELS, EGO_CROP_SIZE, EGO_CROP_SIZE), device=dev)
+        scal = torch.randn((rows, SCALAR_DIM), device=dev)
+        hxy = torch.zeros((w_bsz, s_cnt, 2), dtype=torch.long, device=dev)
+        hxy[..., 0] = 40
+        hxy[..., 1] = 30
+        direction = torch.arange(s_cnt, dtype=torch.long, device=dev).remainder(4).expand(w_bsz, -1)
+        alive = torch.ones((w_bsz, s_cnt), dtype=torch.bool, device=dev)
+        alive[0, 5] = False  # Verify dead-seat masking inside shared models
+        obs = SharedWorldObs(
+            world_arena=wa,
+            ego=ego,
+            scalars=scal,
+            head_xy=hxy,
+            direction=direction,
+            alive=alive,
+        )
+        legal_mask = torch.ones((rows, 6), dtype=torch.bool, device=dev)
+        legal_mask[:6, 3:] = False
+
+        act_out = model.act(obs, legal_mask=legal_mask, greedy=False)
+        assert act_out.actions.shape == (rows,)
+        assert (act_out.actions[:6] < 3).all()
+        assert (act_out.masked_logits[:6, 3:] == MASK_FILL_VALUE).all()
+
+        logp, ent, v_logits, a_logits = model.evaluate_actions(obs, legal_mask, act_out.actions)
+        loss = (
+            -logp.mean() - 0.01 * ent.mean() + v_logits.square().mean() + a_logits.square().mean()
+        )
+        loss.backward()
+        grad_norms = [p.grad.norm().item() for p in model.parameters() if p.grad is not None]
+        assert len(grad_norms) == sum(1 for p in model.parameters() if p.requires_grad)
+        assert all(math.isfinite(g) for g in grad_norms)
+
+        # Verify 5x5 heading-rotated ROI gather responds to heading rotation on shared_trunk
+        if arch == "shared_trunk":
+            model.eval()
+            with torch.no_grad():
+                out_dir0 = model.forward(obs, legal_mask=legal_mask)
+                obs_rot = SharedWorldObs(
+                    world_arena=wa,
+                    ego=ego,
+                    scalars=scal,
+                    head_xy=hxy,
+                    direction=(direction + 1).remainder(4),
+                    alive=alive,
+                )
+                out_dir1 = model.forward(obs_rot, legal_mask=legal_mask)
+                assert not torch.allclose(
+                    out_dir0.masked_logits[:5, :3], out_dir1.masked_logits[:5, :3]
+                )
+                assert not torch.allclose(out_dir0.aux_logits[:5], out_dir1.aux_logits[:5])
+
+        # Custom board resolution (48 x 64)
+        custom_m = build_arena_model(arch, "S", grid_h=48, grid_w=64).to(dev)
+        obs_c = SharedWorldObs(
+            world_arena=torch.randn((2, NUM_WORLD_CHANNELS, 48, 64), device=dev),
+            ego=torch.randn((8, NUM_OBS_CHANNELS, EGO_CROP_SIZE, EGO_CROP_SIZE), device=dev),
+            scalars=torch.randn((8, SCALAR_DIM), device=dev),
+            head_xy=torch.zeros((2, 4, 2), dtype=torch.long, device=dev),
+            direction=torch.zeros((2, 4), dtype=torch.long, device=dev),
+            alive=torch.ones((2, 4), dtype=torch.bool, device=dev),
+        )
+        out_c = custom_m.act(obs_c, legal_mask=torch.ones((8, 6), dtype=torch.bool, device=dev))
+        assert out_c.actions.shape == (8,) and torch.isfinite(out_c.values).all()
