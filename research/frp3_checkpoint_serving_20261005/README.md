@@ -7,4 +7,4 @@
 ## Key Files & Results
 
 - **Package entrypoints / artifacts:** [`protocol.md`](protocol.md), [`serving_run.py`](serving_run.py), [`serving_audit.py`](serving_audit.py), [`fill_strict_pin.py`](fill_strict_pin.py), [`fixtures/`](fixtures/)
-- **Related docs / results:** [`docs/research/frp3_serving_result_and_release_2026-10-06.md`](../../docs/research/frp3_serving_result_and_release_2026-10-06.md), [`docs/research/history/frp.md`](../../docs/research/history/frp.md)
+- **Related docs / results:** [`docs/research/frp3_serving_result_and_release_2026-10-06.md`](../../docs/research/frp3_serving_result_and_release_2026-10-06.md), [`docs/research/history/frp.md`](../../docs/research/history/served-agents.md#frp)

@@ -1,7 +1,7 @@
 # F0 hindsight label factory
 
 **Summary:** F0 produced exact hindsight development labels; D256 and D1024 completed, while D4096 was sealed NOT_RUN_BY_RULE after funding stopped. (src: research/bl_labels/README.md:3-7; docs/research/final_run_20261019/CAMPAIGN_LOG.md:794-810; docs/research/final_run_20261019/CAMPAIGN_LOG.md:1364-1365; docs/research/final_run_20261019/CAMPAIGN_LOG.md:1404)
-**As of:** 2026-10-25 PT · **Sources:** [consolidated history](../research/history/bl-labels.md); primary records cited inline.
+**As of:** 2026-10-25 PT · **Sources:** [consolidated history](../research/history/teaching-search.md#bl-labels); primary records cited inline.
 **Related:** [Index](README.md), [GLOSSARY](GLOSSARY.md), [F4 study](f4-study.md), [Big-lever program](big-lever-program.md), [Colab and compute infrastructure](colab-and-compute-infra.md), [GPU engine and speed](gpu-engine-and-speed.md).
 
 ## What F0 produces

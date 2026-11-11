@@ -1,7 +1,7 @@
 # Big-lever advisor program
 
 **Summary:** The advisor program revised its release plan into bounded Mac and A100 research lanes while retaining Mac qualification and owner release authority. (src: big-lever/PLAN_v2.md:16-21; big-lever/PLAN_A100.md:1-19)
-**As of:** 2026-10-25 PT · **Sources:** consolidated record [`docs/research/history/t34-big-lever.md`](../research/history/t34-big-lever.md); primary records cited inline.
+**As of:** 2026-10-25 PT · **Sources:** consolidated record [`docs/research/history/t34-big-lever.md`](../research/history/search.md#t34-big-lever); primary records cited inline.
 **Related:** [Index](README.md), [GLOSSARY](GLOSSARY.md), [Big-lever experiments](big-lever-experiments.md), [Governance and owner rules](governance-and-owner-rules.md), [Overview and serving](overview-and-serving.md), [GPU engine and speed](gpu-engine-and-speed.md), [Label factory](label-factory.md), [F4 study](f4-study.md), [Successor studies](r30-r32-f5-successors.md)
 
 ## Charter and judge process

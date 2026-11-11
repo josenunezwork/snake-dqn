@@ -4,7 +4,7 @@
 documents, research records and judge rulings; every claim carries a source citation.
 **As of:** 2026-10-25 PT · **Sources:** `docs/`, `AGENTS.md`, `research/*/README.md` and handoffs, and the big-lever
 rulings under `snake-dqn-artifacts/big-lever/`; intermediate fact sheets are in `_facts/`.
-**Related:** [STYLE](../research/history/project-status-and-indexes.md), [GLOSSARY](GLOSSARY.md)
+**Related:** [STYLE](../research/history/colab-and-process.md#project-status-and-indexes), [GLOSSARY](GLOSSARY.md)
 
 ## How to read these notes
 
@@ -13,7 +13,7 @@ rulings under `snake-dqn-artifacts/big-lever/`; intermediate fact sheets are in 
 - Where sources disagree, the newer ruling, receipt or erratum wins in the body; both appear under
   "Superseded and conflicting records". Claims that could not be confirmed sit under "Unverified".
 - Citations are `(src: path:line)` relative to the repository, `big-lever/...` for the artifacts tree, or `git <sha>`.
-- The writing rules are in [STYLE.md](../research/history/project-status-and-indexes.md). The fact sheets in `_facts/` are the raw, cited inputs each note was
+- The writing rules are in [STYLE.md](../research/history/colab-and-process.md#project-status-and-indexes). The fact sheets in `_facts/` are the raw, cited inputs each note was
   written from; they are kept for audit and are not part of the reading order.
 
 ## Notes

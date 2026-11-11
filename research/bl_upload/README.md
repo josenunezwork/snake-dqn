@@ -7,4 +7,4 @@
 ## Key Files & Results
 
 - **Package entrypoints / artifacts:** [`qualification.py`](qualification.py), [`inputs.py`](inputs.py), [`qualify.py`](qualify.py), [`test_qualification.py`](test_qualification.py)
-- **Related docs / results:** [`docs/research/history/colab-ops.md`](../../docs/research/history/colab-ops.md), [`docs/notes/big-lever-experiments.md`](../../docs/notes/big-lever-experiments.md)
+- **Related docs / results:** [`docs/research/history/colab-ops.md`](../../docs/research/history/colab-and-process.md#colab-ops), [`docs/notes/big-lever-experiments.md`](../../docs/notes/big-lever-experiments.md)

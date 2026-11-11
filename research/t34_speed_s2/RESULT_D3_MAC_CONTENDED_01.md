@@ -99,7 +99,7 @@ All paths below are under
   all 1,800 root action entries and other exported fields agree. Repeat hashes are
   stable, with no observed tie flip or same-host nondeterminism. Exact backend cause
   is unproven; cross-platform byte identity remains failed. See
-  [docs/research/history/perf-20261013.md](../../docs/research/history/perf-20261013.md) for review findings and the full report fingerprint.
+  [docs/research/history/perf-20261013.md](../../docs/research/history/simulators-and-speed.md#perf-20261013) for review findings and the full report fingerprint.
 
 The untouched frozen reference SHA-256 is
 `2561df198872079ac59a1f0e55287a49cc38f3d3c4397f311550fe6d99cf113e`.

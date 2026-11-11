@@ -6,7 +6,7 @@ This concise evidence record separates dated observations from current promotion
 status. For the September operational cleanup, see
 [Codebase quality handoff](codebase_quality_2026-09.md).
 
-The [September RL research portfolio](research/history/pqn-redesign-and-sept-audit.md)
+The [September RL research portfolio](research/history/rl-runs.md#pqn-redesign-and-sept-audit)
 records newer sampler, lifecycle, observation, and decision-phase work. Its
 experiment ledger includes failed and capped attempts, source and seed identity,
 resource measurements, outcomes, and the next question each result supports.

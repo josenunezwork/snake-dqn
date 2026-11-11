@@ -7,4 +7,4 @@
 ## Key Files & Results
 
 - **Package entrypoints / artifacts:** [`PREREGISTRATION_M3C.md`](PREREGISTRATION_M3C.md), [`CHECKPOINTS.md`](CHECKPOINTS.md), [`learner_m3c.py`](learner_m3c.py), [`phase_r_m3c.py`](phase_r_m3c.py), [`results/`](results/)
-- **Related docs / results:** [`docs/research/m3c_design_2026-10-08.md`](../../docs/research/m3c_design_2026-10-08.md), [`docs/research/history/m3-m7-redesign.md`](../../docs/research/history/m3-m7-redesign.md)
+- **Related docs / results:** [`docs/research/m3c_design_2026-10-08.md`](../../docs/research/m3c_design_2026-10-08.md), [`docs/research/history/m3-m7-redesign.md`](../../docs/research/history/rl-runs.md#m3-m7-redesign)

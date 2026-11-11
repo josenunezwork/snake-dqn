@@ -14,14 +14,14 @@ related ruling on label ordering.
 ## Read in this order
 | # | File | What it is |
 |---|---|---|
-| 1 | [SYNTHESIS.md](../../history/t34-a100-advice.md) | Claude's synthesis: verdict, the levers that matter more (Claim A pipeline, Path B pacing, §5 ordering, NO-GO plan), corrections to the brief |
-| 2 | [FACTS_AND_QUESTION.md](../../history/t34-a100-advice.md) | The facts brief and the open question that every advisor received |
+| 1 | [SYNTHESIS.md](../../history/colab-and-process.md#t34-a100-advice) | Claude's synthesis: verdict, the levers that matter more (Claim A pipeline, Path B pacing, §5 ordering, NO-GO plan), corrections to the brief |
+| 2 | [FACTS_AND_QUESTION.md](../../history/colab-and-process.md#t34-a100-advice) | The facts brief and the open question that every advisor received |
 | 3 | [REVIEW_A_evidence.md](REVIEW_A_evidence.md) | Independent Fable review A: audit of every cited file:line in the advice |
 | 4 | [REVIEW_B_decision.md](REVIEW_B_decision.md) | Independent Fable review B: the decision itself |
-| 5 | [REVIEW_C_adversarial.md](../../history/t34-a100-advice.md) | Independent Fable review C: what all ten Astra answers missed |
-| 6 | [astra_p1_systems.md](../../history/t34-a100-advice.md) … [astra_p5_colab_ops.md](../../history/t34-a100-advice.md) | 5 Astra lenses × 2 calls each, with cross-examination: P1 systems, [P2 GPU search](../../history/t34-a100-advice.md), [P3 distillation](../../history/t34-a100-advice.md), [P4 critical path](astra_p4_critical_path.md), P5 Colab ops |
-| 7 | [GPU_EXPERT_PROMPTS.md](../../history/t34-a100-advice.md) | Round 2: the Fable-written prompts for an open-ended GPU rethink |
-| 8 | [gpu_expert_1.md](../../history/t34-a100-advice.md), [gpu_expert_2.md](../../history/t34-a100-advice.md), [gpu_expert_3.md](../../history/t34-a100-advice.md) | Round 2 answers from 3 independent Fable GPU experts (simulator, search algorithm, learning/network). They agree there is no A100 and no GPU search port this campaign |
+| 5 | [REVIEW_C_adversarial.md](../../history/colab-and-process.md#t34-a100-advice) | Independent Fable review C: what all ten Astra answers missed |
+| 6 | [astra_p1_systems.md](../../history/colab-and-process.md#t34-a100-advice) … [astra_p5_colab_ops.md](../../history/colab-and-process.md#t34-a100-advice) | 5 Astra lenses × 2 calls each, with cross-examination: P1 systems, [P2 GPU search](../../history/colab-and-process.md#t34-a100-advice), [P3 distillation](../../history/colab-and-process.md#t34-a100-advice), [P4 critical path](astra_p4_critical_path.md), P5 Colab ops |
+| 7 | [GPU_EXPERT_PROMPTS.md](../../history/colab-and-process.md#t34-a100-advice) | Round 2: the Fable-written prompts for an open-ended GPU rethink |
+| 8 | [gpu_expert_1.md](../../history/colab-and-process.md#t34-a100-advice), [gpu_expert_2.md](../../history/colab-and-process.md#t34-a100-advice), [gpu_expert_3.md](../../history/colab-and-process.md#t34-a100-advice) | Round 2 answers from 3 independent Fable GPU experts (simulator, search algorithm, learning/network). They agree there is no A100 and no GPU search port this campaign |
 | 9 | [RULING_label_ordering.md](RULING_label_ordering.md) | A separate Fable judge ruling: R1 label collection may follow a published Round 0 GO, in parallel with Path B. It became the §5 amendment in `d5b11e3a` |
 
 ## Related
