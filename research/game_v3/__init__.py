@@ -4,6 +4,7 @@ from research.game_v3.config import NUM_ACTIONS, NUM_TURN_LEVELS, GameV3Config
 from research.game_v3.obs import (
     NUM_RASTER_CHANNELS,
     NUM_SCALAR_FEATURES,
+    LearnerIndex,
     ObservationBatch,
     ReferenceObservation,
     allocate_obs_batch,
@@ -17,6 +18,7 @@ from research.game_v3.sim import GameV3Sim, StepInfo
 __all__ = [
     "GameV3Config",
     "GameV3Sim",
+    "LearnerIndex",
     "NUM_ACTIONS",
     "NUM_RASTER_CHANNELS",
     "NUM_SCALAR_FEATURES",

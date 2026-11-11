@@ -88,9 +88,9 @@ def random_safe_actions(sim: GameV3Sim, *, stream_offset: int = 0) -> torch.Tens
         int(stream_offset)
         + torch.arange(sim.N * n_draws, dtype=torch.int64, device=sim.device)[None, :]
     )
-    draws = rng_int_torch(sim.seeds[:, None], sim.tick + 1, PURPOSE_SCRIPTED, base_slot, 1000).view(
-        sim.E, sim.N, n_draws
-    )
+    draws = rng_int_torch(
+        sim.seeds[:, None], sim.world_ticks[:, None] + 1, PURPOSE_SCRIPTED, base_slot, 1000
+    ).view(sim.E, sim.N, n_draws)
 
     # Safety dominates (weight 10,000 per clear horizon step); uniform [0, 1000) breaks ties
     # across all 5 turn levels {-1, -0.5, 0, +0.5, +1}.
@@ -176,7 +176,7 @@ def food_seeking_actions(sim: GameV3Sim, *, stream_offset: int = 1000) -> torch.
         + torch.arange(sim.N * NUM_TURN_LEVELS, dtype=torch.int64, device=sim.device)[None, :]
     )
     jitter = rng_int_torch(
-        sim.seeds[:, None], sim.tick + 1, PURPOSE_SCRIPTED, jitter_slots, 64
+        sim.seeds[:, None], sim.world_ticks[:, None] + 1, PURPOSE_SCRIPTED, jitter_slots, 64
     ).view(sim.E, sim.N, NUM_TURN_LEVELS)
 
     total_score = safety.to(torch.int64) * 2_500_000 + food_score * 10 - wall_pen + jitter

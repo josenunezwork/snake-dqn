@@ -21,6 +21,7 @@ from research.game_v3.rng import (
     PURPOSE_AMBIENT_FOOD,
     PURPOSE_INIT_FOOD,
     PURPOSE_INIT_SNAKE,
+    PURPOSE_KILL_CREDIT,
     PURPOSE_RESPAWN,
     PURPOSE_SCRIPTED,
     rng_angle_idx_np,
@@ -42,6 +43,8 @@ def test_config_defaults_and_json_roundtrip() -> None:
     assert cfg.cell_size == 1.0
     assert cfg.start_length == 10
     assert cfg.max_length == 2048
+    assert cfg.spawn_wall_margin == 20.0
+    assert cfg.max_life_ticks == 0
     assert cfg.respawn_candidates == 8
     assert cfg.angle_steps == 4096
     assert cfg.speed == 1.0
@@ -99,6 +102,8 @@ def test_config_validation_bounds() -> None:
     with pytest.raises(ValueError):
         GameV3Config(food_pickup_mult=0.0)
     with pytest.raises(ValueError):
+        GameV3Config(ambient_pellet_value=256)  # ambient_grid is uint8 [0, 255].
+    with pytest.raises(ValueError):
         GameV3Config(angle_steps=4000)  # Must be power of 2.
 
 
@@ -143,6 +148,7 @@ def test_body_radius_turn_slowdown_and_integer_tables() -> None:
         PURPOSE_AMBIENT_FOOD,
         PURPOSE_RESPAWN,
         PURPOSE_SCRIPTED,
+        PURPOSE_KILL_CREDIT,
     ],
 )
 def test_counter_rng_exact_parity_numpy_vs_torch_cpu_and_mps(purpose: int) -> None:
@@ -150,9 +156,11 @@ def test_counter_rng_exact_parity_numpy_vs_torch_cpu_and_mps(purpose: int) -> No
     seeds_np = np.array([0, 1, 42, 999999937, (1 << 60) + 17], dtype=np.int64)[:, None]
     ticks_np = np.array([0, 1, 57, 999, 123456], dtype=np.int64)[:, None]
     slots_np = np.arange(64, dtype=np.int64)[None, :]
+    high_arr_np = (np.arange(64, dtype=np.int64) % 7 + 1)[None, :]
 
     u63_np = rng_u63_np(seeds_np, ticks_np, purpose, slots_np)
     ri_np = rng_int_np(seeds_np, ticks_np, purpose, slots_np, 1216)
+    ri_var_np = rng_int_np(seeds_np, ticks_np, purpose, slots_np, high_arr_np)
     uf_np = rng_uniform_f32_np(seeds_np, ticks_np, purpose, slots_np)
     ang_np = rng_angle_idx_np(seeds_np, ticks_np, purpose, slots_np, 4096)
 
@@ -164,14 +172,17 @@ def test_counter_rng_exact_parity_numpy_vs_torch_cpu_and_mps(purpose: int) -> No
         seeds_th = torch.as_tensor(seeds_np, dtype=torch.int64, device=dev)
         ticks_th = torch.as_tensor(ticks_np, dtype=torch.int64, device=dev)
         slots_th = torch.as_tensor(slots_np, dtype=torch.int64, device=dev)
+        high_th = torch.as_tensor(high_arr_np, dtype=torch.int32, device=dev)
 
         u63_th = rng_u63_torch(seeds_th, ticks_th, purpose, slots_th).cpu().numpy()
         ri_th = rng_int_torch(seeds_th, ticks_th, purpose, slots_th, 1216).cpu().numpy()
+        ri_var_th = rng_int_torch(seeds_th, ticks_th, purpose, slots_th, high_th).cpu().numpy()
         uf_th = rng_uniform_f32_torch(seeds_th, ticks_th, purpose, slots_th).cpu().numpy()
         ang_th = rng_angle_idx_torch(seeds_th, ticks_th, purpose, slots_th, 4096).cpu().numpy()
 
         np.testing.assert_array_equal(u63_np, u63_th)
         np.testing.assert_array_equal(ri_np, ri_th)
+        np.testing.assert_array_equal(ri_var_np, ri_var_th)
         np.testing.assert_array_equal(uf_np.view(np.uint32), uf_th.view(np.uint32))
         np.testing.assert_array_equal(ang_np, ang_th)
         scalar_th = rng_u63_torch(seeds_th[:, 0], 57, purpose, 19).cpu().numpy()
