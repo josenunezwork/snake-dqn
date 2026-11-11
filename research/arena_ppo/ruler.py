@@ -191,58 +191,60 @@ def _measure_collection_only_cell(
     chunk = max(1, min(num_envs, int(actor_chunk_envs)))
     ring_chunk = min(512, max_capacity)
 
-    def _one_tick(timer: StageSplitTimer | None) -> None:
+    def _one_tick(cur_sim: TrainSim, cur_net: ArenaNet, timer: StageSplitTimer | None) -> None:
         if timer is not None:
             timer.start("sim_step")
-        sim.prepare()
-        legal_mask = sim.legal_action_mask()
+        cur_sim.prepare()
+        legal_mask = cur_sim.legal_action_mask()
         if timer is not None:
             timer.stop("sim_step")
 
         if chunk == num_envs:
             if timer is not None:
                 timer.start("obs_build")
-            obs = build_arena_ego_obs_gpu(sim, ring_chunk=ring_chunk)
+            obs = build_arena_ego_obs_gpu(cur_sim, ring_chunk=ring_chunk)
             if timer is not None:
                 timer.stop("obs_build")
                 timer.start("policy_forward")
-            act_out = net.act(obs.arena, obs.ego, obs.scalars, legal_mask=legal_mask, greedy=False)
-            actions = act_out.actions.reshape(num_envs, sim.S)
+            act_out = cur_net.act(
+                obs.arena, obs.ego, obs.scalars, legal_mask=legal_mask, greedy=False
+            )
+            actions = act_out.actions.reshape(num_envs, cur_sim.S)
             if timer is not None:
                 timer.stop("policy_forward")
         else:
-            actions = torch.empty((num_envs, sim.S), dtype=torch.long, device=device)
+            actions = torch.empty((num_envs, cur_sim.S), dtype=torch.long, device=device)
             for start in range(0, num_envs, chunk):
                 end = min(num_envs, start + chunk)
                 sl = slice(start, end)
                 if timer is not None:
                     timer.start("obs_build")
-                obs = build_arena_ego_obs_gpu(sim, env_slice=sl, ring_chunk=ring_chunk)
+                obs = build_arena_ego_obs_gpu(cur_sim, env_slice=sl, ring_chunk=ring_chunk)
                 if timer is not None:
                     timer.stop("obs_build")
                     timer.start("policy_forward")
-                act_out = net.act(
+                act_out = cur_net.act(
                     obs.arena, obs.ego, obs.scalars, legal_mask=legal_mask[sl], greedy=False
                 )
-                actions[sl] = act_out.actions.reshape(end - start, sim.S)
+                actions[sl] = act_out.actions.reshape(end - start, cur_sim.S)
                 if timer is not None:
                     timer.stop("policy_forward")
 
         if timer is not None:
             timer.start("sim_step")
-        sim.step(actions)
+        cur_sim.step(actions)
         if timer is not None:
             timer.stop("sim_step")
 
     for _ in range(max(1, warmup_ticks)):
-        _one_tick(None)
+        _one_tick(sim, net, None)
     synchronize_device(device)
     _reset_peak_vram(device)
 
     stage_timer = StageSplitTimer(device)
     t0 = time.perf_counter()
     for _ in range(max(1, collect_ticks)):
-        _one_tick(stage_timer)
+        _one_tick(sim, net, stage_timer)
     stage_sec = stage_timer.summarize()
     wall_sec = max(1e-9, time.perf_counter() - t0)
     peak_vram = _peak_vram_bytes(device)
@@ -282,7 +284,7 @@ def _measure_integrated_cell(
     compile_model: bool,
     seed: int,
 ) -> dict[str, Any]:
-    """Measure integrated (`collect + learn`) throughput and stage split for `(num_envs, net_size)`."""
+    """Measure integrated (`collect + learn`) throughput and stage split."""
     _cleanup_device_memory(device)
     _reset_peak_vram(device)
 
@@ -529,7 +531,7 @@ def run_ruler(
     write_canary_probes: bool = True,
     seed: int = 20261110,
 ) -> dict[str, Any]:
-    """Execute throughput & VRAM sweep across `envs_list x net_sizes` and publish `ruler_result.json`."""
+    """Execute throughput & VRAM sweep across `envs_list x net_sizes` and write `ruler_result`."""
     wall_start = time.monotonic()
     resolved_dev = normalize_device(device)
     phase_stamp("ruler_setup", "START", device=str(resolved_dev))

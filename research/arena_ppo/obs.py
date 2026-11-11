@@ -623,7 +623,7 @@ def build_arena_ego_obs_cpu(
             wy_c = np.clip(wy, 0, grid_h - 1)
 
             cropped = arena[env, s_slot, :, wy_c, wx_c]
-            # NumPy advanced indexing on axes `(1, 2)` yields `(47, 47, C)`; transpose to `(C, 47, 47)`
+            # NumPy advanced indexing on axes `(1, 2)` yields `(47, 47, C)`; transpose to CHW
             if cropped.shape[0] != NUM_OBS_CHANNELS:
                 cropped = np.transpose(cropped, (2, 0, 1))
             cropped = np.where(inb_ego[None, :, :], cropped, np.float32(0.0))

@@ -38,7 +38,7 @@ GPU_FORECAST_RATES_UPH: dict[str, float] = {
     "H100": 12.0,
 }
 
-# Short-canary ruler envelope: 14 min base / 28 min 2x timeout (<= 28 min requirement, <= 30 min cap)
+# Short-canary ruler envelope: 14 min base / 28 min 2x timeout (<= 28 min req, <= 30 min cap)
 RULER_BASE_MINUTES = 14.0
 RULER_TIMEOUT_MINUTES = 28.0
 RULER_WALL_GUARD_SECONDS = 1440.0
@@ -369,7 +369,7 @@ def prepare_arena_ppo_packet(
                 }
             }
 
-    unit_cap = round((timeout_minutes * rate_uph) / 60.0 + 1e-9, 4)
+    unit_cap = math.ceil(((timeout_minutes * rate_uph) / 60.0 - 1e-12) * 10000.0) / 10000.0
     manifest: dict[str, Any] = {
         "job_id": job_id[:64],
         "commit": resolved_commit,

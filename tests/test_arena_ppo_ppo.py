@@ -126,7 +126,7 @@ def test_gae_death_no_bootstrap_and_ppo_update_changes_weights() -> None:
     # Aux death target on died step must be 1.0 and valid across all 3 horizons
     assert (buf.aux_targets[-1, 0, 0] == 1.0).all()
     assert buf.aux_valid[-1, 0, 0].all()
-    # Alive seat at t=0 with T=18: valid=True for h=16 (target=0), censored (valid=False) for h=64,256
+    # Alive seat at t=0 with T=18: valid=True for h=16 (target=0), censored for h=64,256
     assert bool(buf.aux_valid[0, 0, 1, 0].item()) is True
     assert float(buf.aux_targets[0, 0, 1, 0].item()) == 0.0
     assert bool(buf.aux_valid[0, 0, 1, 1].item()) is False

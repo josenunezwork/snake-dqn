@@ -786,7 +786,7 @@ class TrainSim:
         """
         if int(state["E"]) != self.E or int(state["S"]) != self.S or int(state["cap"]) != self.cap:
             raise ValueError(
-                f"TrainSim shape mismatch on load: checkpoint={(state['E'], state['S'], state['cap'])} "
+                f"TrainSim shape mismatch on load: ckpt={(state['E'], state['S'], state['cap'])} "
                 f"vs current={(self.E, self.S, self.cap)}"
             )
         sim_tensors = state["sim_tensors"]

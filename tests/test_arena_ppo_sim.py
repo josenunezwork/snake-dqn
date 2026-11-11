@@ -186,7 +186,7 @@ def test_scripted_greedy_food_matches_anchor_oracle(device_name: str) -> None:
 
 
 def test_trainsim_state_dict_roundtrip_and_immutable_artifacts(tmp_path: Path) -> None:
-    """Verify TrainSim state_dict restore reproduces identical future rollouts and create-only IO."""
+    """Verify TrainSim state_dict restore reproduces identical rollouts and create-only IO."""
     sim_a = TrainSim.create(8, device="cpu", seed=99, max_capacity=256)
     gen = torch.Generator(device="cpu").manual_seed(31415)
     for _ in range(25):

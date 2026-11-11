@@ -39,7 +39,7 @@ def test_ruler_end_to_end_on_mps_and_canary_probes(tmp_path: Path) -> None:
         rollout_len=4,
         ppo_epochs=1,
         minibatch_size=12,
-        actor_chunk_envs=4,
+        actor_chunk_envs=2,
         max_capacity=64,
         write_canary_probes=True,
         seed=123,

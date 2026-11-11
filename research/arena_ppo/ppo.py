@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import json
-import math
 import os
 import random
 import signal
@@ -855,7 +854,7 @@ class ArenaPPOTrainer:
         )
 
     def checkpoint_dict(self) -> dict[str, Any]:
-        """Build full deterministic state dictionary (`model`, `optimizer`, `sim`, `RNG`, counters)."""
+        """Build full deterministic state dict (`model`, `optimizer`, `sim`, `RNG`, counters)."""
         cuda_rng = torch.cuda.get_rng_state_all() if self.device.type == "cuda" else None
         return {
             "schema": ARENA_PPO_SCHEMA,
@@ -888,7 +887,7 @@ class ArenaPPOTrainer:
         }
 
     def save_checkpoint(self, path: Path | str, *, reason: str = "periodic") -> tuple[str, str]:
-        """Atomically save checkpoint `.pt` + `.meta.json` with `.sha256` and `.complete` markers."""
+        """Atomically save checkpoint `.pt` + `.meta.json` with `.sha256` + `.complete` markers."""
         target = Path(path)
         payload = self.checkpoint_dict()
         payload["reason"] = reason
