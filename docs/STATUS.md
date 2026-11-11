@@ -1,6 +1,7 @@
 # Current state — updated 2026-11-10 PT
 
 Start: [project index](INDEX.md) · [registered items](REGISTERED_ITEMS.md) · [implementer checklist](IMPLEMENTER_CHECKLIST.md) · [campaign log](research/final_run_20261019/CAMPAIGN_LOG.md) · [research roadmap (advice)](research/ROADMAP.md) · [documentation map](README.md) · [study packages](../research/INDEX.md) · [research record](research/INDEX.md) · [lineage history](research/history/INDEX.md) · [glossary](research/GLOSSARY.md).
+What we learned (plain-language findings map): [FINDINGS.md](FINDINGS.md).
 
 - **Project goal:** Train the strongest possible slither.io-style agent. Mac serving bars (`24 fps`, `GameState.update p95 <= 11.688 ms`, Mac strict gate, serving qualification) gate **release** only and do not limit what is trained; a large teacher distilled to a Mac-size student is allowed.
 - **What is served (unchanged until a release):** **Watch** = `132`-session confirmed `exact-stop-l1-os` replay bank (`watch-replay-bank-live-132-l1os-installed`, `SNAKE_WATCH_REPLAY_CONTROLLER=exact-stop-l1-os`, live bare `b8-s3` fallback); **Play** = live bare `b8-s3` (`Classic B8` default, `Field: Classic B8 / Mixed` opt-in). Rollbacks below remain active.
