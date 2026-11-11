@@ -31,6 +31,33 @@ AUX_DEATH_HORIZONS: tuple[int, int, int] = (16, 64, 256)
 MASK_FILL_VALUE = -1.0e9
 
 
+def default_actor_chunk_envs(size: NetSize) -> int:
+    """Return safe default per-tick actor world chunk size for network preset ``size``."""
+    if size == "S":
+        return 1024
+    if size == "M":
+        return 512
+    raise ValueError(f"Unsupported ArenaNet size preset {size!r}")
+
+
+def default_minibatch_size(size: NetSize) -> int:
+    """Return safe default PPO learner minibatch row count for network preset ``size``."""
+    if size == "S":
+        return 1536
+    if size == "M":
+        return 768
+    raise ValueError(f"Unsupported ArenaNet size preset {size!r}")
+
+
+def larger_ruler_minibatch_size(size: NetSize) -> int:
+    """Return larger secondary minibatch row count probed by the throughput ruler."""
+    if size == "S":
+        return 3072
+    if size == "M":
+        return 1536
+    raise ValueError(f"Unsupported ArenaNet size preset {size!r}")
+
+
 def symlog(x: torch.Tensor) -> torch.Tensor:
     """Compute elementwise ``sign(x) * log(|x| + 1)`` in float32.
 
@@ -57,20 +84,42 @@ def symexp(y: torch.Tensor) -> torch.Tensor:
     return torch.sign(yf) * torch.expm1(torch.abs(yf))
 
 
-def two_hot_encode(target_symlog: torch.Tensor, support: torch.Tensor) -> torch.Tensor:
+def two_hot_encode(
+    target_symlog: torch.Tensor,
+    support: torch.Tensor,
+    *,
+    vmin: float | None = None,
+    vmax: float | None = None,
+) -> torch.Tensor:
     """Encode scalar symlog values into exact two-hot probability weights over `support`.
+
+    Passing ``vmin`` and ``vmax`` (or passing ``ArenaNet.value_support`` which caches
+    its Python float bounds) avoids any ``.item()`` device-to-host synchronization.
 
     Args:
         target_symlog: Tensor of shape ``(N,)`` in symlog space.
         support: 1D monotonically increasing bin centers ``(B,)`` (`B >= 2`).
+        vmin: Optional Python float lower bound (`support[0]`).
+        vmax: Optional Python float upper bound (`support[-1]`).
 
     Returns:
         Float32 tensor ``(N, B)`` whose rows sum to ``1.0`` and satisfy
         ``(two_hot @ support) == clamp(target_symlog, support[0], support[-1])``.
     """
     num_bins = int(support.shape[0])
-    vmin = float(support[0].item())
-    vmax = float(support[-1].item())
+    if vmin is None or vmax is None:
+        cached_bounds = getattr(support, "_symlog_bounds", None)
+        if cached_bounds is not None:
+            lo, hi = float(cached_bounds[0]), float(cached_bounds[1])
+            vmin = lo if vmin is None else float(vmin)
+            vmax = hi if vmax is None else float(vmax)
+        else:
+            vmin = float(support[0].item()) if vmin is None else float(vmin)
+            vmax = float(support[-1].item()) if vmax is None else float(vmax)
+    else:
+        vmin = float(vmin)
+        vmax = float(vmax)
+
     clamped = target_symlog.to(torch.float32).clamp(vmin, vmax)
     step = (vmax - vmin) / float(num_bins - 1)
     scaled = (clamped - vmin) / step
@@ -96,7 +145,12 @@ def symlog_two_hot_value(value_logits: torch.Tensor, support: torch.Tensor) -> t
         Float32 scalar value predictions ``(N,)`` in linear return space.
     """
     probs = F.softmax(value_logits.to(torch.float32), dim=-1)
-    expected_symlog = torch.matmul(probs, support.to(dtype=torch.float32, device=probs.device))
+    sup = (
+        support
+        if support.device == probs.device and support.dtype == torch.float32
+        else support.to(dtype=torch.float32, device=probs.device)
+    )
+    expected_symlog = torch.matmul(probs, sup)
     return symexp(expected_symlog)
 
 
@@ -104,6 +158,9 @@ def symlog_two_hot_loss(
     value_logits: torch.Tensor,
     target_returns: torch.Tensor,
     support: torch.Tensor,
+    *,
+    vmin: float | None = None,
+    vmax: float | None = None,
 ) -> torch.Tensor:
     """Compute per-sample cross-entropy loss against two-hot symlog-encoded returns.
 
@@ -111,6 +168,8 @@ def symlog_two_hot_loss(
         value_logits: Predicted bin logits ``(N, B)``.
         target_returns: Target scalar returns ``(N,)`` in linear space.
         support: 1D symlog bin centers ``(B,)``.
+        vmin: Optional Python float lower bound (`support[0]`) to avoid host sync.
+        vmax: Optional Python float upper bound (`support[-1]`) to avoid host sync.
 
     Returns:
         Per-row cross-entropy loss tensor ``(N,)`` in float32.
@@ -118,7 +177,10 @@ def symlog_two_hot_loss(
     log_probs = F.log_softmax(value_logits.to(torch.float32), dim=-1)
     with torch.no_grad():
         target_dist = two_hot_encode(
-            symlog(target_returns), support.to(device=value_logits.device, dtype=torch.float32)
+            symlog(target_returns),
+            support,
+            vmin=vmin,
+            vmax=vmax,
         )
     return -(target_dist * log_probs).sum(dim=-1)
 
@@ -228,6 +290,8 @@ class ArenaNetConfig:
     value_bins: int = 255
     value_symlog_min: float = -15.0
     value_symlog_max: float = 15.0
+    token_grid_h: int = (ARENA_GRID_H + 7) // 8
+    token_grid_w: int = (ARENA_GRID_W + 7) // 8
     use_channels_last: bool = True
     use_bf16_autocast: bool = True
 
@@ -236,6 +300,8 @@ class ArenaNetConfig:
         cls,
         size: NetSize,
         *,
+        token_grid_h: int = (ARENA_GRID_H + 7) // 8,
+        token_grid_w: int = (ARENA_GRID_W + 7) // 8,
         use_channels_last: bool = True,
         use_bf16_autocast: bool = True,
     ) -> "ArenaNetConfig":
@@ -257,6 +323,8 @@ class ArenaNetConfig:
                 ego_stage2_blocks=2,
                 scalar_hidden=64,
                 fuse_dim=192,
+                token_grid_h=int(token_grid_h),
+                token_grid_w=int(token_grid_w),
                 use_channels_last=use_channels_last,
                 use_bf16_autocast=use_bf16_autocast,
             )
@@ -277,6 +345,8 @@ class ArenaNetConfig:
                 ego_stage2_blocks=2,
                 scalar_hidden=64,
                 fuse_dim=320,
+                token_grid_h=int(token_grid_h),
+                token_grid_w=int(token_grid_w),
                 use_channels_last=use_channels_last,
                 use_bf16_autocast=use_bf16_autocast,
             )
@@ -324,11 +394,14 @@ class ArenaNet(nn.Module):
     ) -> None:
         super().__init__()
         self.cfg = cfg
+        self.token_h = int(cfg.token_grid_h)
+        self.token_w = int(cfg.token_grid_w)
+        self.num_tokens = self.token_h * self.token_w
         self.use_channels_last = bool(cfg.use_channels_last)
         self.use_bf16_autocast = bool(cfg.use_bf16_autocast)
         self.is_compiled = bool(compile_model)
 
-        # Arena stream: 83x145 -> 42x73 -> 21x37 -> 11x19 tokens -> 2 self-attention layers
+        # Arena stream: stride-8 conv stem/stages -> adaptive token grid -> 2 self-attn layers
         self.arena_stem = nn.Sequential(
             nn.Conv2d(
                 cfg.in_channels, cfg.arena_stem_ch, kernel_size=3, stride=2, padding=1, bias=False
@@ -346,7 +419,7 @@ class ArenaNet(nn.Module):
             arena_s2.append(ConvResBlock(cfg.arena_dim, cfg.arena_dim, stride=1))
         self.arena_stage2 = nn.Sequential(*arena_s2)
 
-        self.arena_pos_embed = nn.Parameter(torch.zeros(1, self.NUM_TOKENS, cfg.arena_dim))
+        self.arena_pos_embed = nn.Parameter(torch.zeros(1, self.num_tokens, cfg.arena_dim))
         nn.init.trunc_normal_(self.arena_pos_embed, std=0.02)
 
         self.arena_attn = nn.ModuleList(
@@ -404,6 +477,10 @@ class ArenaNet(nn.Module):
         support = torch.linspace(
             cfg.value_symlog_min, cfg.value_symlog_max, cfg.value_bins, dtype=torch.float32
         )
+        support._symlog_bounds = (  # type: ignore[attr-defined]
+            float(cfg.value_symlog_min),
+            float(cfg.value_symlog_max),
+        )
         self.register_buffer("value_support", support, persistent=True)
 
         if self.use_channels_last:
@@ -414,13 +491,23 @@ class ArenaNet(nn.Module):
         else:
             self._backbone_callable = self._forward_backbone_impl
 
+    def _apply(self, fn: Any, recurse: bool = True) -> "ArenaNet":
+        out = super()._apply(fn, recurse=recurse)
+        self.value_support._symlog_bounds = (  # type: ignore[attr-defined]
+            float(self.cfg.value_symlog_min),
+            float(self.cfg.value_symlog_max),
+        )
+        return out
+
     def parameter_count(self) -> int:
         """Return total number of trainable parameters."""
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
     def _autocast_ctx(self, device: torch.device) -> Any:
         if self.use_bf16_autocast and device.type == "cuda":
-            return torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+            if torch.cuda.is_bf16_supported():
+                return torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+            return torch.autocast(device_type="cuda", dtype=torch.float16)
         return nullcontext()
 
     def _forward_backbone_impl(
@@ -430,9 +517,11 @@ class ArenaNet(nn.Module):
         scalars: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         a_feat = self.arena_stage2(self.arena_stage1(self.arena_stem(arena)))
-        bsz, ch, tok_h, tok_w = a_feat.shape
+        if a_feat.shape[-2] != self.token_h or a_feat.shape[-1] != self.token_w:
+            a_feat = F.adaptive_avg_pool2d(a_feat, (self.token_h, self.token_w))
+        ch = int(a_feat.shape[1])
         tokens = a_feat.flatten(2).transpose(1, 2).contiguous()
-        tokens = tokens + self.arena_pos_embed[:, : tok_h * tok_w, :]
+        tokens = tokens + self.arena_pos_embed
         for blk in self.arena_attn:
             tokens = blk(tokens)
         tokens = self.arena_norm(tokens)
