@@ -874,6 +874,39 @@ def register(ops: Path, log: Path, name: str) -> None:
         stream.write(f"{log} {name}\n")
 
 
+BROKER_TRANSPORT_SCHEMA = "colab-broker-transport/v1"
+
+
+def _record_broker_transport(ops: Path, name: str, broker: Path) -> Path:
+    """Persist the launching broker's transport tree before touching the job log."""
+    broker_tree = tree(broker)
+    dispatch_dir = ops / "dispatch" / name
+    if (
+        name.endswith("-retry-1")
+        and not dispatch_dir.exists()
+        and (ops / "dispatch" / name.removesuffix("-retry-1")).is_dir()
+    ):
+        parent_record = ops / "dispatch" / name.removesuffix("-retry-1") / "broker-transport.json"
+        if parent_record.is_file():
+            existing = read_json(parent_record)
+            if (
+                existing.get("schema") != BROKER_TRANSPORT_SCHEMA
+                or existing.get("tree_hash") != broker_tree
+            ):
+                raise Refused("retry broker transport differs from primary attempt")
+            return parent_record
+    dispatch_dir.mkdir(parents=True, exist_ok=True)
+    target = dispatch_dir / "broker-transport.json"
+    write_create_only_json(
+        target,
+        {
+            "schema": BROKER_TRANSPORT_SCHEMA,
+            "tree_hash": broker_tree,
+        },
+    )
+    return target
+
+
 def start(
     broker: Path,
     cwd: Path,
@@ -897,9 +930,12 @@ def start(
         raise Refused("collector evidence path already exists")
     if collector is not None and (control_nice0 or small_bench_config is not None):
         raise Refused("collector-v2 cannot be combined with another host launch adapter")
+    if control_nice0 and control_admission is None:
+        raise Refused("missing create-only Colab control admission")
     colab = Path.home() / ".local/bin/colab"
     if collector is not None:
         colab = colab.resolve()
+    _record_broker_transport(log.parent.parent, name, broker)
     log.touch(exist_ok=False)
     register(log.parent.parent, log, name)
     launcher = [
@@ -917,8 +953,6 @@ def start(
         guard = HERE.parent / "small_bench_cli.py"
         launcher[launcher.index("--colab") + 1] = str(guard)
     if control_nice0:
-        if control_admission is None:
-            raise Refused("missing create-only Colab control admission")
         launcher.insert(1, "--control-nice0")
         launcher = [
             str(CONTROL_INTERPRETER),
@@ -1095,6 +1129,7 @@ def start_chain(
     deadline: float,
 ) -> None:
     """Submit one qualified serial chain; the broker retains/release-checks it."""
+    _record_broker_transport(log.parent.parent, name, broker)
     log.touch(exist_ok=False)
     register(log.parent.parent, log, name)
     launcher = [
@@ -1404,7 +1439,7 @@ def refresh_assignments(manifest: Path, evidence: Path, deadline: float) -> Path
         if len(evidence.parents) >= 3 and evidence.parents[1].name == "dispatch"
         else Path(os.environ.get("OPS_DIR", OPS)).resolve()
     )
-    total_cap = effective_account_assignment_cap(ops_root, incoming_commits=[value.get("commit")])
+    total_cap = effective_account_assignment_cap(ops_root)
     _enforce_session_caps(sessions, value, total_cap=total_cap, sessions_stdout=result.stdout)
     require_f5_plan_live_assignment_match(value, {"budget": {"other_assignments": rates}})
     value.setdefault("budget", {})["other_assignments"] = rates
@@ -1448,11 +1483,7 @@ def _preflight_session_caps(
     )
     rows = session_rows(result.stdout)
     sessions = {endpoint: hardware.strip() for _, endpoint, hardware in rows}
-    total_cap = effective_account_assignment_cap(
-        ops,
-        repos=[broker],
-        incoming_commits=[packet.get("commit") for packet in packets],
-    )
+    total_cap = effective_account_assignment_cap(ops, repos=[broker])
     if len(packets) == 1:
         _enforce_session_caps(
             sessions, packets[0], total_cap=total_cap, sessions_stdout=result.stdout

@@ -437,7 +437,9 @@ unmanaged/legacy assignments and avoid mistaking historical unverified receipts
 for current capacity. Unknown inventory stops submissions. It reserves at most
 **twelve** occupied/pending runtime slots across competing daemons
 (`ACCOUNT_ASSIGNMENT_CAP = 12`, clamped to `LEGACY_ACCOUNT_ASSIGNMENT_CAP = 6` while any
-active job uses a pre-2026-11-10 `cap <= 6` transport tree) and enforces per-type sub-caps
+running supervisor uses a pre-2026-11-10 `cap <= 6` broker transport tree recorded in
+`ops/dispatch/<name>/broker-transport.json`, or lacks that file because it started before
+activation) and enforces per-type sub-caps
 (`ACCOUNT_GPU_SUBCAPS = dict(ACCOUNT_TYPE_CAPS)`: `L4 = 3`, `T4 = 3`, `G4 = 3`, `A100 = 3`,
 `H100 = 1`, `CPU = 5`; standalone `dispatch.sh` calls enforce the same caps before identity
 reservation and under `alloc.lock`). The supervisor independently enforces account allocation and pending-identity

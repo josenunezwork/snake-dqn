@@ -22,12 +22,13 @@ V1 = "snake-dqn-colab-cli-qualified/v1"
 V2 = "snake-dqn-colab-cli-qualified/v2"
 KNOWN_LEGACY_CAP6_TREES = frozenset(
     {
-        "3a7b21882402b49bd599850b97e3b948511e409d",
-        "d2992d6a871b249a282c8bd6db231be168c083cf",
-        "36285bc649f7109d2c5fa39bd04a71888f9e488b",
+        "3a7b2188e3afd47a57ed87cff46d95deb49146aa",
+        "d2992d6a24dd548d2be1cd546b324e33aeb454cb",
+        "36285bc6cbb637b392b234f67b55cbaa03b37614",
     }
 )
-_GIT_TRANSPORT_CACHE: dict[tuple[str, str], tuple[str | None, int | None]] = {}
+_GIT_TRANSPORT_CACHE: dict[tuple[str, str], tuple[str, int]] = {}
+_GIT_TREE_CAP_CACHE: dict[tuple[str, str], int] = {}
 
 
 def entries(saved: dict[str, Any]) -> list[dict[str, Any]]:
@@ -85,6 +86,9 @@ def publish(record: Path, value: dict[str, Any], *, retire: str | None = None) -
             entries(value)
             if value.get("schema") != V1:
                 raise ValueError("publish requires one tree qualification")
+            cap = value.get("account_assignment_cap")
+            if isinstance(cap, bool) or not isinstance(cap, int) or cap <= 0:
+                raise ValueError("publish requires positive integer account_assignment_cap")
             if any(row["tree_hash"] == value["tree_hash"] for row in rows):
                 raise ValueError(
                     "tree already exists; retirement or review update must be explicit"
@@ -135,35 +139,82 @@ def check(repo: Path, record: Path, ref: str = "HEAD", *, offline: bool = False)
     return actual
 
 
-def _git_transport_info(repo: Path, commit: str) -> tuple[str | None, int | None]:
-    """Resolve (tree_hash, accounting_cap) for commit in repo when present."""
-    key = (str(repo.resolve()), commit)
-    if key in _GIT_TRANSPORT_CACHE:
-        return _GIT_TRANSPORT_CACHE[key]
-    tree_hash: str | None = None
-    cap: int | None = None
+def _git_tree_cap(repo: Path, tree_hash: str) -> int | None:
+    """Resolve ACCOUNT_ASSIGNMENT_CAP from <tree_hash>:accounting.py, caching only successes."""
+    key = (str(repo.resolve()), tree_hash)
+    if key in _GIT_TREE_CAP_CACHE:
+        return _GIT_TREE_CAP_CACHE[key]
     try:
-        tree_hash = tree(repo, commit)
-    except (OSError, ValueError, subprocess.SubprocessError):
-        _GIT_TRANSPORT_CACHE[key] = (None, None)
-        return None, None
-    try:
-        src = git(repo, "show", f"{commit}:{TRANSPORT}/accounting.py")
+        src = git(repo, "show", f"{tree_hash}:accounting.py")
         match = re.search(r"^ACCOUNT_ASSIGNMENT_CAP\s*=\s*(\d+)\b", src, re.M)
         if match is not None:
             cap = int(match.group(1))
+            _GIT_TREE_CAP_CACHE[key] = cap
+            return cap
     except (OSError, ValueError, subprocess.SubprocessError):
-        pass
-    _GIT_TRANSPORT_CACHE[key] = (tree_hash, cap)
+        return None
+    return None
+
+
+def _git_transport_info(repo: Path, commit: str) -> tuple[str | None, int | None]:
+    """Resolve (tree_hash, accounting_cap) for commit in repo without caching failures."""
+    key = (str(repo.resolve()), commit)
+    if key in _GIT_TRANSPORT_CACHE:
+        return _GIT_TRANSPORT_CACHE[key]
+    try:
+        tree_hash = tree(repo, commit)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None, None
+    cap = _git_tree_cap(repo, tree_hash)
+    if cap is not None:
+        _GIT_TRANSPORT_CACHE[key] = (tree_hash, cap)
     return tree_hash, cap
 
 
-def _registry_row_cap(row: dict[str, Any], *, is_v2: bool) -> int | None:
+def _registry_row_cap(row: dict[str, Any]) -> int | None:
+    """Return explicit positive cap or known legacy cap=6; never infer 6 from v2 schema."""
     raw = row.get("account_assignment_cap")
-    if isinstance(raw, int) and not isinstance(raw, bool):
+    if isinstance(raw, int) and not isinstance(raw, bool) and raw > 0:
         return raw
-    if row.get("tree_hash") in KNOWN_LEGACY_CAP6_TREES or is_v2:
+    if row.get("tree_hash") in KNOWN_LEGACY_CAP6_TREES:
         return 6
+    return None
+
+
+def tree_transport_cap(
+    tree_hash: Any,
+    *,
+    ops: Path,
+    repos: Iterable[Path] = (),
+) -> int | None:
+    """Return the transport tree's account-wide assignment cap for tree_hash, if determinable."""
+    if not isinstance(tree_hash, str) or not re.fullmatch(r"[0-9a-f]{40}", tree_hash):
+        return None
+    record = ops / "colab-cli-qualified.json"
+    if record.is_file():
+        try:
+            rows = entries(json.loads(record.read_text()))
+        except (OSError, ValueError):
+            rows = []
+        for row in rows:
+            if row["tree_hash"] == tree_hash:
+                row_cap = _registry_row_cap(row)
+                if row_cap is not None:
+                    return row_cap
+    if tree_hash in KNOWN_LEGACY_CAP6_TREES:
+        return 6
+    seen_repos: set[str] = set()
+    for candidate in [*repos, Path(__file__).resolve().parents[2]]:
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            continue
+        if str(resolved) in seen_repos or not (resolved / ".git").exists():
+            continue
+        seen_repos.add(str(resolved))
+        code_cap = _git_tree_cap(resolved, tree_hash)
+        if code_cap is not None:
+            return code_cap
     return None
 
 
@@ -178,17 +229,14 @@ def commit_transport_cap(
         return None
     record = ops / "colab-cli-qualified.json"
     rows: list[dict[str, Any]] = []
-    is_v2 = False
     if record.is_file():
         try:
-            saved = json.loads(record.read_text())
-            is_v2 = saved.get("registry_schema") == V2 or saved.get("schema") == V2
-            rows = entries(saved)
+            rows = entries(json.loads(record.read_text()))
         except (OSError, ValueError):
             rows = []
     for row in rows:
         if row.get("qualified_commit") == commit:
-            row_cap = _registry_row_cap(row, is_v2=is_v2)
+            row_cap = _registry_row_cap(row)
             if row_cap is not None:
                 return row_cap
     seen_repos: set[str] = set()
@@ -206,7 +254,7 @@ def commit_transport_cap(
             continue
         for row in rows:
             if row["tree_hash"] == tree_hash:
-                row_cap = _registry_row_cap(row, is_v2=is_v2)
+                row_cap = _registry_row_cap(row)
                 if row_cap is not None:
                     return row_cap
         if tree_hash in KNOWN_LEGACY_CAP6_TREES:

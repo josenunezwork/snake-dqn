@@ -21,10 +21,10 @@ from typing import Any, Iterator
 
 if __package__:
     from . import auto_retry
-    from .qualification import OPS, commit_transport_cap, save
+    from .qualification import OPS, save, tree_transport_cap
 else:
     import auto_retry
-    from qualification import OPS, commit_transport_cap, save
+    from qualification import OPS, save, tree_transport_cap
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
@@ -680,58 +680,48 @@ def accelerator_occupancy(
     return counts
 
 
-def _manifest_commit(path: Path, prepare_command: Sequence[str] = ()) -> str | None:
-    """Read pinned commit SHA from a manifest or its unsealed prepare template."""
-    candidates = [
-        path,
-        path.with_suffix(".pending.json"),
-        path.with_name(f"{path.stem}-unsealed.json"),
-        path.with_suffix(".template.json"),
-        path.with_name(f"{path.stem}-template.json"),
-    ]
-    if "--template" in prepare_command:
-        idx = list(prepare_command).index("--template")
-        if idx + 1 < len(prepare_command):
-            candidates.append(Path(prepare_command[idx + 1]))
-    for candidate in candidates:
-        if candidate.is_file():
-            with contextlib.suppress(OSError, ValueError):
-                data = auto_retry.read(candidate)
-                if isinstance(data, Mapping):
-                    commit = data.get("commit")
-                    if isinstance(commit, str) and re.fullmatch(r"[0-9a-f]{40}", commit):
-                        return commit
-    return None
+BROKER_TRANSPORT_SCHEMA = "colab-broker-transport/v1"
 
 
-def _row_commit_and_broker(row: Mapping[str, Any]) -> tuple[str | None, Path | None]:
-    """Extract (commit, broker) for a queue row without mutating state."""
-    broker: Path | None = None
-    manifest_path: Path | None = None
-    with contextlib.suppress(ValueError, KeyError, TypeError):
-        _, manifest_path, broker, _ = dispatch_parts(list(row["argv"]))
-    manifest_field = row.get("manifest")
-    if isinstance(manifest_field, str) and manifest_field:
-        manifest_path = Path(manifest_field)
-    commit = (
-        _manifest_commit(manifest_path, row.get("prepare_command", ()))
-        if manifest_path is not None
-        else None
-    )
-    return commit, broker
-
-
-def _row_is_legacy_cap6(row: Mapping[str, Any], ops: Path) -> bool:
-    """Return True when row is bound to a transport tree whose total cap is <= 6."""
-    commit, broker = _row_commit_and_broker(row)
-    if commit is None:
+def _supervisor_still_running(state: Mapping[str, Any]) -> bool:
+    """Return True when state may still have a live Mac supervisor process."""
+    if not state.get("active") or state.get("exited"):
         return False
-    cap = commit_transport_cap(
-        commit,
-        ops=ops,
-        repos=(broker,) if broker is not None else (),
-    )
-    return cap is not None and cap <= LEGACY_ACCOUNT_ASSIGNMENT_CAP
+    manifest_value = state.get("manifest")
+    if isinstance(manifest_value, str) and manifest_value:
+        with contextlib.suppress(OSError, ValueError):
+            packet = auto_retry.read(Path(manifest_value))
+            output_dir = packet.get("output_dir") if isinstance(packet, Mapping) else None
+            if (
+                isinstance(output_dir, str)
+                and output_dir
+                and (Path(output_dir) / "hardware.json").is_file()
+                and not state.get("endpoint")
+            ):
+                return False
+    return True
+
+
+def _broker_transport_path(ops: Path, name: str) -> Path:
+    """Resolve broker-transport.json for a dispatch name or its -retry-1 attempt."""
+    direct = ops / "dispatch" / name / "broker-transport.json"
+    if direct.exists() or direct.is_symlink() or not name.endswith("-retry-1"):
+        return direct
+    parent = ops / "dispatch" / name.removesuffix("-retry-1") / "broker-transport.json"
+    return parent if parent.exists() or parent.is_symlink() else direct
+
+
+def _read_broker_transport_tree(path: Path) -> str | None:
+    """Read a valid 40-hex broker transport tree hash, or None when absent/malformed."""
+    if path.is_symlink() or not path.is_file():
+        return None
+    with contextlib.suppress(OSError, ValueError):
+        data = auto_retry.read(path)
+        if isinstance(data, Mapping) and data.get("schema") == BROKER_TRANSPORT_SCHEMA:
+            tree_hash = data.get("tree_hash")
+            if isinstance(tree_hash, str) and re.fullmatch(r"[0-9a-f]{40}", tree_hash):
+                return tree_hash
+    return None
 
 
 def effective_account_assignment_cap(
@@ -740,18 +730,26 @@ def effective_account_assignment_cap(
     observed: Mapping[str, Mapping[str, Any]] | None = None,
     queue: Mapping[str, Any] | None = None,
     repos: Iterable[Path] = (),
-    incoming_commits: Iterable[Any] = (),
 ) -> int:
-    """Keep total assignments <= 6 while any observed active job uses a cap<=6 transport tree."""
+    """Keep total assignments <= 6 while any running supervisor uses a cap<=6 broker tree."""
     repo_list = list(repos)
-    commits_to_check: list[tuple[Any, tuple[Path, ...]]] = [
-        (commit, tuple(repo_list)) for commit in incoming_commits
-    ]
     if observed is None:
         if (ops / "manifests").is_dir():
             try:
                 observed = observations(ops)
             except (OSError, ValueError):
+                assignments: dict[str, str] = {}
+                for active_path in (Path.home() / ".config/colab-cli/snake").glob("active-*.json"):
+                    with contextlib.suppress(OSError, ValueError):
+                        assignment = auto_retry.read(active_path)
+                        if (
+                            isinstance(assignment, Mapping)
+                            and assignment.get("output")
+                            and assignment.get("endpoint")
+                        ):
+                            assignments[str(Path(str(assignment["output"])).resolve())] = str(
+                                assignment["endpoint"]
+                            )
                 observed = {}
                 for manifest_file in sorted((ops / "manifests").glob("*.json")):
                     if manifest_file.name.endswith(".live.json"):
@@ -770,55 +768,37 @@ def effective_account_assignment_cap(
                         rec = auto_retry.read(rec_file) if rec_file.is_file() else None
                         stopped = isinstance(rec, Mapping) and rec.get("stop_verified") is True
                         never_started = exited and not out_path.exists()
+                        endpoint = (
+                            rec.get("endpoint")
+                            if isinstance(rec, Mapping) and rec.get("endpoint")
+                            else assignments.get(str(out_path.resolve()))
+                        )
                         observed[stem] = {
                             "active": not (exited and (stopped or never_started)),
+                            "exited": exited,
+                            "endpoint": endpoint,
                             "manifest": str(manifest_file),
                         }
         else:
             observed = {}
-    for state in observed.values():
-        if state.get("active") and isinstance(state.get("manifest"), str):
-            commit = _manifest_commit(Path(state["manifest"]))
-            if commit is not None:
-                commits_to_check.append((commit, tuple(repo_list)))
     if queue is None and (ops / "ready-queue.json").is_file():
         with contextlib.suppress(OSError, ValueError):
             loaded = auto_retry.read(ops / "ready-queue.json")
             if isinstance(loaded, Mapping):
                 queue = loaded
     if isinstance(queue, Mapping) and isinstance(queue.get("jobs"), list):
-        occupied = {name for name, state in observed.items() if state.get("active")}
         for row in queue["jobs"]:
-            if not isinstance(row, Mapping):
-                continue
-            pending = row.get("status") in {"DISPATCHING", "LAUNCHED"} or (
-                row.get("status") == "HELD" and row.get("dispatch_attempted")
-            )
-            if not pending:
-                continue
-            with contextlib.suppress(KeyError, IndexError, TypeError):
-                current_name, state = current_observation(dict(observed), row["argv"][1])
-                if state is not None and current_name not in occupied:
-                    continue
-            commit, broker = _row_commit_and_broker(row)
-            if commit is not None:
-                extra = (*repo_list, broker) if broker is not None else tuple(repo_list)
-                commits_to_check.append((commit, extra))
-    for active_path in sorted((Path.home() / ".config/colab-cli/snake").glob("active-*.json")):
-        with contextlib.suppress(OSError, ValueError):
-            record = auto_retry.read(active_path)
-            if not isinstance(record, Mapping):
-                continue
-            rec_commit = record.get("commit")
-            if isinstance(rec_commit, str):
-                commits_to_check.append((rec_commit, tuple(repo_list)))
-            out_dir = record.get("output")
-            if isinstance(out_dir, str) and out_dir:
-                out_commit = _manifest_commit(Path(out_dir) / "manifest.json")
-                if out_commit is not None:
-                    commits_to_check.append((out_commit, tuple(repo_list)))
-    for commit, candidate_repos in commits_to_check:
-        cap = commit_transport_cap(commit, ops=ops, repos=candidate_repos)
+            if isinstance(row, Mapping) and isinstance(row.get("argv"), list):
+                with contextlib.suppress(ValueError, TypeError):
+                    _, _, broker_repo, _ = dispatch_parts(list(row["argv"]))
+                    repo_list.append(broker_repo)
+    for name, state in observed.items():
+        if not _supervisor_still_running(state):
+            continue
+        tree_hash = _read_broker_transport_tree(_broker_transport_path(ops, name))
+        if tree_hash is None:
+            return LEGACY_ACCOUNT_ASSIGNMENT_CAP
+        cap = tree_transport_cap(tree_hash, ops=ops, repos=repo_list)
         if cap is not None and cap <= LEGACY_ACCOUNT_ASSIGNMENT_CAP:
             return LEGACY_ACCOUNT_ASSIGNMENT_CAP
     return ACCOUNT_ASSIGNMENT_CAP
@@ -856,14 +836,9 @@ def reachable_underused_cap(ops: Path, sessions_stdout: str = "") -> int:
     for row in ready_rows:
         if sim_total >= total_cap:
             break
-        legacy_row = _row_is_legacy_cap6(row, ops)
-        if legacy_row and sim_total >= LEGACY_ACCOUNT_ASSIGNMENT_CAP:
-            continue
         reservable = _reservable_gpus(row, sim_by_gpu)
         if reservable is None:
             continue
-        if legacy_row:
-            total_cap = min(total_cap, LEGACY_ACCOUNT_ASSIGNMENT_CAP)
         sim_total += 1
         if reservable:
             sim_by_gpu[reservable[0]] += 1
@@ -891,17 +866,12 @@ def tick(
                 break
             if row["status"] != "READY" or not ready(queue, row):
                 continue
-            legacy_row = _row_is_legacy_cap6(row, ops)
-            if legacy_row and used >= LEGACY_ACCOUNT_ASSIGNMENT_CAP:
-                continue
             reservable = _reservable_gpus(row, by_gpu)
             if reservable is None:
                 continue
             would_dispatch.append(row["id"])
             used += 1
             slots -= 1
-            if legacy_row:
-                slots = min(slots, max(0, LEGACY_ACCOUNT_ASSIGNMENT_CAP - used))
             for gpu in reservable:
                 by_gpu[gpu] += 1
         return {
@@ -939,9 +909,6 @@ def tick(
             if not slots:
                 break
             if row["status"] != "READY" or not ready(queue, row):
-                continue
-            legacy_row = _row_is_legacy_cap6(row, ops)
-            if legacy_row and used >= LEGACY_ACCOUNT_ASSIGNMENT_CAP:
                 continue
             reservable = _reservable_gpus(row, by_gpu)
             if reservable is None:
@@ -982,8 +949,6 @@ def tick(
             selected.append(row["id"])
             used += 1
             slots -= 1
-            if legacy_row:
-                slots = min(slots, max(0, LEGACY_ACCOUNT_ASSIGNMENT_CAP - used))
             for gpu in reservable:
                 by_gpu[gpu] += 1
         return {"active": active, "reserved": reserved, "dispatched": selected}

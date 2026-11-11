@@ -334,6 +334,7 @@ def test_additive_registry_preserves_old_tree_backup_and_explicit_retirement(bro
     new = {
         "schema": qualification.V1,
         "tree_hash": new_tree,
+        "account_assignment_cap": 12,
         "independent_review_status": "ACCEPT",
         "evidence": "new evidence",
     }
@@ -367,6 +368,7 @@ def test_pending_addition_does_not_borrow_old_approval(broker, tmp_path):
         {
             "schema": qualification.V1,
             "tree_hash": qualification.tree(broker),
+            "account_assignment_cap": 12,
             "independent_review_status": "PENDING",
         },
     )
@@ -374,3 +376,93 @@ def test_pending_addition_does_not_borrow_old_approval(broker, tmp_path):
     assert qualification.check(broker, record, offline=True)
     with pytest.raises(ValueError, match="REVIEW_REQUIRED"):
         qualification.check(broker, record)
+
+
+def test_known_legacy_cap6_trees_match_real_registry_hashes(tmp_path):
+    expected = {
+        "3a7b2188e3afd47a57ed87cff46d95deb49146aa",
+        "d2992d6a24dd548d2be1cd546b324e33aeb454cb",
+        "36285bc6cbb637b392b234f67b55cbaa03b37614",
+    }
+    assert qualification.KNOWN_LEGACY_CAP6_TREES == expected
+    for tree_hash in expected:
+        assert qualification._registry_row_cap({"tree_hash": tree_hash}) == 6
+        assert qualification.tree_transport_cap(tree_hash, ops=tmp_path, repos=()) == 6
+
+
+def test_publish_requires_positive_int_cap_and_v2_row_never_defaults_to_six(broker, tmp_path):
+    record = registry(broker, tmp_path)
+    (broker / "research/colab_cli/accounting.py").write_text("ACCOUNT_ASSIGNMENT_CAP = 12\n")
+    git(broker, "add", ".")
+    git(broker, "commit", "-qm", "cap12 transport")
+    new_commit = git(broker, "rev-parse", "HEAD")
+    new_tree = qualification.tree(broker)
+
+    for bad_cap in (None, True, False, 0, -6, "12", 12.0):
+        entry = {
+            "schema": qualification.V1,
+            "tree_hash": new_tree,
+            "independent_review_status": "ACCEPT",
+        }
+        if bad_cap is not None:
+            entry["account_assignment_cap"] = bad_cap
+        with pytest.raises(ValueError, match="account_assignment_cap"):
+            qualification.publish(record, entry)
+
+    # Even if a v2 registry on disk has an unannotated non-legacy row, it does not default to 6;
+    # tree_transport_cap and commit_transport_cap fall through to <tree_hash>:accounting.py (12).
+    ops = tmp_path / "ops"
+    ops.mkdir()
+    qualification.save(
+        ops / "colab-cli-qualified.json",
+        {
+            "schema": qualification.V1,
+            "registry_schema": qualification.V2,
+            "independent_review_status": "ACCEPT",
+            "tree_hash": new_tree,
+            "qualified_commit": new_commit,
+            "trees": [
+                {
+                    "schema": qualification.V1,
+                    "independent_review_status": "ACCEPT",
+                    "tree_hash": new_tree,
+                    "qualified_commit": new_commit,
+                }
+            ],
+        },
+    )
+    assert qualification._registry_row_cap({"tree_hash": new_tree}) is None
+    assert qualification.tree_transport_cap(new_tree, ops=ops, repos=[broker]) == 12
+    assert qualification.commit_transport_cap(new_commit, ops=ops, repos=[broker]) == 12
+
+
+def test_git_transport_caches_do_not_memoize_transient_failures(broker, tmp_path, monkeypatch):
+    (broker / "research/colab_cli/accounting.py").write_text("ACCOUNT_ASSIGNMENT_CAP = 12\n")
+    git(broker, "add", ".")
+    git(broker, "commit", "-qm", "cap12 transport")
+    commit = git(broker, "rev-parse", "HEAD")
+    tree_hash = qualification.tree(broker)
+
+    qualification._GIT_TRANSPORT_CACHE.clear()
+    qualification._GIT_TREE_CAP_CACHE.clear()
+    real_git = qualification.git
+    state = {"fail": True}
+
+    def flaky_git(repo: Path, *args: str) -> str:
+        if state["fail"]:
+            raise subprocess.CalledProcessError(128, ["git", *args], stderr="index.lock")
+        return real_git(repo, *args)
+
+    monkeypatch.setattr(qualification, "git", flaky_git)
+    ops = tmp_path / "empty-ops"
+    ops.mkdir()
+    assert qualification.commit_transport_cap(commit, ops=ops, repos=[broker]) is None
+    assert qualification.tree_transport_cap(tree_hash, ops=ops, repos=[broker]) is None
+    assert (str(broker.resolve()), commit) not in qualification._GIT_TRANSPORT_CACHE
+    assert (str(broker.resolve()), tree_hash) not in qualification._GIT_TREE_CAP_CACHE
+
+    state["fail"] = False
+    assert qualification.commit_transport_cap(commit, ops=ops, repos=[broker]) == 12
+    assert qualification.tree_transport_cap(tree_hash, ops=ops, repos=[broker]) == 12
+    assert qualification._GIT_TRANSPORT_CACHE[(str(broker.resolve()), commit)] == (tree_hash, 12)
+    assert qualification._GIT_TREE_CAP_CACHE[(str(broker.resolve()), tree_hash)] == 12

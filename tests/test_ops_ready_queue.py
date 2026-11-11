@@ -1829,7 +1829,7 @@ def test_ready_queue_clamps_total_slots_to_six_while_old_tree_job_is_active(tmp_
     )
 
     for job_id, gpu, commit in (
-        ("t4-new", "T4", new_commit),
+        ("t4-old-pin", "T4", old_commit),
         ("g4-new", "G4", new_commit),
     ):
         mf = write(
@@ -1863,6 +1863,8 @@ def test_ready_queue_clamps_total_slots_to_six_while_old_tree_job_is_active(tmp_
         "ep-a100-2": "A100",
         "ep-a100-3": "A100",
     }
+    # Pre-activation running supervisor (no broker-transport.json) clamps account ceiling to 6.
+    assert rq.effective_account_assignment_cap(ops) == 6
     assert rq.tick(ops, dry_run=True, inventory=six_active) == {
         "active": 6,
         "reserved": 0,
@@ -1875,7 +1877,16 @@ def test_ready_queue_clamps_total_slots_to_six_while_old_tree_job_is_active(tmp_
         "dispatched": [],
     }
 
-    # Complete the old-tree job with verified stop; T4 and G4 now dispatch beyond 6.
+    # Explicit cap=6 broker-transport.json also clamps to 6 while running.
+    write(
+        ops / "dispatch/old-active/broker-transport.json",
+        {"schema": "colab-broker-transport/v1", "tree_hash": old_tree},
+    )
+    assert rq.effective_account_assignment_cap(ops) == 6
+    assert rq.tick(ops, dry_run=True, inventory=six_active)["would_dispatch"] == []
+
+    # Complete the old-tree job with verified stop; BOTH t4-old-pin (pinned to old_commit!) and
+    # g4-new now dispatch beyond 6 because no cap<=6 broker supervisor is running.
     old_out.mkdir(parents=True)
     old_bytes = json.dumps(old_manifest).encode()
     (old_out / "manifest.json").write_bytes(old_bytes)
@@ -1892,13 +1903,83 @@ def test_ready_queue_clamps_total_slots_to_six_while_old_tree_job_is_active(tmp_
     log.write_text("EXIT=0\n")
     (tmp_path / "home/.config/colab-cli/snake/active-old.json").unlink()
 
+    # Historical exited unverified receipt and dead-tmux cleaned-up orphan lacking
+    # broker-transport.json do NOT represent live supervisors and do not clamp to 6.
+    hist_out = tmp_path / "hist-unverified-out"
+    hist_manifest = {
+        "job_id": "hist-unverified",
+        "commit": old_commit,
+        "output_dir": str(hist_out),
+        "requirements": {"gpu": "L4"},
+    }
+    hist_out.mkdir(parents=True)
+    hist_bytes = json.dumps(hist_manifest).encode()
+    (hist_out / "manifest.json").write_bytes(hist_bytes)
+    write(ops / "manifests/hist-unverified.json", hist_manifest)
+    write(
+        hist_out / "receipt.json",
+        {
+            "job_id": "hist-unverified",
+            "commit": old_commit,
+            "manifest_sha256": hashlib.sha256(hist_bytes).hexdigest(),
+            "status": "INCOMPLETE",
+            "stop_verified": False,
+        },
+    )
+    (ops / "logs/hist-unverified.log").write_text("EXIT=1\n")
+
+    orphan_out = tmp_path / "dead-tmux-orphan-out"
+    orphan_manifest = {
+        "job_id": "dead-tmux-orphan",
+        "commit": old_commit,
+        "output_dir": str(orphan_out),
+        "requirements": {"gpu": "L4"},
+    }
+    orphan_out.mkdir(parents=True)
+    write(orphan_out / "hardware.json", {"hardware": {"kind": "L4"}})
+    write(ops / "manifests/dead-tmux-orphan.json", orphan_manifest)
+    (ops / "logs/dead-tmux-orphan.log").write_text("running before tmux died\n")
+
+    assert rq.effective_account_assignment_cap(ops) == 12
+    assert (
+        rq.reachable_underused_cap(
+            ops,
+            "".join(
+                f"[s{i}] {ep} | Hardware: {hw}\n" for i, (ep, hw) in enumerate(six_active.items())
+            ),
+        )
+        == 8
+    )
     assert rq.tick(ops, dry_run=True, inventory=six_active) == {
         "active": 6,
         "reserved": 0,
-        "would_dispatch": ["t4-new", "g4-new"],
+        "would_dispatch": ["t4-old-pin", "g4-new"],
     }
     assert rq.tick(ops, inventory=six_active) == {
         "active": 6,
         "reserved": 0,
-        "dispatched": ["t4-new", "g4-new"],
+        "dispatched": ["t4-old-pin", "g4-new"],
     }
+
+    # While t4-old-pin (manifest pinned to old_commit!) runs on the upgraded cap=12 broker,
+    # effective_account_assignment_cap remains 12 because broker-transport.json records new_tree.
+    t4_out = tmp_path / "out-t4-old-pin"
+    write(
+        ops / "manifests/t4-old-pin.json",
+        {
+            "job_id": "t4-old-pin",
+            "commit": old_commit,
+            "output_dir": str(t4_out),
+            "requirements": {"gpu": "T4"},
+        },
+    )
+    write(
+        ops / "dispatch/t4-old-pin/broker-transport.json",
+        {"schema": "colab-broker-transport/v1", "tree_hash": new_tree},
+    )
+    (ops / "logs/t4-old-pin.log").write_text("running on cap12 broker\n")
+    write(
+        tmp_path / "home/.config/colab-cli/snake/active-t4.json",
+        {"output": str(t4_out), "endpoint": "ep-t4-1"},
+    )
+    assert rq.effective_account_assignment_cap(ops) == 12

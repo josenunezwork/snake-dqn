@@ -1092,7 +1092,9 @@ def test_dispatch_clamps_total_cap_to_six_while_old_tree_job_is_active(fixture):
     assert not (f["ops"] / "dispatch/t4-seventh").exists()
     assert not (f["ops"] / "manifests/t4-seventh.json").exists()
 
-    # Once the old-tree job finishes with verified stop, the same identity dispatches cleanly.
+    # Once the old-tree job finishes with verified stop, even an immutable packet pinned to
+    # old_commit dispatches beyond 6 when launched from the upgraded cap=12 broker checkout,
+    # and records new_tree in broker-transport.json so subsequent slots stay open at 12.
     old_out.mkdir(parents=True)
     old_manifest_bytes = json.dumps(old_manifest).encode()
     (old_out / "manifest.json").write_bytes(old_manifest_bytes)
@@ -1109,9 +1111,51 @@ def test_dispatch_clamps_total_cap_to_six_while_old_tree_job_is_active(fixture):
     )
     (f["ops"] / "logs/old-lane.log").write_text("EXIT=0\n")
 
+    f["change"](
+        commit=old_commit,
+        requirements={"gpu": "T4", "min_vcpu": 2, "est_minutes": 5},
+        timeout_minutes=10,
+    )
     unblocked = f["invoke"]("t4-seventh")
     assert unblocked.returncode == 0, unblocked.stderr
     assert "allocation=success" in unblocked.stdout
+    recorded = json.loads((f["ops"] / "dispatch/t4-seventh/broker-transport.json").read_text())
+    assert recorded == {"schema": "colab-broker-transport/v1", "tree_hash": new_tree}
+
+    # Simulate t4-seventh still running on the cap=12 broker while pinned to old_commit:
+    # slot 8 (also pinned to old_commit) is still admitted!
+    wait_for(lambda: "EXIT=0" in (f["ops"] / "logs/t4-seventh.log").read_text())
+    (f["ops"] / "logs/t4-seventh.log").write_text("still running\n")
+    seven_sessions = {**six_sessions, "t4-0": "T4"}
+    f["inventory"](seven_sessions, [active(ep, 1.54) for ep in seven_sessions])
+    f["change"](
+        job_id="job-eighth",
+        commit=old_commit,
+        output_dir=str(f["tmp"] / "output-eighth"),
+        requirements={"gpu": "G4", "min_vcpu": 2, "est_minutes": 5},
+        timeout_minutes=10,
+    )
+    eighth = f["invoke"]("g4-eighth")
+    assert eighth.returncode == 0, eighth.stderr
+    assert "allocation=success" in eighth.stdout
+
+    # Conversely, if an active running supervisor recorded old_tree in broker-transport.json,
+    # total ceiling clamps back to 6 until it finishes.
+    (f["ops"] / "dispatch/t4-seventh/broker-transport.json").write_text(
+        json.dumps({"schema": "colab-broker-transport/v1", "tree_hash": old_tree})
+    )
+    f["change"](
+        job_id="job-ninth",
+        commit=new_commit,
+        output_dir=str(f["tmp"] / "output-ninth"),
+        requirements={"gpu": "G4", "min_vcpu": 2, "est_minutes": 5},
+        timeout_minutes=10,
+    )
+    clamped = f["invoke"]("g4-ninth")
+    assert clamped.returncode == 1
+    assert "account-wide assignment cap 6 (including notebooks)" in clamped.stderr
+    assert not (f["ops"] / "dispatch/g4-ninth").exists()
+    (f["ops"] / "logs/t4-seventh.log").write_text("EXIT=0\n")
 
 
 def test_watchd_underused_threshold_uses_reachable_caps_and_not_twenty(tmp_path, monkeypatch):
