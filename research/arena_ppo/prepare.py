@@ -1,4 +1,4 @@
-"""Prepare Stage 1 Arena PPO Colab CLI packets (`ruler` family canary and `train` modes)."""
+"""Prepare Stage 1 Arena PPO Colab CLI packets (`canary`, `ruler`, and `train` modes)."""
 
 from __future__ import annotations
 
@@ -14,9 +14,14 @@ from research.arena_ppo.ppo import (
     ARENA_PPO_NAMESPACE,
     ARENA_PPO_SCHEMA,
     ArenaPPOConfig,
+    estimate_max_export_bytes,
     find_newest_verified_checkpoint,
 )
-from research.arena_ppo.ruler import TRAIN_REQUIRED_EXPORTS
+from research.arena_ppo.ruler import (
+    CANARY_REQUIRED_EXPORTS,
+    RULER_REQUIRED_EXPORTS,
+    TRAIN_REQUIRED_EXPORTS,
+)
 from research.arena_ppo.runtime import (
     sha256_file,
     verify_completed_artifact,
@@ -29,19 +34,23 @@ FAMILY_SCRIPT = "research/arena_ppo/job.sh"
 FAMILY_PACKAGE = "research/arena_ppo"
 REQUIREMENTS_RELPATH = "research/arena_ppo/requirements.txt"
 
-RULER_REQUIRED_EXPORTS: tuple[str, ...] = ("ruler_result.json",)
-SUPPORTED_GPUS: tuple[str, ...] = ("L4", "A100", "H100", "T4")
+PREPARE_MODES: tuple[str, ...] = ("canary", "ruler", "train")
+SUPPORTED_GPUS: tuple[str, ...] = ("L4", "A100", "H100")
 GPU_FORECAST_RATES_UPH: dict[str, float] = {
-    "T4": 1.17,
     "L4": 1.54,
     "A100": 8.0,
     "H100": 12.0,
 }
 
-# Short-canary ruler envelope: 14 min base / 28 min 2x timeout (<= 28 min req, <= 30 min cap)
-RULER_BASE_MINUTES = 14.0
-RULER_TIMEOUT_MINUTES = 28.0
-RULER_WALL_GUARD_SECONDS = 1440.0
+# Instrumented family canary envelope: 6 min base / 12 min 2x timeout (<= 12 min cap)
+CANARY_BASE_MINUTES = 6.0
+CANARY_TIMEOUT_MINUTES = 12.0
+CANARY_WALL_GUARD_SECONDS = 540.0
+
+# Uninstrumented science ruler envelope: 30 min base / 60 min runaway guard; Python guard = T - 8m
+RULER_BASE_MINUTES = 30.0
+RULER_TIMEOUT_MINUTES = 60.0
+RULER_WALL_GUARD_SECONDS = (RULER_TIMEOUT_MINUTES - 8.0) * 60.0  # 3120s (52 min)
 
 
 def _write_json_create_only(path: Path, payload: dict[str, Any]) -> None:
@@ -137,7 +146,6 @@ def _stage_prior_checkpoint(
         ckpt_sub = root_cand / "checkpoints"
         if not ckpt_sub.is_dir():
             continue
-        # Prefer `final.pt` if verified and non-probe; otherwise newest `ckpt_*.pt`
         final_cand = ckpt_sub / "final.pt"
         if (
             final_cand.is_file()
@@ -188,34 +196,115 @@ def _stage_prior_checkpoint(
     return entry
 
 
+def _stage_prior_ruler_cells(
+    prior_output_dir: Path,
+    pkt_inputs_dir: Path,
+    inputs_list: list[dict[str, str]],
+    ledger: dict[str, Any],
+) -> list[str]:
+    """Stage verified `cells/<cell_id>.json` files from a partial ruler directory."""
+    prior_dir = Path(prior_output_dir).resolve()
+    if not prior_dir.is_dir():
+        raise FileNotFoundError(f"prior_output_dir does not exist: {prior_dir}")
+
+    search_roots = [prior_dir]
+    if (prior_dir / "exports").is_dir():
+        search_roots.append(prior_dir / "exports")
+
+    staged_ids: list[str] = []
+    for root_cand in search_roots:
+        cells_sub = root_cand / "cells"
+        if not cells_sub.is_dir():
+            continue
+        for cell_json in sorted(cells_sub.glob("*.json")):
+            if not (
+                Path(f"{cell_json}.complete").is_file() and Path(f"{cell_json}.sha256").is_file()
+            ):
+                continue
+            verify_completed_artifact(cell_json)
+            rel_dest = f"cells/{cell_json.name}"
+            dst_file = pkt_inputs_dir / "cells" / cell_json.name
+            c_sha = write_create_only_artifact(
+                dst_file, lambda tmp, src=cell_json: shutil.copyfile(src, tmp)
+            )
+            inputs_list.append(
+                {
+                    "path": str(dst_file),
+                    "dest": rel_dest,
+                    "sha256": c_sha,
+                }
+            )
+            ledger["verified_units"].append(
+                {
+                    "unit_id": f"cell:{cell_json.stem}",
+                    "relpath": rel_dest,
+                    "sha256": c_sha,
+                    "size_bytes": int(dst_file.stat().st_size),
+                }
+            )
+            staged_ids.append(cell_json.stem)
+        if staged_ids:
+            break
+
+    if not staged_ids:
+        raise FileNotFoundError(f"No verified ruler cells/*.json found under {prior_dir}")
+    return staged_ids
+
+
+def _build_canary_receipt_binding(
+    canary_receipt: Path | str,
+    gpu_norm: str,
+) -> dict[str, Any]:
+    rcpt_path = Path(canary_receipt).resolve()
+    if not rcpt_path.is_file():
+        raise FileNotFoundError(f"Canary receipt not found: {rcpt_path}")
+    rcpt_data = json.loads(rcpt_path.read_text(encoding="utf-8"))
+    rcpt_hw = str((rcpt_data.get("canary_evidence") or {}).get("hardware") or "").strip()
+    if rcpt_hw and rcpt_hw.upper() != gpu_norm:
+        raise ValueError(f"--gpu {gpu_norm!r} does not match canary receipt hardware {rcpt_hw!r}")
+    return {
+        "receipt": {
+            "path": str(rcpt_path),
+            "sha256": sha256_file(rcpt_path),
+        }
+    }
+
+
 def prepare_arena_ppo_packet(
     packet_dir: Path | str,
     *,
     commit: str = "HEAD",
-    mode: str = "ruler",
+    mode: str = "canary",
     gpu: str = "L4",
     hours: float = 2.0,
     output_dir: Path | str | None = None,
     prior_output_dir: Path | str | None = None,
+    prior_kind: str = "auto",
     canary_receipt: Path | str | None = None,
     ppo_config: ArenaPPOConfig | None = None,
+    measured_checkpoint_bytes: int | None = None,
     compile_model: bool = False,
     attempt: str = "attempt-01",
     allow_unmerged_commit: bool = False,
 ) -> dict[str, Any]:
-    """Prepare a Colab CLI packet for Stage 1 Arena PPO (`ruler` or `train`, no dispatch).
+    """Prepare a Colab CLI packet for Stage 1 Arena PPO (`canary`, `ruler`, or `train`).
 
     Args:
         packet_dir: Fresh target packet directory on Mac.
         commit: Git revision to pin (must be an ancestor of ``origin/main`` unless
             ``allow_unmerged_commit=True`` is explicitly requested for local pre-merge checks).
-        mode: ``"ruler"`` (short-canary <= 28 min) or ``"train"`` (resumable session).
-        gpu: Target GPU in ``{"L4", "A100", "H100", "T4"}`` (default ``"L4"``).
+        mode: ``"canary"`` (<= 12 min instrumented family probe), ``"ruler"`` (<= 60 min
+            uninstrumented science ruler bound to canary receipt), or ``"train"`` (resumable
+            training session bound to canary receipt).
+        gpu: Target GPU in ``{"L4", "A100", "H100"}`` (default ``"L4"``).
         hours: Session wall timeout in hours for ``mode="train"`` (`timeout = hours * 60` min).
         output_dir: Optional fresh absolute Mac output directory.
-        prior_output_dir: Optional prior attempt output directory for ``train`` resume.
-        canary_receipt: Optional family canary `receipt.json` path to bind for ``train``.
+        prior_output_dir: Optional prior attempt output directory for resume staging.
+        prior_kind: ``"auto"``, ``"checkpoint"``, or ``"ruler_cells"`` when staging prior output.
+        canary_receipt: Family canary `receipt.json` path to bind for ``ruler`` and ``train``.
         ppo_config: Optional ``ArenaPPOConfig`` serialized into ``env["ARENA_PPO_CONFIG_JSON"]``.
+        measured_checkpoint_bytes: Optional empirically measured single-checkpoint size in bytes
+            for ``train`` ``max_export_bytes`` sizing.
         compile_model: Enable ``torch.compile`` flag in runtime environment.
         attempt: Attempt slug suffix (e.g. ``"attempt-01"``).
         allow_unmerged_commit: Allow commits on local branch ahead of ``origin/main`` for
@@ -224,11 +313,11 @@ def prepare_arena_ppo_packet(
     Returns:
         Summary dictionary including ``manifest_path`` and ``manifest_sha256``.
     """
-    if mode not in ("ruler", "train"):
-        raise ValueError(f"mode must be 'ruler' or 'train', got {mode!r}")
+    if mode not in PREPARE_MODES:
+        raise ValueError(f"mode must be one of {PREPARE_MODES}, got {mode!r}")
     gpu_norm = str(gpu).strip().upper()
     if gpu_norm not in SUPPORTED_GPUS:
-        raise ValueError(f"gpu must be one of {SUPPORTED_GPUS}, got {gpu!r}")
+        raise ValueError(f"gpu must be one of {SUPPORTED_GPUS} (T4 unsupported), got {gpu!r}")
     if not re_safe_attempt(attempt):
         raise ValueError(f"Invalid attempt slug {attempt!r}")
 
@@ -270,8 +359,8 @@ def prepare_arena_ppo_packet(
     if out_path.exists():
         raise FileExistsError(f"output_dir must be a fresh non-existent directory: {out_path}")
 
-    # Identical initial verified-ledger.json between `ruler` and `train` attempt-01 so
-    # `colab_canary.check` validates matching input count, destinations, and SHA-256 digests.
+    # Identical initial verified-ledger.json across `canary`, `ruler`, and `train` attempt-01
+    # so `colab_canary.check` validates matching input count, destinations, and SHA-256 digests.
     pkt_inputs_dir = pkt / "inputs"
     pkt_inputs_dir.mkdir(parents=True, exist_ok=True)
     ledger: dict[str, Any] = {
@@ -283,7 +372,15 @@ def prepare_arena_ppo_packet(
     }
     inputs_list: list[dict[str, str]] = []
     if prior_output_dir is not None:
-        _stage_prior_checkpoint(Path(prior_output_dir), pkt_inputs_dir, inputs_list, ledger)
+        eff_prior_kind = prior_kind
+        if eff_prior_kind == "auto":
+            eff_prior_kind = "ruler_cells" if mode == "ruler" else "checkpoint"
+        if eff_prior_kind == "ruler_cells":
+            _stage_prior_ruler_cells(Path(prior_output_dir), pkt_inputs_dir, inputs_list, ledger)
+        elif eff_prior_kind == "checkpoint":
+            _stage_prior_checkpoint(Path(prior_output_dir), pkt_inputs_dir, inputs_list, ledger)
+        else:
+            raise ValueError(f"Unsupported prior_kind={prior_kind!r}")
 
     ledger_path = pkt_inputs_dir / "verified-ledger.json"
     ledger_bytes = (json.dumps(ledger, indent=2, sort_keys=True) + "\n").encode("utf-8")
@@ -301,24 +398,27 @@ def prepare_arena_ppo_packet(
     extra_env: dict[str, str] = {}
     canary_block: dict[str, Any] | None = None
 
-    if mode == "ruler":
-        est_minutes = RULER_BASE_MINUTES
-        timeout_minutes = RULER_TIMEOUT_MINUTES
+    if mode == "canary":
+        if canary_receipt is not None:
+            raise ValueError(
+                "canary mode produces a canary receipt and cannot bind --canary-receipt"
+            )
+        est_minutes = CANARY_BASE_MINUTES
+        timeout_minutes = CANARY_TIMEOUT_MINUTES
         base_sec = est_minutes * 60.0
         eff_sec = timeout_minutes * 60.0
-        extra_env["ARENA_PPO_MAX_WALL_SECONDS"] = str(int(RULER_WALL_GUARD_SECONDS))
+        extra_env["ARENA_PPO_MAX_WALL_SECONDS"] = str(int(CANARY_WALL_GUARD_SECONDS))
         extra_env["SNAKE_COLAB_CANARY"] = "1"
         extra_env["SNAKE_COLAB_CANARY_PACKAGE"] = FAMILY_PACKAGE
-        if compile_model:
-            extra_env["ARENA_PPO_COMPILE"] = "1"
-        job_id = f"arena-ppo-ruler-{gpu_slug}-{attempt}"
-        required_exports = list(RULER_REQUIRED_EXPORTS)
+        job_id = f"arena-ppo-canary-{gpu_slug}-{attempt}"
+        required_exports = list(CANARY_REQUIRED_EXPORTS)
+        max_export_bytes = 256 * 1024 * 1024
         resume_fields: dict[str, Any] = {
             "resume_exemption": {
                 "kind": "short-canary",
                 "reason": (
-                    f"Stage 1 Arena PPO throughput ruler and {gpu_norm} family canary probe "
-                    "(<= 28 min); no scoring look"
+                    f"Stage 1 Arena PPO {gpu_norm} family canary probe (<= 12 min): real "
+                    "indexed parity + tiny ruler + tiny 2-update train/checkpoint/resume"
                 ),
             }
         }
@@ -327,6 +427,28 @@ def prepare_arena_ppo_packet(
             "mode": "probe",
             "family": FAMILY_SCRIPT,
         }
+    elif mode == "ruler":
+        est_minutes = RULER_BASE_MINUTES
+        timeout_minutes = RULER_TIMEOUT_MINUTES
+        base_sec = est_minutes * 60.0
+        eff_sec = timeout_minutes * 60.0
+        extra_env["ARENA_PPO_MAX_WALL_SECONDS"] = str(int(RULER_WALL_GUARD_SECONDS))
+        if compile_model:
+            extra_env["ARENA_PPO_COMPILE"] = "1"
+        job_id = f"arena-ppo-ruler-{gpu_slug}-{attempt}"
+        required_exports = list(RULER_REQUIRED_EXPORTS)
+        max_export_bytes = 128 * 1024 * 1024
+        resume_fields = {
+            "resume_exemption": {
+                "kind": "acceptance",
+                "reason": (
+                    f"Stage 1 Arena PPO {gpu_norm} throughput & VRAM science ruler (60m runaway "
+                    "guard; per-cell create-only JSONs + signal-safe partial ruler_result.json)"
+                ),
+            }
+        }
+        if canary_receipt is not None:
+            canary_block = _build_canary_receipt_binding(canary_receipt, gpu_norm)
     else:
         if not math.isfinite(hours) or hours <= 0:
             raise ValueError(f"--hours must be finite and positive, got {hours}")
@@ -336,7 +458,7 @@ def prepare_arena_ppo_packet(
         est_minutes = round(timeout_minutes / 2.0, 2)
         base_sec = est_minutes * 60.0
         eff_sec = timeout_minutes * 60.0
-        headroom_sec = min(240.0, max(30.0, eff_sec * 0.08))
+        headroom_sec = min(480.0, max(60.0, eff_sec * 0.08))
         extra_env["ARENA_PPO_MAX_WALL_SECONDS"] = str(int(max(30.0, eff_sec - headroom_sec)))
         cfg_obj = (
             ppo_config if ppo_config is not None else ArenaPPOConfig(compile_model=compile_model)
@@ -344,6 +466,9 @@ def prepare_arena_ppo_packet(
         extra_env["ARENA_PPO_CONFIG_JSON"] = json.dumps(cfg_obj.to_dict(), sort_keys=True)
         job_id = f"arena-ppo-train-{gpu_slug}-{attempt}"
         required_exports = list(TRAIN_REQUIRED_EXPORTS)
+        max_export_bytes = estimate_max_export_bytes(
+            cfg_obj, measured_checkpoint_bytes=measured_checkpoint_bytes
+        )
         resume_fields = {
             "resume": {
                 "unit_kind": "checkpoint",
@@ -353,21 +478,7 @@ def prepare_arena_ppo_packet(
             }
         }
         if canary_receipt is not None:
-            rcpt_path = Path(canary_receipt).resolve()
-            if not rcpt_path.is_file():
-                raise FileNotFoundError(f"Canary receipt not found: {rcpt_path}")
-            rcpt_data = json.loads(rcpt_path.read_text(encoding="utf-8"))
-            rcpt_hw = str((rcpt_data.get("canary_evidence") or {}).get("hardware") or "").strip()
-            if rcpt_hw and rcpt_hw.upper() != gpu_norm:
-                raise ValueError(
-                    f"--gpu {gpu_norm!r} does not match canary receipt hardware {rcpt_hw!r}"
-                )
-            canary_block = {
-                "receipt": {
-                    "path": str(rcpt_path),
-                    "sha256": sha256_file(rcpt_path),
-                }
-            }
+            canary_block = _build_canary_receipt_binding(canary_receipt, gpu_norm)
 
     unit_cap = math.ceil(((timeout_minutes * rate_uph) / 60.0 - 1e-12) * 10000.0) / 10000.0
     manifest: dict[str, Any] = {
@@ -384,7 +495,7 @@ def prepare_arena_ppo_packet(
         },
         "timeout_minutes": timeout_minutes,
         "output_dir": str(out_path),
-        "max_export_bytes": 2 * 1024**3,
+        "max_export_bytes": int(max_export_bytes),
         "inputs": inputs_list,
         "env": {
             "COLAB_CLI_REQUIREMENTS": REQUIREMENTS_RELPATH,
@@ -416,7 +527,7 @@ def prepare_arena_ppo_packet(
     if canary_block is not None:
         manifest["canary"] = canary_block
 
-    if mode == "ruler" or canary_receipt is not None:
+    if mode == "canary" or canary_receipt is not None:
         colab_canary.check(manifest, ROOT)
 
     manifest_path = pkt / "dispatch-manifest.json"
@@ -431,6 +542,7 @@ def prepare_arena_ppo_packet(
         "gpu": gpu_norm,
         "timeout_minutes": timeout_minutes,
         "est_minutes": est_minutes,
+        "max_export_bytes": int(max_export_bytes),
         "unit_cap": unit_cap,
     }
 
@@ -445,7 +557,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--packet", type=Path, required=True, help="Target packet directory.")
     parser.add_argument("--commit", type=str, default="HEAD")
-    parser.add_argument("--mode", choices=("ruler", "train"), default="ruler")
+    parser.add_argument("--mode", choices=PREPARE_MODES, default="canary")
     parser.add_argument("--gpu", choices=SUPPORTED_GPUS, default="L4")
     parser.add_argument(
         "--hours",
@@ -455,12 +567,24 @@ def main() -> int:
     )
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--prior-output-dir", type=Path, default=None)
+    parser.add_argument(
+        "--prior-kind", choices=("auto", "checkpoint", "ruler_cells"), default="auto"
+    )
     parser.add_argument("--canary-receipt", type=Path, default=None)
+    parser.add_argument("--allow-missing-canary-receipt", action="store_true")
     parser.add_argument("--ppo-config-json", type=str, default=None)
+    parser.add_argument("--measured-checkpoint-bytes", type=int, default=None)
     parser.add_argument("--compile", action="store_true")
     parser.add_argument("--attempt", type=str, default="attempt-01")
     parser.add_argument("--allow-unmerged-commit", action="store_true")
     args = parser.parse_args()
+
+    if args.mode in ("ruler", "train") and args.canary_receipt is None:
+        if not args.allow_missing_canary_receipt:
+            parser.error(
+                f"--mode {args.mode} requires --canary-receipt <path/to/receipt.json> "
+                "(pass --allow-missing-canary-receipt only for offline schema inspection)"
+            )
 
     ppo_cfg = (
         ArenaPPOConfig.from_json(args.ppo_config_json) if args.ppo_config_json is not None else None
@@ -473,8 +597,10 @@ def main() -> int:
         hours=args.hours,
         output_dir=args.output_dir,
         prior_output_dir=args.prior_output_dir,
+        prior_kind=args.prior_kind,
         canary_receipt=args.canary_receipt,
         ppo_config=ppo_cfg,
+        measured_checkpoint_bytes=args.measured_checkpoint_bytes,
         compile_model=bool(args.compile),
         attempt=args.attempt,
         allow_unmerged_commit=bool(args.allow_unmerged_commit),
