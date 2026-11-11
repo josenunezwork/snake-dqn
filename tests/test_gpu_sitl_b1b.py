@@ -5983,3 +5983,39 @@ def test_opus_n6_smoke_cli_rejects_stale_target_a100_limit_sec_flag(
         smoke_mod.main()
     assert exc_info.value.code == 2
     assert called["n"] == 0
+
+
+def test_opus_n7_ct_device_sim_debug_assert_catches_over_cap_corpse_at_step_start() -> None:
+    """N7: CTDeviceSim.step debug assert catches corpse_food > corpse_food_cap at step start."""
+    from src.core.mechanics_constants import corpse_food_cap
+    from src.simd_env.batch_sim import BatchSimConfig
+
+    cfg = BatchSimConfig(num_envs=1, num_snakes=2, max_food=20, mechanics_version=2)
+    cap_c = corpse_food_cap(int(cfg.max_food))
+    with torch.inference_mode():
+        sim = CTDeviceSim(cfg, device="cpu", train_mode=False, allow_respawn=True)
+        sim.prepare()
+
+        # Valid at-cap corpse count (== cap_c) runs cleanly
+        sim.food_present.zero_()
+        sim.corpse_food.zero_()
+        for k in range(cap_c):
+            sim.food_cells[0, k, 0] = 2 + k
+            sim.food_cells[0, k, 1] = 2
+            sim.food_present[0, k] = True
+            sim.corpse_food[0, k] = True
+        sim.food_count[0] = cap_c
+        sim.step(torch.ones((1, 2), dtype=torch.long))
+
+        # Over-cap corpse count (cap_c + 1) at step start must trigger the N7 debug assert
+        sim.prepare()
+        sim.food_present.zero_()
+        sim.corpse_food.zero_()
+        for k in range(cap_c + 1):
+            sim.food_cells[0, k, 0] = 2 + k
+            sim.food_cells[0, k, 1] = 3
+            sim.food_present[0, k] = True
+            sim.corpse_food[0, k] = True
+        sim.food_count[0] = cap_c + 1
+        with pytest.raises(AssertionError, match="corpse_food exceeded cap"):
+            sim.step(torch.ones((1, 2), dtype=torch.long))
