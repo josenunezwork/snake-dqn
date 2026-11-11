@@ -229,8 +229,6 @@ def prepare_arena_ppo_packet(
     gpu_norm = str(gpu).strip().upper()
     if gpu_norm not in SUPPORTED_GPUS:
         raise ValueError(f"gpu must be one of {SUPPORTED_GPUS}, got {gpu!r}")
-    if prior_output_dir is not None and mode != "train":
-        raise ValueError("--prior-output-dir is only valid with --mode train")
     if not re_safe_attempt(attempt):
         raise ValueError(f"Invalid attempt slug {attempt!r}")
 
@@ -284,7 +282,7 @@ def prepare_arena_ppo_packet(
         "verified_units": [],
     }
     inputs_list: list[dict[str, str]] = []
-    if mode == "train" and prior_output_dir is not None:
+    if prior_output_dir is not None:
         _stage_prior_checkpoint(Path(prior_output_dir), pkt_inputs_dir, inputs_list, ledger)
 
     ledger_path = pkt_inputs_dir / "verified-ledger.json"
@@ -418,7 +416,7 @@ def prepare_arena_ppo_packet(
     if canary_block is not None:
         manifest["canary"] = canary_block
 
-    if canary_receipt is not None:
+    if mode == "ruler" or canary_receipt is not None:
         colab_canary.check(manifest, ROOT)
 
     manifest_path = pkt / "dispatch-manifest.json"

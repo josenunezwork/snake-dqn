@@ -3,6 +3,7 @@ set -euo pipefail
 : "${COLAB_CLI_ROOT:?qualified supervisor required}"
 : "${COLAB_INPUT_DIR:?uploaded inputs required}"
 : "${ARENA_PPO_SOURCE_COMMIT:?pinned source required}"
+: "${SNAKE_DQN_DEVICE:?manifest device required}"
 
 MODE="${ARENA_PPO_MODE:-ruler}"
 
@@ -12,10 +13,7 @@ export MAX_JOBS="${MAX_JOBS:-4}"
 export CUBLAS_WORKSPACE_CONFIG=:4096:8 PYTHONUNBUFFERED=1
 
 if [ "$MODE" = "ruler" ]; then
-  RULER_ARGS=(
-    --output-dir "$COLAB_CLI_ROOT/output"
-    --device "${SNAKE_DQN_DEVICE:-cuda}"
-  )
+  RULER_ARGS=()
   if [ -n "${ARENA_PPO_RULER_ENVS:-}" ]; then
     RULER_ARGS+=(--envs "$ARENA_PPO_RULER_ENVS")
   fi
@@ -28,13 +26,12 @@ if [ "$MODE" = "ruler" ]; then
   if [ -n "${ARENA_PPO_MAX_WALL_SECONDS:-}" ]; then
     RULER_ARGS+=(--max-wall-seconds "$ARENA_PPO_MAX_WALL_SECONDS")
   fi
-  exec nice -n 15 python -m research.arena_ppo.ruler "${RULER_ARGS[@]}"
+  exec nice -n 15 python -m research.arena_ppo.ruler \
+    --output-dir "$COLAB_CLI_ROOT/output" \
+    --device "$SNAKE_DQN_DEVICE" \
+    "${RULER_ARGS[@]}"
 elif [ "$MODE" = "train" ]; then
-  TRAIN_ARGS=(
-    --output-dir "$COLAB_CLI_ROOT/output"
-    --device "${SNAKE_DQN_DEVICE:-cuda}"
-    --input-dir "$COLAB_INPUT_DIR"
-  )
+  TRAIN_ARGS=(--input-dir "$COLAB_INPUT_DIR")
   if [ -f "$COLAB_CLI_ROOT/inputs/verified-ledger.json" ]; then
     TRAIN_ARGS+=(--ledger "$COLAB_CLI_ROOT/inputs/verified-ledger.json")
   elif [ -f "$COLAB_INPUT_DIR/verified-ledger.json" ]; then
@@ -49,7 +46,10 @@ elif [ "$MODE" = "train" ]; then
   if [ -n "${ARENA_PPO_MAX_WALL_SECONDS:-}" ]; then
     TRAIN_ARGS+=(--max-wall-seconds "$ARENA_PPO_MAX_WALL_SECONDS")
   fi
-  exec nice -n 15 python -m research.arena_ppo.ppo "${TRAIN_ARGS[@]}"
+  exec nice -n 15 python -m research.arena_ppo.ppo \
+    --output-dir "$COLAB_CLI_ROOT/output" \
+    --device "$SNAKE_DQN_DEVICE" \
+    "${TRAIN_ARGS[@]}"
 else
   echo "Unsupported ARENA_PPO_MODE: $MODE" >&2
   exit 2
