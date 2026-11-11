@@ -1,6 +1,6 @@
 # snake-dqn Project & Documentation Index
 
-Snapshot: **2026-11-04 PT (T34 CLOSED)**. For binding operating rules, monitoring thresholds, and release history,
+Snapshot: **2026-11-10 PT** (active goal & `2026-11-10` owner ruling at the top of [STATUS.md](STATUS.md); T34 ExIt-B8 closed `2026-11-04 PT`). For binding operating rules, monitoring thresholds, and release history,
 see [STATUS.md](STATUS.md).
 
 ---
@@ -17,7 +17,7 @@ Three model stacks coexist in [`src/`](../src/):
 
 | Stack | Network & Obs | Simulator | Current role |
 | --- | --- | --- | --- |
-| **ego2s-bv8 CNN (`B8`)** | `Ego2sNet` ([`src/model/ego2s_network.py`](../src/model/ego2s_network.py), ~1.64M params; dual-scale ego raster + 60 scalars incl. 30 `v8` safety inputs) | `GridBatchSim` (Numba cell-exact) & GPU `DeviceSim` | **Served baseline (`b8-s3`)** and **T34 ExIt-B8** main research line |
+| **ego2s-bv8 CNN (`B8`)** | `Ego2sNet` ([`src/model/ego2s_network.py`](../src/model/ego2s_network.py), ~1.64M params; dual-scale ego raster + 60 scalars incl. 30 `v8` safety inputs) | `GridBatchSim` (Numba cell-exact) & GPU `DeviceSim` | **Served baseline (`b8-s3`)**; `gpu_sitl` Step B1b exploration + large-scale GPU from-scratch main track (*design pending, advisor round 2026-11-10*) |
 | **Apex MLP** | `ApexNetwork` (`vector61`: 58-D rays/scalars + 3 free-space features), optionally wrapped by `v8` safety veto | Live Python `GameState` / SIMD `vector61` | **Frozen** for new governed studies; `frp3-s12 + v8` serves as the 5 Watch opponents and rollback target |
 | **Raster / PQN** | `RasterDuelingNetwork` (`raster31v2` tactical + strategic rasters + 26 scalars) | NumPy `BatchSim` | Historical July redesign prototype ([blueprint](ml_redesign_blueprint_2026-07.md)); not promoted |
 
@@ -61,7 +61,7 @@ Campaign authority: [SUCCESS_CONTRACT.md](research/final_run_20261019/SUCCESS_CO
   - **Search→bare distillation CLOSED:** Stage 1B frozen-feature heads keep only `8–9%` of open-stop rescues at `≤ 1%` ordinary flips (same selectivity wall as Sandbox B).
   - **Live search CLOSED:** closeout Part B showed neither a one-tick `H = 12` budget nor a 3-tick-delayed async open-stop keeps `≥ 50%` of rescues within `≤ 1%` false overrides.
   - **Claim A `b8-head-closedloop` (`KILL`):** all 4 arms lose mass (`−305 … −26`, `LB90 < 0`; reported `INCONCLUSIVE`-on-schema, `FAIL` on every measured bar).
-  - **Earlier stops this round:** hero `M4-B2 Stage 1A` `FAIL`; `v6` fast kernel parked (`full step ≈ 1.65 ms`). Reopening any hero-improvement line needs a new idea that clears the selectivity wall or the `24 fps` budget, decided by the advisors (owner rule 2026-11-04).
+  - **Earlier stops this round:** hero `M4-B2 Stage 1A` `FAIL`; `v6` fast kernel parked (`full step ≈ 1.65 ms`). Under the `2026-11-10` owner ruling ([STATUS.md](STATUS.md)), Mac `24 fps` / `11.688 ms` bars gate **release** only (not training; large teacher → Mac-size student distillation is allowed), kill rules close only the tested recipe (a different recipe may be tried after an advisor design note), and a large-scale from-scratch GPU training track is open (*design pending, advisor round 2026-11-10*).
 
 ### T34 confirmation, exploration & parity verdicts
 
@@ -205,4 +205,4 @@ SNAKE_DQN_DEVICE=cpu ./venv/bin/python src/scripts/train_pqn.py \
 
 - **Supervisor only:** All Colab jobs dispatch through [`tools/ops/dispatch.sh`](../tools/ops/dispatch.sh) and the qualified Mac-side CLI supervisor (`research/colab_cli/`); never invoke `colab new/exec/stop/upload/download` directly or mount Drive in CLI runtimes.
 - **Resume-by-default:** Every dispatched manifest declares `resume` (`skip_verified: true`, `max_outcome_blind_retries: 2`, Mac-verified ledger) unless exempt as a short canary/acceptance (`tools/ops/README.md`).
-- **Mac-only gates:** Paced/timing checks, strict promotion gates, and web serving qualification run on the Mac only ([STATUS.md](STATUS.md#operating-rules-current)).
+- **Mac-only release gates:** Paced/timing checks, strict promotion gates, and web serving qualification run on the Mac only and gate **release** only — they do not limit what is trained ([STATUS.md](STATUS.md#operating-rules-current)).
