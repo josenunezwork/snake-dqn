@@ -151,6 +151,8 @@ def estimate_max_export_bytes(
     cfg: V3PPOConfig,
     *,
     gpu: str = "L4",
+    max_wall_seconds: float = 8.0 * 3600.0,
+    expected_updates: int | None = None,
     measured_packed_bytes_per_world: int | None = None,
     measured_checkpoint_bytes: int | None = None,
 ) -> int:
@@ -165,6 +167,8 @@ def estimate_max_export_bytes(
     caps = validate_checkpoint_export_caps(
         cfg,
         gpu,
+        max_wall_seconds=max_wall_seconds,
+        expected_updates=expected_updates,
         measured_packed_bytes_per_world=eff_world_bytes,
     )
     return int(caps["per_file_max_export_bytes"])
@@ -210,8 +214,12 @@ def _check_foreign_checkpoints(ckpt_sub: Path) -> None:
                 raise ValueError(f"Foreign checkpoint schema/namespace at {pt_cand}")
 
 
-def _resolve_verified_prior_checkpoint(prior_dir: Path) -> dict[str, Any] | None:
-    """Locate newest verified V3 PPO checkpoint set (FULL first, else LIGHT) under ``prior_dir``."""
+def _resolve_verified_prior_checkpoint(
+    prior_dir: Path,
+    *,
+    light_resume_margin_minutes: float = 45.0,
+) -> dict[str, Any] | None:
+    """Locate newest verified V3 PPO checkpoint set (preferring LIGHT only past margin)."""
     search_roots = [prior_dir]
     if (prior_dir / "exports").is_dir():
         search_roots.append(prior_dir / "exports")
@@ -221,15 +229,26 @@ def _resolve_verified_prior_checkpoint(prior_dir: Path) -> dict[str, Any] | None
         if not ckpt_sub.is_dir():
             continue
         _check_foreign_checkpoints(ckpt_sub)
-        resolved = resolve_resume_checkpoint(ckpt_sub, require_markers=True)
+        resolved = resolve_resume_checkpoint(
+            ckpt_sub,
+            require_markers=True,
+            light_resume_margin_minutes=light_resume_margin_minutes,
+        )
         if resolved is not None:
             return resolved
     return None
 
 
-def _find_verified_prior_checkpoint(prior_dir: Path) -> Path | None:
+def _find_verified_prior_checkpoint(
+    prior_dir: Path,
+    *,
+    light_resume_margin_minutes: float = 45.0,
+) -> Path | None:
     """Return primary path of newest verified checkpoint under ``prior_dir``."""
-    resolved = _resolve_verified_prior_checkpoint(prior_dir)
+    resolved = _resolve_verified_prior_checkpoint(
+        prior_dir,
+        light_resume_margin_minutes=light_resume_margin_minutes,
+    )
     return Path(resolved["path"]) if resolved is not None else None
 
 
@@ -286,11 +305,16 @@ def _stage_prior_checkpoint(
     pkt_inputs_dir: Path,
     inputs_list: list[dict[str, str]],
     ledger: dict[str, Any],
+    *,
+    light_resume_margin_minutes: float = 45.0,
 ) -> dict[str, Any]:
     prior_dir = Path(prior_output_dir).resolve()
     if not prior_dir.is_dir():
         raise FileNotFoundError(f"prior_output_dir does not exist: {prior_dir}")
-    chosen = _resolve_verified_prior_checkpoint(prior_dir)
+    chosen = _resolve_verified_prior_checkpoint(
+        prior_dir,
+        light_resume_margin_minutes=light_resume_margin_minutes,
+    )
     if chosen is None:
         raise FileNotFoundError(f"No verified V3 PPO checkpoint found under {prior_dir}")
 
@@ -433,8 +457,11 @@ def prepare_v3_ppo_packet(
     ruler_base_minutes: float | None = None,
     amp: bool | None = None,
     use_channels_last: bool | None = None,
+    fast_learner_ops: bool | None = None,
     include_fp32: bool = False,
     compile_model: bool = False,
+    max_periodic_full_exports: int | None = None,
+    light_resume_margin_minutes: float | None = None,
     output_dir: Path | str | None = None,
     prior_output_dir: Path | str | None = None,
     prior_kind: str = "auto",
@@ -452,7 +479,7 @@ def prepare_v3_ppo_packet(
     Refuses configurations whose estimated VRAM exceeds the target GPU memory budget (`22 GB` L4,
     `40 GB` A100, `80 GB` H100) OR whose single-world/per-file/total-session checkpoint exports
     exceed calibrated shard (`256 MiB` default), supervisor (`2 GiB`/file), or session export caps
-    (`6 GiB` L4, `12 GiB` A100, `20 GiB` H100).
+    (`12 GiB` L4, `24 GiB` A100, `40 GiB` H100).
     """
     if mode not in PREPARE_MODES:
         raise ValueError(f"mode must be one of {PREPARE_MODES}, got {mode!r}")
@@ -540,7 +567,22 @@ def prepare_v3_ppo_packet(
                     Path(prior_output_dir), pkt_inputs_dir, inputs_list, ledger
                 )
             elif eff_prior_kind == "checkpoint":
-                _stage_prior_checkpoint(Path(prior_output_dir), pkt_inputs_dir, inputs_list, ledger)
+                eff_stage_margin = (
+                    float(light_resume_margin_minutes)
+                    if light_resume_margin_minutes is not None
+                    else (
+                        float(ppo_config.light_resume_margin_minutes)
+                        if ppo_config is not None
+                        else 45.0
+                    )
+                )
+                _stage_prior_checkpoint(
+                    Path(prior_output_dir),
+                    pkt_inputs_dir,
+                    inputs_list,
+                    ledger,
+                    light_resume_margin_minutes=eff_stage_margin,
+                )
 
         ledger_path = pkt_inputs_dir / "verified-ledger.json"
         ledger_bytes = (json.dumps(ledger, indent=2, sort_keys=True) + "\n").encode("utf-8")
@@ -569,6 +611,10 @@ def prepare_v3_ppo_packet(
             extra_env["V3_PPO_MAX_WALL_SECONDS"] = str(int(CANARY_WALL_GUARD_SECONDS))
             extra_env["SNAKE_COLAB_CANARY"] = "1"
             extra_env["SNAKE_COLAB_CANARY_PACKAGE"] = FAMILY_PACKAGE
+            if compile_model:
+                extra_env["V3_PPO_COMPILE"] = "1"
+            if fast_learner_ops is False:
+                extra_env["V3_PPO_FAST_LEARNER_OPS"] = "0"
             job_id = f"v3-ppo-canary-{gpu_slug}-{attempt}"
             required_exports = list(CANARY_REQUIRED_EXPORTS)
             max_export_bytes = 320 * 1024 * 1024
@@ -577,7 +623,7 @@ def prepare_v3_ppo_packet(
                     "kind": "short-canary",
                     "reason": (
                         f"Game V3.1 PPO {gpu_norm} family canary probe (15 min base / 30 min "
-                        "timeout): tiny S/M ruler cells + 2-update train/FULL-resume/eval"
+                        "timeout): tiny S/M ruler + 2-update FULL-resume + 1 default eval"
                     ),
                 }
             }
@@ -628,6 +674,7 @@ def prepare_v3_ppo_packet(
 
             eff_r_amp = True if amp is None else bool(amp)
             eff_r_cl = True if use_channels_last is None else bool(use_channels_last)
+            eff_r_fast = True if fast_learner_ops is None else bool(fast_learner_ops)
 
             if any(k < 1 or k > eff_r_snakes for k in parsed_learners):
                 raise ValueError(
@@ -652,6 +699,7 @@ def prepare_v3_ppo_packet(
                             net_size=n_sz,
                             amp=eff_r_amp,
                             use_channels_last=eff_r_cl,
+                            fast_learner_ops=eff_r_fast,
                             rollout_len=eff_r_rollout,
                             eval_every_minutes=0.0,
                             eval_every_updates=0,
@@ -701,6 +749,8 @@ def prepare_v3_ppo_packet(
                 extra_env["V3_PPO_INCLUDE_FP32"] = "1"
             if compile_model:
                 extra_env["V3_PPO_COMPILE"] = "1"
+            if not eff_r_fast:
+                extra_env["V3_PPO_FAST_LEARNER_OPS"] = "0"
 
             job_id = f"v3-ppo-ruler-{gpu_slug}-{attempt}"
             required_exports = list(RULER_REQUIRED_EXPORTS)
@@ -761,8 +811,14 @@ def prepare_v3_ppo_packet(
                 cfg_dict["amp"] = bool(amp)
             if use_channels_last is not None:
                 cfg_dict["use_channels_last"] = bool(use_channels_last)
+            if fast_learner_ops is not None:
+                cfg_dict["fast_learner_ops"] = bool(fast_learner_ops)
             if compile_model:
                 cfg_dict["compile_model"] = True
+            if max_periodic_full_exports is not None:
+                cfg_dict["max_periodic_full_exports"] = int(max_periodic_full_exports)
+            if light_resume_margin_minutes is not None:
+                cfg_dict["light_resume_margin_minutes"] = float(light_resume_margin_minutes)
 
             cfg_obj = V3PPOConfig.from_dict(cfg_dict)
 
@@ -777,24 +833,6 @@ def prepare_v3_ppo_packet(
                             f"Continuation checkpoint config mismatch on {key!r}: "
                             f"ckpt={staged_dict.get(key)!r} vs requested={curr_dict.get(key)!r}"
                         )
-
-            # Enforce GPU VRAM budget AND calibrated single-file + session checkpoint export caps!
-            memory_estimate = validate_memory_budget(cfg_obj, gpu_norm)
-
-            eff_world_bytes = measured_packed_bytes_per_world
-            if eff_world_bytes is None and measured_checkpoint_bytes is not None:
-                if int(measured_checkpoint_bytes) < 1:
-                    raise ValueError(
-                        f"measured_checkpoint_bytes must be >= 1, got {measured_checkpoint_bytes}"
-                    )
-                eff_world_bytes = max(
-                    1, int(math.ceil(int(measured_checkpoint_bytes) / cfg_obj.num_envs))
-                )
-            checkpoint_export_caps = validate_checkpoint_export_caps(
-                cfg_obj,
-                gpu_norm,
-                measured_packed_bytes_per_world=eff_world_bytes,
-            )
 
             if expected_steps_per_sec is not None:
                 if (
@@ -827,14 +865,63 @@ def prepare_v3_ppo_packet(
                     flush=True,
                 )
 
+            # Enforce GPU VRAM budget AND calibrated single-file + session checkpoint export caps!
+            memory_estimate = validate_memory_budget(cfg_obj, gpu_norm)
+
+            eff_world_bytes = measured_packed_bytes_per_world
+            if eff_world_bytes is None and measured_checkpoint_bytes is not None:
+                if int(measured_checkpoint_bytes) < 1:
+                    raise ValueError(
+                        f"measured_checkpoint_bytes must be >= 1, got {measured_checkpoint_bytes}"
+                    )
+                eff_world_bytes = max(
+                    1, int(math.ceil(int(measured_checkpoint_bytes) / cfg_obj.num_envs))
+                )
+
             if ppo_config is None or not explicit_total_updates:
                 cfg_obj = replace(
                     cfg_obj,
                     total_updates=max(int(cfg_obj.total_updates), UNLIMITED_HOURS_TOTAL_UPDATES),
                 )
 
+            expected_updates_for_cap: int | None = None
+            if training_plan is not None:
+                expected_updates_for_cap = int(training_plan["expected_updates_in_session"])
+                if explicit_total_updates and int(cfg_obj.total_updates) > 0:
+                    expected_updates_for_cap = min(
+                        expected_updates_for_cap, int(cfg_obj.total_updates)
+                    )
+            elif explicit_total_updates and int(cfg_obj.total_updates) > 0:
+                expected_updates_for_cap = int(cfg_obj.total_updates)
+            elif (
+                int(cfg_obj.checkpoint_every_updates) > 0
+                or int(cfg_obj.full_checkpoint_every_updates) > 0
+            ):
+                steps_per_upd = (
+                    int(cfg_obj.rollout_len) * int(cfg_obj.num_envs) * int(cfg_obj.num_snakes)
+                )
+                fast_sec_per_upd = max(1.0, float(steps_per_upd) / 50_000.0)
+                expected_updates_for_cap = max(
+                    1, int(math.ceil(float(max_wall_sec_int) / fast_sec_per_upd))
+                )
+
+            checkpoint_export_caps = validate_checkpoint_export_caps(
+                cfg_obj,
+                gpu_norm,
+                max_wall_seconds=eff_sec,
+                expected_updates=expected_updates_for_cap,
+                measured_packed_bytes_per_world=eff_world_bytes,
+            )
+
             extra_env["V3_PPO_AMP"] = "1" if bool(cfg_obj.amp) else "0"
             extra_env["V3_PPO_CHANNELS_LAST"] = "1" if bool(cfg_obj.use_channels_last) else "0"
+            if bool(cfg_obj.compile_model):
+                extra_env["V3_PPO_COMPILE"] = "1"
+            if not bool(cfg_obj.fast_learner_ops):
+                extra_env["V3_PPO_FAST_LEARNER_OPS"] = "0"
+            extra_env["V3_PPO_MAX_SESSION_EXPORT_BYTES"] = str(
+                int(checkpoint_export_caps["session_total_export_cap_bytes"])
+            )
             extra_env["V3_PPO_CONFIG_JSON"] = json.dumps(cfg_obj.to_dict(), sort_keys=True)
             job_id = f"v3-ppo-train-{gpu_slug}-{attempt}"
             required_exports = list(TRAIN_REQUIRED_EXPORTS)
@@ -1001,8 +1088,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     cl_group.add_argument("--no-channels-last", dest="use_channels_last", action="store_false")
 
+    fast_group = parser.add_mutually_exclusive_group()
+    fast_group.add_argument(
+        "--fast-learner-ops", dest="fast_learner_ops", action="store_true", default=None
+    )
+    fast_group.add_argument("--no-fast-learner-ops", dest="fast_learner_ops", action="store_false")
+
     parser.add_argument("--include-fp32", action="store_true")
     parser.add_argument("--compile", action="store_true")
+    parser.add_argument("--max-periodic-full-exports", type=int, default=None)
+    parser.add_argument("--light-resume-margin-minutes", type=float, default=None)
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--prior-output-dir", type=Path, default=None)
     parser.add_argument(
@@ -1066,8 +1161,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         ruler_base_minutes=args.ruler_base_minutes,
         amp=args.amp,
         use_channels_last=args.use_channels_last,
+        fast_learner_ops=args.fast_learner_ops,
         include_fp32=bool(args.include_fp32),
         compile_model=bool(args.compile),
+        max_periodic_full_exports=args.max_periodic_full_exports,
+        light_resume_margin_minutes=args.light_resume_margin_minutes,
         output_dir=args.output_dir,
         prior_output_dir=args.prior_output_dir,
         prior_kind=args.prior_kind,

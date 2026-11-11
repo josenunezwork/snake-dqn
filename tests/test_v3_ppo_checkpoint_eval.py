@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+import json
 import random
 import shutil
+import time
 from pathlib import Path
 
 import numpy as np
 import pytest
 import torch
 
+import research.v3_ppo.eval as eval_mod
 import research.v3_ppo.ppo as ppo_mod
 from research.arena_ppo.runtime import (
+    sha256_file,
     verify_completed_artifact,
     write_create_only_artifact,
     write_create_only_json,
@@ -605,3 +609,407 @@ def test_cooperative_stop_mid_update_discards_dirty_weights_and_in_session_resta
             mps_step["agent_steps"] == mps_cfg.num_envs * mps_cfg.num_snakes * mps_cfg.rollout_len
         )
         assert mps_eval["combined"]["learner_agent_steps"] >= 1
+
+
+def test_unthrottled_light_exports_bounded_full_and_immutable_sha256(tmp_path: Path) -> None:
+    """M1-r2: every LIGHT interval exports, FULL count obeys bound, & sha256 never mutates."""
+    cfg = V3PPOConfig.from_dict(
+        {
+            **_tiny_cfg(num_envs=2, total_updates=6, eval_every_updates=0).to_dict(),
+            "light_checkpoint_interval_sec": 0.04,
+            "full_checkpoint_interval_sec": 0.11,
+            "max_periodic_full_exports": 1,
+            "keep_full_checkpoints": 1,
+            "keep_light_checkpoints": 2,
+        }
+    )
+    out_dir = tmp_path / "m1_out"
+    work_dir = tmp_path / "m1_work"
+    first_seen_sha256: dict[str, str] = {}
+    first_seen_stat: dict[str, tuple[int, int, int, int]] = {}
+
+    def _snapshot_completed_exports() -> None:
+        if not out_dir.is_dir():
+            return
+        for marker in sorted(out_dir.rglob("*.complete")):
+            artifact = Path(str(marker)[: -len(".complete")])
+            if artifact.is_file():
+                rel = artifact.relative_to(out_dir).as_posix()
+                cur_sha = sha256_file(artifact)
+                st = artifact.stat()
+                cur_stat = (st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
+                if rel in first_seen_sha256:
+                    assert cur_sha == first_seen_sha256[rel], f"Completed export mutated: {rel}"
+                    assert cur_stat == first_seen_stat[rel], f"Export inode/ctime mutated: {rel}"
+                else:
+                    first_seen_sha256[rel] = cur_sha
+                    first_seen_stat[rel] = cur_stat
+
+    def _cadence_hook(_tr: V3PPOTrainer, _next_update: int) -> None:
+        _snapshot_completed_exports()
+        time.sleep(0.055)
+        _snapshot_completed_exports()
+
+    res = run_training_job(
+        cfg=cfg,
+        output_dir=out_dir,
+        work_dir=work_dir,
+        device="cpu",
+        step_hook=_cadence_hook,
+    )
+    _snapshot_completed_exports()
+
+    assert res["status"] == "PASS"
+    # Every 0.04s interval across 6 updates (~0.055s+ each) exported a LIGHT (no 3-count cap!)
+    exported_lights = sorted((out_dir / "checkpoints").glob("light_u*.pt"))
+    assert (
+        len(exported_lights) >= 5
+    ), f"Expected >=5 unthrottled LIGHT exports, got {exported_lights}"
+    assert res["periodic_light_exports_published"] >= 5
+
+    # Periodic FULL count obeyed `max_periodic_full_exports = 1` (+ 1 final boundary stop FULL = 2)
+    exported_fulls = sorted((out_dir / "checkpoints").glob("full_u*.index.json"))
+    assert res["periodic_full_exports_published"] == 1
+    assert len(exported_fulls) == 2
+
+    # Retention pruned unshared (`st_nlink == 1`) `work/checkpoints/` (`keep_full=1, keep_light=2`)
+    # while leaving hard-linked (`st_nlink > 1`) entries intact so `output/` `st_ctime_ns` stays
+    # immutable!
+    unshared_work_fulls = [
+        p for p in (work_dir / "checkpoints").glob("full_u*.index.json") if p.stat().st_nlink <= 1
+    ]
+    unshared_work_lights = [
+        p
+        for p in (work_dir / "checkpoints").glob("light_u*.pt")
+        if p.name != "light_init_u0000000.pt" and p.stat().st_nlink <= 1
+    ]
+    assert len(unshared_work_fulls) <= 1
+    assert len(unshared_work_lights) <= 2
+
+    # Every completed export recorded during the run still exists and has identical sha256 & stat!
+    assert len(first_seen_sha256) >= 6
+    for rel, orig_sha in first_seen_sha256.items():
+        final_file = out_dir / rel
+        assert final_file.is_file(), f"Completed export deleted: {rel}"
+        verify_completed_artifact(final_file)
+        assert sha256_file(final_file) == orig_sha
+        st_f = final_file.stat()
+        assert (st_f.st_ino, st_f.st_size, st_f.st_mtime_ns, st_f.st_ctime_ns) == first_seen_stat[
+            rel
+        ]
+
+
+def test_restart_generation_light_margin_protected_finally_and_update_cap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Cover Minors 1, 2, 3, and 4: restart FULL/LIGHT safety, 45m margin, finally, & update cap."""
+    # Minor 1: In-session restart rewinding from u=3 to FULL u=2 never reuses stale u=3 LIGHT.
+    cfg_m1 = V3PPOConfig.from_dict(
+        {
+            **_tiny_cfg(num_envs=2, total_updates=4, eval_every_updates=0).to_dict(),
+            "checkpoint_every_updates": 1,
+            "full_checkpoint_every_updates": 2,
+            "light_resume_margin_minutes": 45.0,
+            "max_in_session_restarts": 1,
+        }
+    )
+    out_m1 = tmp_path / "m1_restart_out"
+    work_m1 = tmp_path / "m1_restart_work"
+    fault_state = {"injected": False}
+    stale_u3_weights: dict[str, torch.Tensor] = {}
+    perturbed_post_restart = {"done": False}
+
+    def _post_restart_hook(tr: V3PPOTrainer, next_update: int) -> None:
+        if not fault_state["injected"] and next_update == 4:
+            # Pre-restart u=3 LIGHT is already saved & published to `out_m1/checkpoints/`;
+            # transient fault on update 4 rewinds to FULL u=2 (since LIGHT u=3 is <45m newer).
+            fault_state["injected"] = True
+            assert (out_m1 / "checkpoints" / "light_u0000003.pt").is_file()
+            for k, v in tr.raw_model.state_dict().items():
+                stale_u3_weights[k] = v.detach().cpu().clone()
+            with torch.no_grad():
+                for p in tr.raw_model.parameters():
+                    p.add_(7.0)
+            raise RuntimeError("Transient fault on update 4 after pre-restart light_u0000003.pt")
+        if fault_state["injected"] and not perturbed_post_restart["done"] and next_update == 3:
+            perturbed_post_restart["done"] = True
+            # Request a FULL checkpoint at post-restart u=3 while pre-restart `light_u0000003.pt`
+            # still sits in `out_m1/checkpoints/`.
+            object.__setattr__(cfg_m1, "full_checkpoint_every_updates", 3)
+            with torch.no_grad():
+                next(iter(tr.raw_model.parameters())).view(-1)[0].add_(0.125)
+
+    res_m1 = run_training_job(
+        cfg=cfg_m1,
+        output_dir=out_m1,
+        work_dir=work_m1,
+        device="cpu",
+        step_hook=_post_restart_hook,
+    )
+
+    assert res_m1["status"] == "PASS"
+    assert res_m1["in_session_restarts"] == 1
+    assert perturbed_post_restart["done"] is True
+    assert (out_m1 / "checkpoints" / "light_u0000003.pt").is_file()
+    # Post-restart FULL at u=3 MUST point to `light_u0000003_r01.pt`, never `light_u0000003.pt`.
+    r01_idx = out_m1 / "checkpoints" / "full_u0000003_r01.index.json"
+    assert r01_idx.is_file()
+    r01_meta = verify_full_checkpoint_set(r01_idx)
+    assert r01_meta["light_path"].name == "light_u0000003_r01.pt"
+    assert r01_meta["restart_generation"] == 1
+    check_r01 = V3PPOTrainer(cfg_m1, device="cpu")
+    check_r01.load_checkpoint(r01_idx)
+    first_param_key = next(iter(stale_u3_weights))
+    assert not torch.equal(
+        check_r01.raw_model.state_dict()[first_param_key], stale_u3_weights[first_param_key]
+    ), "FULL checkpoint after restart erroneously reused pre-restart LIGHT weights!"
+
+    # Explicit guard test: `save_full_checkpoint` refuses a `light_path` with mismatched generation
+    stale_dir = tmp_path / "stale_guard"
+    guard_tr = V3PPOTrainer(cfg_m1, device="cpu")
+    guard_tr.train_step()
+    guard_tr.restart_generation = 0
+    stale_lp = stale_dir / "light_u0000001.pt"
+    guard_tr.save_light_checkpoint(stale_lp)
+    guard_tr.restart_generation = 1
+    with pytest.raises(ValueError, match="Refusing to build FULL checkpoint"):
+        guard_tr.save_full_checkpoint(stale_dir, tag="u0000001_r01", light_path=stale_lp)
+
+    # Minor 2: Resume prefers LIGHT over FULL only when newer by > `light_resume_margin_minutes`.
+    margin_dir = tmp_path / "margin_ckpts"
+    m2_tr = V3PPOTrainer(_tiny_cfg(num_envs=2, total_updates=4, eval_every_updates=0), device="cpu")
+    m2_tr.train_step()
+    m2_tr.train_step()
+    base_ts = 1_700_000_000.0
+    monkeypatch.setattr(ppo_mod.time, "time", lambda: base_ts)
+    m2_tr.save_full_checkpoint(margin_dir, tag="u0000002")
+    m2_tr.train_step()
+    m2_tr.train_step()
+    # 20 minutes newer (< default 45 min margin) -> chooses FULL u=2!
+    monkeypatch.setattr(ppo_mod.time, "time", lambda: base_ts + 20.0 * 60.0)
+    m2_tr.save_light_checkpoint(margin_dir / "light_u0000004.pt")
+    capsys.readouterr()
+
+    chosen_within = resolve_resume_checkpoint(
+        margin_dir, light_resume_margin_minutes=45.0, log_choice=True
+    )
+    out_within = capsys.readouterr().out
+    assert chosen_within is not None
+    assert chosen_within["kind"] == "full"
+    assert chosen_within["updates_completed"] == 2
+    assert "V3_PPO_RESUME_CHOICE context=resolve_dir chosen_kind=full" in out_within
+    assert "reason=full_preferred_within_margin" in out_within
+
+    # With 10 min margin (`20 min > 10 min`) -> chooses newer LIGHT u=4!
+    chosen_exceeds = resolve_resume_checkpoint(
+        margin_dir, light_resume_margin_minutes=10.0, log_choice=True
+    )
+    out_exceeds = capsys.readouterr().out
+    assert chosen_exceeds is not None
+    assert chosen_exceeds["kind"] == "light"
+    assert chosen_exceeds["updates_completed"] == 4
+    assert "V3_PPO_RESUME_CHOICE context=resolve_dir chosen_kind=light" in out_exceeds
+    assert "reason=light_newer_beyond_margin" in out_exceeds
+
+    # --- Minor 3: Protected rollback in `finally` still writes manifest & `train_result.json` ---
+    cfg_m3 = V3PPOConfig.from_dict(
+        {
+            **_tiny_cfg(num_envs=2, total_updates=3, eval_every_updates=0).to_dict(),
+            "checkpoint_every_updates": 1,
+            "max_in_session_restarts": 0,
+        }
+    )
+    out_m3 = tmp_path / "m3_finally_out"
+    work_m3 = tmp_path / "m3_finally_work"
+    orig_load_ckpt = V3PPOTrainer.load_checkpoint
+
+    def _dead_cuda_load_ckpt(self: V3PPOTrainer, *args, **kwargs):  # type: ignore[no-untyped-def]
+        raise RuntimeError("CUDA error: device-side assert triggered during finally rollback")
+
+    def _boom_on_u2(_tr: V3PPOTrainer, next_update: int) -> None:
+        if next_update == 2:
+            monkeypatch.setattr(V3PPOTrainer, "load_checkpoint", _dead_cuda_load_ckpt)
+            raise RuntimeError("Unrecoverable fault on update 2")
+
+    with pytest.raises(RuntimeError, match="Unrecoverable fault on update 2"):
+        run_training_job(
+            cfg=cfg_m3,
+            output_dir=out_m3,
+            work_dir=work_m3,
+            device="cpu",
+            step_hook=_boom_on_u2,
+        )
+    monkeypatch.setattr(V3PPOTrainer, "load_checkpoint", orig_load_ckpt)
+    out_m3_log = capsys.readouterr().out
+    assert "V3_PPO_FINALLY_WARN stage=rollback_load_checkpoint" in out_m3_log
+    verify_completed_artifact(out_m3 / "checkpoints" / "latest_manifest.json")
+    verify_completed_artifact(out_m3 / "train_result.json")
+    res_m3 = json.loads((out_m3 / "train_result.json").read_text(encoding="utf-8"))
+    assert res_m3["status"] == "FAIL"
+
+    # --- Minor 4: Update-based checkpoint settings obey `max_session_export_bytes` ---
+    probe_light_bytes = (margin_dir / "light_u0000004.pt").stat().st_size
+    cfg_m4 = V3PPOConfig.from_dict(
+        {
+            **_tiny_cfg(num_envs=2, total_updates=5, eval_every_updates=0).to_dict(),
+            "checkpoint_every_updates": 1,
+            "light_checkpoint_interval_sec": 3600.0,
+            "full_checkpoint_interval_sec": 7200.0,
+        }
+    )
+    out_m4 = tmp_path / "m4_cap_out"
+    res_m4 = run_training_job(
+        cfg=cfg_m4,
+        output_dir=out_m4,
+        work_dir=tmp_path / "m4_cap_work",
+        device="cpu",
+        max_session_export_bytes=int(probe_light_bytes * 3.2),  # 2 LIGHTs + 25% stop_reserve!
+    )
+    out_m4_log = capsys.readouterr().out
+    assert res_m4["status"] == "PASS"
+    assert res_m4["periodic_light_exports_published"] == 2
+    assert "V3_PPO_EXPORT_BUDGET_REACHED" in out_m4_log
+
+
+def test_single_pass_eval_bit_identical_training_stop_abort_and_wall_skip(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """M2-r2: 1-pass dual-matchup eval, bit-identical train, clean stop abort, & <2x wall skip."""
+    # 1. Single simulator pass per evaluation + bit-identical training with vs without eval
+    sim_creations: list[int] = []
+    real_eval_sim = eval_mod.GameV3Sim
+
+    def _spy_eval_sim(*args, **kwargs):  # type: ignore[no-untyped-def]
+        sim_creations.append(int(kwargs.get("num_envs", args[1] if len(args) > 1 else -1)))
+        return real_eval_sim(*args, **kwargs)
+
+    monkeypatch.setattr(eval_mod, "GameV3Sim", _spy_eval_sim)
+
+    cfg_no_ev = _tiny_cfg(num_envs=2, total_updates=4, eval_every_updates=0, seed=90210)
+    cfg_with_ev = V3PPOConfig.from_dict(
+        {
+            **cfg_no_ev.to_dict(),
+            "eval_every_updates": 2,
+            "eval_envs": 4,  # 2 worlds vs food_seeking + 2 worlds vs random_safe in ONE pass!
+            "eval_burnin_ticks": 4,
+            "eval_ticks": 12,
+        }
+    )
+    res_no_ev = run_training_job(
+        cfg=cfg_no_ev,
+        output_dir=tmp_path / "no_ev_out",
+        work_dir=tmp_path / "no_ev_work",
+        device="cpu",
+    )
+    capsys.readouterr()
+    sim_creations.clear()
+
+    res_with_ev = run_training_job(
+        cfg=cfg_with_ev,
+        output_dir=tmp_path / "with_ev_out",
+        work_dir=tmp_path / "with_ev_work",
+        device="cpu",
+    )
+    ev_stdout = capsys.readouterr().out
+
+    assert res_no_ev["status"] == "PASS"
+    assert res_with_ev["status"] == "PASS"
+    assert res_with_ev["eval_runs_completed"] == 2
+    # Strictly ONE GameV3Sim(num_envs=4) constructed per evaluation (2 evals => [4, 4], NOT 4 sims!)
+    assert sim_creations == [4, 4]
+    assert res_with_ev["last_eval"]["matchup_envs"] == {
+        "vs_food_seeking": 2,
+        "vs_random_safe": 2,
+    }
+    assert res_with_ev["agent_steps_per_sec_scope"] == "train_excl_eval"
+    assert res_with_ev["eval_wall_seconds_total"] > 0.0
+    assert res_with_ev["eval_wall_share"] > 0.0
+    assert "sps_scope=train_excl_eval" in ev_stdout
+    assert "eval_wall_s=" in ev_stdout
+    assert "eval_wall_pct=" in ev_stdout
+
+    # Verify training weights and simulator state at update 4 are BIT-IDENTICAL with vs without eval
+    tr_a = V3PPOTrainer(cfg_no_ev, device="cpu")
+    tr_b = V3PPOTrainer(cfg_with_ev, device="cpu")
+    ckpt_a = resolve_resume_checkpoint(tmp_path / "no_ev_out" / "checkpoints")
+    ckpt_b = resolve_resume_checkpoint(tmp_path / "with_ev_out" / "checkpoints")
+    assert ckpt_a is not None and ckpt_b is not None
+    tr_a.load_checkpoint(ckpt_a["path"])
+    tr_b.load_checkpoint(ckpt_b["path"])
+    for k, ta in tr_a.raw_model.state_dict().items():
+        assert torch.equal(ta, tr_b.raw_model.state_dict()[k]), f"Eval perturbed weight {k}!"
+    for t_name, sa in tr_a.sim.state_dict()["tensors"].items():
+        assert torch.equal(
+            sa, tr_b.sim.state_dict()["tensors"][t_name]
+        ), f"Eval perturbed {t_name}!"
+
+    # 2. Stop flag polled during evaluation aborts cleanly (`aborted=True`, never logged as data)
+    poll_calls = {"n": 0}
+
+    def _stop_after_2_polls() -> bool:
+        poll_calls["n"] += 1
+        return poll_calls["n"] >= 2
+
+    aborted_ev = evaluate_policy(
+        tr_b.raw_model,
+        V3PPOConfig.from_dict(
+            {**cfg_with_ev.to_dict(), "eval_burnin_ticks": 40, "eval_ticks": 200}
+        ),
+        device="cpu",
+        should_stop=_stop_after_2_polls,
+        poll_interval_ticks=8,
+    )
+    assert aborted_ev["aborted"] is True
+    assert aborted_ev["ticks_completed"] < 240
+
+    # Verify mid-eval abort inside `run_training_job` is NOT recorded in `eval/*.jsonl`
+    real_eval_pol = ppo_mod.evaluate_policy
+
+    def _aborting_eval_pol(*args, **kwargs):  # type: ignore[no-untyped-def]
+        return real_eval_pol(*args, **{**kwargs, "should_stop": lambda: True})
+
+    monkeypatch.setattr(ppo_mod, "evaluate_policy", _aborting_eval_pol)
+    out_abort = tmp_path / "abort_ev_out"
+    res_abort = run_training_job(
+        cfg=V3PPOConfig.from_dict({**cfg_with_ev.to_dict(), "total_updates": 2}),
+        output_dir=out_abort,
+        work_dir=tmp_path / "abort_ev_work",
+        device="cpu",
+    )
+    abort_stdout = capsys.readouterr().out
+    monkeypatch.setattr(ppo_mod, "evaluate_policy", real_eval_pol)
+
+    assert res_abort["eval_runs_aborted"] == 1
+    assert res_abort["eval_runs_completed"] == 0
+    assert res_abort["last_eval"] is None
+    assert "V3_PPO_EVAL_ABORTED" in abort_stdout
+    eval_dir = out_abort / "eval"
+    if eval_dir.exists():
+        for jf in eval_dir.glob("*.jsonl"):
+            assert jf.read_text(encoding="utf-8").strip() == ""
+
+    # 3. Remaining wall `< 2x` eval estimate skips starting evaluation (`V3_PPO_EVAL_SKIPPED`)
+    cfg_skip = V3PPOConfig.from_dict(
+        {
+            **cfg_with_ev.to_dict(),
+            "total_updates": 2,
+            "eval_every_updates": 1,
+            "eval_estimated_seconds": 60.0,  # 2x = 120s > remaining wall (~90s)
+        }
+    )
+    res_skip = run_training_job(
+        cfg=cfg_skip,
+        output_dir=tmp_path / "skip_ev_out",
+        work_dir=tmp_path / "skip_ev_work",
+        device="cpu",
+        max_wall_seconds=100.0,
+    )
+    skip_stdout = capsys.readouterr().out
+    assert res_skip["status"] == "PASS"
+    assert res_skip["eval_runs_skipped"] >= 1
+    assert res_skip["eval_runs_completed"] == 0
+    assert "V3_PPO_EVAL_SKIPPED" in skip_stdout

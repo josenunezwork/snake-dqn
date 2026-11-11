@@ -282,6 +282,7 @@ class Uint8RolloutBuffer:
         flat_indices: torch.Tensor,
         *,
         normalized_advantages_flat: torch.Tensor | None = None,
+        include_old_values: bool = True,
     ) -> RolloutMinibatch:
         """Gather a learner minibatch by flat ``(T * M)`` row indices (`uint8` preserved)."""
         tm = self.T * self.M
@@ -289,6 +290,11 @@ class Uint8RolloutBuffer:
             normalized_advantages_flat
             if normalized_advantages_flat is not None
             else self.advantages.reshape(tm)
+        )
+        old_vals = (
+            self.values.reshape(tm).index_select(0, flat_indices)
+            if include_old_values
+            else self.values.new_empty((0,))
         )
         return RolloutMinibatch(
             raster_s1=self.raster_s1.reshape(
@@ -304,7 +310,7 @@ class Uint8RolloutBuffer:
             action_mask=self.action_mask.reshape(tm, NUM_ACTIONS).index_select(0, flat_indices),
             actions=self.actions.reshape(tm).index_select(0, flat_indices).to(torch.long),
             old_log_probs=self.log_probs.reshape(tm).index_select(0, flat_indices),
-            old_values=self.values.reshape(tm).index_select(0, flat_indices),
+            old_values=old_vals,
             advantages=adv_source.index_select(0, flat_indices),
             returns=self.returns.reshape(tm).index_select(0, flat_indices),
         )

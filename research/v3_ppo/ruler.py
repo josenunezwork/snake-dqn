@@ -41,7 +41,7 @@ from research.v3_ppo.config import (
     estimate_sim_memory_bytes,
     estimate_training_memory,
 )
-from research.v3_ppo.eval import derive_world_seeds
+from research.v3_ppo.eval import derive_world_seeds, evaluate_policy
 from research.v3_ppo.net import build_ego_multiscale_net
 from research.v3_ppo.ppo import (
     StopRequestedError,
@@ -165,6 +165,7 @@ def _measure_collection_only_cell(
     amp: bool,
     use_channels_last: bool,
     compile_model: bool,
+    fast_learner_ops: bool = True,
     warmup_ticks: int,
     collect_ticks: int,
     device: torch.device,
@@ -185,6 +186,7 @@ def _measure_collection_only_cell(
         net_size,
         use_channels_last=use_channels_last,
         use_bf16_autocast=amp,
+        fast_preprocess=bool(fast_learner_ops),
     ).to(device)
     raw_model.eval()
     model = (
@@ -252,18 +254,13 @@ def _measure_collection_only_cell(
         _step_once(sim, obs_buf, model, timed=False)
     synchronize_device(device)
 
+    # Pass 1 (headline throughput): per-stage timing syncs OFF (`timed=False`).
     _reset_peak_memory(device)
-    sim_sec = 0.0
-    obs_sec = 0.0
-    fwd_sec = 0.0
     wall_t0 = time.perf_counter()
     for _ in range(int(collect_ticks)):
         if should_stop is not None and should_stop():
             raise StopRequestedError("Stop requested during collection measurement")
-        ds, do, df = _step_once(sim, obs_buf, model, timed=True)
-        sim_sec += ds
-        obs_sec += do
-        fwd_sec += df
+        _step_once(sim, obs_buf, model, timed=False)
     synchronize_device(device)
     wall_sec = max(1.0e-9, time.perf_counter() - wall_t0)
 
@@ -274,9 +271,26 @@ def _measure_collection_only_cell(
         + raw_model.parameter_count() * 4
     )
     peak_bytes = _read_peak_memory_bytes(device, fallback_bytes=fallback_mem)
+
+    # Pass 2 (separate synced stage-split pass): per-stage timing syncs ON (`timed=True`).
+    split_ticks = min(max(1, int(collect_ticks)), 8)
+    raw_sim_sec = 0.0
+    raw_obs_sec = 0.0
+    raw_fwd_sec = 0.0
+    for _ in range(split_ticks):
+        if should_stop is not None and should_stop():
+            raise StopRequestedError("Stop requested during collection stage-split pass")
+        ds, do, df = _step_once(sim, obs_buf, model, timed=True)
+        raw_sim_sec += ds
+        raw_obs_sec += do
+        raw_fwd_sec += df
+
     total_agent_steps = int(collect_ticks) * sim.E * sim.N
     total_learner_steps = int(collect_ticks) * learner_idx.count
-    split_total = max(1.0e-9, sim_sec + obs_sec + fwd_sec)
+    raw_split_total = max(1.0e-9, raw_sim_sec + raw_obs_sec + raw_fwd_sec)
+    sim_sec = wall_sec * (raw_sim_sec / raw_split_total)
+    obs_sec = wall_sec * (raw_obs_sec / raw_split_total)
+    fwd_sec = wall_sec * (raw_fwd_sec / raw_split_total)
 
     del sim, obs_buf, model, raw_model
     _cleanup_device_memory(device)
@@ -284,13 +298,20 @@ def _measure_collection_only_cell(
     return {
         "oom": False,
         "ticks": int(collect_ticks),
+        "headline_stage_timing_syncs": False,
         "wall_seconds": round(wall_sec, 6),
-        "collect_seconds": round(sim_sec + obs_sec + fwd_sec, 6),
+        "collect_seconds": round(wall_sec, 6),
         "learn_seconds": 0.0,
         "agent_steps": total_agent_steps,
         "learner_steps": total_learner_steps,
         "agent_steps_per_sec": round(float(total_agent_steps) / wall_sec, 2),
         "learner_steps_per_sec": round(float(total_learner_steps) / wall_sec, 2),
+        "synced_stage_split_seconds": {
+            "ticks": int(split_ticks),
+            "sim": round(raw_sim_sec, 6),
+            "obs": round(raw_obs_sec, 6),
+            "forward": round(raw_fwd_sec, 6),
+        },
         "time_split_seconds": {
             "sim": round(sim_sec, 6),
             "obs": round(obs_sec, 6),
@@ -298,9 +319,9 @@ def _measure_collection_only_cell(
             "learner": 0.0,
         },
         "time_split_pct": {
-            "sim": round(100.0 * sim_sec / split_total, 2),
-            "obs": round(100.0 * obs_sec / split_total, 2),
-            "forward": round(100.0 * fwd_sec / split_total, 2),
+            "sim": round(100.0 * raw_sim_sec / raw_split_total, 2),
+            "obs": round(100.0 * raw_obs_sec / raw_split_total, 2),
+            "forward": round(100.0 * raw_fwd_sec / raw_split_total, 2),
             "learner": 0.0,
         },
         "peak_memory_bytes": int(peak_bytes),
@@ -321,6 +342,7 @@ def _measure_integrated_cell(
     amp: bool,
     use_channels_last: bool,
     compile_model: bool,
+    fast_learner_ops: bool = True,
     warmup_updates: int,
     timed_updates: int,
     seed: int,
@@ -341,6 +363,7 @@ def _measure_integrated_cell(
         amp=amp,
         use_channels_last=use_channels_last,
         compile_model=compile_model,
+        fast_learner_ops=bool(fast_learner_ops),
         rollout_len=rollout_len,
         ppo_epochs=ppo_epochs,
         minibatch_size=minibatch_size,
@@ -360,10 +383,9 @@ def _measure_integrated_cell(
         trainer.train_step(should_stop=should_stop, stage_timing=False)
     synchronize_device(device)
 
+    # Pass 1 (headline integrated throughput): per-stage timing syncs OFF (`stage_timing=False`).
     _reset_peak_memory(device)
-    sim_sec = 0.0
-    obs_sec = 0.0
-    fwd_sec = 0.0
+    collect_sec = 0.0
     lrn_sec = 0.0
     total_agent_steps = 0
     total_learner_steps = 0
@@ -373,10 +395,8 @@ def _measure_integrated_cell(
     for _ in range(int(timed_updates)):
         if should_stop is not None and should_stop():
             raise StopRequestedError("Stop requested during integrated measurement")
-        step_out = trainer.train_step(should_stop=should_stop, stage_timing=True)
-        sim_sec += float(step_out["sim_seconds"])
-        obs_sec += float(step_out["obs_seconds"])
-        fwd_sec += float(step_out["forward_seconds"])
+        step_out = trainer.train_step(should_stop=should_stop, stage_timing=False)
+        collect_sec += float(step_out["collect_seconds"])
         lrn_sec += float(step_out["learn_seconds"])
         total_agent_steps += int(step_out["agent_steps"])
         total_learner_steps += int(step_out["learner_steps"])
@@ -394,7 +414,18 @@ def _measure_integrated_cell(
     )
     peak_bytes = _read_peak_memory_bytes(device, fallback_bytes=fallback_mem)
 
-    collect_sec = sim_sec + obs_sec + fwd_sec
+    # Pass 2 (separate synced pass): 1 synced rollout (`stage_timing=True`) for stage split only.
+    if should_stop is not None and should_stop():
+        raise StopRequestedError("Stop requested before integrated stage-split pass")
+    synced_rollout = trainer.collect_rollout(should_stop=should_stop, stage_timing=True)
+    raw_sim_sec = float(synced_rollout["sim_seconds"])
+    raw_obs_sec = float(synced_rollout["obs_seconds"])
+    raw_fwd_sec = float(synced_rollout["forward_seconds"])
+    raw_coll_total = max(1.0e-9, raw_sim_sec + raw_obs_sec + raw_fwd_sec)
+
+    sim_sec = collect_sec * (raw_sim_sec / raw_coll_total)
+    obs_sec = collect_sec * (raw_obs_sec / raw_coll_total)
+    fwd_sec = collect_sec * (raw_fwd_sec / raw_coll_total)
     split_total = max(1.0e-9, collect_sec + lrn_sec)
     param_count = trainer.raw_model.parameter_count()
 
@@ -407,6 +438,7 @@ def _measure_integrated_cell(
         "ppo_epochs": int(ppo_epochs),
         "warmup_updates": int(warmup_updates),
         "timed_updates": int(timed_updates),
+        "headline_stage_timing_syncs": False,
         "parameter_count": int(param_count),
         "wall_seconds": round(wall_sec, 6),
         "collect_seconds": round(collect_sec, 6),
@@ -417,6 +449,11 @@ def _measure_integrated_cell(
         "learner_steps": total_learner_steps,
         "agent_steps_per_sec": round(float(total_agent_steps) / wall_sec, 2),
         "learner_steps_per_sec": round(float(total_learner_steps) / wall_sec, 2),
+        "synced_rollout_split_seconds": {
+            "sim": round(raw_sim_sec, 6),
+            "obs": round(raw_obs_sec, 6),
+            "forward": round(raw_fwd_sec, 6),
+        },
         "time_split_seconds": {
             "sim": round(sim_sec, 6),
             "obs": round(obs_sec, 6),
@@ -475,6 +512,7 @@ def run_ruler(
     amp: bool = True,
     use_channels_last: bool = True,
     compile_model: bool = False,
+    fast_learner_ops: bool = True,
     include_fp32: bool = False,
     vram_budget_bytes: int | None = None,
     max_wall_seconds: float | None = None,
@@ -611,6 +649,7 @@ def run_ruler(
                     amp=cell_amp,
                     use_channels_last=use_channels_last,
                     compile_model=compile_model,
+                    fast_learner_ops=bool(fast_learner_ops),
                     rollout_len=rollout_len,
                     ppo_epochs=ppo_epochs,
                     minibatch_size=minibatch_size,
@@ -632,6 +671,7 @@ def run_ruler(
                     "is_fp32_probe": bool(is_fp32_probe),
                     "use_channels_last": bool(use_channels_last),
                     "compile_model": bool(compile_model),
+                    "fast_learner_ops": bool(fast_learner_ops),
                     "estimated_peak_bytes": est_peak_bytes,
                     "estimated_peak_mib": round(est_peak_bytes / float(1024 * 1024), 2),
                     "precheck_oom": False,
@@ -682,6 +722,7 @@ def run_ruler(
                         amp=cell_amp,
                         use_channels_last=use_channels_last,
                         compile_model=compile_model,
+                        fast_learner_ops=bool(fast_learner_ops),
                         warmup_ticks=warmup_ticks,
                         collect_ticks=collect_ticks,
                         device=resolved_dev,
@@ -701,6 +742,7 @@ def run_ruler(
                         amp=cell_amp,
                         use_channels_last=use_channels_last,
                         compile_model=compile_model,
+                        fast_learner_ops=bool(fast_learner_ops),
                         warmup_updates=warmup_updates,
                         timed_updates=timed_updates,
                         seed=seed,
@@ -816,6 +858,8 @@ def run_ruler(
         "amp": bool(amp),
         "use_channels_last": bool(use_channels_last),
         "compile_model": bool(compile_model),
+        "fast_learner_ops": bool(fast_learner_ops),
+        "headline_stage_timing_syncs": False,
         "succeeded_cell_ids": succeeded_ids,
         "oom_cell_ids": oom_ids,
         "failed_cell_ids": failed_ids,
@@ -877,9 +921,12 @@ def run_canary_suite(
     canary_arena_radius: float = 120.0,
     canary_num_snakes: int = 12,
     canary_rollout_len: int = 4,
+    compile_model: bool = False,
+    fast_learner_ops: bool = True,
+    canary_eval_cfg_override: V3PPOConfig | None = None,
     seed: int = 20261111,
 ) -> dict[str, Any]:
-    """Run instrumented family canary exercising ruler (S/M, all/subset, bf16/fp32) & resume."""
+    """Run instrumented family canary exercising ruler, resume, & 1 default-config evaluation."""
     out = Path(output_dir).resolve()
     out.mkdir(parents=True, exist_ok=True)
     resolved_dev = normalize_device(device)
@@ -916,7 +963,7 @@ def run_canary_suite(
         seed=seed,
     )
     ruler_budget = (
-        max(30.0, (float(max_wall_seconds) - (time.monotonic() - wall_t0)) * 0.6)
+        max(30.0, (float(max_wall_seconds) - (time.monotonic() - wall_t0)) * 0.45)
         if max_wall_seconds is not None
         else None
     )
@@ -938,6 +985,8 @@ def run_canary_suite(
         ppo_epochs=1,
         minibatch_size=max(8, int(canary_envs) * subset_learners),
         amp=True,
+        compile_model=bool(compile_model),
+        fast_learner_ops=bool(fast_learner_ops),
         include_fp32=(resolved_dev.type == "cuda"),
         max_wall_seconds=ruler_budget,
         seed=seed,
@@ -1073,6 +1122,82 @@ def run_canary_suite(
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
+    # 4. Run 1 evaluation at the DEFAULT evaluation config on `resolved_dev` and report wall seconds
+    default_eval_cfg = (
+        canary_eval_cfg_override
+        if canary_eval_cfg_override is not None
+        else V3PPOConfig(
+            compile_model=bool(compile_model),
+            fast_learner_ops=bool(fast_learner_ops),
+            seed=seed,
+        )
+    )
+    with SignalStopFlag() as eval_stop_flag:
+        eval_guard_reserve = 10.0
+
+        def _canary_eval_should_stop() -> bool:
+            if bool(eval_stop_flag.stopped):
+                return True
+            if max_wall_seconds is not None:
+                return (time.monotonic() - wall_t0) >= max(
+                    5.0, float(max_wall_seconds) - eval_guard_reserve
+                )
+            return False
+
+        default_eval_raw_net = build_ego_multiscale_net(
+            default_eval_cfg.net_size,
+            use_channels_last=bool(default_eval_cfg.use_channels_last),
+            use_bf16_autocast=bool(default_eval_cfg.amp),
+            fast_preprocess=bool(default_eval_cfg.fast_learner_ops),
+        ).to(resolved_dev)
+        default_eval_raw_net.eval()
+        default_eval_net: Any = (
+            torch.compile(default_eval_raw_net)
+            if (bool(default_eval_cfg.compile_model) and hasattr(torch, "compile"))
+            else default_eval_raw_net
+        )
+        default_eval_res = evaluate_policy(
+            default_eval_net,
+            default_eval_cfg,
+            device=resolved_dev,
+            should_stop=_canary_eval_should_stop,
+        )
+        del default_eval_net, default_eval_raw_net
+        _cleanup_device_memory(resolved_dev)
+
+    if bool(default_eval_res.get("aborted", False)):
+        raise RuntimeError(
+            "Canary default-config evaluation aborted due to stop/wall guard: "
+            f"{default_eval_res}"
+        )
+
+    default_eval_benchmark = {
+        "wall_seconds": float(default_eval_res["wall_seconds"]),
+        "arena_radius": float(default_eval_cfg.game_config.arena_radius),
+        "num_snakes": int(default_eval_cfg.num_snakes),
+        "net_size": default_eval_cfg.net_size,
+        "eval_envs": int(default_eval_res["eval_envs"]),
+        "matchup_envs": default_eval_res["matchup_envs"],
+        "eval_burnin_ticks": int(default_eval_res["eval_burnin_ticks"]),
+        "eval_ticks": int(default_eval_res["eval_ticks"]),
+        "eval_learner_slots": int(default_eval_res["eval_learner_slots"]),
+        "vs_food_seeking_completed_lives": int(
+            default_eval_res["matchups"]["vs_food_seeking"]["completed_lives"]
+        ),
+        "vs_random_safe_completed_lives": int(
+            default_eval_res["matchups"]["vs_random_safe"]["completed_lives"]
+        ),
+        "aborted": False,
+    }
+    print(
+        f"V3_PPO_CANARY_DEFAULT_EVAL wall_s={default_eval_benchmark['wall_seconds']:.3f} "
+        f"eval_envs={default_eval_benchmark['eval_envs']} "
+        f"burnin={default_eval_benchmark['eval_burnin_ticks']} "
+        f"ticks={default_eval_benchmark['eval_ticks']} "
+        f"rs_completed_lives={default_eval_benchmark['vs_random_safe_completed_lives']}",
+        flush=True,
+    )
+
     canary_payload = {
         "schema": V3_PPO_CANARY_SCHEMA,
         "namespace": V3_PPO_NAMESPACE,
@@ -1083,6 +1208,8 @@ def run_canary_suite(
         "ruler_succeeded_cells": ruler_res["succeeded_cell_ids"],
         "train_updates_completed": int(res_u2["updates_completed"]),
         "last_eval": res_u2.get("last_eval"),
+        "default_eval_benchmark": default_eval_benchmark,
+        "default_eval_wall_seconds": float(default_eval_benchmark["wall_seconds"]),
         "wall_seconds": round(time.monotonic() - wall_t0, 4),
     }
     write_create_only_json(out / "canary_checks.json", canary_payload)
@@ -1157,6 +1284,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     cl_group.add_argument("--no-channels-last", dest="use_channels_last", action="store_false")
 
+    fast_group = parser.add_mutually_exclusive_group()
+    fast_group.add_argument(
+        "--fast-learner-ops", dest="fast_learner_ops", action="store_true", default=True
+    )
+    fast_group.add_argument("--no-fast-learner-ops", dest="fast_learner_ops", action="store_false")
+
     parser.add_argument("--seed", type=int, default=20261111)
     parser.add_argument(
         "--max-wall-seconds",
@@ -1184,6 +1317,8 @@ def main(argv: list[str] | None = None) -> int:
             canary_arena_radius=args.canary_arena_radius,
             canary_num_snakes=args.canary_num_snakes,
             canary_rollout_len=args.canary_rollout_len,
+            compile_model=bool(args.compile),
+            fast_learner_ops=bool(args.fast_learner_ops),
             seed=args.seed,
         )
         return 0 if res.get("status") == "PASS" else 1
@@ -1208,6 +1343,7 @@ def main(argv: list[str] | None = None) -> int:
         amp=bool(args.amp),
         use_channels_last=bool(args.use_channels_last),
         compile_model=bool(args.compile),
+        fast_learner_ops=bool(args.fast_learner_ops),
         include_fp32=bool(args.include_fp32),
         vram_budget_bytes=args.vram_budget_bytes,
         max_wall_seconds=args.max_wall_seconds,

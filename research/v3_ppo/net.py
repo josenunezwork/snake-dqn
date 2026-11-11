@@ -64,11 +64,34 @@ def symlog_two_hot_loss(
     bin_centers: torch.Tensor,
     *,
     mask: torch.Tensor | None = None,
+    fast: bool = True,
 ) -> torch.Tensor:
-    """Compute cross-entropy loss between ``value_logits`` and two-hot encoded ``targets``."""
-    target_dist = two_hot_encode(targets, bin_centers)
+    """Compute cross-entropy loss between ``value_logits`` and two-hot encoded ``targets``.
+
+    When ``fast=True`` (default), gathers the two adjacent bin log-probabilities directly
+    instead of materializing a dense ``(*B, 255)`` two-hot tensor via ``scatter_add_``.
+    """
     log_probs = F.log_softmax(value_logits.float(), dim=-1)
-    per_item = -torch.sum(target_dist * log_probs, dim=-1)
+    if fast:
+        centers = (
+            bin_centers
+            if (bin_centers.device == targets.device and bin_centers.dtype == torch.float32)
+            else bin_centers.to(device=targets.device, dtype=torch.float32)
+        )
+        z = torch.clamp(symlog(targets.float()), min=centers[0], max=centers[-1])
+        num_bins = int(centers.numel())
+        step = (centers[-1] - centers[0]) / float(num_bins - 1)
+        scaled = (z - centers[0]) / step
+        low_idx = torch.floor(scaled).to(torch.long).clamp(0, num_bins - 1)
+        high_idx = (low_idx + 1).clamp(0, num_bins - 1)
+        high_weight = (scaled - low_idx.to(scaled.dtype)).clamp(0.0, 1.0)
+        low_weight = 1.0 - high_weight
+        lp_low = log_probs.gather(-1, low_idx.unsqueeze(-1)).squeeze(-1)
+        lp_high = log_probs.gather(-1, high_idx.unsqueeze(-1)).squeeze(-1)
+        per_item = -(low_weight * lp_low + high_weight * lp_high)
+    else:
+        target_dist = two_hot_encode(targets, bin_centers)
+        per_item = -torch.sum(target_dist * log_probs, dim=-1)
     if mask is None:
         return per_item.mean()
     mask_f = mask.to(per_item.dtype)
@@ -188,6 +211,7 @@ class EgoMultiScaleNetConfig:
     value_symlog_max: float = 20.0
     use_channels_last: bool = True
     use_bf16_autocast: bool = True
+    fast_preprocess: bool = True
 
     @classmethod
     def from_size(
@@ -196,6 +220,7 @@ class EgoMultiScaleNetConfig:
         *,
         use_channels_last: bool = True,
         use_bf16_autocast: bool = True,
+        fast_preprocess: bool = True,
     ) -> EgoMultiScaleNetConfig:
         """Construct calibrated `S` (~1.0M) or `M` (~5.0M) preset."""
         if size not in VALID_NET_SIZES:
@@ -214,6 +239,7 @@ class EgoMultiScaleNetConfig:
                 head_dim=128,
                 use_channels_last=use_channels_last,
                 use_bf16_autocast=use_bf16_autocast,
+                fast_preprocess=fast_preprocess,
             )
         return cls(
             size="M",
@@ -228,6 +254,7 @@ class EgoMultiScaleNetConfig:
             head_dim=256,
             use_channels_last=use_channels_last,
             use_bf16_autocast=use_bf16_autocast,
+            fast_preprocess=fast_preprocess,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -389,9 +416,6 @@ class EgoMultiScaleNet(nn.Module):
                 f"got {tuple(x.shape)}"
             )
         use_cl = self.cfg.use_channels_last and x.device.type != "mps"
-        if use_cl and not x.is_contiguous(memory_format=torch.channels_last):
-            x = x.contiguous(memory_format=torch.channels_last)
-
         if x.dtype == torch.uint8:
             if torch.is_autocast_enabled():
                 target_dtype = (
@@ -400,9 +424,18 @@ class EgoMultiScaleNet(nn.Module):
                     else torch.get_autocast_gpu_dtype()
                 )
             else:
-                target_dtype = next(self.parameters()).dtype
+                target_dtype = self.scalar_stem[0].weight.dtype  # type: ignore[union-attr]
+            if self.cfg.fast_preprocess:
+                mem_fmt = torch.channels_last if use_cl else torch.preserve_format
+                out = x.to(dtype=target_dtype, memory_format=mem_fmt)
+                out.mul_(1.0 / 255.0)
+                return out
+            if use_cl and not x.is_contiguous(memory_format=torch.channels_last):
+                x = x.contiguous(memory_format=torch.channels_last)
             return x.to(dtype=target_dtype) * (1.0 / 255.0)
 
+        if use_cl and not x.is_contiguous(memory_format=torch.channels_last):
+            x = x.contiguous(memory_format=torch.channels_last)
         if not torch.is_floating_point(x):
             x = x.float()
         return x
@@ -527,6 +560,7 @@ class EgoMultiScaleNet(nn.Module):
         generator: torch.Generator | None = None,
         hidden_state: torch.Tensor | None = None,
         episode_starts: torch.Tensor | None = None,
+        compute_values: bool = True,
     ) -> ActOutput:
         """Sample or select greedy legal actions with exact zero probability on masked boost."""
         dev = raster_s1.device
@@ -564,8 +598,11 @@ class EgoMultiScaleNet(nn.Module):
                 actions = torch.multinomial(probs, num_samples=1, generator=generator).squeeze(-1)
 
             chosen_log_probs = log_probs_all.gather(-1, actions.unsqueeze(-1)).squeeze(-1)
-            value_logits = self.value_head(trunk_f32).float()
-            values = symlog_two_hot_value(value_logits, self.bin_centers)
+            if compute_values:
+                value_logits = self.value_head(trunk_f32).float()
+                values = symlog_two_hot_value(value_logits, self.bin_centers)
+            else:
+                values = chosen_log_probs.new_zeros(chosen_log_probs.shape)
 
         return ActOutput(
             actions=actions,
@@ -583,6 +620,7 @@ class EgoMultiScaleNet(nn.Module):
         actions: torch.Tensor,
         *,
         action_mask: torch.Tensor,
+        compute_values: bool = True,
     ) -> EvalActionsOutput:
         """Evaluate ``actions`` under current policy/value heads for PPO minibatch updates."""
         dev = raster_s1.device
@@ -599,13 +637,21 @@ class EgoMultiScaleNet(nn.Module):
             raw_logits = self.policy_head(trunk_f32)
             masked_logits, safe_mask = self.mask_policy_logits(raw_logits, action_mask)
             log_probs_all = F.log_softmax(masked_logits, dim=-1)
-            probs = F.softmax(masked_logits, dim=-1)
+            probs = (
+                log_probs_all.exp()
+                if self.cfg.fast_preprocess
+                else F.softmax(masked_logits, dim=-1)
+            )
             act_long = actions.to(dtype=torch.long)
             chosen_log_probs = log_probs_all.gather(-1, act_long.unsqueeze(-1)).squeeze(-1)
             entropy_terms = (probs * log_probs_all).masked_fill(~safe_mask, 0.0)
             entropy = -entropy_terms.sum(dim=-1)
             value_logits = self.value_head(trunk_f32).float()
-            values = symlog_two_hot_value(value_logits, self.bin_centers)
+            values = (
+                symlog_two_hot_value(value_logits, self.bin_centers)
+                if compute_values
+                else value_logits[:, 0]
+            )
 
         return EvalActionsOutput(
             log_probs=chosen_log_probs,
@@ -620,11 +666,13 @@ def build_ego_multiscale_net(
     *,
     use_channels_last: bool = True,
     use_bf16_autocast: bool = True,
+    fast_preprocess: bool = True,
 ) -> EgoMultiScaleNet:
     """Convenience constructor for ``EgoMultiScaleNet`` (`S` or `M`)."""
     net_cfg = EgoMultiScaleNetConfig.from_size(
         size,
         use_channels_last=use_channels_last,
         use_bf16_autocast=use_bf16_autocast,
+        fast_preprocess=fast_preprocess,
     )
     return EgoMultiScaleNet(net_cfg)

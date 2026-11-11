@@ -26,6 +26,12 @@ fi
 
 if [ "$MODE" = "canary" ]; then
   CANARY_ARGS=(--canary-suite --input-dir "$COLAB_INPUT_DIR" --ledger "$LEDGER_FILE")
+  if [ "${V3_PPO_COMPILE:-0}" = "1" ]; then
+    CANARY_ARGS+=(--compile)
+  fi
+  if [ "${V3_PPO_FAST_LEARNER_OPS:-1}" = "0" ]; then
+    CANARY_ARGS+=(--no-fast-learner-ops)
+  fi
   if [ -n "${V3_PPO_MAX_WALL_SECONDS:-}" ]; then
     CANARY_ARGS+=(--max-wall-seconds "$V3_PPO_MAX_WALL_SECONDS")
   fi
@@ -65,6 +71,9 @@ elif [ "$MODE" = "ruler" ]; then
   if [ "${V3_PPO_COMPILE:-0}" = "1" ]; then
     RULER_ARGS+=(--compile)
   fi
+  if [ "${V3_PPO_FAST_LEARNER_OPS:-1}" = "0" ]; then
+    RULER_ARGS+=(--no-fast-learner-ops)
+  fi
   if [ "${V3_PPO_AMP:-}" = "0" ]; then
     RULER_ARGS+=(--no-amp)
   elif [ "${V3_PPO_AMP:-}" = "1" ]; then
@@ -94,6 +103,12 @@ elif [ "$MODE" = "train" ]; then
   if [ -n "${V3_PPO_CONFIG_JSON:-}" ]; then
     TRAIN_ARGS+=(--config-json "$V3_PPO_CONFIG_JSON")
   fi
+  if [ "${V3_PPO_COMPILE:-0}" = "1" ]; then
+    TRAIN_ARGS+=(--compile)
+  fi
+  if [ "${V3_PPO_FAST_LEARNER_OPS:-1}" = "0" ]; then
+    TRAIN_ARGS+=(--no-fast-learner-ops)
+  fi
   if [ "${V3_PPO_AMP:-}" = "0" ]; then
     TRAIN_ARGS+=(--no-amp)
   elif [ "${V3_PPO_AMP:-}" = "1" ]; then
@@ -103,6 +118,9 @@ elif [ "$MODE" = "train" ]; then
     TRAIN_ARGS+=(--no-channels-last)
   elif [ "${V3_PPO_CHANNELS_LAST:-}" = "1" ]; then
     TRAIN_ARGS+=(--channels-last)
+  fi
+  if [ -n "${V3_PPO_MAX_SESSION_EXPORT_BYTES:-}" ]; then
+    TRAIN_ARGS+=(--max-session-export-bytes "$V3_PPO_MAX_SESSION_EXPORT_BYTES")
   fi
   if [ -n "${V3_PPO_MAX_WALL_SECONDS:-}" ]; then
     TRAIN_ARGS+=(--max-wall-seconds "$V3_PPO_MAX_WALL_SECONDS")

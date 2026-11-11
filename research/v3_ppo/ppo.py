@@ -40,6 +40,7 @@ from research.game_v3.sim import GameV3Sim
 from research.v3_ppo.buffer import Uint8RolloutBuffer
 from research.v3_ppo.config import (
     DEFAULT_CHECKPOINT_SHARD_BYTES,
+    GPU_MAX_TOTAL_EXPORT_BYTES,
     V3_PPO_NAMESPACE,
     V3PPOConfig,
     estimate_training_memory,
@@ -70,6 +71,8 @@ _RESUME_MUTABLE_CONFIG_KEYS: frozenset[str] = frozenset(
         "total_updates",
         "light_checkpoint_interval_sec",
         "full_checkpoint_interval_sec",
+        "max_periodic_full_exports",
+        "light_resume_margin_minutes",
         "checkpoint_shard_bytes",
         "checkpoint_every_updates",
         "full_checkpoint_every_updates",
@@ -82,11 +85,13 @@ _RESUME_MUTABLE_CONFIG_KEYS: frozenset[str] = frozenset(
         "eval_envs",
         "eval_burnin_ticks",
         "eval_ticks",
+        "eval_estimated_seconds",
         "eval_learner_slots",
         "eval_seed",
         "eval_greedy",
         "actor_chunk_learners",
         "compile_model",
+        "fast_learner_ops",
         # Legacy r1 keys accepted via V3PPOConfig.from_dict
         "checkpoint_interval_sec",
         "output_publish_interval_sec",
@@ -360,14 +365,20 @@ def verify_light_checkpoint(
     counters = ckpt.get("counters")
     if not isinstance(counters, dict) or "updates_completed" not in counters:
         raise ValueError(f"Corrupt counters in LIGHT checkpoint at {p}")
+    st = p.stat()
+    raw_ts = ckpt.get("created_unix_ts")
+    created_ts = float(raw_ts) if isinstance(raw_ts, (int, float)) else float(st.st_mtime)
     return {
         "kind": "light",
         "path": p,
         "files": [p],
         "sha256": digest,
-        "size_bytes": int(p.stat().st_size),
+        "size_bytes": int(st.st_size),
         "updates_completed": int(counters["updates_completed"]),
+        "world_steps_collected": int(counters.get("world_steps_collected", 0)),
         "agent_steps_collected": int(counters.get("agent_steps_collected", 0)),
+        "created_unix_ts": created_ts,
+        "restart_generation": int(ckpt.get("restart_generation", 0)),
         "config": ckpt.get("config"),
     }
 
@@ -450,7 +461,16 @@ def verify_full_checkpoint_set(
             f"FULL index updates_completed ({updates_completed}) != "
             f"LIGHT updates_completed ({light_meta['updates_completed']})"
         )
+    idx_rgen = int(idx_obj.get("restart_generation", light_meta.get("restart_generation", 0)))
+    if int(light_meta.get("restart_generation", 0)) != idx_rgen:
+        raise ValueError(
+            f"FULL index restart_generation ({idx_rgen}) != "
+            f"LIGHT restart_generation ({light_meta.get('restart_generation', 0)})"
+        )
 
+    idx_st = idx_p.stat()
+    raw_ts = idx_obj.get("created_unix_ts")
+    created_ts = float(raw_ts) if isinstance(raw_ts, (int, float)) else float(idx_st.st_mtime)
     all_files = [idx_p, light_p, *shard_paths]
     return {
         "kind": "full",
@@ -459,27 +479,31 @@ def verify_full_checkpoint_set(
         "shard_paths": shard_paths,
         "files": all_files,
         "sha256": idx_sha,
-        "size_bytes": int(idx_p.stat().st_size) + int(light_meta["size_bytes"]) + total_shard_bytes,
+        "size_bytes": int(idx_st.st_size) + int(light_meta["size_bytes"]) + total_shard_bytes,
         "num_shards": len(shard_paths),
         "updates_completed": updates_completed,
+        "world_steps_collected": int(
+            idx_obj.get("world_steps_collected", light_meta.get("world_steps_collected", 0))
+        ),
         "agent_steps_collected": int(idx_obj.get("agent_steps_collected", 0)),
+        "created_unix_ts": created_ts,
+        "restart_generation": idx_rgen,
         "config": light_meta["config"],
     }
 
 
-def resolve_resume_checkpoint(
+def _collect_valid_checkpoints_in_dir(
     checkpoints_dir: Path,
     *,
     require_markers: bool = True,
     include_init_anchor: bool = False,
-) -> dict[str, Any] | None:
-    """Resolve resume checkpoint in coordinator order: newest complete FULL, else newest LIGHT."""
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None]:
+    """Return ``(newest_full, newest_light, init_anchor_light)`` verified in ``checkpoints_dir``."""
     ckpt_dir = Path(checkpoints_dir)
     if not ckpt_dir.is_dir():
-        return None
+        return None, None, None
 
-    # 1. Check all `full_*.index.json` candidates; pick newest complete FULL set.
-    valid_full: list[tuple[int, str, dict[str, Any]]] = []
+    valid_full: list[tuple[int, int, str, dict[str, Any]]] = []
     for idx_cand in sorted(ckpt_dir.glob("full_*.index.json")):
         if require_markers and not (
             Path(f"{idx_cand}.complete").is_file() and Path(f"{idx_cand}.sha256").is_file()
@@ -491,7 +515,14 @@ def resolve_resume_checkpoint(
             continue
         try:
             meta = verify_full_checkpoint_set(idx_cand, require_markers=require_markers)
-            valid_full.append((int(meta["updates_completed"]), idx_cand.name, meta))
+            valid_full.append(
+                (
+                    int(meta["updates_completed"]),
+                    int(meta.get("restart_generation", 0)),
+                    idx_cand.name,
+                    meta,
+                )
+            )
         except (FileNotFoundError, ValueError, RuntimeError, OSError, json.JSONDecodeError) as exc:
             print(
                 f"V3_PPO_SKIP_INCOMPLETE_FULL index={idx_cand.name} "
@@ -500,38 +531,7 @@ def resolve_resume_checkpoint(
             )
             continue
 
-    if valid_full:
-        valid_full.sort(key=lambda t: (t[0], t[1]))
-        return valid_full[-1][2]
-
-    # 2. Else fall back to newest verified LIGHT checkpoint (`light_*.pt`).
-    valid_light: list[tuple[int, int, str, dict[str, Any]]] = []
-    for light_cand in sorted(ckpt_dir.glob("light_*.pt")):
-        if not include_init_anchor and light_cand.name == _INIT_ANCHOR_LIGHT_NAME:
-            continue
-        if require_markers and not (
-            Path(f"{light_cand}.complete").is_file() and Path(f"{light_cand}.sha256").is_file()
-        ):
-            continue
-        try:
-            meta_l = verify_light_checkpoint(light_cand, require_markers=require_markers)
-            is_non_init = 0 if light_cand.name == _INIT_ANCHOR_LIGHT_NAME else 1
-            valid_light.append(
-                (int(meta_l["updates_completed"]), is_non_init, light_cand.name, meta_l)
-            )
-        except (FileNotFoundError, ValueError, RuntimeError, OSError) as exc:
-            print(
-                f"V3_PPO_SKIP_INVALID_LIGHT file={light_cand.name} "
-                f"reason={type(exc).__name__}: {exc}",
-                flush=True,
-            )
-            continue
-
-    if valid_light:
-        valid_light.sort(key=lambda t: (t[0], t[1], t[2]))
-        return valid_light[-1][3]
-
-    # 3. Legacy r1 single-file fallback (`final.pt` / `ckpt_u*.pt`) if present.
+    # Legacy r1 single-file fallback (`final.pt` / `ckpt_u*.pt`) if present.
     legacy_cands = [ckpt_dir / "final.pt", *reversed(sorted(ckpt_dir.glob("ckpt_u*.pt")))]
     for leg in legacy_cands:
         if not leg.is_file():
@@ -549,25 +549,157 @@ def resolve_resume_checkpoint(
                 and obj.get("namespace") == V3_PPO_NAMESPACE
             ):
                 cnt = obj.get("counters") or {}
-                return {
+                leg_st = leg.stat()
+                leg_meta = {
                     "kind": "legacy_full",
                     "path": leg,
                     "files": [leg],
                     "sha256": sha,
-                    "size_bytes": int(leg.stat().st_size),
+                    "size_bytes": int(leg_st.st_size),
                     "updates_completed": int(cnt.get("updates_completed", 0)),
+                    "world_steps_collected": int(cnt.get("world_steps_collected", 0)),
                     "agent_steps_collected": int(cnt.get("agent_steps_collected", 0)),
+                    "created_unix_ts": float(leg_st.st_mtime),
+                    "restart_generation": 0,
                     "config": obj.get("config"),
                 }
+                valid_full.append((int(leg_meta["updates_completed"]), 0, leg.name, leg_meta))
         except Exception:
             continue
 
+    best_full: dict[str, Any] | None = None
+    if valid_full:
+        valid_full.sort(key=lambda t: (t[0], t[1], t[2]))
+        best_full = valid_full[-1][3]
+
+    valid_light: list[tuple[int, int, str, dict[str, Any]]] = []
+    init_anchor_meta: dict[str, Any] | None = None
+    for light_cand in sorted(ckpt_dir.glob("light_*.pt")):
+        if not include_init_anchor and light_cand.name == _INIT_ANCHOR_LIGHT_NAME:
+            continue
+        if require_markers and not (
+            Path(f"{light_cand}.complete").is_file() and Path(f"{light_cand}.sha256").is_file()
+        ):
+            continue
+        try:
+            meta_l = verify_light_checkpoint(light_cand, require_markers=require_markers)
+            if light_cand.name == _INIT_ANCHOR_LIGHT_NAME:
+                init_anchor_meta = meta_l
+            else:
+                valid_light.append(
+                    (
+                        int(meta_l["updates_completed"]),
+                        int(meta_l.get("restart_generation", 0)),
+                        light_cand.name,
+                        meta_l,
+                    )
+                )
+        except (FileNotFoundError, ValueError, RuntimeError, OSError) as exc:
+            print(
+                f"V3_PPO_SKIP_INVALID_LIGHT file={light_cand.name} "
+                f"reason={type(exc).__name__}: {exc}",
+                flush=True,
+            )
+            continue
+
+    best_light: dict[str, Any] | None = None
+    if valid_light:
+        valid_light.sort(key=lambda t: (t[0], t[1], t[2]))
+        best_light = valid_light[-1][3]
+
+    return best_full, best_light, init_anchor_meta
+
+
+def _choose_between_full_and_light(
+    best_full: dict[str, Any] | None,
+    best_light: dict[str, Any] | None,
+    *,
+    light_resume_margin_minutes: float = 45.0,
+    log_choice: bool = False,
+    context: str = "resolve",
+) -> dict[str, Any] | None:
+    """Prefer newest FULL unless newest LIGHT has more updates AND is newer by ``> margin``."""
+    margin_sec = max(0.0, float(light_resume_margin_minutes) * 60.0)
+    chosen: dict[str, Any] | None = None
+    reason = "none"
+    delta_sec = 0.0
+
+    if best_full is not None and best_light is not None:
+        full_u = int(best_full["updates_completed"])
+        light_u = int(best_light["updates_completed"])
+        full_ts = float(best_full.get("created_unix_ts", 0.0))
+        light_ts = float(best_light.get("created_unix_ts", 0.0))
+        delta_sec = light_ts - full_ts
+        if light_u > full_u and delta_sec > margin_sec:
+            chosen = best_light
+            reason = "light_newer_beyond_margin"
+        elif full_u >= light_u:
+            chosen = best_full
+            reason = "full_at_or_ahead_of_light"
+        else:
+            chosen = best_full
+            reason = "full_preferred_within_margin"
+    elif best_full is not None:
+        chosen = best_full
+        reason = "only_full_available"
+    elif best_light is not None:
+        chosen = best_light
+        reason = "no_valid_full_available"
+
+    if log_choice and chosen is not None:
+        f_u_str = str(best_full["updates_completed"]) if best_full is not None else "none"
+        l_u_str = str(best_light["updates_completed"]) if best_light is not None else "none"
+        print(
+            f"V3_PPO_RESUME_CHOICE context={context} chosen_kind={chosen['kind']} "
+            f"chosen_file={Path(chosen['path']).name} "
+            f"chosen_updates={chosen['updates_completed']} "
+            f"full_updates={f_u_str} light_updates={l_u_str} "
+            f"light_minus_full_sec={delta_sec:.1f} margin_sec={margin_sec:.1f} "
+            f"reason={reason}",
+            flush=True,
+        )
+    return chosen
+
+
+def resolve_resume_checkpoint(
+    checkpoints_dir: Path,
+    *,
+    require_markers: bool = True,
+    include_init_anchor: bool = False,
+    light_resume_margin_minutes: float = 45.0,
+    log_choice: bool = False,
+) -> dict[str, Any] | None:
+    """Resolve resume checkpoint: newest FULL unless newest LIGHT is newer by ``> margin``."""
+    best_full, best_light, init_anchor = _collect_valid_checkpoints_in_dir(
+        checkpoints_dir,
+        require_markers=require_markers,
+        include_init_anchor=include_init_anchor,
+    )
+    chosen = _choose_between_full_and_light(
+        best_full,
+        best_light,
+        light_resume_margin_minutes=light_resume_margin_minutes,
+        log_choice=log_choice,
+        context="resolve_dir",
+    )
+    if chosen is not None:
+        return chosen
+    if include_init_anchor and init_anchor is not None:
+        return init_anchor
     return None
 
 
-def find_newest_verified_checkpoint(checkpoints_dir: Path) -> Path | None:
-    """Return path to newest verified FULL `.index.json` or fallback LIGHT `.pt` checkpoint."""
-    resolved = resolve_resume_checkpoint(checkpoints_dir, require_markers=True)
+def find_newest_verified_checkpoint(
+    checkpoints_dir: Path,
+    *,
+    light_resume_margin_minutes: float = 45.0,
+) -> Path | None:
+    """Return path to best verified resume checkpoint (`.index.json` or `.pt`)."""
+    resolved = resolve_resume_checkpoint(
+        checkpoints_dir,
+        require_markers=True,
+        light_resume_margin_minutes=light_resume_margin_minutes,
+    )
     return Path(resolved["path"]) if resolved is not None else None
 
 
@@ -576,6 +708,52 @@ def _is_unshared_file(path: Path) -> bool:
         return path.is_file() and path.stat().st_nlink <= 1
     except OSError:
         return False
+
+
+def _prune_work_checkpoints_after_rewind(
+    work_ckpts: Path,
+    *,
+    rewind_updates: int,
+) -> list[str]:
+    """Remove unshared ``work_ckpts`` artifacts strictly newer than ``rewind_updates``."""
+    if not work_ckpts.is_dir():
+        return []
+    removed: list[str] = []
+    for idx_path in sorted(work_ckpts.glob("full_*.index.json")):
+        try:
+            idx_obj = json.loads(idx_path.read_text(encoding="utf-8"))
+            u_num = int(idx_obj.get("updates_completed", -1))
+            s_files = [
+                work_ckpts / str(s["filename"])
+                for s in (idx_obj.get("shards") or [])
+                if isinstance(s, dict) and s.get("filename")
+            ]
+        except Exception:
+            continue
+        if u_num <= int(rewind_updates):
+            continue
+        for sp in s_files:
+            if _is_unshared_file(sp):
+                remove_completed_artifact(sp)
+                removed.append(sp.name)
+        if _is_unshared_file(idx_path):
+            remove_completed_artifact(idx_path.with_suffix(".meta.json"))
+            remove_completed_artifact(idx_path)
+            removed.append(idx_path.name)
+
+    for lp in sorted(work_ckpts.glob("light_*.pt")):
+        if lp.name == _INIT_ANCHOR_LIGHT_NAME or not _is_unshared_file(lp):
+            continue
+        try:
+            meta_l = verify_light_checkpoint(lp, require_markers=False)
+            if int(meta_l["updates_completed"]) <= int(rewind_updates):
+                continue
+        except Exception:
+            pass
+        remove_completed_artifact(lp.with_suffix(".meta.json"))
+        remove_completed_artifact(lp)
+        removed.append(lp.name)
+    return removed
 
 
 def prune_old_checkpoints(
@@ -618,21 +796,21 @@ def prune_old_checkpoints(
         full_entries.append((u_num, idx_path.name, idx_path, s_files, light_name, can_prune))
 
     full_entries.sort(key=lambda t: (t[0], t[1]))
-    prunable_full = [entry for entry in full_entries if entry[5]]
+    keep_f = max(1, int(keep_full))
+    retained_full_names: set[str] = {e[1] for e in full_entries[-keep_f:]}
     to_remove_full_names: set[str] = set()
-    if len(prunable_full) > int(keep_full):
-        for _, idx_name, idx_path, s_files, _, _ in prunable_full[
-            : len(prunable_full) - int(keep_full)
-        ]:
-            to_remove_full_names.add(idx_name)
-            for sp in s_files:
-                if _is_unshared_file(sp):
-                    remove_completed_artifact(sp)
-                    removed.append(sp.name)
-            if _is_unshared_file(idx_path):
-                remove_completed_artifact(idx_path.with_suffix(".meta.json"))
-                remove_completed_artifact(idx_path)
-                removed.append(idx_path.name)
+    for _, idx_name, idx_path, s_files, _, can_prune in full_entries:
+        if idx_name in retained_full_names or not can_prune:
+            continue
+        to_remove_full_names.add(idx_name)
+        for sp in s_files:
+            if _is_unshared_file(sp):
+                remove_completed_artifact(sp)
+                removed.append(sp.name)
+        if _is_unshared_file(idx_path):
+            remove_completed_artifact(idx_path.with_suffix(".meta.json"))
+            remove_completed_artifact(idx_path)
+            removed.append(idx_path.name)
 
     protected_lights: set[str] = {
         entry[4]
@@ -640,20 +818,20 @@ def prune_old_checkpoints(
         if entry[1] not in to_remove_full_names and entry[4] is not None
     }
 
-    # 2. Prune unshared standalone LIGHT files beyond `keep_light` newest.
-    unshared_lights: list[Path] = []
+    # 2. Prune unshared standalone LIGHT files older than the `keep_light` newest standalone LIGHTs.
+    standalone_lights: list[Path] = []
     for lp in sorted(checkpoints_dir.glob("light_*.pt")):
         if lp.name == _INIT_ANCHOR_LIGHT_NAME or lp.name in protected_lights:
             continue
-        if _is_unshared_file(lp):
-            unshared_lights.append(lp)
+        standalone_lights.append(lp)
 
-    if len(unshared_lights) > int(keep_light):
-        for old_lp in unshared_lights[: len(unshared_lights) - int(keep_light)]:
-            if _is_unshared_file(old_lp):
-                remove_completed_artifact(old_lp.with_suffix(".meta.json"))
-                remove_completed_artifact(old_lp)
-                removed.append(old_lp.name)
+    keep_l = max(1, int(keep_light))
+    retained_light_names: set[str] = {p.name for p in standalone_lights[-keep_l:]}
+    for old_lp in standalone_lights:
+        if old_lp.name not in retained_light_names and _is_unshared_file(old_lp):
+            remove_completed_artifact(old_lp.with_suffix(".meta.json"))
+            remove_completed_artifact(old_lp)
+            removed.append(old_lp.name)
 
     return removed
 
@@ -714,6 +892,7 @@ class V3PPOTrainer:
             cfg.net_size,
             use_channels_last=cfg.use_channels_last,
             use_bf16_autocast=cfg.amp,
+            fast_preprocess=bool(cfg.fast_learner_ops),
         )
         self.raw_model = EgoMultiScaleNet(net_cfg).to(self.device)
         if cfg.compile_model and hasattr(torch, "compile"):
@@ -721,8 +900,20 @@ class V3PPOTrainer:
         else:
             self.model = self.raw_model
 
+        self._trainable_params: tuple[nn.Parameter, ...] = tuple(
+            p for p in self.raw_model.parameters() if p.requires_grad
+        )
+        self._clip_grad_kwargs: dict[str, Any] = (
+            {"foreach": True}
+            if (
+                self.device.type == "cuda"
+                and "foreach" in inspect.signature(nn.utils.clip_grad_norm_).parameters
+            )
+            else {}
+        )
+
         self.optimizer = _build_adamw_optimizer(
-            self.raw_model.parameters(),
+            self._trainable_params,
             lr=cfg.lr,
             eps=cfg.adam_eps,
             weight_decay=cfg.weight_decay,
@@ -750,6 +941,7 @@ class V3PPOTrainer:
         self.learner_steps_collected: int = 0
         self.episodes_completed: int = 0
         self.obs_builds_executed: int = 0
+        self.restart_generation: int = 0
         self.episode_return_acc = torch.zeros((self.M,), dtype=torch.float32, device=self.device)
         self.last_rollout_mean_ep_return: float = 0.0
         self.last_eval_metrics: dict[str, Any] | None = None
@@ -1043,13 +1235,20 @@ class V3PPOTrainer:
 
         epoch0_batches = 0
         num_minibatches = 0
+        fast_ops = bool(self.cfg.fast_learner_ops)
+        clip_kwargs = self._clip_grad_kwargs if fast_ops else {}
 
         for epoch in range(int(self.cfg.ppo_epochs)):
             if should_stop is not None and should_stop():
                 raise StopRequestedError("Cooperative stop requested during PPO learner epochs")
 
             perm_cpu = torch.randperm(n_valid, generator=self.perm_gen)
-            shuffled_valid = valid_idx.index_select(0, perm_cpu.to(device=self.device))
+            perm_dev = (
+                perm_cpu.pin_memory().to(device=self.device, non_blocking=True)
+                if (fast_ops and self.device.type == "cuda")
+                else perm_cpu.to(device=self.device)
+            )
+            shuffled_valid = valid_idx.index_select(0, perm_dev)
 
             for start in range(0, n_usable, mb_size):
                 if should_stop is not None and should_stop():
@@ -1064,6 +1263,7 @@ class V3PPOTrainer:
                 mb = self.buffer.gather_minibatch(
                     batch_idx,
                     normalized_advantages_flat=norm_adv_flat,
+                    include_old_values=not fast_ops,
                 )
 
                 self.optimizer.zero_grad(set_to_none=True)
@@ -1074,6 +1274,7 @@ class V3PPOTrainer:
                     mb.scalars,
                     mb.actions,
                     action_mask=mb.action_mask,
+                    compute_values=not fast_ops,
                 )
 
                 log_ratio = (eval_out.log_probs - mb.old_log_probs).clamp(-20.0, 20.0)
@@ -1096,6 +1297,7 @@ class V3PPOTrainer:
                     mb.returns,
                     self.raw_model.bin_centers,
                     mask=row_mask,
+                    fast=fast_ops,
                 )
                 total_loss = (
                     policy_loss
@@ -1108,16 +1310,18 @@ class V3PPOTrainer:
                     self.scaler.scale(total_loss).backward()
                     self.scaler.unscale_(self.optimizer)
                     grad_norm = nn.utils.clip_grad_norm_(
-                        self.raw_model.parameters(),
+                        self._trainable_params,
                         self.cfg.max_grad_norm,
+                        **clip_kwargs,
                     )
                     self.scaler.step(self.optimizer)
                     self.scaler.update()
                 else:
                     total_loss.backward()
                     grad_norm = nn.utils.clip_grad_norm_(
-                        self.raw_model.parameters(),
+                        self._trainable_params,
                         self.cfg.max_grad_norm,
+                        **clip_kwargs,
                     )
                     self.optimizer.step()
 
@@ -1223,18 +1427,33 @@ class V3PPOTrainer:
             out["forward_seconds"] = round(float(coll["forward_seconds"]), 6)
         return out
 
-    def run_evaluation(self) -> dict[str, Any]:
+    def run_evaluation(
+        self,
+        *,
+        should_stop: Callable[[], bool] | None = None,
+    ) -> dict[str, Any]:
         """Run built-in deterministic fixed-seed M-of-N evaluation against scripted opponents."""
-        metrics = evaluate_policy(self.raw_model, self.cfg, device=self.device)
-        self.last_eval_metrics = metrics
+        metrics = evaluate_policy(
+            self.raw_model,
+            self.cfg,
+            device=self.device,
+            should_stop=should_stop,
+        )
+        if not bool(metrics.get("aborted", False)):
+            self.last_eval_metrics = metrics
         return metrics
 
-    def light_checkpoint_dict(self) -> dict[str, Any]:
+    def light_checkpoint_dict(self, *, restart_generation: int | None = None) -> dict[str, Any]:
         """Build LIGHT CPU-resident checkpoint dictionary (network, opt, counters, RNG; no sim)."""
+        eff_gen = (
+            int(self.restart_generation) if restart_generation is None else int(restart_generation)
+        )
         return {
             "schema": V3_PPO_LIGHT_CHECKPOINT_SCHEMA,
             "namespace": V3_PPO_NAMESPACE,
             "checkpoint_kind": "light",
+            "created_unix_ts": float(time.time()),
+            "restart_generation": eff_gen,
             "config": self.cfg.to_dict(),
             "model_state_dict": _to_cpu_tree(self.raw_model.state_dict()),
             "optimizer_state_dict": _to_cpu_tree(self.optimizer.state_dict()),
@@ -1266,9 +1485,9 @@ class V3PPOTrainer:
             },
         }
 
-    def save_light_checkpoint(self, path: Path) -> str:
+    def save_light_checkpoint(self, path: Path, *, restart_generation: int | None = None) -> str:
         """Atomically write a LIGHT checkpoint (`no sim state`) with `.sha256` & `.complete`."""
-        payload = self.light_checkpoint_dict()
+        payload = self.light_checkpoint_dict(restart_generation=restart_generation)
         return write_create_only_artifact(Path(path), lambda tmp: torch.save(payload, tmp))
 
     def save_full_checkpoint(
@@ -1278,6 +1497,7 @@ class V3PPOTrainer:
         tag: str | None = None,
         max_shard_bytes: int | None = None,
         light_path: Path | None = None,
+        restart_generation: int | None = None,
     ) -> Path:
         """Atomically write a sharded FULL checkpoint set (`light` + whole-world shards + index).
 
@@ -1285,6 +1505,9 @@ class V3PPOTrainer:
         each with its own `.sha256` and `.complete` sidecar. The index file
         `full_<tag>.index.json` is written strictly LAST and defines completeness of the set.
         """
+        eff_gen = (
+            int(self.restart_generation) if restart_generation is None else int(restart_generation)
+        )
         ckpt_dir = Path(checkpoints_dir)
         ckpt_dir.mkdir(parents=True, exist_ok=True)
         prefix = tag if tag is not None else f"u{self.updates_completed:07d}"
@@ -1298,9 +1521,26 @@ class V3PPOTrainer:
             Path(light_path) if light_path is not None else (ckpt_dir / f"light_{prefix}.pt")
         )
         if not eff_light.exists():
-            light_sha = self.save_light_checkpoint(eff_light)
+            light_sha = self.save_light_checkpoint(
+                eff_light,
+                restart_generation=eff_gen,
+            )
         else:
-            light_sha = verify_completed_artifact(eff_light)
+            light_meta = verify_light_checkpoint(eff_light, require_markers=True)
+            if (
+                int(light_meta["updates_completed"]) != int(self.updates_completed)
+                or int(light_meta["world_steps_collected"]) != int(self.world_steps_collected)
+                or int(light_meta.get("restart_generation", 0)) != eff_gen
+            ):
+                raise ValueError(
+                    f"Refusing to build FULL checkpoint {prefix!r} from mismatched LIGHT "
+                    f"{eff_light.name}: light=(u={light_meta['updates_completed']}, "
+                    f"w={light_meta['world_steps_collected']}, "
+                    f"r={light_meta.get('restart_generation', 0)}) vs "
+                    f"trainer=(u={self.updates_completed}, w={self.world_steps_collected}, "
+                    f"r={eff_gen})"
+                )
+            light_sha = str(light_meta["sha256"])
 
         raw_sim_sd = self.sim.state_dict()
         clean_streak = int(self.sim._clean_step_streak)
@@ -1368,6 +1608,8 @@ class V3PPOTrainer:
             "namespace": V3_PPO_NAMESPACE,
             "checkpoint_kind": "full",
             "tag": prefix,
+            "created_unix_ts": float(time.time()),
+            "restart_generation": eff_gen,
             "updates_completed": int(self.updates_completed),
             "world_steps_collected": int(self.world_steps_collected),
             "agent_steps_collected": int(self.agent_steps_collected),
@@ -1691,6 +1933,7 @@ def write_latest_checkpoint_manifest(
     *,
     reason: str,
     counters: dict[str, Any],
+    light_resume_margin_minutes: float = 45.0,
 ) -> Path:
     """Write create-only ``checkpoints/latest_manifest.json`` summarizing exported checkpoints."""
     out_checkpoints_dir.mkdir(parents=True, exist_ok=True)
@@ -1699,7 +1942,11 @@ def write_latest_checkpoint_manifest(
         verify_completed_artifact(manifest_path)
         return manifest_path
 
-    best = resolve_resume_checkpoint(out_checkpoints_dir, require_markers=True)
+    best = resolve_resume_checkpoint(
+        out_checkpoints_dir,
+        require_markers=True,
+        light_resume_margin_minutes=light_resume_margin_minutes,
+    )
     all_files = sorted(
         p.name
         for p in out_checkpoints_dir.iterdir()
@@ -1810,13 +2057,18 @@ def _validate_staged_ledger_resume(
     else:
         obj = torch.load(staged_primary, map_location="cpu", weights_only=False)
         cnt = obj.get("counters") or {}
+        st_leg = staged_primary.stat()
         meta = {
             "kind": "legacy_full",
             "path": staged_primary,
             "files": [staged_primary],
             "sha256": actual_sha,
-            "size_bytes": int(staged_primary.stat().st_size),
+            "size_bytes": int(st_leg.st_size),
             "updates_completed": int(cnt.get("updates_completed", 0)),
+            "world_steps_collected": int(cnt.get("world_steps_collected", 0)),
+            "agent_steps_collected": int(cnt.get("agent_steps_collected", 0)),
+            "created_unix_ts": float(st_leg.st_mtime),
+            "restart_generation": 0,
         }
     meta["source"] = "staged_ledger"
     meta["require_markers"] = False
@@ -1830,52 +2082,100 @@ def _select_best_resume_candidate(
     out_ckpts: Path,
     staged_meta: dict[str, Any] | None,
     include_init_anchor: bool = False,
+    light_resume_margin_minutes: float = 45.0,
+    log_choice: bool = True,
+    context: str = "resume",
 ) -> dict[str, Any] | None:
-    """Pick best verified checkpoint across `work_ckpts`, `out_ckpts`, and `staged_meta`.
+    """Pick best verified checkpoint across ``work_ckpts``, ``out_ckpts``, and ``staged_meta``.
 
-    Applies the coordinator resume rule globally across available directories:
-    newest complete FULL set (`kind in {'full', 'legacy_full'}`), else newest LIGHT.
+    Compares the globally newest valid FULL checkpoint against the globally newest valid LIGHT
+    checkpoint: prefers FULL unless LIGHT has strictly more updates AND is newer by more than
+    ``light_resume_margin_minutes`` (`45.0` min default), and logs the decision.
     """
-    candidates: list[dict[str, Any]] = []
+    full_cands: list[dict[str, Any]] = []
+    light_cands: list[dict[str, Any]] = []
+    init_cands: list[dict[str, Any]] = []
+
     for src_name, d_path, inc_init in (
         ("work_checkpoints", work_ckpts, include_init_anchor),
         ("output_checkpoints", out_ckpts, False),
     ):
-        found = resolve_resume_checkpoint(
+        bf, bl, bi = _collect_valid_checkpoints_in_dir(
             d_path,
             require_markers=True,
             include_init_anchor=inc_init,
         )
-        if found is not None:
-            cand = dict(found)
-            cand["source"] = src_name
-            cand["require_markers"] = True
-            cand["relpath"] = Path(found["path"]).name
-            candidates.append(cand)
+        for item, target_list in ((bf, full_cands), (bl, light_cands), (bi, init_cands)):
+            if item is not None:
+                cand = dict(item)
+                cand["source"] = src_name
+                cand["require_markers"] = True
+                cand["relpath"] = Path(item["path"]).name
+                target_list.append(cand)
 
     if staged_meta is not None:
-        candidates.append(staged_meta)
+        if staged_meta["kind"] in {"full", "legacy_full"}:
+            full_cands.append(staged_meta)
+        elif str(staged_meta.get("relpath")) == _INIT_ANCHOR_LIGHT_NAME:
+            init_cands.append(staged_meta)
+        else:
+            light_cands.append(staged_meta)
 
-    if not candidates:
-        return None
-
-    full_cands = [c for c in candidates if c["kind"] in {"full", "legacy_full"}]
+    best_full: dict[str, Any] | None = None
     if full_cands:
-        full_cands.sort(key=lambda c: (int(c["updates_completed"]), str(c["relpath"])))
-        return full_cands[-1]
+        full_cands.sort(
+            key=lambda c: (
+                int(c["updates_completed"]),
+                int(c.get("restart_generation", 0)),
+                str(c["relpath"]),
+            )
+        )
+        best_full = full_cands[-1]
 
-    light_cands = [
-        c
-        for c in candidates
-        if c["kind"] == "light" and str(c["relpath"]) != _INIT_ANCHOR_LIGHT_NAME
-    ]
+    best_light: dict[str, Any] | None = None
     if light_cands:
-        light_cands.sort(key=lambda c: (int(c["updates_completed"]), str(c["relpath"])))
-        return light_cands[-1]
+        light_cands.sort(
+            key=lambda c: (
+                int(c["updates_completed"]),
+                int(c.get("restart_generation", 0)),
+                str(c["relpath"]),
+            )
+        )
+        best_light = light_cands[-1]
 
-    # Only initial u0000000 anchor exists (e.g. crash/stop during update 1)
-    candidates.sort(key=lambda c: int(c["updates_completed"]))
-    return candidates[-1]
+    chosen = _choose_between_full_and_light(
+        best_full,
+        best_light,
+        light_resume_margin_minutes=light_resume_margin_minutes,
+        log_choice=log_choice,
+        context=context,
+    )
+    if chosen is not None:
+        return chosen
+
+    if include_init_anchor and init_cands:
+        init_cands.sort(key=lambda c: int(c["updates_completed"]))
+        return init_cands[-1]
+    return None
+
+
+def _ckpt_tag(updates_completed: int, restart_generation: int) -> str:
+    if int(restart_generation) <= 0:
+        return f"u{int(updates_completed):07d}"
+    return f"u{int(updates_completed):07d}_r{int(restart_generation):02d}"
+
+
+def _exported_payload_bytes(out_dir: Path) -> int:
+    if not out_dir.is_dir():
+        return 0
+    total = 0
+    for p in out_dir.rglob("*"):
+        if p.is_file() and not p.name.endswith((".sha256", ".complete")):
+            try:
+                total += int(p.stat().st_size)
+            except OSError:
+                pass
+    return total
 
 
 def _format_progress_line(
@@ -1883,23 +2183,29 @@ def _format_progress_line(
     *,
     total_updates: int,
     wall_elapsed: float,
+    eval_wall_total: float = 0.0,
     eval_metrics: dict[str, Any] | None = None,
 ) -> str:
+    eval_share_pct = 100.0 * float(eval_wall_total) / max(1.0e-9, float(wall_elapsed))
     line = (
         f"V3_PPO_PROGRESS "
         f"update={step_metrics['update']}/{total_updates} "
         f"agent_steps={step_metrics['total_agent_steps']} "
         f"sps={step_metrics['agent_steps_per_sec']:.1f} "
+        f"sps_scope=train_excl_eval "
         f"ep_ret={step_metrics['mean_ep_return']:.4f} "
         f"p_loss={step_metrics['policy_loss']:.4f} "
         f"v_loss={step_metrics['value_loss']:.4f} "
         f"ent={step_metrics['entropy']:.4f} "
         f"kl={step_metrics['approx_kl']:.5f} "
-        f"wall_s={wall_elapsed:.2f}"
+        f"wall_s={wall_elapsed:.2f} "
+        f"eval_wall_s={eval_wall_total:.2f} "
+        f"eval_wall_pct={eval_share_pct:.2f}"
     )
-    if eval_metrics is not None:
+    if eval_metrics is not None and not bool(eval_metrics.get("aborted", False)):
         comb = eval_metrics["combined"]
         line += (
+            f" eval_run_s={eval_metrics['wall_seconds']:.2f}"
             f" eval_tavg_len={comb['time_averaged_length']:.2f}"
             f" eval_dlen_mean={comb['mean_death_length']:.2f}"
             f" eval_dlen_p95={comb['p95_death_length']:.2f}"
@@ -1920,18 +2226,22 @@ def run_training_job(
     input_dir: Path | None = None,
     ledger_path: Path | None = None,
     max_wall_seconds: float | None = None,
+    max_session_export_bytes: int | None = None,
     step_hook: Callable[[V3PPOTrainer, int], None] | None = None,
 ) -> dict[str, Any]:
     """Execute training loop with wall-clock eval, LIGHT/FULL checkpoints, and crash recovery.
 
     Guarantees:
-      - LIGHT checkpoints saved every ``light_checkpoint_interval_sec`` (`30` min default) and
-        on stop; sharded FULL sets saved every ``full_checkpoint_interval_sec`` (`2` h default)
-        and on a clean stop (`completed` or `wall_clock_guard`).
-      - Cooperative stop mid-update discards the half-updated trainer state rather than saving
-        corrupted/mid-rollout weights, publishing the newest clean update-boundary checkpoint.
-      - Transient runtime errors inside a session recover from the newest verified checkpoint
-        in ``work/``, ``output/``, or ``ledger`` up to ``cfg.max_in_session_restarts`` times.
+      - Every LIGHT checkpoint is exported at its real ``light_checkpoint_interval_sec`` (`30` min
+        default) with no per-session count cap and no interval stretching.
+      - Periodic sharded FULL sets are exported every ``full_checkpoint_interval_sec`` (`2` h
+        default) up to ``cfg.max_periodic_full_exports`` per session, plus ``1`` FULL set on any
+        clean boundary stop (`completed`, `wall_clock_guard`, or boundary cooperative signal).
+      - ``keep_full_checkpoints`` / ``keep_light_checkpoints`` prune ``work/`` only; completed
+        exports in ``output/`` are never rewritten or deleted.
+      - Cooperative stop mid-update discards half-updated trainer state and rolls back cleanly,
+        with protected ``finally`` fallbacks guaranteeing ``latest_manifest.json`` and
+        ``train_result.json`` even if the device context is dead.
     """
     out = Path(output_dir).resolve()
     out.mkdir(parents=True, exist_ok=True)
@@ -1941,6 +2251,13 @@ def run_training_job(
     work_ckpts.mkdir(parents=True, exist_ok=True)
     out_ckpts = out / "checkpoints"
     out_ckpts.mkdir(parents=True, exist_ok=True)
+
+    if max_session_export_bytes is not None:
+        eff_max_export_bytes = int(max_session_export_bytes)
+    elif os.environ.get("V3_PPO_MAX_SESSION_EXPORT_BYTES"):
+        eff_max_export_bytes = int(os.environ["V3_PPO_MAX_SESSION_EXPORT_BYTES"])
+    else:
+        eff_max_export_bytes = int(GPU_MAX_TOTAL_EXPORT_BYTES["L4"])
 
     # Idempotent create-only `config.json` (safe on in-session or directory re-entry)
     cfg_json_path = out / "config.json"
@@ -1971,6 +2288,9 @@ def run_training_job(
         out_ckpts=out_ckpts,
         staged_meta=staged_meta,
         include_init_anchor=False,
+        light_resume_margin_minutes=float(cfg.light_resume_margin_minutes),
+        log_choice=True,
+        context="initial_resume",
     )
     if initial_cand is not None:
         load_info = trainer.load_checkpoint(
@@ -1999,12 +2319,35 @@ def run_training_job(
         # can roll back cleanly without ever saving half-updated weights.
         init_anchor = work_ckpts / _INIT_ANCHOR_LIGHT_NAME
         if not init_anchor.exists():
-            trainer.save_light_checkpoint(init_anchor)
+            trainer.save_light_checkpoint(init_anchor, restart_generation=0)
+
+    def _snapshot_clean_state(t_ref: V3PPOTrainer) -> dict[str, Any]:
+        return {
+            "device": str(t_ref.device),
+            "parameter_count": int(t_ref.raw_model.parameter_count()),
+            "updates_completed": int(t_ref.updates_completed),
+            "world_steps_collected": int(t_ref.world_steps_collected),
+            "agent_steps_collected": int(t_ref.agent_steps_collected),
+            "learner_steps_collected": int(t_ref.learner_steps_collected),
+            "episodes_completed": int(t_ref.episodes_completed),
+            "last_rollout_mean_ep_return": float(t_ref.last_rollout_mean_ep_return),
+            "last_eval": t_ref.last_eval_metrics,
+        }
+
+    clean_summary = _snapshot_clean_state(trainer)
 
     metrics_writer = RotatingCreateOnlyJSONLWriter(out / "metrics", prefix="updates")
     eval_writer = RotatingCreateOnlyJSONLWriter(out / "eval", prefix="eval")
 
     updates_this_session = 0
+    session_agent_steps = 0
+    train_wall_seconds_total = 0.0
+    eval_wall_seconds_total = 0.0
+    eval_runs_completed = 0
+    eval_runs_aborted = 0
+    eval_runs_skipped = 0
+    last_eval_wall_sec: float | None = None
+
     in_session_restarts = 0
     stopped_reason = "completed"
     error_message: str | None = None
@@ -2014,30 +2357,13 @@ def run_training_job(
     now_init = time.monotonic()
     last_light_work_mono = now_init
     last_full_work_mono = now_init
-    last_light_pub_mono = now_init
-    last_full_pub_mono = now_init
     last_eval_mono = now_init
 
-    # Bound published periodic checkpoints per session so `out_ckpts` never exceeds
-    # `keep_full_checkpoints` FULL sets and `keep_light_checkpoints` LIGHT files
-    # (remember `colab_cli` forbids unlinking `.complete` files inside `output/`).
-    max_periodic_light_pubs = max(0, int(cfg.keep_light_checkpoints) - 1)
-    max_periodic_full_pubs = max(0, int(cfg.keep_full_checkpoints) - 1)
+    max_periodic_full_pubs = max(0, int(cfg.max_periodic_full_exports))
     published_periodic_lights = 0
     published_periodic_fulls = 0
-
-    eff_light_pub_interval = float(cfg.light_checkpoint_interval_sec)
-    eff_full_pub_interval = float(cfg.full_checkpoint_interval_sec)
-    if max_wall_seconds is not None and max_periodic_light_pubs > 0:
-        eff_light_pub_interval = max(
-            eff_light_pub_interval,
-            float(max_wall_seconds) / float(max_periodic_light_pubs + 0.25),
-        )
-    if max_wall_seconds is not None and max_periodic_full_pubs > 0:
-        eff_full_pub_interval = max(
-            eff_full_pub_interval,
-            float(max_wall_seconds) / float(max_periodic_full_pubs + 0.25),
-        )
+    last_measured_full_bytes: int | None = None
+    est_light_bytes = (16 if cfg.net_size == "S" else 68) * 1024 * 1024
 
     checkpoint_reserve_sec = (
         min(90.0, max(5.0, float(max_wall_seconds) * 0.08)) if max_wall_seconds is not None else 0.0
@@ -2050,6 +2376,32 @@ def run_training_job(
             "world_steps_collected": int(t_ref.world_steps_collected),
         }
 
+    def _can_export_periodic_files(files_to_publish: Sequence[Path], *, kind: str) -> bool:
+        new_bytes = sum(
+            int(f.stat().st_size)
+            for f in files_to_publish
+            if f.is_file() and not (out_ckpts / f.name).exists()
+        )
+        if new_bytes <= 0:
+            return True
+        stop_reserve = (
+            last_measured_full_bytes
+            if last_measured_full_bytes is not None
+            else min(
+                eff_max_export_bytes // 4,
+                est_light_bytes + int(cfg.num_envs) * 16 * 1024 * 1024,
+            )
+        )
+        projected = _exported_payload_bytes(out) + new_bytes + stop_reserve
+        if projected > eff_max_export_bytes:
+            print(
+                f"V3_PPO_EXPORT_BUDGET_REACHED kind={kind} new_bytes={new_bytes} "
+                f"projected_bytes={projected} cap_bytes={eff_max_export_bytes}",
+                flush=True,
+            )
+            return False
+        return True
+
     with SignalStopFlag() as stop_flag:
 
         def _wall_expired() -> bool:
@@ -2061,6 +2413,22 @@ def run_training_job(
 
         def _should_stop() -> bool:
             return bool(stop_flag.stopped)
+
+        def _eval_should_stop() -> bool:
+            return bool(stop_flag.stopped or _wall_expired())
+
+        def _has_wall_for_eval() -> tuple[bool, float, float]:
+            est_s = (
+                last_eval_wall_sec
+                if last_eval_wall_sec is not None
+                else float(cfg.eval_estimated_seconds)
+            )
+            if max_wall_seconds is None:
+                return True, float("inf"), 2.0 * est_s
+            rem_s = (float(max_wall_seconds) - checkpoint_reserve_sec) - (
+                time.monotonic() - wall_t0
+            )
+            return bool(rem_s >= 2.0 * est_s), rem_s, 2.0 * est_s
 
         try:
             phase_stamp(
@@ -2090,6 +2458,9 @@ def run_training_job(
                     u_elapsed = time.monotonic() - u_t0
                     trainer_state_clean = True
                     updates_this_session += 1
+                    session_agent_steps += int(step_metrics["agent_steps"])
+                    train_wall_seconds_total += u_elapsed
+                    clean_summary = _snapshot_clean_state(trainer)
 
                     if cfg.max_update_seconds is not None and u_elapsed > float(
                         cfg.max_update_seconds
@@ -2133,6 +2504,9 @@ def run_training_job(
                         out_ckpts=out_ckpts,
                         staged_meta=staged_meta,
                         include_init_anchor=True,
+                        light_resume_margin_minutes=float(cfg.light_resume_margin_minutes),
+                        log_choice=True,
+                        context=f"in_session_restart_{in_session_restarts}",
                     )
                     if rec_cand is not None:
                         trainer.load_checkpoint(
@@ -2140,9 +2514,14 @@ def run_training_job(
                             verify_markers=bool(rec_cand["require_markers"]),
                             restore_rng=True,
                         )
+                    _prune_work_checkpoints_after_rewind(
+                        work_ckpts,
+                        rewind_updates=int(trainer.updates_completed),
+                    )
                     # Advance minibatch permutation stream so a transient batch spike isn't replayed
                     _ = torch.randperm(8, generator=trainer.perm_gen)
                     trainer_state_clean = True
+                    clean_summary = _snapshot_clean_state(trainer)
                     continue
 
                 now_mono = time.monotonic()
@@ -2155,14 +2534,40 @@ def run_training_job(
                     (now_mono - last_eval_mono) >= float(cfg.eval_every_minutes) * 60.0
                 )
                 if due_eval_updates or due_eval_minutes:
-                    eval_res = trainer.run_evaluation()
-                    eval_record = {
-                        "update": trainer.updates_completed,
-                        "total_agent_steps": trainer.agent_steps_collected,
-                        **eval_res,
-                    }
-                    eval_writer.append(eval_record)
-                    last_eval_mono = time.monotonic()
+                    can_eval, rem_eval_s, thresh_eval_s = _has_wall_for_eval()
+                    if not can_eval:
+                        eval_runs_skipped += 1
+                        last_eval_mono = time.monotonic()
+                        print(
+                            f"V3_PPO_EVAL_SKIPPED update={trainer.updates_completed} "
+                            f"remaining_wall_s={rem_eval_s:.2f} threshold_s={thresh_eval_s:.2f} "
+                            "reason=insufficient_remaining_wall",
+                            flush=True,
+                        )
+                    else:
+                        raw_eval = trainer.run_evaluation(should_stop=_eval_should_stop)
+                        ev_wall = float(raw_eval.get("wall_seconds", 0.0))
+                        eval_wall_seconds_total += ev_wall
+                        if bool(raw_eval.get("aborted", False)):
+                            eval_runs_aborted += 1
+                            print(
+                                f"V3_PPO_EVAL_ABORTED update={trainer.updates_completed} "
+                                f"ticks_completed={raw_eval.get('ticks_completed', 0)} "
+                                f"wall_s={ev_wall:.2f}",
+                                flush=True,
+                            )
+                        else:
+                            eval_runs_completed += 1
+                            last_eval_wall_sec = ev_wall
+                            eval_res = raw_eval
+                            clean_summary = _snapshot_clean_state(trainer)
+                            eval_record = {
+                                "update": trainer.updates_completed,
+                                "total_agent_steps": trainer.agent_steps_collected,
+                                **eval_res,
+                            }
+                            eval_writer.append(eval_record)
+                            last_eval_mono = time.monotonic()
 
                 metrics_writer.append(step_metrics)
                 now_mono = time.monotonic()
@@ -2171,12 +2576,13 @@ def run_training_job(
                         step_metrics,
                         total_updates=int(cfg.total_updates),
                         wall_elapsed=now_mono - wall_t0,
+                        eval_wall_total=eval_wall_seconds_total,
                         eval_metrics=eval_res,
                     ),
                     flush=True,
                 )
 
-                tag = f"u{trainer.updates_completed:07d}"
+                tag = _ckpt_tag(trainer.updates_completed, in_session_restarts)
                 due_light_u = int(cfg.checkpoint_every_updates) > 0 and (
                     trainer.updates_completed % int(cfg.checkpoint_every_updates) == 0
                 )
@@ -2193,10 +2599,14 @@ def run_training_job(
                 light_work_path = work_ckpts / f"light_{tag}.pt"
                 if due_light_u or due_light_t or due_full_u or due_full_t:
                     if not light_work_path.exists():
-                        trainer.save_light_checkpoint(light_work_path)
+                        trainer.save_light_checkpoint(
+                            light_work_path,
+                            restart_generation=in_session_restarts,
+                        )
                     last_light_work_mono = now_mono
 
                 full_work_index: Path | None = None
+                full_work_meta: dict[str, Any] | None = None
                 if due_full_u or due_full_t:
                     cand_idx = work_ckpts / f"full_{tag}.index.json"
                     if not cand_idx.exists():
@@ -2204,9 +2614,12 @@ def run_training_job(
                             work_ckpts,
                             tag=tag,
                             light_path=light_work_path,
+                            restart_generation=in_session_restarts,
                         )
                     else:
                         full_work_index = cand_idx
+                    full_work_meta = verify_full_checkpoint_set(full_work_index)
+                    last_measured_full_bytes = int(full_work_meta["size_bytes"])
                     last_full_work_mono = now_mono
 
                 if due_light_u or due_light_t or due_full_u or due_full_t:
@@ -2216,59 +2629,65 @@ def run_training_job(
                         keep_light=int(cfg.keep_light_checkpoints),
                     )
 
-                # Publish periodic FULL if due and within session periodic FULL budget
-                if full_work_index is not None and (
-                    due_full_u
-                    or (
-                        published_periodic_fulls < max_periodic_full_pubs
-                        and (now_mono - last_full_pub_mono) >= eff_full_pub_interval
-                    )
+                # Publish periodic FULL if due and within `max_periodic_full_exports` + byte cap;
+                # otherwise still publish periodic LIGHT whenever due and within session byte cap.
+                published_full_this_step = False
+                if (
+                    full_work_index is not None
+                    and full_work_meta is not None
+                    and (due_full_t or due_full_u)
+                    and published_periodic_fulls < max_periodic_full_pubs
+                    and _can_export_periodic_files(full_work_meta["files"], kind="periodic_full")
                 ):
-                    if published_periodic_fulls < max_periodic_full_pubs or due_full_u:
-                        publish_checkpoint_to_output(
-                            full_work_index,
-                            out_ckpts,
-                            reason="periodic_full",
-                            counters=_counters_dict(trainer),
-                        )
-                        published_periodic_fulls += 1
-                        last_full_pub_mono = now_mono
-                        last_light_pub_mono = now_mono
-                        metrics_writer.seal_current_segment()
-                        eval_writer.seal_current_segment()
-                elif light_work_path.exists() and (
-                    due_light_u
-                    or (
-                        published_periodic_lights < max_periodic_light_pubs
-                        and (now_mono - last_light_pub_mono) >= eff_light_pub_interval
+                    publish_checkpoint_to_output(
+                        full_work_index,
+                        out_ckpts,
+                        reason="periodic_full",
+                        counters=_counters_dict(trainer),
                     )
+                    published_periodic_fulls += 1
+                    published_full_this_step = True
+                    metrics_writer.seal_current_segment()
+                    eval_writer.seal_current_segment()
+
+                if (
+                    not published_full_this_step
+                    and light_work_path.exists()
+                    and (due_light_t or due_light_u)
+                    and _can_export_periodic_files([light_work_path], kind="periodic_light")
                 ):
-                    if published_periodic_lights < max_periodic_light_pubs or due_light_u:
-                        publish_checkpoint_to_output(
-                            light_work_path,
-                            out_ckpts,
-                            reason="periodic_light",
-                            counters=_counters_dict(trainer),
-                        )
-                        published_periodic_lights += 1
-                        last_light_pub_mono = now_mono
-                        metrics_writer.seal_current_segment()
-                        eval_writer.seal_current_segment()
+                    publish_checkpoint_to_output(
+                        light_work_path,
+                        out_ckpts,
+                        reason="periodic_light",
+                        counters=_counters_dict(trainer),
+                    )
+                    published_periodic_lights += 1
+                    metrics_writer.seal_current_segment()
+                    eval_writer.seal_current_segment()
 
         except Exception as exc:
             stopped_reason = f"exception:{type(exc).__name__}"
             error_message = str(exc)
             raise
         finally:
-            metrics_writer.close()
-            eval_writer.close()
+            for writer_obj in (metrics_writer, eval_writer):
+                try:
+                    writer_obj.close()
+                except Exception as w_exc:
+                    print(
+                        f"V3_PPO_FINALLY_WARN stage=close_writer error={type(w_exc).__name__}: "
+                        f"{w_exc}",
+                        flush=True,
+                    )
 
-            is_clean_stop = (
-                trainer_state_clean
-                and not aborted_mid_update
-                and error_message is None
-                and stopped_reason in {"completed", "wall_clock_guard"}
+            is_boundary_stop = (
+                trainer_state_clean and not aborted_mid_update and error_message is None
             )
+            is_clean_stop = is_boundary_stop and stopped_reason in {
+                "completed",
+                "wall_clock_guard",
+            }
 
             eval_configured = (int(cfg.eval_every_updates) > 0) or (
                 float(cfg.eval_every_minutes) > 0.0
@@ -2278,34 +2697,71 @@ def run_training_job(
                 and eval_configured
                 and trainer.last_eval_metrics is None
                 and trainer.updates_completed > 0
+                and eval_runs_aborted == 0
                 and not stop_flag.stopped
             ):
-                ev_final = trainer.run_evaluation()
-                eval_writer_final = RotatingCreateOnlyJSONLWriter(out / "eval", prefix="eval_final")
-                eval_writer_final.append(
-                    {
-                        "update": trainer.updates_completed,
-                        "total_agent_steps": trainer.agent_steps_collected,
-                        **ev_final,
-                    }
-                )
-                eval_writer_final.close()
+                can_ev_f, rem_ev_f, thresh_ev_f = _has_wall_for_eval()
+                if not can_ev_f:
+                    eval_runs_skipped += 1
+                    print(
+                        f"V3_PPO_EVAL_SKIPPED update={trainer.updates_completed} "
+                        f"remaining_wall_s={rem_ev_f:.2f} threshold_s={thresh_ev_f:.2f} "
+                        "reason=insufficient_remaining_wall_at_stop",
+                        flush=True,
+                    )
+                else:
+                    try:
+                        ev_final = trainer.run_evaluation(should_stop=_eval_should_stop)
+                        ev_f_wall = float(ev_final.get("wall_seconds", 0.0))
+                        eval_wall_seconds_total += ev_f_wall
+                        if bool(ev_final.get("aborted", False)):
+                            eval_runs_aborted += 1
+                        else:
+                            eval_runs_completed += 1
+                            clean_summary = _snapshot_clean_state(trainer)
+                            eval_writer_final = RotatingCreateOnlyJSONLWriter(
+                                out / "eval", prefix="eval_final"
+                            )
+                            eval_writer_final.append(
+                                {
+                                    "update": trainer.updates_completed,
+                                    "total_agent_steps": trainer.agent_steps_collected,
+                                    **ev_final,
+                                }
+                            )
+                            eval_writer_final.close()
+                    except Exception as ev_exc:
+                        print(
+                            f"V3_PPO_FINALLY_WARN stage=final_eval "
+                            f"error={type(ev_exc).__name__}: {ev_exc}",
+                            flush=True,
+                        )
 
-            if trainer_state_clean and not aborted_mid_update and error_message is None:
-                # Trainer is at an exact update boundary: publish LIGHT on any clean boundary stop,
-                # plus sharded FULL on a clean stop (`completed` or `wall_clock_guard`).
-                stop_tag = f"u{trainer.updates_completed:07d}"
+            final_summary = dict(clean_summary)
+            if is_boundary_stop:
+                # Trainer is at an exact update boundary: publish LIGHT first (<0.2s), then FULL
+                # on any clean/cooperative boundary stop (`completed`, `wall_clock_guard`, signal).
+                stop_tag = _ckpt_tag(trainer.updates_completed, in_session_restarts)
                 stop_light = work_ckpts / f"light_{stop_tag}.pt"
-                if not stop_light.exists():
-                    trainer.save_light_checkpoint(stop_light)
-
-                if is_clean_stop:
+                try:
+                    if not stop_light.exists():
+                        trainer.save_light_checkpoint(
+                            stop_light,
+                            restart_generation=in_session_restarts,
+                        )
+                    publish_checkpoint_to_output(
+                        stop_light,
+                        out_ckpts,
+                        reason=stopped_reason,
+                        counters=_counters_dict(trainer),
+                    )
                     stop_full = work_ckpts / f"full_{stop_tag}.index.json"
                     if not stop_full.exists():
                         stop_full = trainer.save_full_checkpoint(
                             work_ckpts,
                             tag=stop_tag,
                             light_path=stop_light,
+                            restart_generation=in_session_restarts,
                         )
                     publish_checkpoint_to_output(
                         stop_full,
@@ -2313,88 +2769,141 @@ def run_training_job(
                         reason=stopped_reason,
                         counters=_counters_dict(trainer),
                     )
-                else:
-                    publish_checkpoint_to_output(
-                        stop_light,
-                        out_ckpts,
-                        reason=stopped_reason,
-                        counters=_counters_dict(trainer),
+                    prune_old_checkpoints(
+                        work_ckpts,
+                        keep_full=int(cfg.keep_full_checkpoints),
+                        keep_light=int(cfg.keep_light_checkpoints),
                     )
-                prune_old_checkpoints(
-                    work_ckpts,
-                    keep_full=int(cfg.keep_full_checkpoints),
-                    keep_light=int(cfg.keep_light_checkpoints),
-                )
-                final_counters = _counters_dict(trainer)
+                except Exception as ck_exc:
+                    print(
+                        f"V3_PPO_FINALLY_WARN stage=boundary_checkpoint "
+                        f"error={type(ck_exc).__name__}: {ck_exc}",
+                        flush=True,
+                    )
+                final_summary = _snapshot_clean_state(trainer)
             else:
                 # Mid-update stop or fatal exception: NEVER save or publish half-updated state!
-                # Publish any unexported verified boundary checkpoint from `work_ckpts` first, then
-                # restore trainer counters from the best verified boundary candidate.
-                work_clean = resolve_resume_checkpoint(
-                    work_ckpts,
-                    require_markers=True,
-                    include_init_anchor=(staged_meta is None),
-                )
-                if work_clean is not None:
-                    wb_path = Path(work_clean["path"])
-                    if wb_path.name != _INIT_ANCHOR_LIGHT_NAME:
-                        publish_checkpoint_to_output(
-                            wb_path,
-                            out_ckpts,
-                            reason=f"rollback_{stopped_reason}",
-                            counters={
-                                "updates_completed": int(work_clean["updates_completed"]),
-                                "agent_steps_collected": int(
-                                    work_clean.get("agent_steps_collected", 0)
-                                ),
-                                "world_steps_collected": 0,
-                            },
-                        )
-
-                clean_fallback = _select_best_resume_candidate(
-                    work_ckpts=work_ckpts,
-                    out_ckpts=out_ckpts,
-                    staged_meta=staged_meta,
-                    include_init_anchor=True,
-                )
-                if clean_fallback is not None:
-                    fb_path = Path(clean_fallback["path"])
-                    if (
-                        bool(clean_fallback.get("require_markers", False))
-                        and fb_path.parent != out_ckpts
-                        and fb_path.name != _INIT_ANCHOR_LIGHT_NAME
-                    ):
-                        publish_checkpoint_to_output(
-                            fb_path,
-                            out_ckpts,
-                            reason=f"rollback_{stopped_reason}",
-                            counters={
-                                "updates_completed": int(clean_fallback["updates_completed"]),
-                                "agent_steps_collected": int(
-                                    clean_fallback.get("agent_steps_collected", 0)
-                                ),
-                                "world_steps_collected": 0,
-                            },
-                        )
-                    # Restore trainer weights & counters to clean boundary for honest reporting
-                    trainer.load_checkpoint(
-                        fb_path,
-                        verify_markers=bool(clean_fallback.get("require_markers", False)),
-                        restore_rng=False,
+                # Protect every rollback step so `latest_manifest.json` and `train_result.json`
+                # are guaranteed to be written even if the CUDA context is dead.
+                try:
+                    work_clean = resolve_resume_checkpoint(
+                        work_ckpts,
+                        require_markers=True,
+                        include_init_anchor=(staged_meta is None),
+                        light_resume_margin_minutes=float(cfg.light_resume_margin_minutes),
                     )
-                final_counters = _counters_dict(trainer)
+                    if work_clean is not None:
+                        wb_path = Path(work_clean["path"])
+                        if wb_path.name != _INIT_ANCHOR_LIGHT_NAME:
+                            publish_checkpoint_to_output(
+                                wb_path,
+                                out_ckpts,
+                                reason=f"rollback_{stopped_reason}",
+                                counters={
+                                    "updates_completed": int(work_clean["updates_completed"]),
+                                    "agent_steps_collected": int(
+                                        work_clean.get("agent_steps_collected", 0)
+                                    ),
+                                    "world_steps_collected": int(
+                                        work_clean.get("world_steps_collected", 0)
+                                    ),
+                                },
+                            )
+                except Exception as rb_exc1:
+                    print(
+                        f"V3_PPO_FINALLY_WARN stage=rollback_publish_work "
+                        f"error={type(rb_exc1).__name__}: {rb_exc1}",
+                        flush=True,
+                    )
 
-            write_latest_checkpoint_manifest(
-                out_ckpts,
-                reason=stopped_reason,
-                counters=final_counters,
-            )
+                try:
+                    clean_fallback = _select_best_resume_candidate(
+                        work_ckpts=work_ckpts,
+                        out_ckpts=out_ckpts,
+                        staged_meta=staged_meta,
+                        include_init_anchor=True,
+                        light_resume_margin_minutes=float(cfg.light_resume_margin_minutes),
+                        log_choice=True,
+                        context="finally_rollback",
+                    )
+                    if clean_fallback is not None:
+                        fb_path = Path(clean_fallback["path"])
+                        if (
+                            bool(clean_fallback.get("require_markers", False))
+                            and fb_path.parent != out_ckpts
+                            and fb_path.name != _INIT_ANCHOR_LIGHT_NAME
+                        ):
+                            publish_checkpoint_to_output(
+                                fb_path,
+                                out_ckpts,
+                                reason=f"rollback_{stopped_reason}",
+                                counters={
+                                    "updates_completed": int(clean_fallback["updates_completed"]),
+                                    "agent_steps_collected": int(
+                                        clean_fallback.get("agent_steps_collected", 0)
+                                    ),
+                                    "world_steps_collected": int(
+                                        clean_fallback.get("world_steps_collected", 0)
+                                    ),
+                                },
+                            )
+                        final_summary["updates_completed"] = int(
+                            clean_fallback["updates_completed"]
+                        )
+                        final_summary["agent_steps_collected"] = int(
+                            clean_fallback.get(
+                                "agent_steps_collected", final_summary["agent_steps_collected"]
+                            )
+                        )
+                        final_summary["world_steps_collected"] = int(
+                            clean_fallback.get(
+                                "world_steps_collected", final_summary["world_steps_collected"]
+                            )
+                        )
+                        try:
+                            trainer.load_checkpoint(
+                                fb_path,
+                                verify_markers=bool(clean_fallback.get("require_markers", False)),
+                                restore_rng=False,
+                            )
+                            final_summary = _snapshot_clean_state(trainer)
+                        except Exception as load_exc:
+                            print(
+                                f"V3_PPO_FINALLY_WARN stage=rollback_load_checkpoint "
+                                f"error={type(load_exc).__name__}: {load_exc}",
+                                flush=True,
+                            )
+                except Exception as rb_exc2:
+                    print(
+                        f"V3_PPO_FINALLY_WARN stage=rollback_select "
+                        f"error={type(rb_exc2).__name__}: {rb_exc2}",
+                        flush=True,
+                    )
+
+            final_counters = {
+                "updates_completed": int(final_summary["updates_completed"]),
+                "agent_steps_collected": int(final_summary["agent_steps_collected"]),
+                "world_steps_collected": int(final_summary["world_steps_collected"]),
+            }
+            try:
+                write_latest_checkpoint_manifest(
+                    out_ckpts,
+                    reason=stopped_reason,
+                    counters=final_counters,
+                    light_resume_margin_minutes=float(cfg.light_resume_margin_minutes),
+                )
+            except Exception as mf_exc:
+                print(
+                    f"V3_PPO_FINALLY_WARN stage=latest_manifest "
+                    f"error={type(mf_exc).__name__}: {mf_exc}",
+                    flush=True,
+                )
 
             passed = (
                 error_message is None
                 and not aborted_mid_update
                 and stopped_reason in {"completed", "wall_clock_guard"}
-                and (int(cfg.total_updates) == 0 or trainer.updates_completed >= 1)
+                and (int(cfg.total_updates) == 0 or int(final_summary["updates_completed"]) >= 1)
                 and (
                     stopped_reason == "completed"
                     or (max_wall_seconds is not None and updates_this_session >= 1)
@@ -2402,6 +2911,12 @@ def run_training_job(
             )
             status = "PASS" if passed else "FAIL"
 
+            total_wall_sec = max(1.0e-9, time.monotonic() - wall_t0)
+            train_sps_excl_eval = (
+                round(float(session_agent_steps) / max(1.0e-9, train_wall_seconds_total), 2)
+                if updates_this_session > 0
+                else 0.0
+            )
             result_path = out / "train_result.json"
             if not result_path.exists():
                 result_payload = {
@@ -2412,20 +2927,34 @@ def run_training_job(
                     "aborted_mid_update": bool(aborted_mid_update),
                     "in_session_restarts": int(in_session_restarts),
                     "error": error_message,
-                    "device": str(trainer.device),
-                    "parameter_count": trainer.raw_model.parameter_count(),
-                    "updates_completed": trainer.updates_completed,
-                    "updates_this_session": updates_this_session,
-                    "world_steps_collected": trainer.world_steps_collected,
-                    "agent_steps_collected": trainer.agent_steps_collected,
-                    "learner_steps_collected": trainer.learner_steps_collected,
-                    "episodes_completed": trainer.episodes_completed,
-                    "last_rollout_mean_ep_return": round(trainer.last_rollout_mean_ep_return, 6),
-                    "last_eval": trainer.last_eval_metrics,
+                    "device": str(final_summary["device"]),
+                    "parameter_count": int(final_summary["parameter_count"]),
+                    "updates_completed": int(final_summary["updates_completed"]),
+                    "updates_this_session": int(updates_this_session),
+                    "world_steps_collected": int(final_summary["world_steps_collected"]),
+                    "agent_steps_collected": int(final_summary["agent_steps_collected"]),
+                    "learner_steps_collected": int(final_summary["learner_steps_collected"]),
+                    "episodes_completed": int(final_summary["episodes_completed"]),
+                    "last_rollout_mean_ep_return": round(
+                        float(final_summary["last_rollout_mean_ep_return"]), 6
+                    ),
+                    "last_eval": final_summary["last_eval"],
+                    "agent_steps_per_sec_scope": "train_excl_eval",
+                    "train_wall_seconds_excl_eval": round(train_wall_seconds_total, 4),
+                    "train_agent_steps_per_sec_excl_eval": train_sps_excl_eval,
+                    "eval_wall_seconds_total": round(eval_wall_seconds_total, 4),
+                    "eval_wall_share": round(eval_wall_seconds_total / total_wall_sec, 6),
+                    "eval_runs_completed": int(eval_runs_completed),
+                    "eval_runs_aborted": int(eval_runs_aborted),
+                    "eval_runs_skipped": int(eval_runs_skipped),
+                    "periodic_light_exports_published": int(published_periodic_lights),
+                    "periodic_full_exports_published": int(published_periodic_fulls),
+                    "session_export_bytes_published": int(_exported_payload_bytes(out)),
+                    "max_session_export_bytes": int(eff_max_export_bytes),
                     "resumed_from": resumed_from,
                     "memory_estimate": estimate_training_memory(cfg),
                     "config": cfg.to_dict(),
-                    "wall_seconds": round(time.monotonic() - wall_t0, 4),
+                    "wall_seconds": round(total_wall_sec, 4),
                 }
                 write_create_only_json(result_path, result_payload)
             phase_stamp(
@@ -2433,7 +2962,7 @@ def run_training_job(
                 "END",
                 status=status,
                 stopped_reason=stopped_reason,
-                updates_completed=trainer.updates_completed,
+                updates_completed=int(final_summary["updates_completed"]),
                 in_session_restarts=in_session_restarts,
             )
 
@@ -2474,6 +3003,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=1800.0,
     )
     parser.add_argument("--full-checkpoint-interval-sec", type=float, default=7200.0)
+    parser.add_argument("--max-periodic-full-exports", type=int, default=3)
+    parser.add_argument("--light-resume-margin-minutes", type=float, default=45.0)
     parser.add_argument(
         "--checkpoint-shard-bytes",
         type=int,
@@ -2481,13 +3012,24 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--checkpoint-every-updates", type=int, default=0)
     parser.add_argument("--full-checkpoint-every-updates", type=int, default=0)
-    parser.add_argument("--eval-every-minutes", type=float, default=30.0)
+    parser.add_argument("--eval-every-minutes", type=float, default=60.0)
     parser.add_argument("--eval-every-updates", type=int, default=0)
-    parser.add_argument("--eval-envs", type=int, default=16)
-    parser.add_argument("--eval-burnin-ticks", type=int, default=500)
-    parser.add_argument("--eval-ticks", type=int, default=5000)
+    parser.add_argument("--eval-envs", type=int, default=192)
+    parser.add_argument("--eval-burnin-ticks", type=int, default=250)
+    parser.add_argument("--eval-ticks", type=int, default=2000)
+    parser.add_argument("--eval-estimated-seconds", type=float, default=95.0)
     parser.add_argument("--seed", type=int, default=20261111)
-    parser.add_argument("--compile", action="store_true")
+    parser.add_argument(
+        "--compile",
+        action="store_true",
+        default=os.environ.get("V3_PPO_COMPILE") == "1",
+    )
+
+    fast_group = parser.add_mutually_exclusive_group()
+    fast_group.add_argument(
+        "--fast-learner-ops", dest="fast_learner_ops", action="store_true", default=True
+    )
+    fast_group.add_argument("--no-fast-learner-ops", dest="fast_learner_ops", action="store_false")
 
     amp_group = parser.add_mutually_exclusive_group()
     amp_group.add_argument("--amp", dest="amp", action="store_true", default=True)
@@ -2508,6 +3050,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
             else None
         ),
     )
+    parser.add_argument(
+        "--max-session-export-bytes",
+        type=int,
+        default=(
+            int(os.environ["V3_PPO_MAX_SESSION_EXPORT_BYTES"])
+            if os.environ.get("V3_PPO_MAX_SESSION_EXPORT_BYTES")
+            else None
+        ),
+    )
     return parser
 
 
@@ -2515,7 +3066,10 @@ def main(argv: list[str] | None = None) -> int:
     """CLI entrypoint; exits non-zero whenever terminal ``status != 'PASS'``."""
     args = build_arg_parser().parse_args(argv)
     if args.config_json:
-        cfg = V3PPOConfig.from_dict(json.loads(args.config_json))
+        raw_cfg = json.loads(args.config_json)
+        if args.compile:
+            raw_cfg["compile_model"] = True
+        cfg = V3PPOConfig.from_dict(raw_cfg)
     else:
         game_cfg = GameV3Config(
             arena_radius=float(args.arena_radius),
@@ -2530,6 +3084,7 @@ def main(argv: list[str] | None = None) -> int:
             amp=bool(args.amp),
             use_channels_last=bool(args.use_channels_last),
             compile_model=bool(args.compile),
+            fast_learner_ops=bool(args.fast_learner_ops),
             rollout_len=int(args.rollout_len),
             ppo_epochs=int(args.ppo_epochs),
             minibatch_size=args.minibatch_size,
@@ -2537,6 +3092,8 @@ def main(argv: list[str] | None = None) -> int:
             total_updates=int(args.total_updates),
             light_checkpoint_interval_sec=float(args.light_checkpoint_interval_sec),
             full_checkpoint_interval_sec=float(args.full_checkpoint_interval_sec),
+            max_periodic_full_exports=int(args.max_periodic_full_exports),
+            light_resume_margin_minutes=float(args.light_resume_margin_minutes),
             checkpoint_shard_bytes=int(args.checkpoint_shard_bytes),
             checkpoint_every_updates=int(args.checkpoint_every_updates),
             full_checkpoint_every_updates=int(args.full_checkpoint_every_updates),
@@ -2545,6 +3102,7 @@ def main(argv: list[str] | None = None) -> int:
             eval_envs=int(args.eval_envs),
             eval_burnin_ticks=int(args.eval_burnin_ticks),
             eval_ticks=int(args.eval_ticks),
+            eval_estimated_seconds=float(args.eval_estimated_seconds),
             seed=int(args.seed),
         )
 
@@ -2556,6 +3114,7 @@ def main(argv: list[str] | None = None) -> int:
         input_dir=args.input_dir,
         ledger_path=args.ledger,
         max_wall_seconds=args.max_wall_seconds,
+        max_session_export_bytes=args.max_session_export_bytes,
     )
     if res.get("status") != "PASS":
         return 1

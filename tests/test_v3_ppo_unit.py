@@ -32,6 +32,9 @@ from research.v3_ppo.ppo import (
     _build_adamw_optimizer,
     _move_optimizer_state_to_device,
 )
+from research.v3_ppo.ppo import build_arg_parser as ppo_arg_parser
+from research.v3_ppo.prepare import build_arg_parser as prepare_arg_parser
+from research.v3_ppo.ruler import build_arg_parser as ruler_arg_parser
 
 
 def test_network_sizes_flags_and_recurrent_seam() -> None:
@@ -367,8 +370,7 @@ def test_memory_estimate_includes_actor_chunk_and_eval_overhead() -> None:
         num_envs=128,
         net_size="S",
         rollout_len=32,
-        eval_every_minutes=30.0,
-        eval_envs=16,
+        eval_every_minutes=60.0,
     )
     cfg_no_eval = V3PPOConfig(
         num_envs=128,
@@ -376,7 +378,6 @@ def test_memory_estimate_includes_actor_chunk_and_eval_overhead() -> None:
         rollout_len=32,
         eval_every_minutes=0.0,
         eval_every_updates=0,
-        eval_envs=16,
     )
     est_eval = estimate_training_memory(cfg_with_eval, gpu="L4")
     est_no_eval = estimate_training_memory(cfg_no_eval, gpu="L4")
@@ -384,10 +385,10 @@ def test_memory_estimate_includes_actor_chunk_and_eval_overhead() -> None:
     assert est_eval["actor_chunk_temp_bytes"] > 0
     assert est_eval["eval_overhead_bytes"] > 0
     assert est_no_eval["eval_overhead_bytes"] == 0
-    assert (
-        est_eval["estimated_peak_bytes"] - est_no_eval["estimated_peak_bytes"]
-        == est_eval["eval_overhead_bytes"]
-    )
+    assert est_eval["eval_phase_peak_bytes"] > est_eval["train_phase_peak_bytes"]
+    assert est_eval["estimated_peak_bytes"] == est_eval["eval_phase_peak_bytes"]
+    assert est_no_eval["estimated_peak_bytes"] == est_no_eval["train_phase_peak_bytes"]
+    assert est_eval["estimated_peak_bytes"] > est_no_eval["estimated_peak_bytes"]
     assert est_eval["fits_gpu_budget"] is True
 
     # Raising `actor_chunk_learners` above learner activation size increases estimated peak VRAM
@@ -539,3 +540,104 @@ def test_step_reward_coefficients_and_simultaneous_kill_death_rule() -> None:
     assert pytest.approx(float(rew[0, 2].item()), abs=1e-6) == 0.05 + 0.034 - 0.25
     assert float(rew[0, 3].item()) == 0.0
     assert pytest.approx(float(rew[0, 4].item()), abs=1e-6) == -1.5
+
+
+def test_fast_learner_ops_equivalence_and_compile_cli_wiring() -> None:
+    """Verify `fast_learner_ops` matches reference ops on CPU and `--compile` is wired on CLIs."""
+    torch.manual_seed(20261111)
+    net_fast = build_ego_multiscale_net(
+        "S", use_channels_last=True, use_bf16_autocast=False, fast_preprocess=True
+    )
+    net_slow = build_ego_multiscale_net(
+        "S", use_channels_last=True, use_bf16_autocast=False, fast_preprocess=False
+    )
+    net_slow.load_state_dict(net_fast.state_dict())
+
+    b = 12
+    r_s1 = torch.randint(0, 256, (b, 13, 64, 64), dtype=torch.uint8)
+    r_s4 = torch.randint(0, 256, (b, 13, 32, 32), dtype=torch.uint8)
+    r_s16 = torch.randint(0, 256, (b, 13, 32, 32), dtype=torch.uint8)
+    scalars = torch.randn(b, 8, dtype=torch.float32)
+    mask = torch.ones((b, 10), dtype=torch.bool)
+    mask[:, 7:] = False
+    actions = torch.randint(0, 7, (b,), dtype=torch.long)
+
+    # 1. `_prepare_raster` is bit-identical on CPU
+    prep_fast = net_fast._prepare_raster(r_s1, expected_hw=64)
+    prep_slow = net_slow._prepare_raster(r_s1, expected_hw=64)
+    assert torch.equal(prep_fast, prep_slow)
+    assert prep_fast.is_contiguous(memory_format=torch.channels_last)
+
+    # 2. `evaluate_actions(compute_values=False)` matches reference `evaluate_actions`
+    ev_fast = net_fast.evaluate_actions(
+        r_s1, r_s4, r_s16, scalars, actions, action_mask=mask, compute_values=False
+    )
+    ev_slow = net_slow.evaluate_actions(
+        r_s1, r_s4, r_s16, scalars, actions, action_mask=mask, compute_values=True
+    )
+    assert torch.allclose(ev_fast.log_probs, ev_slow.log_probs, atol=1e-6, rtol=1e-6)
+    assert torch.allclose(ev_fast.entropy, ev_slow.entropy, atol=1e-6, rtol=1e-6)
+    assert torch.allclose(ev_fast.value_logits, ev_slow.value_logits, atol=1e-6, rtol=1e-6)
+
+    # 3. `symlog_two_hot_loss(fast=True)` matches `fast=False` values & gradients
+    logits_a = torch.randn(b, 255, dtype=torch.float32, requires_grad=True)
+    logits_b = logits_a.detach().clone().requires_grad_(True)
+    targets = torch.tensor(
+        [-1e12, -250.0, -3.5, -0.1, 0.0, 0.1, 2.75, 19.0, 400.0, 1e12, -12.3, 88.8],
+        dtype=torch.float32,
+    )
+    weights = torch.linspace(0.2, 1.0, steps=b, dtype=torch.float32)
+    loss_fast = (
+        symlog_two_hot_loss(logits_a, targets, net_fast.bin_centers, fast=True) * weights
+    ).mean()
+    loss_slow = (
+        symlog_two_hot_loss(logits_b, targets, net_slow.bin_centers, fast=False) * weights
+    ).mean()
+    assert torch.allclose(loss_fast, loss_slow, atol=1e-6, rtol=1e-6)
+    loss_fast.backward()
+    loss_slow.backward()
+    assert logits_a.grad is not None and logits_b.grad is not None
+    assert torch.allclose(logits_a.grad, logits_b.grad, atol=1e-6, rtol=1e-6)
+
+    # 4. Full `V3PPOTrainer.train_step()` equivalence on CPU (`fast_learner_ops=True` vs `False`)
+    gcfg = GameV3Config(arena_radius=60.0, num_snakes=6, ambient_food_density=0.02)
+    base_kw = dict(
+        game_config=gcfg,
+        num_envs=2,
+        learner_slots=4,
+        rollout_len=4,
+        ppo_epochs=2,
+        minibatch_size=8,
+        amp=False,
+        use_channels_last=False,
+        eval_every_minutes=0.0,
+        eval_every_updates=0,
+        seed=5150,
+    )
+    tr_fast = V3PPOTrainer(V3PPOConfig(**base_kw, fast_learner_ops=True), device="cpu")
+    out_fast = tr_fast.train_step()
+    tr_slow = V3PPOTrainer(V3PPOConfig(**base_kw, fast_learner_ops=False), device="cpu")
+    out_slow = tr_slow.train_step()
+    for metric_key in ("policy_loss", "value_loss", "entropy", "grad_norm"):
+        assert pytest.approx(out_fast[metric_key], abs=1e-5) == out_slow[metric_key]
+    for p_name, p_fast in tr_fast.raw_model.state_dict().items():
+        assert torch.allclose(p_fast, tr_slow.raw_model.state_dict()[p_name], atol=1e-5, rtol=1e-5)
+
+    # 5. `--compile` and `--no-fast-learner-ops` parse cleanly on all 3 CLIs
+    ppo_args = ppo_arg_parser().parse_args(
+        ["--output-dir", "/tmp/o", "--compile", "--no-fast-learner-ops"]
+    )
+    assert ppo_args.compile is True
+    assert ppo_args.fast_learner_ops is False
+
+    ruler_args = ruler_arg_parser().parse_args(
+        ["--output-dir", "/tmp/o", "--compile", "--no-fast-learner-ops"]
+    )
+    assert ruler_args.compile is True
+    assert ruler_args.fast_learner_ops is False
+
+    prep_args = prepare_arg_parser().parse_args(
+        ["--packet", "/tmp/p", "--compile", "--no-fast-learner-ops"]
+    )
+    assert prep_args.compile is True
+    assert prep_args.fast_learner_ops is False

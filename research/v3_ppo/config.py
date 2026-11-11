@@ -69,11 +69,13 @@ DEFAULT_CHECKPOINT_SHARD_BYTES: int = 256 * 1024 * 1024  # 256 MiB max per FULL 
 MAX_SUPERVISOR_EXPORT_BYTES: int = 2 * 1024 * 1024 * 1024  # 2 GiB per-file supervisor ceiling
 TELEMETRY_EXPORT_RESERVE_BYTES: int = 64 * 1024 * 1024  # 64 MiB JSONL/meta/manifest reserve
 
-# Whole-session total export volume caps (bytes) across retained/published FULL + LIGHT sets.
+# Whole-session total export volume caps (bytes) across all published LIGHT + FULL exports.
+# Sized for up to 24 h of unthrottled 30-min LIGHT exports (<=49 files) plus bounded FULL sets
+# (`max_periodic_full_exports + 1` stop FULL = 4 FULL sets by default) + 64 MiB telemetry.
 GPU_MAX_TOTAL_EXPORT_BYTES: dict[str, int] = {
-    "L4": 6 * 1024 * 1024 * 1024,  # 6.0 GiB session cap (E=128 2xFULL + 4xLIGHT <= 4.38 GiB)
-    "A100": 12 * 1024 * 1024 * 1024,  # 12.0 GiB session cap (E=256 2xFULL + 4xLIGHT <= 8.38 GiB)
-    "H100": 20 * 1024 * 1024 * 1024,  # 20.0 GiB session cap (E=512 2xFULL + 4xLIGHT <= 16.38 GiB)
+    "L4": 12 * 1024 * 1024 * 1024,  # 12.0 GiB session cap (E=128, 24h M <= 11.32 GiB)
+    "A100": 24 * 1024 * 1024 * 1024,  # 24.0 GiB session cap (E=256, 24h M <= 19.32 GiB)
+    "H100": 40 * 1024 * 1024 * 1024,  # 40.0 GiB session cap (E=512, 24h M <= 35.33 GiB)
 }
 
 # Calibrated against measured A100 GameV3Sim footprint at (R=600, N=24, max_length=2048):
@@ -120,6 +122,7 @@ class V3PPOConfig:
     amp: bool = True
     use_channels_last: bool = True
     compile_model: bool = False
+    fast_learner_ops: bool = True
 
     # Rollout & PPO optimization hyperparameters
     rollout_len: int = 32
@@ -145,11 +148,16 @@ class V3PPOConfig:
     reward_kill_coef: float = 0.5
     reward_death_penalty: float = 1.0
 
-    # Schedule, two-tier atomic checkpointing (LIGHT every 30 min, sharded FULL every 2 h),
-    # and in-session recovery
+    # Schedule, two-tier atomic checkpointing (every LIGHT exported at
+    # `light_checkpoint_interval_sec` default 30 min; periodic FULL exports every
+    # `full_checkpoint_interval_sec` default 2 h bounded by `max_periodic_full_exports` plus 1 at
+    # cooperative stop / wall guard; `keep_*_checkpoints` prune `work/` only — completed exports in
+    # `output/` are never rewritten or deleted), and in-session recovery.
     total_updates: int = 100
     light_checkpoint_interval_sec: float = 1800.0
     full_checkpoint_interval_sec: float = 7200.0
+    max_periodic_full_exports: int = 3
+    light_resume_margin_minutes: float = 45.0
     checkpoint_shard_bytes: int = DEFAULT_CHECKPOINT_SHARD_BYTES
     checkpoint_every_updates: int = 0
     full_checkpoint_every_updates: int = 0
@@ -158,13 +166,17 @@ class V3PPOConfig:
     max_in_session_restarts: int = 2
     max_update_seconds: float | None = None
 
-    # Deterministic M-of-N evaluation: wall-time cadence in minutes (`eval_every_minutes`) and/or
-    # update cadence (`eval_every_updates`), matured via `eval_burnin_ticks` before `eval_ticks`.
-    eval_every_minutes: float = 30.0
+    # Deterministic single-pass M-of-N evaluation: wall-time cadence in minutes
+    # (`eval_every_minutes`, default 60 min) and/or update cadence (`eval_every_updates`),
+    # running both matchups (`food_seeking` + `random_safe`) in ONE simulator pass across
+    # `eval_envs` worlds (`96` worlds/matchup at default `192`), matured via `eval_burnin_ticks`
+    # (`250`) before `eval_ticks` (`2000`, yielding `>= 300` completed `random_safe` deaths).
+    eval_every_minutes: float = 60.0
     eval_every_updates: int = 0
-    eval_envs: int = 16
-    eval_burnin_ticks: int = 500
-    eval_ticks: int = 5000
+    eval_envs: int = 192
+    eval_burnin_ticks: int = 250
+    eval_ticks: int = 2000
+    eval_estimated_seconds: float = 95.0
     eval_learner_slots: int | None = None
     eval_seed: int = 20261112
     eval_greedy: bool = False
@@ -258,6 +270,18 @@ class V3PPOConfig:
             raise ValueError(
                 f"checkpoint_shard_bytes must be >= 1024, got {self.checkpoint_shard_bytes}"
             )
+        if int(self.max_periodic_full_exports) < 0:
+            raise ValueError(
+                f"max_periodic_full_exports must be >= 0, got {self.max_periodic_full_exports}"
+            )
+        if (
+            not math.isfinite(self.light_resume_margin_minutes)
+            or float(self.light_resume_margin_minutes) < 0.0
+        ):
+            raise ValueError(
+                "light_resume_margin_minutes must be finite and >= 0, "
+                f"got {self.light_resume_margin_minutes}"
+            )
         if int(self.checkpoint_every_updates) < 0:
             raise ValueError(
                 f"checkpoint_every_updates must be >= 0, got {self.checkpoint_every_updates}"
@@ -297,6 +321,14 @@ class V3PPOConfig:
             raise ValueError(f"eval_burnin_ticks must be >= 0, got {self.eval_burnin_ticks}")
         if int(self.eval_ticks) < 1:
             raise ValueError(f"eval_ticks must be >= 1, got {self.eval_ticks}")
+        if (
+            not math.isfinite(self.eval_estimated_seconds)
+            or float(self.eval_estimated_seconds) <= 0.0
+        ):
+            raise ValueError(
+                "eval_estimated_seconds must be finite and > 0, "
+                f"got {self.eval_estimated_seconds}"
+            )
         if self.eval_learner_slots is not None:
             els = int(self.eval_learner_slots)
             if not (1 <= els <= n_snakes):
@@ -509,15 +541,37 @@ def estimate_training_memory(cfg: V3PPOConfig, *, gpu: str | None = None) -> dic
     )
     eval_overhead_bytes = estimate_eval_overhead_bytes(cfg)
 
-    estimated_peak_bytes = (
+    # Peak VRAM is the maximum across two mutually exclusive runtime phases:
+    #   1) Rollout + PPO learner (`sim_peak_bytes` + buffer + model/opt + max(learner, actor_chunk))
+    #   2) Periodic evaluation (`sim_persistent_bytes` + buffer + model/opt + eval_sim + eval_fwd)
+    train_phase_peak_bytes = (
         sim_mem["sim_peak_bytes"]
         + buf_mem["total_rollout_storage_bytes"]
         + model_and_opt_bytes
         + max(learner_act_bytes, actor_chunk_temp_bytes)
-        + eval_overhead_bytes
         + _OBS_BUILD_TEMP_BYTES
         + _CUDA_RUNTIME_RESERVE_BYTES
     )
+    if eval_overhead_bytes > 0:
+        eval_learners = int(cfg.eval_envs) * int(cfg.resolved_eval_learner_slots)
+        eval_fwd_chunk = min(max(1, eval_learners), cfg.resolved_actor_chunk_learners)
+        eval_fwd_temp_bytes = estimate_actor_chunk_temp_bytes(
+            actor_chunk_rows=eval_fwd_chunk,
+            net_size=cfg.net_size,
+            amp=bool(cfg.amp),
+        )
+        eval_phase_peak_bytes = (
+            sim_mem["sim_persistent_bytes"]
+            + buf_mem["total_rollout_storage_bytes"]
+            + model_and_opt_bytes
+            + eval_overhead_bytes
+            + eval_fwd_temp_bytes
+            + _OBS_BUILD_TEMP_BYTES
+            + _CUDA_RUNTIME_RESERVE_BYTES
+        )
+    else:
+        eval_phase_peak_bytes = 0
+    estimated_peak_bytes = max(train_phase_peak_bytes, eval_phase_peak_bytes)
     result: dict[str, Any] = {
         "num_envs": int(cfg.num_envs),
         "num_snakes": int(cfg.num_snakes),
@@ -535,6 +589,8 @@ def estimate_training_memory(cfg: V3PPOConfig, *, gpu: str | None = None) -> dic
         "eval_overhead_bytes": int(eval_overhead_bytes),
         "obs_build_temp_bytes": _OBS_BUILD_TEMP_BYTES,
         "cuda_runtime_reserve_bytes": _CUDA_RUNTIME_RESERVE_BYTES,
+        "train_phase_peak_bytes": int(train_phase_peak_bytes),
+        "eval_phase_peak_bytes": int(eval_phase_peak_bytes),
         "estimated_peak_bytes": int(estimated_peak_bytes),
         "estimated_peak_gb": round(estimated_peak_bytes / 1.0e9, 3),
         "estimated_peak_gib": round(estimated_peak_bytes / float(1024**3), 3),
@@ -586,24 +642,31 @@ def estimate_checkpoint_export_caps(
     cfg: V3PPOConfig,
     *,
     gpu: str = "L4",
+    max_wall_seconds: float = 8.0 * 3600.0,
+    expected_updates: int | None = None,
     measured_packed_bytes_per_world: int | None = None,
 ) -> dict[str, Any]:
-    """Size single-file and total-session checkpoint export caps from measured bytes/world.
+    """Size single-file and total-session checkpoint export caps from wall horizon & bytes/world.
 
-    Args:
-        cfg: Training configuration (`num_envs`, `net_size`, `checkpoint_shard_bytes`,
-            `keep_full_checkpoints`, `keep_light_checkpoints`).
-        gpu: Target GPU tier (`"L4"`, `"A100"`, or `"H100"`).
-        measured_packed_bytes_per_world: Optional explicit per-world packed byte override;
-            when ``None``, scales ``MEASURED_PACKED_WORLD_BYTES_15K *
-            CHECKPOINT_PACKED_SAFETY_FACTOR_OVER_15K`` (`16.0 MiB/world` at `R=600, N=24`)
-            proportionally to ``raw_world_bytes``.
+    Session export arithmetic (M1-r2):
+      - Every LIGHT checkpoint is exported at its real ``light_checkpoint_interval_sec`` (`30` min
+        default) with no count cap and no interval stretching:
+        ``n_light_time = ceil(max_wall_seconds / light_checkpoint_interval_sec) + 1``
+        (`17` max on an `8 h` session, `49` max on a `24 h` session), plus any update-cadence
+        exports when ``checkpoint_every_updates > 0``.
+      - Periodic FULL checkpoints are bounded by ``max_periodic_full_exports`` (`3` default, one
+        every ``full_checkpoint_interval_sec = 7200``s), plus ``1`` at cooperative stop / wall
+        guard (`max_full_exports = max_periodic_full_exports + 1 = 4` default).
+      - ``keep_full_checkpoints`` and ``keep_light_checkpoints`` govern ``work/`` retention only;
+        completed exports in ``output/`` are immutable and never deleted.
     """
     gpu_norm = gpu.strip().upper()
     if gpu_norm not in GPU_MAX_TOTAL_EXPORT_BYTES:
         raise ValueError(
             f"Unsupported GPU {gpu!r}; expected one of {tuple(GPU_MAX_TOTAL_EXPORT_BYTES)}"
         )
+    if not math.isfinite(max_wall_seconds) or float(max_wall_seconds) < 0.0:
+        raise ValueError(f"max_wall_seconds must be finite and >= 0, got {max_wall_seconds}")
 
     sim_mem = estimate_sim_memory_bytes(cfg.game_config, 1)
     raw_world_bytes = int(sim_mem["raw_world_bytes"])
@@ -633,19 +696,41 @@ def estimate_checkpoint_export_caps(
 
     est_full_sim_bytes = int(cfg.num_envs) * budgeted_world_bytes
     est_shards_per_full = max(1, int(math.ceil(float(est_full_sim_bytes) / float(shard_cap_bytes))))
-    # A FULL checkpoint set writes `light_u*.pt` + `sim_shard_*.pt` + `full_u*.index.json`.
+    # Sim-shard + index portion of one FULL checkpoint set (companion `light_u*.pt` counted in
+    # `max_light_exports` when `full_interval >= light_interval`, or via `extra_full_lights`).
     est_full_sim_only_bytes = est_full_sim_bytes + est_shards_per_full * 64 * 1024
 
-    keep_full = int(cfg.keep_full_checkpoints)
-    keep_light = int(cfg.keep_light_checkpoints)
-    # Worst-case session exports: up to `keep_full` FULL shard sets + `keep_light` LIGHT files
-    # (note: FULL sets share/include their corresponding `light_u*.pt`, plus up to `keep_light`
-    # standalone periodic LIGHT snapshots; sum conservatively as `keep_full * (sim + light) +
-    # keep_light * light` so even disjoint timestamps stay strictly inside the session cap).
+    n_light_time = (
+        int(math.ceil(float(max_wall_seconds) / float(cfg.light_checkpoint_interval_sec))) + 1
+    )
+    n_light_updates = 0
+    if int(cfg.checkpoint_every_updates) > 0:
+        if expected_updates is not None:
+            u_bound = max(0, int(expected_updates))
+        elif 0 < int(cfg.total_updates) < 1_000_000_000:
+            u_bound = int(cfg.total_updates)
+        else:
+            # Conservative physical upper bound (1 update/sec) when `checkpoint_every_updates > 0`
+            # is requested without `expected_updates` or a finite `total_updates` cap.
+            u_bound = int(math.ceil(max(1.0, float(max_wall_seconds))))
+        n_light_updates = u_bound // int(cfg.checkpoint_every_updates)
+
+    max_periodic_full = int(cfg.max_periodic_full_exports)
+    max_full_exports = max_periodic_full + 1
+    extra_full_lights = (
+        max_periodic_full
+        if (
+            float(cfg.full_checkpoint_interval_sec) < float(cfg.light_checkpoint_interval_sec)
+            or int(cfg.full_checkpoint_every_updates) > 0
+        )
+        else 0
+    )
+    max_light_exports = n_light_time + n_light_updates + extra_full_lights
+
+    total_light_export_bytes = max_light_exports * est_light_bytes
+    total_full_sim_export_bytes = max_full_exports * est_full_sim_only_bytes
     worst_case_session_export_bytes = (
-        keep_full * (est_full_sim_only_bytes + est_light_bytes)
-        + keep_light * est_light_bytes
-        + TELEMETRY_EXPORT_RESERVE_BYTES
+        total_light_export_bytes + total_full_sim_export_bytes + TELEMETRY_EXPORT_RESERVE_BYTES
     )
 
     largest_single_file_bytes = max(shard_cap_bytes, est_light_bytes)
@@ -657,6 +742,7 @@ def estimate_checkpoint_export_caps(
 
     return {
         "gpu": gpu_norm,
+        "max_wall_seconds": float(max_wall_seconds),
         "raw_world_bytes": raw_world_bytes,
         "measured_world_bytes_3k": int(math.ceil(MEASURED_PACKED_WORLD_BYTES_3K * scale)),
         "measured_world_bytes_15k": int(math.ceil(MEASURED_PACKED_WORLD_BYTES_15K * scale)),
@@ -667,8 +753,13 @@ def estimate_checkpoint_export_caps(
         "est_light_checkpoint_bytes": est_light_bytes,
         "est_full_sim_bytes": est_full_sim_only_bytes,
         "est_shards_per_full": est_shards_per_full,
-        "keep_full_checkpoints": keep_full,
-        "keep_light_checkpoints": keep_light,
+        "max_periodic_full_exports": max_periodic_full,
+        "max_full_exports": max_full_exports,
+        "max_light_exports": max_light_exports,
+        "total_light_export_bytes": total_light_export_bytes,
+        "total_full_sim_export_bytes": total_full_sim_export_bytes,
+        "keep_full_checkpoints": int(cfg.keep_full_checkpoints),
+        "keep_light_checkpoints": int(cfg.keep_light_checkpoints),
         "per_file_max_export_bytes": per_file_max_export_bytes,
         "supervisor_per_file_limit_bytes": MAX_SUPERVISOR_EXPORT_BYTES,
         "worst_case_session_export_bytes": worst_case_session_export_bytes,
@@ -685,12 +776,16 @@ def validate_checkpoint_export_caps(
     cfg: V3PPOConfig,
     gpu: str,
     *,
+    max_wall_seconds: float = 8.0 * 3600.0,
+    expected_updates: int | None = None,
     measured_packed_bytes_per_world: int | None = None,
 ) -> dict[str, Any]:
     """Validate shard and whole-session checkpoint export bounds; raise ``ValueError`` if unsafe."""
     caps = estimate_checkpoint_export_caps(
         cfg,
         gpu=gpu,
+        max_wall_seconds=max_wall_seconds,
+        expected_updates=expected_updates,
         measured_packed_bytes_per_world=measured_packed_bytes_per_world,
     )
     if not caps["single_world_fits_shard"]:
@@ -710,7 +805,7 @@ def validate_checkpoint_export_caps(
         raise ValueError(
             f"Refusing configuration whose worst-case session export volume "
             f"({caps['worst_case_session_export_bytes'] / 2**30:.2f} GiB across "
-            f"{caps['keep_full_checkpoints']} FULL + {caps['keep_light_checkpoints']} LIGHT sets "
+            f"{caps['max_full_exports']} FULL + {caps['max_light_exports']} LIGHT exports "
             f"for {cfg.num_envs} worlds) exceeds {caps['gpu']} session export cap "
             f"({caps['session_total_export_cap_bytes'] / 2**30:.2f} GiB)."
         )

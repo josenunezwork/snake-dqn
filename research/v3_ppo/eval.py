@@ -5,7 +5,7 @@ from __future__ import annotations
 import gc
 import random
 import time
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
@@ -119,6 +119,27 @@ def preserve_rng_state() -> Iterator[None]:
             torch.cuda.set_rng_state_all(cuda_states)
 
 
+class _SimWorldSlice:
+    """Zero-copy contiguous world-range view ``[w0:w1]`` over :class:`GameV3Sim` for opponents."""
+
+    def __init__(self, sim: GameV3Sim, w0: int, w1: int) -> None:
+        self._sim = sim
+        self._w0 = int(w0)
+        self._w1 = int(w1)
+        self.E: int = self._w1 - self._w0
+
+    def __getattr__(self, name: str) -> Any:
+        val = getattr(self._sim, name)
+        if (
+            not name.startswith("_")
+            and isinstance(val, torch.Tensor)
+            and val.ndim >= 1
+            and val.shape[0] == self._sim.E
+        ):
+            return val[self._w0 : self._w1]
+        return val
+
+
 @torch.no_grad()
 def _act_learners_chunked(
     model: EgoMultiScaleNet,
@@ -143,6 +164,7 @@ def _act_learners_chunked(
             action_mask=obs_mask,
             greedy=greedy,
             generator=generator,
+            compute_values=False,
         ).actions
 
     out = torch.empty((m_total,), dtype=torch.long, device=obs_s1.device)
@@ -156,6 +178,7 @@ def _act_learners_chunked(
             action_mask=obs_mask[start:end],
             greedy=greedy,
             generator=generator,
+            compute_values=False,
         ).actions
     return out
 
@@ -218,13 +241,33 @@ def _summarize_episodes(
     }
 
 
+def _partition_eval_worlds(
+    eval_envs: int,
+    opponents: Sequence[OpponentPolicy],
+) -> tuple[int, list[tuple[OpponentPolicy, int, int]]]:
+    """Partition ``eval_envs`` evenly across ``opponents`` for a single simulator pass."""
+    opp_list = list(opponents)
+    if not opp_list:
+        raise ValueError("opponents must contain at least one OpponentPolicy")
+    n_opp = len(opp_list)
+    total_envs = max(n_opp, int(eval_envs))
+    base = total_envs // n_opp
+    rem = total_envs % n_opp
+    slices: list[tuple[OpponentPolicy, int, int]] = []
+    cursor = 0
+    for idx, opp in enumerate(opp_list):
+        cnt = base + (1 if idx < rem else 0)
+        slices.append((opp, cursor, cursor + cnt))
+        cursor += cnt
+    return total_envs, slices
+
+
 @torch.no_grad()
-def _run_eval_matchup(
+def _run_single_pass_eval(
     *,
     cfg: V3PPOConfig,
     device: torch.device,
-    opponent: OpponentPolicy,
-    suite_index: int,
+    opponents: Sequence[OpponentPolicy],
     eval_envs: int,
     eval_burnin_ticks: int,
     eval_ticks: int,
@@ -233,17 +276,34 @@ def _run_eval_matchup(
     model: EgoMultiScaleNet | None = None,
     baseline_learner_policy: OpponentPolicy | None = None,
     greedy: bool = False,
-) -> _EvalMatchupRaw:
+    should_stop: Callable[[], bool] | None = None,
+    poll_interval_ticks: int = 16,
+) -> tuple[list[_EvalMatchupRaw] | None, int, int, dict[str, int]]:
+    """Run all ``opponents`` matchups simultaneously in ONE :class:`GameV3Sim` pass."""
     if (model is None) == (baseline_learner_policy is None):
         raise ValueError("Provide exactly one of `model` or `baseline_learner_policy`")
 
-    world_seeds = derive_world_seeds(eval_seed, eval_envs, stream_id=100 + suite_index)
+    total_envs, world_slices = _partition_eval_worlds(eval_envs, opponents)
+    matchup_envs = {f"vs_{opp}": int(w1 - w0) for opp, w0, w1 in world_slices}
+    poll_every = max(1, int(poll_interval_ticks))
+
+    if should_stop is not None and should_stop():
+        return None, 0, total_envs, matchup_envs
+
+    all_world_seeds: list[int] = []
+    for idx_opp, (_, w0, w1) in enumerate(world_slices):
+        all_world_seeds.extend(derive_world_seeds(eval_seed, w1 - w0, stream_id=100 + idx_opp))
+
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
+
     sim = GameV3Sim(
         cfg.game_config,
-        num_envs=eval_envs,
+        num_envs=total_envs,
         device=device,
-        seeds=world_seeds,
+        seeds=all_world_seeds,
     )
+    sim_slices = [(opp, w0, w1, _SimWorldSlice(sim, w0, w1)) for opp, w0, w1 in world_slices]
 
     n_snakes = sim.N
     k_learners = min(max(1, int(learner_slots)), n_snakes)
@@ -252,188 +312,228 @@ def _run_eval_matchup(
     learner_idx = LearnerIndex(sim, learner_mask)
     obs_buf = allocate_obs_batch(sim, learner_idx) if model is not None else None
 
-    sample_gen = torch.Generator(device="cpu")
-    sample_gen.manual_seed(int(rng_u63_np(int(eval_seed), int(suite_index), 98, 0)))
+    gen_dev = device if device.type in {"cpu", "cuda"} else torch.device("cpu")
+    sample_gen = torch.Generator(device=gen_dev)
+    sample_gen.manual_seed(int(rng_u63_np(int(eval_seed), 0, 98, 0)))
 
     ep_ret_acc = torch.zeros((sim.E, k_learners), dtype=torch.float32, device=device)
     life_ticks_acc = torch.zeros((sim.E, k_learners), dtype=torch.int32, device=device)
     zeros_f32 = torch.zeros((sim.E, k_learners), dtype=torch.float32, device=device)
     zeros_i32 = torch.zeros((sim.E, k_learners), dtype=torch.int32, device=device)
+    world_actions_buf = torch.empty((sim.E, n_snakes), dtype=torch.long, device=device)
 
     chunk_learners = cfg.resolved_actor_chunk_learners
     burnin = max(0, int(eval_burnin_ticks))
     window = max(1, int(eval_ticks))
+    ticks_completed = 0
 
-    def _step_matchup() -> tuple[torch.Tensor, StepInfo, torch.Tensor]:
-        acted_es = sim.alive & (~sim.truncated_pending)
+    def _step_all(
+        sim_ref: GameV3Sim,
+        obs_ref: Any,
+        slices_ref: list[tuple[OpponentPolicy, int, int, _SimWorldSlice]],
+    ) -> tuple[torch.Tensor, StepInfo, torch.Tensor]:
+        acted_es = sim_ref.alive & (~sim_ref.truncated_pending)
         if model is not None:
-            assert obs_buf is not None
-            build_obs(sim, learner_index=learner_idx, out=obs_buf)
+            assert obs_ref is not None
+            build_obs(sim_ref, learner_index=learner_idx, out=obs_ref)
             learner_act_1d = _act_learners_chunked(
                 model,
-                obs_buf.raster_s1,
-                obs_buf.raster_s4,
-                obs_buf.raster_s16,
-                obs_buf.scalars,
-                obs_buf.action_mask,
+                obs_ref.raster_s1,
+                obs_ref.raster_s4,
+                obs_ref.raster_s16,
+                obs_ref.scalars,
+                obs_ref.action_mask,
                 chunk_size=chunk_learners,
                 greedy=greedy,
                 generator=sample_gen,
             )
-            learner_act_ek = learner_act_1d.view(sim.E, k_learners)
+            learner_act_ek = learner_act_1d.view(sim_ref.E, k_learners)
         else:
             assert baseline_learner_policy is not None
-            learner_act_ek = scripted_opponent_actions(sim, baseline_learner_policy)[:, :k_learners]
+            learner_act_ek = scripted_opponent_actions(sim_ref, baseline_learner_policy)[
+                :, :k_learners
+            ]
 
         if k_learners < n_snakes:
-            world_actions = scripted_opponent_actions(sim, opponent)
-            world_actions[:, :k_learners] = learner_act_ek
+            for opp, w0, w1, s_slice in slices_ref:
+                world_actions_buf[w0:w1] = scripted_opponent_actions(
+                    s_slice, opp  # type: ignore[arg-type]
+                )
+            world_actions_buf[:, :k_learners] = learner_act_ek
+            world_actions = world_actions_buf
         else:
             world_actions = learner_act_ek
 
-        info_step = sim.step(world_actions, truncate=False)
+        info_step = sim_ref.step(world_actions, truncate=False)
         step_rew_es = compute_step_reward(info_step, acted_es, cfg)
         return acted_es, info_step, step_rew_es
 
-    # 1. Burn-in phase: mature food/corpses/lengths; track ongoing life age & return from birth
-    for _ in range(burnin):
-        acted_es, info, step_rew = _step_matchup()
-        l_acted = acted_es[:, :k_learners]
-        l_died = l_acted & info.died[:, :k_learners]
-        l_survived = l_acted & (~info.died[:, :k_learners])
+    try:
+        # 1. Burn-in phase: mature food/corpses/lengths; track ongoing life age & return from birth
+        for t_burn in range(burnin):
+            if should_stop is not None and (t_burn % poll_every == 0) and should_stop():
+                return None, ticks_completed, total_envs, matchup_envs
+            acted_es, info, step_rew = _step_all(sim, obs_buf, sim_slices)
+            ticks_completed += 1
+            l_acted = acted_es[:, :k_learners]
+            l_died = l_acted & info.died[:, :k_learners]
+            l_survived = l_acted & (~info.died[:, :k_learners])
 
-        ep_ret_acc = torch.where(l_acted, ep_ret_acc + step_rew[:, :k_learners], ep_ret_acc)
-        life_ticks_acc = torch.where(l_acted, life_ticks_acc + 1, life_ticks_acc)
+            ep_ret_acc = torch.where(l_acted, ep_ret_acc + step_rew[:, :k_learners], ep_ret_acc)
+            life_ticks_acc = torch.where(l_acted, life_ticks_acc + 1, life_ticks_acc)
 
-        ep_ret_acc = torch.where(l_died | (~l_survived), zeros_f32, ep_ret_acc)
-        life_ticks_acc = torch.where(l_died | (~l_survived), zeros_i32, life_ticks_acc)
+            ep_ret_acc = torch.where(l_died | (~l_survived), zeros_f32, ep_ret_acc)
+            life_ticks_acc = torch.where(l_died | (~l_survived), zeros_i32, life_ticks_acc)
 
-    # 2. Measurement window: zero per-tick host syncs via on-device accumulators + 256-tick ring
-    acted_steps_dev = torch.zeros((), dtype=torch.int64, device=device)
-    mass_gained_dev = torch.zeros((), dtype=torch.int64, device=device)
-    net_len_delta_dev = torch.zeros((), dtype=torch.int64, device=device)
-    deaths_dev = torch.zeros((), dtype=torch.int64, device=device)
-    kills_dev = torch.zeros((), dtype=torch.int64, device=device)
-    alive_len_sum_dev = torch.zeros((), dtype=torch.int64, device=device)
-    alive_ticks_dev = torch.zeros((), dtype=torch.int64, device=device)
+        # 2. Measurement window: per-world on-device accumulators + 256-tick ring (zero tick syncs)
+        acted_steps_w = torch.zeros((sim.E,), dtype=torch.int64, device=device)
+        mass_gained_w = torch.zeros((sim.E,), dtype=torch.int64, device=device)
+        net_len_delta_w = torch.zeros((sim.E,), dtype=torch.int64, device=device)
+        deaths_w = torch.zeros((sim.E,), dtype=torch.int64, device=device)
+        kills_w = torch.zeros((sim.E,), dtype=torch.int64, device=device)
+        alive_len_sum_w = torch.zeros((sim.E,), dtype=torch.int64, device=device)
+        alive_ticks_w = torch.zeros((sim.E,), dtype=torch.int64, device=device)
 
-    buf_cap = min(window, _EVAL_EVENT_FLUSH_TICKS)
-    buf_died = torch.zeros((buf_cap, sim.E, k_learners), dtype=torch.bool, device=device)
-    buf_death_len = torch.zeros((buf_cap, sim.E, k_learners), dtype=torch.int32, device=device)
-    buf_life_ticks = torch.zeros((buf_cap, sim.E, k_learners), dtype=torch.int32, device=device)
-    buf_ep_ret = torch.zeros((buf_cap, sim.E, k_learners), dtype=torch.float32, device=device)
+        buf_cap = min(window, _EVAL_EVENT_FLUSH_TICKS)
+        buf_died = torch.zeros((buf_cap, sim.E, k_learners), dtype=torch.bool, device=device)
+        buf_death_len = torch.zeros((buf_cap, sim.E, k_learners), dtype=torch.int32, device=device)
+        buf_life_ticks = torch.zeros((buf_cap, sim.E, k_learners), dtype=torch.int32, device=device)
+        buf_ep_ret = torch.zeros((buf_cap, sim.E, k_learners), dtype=torch.float32, device=device)
 
-    death_lengths: list[float] = []
-    lifetime_ticks: list[float] = []
-    completed_returns: list[float] = []
+        death_lengths_by_suite: list[list[float]] = [[] for _ in world_slices]
+        lifetime_ticks_by_suite: list[list[float]] = [[] for _ in world_slices]
+        completed_returns_by_suite: list[list[float]] = [[] for _ in world_slices]
 
-    def _flush_event_ring(valid_rows: int) -> None:
-        if valid_rows <= 0:
-            return
-        d_mask = buf_died[:valid_rows]
-        d_lens_cpu = buf_death_len[:valid_rows][d_mask].detach().cpu().tolist()
-        if not d_lens_cpu:
-            return
-        d_life_cpu = buf_life_ticks[:valid_rows][d_mask].detach().cpu().tolist()
-        d_ret_cpu = buf_ep_ret[:valid_rows][d_mask].detach().cpu().tolist()
-        death_lengths.extend(float(x) for x in d_lens_cpu)
-        lifetime_ticks.extend(float(x) for x in d_life_cpu)
-        completed_returns.extend(float(x) for x in d_ret_cpu)
+        def _flush_event_ring(valid_rows: int) -> None:
+            if valid_rows <= 0:
+                return
+            if not bool(buf_died[:valid_rows].any().item()):
+                return
+            for idx_opp, (_, w0, w1) in enumerate(world_slices):
+                d_mask = buf_died[:valid_rows, w0:w1]
+                d_lens_cpu = buf_death_len[:valid_rows, w0:w1][d_mask].detach().cpu().tolist()
+                if not d_lens_cpu:
+                    continue
+                d_life_cpu = buf_life_ticks[:valid_rows, w0:w1][d_mask].detach().cpu().tolist()
+                d_ret_cpu = buf_ep_ret[:valid_rows, w0:w1][d_mask].detach().cpu().tolist()
+                death_lengths_by_suite[idx_opp].extend(float(x) for x in d_lens_cpu)
+                lifetime_ticks_by_suite[idx_opp].extend(float(x) for x in d_life_cpu)
+                completed_returns_by_suite[idx_opp].extend(float(x) for x in d_ret_cpu)
 
-    slot_in_buf = 0
-    for _ in range(window):
-        acted_es, info, step_rew = _step_matchup()
-        l_acted = acted_es[:, :k_learners]
-        l_died = l_acted & info.died[:, :k_learners]
-        l_survived = l_acted & (~info.died[:, :k_learners])
+        slot_in_buf = 0
+        for t_win in range(window):
+            if should_stop is not None and (t_win % poll_every == 0) and should_stop():
+                return None, ticks_completed, total_envs, matchup_envs
+            acted_es, info, step_rew = _step_all(sim, obs_buf, sim_slices)
+            ticks_completed += 1
+            l_acted = acted_es[:, :k_learners]
+            l_died = l_acted & info.died[:, :k_learners]
+            l_survived = l_acted & (~info.died[:, :k_learners])
 
-        ep_ret_post = torch.where(l_acted, ep_ret_acc + step_rew[:, :k_learners], ep_ret_acc)
-        life_ticks_post = torch.where(l_acted, life_ticks_acc + 1, life_ticks_acc)
+            ep_ret_post = torch.where(l_acted, ep_ret_acc + step_rew[:, :k_learners], ep_ret_acc)
+            life_ticks_post = torch.where(l_acted, life_ticks_acc + 1, life_ticks_acc)
 
-        buf_died[slot_in_buf].copy_(l_died)
-        buf_death_len[slot_in_buf].copy_(info.prev_length[:, :k_learners])
-        buf_life_ticks[slot_in_buf].copy_(life_ticks_post)
-        buf_ep_ret[slot_in_buf].copy_(ep_ret_post)
-        slot_in_buf += 1
-        if slot_in_buf == buf_cap:
+            buf_died[slot_in_buf].copy_(l_died)
+            buf_death_len[slot_in_buf].copy_(info.prev_length[:, :k_learners])
+            buf_life_ticks[slot_in_buf].copy_(life_ticks_post)
+            buf_ep_ret[slot_in_buf].copy_(ep_ret_post)
+            slot_in_buf += 1
+            if slot_in_buf == buf_cap:
+                _flush_event_ring(slot_in_buf)
+                slot_in_buf = 0
+
+            ep_ret_acc = torch.where(l_died | (~l_survived), zeros_f32, ep_ret_post)
+            life_ticks_acc = torch.where(l_died | (~l_survived), zeros_i32, life_ticks_post)
+
+            acted_steps_w += l_acted.sum(dim=1, dtype=torch.int64)
+            deaths_w += l_died.sum(dim=1, dtype=torch.int64)
+            # Count all `l_acted` kills (including simultaneous kill + death on the same tick).
+            kills_w += torch.where(l_acted, info.kill_credit[:, :k_learners], zeros_i32).sum(
+                dim=1, dtype=torch.int64
+            )
+            mass_gained_w += torch.where(
+                l_survived, info.mass_eaten[:, :k_learners], zeros_i32
+            ).sum(dim=1, dtype=torch.int64)
+            len_delta_ek = info.length[:, :k_learners] - info.prev_length[:, :k_learners]
+            net_len_delta_w += torch.where(l_survived, len_delta_ek, zeros_i32).sum(
+                dim=1, dtype=torch.int64
+            )
+            alive_len_sum_w += torch.where(l_survived, info.length[:, :k_learners], zeros_i32).sum(
+                dim=1, dtype=torch.int64
+            )
+            alive_ticks_w += l_survived.sum(dim=1, dtype=torch.int64)
+
+        if slot_in_buf > 0:
             _flush_event_ring(slot_in_buf)
-            slot_in_buf = 0
 
-        ep_ret_acc = torch.where(l_died | (~l_survived), zeros_f32, ep_ret_post)
-        life_ticks_acc = torch.where(l_died | (~l_survived), zeros_i32, life_ticks_post)
+        scalars_cpu = torch.stack(
+            (
+                acted_steps_w,
+                mass_gained_w,
+                net_len_delta_w,
+                deaths_w,
+                kills_w,
+                alive_ticks_w,
+                alive_len_sum_w,
+            ),
+            dim=0,
+        ).cpu()
 
-        acted_steps_dev += l_acted.to(torch.int64).sum()
-        deaths_dev += l_died.to(torch.int64).sum()
-        # Count all `l_acted` kills (including simultaneous kill + death on the same tick).
-        kills_dev += torch.where(l_acted, info.kill_credit[:, :k_learners], zeros_i32).sum(
-            dtype=torch.int64
-        )
-        mass_gained_dev += torch.where(l_survived, info.mass_eaten[:, :k_learners], zeros_i32).sum(
-            dtype=torch.int64
-        )
-        len_delta_ek = info.length[:, :k_learners] - info.prev_length[:, :k_learners]
-        net_len_delta_dev += torch.where(l_survived, len_delta_ek, zeros_i32).sum(dtype=torch.int64)
-        alive_len_sum_dev += torch.where(l_survived, info.length[:, :k_learners], zeros_i32).sum(
-            dtype=torch.int64
-        )
-        alive_ticks_dev += l_survived.to(torch.int64).sum()
+        raw_suites: list[_EvalMatchupRaw] = []
+        for idx_opp, (opp, w0, w1) in enumerate(world_slices):
+            # Censored lives = learner snakes still alive at window end (reported separately!).
+            alive_end_i = sim.alive[w0:w1, :k_learners]
+            censored_lengths_i = [
+                float(x)
+                for x in sim.length[w0:w1, :k_learners][alive_end_i].detach().cpu().tolist()
+            ]
+            tot_acted = int(scalars_cpu[0, w0:w1].sum().item())
+            tot_mass = int(scalars_cpu[1, w0:w1].sum().item())
+            tot_net_delta = int(scalars_cpu[2, w0:w1].sum().item())
+            tot_deaths = int(scalars_cpu[3, w0:w1].sum().item())
+            tot_kills = int(scalars_cpu[4, w0:w1].sum().item())
+            tot_alive_ticks = int(scalars_cpu[5, w0:w1].sum().item())
+            tot_alive_len_sum = float(scalars_cpu[6, w0:w1].sum().item())
 
-    if slot_in_buf > 0:
-        _flush_event_ring(slot_in_buf)
-
-    # Censored lives = learner snakes still alive at window end (reported separately, never mixed!).
-    alive_end = sim.alive[:, :k_learners]
-    censored_lengths = [
-        float(x) for x in sim.length[:, :k_learners][alive_end].detach().cpu().tolist()
-    ]
-
-    scalars_cpu = torch.stack(
-        (
-            acted_steps_dev,
-            mass_gained_dev,
-            net_len_delta_dev,
-            deaths_dev,
-            kills_dev,
-            alive_ticks_dev,
-            alive_len_sum_dev,
-        )
-    ).cpu()
-    total_acted_steps = int(scalars_cpu[0].item())
-    total_mass_gained = int(scalars_cpu[1].item())
-    total_net_len_delta = int(scalars_cpu[2].item())
-    total_deaths = int(scalars_cpu[3].item())
-    total_kills = int(scalars_cpu[4].item())
-    alive_ticks = int(scalars_cpu[5].item())
-    alive_len_sum = float(scalars_cpu[6].item())
-
-    summary = _summarize_episodes(
-        death_lengths=death_lengths,
-        lifetime_ticks=lifetime_ticks,
-        completed_returns=completed_returns,
-        censored_lengths=censored_lengths,
-        total_acted_steps=total_acted_steps,
-        total_mass_gained=total_mass_gained,
-        total_net_len_delta=total_net_len_delta,
-        total_deaths=total_deaths,
-        total_kills=total_kills,
-        alive_len_sum=alive_len_sum,
-        alive_ticks=alive_ticks,
-    )
-    summary["opponent"] = opponent
-    return _EvalMatchupRaw(
-        summary=summary,
-        death_lengths=death_lengths,
-        lifetime_ticks=lifetime_ticks,
-        completed_returns=completed_returns,
-        censored_lengths=censored_lengths,
-        acted_steps=total_acted_steps,
-        mass_gained=total_mass_gained,
-        net_len_delta=total_net_len_delta,
-        deaths=total_deaths,
-        kills=total_kills,
-        alive_len_sum=alive_len_sum,
-        alive_ticks=alive_ticks,
-    )
+            summary = _summarize_episodes(
+                death_lengths=death_lengths_by_suite[idx_opp],
+                lifetime_ticks=lifetime_ticks_by_suite[idx_opp],
+                completed_returns=completed_returns_by_suite[idx_opp],
+                censored_lengths=censored_lengths_i,
+                total_acted_steps=tot_acted,
+                total_mass_gained=tot_mass,
+                total_net_len_delta=tot_net_delta,
+                total_deaths=tot_deaths,
+                total_kills=tot_kills,
+                alive_len_sum=tot_alive_len_sum,
+                alive_ticks=tot_alive_ticks,
+            )
+            summary["opponent"] = opp
+            summary["eval_envs"] = int(w1 - w0)
+            raw_suites.append(
+                _EvalMatchupRaw(
+                    summary=summary,
+                    death_lengths=death_lengths_by_suite[idx_opp],
+                    lifetime_ticks=lifetime_ticks_by_suite[idx_opp],
+                    completed_returns=completed_returns_by_suite[idx_opp],
+                    censored_lengths=censored_lengths_i,
+                    acted_steps=tot_acted,
+                    mass_gained=tot_mass,
+                    net_len_delta=tot_net_delta,
+                    deaths=tot_deaths,
+                    kills=tot_kills,
+                    alive_len_sum=tot_alive_len_sum,
+                    alive_ticks=tot_alive_ticks,
+                )
+            )
+        return raw_suites, ticks_completed, total_envs, matchup_envs
+    finally:
+        del sim_slices
+        del obs_buf
+        del sim
+        gc.collect()
+        if device.type == "cuda":
+            torch.cuda.empty_cache()
 
 
 def _combine_matchups(raw_suites: Sequence[_EvalMatchupRaw]) -> dict[str, Any]:
@@ -490,11 +590,15 @@ def evaluate_policy(
     eval_learner_slots: int | None = None,
     eval_seed: int | None = None,
     greedy: bool | None = None,
+    should_stop: Callable[[], bool] | None = None,
+    poll_interval_ticks: int = 16,
 ) -> dict[str, Any]:
-    """Run deterministic burn-in + window M-of-N evaluation against scripted opponent suites.
+    """Run single-pass deterministic burn-in + window M-of-N evaluation across ``opponents``.
 
-    Saves and restores global RNG states and uses dedicated evaluation ``GameV3Sim`` instances
-    so periodic evaluation during training has zero effect on rollout/update trajectories.
+    Runs all opponent matchups simultaneously in ONE :class:`GameV3Sim` pass (`eval_envs`
+    partitioned evenly across ``opponents``: half vs ``food_seeking``, half vs ``random_safe``),
+    polls ``should_stop`` every ``poll_interval_ticks`` to abort cleanly (`aborted: True`), and
+    preserves global RNG states so periodic evaluation leaves training trajectories bit-identical.
     """
     resolved_dev = normalize_device(device)
     eff_envs = int(cfg.eval_envs if eval_envs is None else eval_envs)
@@ -510,38 +614,50 @@ def evaluate_policy(
     model.eval()
     t0 = time.perf_counter()
 
-    raw_suites: list[_EvalMatchupRaw] = []
-    by_opponent: dict[str, dict[str, Any]] = {}
-
     try:
         with preserve_rng_state():
-            for idx_opp, opp in enumerate(opponents):
-                raw_res = _run_eval_matchup(
-                    cfg=cfg,
-                    device=resolved_dev,
-                    opponent=opp,
-                    suite_index=idx_opp,
-                    eval_envs=eff_envs,
-                    eval_burnin_ticks=eff_burnin,
-                    eval_ticks=eff_ticks,
-                    learner_slots=eff_slots,
-                    eval_seed=eff_seed,
-                    model=model,
-                    greedy=eff_greedy,
-                )
-                by_opponent[f"vs_{opp}"] = raw_res.summary
-                raw_suites.append(raw_res)
-                gc.collect()
+            raw_suites, ticks_done, total_envs, matchup_envs = _run_single_pass_eval(
+                cfg=cfg,
+                device=resolved_dev,
+                opponents=opponents,
+                eval_envs=eff_envs,
+                eval_burnin_ticks=eff_burnin,
+                eval_ticks=eff_ticks,
+                learner_slots=eff_slots,
+                eval_seed=eff_seed,
+                model=model,
+                greedy=eff_greedy,
+                should_stop=should_stop,
+                poll_interval_ticks=poll_interval_ticks,
+            )
     finally:
         if was_training:
             model.train()
 
     synchronize_device(resolved_dev)
     elapsed = time.perf_counter() - t0
+    if raw_suites is None:
+        return {
+            "aborted": True,
+            "eval_seed": eff_seed,
+            "eval_envs": total_envs,
+            "matchup_envs": matchup_envs,
+            "eval_burnin_ticks": eff_burnin,
+            "eval_ticks": eff_ticks,
+            "eval_learner_slots": min(max(1, eff_slots), cfg.num_snakes),
+            "num_snakes": cfg.num_snakes,
+            "greedy": eff_greedy,
+            "ticks_completed": int(ticks_done),
+            "wall_seconds": round(elapsed, 4),
+        }
+
+    by_opponent = {f"vs_{opp}": raw.summary for opp, raw in zip(opponents, raw_suites, strict=True)}
     combined = _combine_matchups(raw_suites)
     return {
+        "aborted": False,
         "eval_seed": eff_seed,
-        "eval_envs": eff_envs,
+        "eval_envs": total_envs,
+        "matchup_envs": matchup_envs,
         "eval_burnin_ticks": eff_burnin,
         "eval_ticks": eff_ticks,
         "eval_learner_slots": min(max(1, eff_slots), cfg.num_snakes),
@@ -565,6 +681,8 @@ def evaluate_scripted_baseline(
     eval_ticks: int | None = None,
     eval_learner_slots: int | None = None,
     eval_seed: int | None = None,
+    should_stop: Callable[[], bool] | None = None,
+    poll_interval_ticks: int = 16,
 ) -> dict[str, Any]:
     """Evaluate a scripted baseline (`random_safe`, `food_seeking`, etc.) on identical worlds."""
     resolved_dev = normalize_device(device)
@@ -577,34 +695,46 @@ def evaluate_scripted_baseline(
     eff_seed = int(cfg.eval_seed if eval_seed is None else eval_seed)
 
     t0 = time.perf_counter()
-    raw_suites: list[_EvalMatchupRaw] = []
-    by_opponent: dict[str, dict[str, Any]] = {}
-
     with preserve_rng_state():
-        for idx_opp, opp in enumerate(opponents):
-            raw_res = _run_eval_matchup(
-                cfg=cfg,
-                device=resolved_dev,
-                opponent=opp,
-                suite_index=idx_opp,
-                eval_envs=eff_envs,
-                eval_burnin_ticks=eff_burnin,
-                eval_ticks=eff_ticks,
-                learner_slots=eff_slots,
-                eval_seed=eff_seed,
-                baseline_learner_policy=baseline_policy,
-            )
-            by_opponent[f"vs_{opp}"] = raw_res.summary
-            raw_suites.append(raw_res)
-            gc.collect()
+        raw_suites, ticks_done, total_envs, matchup_envs = _run_single_pass_eval(
+            cfg=cfg,
+            device=resolved_dev,
+            opponents=opponents,
+            eval_envs=eff_envs,
+            eval_burnin_ticks=eff_burnin,
+            eval_ticks=eff_ticks,
+            learner_slots=eff_slots,
+            eval_seed=eff_seed,
+            baseline_learner_policy=baseline_policy,
+            should_stop=should_stop,
+            poll_interval_ticks=poll_interval_ticks,
+        )
 
     synchronize_device(resolved_dev)
     elapsed = time.perf_counter() - t0
+    if raw_suites is None:
+        return {
+            "aborted": True,
+            "baseline_policy": baseline_policy,
+            "eval_seed": eff_seed,
+            "eval_envs": total_envs,
+            "matchup_envs": matchup_envs,
+            "eval_burnin_ticks": eff_burnin,
+            "eval_ticks": eff_ticks,
+            "eval_learner_slots": min(max(1, eff_slots), cfg.num_snakes),
+            "num_snakes": cfg.num_snakes,
+            "ticks_completed": int(ticks_done),
+            "wall_seconds": round(elapsed, 4),
+        }
+
+    by_opponent = {f"vs_{opp}": raw.summary for opp, raw in zip(opponents, raw_suites, strict=True)}
     combined = _combine_matchups(raw_suites)
     return {
+        "aborted": False,
         "baseline_policy": baseline_policy,
         "eval_seed": eff_seed,
-        "eval_envs": eff_envs,
+        "eval_envs": total_envs,
+        "matchup_envs": matchup_envs,
         "eval_burnin_ticks": eff_burnin,
         "eval_ticks": eff_ticks,
         "eval_learner_slots": min(max(1, eff_slots), cfg.num_snakes),

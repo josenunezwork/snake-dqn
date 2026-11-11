@@ -72,7 +72,14 @@ def _build_synthetic_canary_receipt(
     if shared_exports_src is not None:
         shutil.copytree(shared_exports_src, canary_exports_dir)
     else:
-        run_canary_suite(
+        fast_eval_override = V3PPOConfig(
+            game_config=GameV3Config(arena_radius=60.0, num_snakes=6),
+            eval_envs=4,
+            eval_burnin_ticks=4,
+            eval_ticks=12,
+            eval_learner_slots=2,
+        )
+        canary_res = run_canary_suite(
             output_dir=canary_exports_dir,
             device="cpu",
             input_dir=remote_in,
@@ -81,7 +88,11 @@ def _build_synthetic_canary_receipt(
             canary_arena_radius=60.0,
             canary_num_snakes=6,
             canary_rollout_len=4,
+            canary_eval_cfg_override=fast_eval_override,
         )
+        assert canary_res["default_eval_benchmark"]["aborted"] is False
+        assert canary_res["default_eval_benchmark"]["wall_seconds"] > 0.0
+        assert canary_res["default_eval_wall_seconds"] > 0.0
 
     saved_probe_mf = canary_out / "manifest.json"
     saved_probe_mf.write_text(
@@ -376,21 +387,38 @@ def test_prepare_refuses_checkpoint_shard_and_session_export_cap_violations(
             allow_unmerged_commit=True,
         )
 
-    # 3. Total session export volume exceeding GPU session cap (`6.00 GiB` on L4)
-    bloated_keep_cfg = V3PPOConfig(num_envs=128, keep_full_checkpoints=4, keep_light_checkpoints=6)
+    # 3. Total session export volume exceeding GPU session cap (`12.00 GiB` on L4):
+    #    (3a) Excessive `max_periodic_full_exports` (`6` periodic + `1` stop = `7` FULLs > `12 GiB`)
+    bloated_full_cfg = V3PPOConfig(num_envs=128, max_periodic_full_exports=6)
     with pytest.raises(ValueError, match="exceeds L4 session export cap"):
         prepare_v3_ppo_packet(
             tmp_path / "pkt_bloated_session",
             commit="HEAD",
             mode="train",
             gpu="L4",
-            ppo_config=bloated_keep_cfg,
+            hours=8.0,
+            ppo_config=bloated_full_cfg,
             allow_missing_canary_receipt=True,
             output_dir=tmp_path / "out_bloated_session",
             allow_unmerged_commit=True,
         )
 
-    # 4. Explicit high `measured_packed_bytes_per_world` pushing E=128 over 6.00 GiB L4 cap
+    #    (3b) Minor 4: Update-based checkpoint setting (`checkpoint_every_updates=1`) exceeding cap
+    bloated_upd_cfg = V3PPOConfig(num_envs=128, checkpoint_every_updates=1)
+    with pytest.raises(ValueError, match="exceeds L4 session export cap"):
+        prepare_v3_ppo_packet(
+            tmp_path / "pkt_bloated_updates",
+            commit="HEAD",
+            mode="train",
+            gpu="L4",
+            hours=2.0,
+            ppo_config=bloated_upd_cfg,
+            allow_missing_canary_receipt=True,
+            output_dir=tmp_path / "out_bloated_updates",
+            allow_unmerged_commit=True,
+        )
+
+    # 4. Explicit high `measured_packed_bytes_per_world` pushing E=128 over 12.00 GiB L4 cap
     with pytest.raises(ValueError, match="exceeds L4 session export cap"):
         prepare_v3_ppo_packet(
             tmp_path / "pkt_high_measured",
@@ -398,11 +426,37 @@ def test_prepare_refuses_checkpoint_shard_and_session_export_cap_violations(
             mode="train",
             gpu="L4",
             num_envs=128,
-            measured_packed_bytes_per_world=6 * 1024 * 1024,  # 6 MiB * 4.8x = 28.8 MiB/world
+            measured_packed_bytes_per_world=8 * 1024 * 1024,  # 8 MiB * 4.8x = 38.4 MiB/world
             allow_missing_canary_receipt=True,
             output_dir=tmp_path / "out_high_measured",
             allow_unmerged_commit=True,
         )
+
+    # 5. Verify 8 h and 24 h sessions fit cleanly on L4 (E=128) and A100 (E=256) for both S and M
+    for gpu_kind, n_envs in (("L4", 128), ("A100", 256)):
+        for h_val in (8.0, 24.0):
+            for net_sz in ("S", "M"):
+                slug = f"{gpu_kind.lower()}_{int(h_val)}h_{net_sz.lower()}"
+                ok_info = prepare_v3_ppo_packet(
+                    tmp_path / f"pkt_{slug}",
+                    commit="HEAD",
+                    mode="train",
+                    gpu=gpu_kind,
+                    hours=h_val,
+                    num_envs=n_envs,
+                    net_size=net_sz,
+                    allow_missing_canary_receipt=True,
+                    output_dir=tmp_path / f"out_{slug}",
+                    allow_unmerged_commit=True,
+                )
+                caps = ok_info["checkpoint_export_caps"]
+                assert caps["total_session_fits_cap"] is True
+                assert caps["max_light_exports"] == (17 if h_val == 8.0 else 49)
+                assert caps["max_full_exports"] == 4
+                mf_ok = json.loads(Path(ok_info["manifest_path"]).read_text(encoding="utf-8"))
+                assert int(mf_ok["env"]["V3_PPO_MAX_SESSION_EXPORT_BYTES"]) == int(
+                    caps["session_total_export_cap_bytes"]
+                )
 
 
 def test_ruler_defaults_warmup_timed_split_precheck_and_single_slot_cache(
@@ -472,6 +526,27 @@ def test_ruler_defaults_warmup_timed_split_precheck_and_single_slot_cache(
 
     monkeypatch.setattr(ruler_mod, "_build_packed_mature_sim_state", _spy_build_packed)
 
+    train_step_stage_timings: list[bool] = []
+    synced_rollout_calls: list[bool] = []
+    orig_train_step = V3PPOTrainer.train_step
+    orig_collect_rollout = V3PPOTrainer.collect_rollout
+
+    def _spy_train_step(  # type: ignore[no-untyped-def]
+        self: V3PPOTrainer, *, should_stop=None, stage_timing: bool = False
+    ):
+        train_step_stage_timings.append(bool(stage_timing))
+        return orig_train_step(self, should_stop=should_stop, stage_timing=stage_timing)
+
+    def _spy_collect_rollout(  # type: ignore[no-untyped-def]
+        self: V3PPOTrainer, *, should_stop=None, stage_timing: bool = False
+    ):
+        if stage_timing:
+            synced_rollout_calls.append(True)
+        return orig_collect_rollout(self, should_stop=should_stop, stage_timing=stage_timing)
+
+    monkeypatch.setattr(V3PPOTrainer, "train_step", _spy_train_step)
+    monkeypatch.setattr(V3PPOTrainer, "collect_rollout", _spy_collect_rollout)
+
     res = run_ruler(
         output_dir=tmp_path / "ruler_exec",
         device="cpu",
@@ -511,8 +586,53 @@ def test_ruler_defaults_warmup_timed_split_precheck_and_single_slot_cache(
     assert integ["agent_steps"] == 2 * 4 * 2 * 6
     assert integ["collect_seconds"] > 0.0
     assert integ["learn_seconds"] > 0.0
+    assert integ["headline_stage_timing_syncs"] is False
+    assert ok_cell["collection_only"]["headline_stage_timing_syncs"] is False
     assert ok_cell["collect_seconds"] == integ["collect_seconds"]
     assert ok_cell["learn_seconds"] == integ["learn_seconds"]
+    # Minor 6: ALL warmup + timed `train_step` calls ran with `stage_timing=False` (2 * 3 = 6),
+    # and each succeeded cell ran 1 separate `collect_rollout(..., stage_timing=True)` pass (= 2)!
+    assert train_step_stage_timings == [False] * 6
+    assert len(synced_rollout_calls) == 2
+
+    # M2-r2: Verify `run_canary_suite` without override invokes `evaluate_policy` at DEFAULT config
+    seen_canary_eval_cfgs: list[V3PPOConfig] = []
+
+    def _fake_default_eval(_net: Any, eval_cfg: V3PPOConfig, **_kw: Any) -> dict[str, Any]:
+        seen_canary_eval_cfgs.append(eval_cfg)
+        return {
+            "aborted": False,
+            "wall_seconds": 1.234,
+            "eval_envs": eval_cfg.eval_envs,
+            "matchup_envs": {"vs_food_seeking": 96, "vs_random_safe": 96},
+            "eval_burnin_ticks": eval_cfg.eval_burnin_ticks,
+            "eval_ticks": eval_cfg.eval_ticks,
+            "eval_learner_slots": eval_cfg.resolved_eval_learner_slots,
+            "matchups": {
+                "vs_food_seeking": {"completed_lives": 320},
+                "vs_random_safe": {"completed_lives": 350},
+            },
+        }
+
+    monkeypatch.setattr(ruler_mod, "evaluate_policy", _fake_default_eval)
+    canary_def = run_canary_suite(
+        output_dir=tmp_path / "canary_def_eval_check",
+        device="cpu",
+        canary_envs=2,
+        canary_arena_radius=60.0,
+        canary_num_snakes=6,
+        canary_rollout_len=4,
+    )
+    assert len(seen_canary_eval_cfgs) == 1
+    def_cfg = seen_canary_eval_cfgs[0]
+    ref_default = V3PPOConfig()
+    assert def_cfg.eval_envs == ref_default.eval_envs == 192
+    assert def_cfg.eval_burnin_ticks == ref_default.eval_burnin_ticks == 250
+    assert def_cfg.eval_ticks == ref_default.eval_ticks == 2000
+    assert def_cfg.game_config.arena_radius == 600.0
+    assert def_cfg.num_snakes == 24
+    assert canary_def["default_eval_benchmark"]["wall_seconds"] == 1.234
+    assert canary_def["default_eval_benchmark"]["vs_random_safe_completed_lives"] == 350
 
     oom_cell = by_id["E4_L2_S"]
     assert oom_cell["oom"] is True
