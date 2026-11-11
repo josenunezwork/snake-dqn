@@ -131,7 +131,14 @@ def benchmark_single_grid(
     stage_steps: int,
     learner_slots: int = 8,
 ) -> dict[str, Any]:
-    """Benchmark a single (E, N) configuration for all-learner, K-of-N learners, and sim-only."""
+    """Benchmark a single (E, N) configuration for all-learner, K-of-N learners, and sim-only.
+
+    Note:
+        Short cells (~80–200 ticks) measure early-game memory (snakes near ``start_length``
+        with sparse body/corpse occupancy; persistent ring buffers and dense grids are
+        preallocated at ``max_length``, while active-segment and food-conflict temporaries
+        reflect early-game density).
+    """
     label = f"grid_E{num_envs}_N{cfg.num_snakes}_{device.type}"
     t_case_start = time.perf_counter()
     print(f"START {label} {_iso_now()}", flush=True)

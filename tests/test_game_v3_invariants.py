@@ -1683,12 +1683,13 @@ class _CpuStorageWaterMarkTracker(TorchDispatchMode):
 
 def _reference_out_of_place_rebase_1x(grid: torch.Tensor, shift_val: int) -> torch.Tensor:
     """Reference pre-optimization bit-shift formula for 1x packed occupancy grids."""
-    st = grid >> 6
+    g64 = grid.to(torch.int64)
+    st = g64 >> 6
     return torch.where(
-        (grid >= 0) & (st > shift_val),
-        ((st - shift_val) << 6) | (grid & 63),
-        -1,
-    )
+        (g64 >= 0) & (st > int(shift_val)),
+        ((st - int(shift_val)) << 6) | (g64 & 63),
+        torch.full_like(g64, -1),
+    ).to(torch.int32)
 
 
 def test_rebase_subticks_inplace_bitwise_identity_and_int32_boundaries() -> None:
@@ -1747,38 +1748,63 @@ def test_rebase_subticks_inplace_bitwise_identity_and_int32_boundaries() -> None
     assert torch.equal(sim.occ_subtick_4x, exp_4x)
     assert torch.equal(sim.occ_subtick_16x, exp_16x)
 
-    # Part 2: Signed int32 boundary values including shift = MAX_OCC_SUBTICK - 1 and MAX_OCC_SUBTICK
-    # (where naive ``(shift + 1) << 6`` would overflow signed int32).
+    # Part 2: Signed int32 boundary values including shift = MAX_OCC_SUBTICK (2^25 - 1) and the
+    # shift_val >= (1 << 25) fill_(-1) branch (where naive ``(shift + 1) << 6`` overflows int32).
     cfg_edge = GameV3Config(arena_radius=48.0, num_snakes=8)
-    for test_shift in (1, 137, MAX_OCC_SUBTICK - 1):
+    for test_shift in (
+        1,
+        137,
+        MAX_OCC_SUBTICK - 1,
+        MAX_OCC_SUBTICK,  # 2^25 - 1: upper limit of shift_val < (1 << 25) branch
+        1 << 25,  # 2^25: exact start of shift_val >= (1 << 25) fill_(-1) branch
+        (1 << 25) + 77,
+    ):
         sim_e = GameV3Sim(cfg_edge, num_envs=2, device="cpu", seeds=[1, 2])
         _clear_world(sim_e)
         sim_e.alive[0, 0] = True
-        sim_e.oldest_active_subtick[0, 0] = MAX_OCC_SUBTICK
-        sim_e.tick = MAX_OCC_SUBTICK
+        min_act = max(MAX_OCC_SUBTICK, test_shift + 5)
+        sim_e.oldest_active_subtick[0, 0] = min_act
+        sim_e.tick = min_act
 
-        edge_1x = torch.tensor(
-            [
-                -(1 << 31),
-                -65,
-                -1,
-                0,
-                63,
-                (test_shift << 6) - 1,
-                test_shift << 6,
-                (test_shift << 6) | 63,
-                (test_shift + 1) << 6,
-                ((test_shift + 1) << 6) | 63,
-                (MAX_OCC_SUBTICK << 6) | 0,
-                (MAX_OCC_SUBTICK << 6) | 63,  # INT32_MAX = 2,147,483,647
-            ],
-            dtype=torch.int32,
-        )
+        edge_vals_1x = [
+            -(1 << 31),
+            -65,
+            -1,
+            0,
+            63,
+            (MAX_OCC_SUBTICK << 6) | 0,
+            (MAX_OCC_SUBTICK << 6) | 63,  # INT32_MAX = 2,147,483,647
+        ]
+        if test_shift <= MAX_OCC_SUBTICK:
+            edge_vals_1x.extend(
+                [
+                    (test_shift << 6) - 1,
+                    test_shift << 6,
+                    (test_shift << 6) | 63,
+                ]
+            )
+        if test_shift < MAX_OCC_SUBTICK:
+            edge_vals_1x.extend(
+                [
+                    (test_shift + 1) << 6,
+                    ((test_shift + 1) << 6) | 63,
+                ]
+            )
+        edge_1x = torch.tensor(edge_vals_1x, dtype=torch.int32)
         sim_e.occ_hi.view(-1)[: edge_1x.numel()] = edge_1x
         sim_e.occ_lo.view(-1)[: edge_1x.numel()] = edge_1x.flip(0)
 
         edge_pyr = torch.tensor(
-            [-(1 << 31), -1, 0, test_shift - 1, test_shift, test_shift + 1, MAX_OCC_SUBTICK],
+            [
+                -(1 << 31),
+                -1,
+                0,
+                test_shift - 1,
+                test_shift,
+                test_shift + 1,
+                test_shift + 5,
+                MAX_OCC_SUBTICK,
+            ],
             dtype=torch.int32,
         )
         sim_e._occ_4x_blocks[0].view(-1)[: edge_pyr.numel()] = edge_pyr
@@ -1791,6 +1817,9 @@ def test_rebase_subticks_inplace_bitwise_identity_and_int32_boundaries() -> None
 
         got_shift = sim_e.rebase_subticks(test_shift)
         assert got_shift == test_shift
+        if test_shift >= (1 << 25):
+            assert bool((sim_e.occ_hi == -1).all())
+            assert bool((sim_e.occ_lo == -1).all())
         assert torch.equal(sim_e.occ_hi, _reference_out_of_place_rebase_1x(hi_snap, test_shift))
         assert torch.equal(sim_e.occ_lo, _reference_out_of_place_rebase_1x(lo_snap, test_shift))
         assert torch.equal(
@@ -1801,6 +1830,30 @@ def test_rebase_subticks_inplace_bitwise_identity_and_int32_boundaries() -> None
             sim_e.occ_subtick_16x,
             torch.where(p16_snap > test_shift, p16_snap - test_shift, -1),
         )
+
+    # Part 3: Contrived state with out-of-range new_sentinel fails BEFORE mutating any state.
+    sim_bad = GameV3Sim(cfg_edge, num_envs=2, device="cpu", seeds=[11, 12])
+    _clear_world(sim_bad)
+    sim_bad.alive[0, 0] = True
+    sim_bad.oldest_active_subtick[0, 0] = 10
+    sim_bad.ring_subtick[0, 0, 0] = 10
+    sim_bad.tick = 1 << 30  # frontier_st - 1 > INT32_MAX
+    snap_ring = sim_bad.ring_subtick.clone()
+    snap_oldest = sim_bad.oldest_active_subtick.clone()
+    snap_hi = sim_bad.occ_hi.clone()
+    snap_lo = sim_bad.occ_lo.clone()
+    snap_4x = sim_bad.occ_subtick_4x.clone()
+    snap_16x = sim_bad.occ_subtick_16x.clone()
+    snap_off = sim_bad._subtick_offset
+    with pytest.raises(ValueError, match="new_sentinel"):
+        sim_bad.rebase_subticks(1)
+    assert torch.equal(sim_bad.ring_subtick, snap_ring)
+    assert torch.equal(sim_bad.oldest_active_subtick, snap_oldest)
+    assert torch.equal(sim_bad.occ_hi, snap_hi)
+    assert torch.equal(sim_bad.occ_lo, snap_lo)
+    assert torch.equal(sim_bad.occ_subtick_4x, snap_4x)
+    assert torch.equal(sim_bad.occ_subtick_16x, snap_16x)
+    assert sim_bad._subtick_offset == snap_off
 
 
 def test_rebase_subticks_and_reset_worlds_peak_temp_memory_fraction(
@@ -2035,13 +2088,16 @@ def test_cuda_check_dual_parity_incremental_json_and_oom_isolation(
         warmup_steps=1,
         bench_steps=2,
         stage_steps=1,
+        rebase_reset_envs=8,
+        rebase_reset_snakes=8,
         json_output=out_json,
     )
     assert torch.are_deterministic_algorithms_enabled() == prev_det
     assert bench_det_flags == [False, False, False, False]
 
-    # Expect writes after: (1) parity_normal, (2) parity_det, (3..6) 4 bench cells, (7) final.
-    assert len(snapshots) == 7
+    # Expect writes after: (1) parity_normal, (2) parity_det, (3..6) 4 bench cells,
+    # (7) rebase_reset_benchmark, (8) final.
+    assert len(snapshots) == 8
     assert snapshots[0]["parity"]["passed"] is True
     assert snapshots[0]["parity"]["deterministic_algorithms"] is False
     assert snapshots[0]["parity_deterministic"] is None
@@ -2053,10 +2109,13 @@ def test_cuda_check_dual_parity_incremental_json_and_oom_isolation(
     assert snapshots[3]["benchmarks"][0]["cases"][0]["status"] == "ok"
     assert snapshots[3]["benchmarks"][0]["cases"][1]["status"] == "oom"
     assert snapshots[3]["benchmarks"][0]["cases"][1]["oom"] is True
+    # Snapshot 6 records forced rebase_subticks + reset_worlds memory stage:
+    assert snapshots[6]["rebase_reset_benchmark"]["status"] == "ok"
+    assert snapshots[6]["rebase_reset_benchmark"]["rebase_subticks"]["shift_applied"] > 0
 
     # Final JSON keeps earlier & later benchmark cells intact and reports completed_with_oom.
     assert result["status"] == "completed_with_oom"
-    assert result["completed_cells"] == 3
+    assert result["completed_cells"] == 4
     assert result["oom_cells"] == 1
     assert result["benchmarks"][0]["cases"][0]["status"] == "ok"
     assert result["benchmarks"][0]["cases"][1]["status"] == "oom"

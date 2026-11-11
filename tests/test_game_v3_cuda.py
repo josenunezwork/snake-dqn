@@ -61,6 +61,8 @@ def test_cuda_check_entrypoint_writes_single_json(tmp_path: Path) -> None:
             "5",
             "--stage-steps",
             "3",
+            "--rebase-reset-envs",
+            "16",
             "--json-out",
             str(out_json),
         ]
@@ -70,6 +72,7 @@ def test_cuda_check_entrypoint_writes_single_json(tmp_path: Path) -> None:
     payload = json.loads(out_json.read_text(encoding="utf-8"))
     assert payload["schema"] == "game-v3-cuda-check/v1"
     assert payload["plan"]["within_l4_budget"] is True
+    assert "early-game memory" in payload["memory_measurement_note"]
     assert payload["parity"]["passed"] is True
     assert payload["parity"]["deterministic_algorithms"] is False
     assert payload["parity"]["rebases"] >= 1
@@ -81,3 +84,9 @@ def test_cuda_check_entrypoint_writes_single_json(tmp_path: Path) -> None:
     assert len(payload["benchmarks"]) == 1
     assert payload["benchmarks"][0]["deterministic_algorithms"] is False
     assert payload["benchmarks"][0]["cases"][0]["status"] == "ok"
+    assert payload["rebase_reset_benchmark"]["status"] == "ok"
+    assert payload["rebase_reset_benchmark"]["rebase_subticks"]["shift_applied"] > 0
+    assert (
+        "max_memory_allocated_after_bytes" in payload["rebase_reset_benchmark"]["rebase_subticks"]
+    )
+    assert "max_memory_allocated_after_bytes" in payload["rebase_reset_benchmark"]["reset_worlds"]
