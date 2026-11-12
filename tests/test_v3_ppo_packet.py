@@ -115,6 +115,7 @@ def _build_synthetic_canary_receipt(
             canary_num_snakes=6,
             canary_rollout_len=4,
             canary_eval_cfg_override=fast_eval_override,
+            canary_eval_env=canary_mf.get("env"),
         )
         assert canary_res["default_eval_benchmark"]["aborted"] is False
         assert canary_res["default_eval_benchmark"]["wall_seconds"] > 0.0
@@ -1433,8 +1434,13 @@ out_json = Path(sys.argv[3]).resolve()
 git_repo = Path(sys.argv[4]).resolve()
 sys.path.insert(0, str(repo_root))
 
+import research.colab_cli.canary as _canary_mod
 import research.v3_ppo.prepare as prep_mod
 prep_mod.ROOT = git_repo
+_orig_exec_id = _canary_mod.executable_identity
+_canary_mod.executable_identity = lambda repo, commit=None: _orig_exec_id(
+    repo, commit or "c85c6837"
+)
 
 if shared_pkt_root.exists():
     shutil.rmtree(shared_pkt_root)
@@ -1539,8 +1545,13 @@ out_json = Path(sys.argv[3]).resolve()
 git_repo = Path(sys.argv[4]).resolve()
 sys.path.insert(0, str(repo_root))
 
+import research.colab_cli.canary as _canary_mod
 import research.v3_ppo.prepare as prep_mod
 prep_mod.ROOT = git_repo
+_orig_exec_id = _canary_mod.executable_identity
+_canary_mod.executable_identity = lambda repo, commit=None: _orig_exec_id(
+    repo, commit or "c85c6837"
+)
 
 if shared_pkt_root.exists():
     shutil.rmtree(shared_pkt_root)
@@ -2256,10 +2267,14 @@ def _walk_transitive_project_imports(entry_relpaths: list[str]) -> set[str]:
 
 
 def test_runtime_source_paths_covers_all_entrypoint_imports(tmp_path: Path) -> None:
-    """Every transitive project import of `ppo` and `ruler` is shipped in `runtime_source_paths`."""
+    """Every transitive project import of `ppo`, `ruler`, and `arena_eval` is shipped."""
     shipped = set(runtime_source_paths("HEAD"))
     imported = _walk_transitive_project_imports(
-        ["research/v3_ppo/ppo.py", "research/v3_ppo/ruler.py"]
+        [
+            "research/v3_ppo/ppo.py",
+            "research/v3_ppo/ruler.py",
+            "research/v3_ppo/arena_eval.py",
+        ]
     )
     missing = sorted(imported - shipped)
     assert not missing, f"Entrypoint imports missing from runtime_source_paths: {missing}"
@@ -2284,12 +2299,15 @@ def test_runtime_source_paths_covers_all_entrypoint_imports(tmp_path: Path) -> N
         "]\n"
         "import research.v3_ppo.ppo as ppo_m\n"
         "import research.v3_ppo.ruler as ruler_m\n"
+        "import research.v3_ppo.arena_eval as eval_m\n"
         "from research.game_v3.config import GameV3Config\n"
         "from research.v3_ppo.config import V3PPOConfig\n"
         "assert pathlib.Path(ppo_m.__file__).resolve().is_relative_to(iso_root)\n"
         "assert pathlib.Path(ruler_m.__file__).resolve().is_relative_to(iso_root)\n"
+        "assert pathlib.Path(eval_m.__file__).resolve().is_relative_to(iso_root)\n"
         "ppo_m.build_arg_parser()\n"
         "ruler_m.build_arg_parser()\n"
+        "eval_m.build_arg_parser()\n"
         "cfg = V3PPOConfig(\n"
         "    game_config=GameV3Config(arena_radius=60.0, num_snakes=6),\n"
         "    num_envs=2, learner_slots=4, rollout_len=2, ppo_epochs=1, minibatch_size=4,\n"
@@ -2813,8 +2831,13 @@ out_json = Path(sys.argv[3]).resolve()
 git_repo = Path(sys.argv[4]).resolve()
 sys.path.insert(0, str(repo_root))
 
+import research.colab_cli.canary as _canary_mod
 import research.v3_ppo.prepare as prep_mod
 prep_mod.ROOT = git_repo
+_orig_exec_id = _canary_mod.executable_identity
+_canary_mod.executable_identity = lambda repo, commit=None: _orig_exec_id(
+    repo, commit or "d11d603d"
+)
 
 if shared_pkt_root.exists():
     shutil.rmtree(shared_pkt_root)

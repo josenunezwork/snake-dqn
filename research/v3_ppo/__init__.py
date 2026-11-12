@@ -1,6 +1,8 @@
-"""PPO self-play trainer, throughput ruler, and Colab packet builder for Game V3.1."""
+"""PPO self-play trainer, standalone arena evaluator, throughput ruler, and Colab packet builder for Game V3.1."""
 
 from __future__ import annotations
+
+from typing import Any
 
 from research.v3_ppo.buffer import Uint8RolloutBuffer, compute_gae
 from research.v3_ppo.checkpoint_io import (
@@ -124,6 +126,7 @@ __all__ = [
     "FullExportMode",
     "GPU_MAX_TOTAL_EXPORT_BYTES",
     "GPU_VRAM_BUDGET_BYTES",
+    "LoadedEvalPolicy",
     "MAX_DROPPED_MINIBATCH_ROW_FRACTION",
     "MAX_TRAIN_HEADROOM_SESSION_FRACTION",
     "NET_PRESETS",
@@ -150,31 +153,42 @@ __all__ = [
     "V3_PPO_SCHEMA",
     "VALID_FULL_EXPORT_MODES",
     "VALID_NET_SIZES",
+    "act_policy_chunked",
     "artifact_or_sidecar_exists",
     "assert_resume_config_compatible",
     "build_ego_multiscale_net",
+    "build_pair_reuse_key",
     "build_recipe_change_record",
+    "build_rotated_seat_assignment",
     "check_eval_wall_budget",
     "check_minibatch_divisibility",
     "check_periodic_export_budget",
+    "classify_step_deaths",
     "compute_gae",
     "compute_step_reward",
     "decide_checkpoint_actions",
     "decide_eval_action",
     "estimate_checkpoint_export_caps",
+    "estimate_eval_memory",
     "estimate_rollout_buffer_bytes",
     "estimate_sim_memory_bytes",
     "estimate_train_wall_headroom",
     "estimate_train_wall_headroom_by_mode",
     "estimate_training_memory",
+    "evaluate_head_to_head",
+    "evaluate_long_game",
     "evaluate_policy",
+    "evaluate_round_robin",
     "evaluate_scripted_baseline",
     "exported_payload_bytes",
     "extract_recipe_dict",
+    "fit_bradley_terry_elo",
+    "format_eval_markdown",
     "format_minibatch_remainder_warning",
     "format_recipe_overrides",
     "get_net_preset",
     "immutable_config_diff",
+    "load_eval_policy",
     "merge_and_append_recipe_history",
     "obs_layout_from_game_config",
     "pack_sim_state_dict",
@@ -189,10 +203,12 @@ __all__ = [
     "resolve_resume_checkpoint",
     "run_training_job",
     "scripted_opponent_actions",
+    "select_pairs_per_batch",
     "symlog_two_hot_loss",
     "unpack_sim_state_dict",
     "validate_checkpoint_export_caps",
     "validate_memory_budget",
+    "validate_pair_unit_reuse",
     "validate_train_wall_headroom",
     "verify_full_checkpoint_set",
     "verify_light_checkpoint",
@@ -200,4 +216,34 @@ __all__ = [
     "write_create_only_artifact",
     "write_create_only_json",
     "write_latest_checkpoint_manifest",
+    "write_weights_only_eval_bundle",
 ]
+
+_ARENA_EVAL_EXPORTS = frozenset(
+    {
+        "LoadedEvalPolicy",
+        "act_policy_chunked",
+        "build_pair_reuse_key",
+        "build_rotated_seat_assignment",
+        "classify_step_deaths",
+        "estimate_eval_memory",
+        "evaluate_head_to_head",
+        "evaluate_long_game",
+        "evaluate_round_robin",
+        "fit_bradley_terry_elo",
+        "format_eval_markdown",
+        "load_eval_policy",
+        "select_pairs_per_batch",
+        "validate_pair_unit_reuse",
+        "write_weights_only_eval_bundle",
+    }
+)
+
+
+def __getattr__(name: str) -> Any:
+    """Lazily expose ``arena_eval`` symbols so ``python -m research.v3_ppo.arena_eval`` stays clean."""
+    if name in _ARENA_EVAL_EXPORTS:
+        import research.v3_ppo.arena_eval as _ae
+
+        return getattr(_ae, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
