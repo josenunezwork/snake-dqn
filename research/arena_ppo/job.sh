@@ -117,11 +117,26 @@ elif [ "$MODE" = "eval" ]; then
     --learner-seats "${ARENA_PPO_EVAL_LEARNER_SEATS:-1}"
     --worlds "${ARENA_PPO_EVAL_WORLDS:-256}"
     --ticks "${ARENA_PPO_EVAL_TICKS:-4500}"
-    --burnin "${ARENA_PPO_EVAL_BURNIN:-250}"
+    --start-mode "${ARENA_PPO_EVAL_START_MODE:-mature}"
     --seed "${ARENA_PPO_EVAL_SEED:-20261111}"
     --sidecars
     --out "$COLAB_CLI_ROOT/output/eval_result.json"
   )
+  if [ -n "${ARENA_PPO_EVAL_BURNIN:-}" ]; then
+    EVAL_ARGS+=(--burnin "$ARENA_PPO_EVAL_BURNIN")
+  fi
+  if [ "${ARENA_PPO_EVAL_INIT_CKPT_STATE:-0}" = "1" ]; then
+    EVAL_ARGS+=(
+      --init-from-checkpoint-state
+      --checkpoint-world-offset "${ARENA_PPO_EVAL_CKPT_WORLD_OFFSET:-0}"
+    )
+  fi
+  if [ -n "${ARENA_PPO_EVAL_WORLD_AGE_BINS:-}" ]; then
+    EVAL_ARGS+=(--world-age-bins "$ARENA_PPO_EVAL_WORLD_AGE_BINS")
+  fi
+  if [ -n "${ARENA_PPO_EVAL_LIFE_AGE_BINS:-}" ]; then
+    EVAL_ARGS+=(--life-age-bins "$ARENA_PPO_EVAL_LIFE_AGE_BINS")
+  fi
   if [ -n "${ARENA_PPO_EVAL_CHECKPOINT_REL:-}" ]; then
     EVAL_ARGS+=(--checkpoint "$COLAB_INPUT_DIR/$ARENA_PPO_EVAL_CHECKPOINT_REL")
   fi

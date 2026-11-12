@@ -10,15 +10,20 @@ import subprocess
 import sys
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 from research.arena_ppo.evaluate import (
-    DEFAULT_EVAL_BURNIN,
     DEFAULT_EVAL_SEED,
     DEFAULT_EVAL_TICKS,
     DEFAULT_EVAL_WORLDS,
+    DEFAULT_LIFE_AGE_BIN_EDGES,
+    DEFAULT_WORLD_AGE_BIN_EDGES,
+    START_MODES,
     load_arena_ppo_policy,
+    load_checkpoint_sim_state_slice,
+    parse_age_bin_edges,
     resolve_b8_checkpoint_path,
+    resolve_eval_start_config,
 )
 from research.arena_ppo.net import VALID_NET_ARCHS, NetArch, NetSize
 from research.arena_ppo.ppo import (
@@ -466,7 +471,12 @@ def prepare_arena_ppo_packet(
     eval_learner_seats: int = 1,
     eval_worlds: int = DEFAULT_EVAL_WORLDS,
     eval_ticks: int = DEFAULT_EVAL_TICKS,
-    eval_burnin: int = DEFAULT_EVAL_BURNIN,
+    eval_burnin: int | None = None,
+    eval_start_mode: str = "mature",
+    eval_init_from_checkpoint_state: bool = False,
+    eval_checkpoint_world_offset: int = 0,
+    eval_world_age_bins: str | Sequence[int] | None = None,
+    eval_life_age_bins: str | Sequence[int] | None = None,
     eval_seed: int = DEFAULT_EVAL_SEED,
     eval_greedy: bool = False,
     eval_base_minutes: float | None = None,
@@ -751,14 +761,36 @@ def prepare_arena_ppo_packet(
             raise ValueError(f"eval_worlds must be >= 1, got {eval_worlds}")
         if int(eval_ticks) < 1:
             raise ValueError(f"eval_ticks must be >= 1, got {eval_ticks}")
-        if int(eval_burnin) < 0:
-            raise ValueError(f"eval_burnin must be >= 0, got {eval_burnin}")
-        if (int(eval_learner_seats) > 0 or staged_opp_kind == "untrained") and (
-            staged_learner_relpath is None
-        ):
+        resolved_eval_start_mode, resolved_eval_burnin = resolve_eval_start_config(
+            start_mode=eval_start_mode,
+            burnin=eval_burnin,
+            init_from_checkpoint_state=bool(eval_init_from_checkpoint_state),
+        )
+        resolved_eval_world_bins = parse_age_bin_edges(
+            eval_world_age_bins,
+            default=DEFAULT_WORLD_AGE_BIN_EDGES,
+            name="eval_world_age_bins",
+        )
+        resolved_eval_life_bins = parse_age_bin_edges(
+            eval_life_age_bins,
+            default=DEFAULT_LIFE_AGE_BIN_EDGES,
+            name="eval_life_age_bins",
+        )
+        if (
+            int(eval_learner_seats) > 0
+            or staged_opp_kind == "untrained"
+            or eval_init_from_checkpoint_state
+        ) and (staged_learner_relpath is None):
             raise ValueError(
-                "mode='eval' with learner_seats > 0 or opponent='untrained' requires "
-                "--eval-checkpoint or --prior-output-dir"
+                "mode='eval' with learner_seats > 0, opponent='untrained', or "
+                "eval_init_from_checkpoint_state requires --eval-checkpoint or --prior-output-dir"
+            )
+        if eval_init_from_checkpoint_state:
+            assert staged_learner_relpath is not None
+            load_checkpoint_sim_state_slice(
+                pkt_inputs_dir / staged_learner_relpath,
+                worlds=int(eval_worlds),
+                offset=int(eval_checkpoint_world_offset),
             )
         if eval_base_minutes is not None:
             if not math.isfinite(eval_base_minutes) or float(eval_base_minutes) < 3.0:
@@ -791,7 +823,17 @@ def prepare_arena_ppo_packet(
         extra_env["ARENA_PPO_EVAL_LEARNER_SEATS"] = str(int(eval_learner_seats))
         extra_env["ARENA_PPO_EVAL_WORLDS"] = str(int(eval_worlds))
         extra_env["ARENA_PPO_EVAL_TICKS"] = str(int(eval_ticks))
-        extra_env["ARENA_PPO_EVAL_BURNIN"] = str(int(eval_burnin))
+        extra_env["ARENA_PPO_EVAL_START_MODE"] = resolved_eval_start_mode
+        extra_env["ARENA_PPO_EVAL_BURNIN"] = str(int(resolved_eval_burnin))
+        if eval_init_from_checkpoint_state:
+            extra_env["ARENA_PPO_EVAL_INIT_CKPT_STATE"] = "1"
+            extra_env["ARENA_PPO_EVAL_CKPT_WORLD_OFFSET"] = str(int(eval_checkpoint_world_offset))
+        extra_env["ARENA_PPO_EVAL_WORLD_AGE_BINS"] = ",".join(
+            str(x) for x in resolved_eval_world_bins
+        )
+        extra_env["ARENA_PPO_EVAL_LIFE_AGE_BINS"] = ",".join(
+            str(x) for x in resolved_eval_life_bins
+        )
         extra_env["ARENA_PPO_EVAL_SEED"] = str(int(eval_seed))
         if eval_greedy:
             extra_env["ARENA_PPO_EVAL_GREEDY"] = "1"
@@ -1118,7 +1160,12 @@ def main() -> int:
     parser.add_argument("--eval-learner-seats", type=int, default=1)
     parser.add_argument("--eval-worlds", type=int, default=DEFAULT_EVAL_WORLDS)
     parser.add_argument("--eval-ticks", type=int, default=DEFAULT_EVAL_TICKS)
-    parser.add_argument("--eval-burnin", type=int, default=DEFAULT_EVAL_BURNIN)
+    parser.add_argument("--eval-start-mode", choices=START_MODES, default="mature")
+    parser.add_argument("--eval-burnin", type=int, default=None)
+    parser.add_argument("--eval-init-from-checkpoint-state", action="store_true")
+    parser.add_argument("--eval-checkpoint-world-offset", type=int, default=0)
+    parser.add_argument("--eval-world-age-bins", type=str, default=None)
+    parser.add_argument("--eval-life-age-bins", type=str, default=None)
     parser.add_argument("--eval-seed", type=int, default=DEFAULT_EVAL_SEED)
     parser.add_argument("--eval-greedy", action="store_true")
     parser.add_argument("--eval-base-minutes", type=float, default=None)
@@ -1181,6 +1228,11 @@ def main() -> int:
         eval_worlds=args.eval_worlds,
         eval_ticks=args.eval_ticks,
         eval_burnin=args.eval_burnin,
+        eval_start_mode=args.eval_start_mode,
+        eval_init_from_checkpoint_state=bool(args.eval_init_from_checkpoint_state),
+        eval_checkpoint_world_offset=args.eval_checkpoint_world_offset,
+        eval_world_age_bins=args.eval_world_age_bins,
+        eval_life_age_bins=args.eval_life_age_bins,
         eval_seed=args.eval_seed,
         eval_greedy=bool(args.eval_greedy),
         eval_base_minutes=args.eval_base_minutes,

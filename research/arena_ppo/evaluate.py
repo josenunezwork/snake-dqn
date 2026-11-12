@@ -86,14 +86,30 @@ ARENA_PPO_EVAL_WEIGHTS_SCHEMA: str = "arena-ppo-eval-weights/v1"
 DEFAULT_MAX_CAPACITY: int = 1600
 DEFAULT_RING_CHUNK: int = 512
 
-# Sized so even a pure `random_safe` board (~0.33 deaths / 1k seat-ticks on 83x145 with 6 snakes)
-# yields ~380 >= 300 completed learner lives at K = 1 (`256 * 4500 = 1.152M` learner seat-ticks).
+# Mature-horizon default sizing: `256 * 4500 = 1,152,000` learner seat-ticks at `K = 1` yields
+# `>= 300` completed lives whenever mature mortality is `>= 0.2604` deaths / 1k steps (e.g.,
+# mature `ego_only S` vs `random_safe` at `K = 1` is ~0.28 deaths/1k -> ~323 lives; mature
+# `ego_only S` self-play is ~0.42 deaths/1k -> ~484 lives/seat; mature `shared_trunk S` is
+# ~1.3-2.5 deaths/1k -> ~1,500-2,880 lives/seat). Smaller CPU samples or ultra-low-mortality
+# policies report exact completed lives alongside 95% world-cluster bootstrap CIs.
+# Default burn-in (`3,000` ticks) sits past self-play stationarity (`shared_trunk S` flattens by
+# ~500-750 ticks; `ego_only S` ramps through ~1,300-2,300 ticks and flattens by ~2,500 ticks).
 DEFAULT_EVAL_WORLDS: int = 256
 DEFAULT_EVAL_TICKS: int = 4500
-DEFAULT_EVAL_BURNIN: int = 250
+DEFAULT_EVAL_BURNIN: int = 3000
 DEFAULT_EVAL_SEED: int = 20261111
 DEFAULT_B8_ENV_CHUNK: int = 32
 DEFAULT_V8_LAMBDA: float = 8.0
+
+START_MODES: tuple[str, ...] = ("mature", "fresh")
+DEFAULT_WORLD_AGE_BIN_EDGES: tuple[int, ...] = (0, 100, 250, 500, 1000, 2000, 3000, 4500)
+DEFAULT_LIFE_AGE_BIN_EDGES: tuple[int, ...] = (0, 50, 150, 500, 1000, 2000)
+STUCK_AGE_THRESHOLD_TICKS: int = 500
+STUCK_SPAWN_DELTA: int = 2
+STUCK_SUB_BOOST_LOOP_CAP: int = 6
+TARGET_COMPLETED_LIVES: int = 300
+BOOTSTRAP_RESAMPLES: int = 2000
+BOOTSTRAP_SEED_SALT: int = 20261112
 
 B8_S3_SHA256: str = "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
 REPO_ROOT: Path = Path(__file__).resolve().parents[2]
@@ -104,6 +120,122 @@ B8_DEFAULT_ARTIFACT_PATH: Path = (
 
 SCRIPTED_OPPONENT_NAMES: tuple[str, ...] = ("random_safe", "greedy_food")
 SEAT_ASSIGNMENT_MODES: tuple[str, ...] = ("rotate", "prefix")
+
+
+def parse_age_bin_edges(
+    raw: str | Sequence[int] | None,
+    *,
+    default: Sequence[int],
+    name: str = "age_bin_edges",
+) -> tuple[int, ...]:
+    """Parse and validate `>= 5` strictly increasing non-negative bin lower edges starting at 0."""
+    if raw is None:
+        edges = tuple(int(x) for x in default)
+    elif isinstance(raw, str):
+        parts = [tok.strip() for tok in raw.split(",") if tok.strip()]
+        if not parts:
+            raise ValueError(f"{name} cannot be empty")
+        edges = tuple(int(tok) for tok in parts)
+    else:
+        edges = tuple(int(x) for x in raw)
+
+    if len(edges) < 5:
+        raise ValueError(f"{name} must specify at least 5 bins, got {len(edges)}: {edges}")
+    if edges[0] != 0:
+        raise ValueError(f"{name} must start at 0, got {edges[0]} in {edges}")
+    for idx in range(1, len(edges)):
+        if edges[idx] <= edges[idx - 1]:
+            raise ValueError(f"{name} must be strictly increasing, got {edges}")
+    return edges
+
+
+def resolve_eval_start_config(
+    *,
+    start_mode: str = "mature",
+    burnin: int | None = None,
+    init_from_checkpoint_state: bool = False,
+) -> tuple[str, int]:
+    """Validate and resolve `(start_mode, effective_burnin)`."""
+    mode_norm = str(start_mode or "mature").strip().lower()
+    if mode_norm not in START_MODES:
+        raise ValueError(f"start_mode must be one of {START_MODES}, got {start_mode!r}")
+
+    if mode_norm == "fresh":
+        if init_from_checkpoint_state:
+            raise ValueError(
+                "start_mode='fresh' cannot be combined with --init-from-checkpoint-state"
+            )
+        if burnin is not None and int(burnin) != 0:
+            raise ValueError(f"start_mode='fresh' requires burnin=0, got burnin={burnin}")
+        return "fresh", 0
+
+    if burnin is None:
+        eff_burnin = 0 if init_from_checkpoint_state else DEFAULT_EVAL_BURNIN
+    else:
+        eff_burnin = int(burnin)
+    if eff_burnin < 0:
+        raise ValueError(f"burnin must be >= 0, got {eff_burnin}")
+    return "mature", eff_burnin
+
+
+def load_checkpoint_sim_state_slice(
+    checkpoint_path: str | Path,
+    *,
+    worlds: int,
+    offset: int = 0,
+) -> dict[str, Any]:
+    """Load and slice `sim_state_dict` `[offset : offset + worlds]` from a stage1 checkpoint."""
+    ckpt_file = Path(checkpoint_path).resolve()
+    if not ckpt_file.is_file():
+        raise FileNotFoundError(f"Arena PPO checkpoint not found: {ckpt_file}")
+    blob = torch.load(ckpt_file, map_location="cpu", weights_only=False)
+    if not isinstance(blob, dict) or str(blob.get("schema") or "") != ARENA_PPO_SCHEMA:
+        raise ValueError(
+            f"--init-from-checkpoint-state requires a {ARENA_PPO_SCHEMA!r} training checkpoint "
+            f"containing sim_state_dict, got {ckpt_file}"
+        )
+    sim_state = blob.get("sim_state_dict")
+    if not isinstance(sim_state, dict) or "sim_tensors" not in sim_state:
+        raise ValueError(f"Checkpoint {ckpt_file} does not contain a valid sim_state_dict")
+
+    ckpt_e = int(sim_state["E"])
+    w = int(worlds)
+    off = int(offset)
+    if w < 1:
+        raise ValueError(f"worlds must be >= 1, got {worlds}")
+    if off < 0:
+        raise ValueError(f"checkpoint_world_offset must be >= 0, got {offset}")
+    if off + w > ckpt_e:
+        raise ValueError(
+            f"Requested worlds slice [{off}:{off + w}] exceeds checkpoint E={ckpt_e} at {ckpt_file}"
+        )
+
+    sl = slice(off, off + w)
+    sliced_tensors: dict[str, torch.Tensor] = {}
+    for name, tensor in sim_state["sim_tensors"].items():
+        if not isinstance(tensor, torch.Tensor):
+            raise ValueError(f"sim_tensors[{name!r}] is not a Tensor")
+        if tensor.ndim < 1 or int(tensor.shape[0]) != ckpt_e:
+            raise ValueError(
+                f"sim_tensors[{name!r}] shape {tuple(tensor.shape)} does not start with E={ckpt_e}"
+            )
+        sliced_tensors[name] = tensor[sl].clone()
+
+    out: dict[str, Any] = {
+        "E": w,
+        "S": int(sim_state["S"]),
+        "cap": int(sim_state["cap"]),
+        "grid_h": int(sim_state.get("grid_h", DEFAULT_GRID_H)),
+        "grid_w": int(sim_state.get("grid_w", DEFAULT_GRID_W)),
+        "prepared": bool(sim_state["prepared"]),
+        "sim_tensors": sliced_tensors,
+        "prev_heads": sim_state["prev_heads"][sl].clone(),
+        "prev_alive": sim_state["prev_alive"][sl].clone(),
+        "world_opponent_kind": sim_state["world_opponent_kind"][sl].clone(),
+    }
+    if "bodies_live_i16" in sim_state:
+        out["bodies_live_i16"] = sim_state["bodies_live_i16"][sl].clone()
+    return out
 
 
 @dataclass
@@ -837,14 +969,170 @@ def attribute_step_deaths_and_kills(
     )
 
 
+def _format_age_bins(
+    edges: Sequence[int],
+    acted_arr: np.ndarray,
+    sum_len_arr: np.ndarray,
+    deaths_arr: np.ndarray,
+    food_arr: np.ndarray,
+    *,
+    incumbent_unknown: tuple[int, int, int, int] | None = None,
+) -> list[dict[str, Any]]:
+    """Format binned length, death-rate, food-rate, and raw counts into JSON records."""
+    rows: list[dict[str, Any]] = []
+    n_edges = len(edges)
+    for idx in range(n_edges):
+        lo = int(edges[idx])
+        hi = int(edges[idx + 1]) if idx + 1 < n_edges else None
+        label = f"[{lo}, {hi})" if hi is not None else f"[{lo}, inf)"
+        b_acted = int(acted_arr[idx])
+        b_len = int(sum_len_arr[idx])
+        b_deaths = int(deaths_arr[idx])
+        b_food = int(food_arr[idx])
+        if b_acted > 0:
+            denom_1k = float(b_acted) / 1000.0
+            avg_len: float | None = round(float(b_len) / float(b_acted), 4)
+            deaths_1k: float | None = round(float(b_deaths) / denom_1k, 4)
+            food_1k: float | None = round(float(b_food) / denom_1k, 4)
+        else:
+            avg_len = None
+            deaths_1k = None
+            food_1k = None
+        rows.append(
+            {
+                "bin": label,
+                "min_ticks": lo,
+                "max_ticks_exclusive": hi,
+                "time_averaged_length": avg_len,
+                "deaths_per_1k_agent_steps": deaths_1k,
+                "food_per_1k_steps": food_1k,
+                "raw_counts": {
+                    "acted_agent_steps": b_acted,
+                    "sum_alive_length": b_len,
+                    "deaths": b_deaths,
+                    "food_eaten": b_food,
+                },
+            }
+        )
+    if incumbent_unknown is not None:
+        u_acted, u_len, u_deaths, u_food = incumbent_unknown
+        if u_acted > 0:
+            denom_1k = float(u_acted) / 1000.0
+            u_avg_len: float | None = round(float(u_len) / float(u_acted), 4)
+            u_deaths_1k: float | None = round(float(u_deaths) / denom_1k, 4)
+            u_food_1k: float | None = round(float(u_food) / denom_1k, 4)
+        else:
+            u_avg_len = None
+            u_deaths_1k = None
+            u_food_1k = None
+        rows.append(
+            {
+                "bin": "incumbent_unknown",
+                "min_ticks": None,
+                "max_ticks_exclusive": None,
+                "time_averaged_length": u_avg_len,
+                "deaths_per_1k_agent_steps": u_deaths_1k,
+                "food_per_1k_steps": u_food_1k,
+                "raw_counts": {
+                    "acted_agent_steps": int(u_acted),
+                    "sum_alive_length": int(u_len),
+                    "deaths": int(u_deaths),
+                    "food_eaten": int(u_food),
+                },
+            }
+        )
+    return rows
+
+
+def _compute_world_bootstrap_cis(
+    *,
+    w_acted: np.ndarray,
+    w_known_acted: np.ndarray,
+    w_sum_len: np.ndarray,
+    w_deaths: np.ndarray,
+    w_food: np.ndarray,
+    w_stuck: np.ndarray,
+    w_stuck_le6: np.ndarray,
+    seed: int,
+    resamples: int = BOOTSTRAP_RESAMPLES,
+) -> dict[str, Any]:
+    """Compute 95% cluster-percentile bootstrap intervals over the `W` independent worlds."""
+    n_worlds = int(w_acted.shape[0])
+    total_acted = int(w_acted.sum())
+    if n_worlds < 2 or total_acted <= 0:
+        return {
+            "method": "world_cluster_percentile_bootstrap",
+            "worlds": n_worlds,
+            "resamples": int(resamples) if n_worlds >= 2 else 0,
+            "time_averaged_length": None,
+            "deaths_per_1k_agent_steps": None,
+            "food_per_1k_steps": None,
+            "stuck_agent_steps_share": None,
+            "sub_boost_loop_len_le_6_agent_steps_share": None,
+        }
+
+    rng = np.random.default_rng((int(seed) ^ BOOTSTRAP_SEED_SALT) & 0xFFFF_FFFF_FFFF_FFFF)
+    idx = rng.integers(0, n_worlds, size=(int(resamples), n_worlds))
+
+    acted_b = w_acted[idx].sum(axis=1).astype(np.float64)
+    valid = acted_b > 0.0
+    if not bool(np.all(valid)):
+        acted_b = np.where(valid, acted_b, np.nan)
+
+    len_b = w_sum_len[idx].sum(axis=1).astype(np.float64) / acted_b
+    deaths_1k_b = 1000.0 * w_deaths[idx].sum(axis=1).astype(np.float64) / acted_b
+    food_1k_b = 1000.0 * w_food[idx].sum(axis=1).astype(np.float64) / acted_b
+
+    def _ci_pair(arr: np.ndarray) -> list[float] | None:
+        finite = arr[np.isfinite(arr)]
+        if finite.size == 0:
+            return None
+        lo, hi = np.percentile(finite, [2.5, 97.5])
+        return [round(float(lo), 4), round(float(hi), 4)]
+
+    known_b = w_known_acted[idx].sum(axis=1).astype(np.float64)
+    if int(w_known_acted.sum()) > 0:
+        known_denom = np.where(known_b > 0.0, known_b, np.nan)
+        stuck_ci = _ci_pair(w_stuck[idx].sum(axis=1).astype(np.float64) / known_denom)
+        stuck_le6_ci = _ci_pair(w_stuck_le6[idx].sum(axis=1).astype(np.float64) / known_denom)
+    else:
+        stuck_ci = None
+        stuck_le6_ci = None
+
+    return {
+        "method": "world_cluster_percentile_bootstrap",
+        "worlds": n_worlds,
+        "resamples": int(resamples),
+        "time_averaged_length": _ci_pair(len_b),
+        "deaths_per_1k_agent_steps": _ci_pair(deaths_1k_b),
+        "food_per_1k_steps": _ci_pair(food_1k_b),
+        "stuck_agent_steps_share": stuck_ci,
+        "sub_boost_loop_len_le_6_agent_steps_share": stuck_le6_ci,
+    }
+
+
 class _SideMetricsAccumulator:
     """Device-accumulated post-burn-in evaluation metrics for one side (`learner` or `opponent`)."""
 
-    def __init__(self, seats_per_world: int, worlds: int, device: torch.device) -> None:
+    def __init__(
+        self,
+        seats_per_world: int,
+        worlds: int,
+        device: torch.device,
+        *,
+        world_age_bin_edges: Sequence[int] = DEFAULT_WORLD_AGE_BIN_EDGES,
+        life_age_bin_edges: Sequence[int] = DEFAULT_LIFE_AGE_BIN_EDGES,
+        include_incumbent_unknown_bin: bool = False,
+        bootstrap_seed: int = DEFAULT_EVAL_SEED,
+    ) -> None:
         self.seats_per_world = int(seats_per_world)
         self.worlds = int(worlds)
         self.device = device
         self.ticks_recorded = 0
+        self.world_age_bin_edges = tuple(int(x) for x in world_age_bin_edges)
+        self.life_age_bin_edges = tuple(int(x) for x in life_age_bin_edges)
+        self.include_incumbent_unknown_bin = bool(include_incumbent_unknown_bin)
+        self.bootstrap_seed = int(bootstrap_seed)
 
         self.acted_steps = torch.zeros((), dtype=torch.int64, device=device)
         self.boost_steps = torch.zeros((), dtype=torch.int64, device=device)
@@ -869,6 +1157,43 @@ class _SideMetricsAccumulator:
         self.kills_vs_other = torch.zeros((), dtype=torch.int64, device=device)
         self.kills_same_side = torch.zeros((), dtype=torch.int64, device=device)
 
+        # Stuck-state accumulators across evaluation agent-steps:
+        self.known_age_acted_steps = torch.zeros((), dtype=torch.int64, device=device)
+        self.older_500_acted_steps = torch.zeros((), dtype=torch.int64, device=device)
+        self.stuck_steps = torch.zeros((), dtype=torch.int64, device=device)
+        self.stuck_cur_le6_steps = torch.zeros((), dtype=torch.int64, device=device)
+        self.stuck_max_le6_steps = torch.zeros((), dtype=torch.int64, device=device)
+
+        # Per-world totals `(W,)` for independent world-cluster bootstrap CIs:
+        self.world_acted_steps = torch.zeros((self.worlds,), dtype=torch.int64, device=device)
+        self.world_known_acted_steps = torch.zeros((self.worlds,), dtype=torch.int64, device=device)
+        self.world_sum_alive_length = torch.zeros((self.worlds,), dtype=torch.int64, device=device)
+        self.world_deaths = torch.zeros((self.worlds,), dtype=torch.int64, device=device)
+        self.world_food_eaten = torch.zeros((self.worlds,), dtype=torch.int64, device=device)
+        self.world_stuck_steps = torch.zeros((self.worlds,), dtype=torch.int64, device=device)
+        self.world_stuck_cur_le6_steps = torch.zeros(
+            (self.worlds,), dtype=torch.int64, device=device
+        )
+
+        # World-age and life-age bin accumulators (last slot of life_age is incumbent_unknown):
+        n_wbins = len(self.world_age_bin_edges)
+        n_lbins = len(self.life_age_bin_edges) + 1
+        self._world_cutoffs = torch.tensor(
+            self.world_age_bin_edges[1:], dtype=torch.int64, device=device
+        )
+        self._life_cutoffs = torch.tensor(
+            self.life_age_bin_edges[1:], dtype=torch.int64, device=device
+        )
+        self.wbin_acted = torch.zeros((n_wbins,), dtype=torch.int64, device=device)
+        self.wbin_sum_len = torch.zeros((n_wbins,), dtype=torch.int64, device=device)
+        self.wbin_deaths = torch.zeros((n_wbins,), dtype=torch.int64, device=device)
+        self.wbin_food = torch.zeros((n_wbins,), dtype=torch.int64, device=device)
+
+        self.lbin_acted = torch.zeros((n_lbins,), dtype=torch.int64, device=device)
+        self.lbin_sum_len = torch.zeros((n_lbins,), dtype=torch.int64, device=device)
+        self.lbin_deaths = torch.zeros((n_lbins,), dtype=torch.int64, device=device)
+        self.lbin_food = torch.zeros((n_lbins,), dtype=torch.int64, device=device)
+
         self._death_lengths: list[torch.Tensor] = []
 
     @torch.no_grad()
@@ -887,7 +1212,10 @@ class _SideMetricsAccumulator:
         side_mask: torch.Tensor,
         other_mask: torch.Tensor,
         pre_length: torch.Tensor,
-        post_length: torch.Tensor,
+        pre_life_age: torch.Tensor,
+        pre_life_age_known: torch.Tensor,
+        pre_life_spawn_length: torch.Tensor,
+        pre_life_max_length: torch.Tensor,
         boosted: torch.Tensor,
         born_in_window: torch.Tensor,
         info: StepInfo,
@@ -899,21 +1227,84 @@ class _SideMetricsAccumulator:
 
         acted_side = side_mask & info.acted
         died_side = side_mask & info.died
-
-        self.acted_steps += acted_side.to(torch.int64).sum()
-        self.boost_steps += (acted_side & boosted).to(torch.int64).sum()
-        self.sum_alive_length += torch.where(
+        ate_side = acted_side & sim._last_food_ate
+        len_side_i64 = torch.where(
             acted_side, pre_length.to(torch.int64), torch.zeros_like(pre_length, dtype=torch.int64)
-        ).sum()
+        )
 
-        self.completed_lives += died_side.to(torch.int64).sum()
+        acted_i64 = acted_side.to(torch.int64)
+        died_i64 = died_side.to(torch.int64)
+        ate_i64 = ate_side.to(torch.int64)
+
+        self.acted_steps += acted_i64.sum()
+        self.boost_steps += (acted_side & boosted).to(torch.int64).sum()
+        self.sum_alive_length += len_side_i64.sum()
+
+        self.completed_lives += died_i64.sum()
         self.completed_born_in_window += (died_side & born_in_window).to(torch.int64).sum()
-        self.food_eaten += (acted_side & sim._last_food_ate).to(torch.int64).sum()
+        self.food_eaten += ate_i64.sum()
         self.ambient_food_eaten += (acted_side & sim._last_ambient_food_ate).to(torch.int64).sum()
         self.corpse_food_eaten += (acted_side & sim._last_corpse_food_ate).to(torch.int64).sum()
 
+        # Length at death MUST be the logical length BEFORE the death step (`pre_length`), before
+        # boost-length burn (`-1`) or fatal-step pellet consumption (`+1`) mutates `sim.length`.
         if bool(died_side.any()):
-            self._death_lengths.append(post_length[died_side].detach().cpu())
+            self._death_lengths.append(pre_length[died_side].detach().cpu())
+
+        # Stuck metrics on pre-step state (`life_age > 500`):
+        known_acted = acted_side & pre_life_age_known
+        older_500 = known_acted & (pre_life_age > STUCK_AGE_THRESHOLD_TICKS)
+        stuck_spawn = older_500 & (
+            pre_life_max_length <= (pre_life_spawn_length + STUCK_SPAWN_DELTA)
+        )
+        stuck_cur_le6 = older_500 & (pre_length <= STUCK_SUB_BOOST_LOOP_CAP)
+        stuck_max_le6 = older_500 & (pre_life_max_length <= STUCK_SUB_BOOST_LOOP_CAP)
+
+        known_acted_i64 = known_acted.to(torch.int64)
+        stuck_spawn_i64 = stuck_spawn.to(torch.int64)
+        stuck_cur_le6_i64 = stuck_cur_le6.to(torch.int64)
+
+        self.known_age_acted_steps += known_acted_i64.sum()
+        self.older_500_acted_steps += older_500.to(torch.int64).sum()
+        self.stuck_steps += stuck_spawn_i64.sum()
+        self.stuck_cur_le6_steps += stuck_cur_le6_i64.sum()
+        self.stuck_max_le6_steps += stuck_max_le6.to(torch.int64).sum()
+
+        # Per-world totals `(W,)` for cluster bootstrap:
+        self.world_acted_steps += acted_i64.sum(dim=1)
+        self.world_known_acted_steps += known_acted_i64.sum(dim=1)
+        self.world_sum_alive_length += len_side_i64.sum(dim=1)
+        self.world_deaths += died_i64.sum(dim=1)
+        self.world_food_eaten += ate_i64.sum(dim=1)
+        self.world_stuck_steps += stuck_spawn_i64.sum(dim=1)
+        self.world_stuck_cur_le6_steps += stuck_cur_le6_i64.sum(dim=1)
+
+        # World-age & life-age binned counts:
+        world_age = (sim.frame.to(torch.int64) - 1).clamp_min(0)
+        w_bin = torch.bucketize(world_age, self._world_cutoffs, right=True)
+        w_bin_flat = w_bin[:, None].expand(sim.E, sim.S).reshape(-1)
+
+        acted_flat = acted_i64.reshape(-1)
+        len_flat = len_side_i64.reshape(-1)
+        died_flat = died_i64.reshape(-1)
+        ate_flat = ate_i64.reshape(-1)
+
+        self.wbin_acted.scatter_add_(0, w_bin_flat, acted_flat)
+        self.wbin_sum_len.scatter_add_(0, w_bin_flat, len_flat)
+        self.wbin_deaths.scatter_add_(0, w_bin_flat, died_flat)
+        self.wbin_food.scatter_add_(0, w_bin_flat, ate_flat)
+
+        unknown_bin_idx = len(self.life_age_bin_edges)
+        l_bin_known = torch.bucketize(pre_life_age.to(torch.int64), self._life_cutoffs, right=True)
+        l_bin_flat = torch.where(
+            pre_life_age_known,
+            l_bin_known,
+            torch.full_like(l_bin_known, unknown_bin_idx),
+        ).reshape(-1)
+        self.lbin_acted.scatter_add_(0, l_bin_flat, acted_flat)
+        self.lbin_sum_len.scatter_add_(0, l_bin_flat, len_flat)
+        self.lbin_deaths.scatter_add_(0, l_bin_flat, died_flat)
+        self.lbin_food.scatter_add_(0, l_bin_flat, ate_flat)
 
         self.wall_deaths += (died_side & attrib.wall_deaths).to(torch.int64).sum()
         self.self_deaths += (died_side & attrib.self_deaths).to(torch.int64).sum()
@@ -958,8 +1349,16 @@ class _SideMetricsAccumulator:
         side_mask: torch.Tensor,
         final_alive: torch.Tensor,
         final_length: torch.Tensor,
+        final_life_age: torch.Tensor,
+        final_life_age_known: torch.Tensor,
+        final_life_spawn_length: torch.Tensor,
+        final_life_max_length: torch.Tensor,
     ) -> dict[str, Any]:
         seat_ticks = int(self.worlds * self.seats_per_world * self.ticks_recorded)
+        zeros_w = np.zeros((len(self.world_age_bin_edges),), dtype=np.int64)
+        zeros_l = np.zeros((len(self.life_age_bin_edges),), dtype=np.int64)
+        empty_inc = (0, 0, 0, 0) if self.include_incumbent_unknown_bin else None
+
         if self.seats_per_world == 0:
             return {
                 "seats_per_world": 0,
@@ -980,6 +1379,63 @@ class _SideMetricsAccumulator:
                 "kills_same_side_per_1k_agent_steps": None,
                 "self_or_wall_deaths_per_1k_agent_steps": None,
                 "food_per_1k_steps": None,
+                "sample_adequacy": {
+                    "target_completed_lives": TARGET_COMPLETED_LIVES,
+                    "meets_300_completed_lives": False,
+                    "completed_lives": 0,
+                    "worlds": self.worlds,
+                },
+                "confidence_intervals_95": {
+                    "method": "world_cluster_percentile_bootstrap",
+                    "worlds": self.worlds,
+                    "resamples": 0,
+                    "time_averaged_length": None,
+                    "deaths_per_1k_agent_steps": None,
+                    "food_per_1k_steps": None,
+                    "stuck_agent_steps_share": None,
+                    "sub_boost_loop_len_le_6_agent_steps_share": None,
+                },
+                "stuck": {
+                    "age_threshold_ticks": STUCK_AGE_THRESHOLD_TICKS,
+                    "spawn_length_delta": STUCK_SPAWN_DELTA,
+                    "live_seats_share": None,
+                    "live_older_than_500_seats_share": None,
+                    "agent_steps_share": None,
+                    "raw_counts": {
+                        "final_live_seats": 0,
+                        "final_live_known_age_seats": 0,
+                        "final_live_older_than_500_seats": 0,
+                        "final_stuck_seats": 0,
+                        "acted_agent_steps": 0,
+                        "known_age_acted_agent_steps": 0,
+                        "older_than_500_agent_steps": 0,
+                        "stuck_agent_steps": 0,
+                    },
+                    "sub_boost_loop_len_le_6": {
+                        "length_cap": STUCK_SUB_BOOST_LOOP_CAP,
+                        "live_seats_share": None,
+                        "live_older_than_500_seats_share": None,
+                        "agent_steps_share": None,
+                        "max_life_len_le_6_agent_steps_share": None,
+                        "raw_counts": {
+                            "final_stuck_cur_len_le_6_seats": 0,
+                            "final_stuck_max_len_le_6_seats": 0,
+                            "stuck_cur_len_le_6_agent_steps": 0,
+                            "stuck_max_len_le_6_agent_steps": 0,
+                        },
+                    },
+                },
+                "world_age_bins": _format_age_bins(
+                    self.world_age_bin_edges, zeros_w, zeros_w, zeros_w, zeros_w
+                ),
+                "life_age_bins": _format_age_bins(
+                    self.life_age_bin_edges,
+                    zeros_l,
+                    zeros_l,
+                    zeros_l,
+                    zeros_l,
+                    incumbent_unknown=empty_inc,
+                ),
                 "raw_counts": {
                     "seat_ticks": 0,
                     "acted_agent_steps": 0,
@@ -1059,6 +1515,147 @@ class _SideMetricsAccumulator:
                 f"mutual({mut_total}) != completed({completed})"
             )
 
+        # Stuck metrics at window end + across window agent-steps:
+        final_known_mask = censored_mask & final_life_age_known
+        final_older_500_mask = final_known_mask & (final_life_age > STUCK_AGE_THRESHOLD_TICKS)
+        final_stuck_mask = final_older_500_mask & (
+            final_life_max_length <= (final_life_spawn_length + STUCK_SPAWN_DELTA)
+        )
+        final_stuck_cur_le6_mask = final_older_500_mask & (final_length <= STUCK_SUB_BOOST_LOOP_CAP)
+        final_stuck_max_le6_mask = final_older_500_mask & (
+            final_life_max_length <= STUCK_SUB_BOOST_LOOP_CAP
+        )
+
+        final_known_n = int(final_known_mask.to(torch.int64).sum().detach().cpu().item())
+        final_older_500_n = int(final_older_500_mask.to(torch.int64).sum().detach().cpu().item())
+        final_stuck_n = int(final_stuck_mask.to(torch.int64).sum().detach().cpu().item())
+        final_stuck_cur_le6_n = int(
+            final_stuck_cur_le6_mask.to(torch.int64).sum().detach().cpu().item()
+        )
+        final_stuck_max_le6_n = int(
+            final_stuck_max_le6_mask.to(torch.int64).sum().detach().cpu().item()
+        )
+
+        known_acted_n = int(self.known_age_acted_steps.detach().cpu().item())
+        older_500_steps_n = int(self.older_500_acted_steps.detach().cpu().item())
+        stuck_steps_n = int(self.stuck_steps.detach().cpu().item())
+        stuck_cur_le6_steps_n = int(self.stuck_cur_le6_steps.detach().cpu().item())
+        stuck_max_le6_steps_n = int(self.stuck_max_le6_steps.detach().cpu().item())
+
+        stuck_summary: dict[str, Any] = {
+            "age_threshold_ticks": STUCK_AGE_THRESHOLD_TICKS,
+            "spawn_length_delta": STUCK_SPAWN_DELTA,
+            "live_seats_share": (
+                round(float(final_stuck_n) / float(final_known_n), 4) if final_known_n > 0 else None
+            ),
+            "live_older_than_500_seats_share": (
+                round(float(final_stuck_n) / float(final_older_500_n), 4)
+                if final_older_500_n > 0
+                else None
+            ),
+            "agent_steps_share": (
+                round(float(stuck_steps_n) / float(known_acted_n), 4) if known_acted_n > 0 else None
+            ),
+            "raw_counts": {
+                "final_live_seats": censored_lives,
+                "final_live_known_age_seats": final_known_n,
+                "final_live_older_than_500_seats": final_older_500_n,
+                "final_stuck_seats": final_stuck_n,
+                "acted_agent_steps": acted,
+                "known_age_acted_agent_steps": known_acted_n,
+                "older_than_500_agent_steps": older_500_steps_n,
+                "stuck_agent_steps": stuck_steps_n,
+            },
+            "sub_boost_loop_len_le_6": {
+                "length_cap": STUCK_SUB_BOOST_LOOP_CAP,
+                "live_seats_share": (
+                    round(float(final_stuck_cur_le6_n) / float(final_known_n), 4)
+                    if final_known_n > 0
+                    else None
+                ),
+                "live_older_than_500_seats_share": (
+                    round(float(final_stuck_cur_le6_n) / float(final_older_500_n), 4)
+                    if final_older_500_n > 0
+                    else None
+                ),
+                "agent_steps_share": (
+                    round(float(stuck_cur_le6_steps_n) / float(known_acted_n), 4)
+                    if known_acted_n > 0
+                    else None
+                ),
+                "max_life_len_le_6_agent_steps_share": (
+                    round(float(stuck_max_le6_steps_n) / float(known_acted_n), 4)
+                    if known_acted_n > 0
+                    else None
+                ),
+                "raw_counts": {
+                    "final_stuck_cur_len_le_6_seats": final_stuck_cur_le6_n,
+                    "final_stuck_max_len_le_6_seats": final_stuck_max_le6_n,
+                    "stuck_cur_len_le_6_agent_steps": stuck_cur_le6_steps_n,
+                    "stuck_max_len_le_6_agent_steps": stuck_max_le6_steps_n,
+                },
+            },
+        }
+
+        # World-age and life-age bin summaries + exact conservation checks:
+        wbin_acted_np = self.wbin_acted.detach().cpu().numpy()
+        wbin_len_np = self.wbin_sum_len.detach().cpu().numpy()
+        wbin_deaths_np = self.wbin_deaths.detach().cpu().numpy()
+        wbin_food_np = self.wbin_food.detach().cpu().numpy()
+        if (
+            int(wbin_acted_np.sum()) != acted
+            or int(wbin_len_np.sum()) != sum_len
+            or int(wbin_deaths_np.sum()) != completed
+            or int(wbin_food_np.sum()) != food_total
+        ):
+            raise RuntimeError("world_age_bins raw counts did not sum to window totals")
+        world_age_bins = _format_age_bins(
+            self.world_age_bin_edges, wbin_acted_np, wbin_len_np, wbin_deaths_np, wbin_food_np
+        )
+
+        lbin_acted_np = self.lbin_acted.detach().cpu().numpy()
+        lbin_len_np = self.lbin_sum_len.detach().cpu().numpy()
+        lbin_deaths_np = self.lbin_deaths.detach().cpu().numpy()
+        lbin_food_np = self.lbin_food.detach().cpu().numpy()
+        if (
+            int(lbin_acted_np.sum()) != acted
+            or int(lbin_len_np.sum()) != sum_len
+            or int(lbin_deaths_np.sum()) != completed
+            or int(lbin_food_np.sum()) != food_total
+        ):
+            raise RuntimeError("life_age_bins raw counts did not sum to window totals")
+        n_known_lbins = len(self.life_age_bin_edges)
+        unk_acted = int(lbin_acted_np[n_known_lbins])
+        inc_tuple = (
+            (
+                unk_acted,
+                int(lbin_len_np[n_known_lbins]),
+                int(lbin_deaths_np[n_known_lbins]),
+                int(lbin_food_np[n_known_lbins]),
+            )
+            if (self.include_incumbent_unknown_bin or unk_acted > 0)
+            else None
+        )
+        life_age_bins = _format_age_bins(
+            self.life_age_bin_edges,
+            lbin_acted_np[:n_known_lbins],
+            lbin_len_np[:n_known_lbins],
+            lbin_deaths_np[:n_known_lbins],
+            lbin_food_np[:n_known_lbins],
+            incumbent_unknown=inc_tuple,
+        )
+
+        cis_95 = _compute_world_bootstrap_cis(
+            w_acted=self.world_acted_steps.detach().cpu().numpy(),
+            w_known_acted=self.world_known_acted_steps.detach().cpu().numpy(),
+            w_sum_len=self.world_sum_alive_length.detach().cpu().numpy(),
+            w_deaths=self.world_deaths.detach().cpu().numpy(),
+            w_food=self.world_food_eaten.detach().cpu().numpy(),
+            w_stuck=self.world_stuck_steps.detach().cpu().numpy(),
+            w_stuck_le6=self.world_stuck_cur_le6_steps.detach().cpu().numpy(),
+            seed=self.bootstrap_seed,
+        )
+
         if self._death_lengths:
             death_arr = torch.cat(self._death_lengths, dim=0).numpy().astype(np.float64)
             mean_death_len: float | None = round(float(np.mean(death_arr)), 4)
@@ -1108,6 +1705,16 @@ class _SideMetricsAccumulator:
             "kills_same_side_per_1k_agent_steps": kills_same_1k,
             "self_or_wall_deaths_per_1k_agent_steps": self_wall_1k,
             "food_per_1k_steps": food_1k,
+            "sample_adequacy": {
+                "target_completed_lives": TARGET_COMPLETED_LIVES,
+                "meets_300_completed_lives": bool(completed >= TARGET_COMPLETED_LIVES),
+                "completed_lives": completed,
+                "worlds": self.worlds,
+            },
+            "confidence_intervals_95": cis_95,
+            "stuck": stuck_summary,
+            "world_age_bins": world_age_bins,
+            "life_age_bins": life_age_bins,
             "raw_counts": {
                 "seat_ticks": seat_ticks,
                 "acted_agent_steps": acted,
@@ -1195,7 +1802,12 @@ def evaluate_policy(
     learner_seats: int,
     worlds: int = DEFAULT_EVAL_WORLDS,
     ticks: int = DEFAULT_EVAL_TICKS,
-    burnin: int = DEFAULT_EVAL_BURNIN,
+    burnin: int | None = None,
+    start_mode: str = "mature",
+    init_from_checkpoint_state: bool = False,
+    checkpoint_world_offset: int = 0,
+    world_age_bin_edges: str | Sequence[int] | None = None,
+    life_age_bin_edges: str | Sequence[int] | None = None,
     seed: int = DEFAULT_EVAL_SEED,
     device: str | torch.device = "cpu",
     out: str | Path | None = None,
@@ -1212,15 +1824,23 @@ def evaluate_policy(
     """Evaluate a trained Arena PPO policy against a fixed opponent on `TrainSim`.
 
     Args:
-        checkpoint: Path to learner Arena PPO checkpoint (required when `learner_seats > 0`
-            or when `opponent == 'untrained'`).
+        checkpoint: Path to learner Arena PPO checkpoint (required when `learner_seats > 0`,
+            `opponent == 'untrained'`, or `init_from_checkpoint_state` is True).
         opponent: Opponent spec (`random_safe`, `greedy_food`, `b8`, `b8-s3`, `b8:PATH`,
             `untrained`, or `ckpt:PATH`).
         learner_seats: Number of learner seats `K` per world (`0 <= K <= S`). `K = S` runs
             pure self-play; `K = 0` runs opponent-only baseline.
         worlds: Parallel world count `W` (`>= 1`).
         ticks: Measured post-burn-in ticks `T` (`>= 1`).
-        burnin: Uncounted burn-in ticks `B` (`>= 0`) executed with the same seated policies.
+        burnin: Optional explicit burn-in ticks `B` (`>= 0`). When `None`, defaults to
+            `DEFAULT_EVAL_BURNIN` (`3000`) for `start_mode='mature'` without checkpoint-state
+            init, and `0` for `start_mode='fresh'` or `init_from_checkpoint_state=True`.
+        start_mode: `"mature"` (default) or `"fresh"` (`burnin=0`, early-game horizon).
+        init_from_checkpoint_state: Restore `worlds` from the learner checkpoint's saved
+            `sim_state_dict` (`[checkpoint_world_offset : checkpoint_world_offset + worlds]`).
+        checkpoint_world_offset: Starting world index into `sim_state_dict` (`>= 0`).
+        world_age_bin_edges: At least 5 ascending non-negative tick edges starting at `0`.
+        life_age_bin_edges: At least 5 ascending non-negative tick edges starting at `0`.
         seed: Deterministic seed governing world RNG and policy sampling.
         device: Execution device (`cpu`, `cuda`, or `mps`).
         out: Optional output JSON file path.
@@ -1241,8 +1861,24 @@ def evaluate_policy(
         raise ValueError(f"worlds must be >= 1, got {worlds}")
     if int(ticks) < 1:
         raise ValueError(f"ticks must be >= 1, got {ticks}")
-    if int(burnin) < 0:
-        raise ValueError(f"burnin must be >= 0, got {burnin}")
+
+    resolved_start_mode, eff_burnin = resolve_eval_start_config(
+        start_mode=start_mode,
+        burnin=burnin,
+        init_from_checkpoint_state=bool(init_from_checkpoint_state),
+    )
+    resolved_world_bins = parse_age_bin_edges(
+        world_age_bin_edges,
+        default=DEFAULT_WORLD_AGE_BIN_EDGES,
+        name="world_age_bin_edges",
+    )
+    resolved_life_bins = parse_age_bin_edges(
+        life_age_bin_edges,
+        default=DEFAULT_LIFE_AGE_BIN_EDGES,
+        name="life_age_bin_edges",
+    )
+    if init_from_checkpoint_state and checkpoint is None:
+        raise ValueError("--init-from-checkpoint-state requires --checkpoint")
 
     wall_t0 = time.perf_counter()
     mono_t0 = time.monotonic()
@@ -1264,6 +1900,15 @@ def evaluate_policy(
         raise ValueError("--checkpoint is required when --learner-seats > 0")
     elif opp_kind == "untrained":
         raise ValueError("--checkpoint is required to match architecture for --opponent untrained")
+
+    sliced_ckpt_sim_state: dict[str, Any] | None = None
+    if init_from_checkpoint_state:
+        assert checkpoint is not None
+        sliced_ckpt_sim_state = load_checkpoint_sim_state_slice(
+            checkpoint,
+            worlds=int(worlds),
+            offset=int(checkpoint_world_offset),
+        )
 
     grid_h = learner_policy.grid_h if learner_policy is not None else DEFAULT_GRID_H
     grid_w = learner_policy.grid_w if learner_policy is not None else DEFAULT_GRID_W
@@ -1362,6 +2007,22 @@ def evaluate_policy(
         num_snakes=num_snakes,
         max_capacity=max_capacity,
     )
+    if sliced_ckpt_sim_state is not None:
+        train_sim.load_state_dict(sliced_ckpt_sim_state)
+        life_age = torch.zeros((int(worlds), num_snakes), dtype=torch.long, device=resolved_dev)
+        life_age_known = ~train_sim.sim.alive.clone()
+        life_spawn_length = train_sim.sim.length.clone()
+        life_max_length = train_sim.sim.length.clone()
+        prev_post_alive = train_sim.sim.alive.clone()
+    else:
+        life_age = torch.zeros((int(worlds), num_snakes), dtype=torch.long, device=resolved_dev)
+        life_age_known = torch.ones(
+            (int(worlds), num_snakes), dtype=torch.bool, device=resolved_dev
+        )
+        life_spawn_length = train_sim.sim.length.clone()
+        life_max_length = train_sim.sim.length.clone()
+        prev_post_alive = train_sim.sim.alive.clone()
+
     learner_mask = build_learner_seat_mask(
         int(worlds),
         num_snakes,
@@ -1453,16 +2114,17 @@ def evaluate_policy(
             return opp_actions
         return torch.where(learner_mask, learner_actions, opp_actions)
 
-    # 1. Burn-in phase (`0 .. B-1`), excluded from all metrics
+    # 1. Burn-in phase (`0 .. B-1`), excluded from evaluation metrics while tracking life ages
     synchronize_device(resolved_dev)
     burnin_t0 = time.perf_counter()
     print(
-        f"ARENA_PPO_EVAL_PHASE START phase=burnin ticks={int(burnin)} worlds={int(worlds)} "
-        f"ts={time.time():.3f}",
+        f"ARENA_PPO_EVAL_PHASE START phase=burnin start_mode={resolved_start_mode} "
+        f"init_ckpt_state={int(bool(init_from_checkpoint_state))} ticks={eff_burnin} "
+        f"worlds={int(worlds)} ts={time.time():.3f}",
         file=sys.stderr,
         flush=True,
     )
-    for b_tick in range(int(burnin)):
+    for b_tick in range(eff_burnin):
         if should_stop is not None and should_stop():
             raise StopRequestedError(f"Stop requested during evaluation burn-in at tick {b_tick}")
         if max_wall_seconds is not None and (time.monotonic() - mono_t0) >= float(max_wall_seconds):
@@ -1470,8 +2132,25 @@ def evaluate_policy(
                 f"Evaluation exceeded max_wall_seconds={max_wall_seconds} during burn-in"
             )
         train_sim.prepare()
+        b_alive = train_sim.sim.alive
+        b_spawned = (~prev_post_alive) & b_alive
+        if bool(b_spawned.any()):
+            life_age = torch.where(b_spawned, torch.zeros_like(life_age), life_age)
+            life_age_known = life_age_known | b_spawned
+            life_spawn_length = torch.where(b_spawned, train_sim.sim.length, life_spawn_length)
+            life_max_length = torch.where(b_spawned, train_sim.sim.length, life_max_length)
+        life_max_length = torch.where(
+            b_alive, torch.maximum(life_max_length, train_sim.sim.length), life_max_length
+        )
         actions = _select_world_actions()
-        train_sim.step(actions)
+        b_info = train_sim.step(actions)
+        life_age = torch.where(b_info.survived, life_age + 1, torch.zeros_like(life_age))
+        life_max_length = torch.where(
+            b_info.survived,
+            torch.maximum(life_max_length, train_sim.sim.length),
+            torch.zeros_like(life_max_length),
+        )
+        prev_post_alive = b_info.survived.clone()
     train_sim.assert_no_capacity_overflow()
     synchronize_device(resolved_dev)
     burnin_sec = time.perf_counter() - burnin_t0
@@ -1482,8 +2161,24 @@ def evaluate_policy(
     )
 
     # 2. Measured evaluation window (`B .. B+T-1`)
-    learner_acc = _SideMetricsAccumulator(k_seats, int(worlds), resolved_dev)
-    opponent_acc = _SideMetricsAccumulator(opp_seats, int(worlds), resolved_dev)
+    learner_acc = _SideMetricsAccumulator(
+        k_seats,
+        int(worlds),
+        resolved_dev,
+        world_age_bin_edges=resolved_world_bins,
+        life_age_bin_edges=resolved_life_bins,
+        include_incumbent_unknown_bin=bool(init_from_checkpoint_state),
+        bootstrap_seed=int_seed,
+    )
+    opponent_acc = _SideMetricsAccumulator(
+        opp_seats,
+        int(worlds),
+        resolved_dev,
+        world_age_bin_edges=resolved_world_bins,
+        life_age_bin_edges=resolved_life_bins,
+        include_incumbent_unknown_bin=bool(init_from_checkpoint_state),
+        bootstrap_seed=int_seed,
+    )
     born_in_window = torch.zeros((int(worlds), num_snakes), dtype=torch.bool, device=resolved_dev)
 
     eval_t0 = time.perf_counter()
@@ -1493,7 +2188,8 @@ def evaluate_policy(
         file=sys.stderr,
         flush=True,
     )
-    prev_post_alive = train_sim.sim.alive.clone()
+    initial_world_age_min = 0
+    initial_world_age_max = 0
     for m_tick in range(int(ticks)):
         if should_stop is not None and should_stop():
             raise StopRequestedError(
@@ -1506,15 +2202,27 @@ def evaluate_policy(
 
         train_sim.prepare()
         curr_alive = train_sim.sim.alive
+        newly_spawned = (~prev_post_alive) & curr_alive
+        if bool(newly_spawned.any()):
+            life_age = torch.where(newly_spawned, torch.zeros_like(life_age), life_age)
+            life_age_known = life_age_known | newly_spawned
+            life_spawn_length = torch.where(newly_spawned, train_sim.sim.length, life_spawn_length)
+            life_max_length = torch.where(newly_spawned, train_sim.sim.length, life_max_length)
+        life_max_length = torch.where(
+            curr_alive, torch.maximum(life_max_length, train_sim.sim.length), life_max_length
+        )
+
         if m_tick == 0:
+            w_age0 = (train_sim.sim.frame.to(torch.int64) - 1).clamp_min(0)
+            initial_world_age_min = int(w_age0.min().detach().cpu().item())
+            initial_world_age_max = int(w_age0.max().detach().cpu().item())
             learner_acc.record_window_open(learner_mask, curr_alive)
             opponent_acc.record_window_open(opponent_mask, curr_alive)
-            if int(burnin) == 0:
+            if eff_burnin == 0 and not init_from_checkpoint_state:
                 born_in_window.copy_(curr_alive)
             else:
-                born_in_window.zero_()
+                born_in_window.copy_(newly_spawned)
         else:
-            newly_spawned = (~prev_post_alive) & curr_alive
             born_in_window |= newly_spawned
             learner_acc.record_respawns(learner_mask, newly_spawned)
             opponent_acc.record_respawns(opponent_mask, newly_spawned)
@@ -1526,7 +2234,6 @@ def evaluate_policy(
         info = train_sim.step(actions)
         attrib = attribute_step_deaths_and_kills(train_sim.sim, pre_head0, info)
 
-        post_length = train_sim.sim.length
         boosted = train_sim.sim._boosted_this_step
 
         learner_acc.record_step(
@@ -1534,7 +2241,10 @@ def evaluate_policy(
             side_mask=learner_mask,
             other_mask=opponent_mask,
             pre_length=pre_length,
-            post_length=post_length,
+            pre_life_age=life_age,
+            pre_life_age_known=life_age_known,
+            pre_life_spawn_length=life_spawn_length,
+            pre_life_max_length=life_max_length,
             boosted=boosted,
             born_in_window=born_in_window,
             info=info,
@@ -1545,11 +2255,20 @@ def evaluate_policy(
             side_mask=opponent_mask,
             other_mask=learner_mask,
             pre_length=pre_length,
-            post_length=post_length,
+            pre_life_age=life_age,
+            pre_life_age_known=life_age_known,
+            pre_life_spawn_length=life_spawn_length,
+            pre_life_max_length=life_max_length,
             boosted=boosted,
             born_in_window=born_in_window,
             info=info,
             attrib=attrib,
+        )
+        life_age = torch.where(info.survived, life_age + 1, torch.zeros_like(life_age))
+        life_max_length = torch.where(
+            info.survived,
+            torch.maximum(life_max_length, train_sim.sim.length),
+            torch.zeros_like(life_max_length),
         )
         born_in_window &= info.survived
         prev_post_alive = info.survived.clone()
@@ -1569,11 +2288,19 @@ def evaluate_policy(
         side_mask=learner_mask,
         final_alive=train_sim.sim.alive,
         final_length=train_sim.sim.length,
+        final_life_age=life_age,
+        final_life_age_known=life_age_known,
+        final_life_spawn_length=life_spawn_length,
+        final_life_max_length=life_max_length,
     )
     opponent_summary = opponent_acc.finalize(
         side_mask=opponent_mask,
         final_alive=train_sim.sim.alive,
         final_length=train_sim.sim.length,
+        final_life_age=life_age,
+        final_life_age_known=life_age_known,
+        final_life_spawn_length=life_spawn_length,
+        final_life_max_length=life_max_length,
     )
 
     l_raw = learner_summary["raw_counts"]
@@ -1596,7 +2323,7 @@ def evaluate_policy(
 
     eval_world_steps = int(worlds) * int(ticks)
     eval_agent_steps = eval_world_steps * num_snakes
-    total_world_steps = int(worlds) * (int(burnin) + int(ticks))
+    total_world_steps = int(worlds) * (eff_burnin + int(ticks))
     total_agent_steps = total_world_steps * num_snakes
 
     result: dict[str, Any] = {
@@ -1612,9 +2339,18 @@ def evaluate_policy(
             "opponent_greedy": bool(opponent_greedy),
         },
         "config": {
+            "start_mode": resolved_start_mode,
+            "init_from_checkpoint_state": bool(init_from_checkpoint_state),
+            "checkpoint_world_offset": (
+                int(checkpoint_world_offset) if init_from_checkpoint_state else None
+            ),
+            "initial_world_age_min": initial_world_age_min,
+            "initial_world_age_max": initial_world_age_max,
             "worlds": int(worlds),
             "ticks": int(ticks),
-            "burnin": int(burnin),
+            "burnin": eff_burnin,
+            "world_age_bin_edges": list(resolved_world_bins),
+            "life_age_bin_edges": list(resolved_life_bins),
             "seed": int_seed,
             "device": str(resolved_dev),
             "grid_h": grid_h,
@@ -1707,10 +2443,48 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help=f"Post-burn-in evaluation ticks T (default: {DEFAULT_EVAL_TICKS}).",
     )
     parser.add_argument(
+        "--start-mode",
+        choices=START_MODES,
+        default="mature",
+        help="Start protocol: mature (default; burnin >= 3000 or checkpoint state) or fresh.",
+    )
+    parser.add_argument(
         "--burnin",
         type=int,
-        default=DEFAULT_EVAL_BURNIN,
-        help=f"Burn-in ticks B excluded from metrics (default: {DEFAULT_EVAL_BURNIN}).",
+        default=None,
+        help=(
+            f"Burn-in ticks B excluded from metrics (default: {DEFAULT_EVAL_BURNIN} for "
+            "--start-mode mature, 0 for --start-mode fresh or --init-from-checkpoint-state)."
+        ),
+    )
+    parser.add_argument(
+        "--init-from-checkpoint-state",
+        action="store_true",
+        help="Initialize simulator state from sim_state_dict saved in --checkpoint.",
+    )
+    parser.add_argument(
+        "--checkpoint-world-offset",
+        type=int,
+        default=0,
+        help="Starting world index into checkpoint sim_state_dict (default: 0).",
+    )
+    parser.add_argument(
+        "--world-age-bins",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated ascending world-age bin edges starting at 0 (>=5 bins; "
+            f"default: {','.join(str(x) for x in DEFAULT_WORLD_AGE_BIN_EDGES)})."
+        ),
+    )
+    parser.add_argument(
+        "--life-age-bins",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated ascending life-age bin edges starting at 0 (>=5 bins; "
+            f"default: {','.join(str(x) for x in DEFAULT_LIFE_AGE_BIN_EDGES)})."
+        ),
     )
     parser.add_argument(
         "--seed",
@@ -1795,6 +2569,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             worlds=args.worlds,
             ticks=args.ticks,
             burnin=args.burnin,
+            start_mode=args.start_mode,
+            init_from_checkpoint_state=bool(args.init_from_checkpoint_state),
+            checkpoint_world_offset=args.checkpoint_world_offset,
+            world_age_bin_edges=args.world_age_bins,
+            life_age_bin_edges=args.life_age_bins,
             seed=args.seed,
             device=args.device,
             out=args.out,
