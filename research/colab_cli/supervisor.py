@@ -808,18 +808,29 @@ class CLI:
         when its record does not exist, never merely because the kernel is idle.
         """
         record = "/content/.snake-rpc-" + uuid.uuid4().hex + ".json"
+        allow_idempotent_restart = bool(getattr(self._control_context, "source_delivery", False))
+        incomplete_branch = (
+            "        _snake_record.unlink(missing_ok=True)\n"
+            if allow_idempotent_restart
+            else (
+                "        raise RuntimeError('operation started without durable completion; '\n"
+                "                           'refusing replay')\n"
+            )
+        )
         guarded = (
             "# SNAKE_RECOVERABLE_RPC\n"
             "import json as _snake_json, os as _snake_os\n"
             "from pathlib import Path as _SnakePath\n"
             f"_snake_record=_SnakePath({record!r})\n"
+            "_snake_reused=False\n"
             "if _snake_record.exists():\n"
             "    _snake_saved=_snake_json.loads(_snake_record.read_text())\n"
             "    if _snake_saved.get('status') != 'completed':\n"
-            "        raise RuntimeError('operation started without durable completion; '\n"
-            "                           'refusing replay')\n"
-            "    result=_snake_saved['result']\n"
-            "else:\n"
+            + incomplete_branch
+            + "    else:\n"
+            "        result=_snake_saved['result']\n"
+            "        _snake_reused=True\n"
+            "if not _snake_reused:\n"
             "    with _snake_record.open('x') as _snake_handle:\n"
             "        _snake_json.dump({'status':'started'},_snake_handle)\n"
             "        _snake_handle.flush()\n"
@@ -921,18 +932,25 @@ class CLI:
         is_mutating = mutating or getattr(self._control_context, "mutating_rpc", False)
         staging_deadline = getattr(self._control_context, "deadline", math.inf)
         transfer_direction = getattr(self._control_context, "transfer_direction", "upload")
+        source_delivery = bool(getattr(self._control_context, "source_delivery", False))
         upload_staging = staging_deadline != math.inf and transfer_direction == "upload"
         extended = bool(self.poll_recovery_endpoint) and not upload_staging
-        allowance = self.exec_poll_recovery_seconds if extended else policy.TELEMETRY_SECONDS
+        allowance = (
+            self.exec_poll_recovery_seconds
+            if extended
+            else (policy.SOURCE_RECOVERY_SECONDS if source_delivery else policy.TELEMETRY_SECONDS)
+        )
         if timeout is not None:
             allowance = min(allowance, positive(timeout, "poll timeout"))
+        recovery_window = (
+            policy.SOURCE_RECOVERY_SECONDS if source_delivery else policy.STAGING_RECOVERY_SECONDS
+        )
         deadline = min(
             time.monotonic() + allowance,
             self.deadline if self.deadline is not None else math.inf,
             staging_deadline,
             (
-                time.monotonic()
-                + max(policy.STAGING_RECOVERY_SECONDS, self.staging_control_seconds())
+                time.monotonic() + max(recovery_window, self.staging_control_seconds())
                 if upload_staging
                 else math.inf
             ),
@@ -1904,10 +1922,10 @@ class Broker:
             source_delivery_seconds = 0.0
             input_transfer_seconds: dict[str, float] = {}
 
-            def stage_upload(path: Path, dest: str) -> None:
+            def stage_upload(path: Path, dest: str, *, deadline: float = upload_deadline) -> None:
                 nonlocal transfer_seconds
                 started = time.monotonic()
-                upload_file(cli, path, dest, renew=renew, deadline=upload_deadline)
+                upload_file(cli, path, dest, renew=renew, deadline=deadline)
                 # Include verified-upload hashing, retries and lease renewals,
                 # while excluding the runtime's source fetch/install work.
                 elapsed = time.monotonic() - started
@@ -1930,8 +1948,8 @@ class Broker:
             ]
             setup_seconds = 0.0
             try:
+                checks = {}
                 with cli.staging_controls(upload_deadline):
-                    checks = {}
                     setup_started = time.monotonic()
                     parents = sorted(
                         {str(Path(root + "/" + dest).parent) for _, dest, _ in local_files}
@@ -1953,47 +1971,56 @@ class Broker:
                         checks[dest] = digest
                     checks["runtime.py"] = sha256(pinned["runtime.py"])
                     checks["release.py"] = sha256(pinned["release.py"])
-                    # Download source from GitHub instead of passing every
-                    # committed evidence blob through ContentsClient.
-                    plan = json.loads((staging / "source-plan.json").read_text())
+                # Download source from GitHub instead of passing every
+                # committed evidence blob through ContentsClient. Source fetch
+                # gets its own multi-attempt recovery window (G1), while local
+                # uploads remain strictly bounded by UPLOAD_TOTAL_TIMEOUT_SECONDS.
+                plan = json.loads((staging / "source-plan.json").read_text())
+                source_deadline = time.monotonic() + policy.SOURCE_RECOVERY_SECONDS
 
-                    def deliver_source(operation: str) -> Any:
-                        nonlocal source_delivery_seconds
-                        started = time.monotonic()
-                        renew()
-                        try:
-                            with cli.staging_controls(upload_deadline, source_delivery=True):
-                                with cli.operation("source-" + operation):
-                                    result = cli.recoverable_rpc(
-                                        "# SNAKE_SOURCE_DELIVERY\n"
-                                        "import importlib.util\nfrom pathlib import Path\n"
-                                        f"root=Path({root!r})\nplan={plan!r}\n"
-                                        "s=importlib.util.spec_from_file_location("
-                                        "'snake_source',root/'source.py')\n"
-                                        "mod=importlib.util.module_from_spec(s)\n"
-                                        "s.loader.exec_module(mod)\n"
-                                        f"result=mod.{operation}(root,plan)",
-                                    )
+                def deliver_source(operation: str) -> Any:
+                    nonlocal source_delivery_seconds
+                    started = time.monotonic()
+                    try:
+                        with cli.staging_controls(source_deadline, source_delivery=True):
                             renew()
-                        finally:
-                            source_delivery_seconds += time.monotonic() - started
-                        return result
+                            with cli.operation("source-" + operation):
+                                result = cli.recoverable_rpc(
+                                    "# SNAKE_SOURCE_DELIVERY\n"
+                                    "import importlib.util\nfrom pathlib import Path\n"
+                                    f"root=Path({root!r})\nplan={plan!r}\n"
+                                    "s=importlib.util.spec_from_file_location("
+                                    "'snake_source',root/'source.py')\n"
+                                    "mod=importlib.util.module_from_spec(s)\n"
+                                    "s.loader.exec_module(mod)\n"
+                                    f"result=mod.{operation}(root,plan)",
+                                )
+                            renew()
+                    finally:
+                        source_delivery_seconds += time.monotonic() - started
+                    return result
 
-                    delivery = deliver_source("fetch")
-                    if not isinstance(delivery, dict):
-                        raise Refused("source delivery returned no identity evidence")
-                    if delivery.get("transport") == "fallback_required":
-                        path = staging / "source.tar.gz"
-                        stage_upload(path, root + "/source.tar.gz")
-                        checks["source.tar.gz"] = sha256(path)
-                        delivery = deliver_source("install_fallback")
-                    if (
-                        not isinstance(delivery, dict)
-                        or delivery.get("transport") not in {"github", "fallback"}
-                        or delivery.get("commit") != plan["commit"]
-                        or delivery.get("tree") != plan["tree"]
-                    ):
-                        raise Refused("source delivery commit/tree identity mismatch")
+                delivery = deliver_source("fetch")
+                if not isinstance(delivery, dict):
+                    raise Refused("source delivery returned no identity evidence")
+                if delivery.get("transport") == "fallback_required":
+                    path = staging / "source.tar.gz"
+                    fallback_upload_deadline = min(
+                        source_deadline, upload_deadline + source_delivery_seconds
+                    )
+                    with cli.staging_controls(fallback_upload_deadline):
+                        stage_upload(
+                            path, root + "/source.tar.gz", deadline=fallback_upload_deadline
+                        )
+                    checks["source.tar.gz"] = sha256(path)
+                    delivery = deliver_source("install_fallback")
+                if (
+                    not isinstance(delivery, dict)
+                    or delivery.get("transport") not in {"github", "fallback"}
+                    or delivery.get("commit") != plan["commit"]
+                    or delivery.get("tree") != plan["tree"]
+                ):
+                    raise Refused("source delivery commit/tree identity mismatch")
             except Exception:
                 write_once(
                     output / "upload-measurement.json",
@@ -2028,8 +2055,12 @@ class Broker:
                     staging_measurement(m, measurement)
                 except StagingCapError as exc:
                     raise ClassifiedFailure(FailureClass.UPLOAD_CAP, str(exc)) from exc
-            elif time.monotonic() > upload_deadline:
+            elif time.monotonic() - upload_started - source_delivery_seconds > (
+                UPLOAD_TOTAL_TIMEOUT_SECONDS
+            ):
                 raise Refused("total upload time cap reached after staging control")
+            elif source_delivery_seconds > policy.SOURCE_RECOVERY_SECONDS:
+                raise Refused("source delivery recovery window reached after staging control")
             # Hardware admission and process launch are short RPCs. Bootstrap
             # runs in the lease-fenced child, never in the notebook kernel.
             code = (

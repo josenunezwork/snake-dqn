@@ -228,12 +228,41 @@ def _run(argv: list[str], *, cwd: Path, timeout: float) -> str:
     )
 
 
+def _verified_existing_checkout(
+    root: Path, target: Path, plan: dict[str, Any]
+) -> dict[str, Any] | None:
+    """Return verified identity if *target* already holds the clean pinned checkout."""
+    if not target.is_dir() or target.is_symlink():
+        return None
+    try:
+        head = _run(["git", "-C", str(target), "rev-parse", "HEAD"], cwd=root, timeout=5).strip()
+        tree = _run(
+            ["git", "-C", str(target), "rev-parse", "HEAD^{tree}"], cwd=root, timeout=5
+        ).strip()
+        status = _run(
+            ["git", "-C", str(target), "status", "--porcelain", "--untracked-files=all"],
+            cwd=root,
+            timeout=10,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return None
+    if head == plan["commit"] and tree == plan["tree"] and status == "":
+        return {"transport": "github", "commit": head, "tree": tree}
+    return None
+
+
 def fetch(root: Path, plan: dict[str, Any]) -> dict[str, Any]:
     """Fetch and verify the public pinned commit, requesting fallback only on outage."""
     root = root.resolve()
     target = root / "repo"
-    if target.exists():
-        raise ValueError("runtime source destination already exists")
+    if target.exists() or target.is_symlink():
+        verified = _verified_existing_checkout(root, target, plan)
+        if verified is not None:
+            return verified
+        if target.is_symlink() or target.is_file():
+            target.unlink()
+        else:
+            shutil.rmtree(target)
     target.mkdir(parents=True)
     started = time.monotonic()
     # Local setup failures are configuration defects, never a reason to use a
