@@ -13,27 +13,10 @@ from research.game_v3.config import NUM_ACTIONS, GameV3Config
 from research.game_v3.obs import LearnerIndex, allocate_obs_batch, build_obs, build_obs_reference
 from research.game_v3.reference import ReferenceStepInfo, ReferenceWorld
 from research.game_v3.scripted import food_seeking_actions, random_safe_actions
-from research.game_v3.sim import GameV3Sim, StepInfo
+from research.game_v3.sim import STATE_FIELDS, GameV3Sim, StepInfo
 
-_SNAKE_STATE_FIELDS: tuple[str, ...] = (
-    "head_pos",
-    "theta",
-    "alive",
-    "boosting",
-    "length",
-    "seg_count",
-    "dist_accum_fp",
-    "boost_ticks",
-    "boost_drop_fp_accum",
-    "respawn_timer",
-    "life_age",
-    "life_start",
-    "truncated_pending",
-    "prev_alive",
-    "prev_boosting",
-    "prev_head_pos",
-    "prev_theta",
-    "prev_length",
+_SNAKE_STATE_FIELDS: tuple[str, ...] = tuple(
+    field.name for field in STATE_FIELDS if field.in_reference_snake
 )
 
 

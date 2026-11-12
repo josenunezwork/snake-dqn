@@ -103,6 +103,117 @@ class StepInfo:
         return self
 
 
+@dataclass(frozen=True)
+class StateField:
+    """Declarative specification for one simulator state tensor on :class:`GameV3Sim`."""
+
+    name: str
+    shape_kind: str
+    dtype: torch.dtype
+    reset_value: int | bool
+    saved: bool = True
+    reset_on_clear: bool = True
+    sharded_4x: bool = False
+    is_ring: bool = False
+    per_life: bool = False
+    prev_source: str | None = None
+    in_reference_snake: bool = False
+
+
+STATE_FIELDS: tuple[StateField, ...] = (
+    StateField("seeds", "E", torch.int64, 0, reset_on_clear=False),
+    StateField("world_ticks", "E", torch.int64, 0),
+    StateField("head_pos", "ES2", torch.int32, 0, in_reference_snake=True),
+    StateField("theta", "ES", torch.int32, 0, in_reference_snake=True),
+    StateField("alive", "ES", torch.bool, False, in_reference_snake=True),
+    StateField("boosting", "ES", torch.bool, False, per_life=True, in_reference_snake=True),
+    StateField("length", "ES", torch.int32, 0, in_reference_snake=True),
+    StateField("seg_count", "ES", torch.int32, 0, in_reference_snake=True),
+    StateField("head_ptr", "ES", torch.int32, 0),
+    StateField("oldest_active_subtick", "ES", torch.int32, 0),
+    StateField("dist_accum_fp", "ES", torch.int32, 0, per_life=True, in_reference_snake=True),
+    StateField("boost_ticks", "ES", torch.int32, 0, per_life=True, in_reference_snake=True),
+    StateField("boost_drop_fp_accum", "ES", torch.int32, 0, per_life=True, in_reference_snake=True),
+    StateField("respawn_timer", "ES", torch.int32, 0, in_reference_snake=True),
+    StateField("life_age", "ES", torch.int32, 0, per_life=True, in_reference_snake=True),
+    StateField("life_start", "ES", torch.bool, False, in_reference_snake=True),
+    StateField("truncated_pending", "ES", torch.bool, False, in_reference_snake=True),
+    StateField("ring_pos", "RING2", torch.int32, 0, is_ring=True),
+    StateField("ring_cell", "RING2", torch.int16, 0, is_ring=True),
+    StateField("ring_r_sq", "RING", torch.int16, 0, is_ring=True),
+    StateField("ring_subtick", "RING", torch.int32, 0, is_ring=True),
+    StateField("prev_alive", "ES", torch.bool, False, prev_source="alive", in_reference_snake=True),
+    StateField(
+        "prev_boosting", "ES", torch.bool, False, prev_source="boosting", in_reference_snake=True
+    ),
+    StateField(
+        "prev_head_pos", "ES2", torch.int32, 0, prev_source="head_pos", in_reference_snake=True
+    ),
+    StateField("prev_theta", "ES", torch.int32, 0, prev_source="theta", in_reference_snake=True),
+    StateField("prev_length", "ES", torch.int32, 0, prev_source="length", in_reference_snake=True),
+    StateField("occ_hi", "G1", torch.int32, -1),
+    StateField("occ_lo", "G1", torch.int32, -1),
+    StateField("occ_subtick_4x", "G4N", torch.int32, -1, sharded_4x=True),
+    StateField("occ_subtick_16x", "G16N", torch.int32, -1),
+    StateField("ambient_grid", "G1", torch.uint8, 0),
+    StateField("ambient_grid_4x", "G4", torch.int32, 0),
+    StateField("ambient_grid_16x", "G16", torch.int32, 0),
+    StateField("corpse_grid", "G1", torch.int16, 0),
+    StateField("corpse_grid_4x", "G4", torch.int32, 0),
+    StateField("corpse_grid_16x", "G16", torch.int32, 0),
+    StateField("ambient_count", "E", torch.int32, 0),
+    StateField("total_spawned_snake_mass", "E", torch.int64, 0),
+    StateField("total_spawned_ambient_mass", "E", torch.int64, 0),
+    StateField("total_corpse_decay_sink", "E", torch.int64, 0),
+    StateField("total_boost_decay_sink", "E", torch.int64, 0),
+    StateField("total_length_cap_sink", "E", torch.int64, 0),
+    StateField("total_truncation_sink", "E", torch.int64, 0),
+)
+
+_SAVED_STATE_FIELDS: tuple[StateField, ...] = tuple(f for f in STATE_FIELDS if f.saved)
+_SAVED_TENSOR_NAMES: frozenset[str] = frozenset(f.name for f in _SAVED_STATE_FIELDS)
+_CLEARABLE_STATE_FIELDS: tuple[StateField, ...] = tuple(f for f in STATE_FIELDS if f.reset_on_clear)
+_PER_LIFE_STATE_FIELDS: tuple[StateField, ...] = tuple(f for f in STATE_FIELDS if f.per_life)
+_STAGE3_SURVIVE_HANDLED_NAMES: frozenset[str] = frozenset({"boosting", "dist_accum_fp", "life_age"})
+_DEATH_ONLY_PER_LIFE_FIELDS: tuple[StateField, ...] = tuple(
+    f for f in _PER_LIFE_STATE_FIELDS if f.name not in _STAGE3_SURVIVE_HANDLED_NAMES
+)
+_PREV_SNAPSHOT_FIELDS: tuple[StateField, ...] = tuple(
+    f for f in STATE_FIELDS if f.prev_source is not None
+)
+_REQUIRED_STATE_DICT_KEYS: frozenset[str] = frozenset(
+    {"config", "num_envs", "tick", "subtick_offset", "tensors"}
+)
+_OPTIONAL_STATE_DICT_KEYS: frozenset[str] = frozenset({"clean_step_streak"})
+_ALL_STATE_DICT_KEYS: frozenset[str] = _REQUIRED_STATE_DICT_KEYS | _OPTIONAL_STATE_DICT_KEYS
+
+
+def state_field_shape(sim: GameV3Sim, shape_kind: str) -> tuple[int, ...]:
+    """Resolve a :class:`StateField` ``shape_kind`` against ``sim`` dimensions."""
+    max_len = int(sim.cfg.max_length)
+    if shape_kind == "E":
+        return (sim.E,)
+    if shape_kind == "ES":
+        return (sim.E, sim.N)
+    if shape_kind == "ES2":
+        return (sim.E, sim.N, 2)
+    if shape_kind == "RING":
+        return (sim.E, sim.N, max_len)
+    if shape_kind == "RING2":
+        return (sim.E, sim.N, max_len, 2)
+    if shape_kind == "G1":
+        return (sim.E, sim.G, sim.G)
+    if shape_kind == "G4":
+        return (sim.E, sim.G4, sim.G4)
+    if shape_kind == "G16":
+        return (sim.E, sim.G16, sim.G16)
+    if shape_kind == "G4N":
+        return (sim.E, sim.G4, sim.G4, sim.N)
+    if shape_kind == "G16N":
+        return (sim.E, sim.G16, sim.G16, sim.N)
+    raise ValueError(f"Unknown StateField shape_kind: {shape_kind!r}")
+
+
 def step_delta_fp_torch(dist_fp: torch.Tensor, trig_q14: torch.Tensor) -> torch.Tensor:
     """Compute symmetric nearest-integer fixed-point step ``round(dist_fp * trig_q14 / 2^14)``."""
     prod = dist_fp * trig_q14
@@ -377,52 +488,6 @@ class GameV3Sim:
         self._env_base_16x = env_idx * (self.G16 * self.G16)
 
         # Mutable fixed-point simulation state tensors (zero floating-point state).
-        es = (self.E, self.N)
-        max_len = self.cfg.max_length
-        self.seeds = torch.zeros((self.E,), dtype=torch.int64, device=self.device)
-        self.world_ticks = torch.zeros((self.E,), dtype=torch.int64, device=self.device)
-        self.tick: int = 0
-        self._subtick_offset: int = 0
-        self._clean_step_streak: int = 0
-        self.auto_rebase: bool = bool(auto_rebase)
-        self.debug_assert_invariants: bool = bool(debug_assert_invariants)
-
-        self.head_pos = torch.zeros((self.E, self.N, 2), dtype=torch.int32, device=self.device)
-        self.theta = torch.zeros(es, dtype=torch.int32, device=self.device)
-        self.alive = torch.zeros(es, dtype=torch.bool, device=self.device)
-        self.boosting = torch.zeros(es, dtype=torch.bool, device=self.device)
-        self.length = torch.zeros(es, dtype=torch.int32, device=self.device)
-        self.seg_count = torch.zeros(es, dtype=torch.int32, device=self.device)
-        self.head_ptr = torch.zeros(es, dtype=torch.int32, device=self.device)
-        self.oldest_active_subtick = torch.zeros(es, dtype=torch.int32, device=self.device)
-        self.dist_accum_fp = torch.zeros(es, dtype=torch.int32, device=self.device)
-        self.boost_ticks = torch.zeros(es, dtype=torch.int32, device=self.device)
-        self.boost_drop_fp_accum = torch.zeros(es, dtype=torch.int32, device=self.device)
-        self.respawn_timer = torch.zeros(es, dtype=torch.int32, device=self.device)
-        self.life_age = torch.zeros(es, dtype=torch.int32, device=self.device)
-        self.life_start = torch.zeros(es, dtype=torch.bool, device=self.device)
-        self.truncated_pending = torch.zeros(es, dtype=torch.bool, device=self.device)
-
-        self.ring_pos = torch.zeros(
-            (self.E, self.N, max_len, 2), dtype=torch.int32, device=self.device
-        )
-        self.ring_cell = torch.zeros(
-            (self.E, self.N, max_len, 2), dtype=torch.int16, device=self.device
-        )
-        self.ring_r_sq = torch.zeros(
-            (self.E, self.N, max_len), dtype=torch.int16, device=self.device
-        )
-        self.ring_subtick = torch.zeros(
-            (self.E, self.N, max_len), dtype=torch.int32, device=self.device
-        )
-
-        # Previous-tick head state for 2-frame head observation stacking.
-        self.prev_alive = torch.zeros(es, dtype=torch.bool, device=self.device)
-        self.prev_boosting = torch.zeros(es, dtype=torch.bool, device=self.device)
-        self.prev_head_pos = torch.zeros((self.E, self.N, 2), dtype=torch.int32, device=self.device)
-        self.prev_theta = torch.zeros(es, dtype=torch.int32, device=self.device)
-        self.prev_length = torch.zeros(es, dtype=torch.int32, device=self.device)
-
         # Order-independent dual-bound occupancy grids at 1x:
         # - occ_hi stores max((subtick << 6) | slot_id)
         # - occ_lo stores max((subtick << 6) | (63 - slot_id))
@@ -439,16 +504,15 @@ class GameV3Sim:
         #      oldest_active_subtick. Thus no grid cell ever has >= 2 active owners during
         #      gameplay (<= 1 active owner per cell), and occ_hi / occ_lo also keep
         #      synthetic multi-owner test placements order-independent without own-masking.
-        self.occ_hi = torch.full(
-            (self.E, self.G, self.G), -1, dtype=torch.int32, device=self.device
-        )
-        self.occ_lo = torch.full(
-            (self.E, self.G, self.G), -1, dtype=torch.int32, device=self.device
-        )
-        # Exact max-pooled coarse body occupancy pyramids: (E, G4, G4, N) & (E, G16, G16, N)
-        # stored N-last so ego-pixel index_select(0, ...) reads contiguous N-element vectors.
+        #
         # Shard occ_subtick_4x into <=256-env blocks so every tensor stays strictly < INT_MAX
         # elements on MPSGraph even at E >= 1024.
+        self.tick: int = 0
+        self._subtick_offset: int = 0
+        self._clean_step_streak: int = 0
+        self.auto_rebase: bool = bool(auto_rebase)
+        self.debug_assert_invariants: bool = bool(debug_assert_invariants)
+
         max_per_env = max(1, self.G * self.G, self.G4 * self.G4 * self.N)
         self.env_block_size: int = min(256, max(1, ((1 << 31) - 1024) // max_per_env))
         self._env_block_1x: int = (
@@ -456,52 +520,8 @@ class GameV3Sim:
             if self.E * self.G * self.G < ((1 << 31) - 1024)
             else max(1, ((1 << 31) - 1024) // max(1, self.G * self.G))
         )
-        self._occ_4x_blocks: list[torch.Tensor] = [
-            torch.full(
-                (min(self.E, e0 + self.env_block_size) - e0, self.G4, self.G4, self.N),
-                -1,
-                dtype=torch.int32,
-                device=self.device,
-            )
-            for e0 in range(0, self.E, self.env_block_size)
-        ]
-        self.occ_subtick_16x = torch.full(
-            (self.E, self.G16, self.G16, self.N), -1, dtype=torch.int32, device=self.device
-        )
-
-        # Compact 1x food grids (ambient uint8 in [0, 255]; corpse int16 saturated to [0, 32767])
-        # paired with incremental int32 4x and 16x sum-pooled food pyramids.
-        self.ambient_grid = torch.zeros(
-            (self.E, self.G, self.G), dtype=torch.uint8, device=self.device
-        )
-        self.ambient_grid_4x = torch.zeros(
-            (self.E, self.G4, self.G4), dtype=torch.int32, device=self.device
-        )
-        self.ambient_grid_16x = torch.zeros(
-            (self.E, self.G16, self.G16), dtype=torch.int32, device=self.device
-        )
-        self.corpse_grid = torch.zeros(
-            (self.E, self.G, self.G), dtype=torch.int16, device=self.device
-        )
-        self.corpse_grid_4x = torch.zeros(
-            (self.E, self.G4, self.G4), dtype=torch.int32, device=self.device
-        )
-        self.corpse_grid_16x = torch.zeros(
-            (self.E, self.G16, self.G16), dtype=torch.int32, device=self.device
-        )
-        self.ambient_count = torch.zeros((self.E,), dtype=torch.int32, device=self.device)
-
-        # Exact integer mass-accounting ledgers per world (sources and sinks).
-        self.total_spawned_snake_mass = torch.zeros(
-            (self.E,), dtype=torch.int64, device=self.device
-        )
-        self.total_spawned_ambient_mass = torch.zeros(
-            (self.E,), dtype=torch.int64, device=self.device
-        )
-        self.total_corpse_decay_sink = torch.zeros((self.E,), dtype=torch.int64, device=self.device)
-        self.total_boost_decay_sink = torch.zeros((self.E,), dtype=torch.int64, device=self.device)
-        self.total_length_cap_sink = torch.zeros((self.E,), dtype=torch.int64, device=self.device)
-        self.total_truncation_sink = torch.zeros((self.E,), dtype=torch.int64, device=self.device)
+        self._occ_4x_blocks: list[torch.Tensor] = []
+        self._allocate_state_tensors()
 
         self._timing_enabled: bool = False
         self._stage_seconds: dict[str, float] = {
@@ -513,6 +533,46 @@ class GameV3Sim:
         }
 
         self.reset(seeds=seeds)
+
+    def _allocate_state_tensors(self) -> None:
+        """Allocate every registered state tensor (and sharded 4x occupancy blocks) from STATE_FIELDS."""
+        for field in STATE_FIELDS:
+            shape = state_field_shape(self, field.shape_kind)
+            if field.sharded_4x:
+                tail_shape = shape[1:]
+                self._occ_4x_blocks = [
+                    torch.full(
+                        (min(self.E, e0 + self.env_block_size) - e0, *tail_shape),
+                        field.reset_value,
+                        dtype=field.dtype,
+                        device=self.device,
+                    )
+                    for e0 in range(0, self.E, self.env_block_size)
+                ]
+            elif field.reset_value == 0 or field.reset_value is False:
+                setattr(
+                    self,
+                    field.name,
+                    torch.zeros(shape, dtype=field.dtype, device=self.device),
+                )
+            else:
+                setattr(
+                    self,
+                    field.name,
+                    torch.full(shape, field.reset_value, dtype=field.dtype, device=self.device),
+                )
+
+    @property
+    def clean_step_streak(self) -> int:
+        """Consecutive clean full-world steps since last world reset or state load."""
+        return self._clean_step_streak
+
+    @clean_step_streak.setter
+    def clean_step_streak(self, value: int) -> None:
+        val = int(value)
+        if val < 0:
+            raise ValueError(f"clean_step_streak must be >= 0, got {val}")
+        self._clean_step_streak = val
 
     @property
     def num_actions(self) -> int:
@@ -1633,48 +1693,38 @@ class GameV3Sim:
             raise ValueError(f"seeds must have shape ({self.E},), got {tuple(seed_tensor.shape)}")
 
         self.seeds.copy_(seed_tensor)
-        self.world_ticks.zero_()
         self.tick = 0
         self._subtick_offset = 0
         self._clean_step_streak = 0
-
-        self.occ_hi.fill_(-1)
-        self.occ_lo.fill_(-1)
-        for blk in self._occ_4x_blocks:
-            blk.fill_(-1)
-        self.occ_subtick_16x.fill_(-1)
-
-        self.ambient_grid.zero_()
-        self.ambient_grid_4x.zero_()
-        self.ambient_grid_16x.zero_()
-        self.corpse_grid.zero_()
-        self.corpse_grid_4x.zero_()
-        self.corpse_grid_16x.zero_()
-        self.ambient_count.zero_()
-
-        self.total_spawned_snake_mass.zero_()
-        self.total_spawned_ambient_mass.zero_()
-        self.total_corpse_decay_sink.zero_()
-        self.total_boost_decay_sink.zero_()
-        self.total_length_cap_sink.zero_()
-        self.total_truncation_sink.zero_()
-
-        self.ring_pos.zero_()
-        self.ring_cell.zero_()
-        self.ring_r_sq.zero_()
-        self.ring_subtick.zero_()
-        self.dist_accum_fp.zero_()
-        self.boost_ticks.zero_()
-        self.boost_drop_fp_accum.zero_()
-        self.respawn_timer.zero_()
-        self.head_ptr.zero_()
-        self.boosting.fill_(False)
-        self.life_age.zero_()
-        self.truncated_pending.fill_(False)
+        self._clear_all_worlds()
 
         self._populate_initial_worlds(None, init_subtick=1)
         if self.debug_assert_invariants:
             self.assert_surviving_discs_disjoint()
+
+    def _clear_all_worlds(self) -> None:
+        """Reset all clearable registered state tensors across all worlds in-place."""
+        for field in _CLEARABLE_STATE_FIELDS:
+            if field.sharded_4x:
+                for blk in self._occ_4x_blocks:
+                    blk.fill_(field.reset_value)
+            elif field.reset_value == 0 and field.dtype != torch.bool:
+                getattr(self, field.name).zero_()
+            else:
+                getattr(self, field.name).fill_(field.reset_value)
+
+    def _clear_selected_worlds(self, env_ids: torch.Tensor) -> None:
+        """Reset all clearable registered state tensors on ``env_ids`` worlds in-place."""
+        for field in _CLEARABLE_STATE_FIELDS:
+            if field.sharded_4x:
+                for b_idx, blk in enumerate(self._occ_4x_blocks):
+                    e0 = b_idx * self.env_block_size
+                    e1 = e0 + int(blk.shape[0])
+                    in_blk = env_ids[(env_ids >= e0) & (env_ids < e1)] - e0
+                    if in_blk.numel() > 0:
+                        blk.index_fill_(0, in_blk, field.reset_value)
+            else:
+                getattr(self, field.name).index_fill_(0, env_ids, field.reset_value)
 
     def reset_worlds(
         self,
@@ -1722,44 +1772,7 @@ class GameV3Sim:
                 f"reset_worlds subtick {init_st + 1} exceeds int32 limit {MAX_OCC_SUBTICK}"
             )
 
-        self.world_ticks.index_fill_(0, env_ids, 0)
-        self.occ_hi.index_fill_(0, env_ids, -1)
-        self.occ_lo.index_fill_(0, env_ids, -1)
-        for b_idx, blk in enumerate(self._occ_4x_blocks):
-            e0 = b_idx * self.env_block_size
-            e1 = e0 + int(blk.shape[0])
-            in_blk = env_ids[(env_ids >= e0) & (env_ids < e1)] - e0
-            if in_blk.numel() > 0:
-                blk.index_fill_(0, in_blk, -1)
-        self.occ_subtick_16x.index_fill_(0, env_ids, -1)
-
-        self.ambient_grid.index_fill_(0, env_ids, 0)
-        self.ambient_grid_4x.index_fill_(0, env_ids, 0)
-        self.ambient_grid_16x.index_fill_(0, env_ids, 0)
-        self.corpse_grid.index_fill_(0, env_ids, 0)
-        self.corpse_grid_4x.index_fill_(0, env_ids, 0)
-        self.corpse_grid_16x.index_fill_(0, env_ids, 0)
-        self.ambient_count.index_fill_(0, env_ids, 0)
-
-        self.total_spawned_snake_mass.index_fill_(0, env_ids, 0)
-        self.total_spawned_ambient_mass.index_fill_(0, env_ids, 0)
-        self.total_corpse_decay_sink.index_fill_(0, env_ids, 0)
-        self.total_boost_decay_sink.index_fill_(0, env_ids, 0)
-        self.total_length_cap_sink.index_fill_(0, env_ids, 0)
-        self.total_truncation_sink.index_fill_(0, env_ids, 0)
-
-        self.ring_pos.index_fill_(0, env_ids, 0)
-        self.ring_cell.index_fill_(0, env_ids, 0)
-        self.ring_r_sq.index_fill_(0, env_ids, 0)
-        self.ring_subtick.index_fill_(0, env_ids, 0)
-        self.dist_accum_fp.index_fill_(0, env_ids, 0)
-        self.boost_ticks.index_fill_(0, env_ids, 0)
-        self.boost_drop_fp_accum.index_fill_(0, env_ids, 0)
-        self.respawn_timer.index_fill_(0, env_ids, 0)
-        self.head_ptr.index_fill_(0, env_ids, 0)
-        self.boosting.index_fill_(0, env_ids, False)
-        self.life_age.index_fill_(0, env_ids, 0)
-        self.truncated_pending.index_fill_(0, env_ids, False)
+        self._clear_selected_worlds(env_ids)
 
         self._populate_initial_worlds(env_ids, init_subtick=init_st)
         if self.debug_assert_invariants:
@@ -1850,26 +1863,25 @@ class GameV3Sim:
         retire_mass = torch.where(retire, self.length, 0).to(torch.int64).sum(dim=1)
         self.total_truncation_sink = self.total_truncation_sink + retire_mass
         self.alive = self.alive & (~retire)
-        self.boosting = self.boosting & (~retire)
         self.length = torch.where(retire, 0, self.length)
         self.seg_count = torch.where(retire, 0, self.seg_count)
         self.oldest_active_subtick = torch.where(
             retire, expired_sentinel_st, self.oldest_active_subtick
         )
-        self.dist_accum_fp = torch.where(retire, 0, self.dist_accum_fp)
-        self.boost_ticks = torch.where(retire, 0, self.boost_ticks)
-        self.boost_drop_fp_accum = torch.where(retire, 0, self.boost_drop_fp_accum)
-        self.life_age = torch.where(retire, 0, self.life_age)
+        for field in _PER_LIFE_STATE_FIELDS:
+            cur = getattr(self, field.name)
+            if field.dtype == torch.bool and field.reset_value is False:
+                setattr(self, field.name, cur & (~retire))
+            else:
+                setattr(self, field.name, torch.where(retire, field.reset_value, cur))
         # Set timer=1 so Stage 5 decrements to 0 and immediately spawns a fresh life this tick.
         self.respawn_timer = torch.where(retire, 1, self.respawn_timer)
         self.truncated_pending.fill_(False)
 
         # Snapshot pre-step head pose and pre-tick length (StepInfo.prev_length).
-        self.prev_alive.copy_(self.alive)
-        self.prev_boosting.copy_(self.boosting)
-        self.prev_head_pos.copy_(self.head_pos)
-        self.prev_theta.copy_(self.theta)
-        self.prev_length.copy_(self.length)
+        for field in _PREV_SNAPSHOT_FIELDS:
+            assert field.prev_source is not None
+            getattr(self, field.name).copy_(getattr(self, field.prev_source))
 
         # ---------------- Stage 1: move ----------------
         act = actions.to(torch.int32).clamp(0, NUM_ACTIONS - 1)
@@ -2163,10 +2175,14 @@ class GameV3Sim:
             torch.full_like(self.respawn_timer, int(self.cfg.respawn_delay)),
             self.respawn_timer,
         )
-        self.boost_ticks = torch.where(died, torch.zeros_like(self.boost_ticks), self.boost_ticks)
-        self.boost_drop_fp_accum = torch.where(
-            died, torch.zeros_like(self.boost_drop_fp_accum), self.boost_drop_fp_accum
-        )
+        for field in _DEATH_ONLY_PER_LIFE_FIELDS:
+            cur = getattr(self, field.name)
+            fill = (
+                torch.zeros_like(cur)
+                if (field.reset_value == 0 or field.reset_value is False)
+                else torch.full_like(cur, field.reset_value)
+            )
+            setattr(self, field.name, torch.where(died, fill, cur))
 
         # Stamp ONLY surviving snakes: because Stage 2 killed at least one snake in every
         # overlapping pair (s_j <= s_i is a total order), surviving discs are pairwise disjoint.
@@ -2502,7 +2518,6 @@ class GameV3Sim:
             self.head_pos = torch.where(spawn_now[:, :, None], spawn_pos, self.head_pos)
             self.theta = torch.where(spawn_now, sel_th, self.theta)
             self.alive = self.alive | spawn_now
-            self.boosting = torch.where(spawn_now, torch.zeros_like(self.boosting), self.boosting)
             self.length = torch.where(
                 spawn_now,
                 torch.full_like(self.length, int(self.cfg.start_length)),
@@ -2515,16 +2530,14 @@ class GameV3Sim:
                 torch.full_like(self.oldest_active_subtick, spawn_st),
                 self.oldest_active_subtick,
             )
-            self.dist_accum_fp = torch.where(
-                spawn_now, torch.zeros_like(self.dist_accum_fp), self.dist_accum_fp
-            )
-            self.boost_ticks = torch.where(
-                spawn_now, torch.zeros_like(self.boost_ticks), self.boost_ticks
-            )
-            self.boost_drop_fp_accum = torch.where(
-                spawn_now, torch.zeros_like(self.boost_drop_fp_accum), self.boost_drop_fp_accum
-            )
-            self.life_age = torch.where(spawn_now, torch.zeros_like(self.life_age), self.life_age)
+            for field in _PER_LIFE_STATE_FIELDS:
+                cur = getattr(self, field.name)
+                fill = (
+                    torch.zeros_like(cur)
+                    if (field.reset_value == 0 or field.reset_value is False)
+                    else torch.full_like(cur, field.reset_value)
+                )
+                setattr(self, field.name, torch.where(spawn_now, fill, cur))
 
             spawn_r_sq_1d = self._r_sq_table[int(self.cfg.start_length)]
             spawn_r_sq = spawn_r_sq_1d.expand(self.E, self.N)
@@ -2630,90 +2643,84 @@ class GameV3Sim:
 
     def state_dict(self) -> dict[str, Any]:
         """Serialize full deterministic simulator state for checkpoint/resume."""
-        tensor_names = (
-            "seeds",
-            "world_ticks",
-            "head_pos",
-            "theta",
-            "alive",
-            "boosting",
-            "length",
-            "seg_count",
-            "head_ptr",
-            "oldest_active_subtick",
-            "dist_accum_fp",
-            "boost_ticks",
-            "boost_drop_fp_accum",
-            "respawn_timer",
-            "life_age",
-            "life_start",
-            "truncated_pending",
-            "ring_pos",
-            "ring_cell",
-            "ring_r_sq",
-            "ring_subtick",
-            "prev_alive",
-            "prev_boosting",
-            "prev_head_pos",
-            "prev_theta",
-            "prev_length",
-            "occ_hi",
-            "occ_lo",
-            "occ_subtick_4x",
-            "occ_subtick_16x",
-            "ambient_grid",
-            "ambient_grid_4x",
-            "ambient_grid_16x",
-            "corpse_grid",
-            "corpse_grid_4x",
-            "corpse_grid_16x",
-            "ambient_count",
-            "total_spawned_snake_mass",
-            "total_spawned_ambient_mass",
-            "total_corpse_decay_sink",
-            "total_boost_decay_sink",
-            "total_length_cap_sink",
-            "total_truncation_sink",
-        )
         tensors_out: dict[str, torch.Tensor] = {}
-        for name in tensor_names:
-            if name == "occ_subtick_4x":
+        for field in _SAVED_STATE_FIELDS:
+            if field.sharded_4x:
                 if len(self._occ_4x_blocks) == 1:
-                    tensors_out[name] = self._occ_4x_blocks[0].detach().cpu().clone()
+                    tensors_out[field.name] = self._occ_4x_blocks[0].detach().cpu().clone()
                 else:
-                    tensors_out[name] = torch.cat(
+                    tensors_out[field.name] = torch.cat(
                         [blk.detach().cpu() for blk in self._occ_4x_blocks], dim=0
                     )
             else:
-                tensors_out[name] = getattr(self, name).detach().cpu().clone()
+                tensors_out[field.name] = getattr(self, field.name).detach().cpu().clone()
         return {
             "config": self.cfg.to_dict(),
             "num_envs": self.E,
             "tick": self.tick,
             "subtick_offset": self._subtick_offset,
+            "clean_step_streak": self._clean_step_streak,
             "tensors": tensors_out,
         }
 
     def load_state_dict(self, state: dict[str, Any]) -> None:
-        """Restore deterministic simulator state in-place onto ``self.device``."""
+        """Strictly validate and restore deterministic simulator state onto ``self.device``."""
+        if not isinstance(state, dict):
+            raise TypeError(f"Expected dict for state_dict, got {type(state).__name__}")
+        top_keys = set(state.keys())
+        missing_top = _REQUIRED_STATE_DICT_KEYS - top_keys
+        if missing_top:
+            raise KeyError(f"Missing required state_dict keys: {sorted(missing_top)}")
+        unknown_top = top_keys - _ALL_STATE_DICT_KEYS
+        if unknown_top:
+            raise KeyError(f"Unknown state_dict keys: {sorted(unknown_top)}")
+
+        tensors = state["tensors"]
+        if not isinstance(tensors, dict):
+            raise TypeError(
+                f"Expected dict for state_dict['tensors'], got {type(tensors).__name__}"
+            )
+        tensor_keys = set(tensors.keys())
+        missing_tensors = _SAVED_TENSOR_NAMES - tensor_keys
+        if missing_tensors:
+            raise KeyError(f"Missing state_dict tensor keys: {sorted(missing_tensors)}")
+        unknown_tensors = tensor_keys - _SAVED_TENSOR_NAMES
+        if unknown_tensors:
+            raise KeyError(f"Unknown state_dict tensor keys: {sorted(unknown_tensors)}")
+
         loaded_cfg = GameV3Config.from_dict(state["config"])
         if loaded_cfg != self.cfg:
             raise ValueError("Checkpoint GameV3Config does not match simulator config")
         if int(state["num_envs"]) != self.E:
             raise ValueError(f"Checkpoint num_envs {state['num_envs']} != {self.E}")
+        streak = int(state.get("clean_step_streak", 0))
+        if streak < 0:
+            raise ValueError(f"Checkpoint clean_step_streak must be >= 0, got {streak}")
+
+        for field in _SAVED_STATE_FIELDS:
+            tensor = tensors[field.name]
+            if not isinstance(tensor, torch.Tensor):
+                raise TypeError(
+                    f"Checkpoint tensor {field.name!r} must be torch.Tensor, "
+                    f"got {type(tensor).__name__}"
+                )
+            exp_shape = state_field_shape(self, field.shape_kind)
+            if tuple(tensor.shape) != exp_shape:
+                raise ValueError(
+                    f"Checkpoint tensor {field.name!r} shape {tuple(tensor.shape)} != {exp_shape}"
+                )
+
         self.tick = int(state["tick"])
-        self._subtick_offset = int(state.get("subtick_offset", 0))
-        self._clean_step_streak = 0
-        tensors = state["tensors"]
-        if "world_ticks" not in tensors:
-            self.world_ticks.fill_(self.tick)
-        for name, tensor in tensors.items():
-            if name == "occ_subtick_4x":
+        self._subtick_offset = int(state["subtick_offset"])
+        self._clean_step_streak = streak
+        for field in _SAVED_STATE_FIELDS:
+            tensor = tensors[field.name]
+            if field.sharded_4x:
                 bs = self.env_block_size
                 for b_idx, blk in enumerate(self._occ_4x_blocks):
                     e0 = b_idx * bs
                     e1 = e0 + int(blk.shape[0])
                     blk.copy_(tensor[e0:e1].to(device=self.device, dtype=blk.dtype))
             else:
-                dst = getattr(self, name)
+                dst = getattr(self, field.name)
                 dst.copy_(tensor.to(device=self.device, dtype=dst.dtype))

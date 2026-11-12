@@ -37,7 +37,7 @@ from research.game_v3.scripted import (
     food_seeking_actions,
     random_safe_actions,
 )
-from research.game_v3.sim import GameV3Sim
+from research.game_v3.sim import STATE_FIELDS, GameV3Sim
 
 CUDA_CHECK_EXPORT_FILENAME: str = "cuda_check_result.json"
 CUDA_CHECK_REQUIRED_EXPORTS: tuple[str, ...] = (CUDA_CHECK_EXPORT_FILENAME,)
@@ -48,46 +48,8 @@ EARLY_GAME_MEMORY_NOTE: str = (
     "reflect early-game density)."
 )
 
-_PARITY_TENSOR_ATTRS: tuple[str, ...] = (
-    "seeds",
-    "world_ticks",
-    "head_pos",
-    "theta",
-    "alive",
-    "boosting",
-    "length",
-    "seg_count",
-    "head_ptr",
-    "oldest_active_subtick",
-    "dist_accum_fp",
-    "boost_ticks",
-    "boost_drop_fp_accum",
-    "respawn_timer",
-    "life_age",
-    "life_start",
-    "truncated_pending",
-    "prev_alive",
-    "prev_boosting",
-    "prev_head_pos",
-    "prev_theta",
-    "prev_length",
-    "occ_hi",
-    "occ_lo",
-    "occ_subtick_4x",
-    "occ_subtick_16x",
-    "ambient_grid",
-    "ambient_grid_4x",
-    "ambient_grid_16x",
-    "corpse_grid",
-    "corpse_grid_4x",
-    "corpse_grid_16x",
-    "ambient_count",
-    "total_spawned_snake_mass",
-    "total_spawned_ambient_mass",
-    "total_corpse_decay_sink",
-    "total_boost_decay_sink",
-    "total_length_cap_sink",
-    "total_truncation_sink",
+_PARITY_TENSOR_ATTRS: tuple[str, ...] = tuple(
+    field.name for field in STATE_FIELDS if not field.is_ring
 )
 
 _OutOfMemoryError: tuple[type[BaseException], ...] = (
@@ -309,6 +271,11 @@ def assert_device_equals_cpu_bitwise(
         raise AssertionError(
             f"{sim_dev.device} vs cpu _subtick_offset diverged at tick={tick}: "
             f"{sim_dev._subtick_offset} != {sim_cpu._subtick_offset}"
+        )
+    if sim_dev.clean_step_streak != sim_cpu.clean_step_streak:
+        raise AssertionError(
+            f"{sim_dev.device} vs cpu clean_step_streak diverged at tick={tick}: "
+            f"{sim_dev.clean_step_streak} != {sim_cpu.clean_step_streak}"
         )
     for attr in _PARITY_TENSOR_ATTRS:
         raw_d = getattr(sim_dev, attr)

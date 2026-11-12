@@ -14,7 +14,7 @@ from research.game_v3.config import NUM_ACTIONS, GameV3Config
 from research.game_v3.obs import LearnerIndex, allocate_obs_batch, build_obs
 from research.game_v3.reference import ReferenceWorld
 from research.game_v3.scripted import food_seeking_actions, random_safe_actions
-from research.game_v3.sim import GameV3Sim
+from research.game_v3.sim import STATE_FIELDS, GameV3Sim
 from tests.test_game_v3_parity import assert_full_state_and_obs_parity, assert_step_info_parity
 
 pytestmark = pytest.mark.skipif(
@@ -22,46 +22,15 @@ pytestmark = pytest.mark.skipif(
     reason="PyTorch MPS backend is not available on this machine",
 )
 
+_MPS_PARITY_TENSOR_ATTRS: tuple[str, ...] = tuple(
+    field.name for field in STATE_FIELDS if not field.is_ring
+)
+
 
 def _assert_mps_equals_cpu_bitwise(sim_mps: GameV3Sim, sim_cpu: GameV3Sim, tick: int) -> None:
-    """Assert every state and pyramid tensor on MPS is bitwise-identical to CPU."""
-    tensor_attrs = (
-        "world_ticks",
-        "head_pos",
-        "theta",
-        "alive",
-        "boosting",
-        "length",
-        "prev_length",
-        "seg_count",
-        "head_ptr",
-        "oldest_active_subtick",
-        "dist_accum_fp",
-        "boost_ticks",
-        "boost_drop_fp_accum",
-        "respawn_timer",
-        "life_age",
-        "life_start",
-        "truncated_pending",
-        "occ_hi",
-        "occ_lo",
-        "occ_subtick_4x",
-        "occ_subtick_16x",
-        "ambient_grid",
-        "ambient_grid_4x",
-        "ambient_grid_16x",
-        "corpse_grid",
-        "corpse_grid_4x",
-        "corpse_grid_16x",
-        "ambient_count",
-        "total_spawned_snake_mass",
-        "total_spawned_ambient_mass",
-        "total_corpse_decay_sink",
-        "total_boost_decay_sink",
-        "total_length_cap_sink",
-        "total_truncation_sink",
-    )
-    for attr in tensor_attrs:
+    """Assert every registered non-ring state and pyramid tensor on MPS matches CPU bitwise."""
+    assert sim_mps.clean_step_streak == sim_cpu.clean_step_streak
+    for attr in _MPS_PARITY_TENSOR_ATTRS:
         gm = getattr(sim_mps, attr).detach().cpu()
         gc = getattr(sim_cpu, attr).detach().cpu()
         assert torch.equal(gm, gc), f"MPS vs CPU tensor {attr} diverged at tick={tick}"

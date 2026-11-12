@@ -6,6 +6,8 @@ import copy
 import gc
 import json
 import math
+import subprocess
+import types
 import weakref
 from pathlib import Path
 from typing import Any
@@ -42,61 +44,20 @@ from research.game_v3.sim import (
     AUTO_REBASE_SUBTICK_THRESHOLD,
     CORPSE_GRID_MAX,
     MAX_OCC_SUBTICK,
+    STATE_FIELDS,
     GameV3Sim,
 )
 
 
 def _clear_world(sim: GameV3Sim) -> None:
     """Clear all snakes, occupancy grids, food grids, and mass ledgers for synthetic tests."""
-    sim.alive.fill_(False)
-    sim.boosting.fill_(False)
-    sim.length.zero_()
-    sim.seg_count.zero_()
-    sim.head_ptr.zero_()
+    sim._clear_all_worlds()
+    sim.theta.zero_()
     sim.oldest_active_subtick.fill_(2)
-    sim.dist_accum_fp.zero_()
-    sim.boost_ticks.zero_()
-    sim.boost_drop_fp_accum.zero_()
     sim.respawn_timer.fill_(10_000)
-    sim.life_age.zero_()
-    sim.life_start.fill_(False)
-    sim.truncated_pending.fill_(False)
-
-    sim.ring_pos.zero_()
-    sim.ring_cell.zero_()
-    sim.ring_r_sq.zero_()
-    sim.ring_subtick.zero_()
-
-    sim.prev_alive.fill_(False)
-    sim.prev_boosting.fill_(False)
-    sim.prev_head_pos.zero_()
-    sim.prev_theta.zero_()
-    sim.prev_length.zero_()
-
-    sim.occ_hi.fill_(-1)
-    sim.occ_lo.fill_(-1)
-    for blk in sim._occ_4x_blocks:
-        blk.fill_(-1)
-    sim.occ_subtick_16x.fill_(-1)
-
-    sim.ambient_grid.zero_()
-    sim.ambient_grid_4x.zero_()
-    sim.ambient_grid_16x.zero_()
-    sim.corpse_grid.zero_()
-    sim.corpse_grid_4x.zero_()
-    sim.corpse_grid_16x.zero_()
-    sim.ambient_count.zero_()
-
-    sim.total_spawned_snake_mass.zero_()
-    sim.total_spawned_ambient_mass.zero_()
-    sim.total_corpse_decay_sink.zero_()
-    sim.total_boost_decay_sink.zero_()
-    sim.total_length_cap_sink.zero_()
-    sim.total_truncation_sink.zero_()
-    sim.world_ticks.zero_()
     sim.tick = 0
     sim._subtick_offset = 0
-    sim._clean_step_streak = 0
+    sim.clean_step_streak = 0
 
 
 def _world_to_fp(coord: float) -> int:
@@ -815,8 +776,22 @@ def test_obs_channels_learner_mask_and_zero_host_syncs(monkeypatch: pytest.Monke
         sim.step(act2)
 
 
+def _assert_all_registered_fields_equal(sim_a: GameV3Sim, sim_b: GameV3Sim) -> None:
+    """Assert every registered state tensor and scalar counter matches bit-for-bit."""
+    assert sim_a.tick == sim_b.tick
+    assert sim_a._subtick_offset == sim_b._subtick_offset
+    assert sim_a.clean_step_streak == sim_b.clean_step_streak
+    assert len(STATE_FIELDS) >= 43
+    for field in STATE_FIELDS:
+        ta = getattr(sim_a, field.name)
+        tb = getattr(sim_b, field.name)
+        assert ta.dtype == field.dtype, f"{field.name} dtype {ta.dtype} != {field.dtype}"
+        assert tb.dtype == field.dtype, f"{field.name} dtype {tb.dtype} != {field.dtype}"
+        assert torch.equal(ta, tb), f"Registered field {field.name!r} diverged"
+
+
 def test_mid_run_save_and_restore_bitwise_identity() -> None:
-    """Saving and restoring state_dict mid-run reproduces bitwise-identical future trajectories."""
+    """Saving and restoring state_dict mid-run reproduces every registered state field bitwise."""
     cfg = GameV3Config(
         arena_radius=100.0,
         num_snakes=16,
@@ -833,9 +808,13 @@ def test_mid_run_save_and_restore_bitwise_identity() -> None:
         )
         sim_a.step(act)
 
+    assert sim_a.clean_step_streak == 45
     saved = copy.deepcopy(sim_a.state_dict())
+    assert saved["clean_step_streak"] == 45
+
     sim_b = GameV3Sim(cfg, num_envs=3, device="cpu", seeds=[0, 0, 0])
     sim_b.load_state_dict(saved)
+    _assert_all_registered_fields_equal(sim_a, sim_b)
 
     for _ in range(50):
         act = torch.from_numpy(
@@ -846,18 +825,192 @@ def test_mid_run_save_and_restore_bitwise_identity() -> None:
         for k in info_a.__dataclass_fields__:
             assert torch.equal(getattr(info_a, k), getattr(info_b, k))
 
-    assert torch.equal(sim_a.head_pos, sim_b.head_pos)
-    assert torch.equal(sim_a.theta, sim_b.theta)
-    assert torch.equal(sim_a.length, sim_b.length)
-    assert torch.equal(sim_a.occ_hi, sim_b.occ_hi)
-    assert torch.equal(sim_a.occ_lo, sim_b.occ_lo)
-    assert torch.equal(sim_a.ambient_grid, sim_b.ambient_grid)
-    assert torch.equal(sim_a.corpse_grid, sim_b.corpse_grid)
+    _assert_all_registered_fields_equal(sim_a, sim_b)
 
     obs_a = build_obs(sim_a)
     obs_b = build_obs(sim_b)
     for k in ("raster_s1", "raster_s4", "raster_s16", "scalars", "action_mask"):
         assert torch.equal(getattr(obs_a, k), getattr(obs_b, k))
+
+
+_PINNED_E2865F93_TOP_KEYS: frozenset[str] = frozenset(
+    {"config", "num_envs", "tick", "subtick_offset", "tensors"}
+)
+_PINNED_E2865F93_TENSOR_KEYS: tuple[str, ...] = (
+    "seeds",
+    "world_ticks",
+    "head_pos",
+    "theta",
+    "alive",
+    "boosting",
+    "length",
+    "seg_count",
+    "head_ptr",
+    "oldest_active_subtick",
+    "dist_accum_fp",
+    "boost_ticks",
+    "boost_drop_fp_accum",
+    "respawn_timer",
+    "life_age",
+    "life_start",
+    "truncated_pending",
+    "ring_pos",
+    "ring_cell",
+    "ring_r_sq",
+    "ring_subtick",
+    "prev_alive",
+    "prev_boosting",
+    "prev_head_pos",
+    "prev_theta",
+    "prev_length",
+    "occ_hi",
+    "occ_lo",
+    "occ_subtick_4x",
+    "occ_subtick_16x",
+    "ambient_grid",
+    "ambient_grid_4x",
+    "ambient_grid_16x",
+    "corpse_grid",
+    "corpse_grid_4x",
+    "corpse_grid_16x",
+    "ambient_count",
+    "total_spawned_snake_mass",
+    "total_spawned_ambient_mass",
+    "total_corpse_decay_sink",
+    "total_boost_decay_sink",
+    "total_length_cap_sink",
+    "total_truncation_sink",
+)
+
+
+def _load_legacy_e2865f93_sim_class() -> type[Any] | None:
+    """Load pre-refactor ``GameV3Sim`` from commit ``e2865f93`` via ``git show`` when in git."""
+    repo_root = Path(__file__).resolve().parents[1]
+    probe = subprocess.run(
+        ["git", "cat-file", "-e", "e2865f93:research/game_v3/sim.py"],
+        cwd=repo_root,
+        capture_output=True,
+        check=False,
+    )
+    if probe.returncode != 0:
+        return None
+    src = subprocess.check_output(
+        ["git", "show", "e2865f93:research/game_v3/sim.py"],
+        cwd=repo_root,
+        text=True,
+    )
+    mod = types.ModuleType("_legacy_e2865f93_sim")
+    mod.__file__ = "<e2865f93:research/game_v3/sim.py>"
+    exec(compile(src, mod.__file__, "exec"), mod.__dict__)
+    return mod.GameV3Sim
+
+
+def test_pre_refactor_checkpoint_loads_and_strict_state_dict_validation() -> None:
+    """Pre-refactor e2865f93 checkpoints load bit-identically; missing/unknown keys raise."""
+    cfg = GameV3Config(
+        arena_radius=90.0,
+        num_snakes=12,
+        respawn_delay=5,
+        max_life_ticks=30,
+        ambient_food_density=0.015,
+    )
+    rng = np.random.default_rng(20261111)
+    pre_actions = [
+        torch.from_numpy(rng.integers(0, NUM_ACTIONS, size=(3, cfg.num_snakes), dtype=np.int64))
+        for _ in range(35)
+    ]
+    post_actions = [
+        torch.from_numpy(rng.integers(0, NUM_ACTIONS, size=(3, cfg.num_snakes), dtype=np.int64))
+        for _ in range(40)
+    ]
+
+    legacy_cls = _load_legacy_e2865f93_sim_class()
+    if legacy_cls is not None:
+        ref_sim = legacy_cls(cfg, num_envs=3, device="cpu", seeds=[701, 702, 703])
+        for act in pre_actions:
+            ref_sim.step(act)
+        legacy_sd = copy.deepcopy(ref_sim.state_dict())
+        # In e2865f93, load_state_dict reset _clean_step_streak to 0; mirror legacy resume ref.
+        legacy_resume_ref = legacy_cls(cfg, num_envs=3, device="cpu", seeds=[1, 2, 3])
+        legacy_resume_ref.load_state_dict(copy.deepcopy(legacy_sd))
+    else:
+        tmp_sim = GameV3Sim(cfg, num_envs=3, device="cpu", seeds=[701, 702, 703])
+        for act in pre_actions:
+            tmp_sim.step(act)
+        full_sd = tmp_sim.state_dict()
+        legacy_sd = {k: full_sd[k] for k in _PINNED_E2865F93_TOP_KEYS}
+        legacy_sd["tensors"] = {
+            k: full_sd["tensors"][k].clone() for k in _PINNED_E2865F93_TENSOR_KEYS
+        }
+        legacy_resume_ref = GameV3Sim(cfg, num_envs=3, device="cpu", seeds=[1, 2, 3])
+        legacy_resume_ref.load_state_dict(copy.deepcopy(legacy_sd))
+
+    assert set(legacy_sd.keys()) == _PINNED_E2865F93_TOP_KEYS
+    assert "clean_step_streak" not in legacy_sd
+    assert tuple(legacy_sd["tensors"].keys()) == _PINNED_E2865F93_TENSOR_KEYS
+
+    restored = GameV3Sim(cfg, num_envs=3, device="cpu", seeds=[9, 9, 9])
+    restored.clean_step_streak = 17
+    assert restored.clean_step_streak == 17
+    restored.load_state_dict(copy.deepcopy(legacy_sd))
+    # Missing clean_step_streak defaults to fresh value 0.
+    assert restored.clean_step_streak == 0
+
+    for act in post_actions:
+        info_new = restored.step(act)
+        info_old = legacy_resume_ref.step(act)
+        for k in info_new.__dataclass_fields__:
+            assert torch.equal(getattr(info_new, k), getattr(info_old, k))
+    for field in STATE_FIELDS:
+        assert torch.equal(getattr(restored, field.name), getattr(legacy_resume_ref, field.name))
+
+    # Verify clean_step_streak round-trips in new checkpoints and preserves rebase shift.
+    sim_live = GameV3Sim(cfg, num_envs=2, device="cpu", seeds=[41, 42])
+    for _ in range(20):
+        sim_live.step(food_seeking_actions(sim_live))
+    sim_live.clean_step_streak = 2500
+    saved_with_streak = copy.deepcopy(sim_live.state_dict())
+    assert saved_with_streak["clean_step_streak"] == 2500
+    sim_reloaded = GameV3Sim(cfg, num_envs=2, device="cpu", seeds=[0, 0])
+    sim_reloaded.load_state_dict(saved_with_streak)
+    assert sim_reloaded.clean_step_streak == 2500
+    assert sim_live.rebase_subticks() == sim_reloaded.rebase_subticks()
+    _assert_all_registered_fields_equal(sim_live, sim_reloaded)
+
+    with pytest.raises(ValueError, match="clean_step_streak"):
+        sim_reloaded.clean_step_streak = -1
+
+    # Strict validation: missing ANY registered tensor field or required top-level key raises,
+    # and unknown keys raise without mutating existing simulator state.
+    valid_sd = sim_reloaded.state_dict()
+    tick_before = sim_reloaded.tick
+    streak_before = sim_reloaded.clean_step_streak
+
+    for req_key in ("config", "num_envs", "tick", "subtick_offset", "tensors"):
+        bad_top = copy.deepcopy(valid_sd)
+        bad_top["tick"] = 999999 if req_key != "tick" else bad_top["tick"]
+        del bad_top[req_key]
+        with pytest.raises(KeyError, match="Missing required state_dict keys"):
+            sim_reloaded.load_state_dict(bad_top)
+        assert sim_reloaded.tick == tick_before
+        assert sim_reloaded.clean_step_streak == streak_before
+
+    bad_extra_top = copy.deepcopy(valid_sd)
+    bad_extra_top["unexpected_top"] = 1
+    with pytest.raises(KeyError, match="Unknown state_dict keys"):
+        sim_reloaded.load_state_dict(bad_extra_top)
+
+    for field in STATE_FIELDS:
+        bad_missing_tensor = copy.deepcopy(valid_sd)
+        del bad_missing_tensor["tensors"][field.name]
+        with pytest.raises(KeyError, match="Missing state_dict tensor keys"):
+            sim_reloaded.load_state_dict(bad_missing_tensor)
+        assert sim_reloaded.tick == tick_before
+
+    bad_extra_tensor = copy.deepcopy(valid_sd)
+    bad_extra_tensor["tensors"]["unexpected_tensor"] = torch.zeros((2,), dtype=torch.int32)
+    with pytest.raises(KeyError, match="Unknown state_dict tensor keys"):
+        sim_reloaded.load_state_dict(bad_extra_tensor)
 
 
 def test_learner_index_address_reuse_and_out_mismatch_refusal() -> None:

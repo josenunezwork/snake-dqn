@@ -13,7 +13,7 @@ from research.game_v3.obs import (
 )
 from research.game_v3.reference import ReferenceStepInfo, ReferenceWorld
 from research.game_v3.scripted import food_seeking_actions, random_safe_actions
-from research.game_v3.sim import GameV3Sim, StepInfo
+from research.game_v3.sim import STATE_FIELDS, GameV3Sim, StateField, StepInfo
 
 __all__ = [
     "GameV3Config",
@@ -27,6 +27,8 @@ __all__ = [
     "ReferenceObservation",
     "ReferenceStepInfo",
     "ReferenceWorld",
+    "STATE_FIELDS",
+    "StateField",
     "StepInfo",
     "allocate_obs_batch",
     "build_obs",
