@@ -29,6 +29,7 @@ from research.v3_ppo.config import (
     get_net_preset,
     immutable_config_diff,
     obs_layout_from_game_config,
+    resolve_full_export_settings,
 )
 from research.v3_ppo.eval import compute_step_reward
 from research.v3_ppo.job import (
@@ -996,9 +997,19 @@ def test_resume_config_diff_allows_mutable_keys_and_rejects_immutable_changes() 
         eval_every_minutes=15.0,
         compile_model=True,
         fast_learner_ops=False,
+        full_exports="periodic",
     )
-    assert set(["total_updates", "eval_every_minutes", "compile_model", "fast_learner_ops"]) <= (
-        RESUME_MUTABLE_CONFIG_KEYS
+    assert (
+        set(
+            [
+                "total_updates",
+                "eval_every_minutes",
+                "compile_model",
+                "fast_learner_ops",
+                "full_exports",
+            ]
+        )
+        <= RESUME_MUTABLE_CONFIG_KEYS
     )
     assert immutable_config_diff(base, mutated) == {}
     assert_resume_config_compatible(base, mutated)
@@ -1144,3 +1155,118 @@ def test_pure_checkpoint_and_eval_schedulers() -> None:
         last_eval_wall_seconds=None,
     )
     assert can_unl is True and rem_unl == float("inf") and req_unl == pytest.approx(60.0)
+
+    # 5. `none` & `final` modes still save `work/` FULLs when due, never request periodic FULL
+    #    export, and `include_final_full_reserve=False` reserves only `est_light_bytes`!
+    for mode_no_per in ("none", "final"):
+        act_no_per = decide_checkpoint_actions(
+            updates_completed=8,
+            checkpoint_every_updates=0,
+            full_checkpoint_every_updates=0,
+            light_checkpoint_interval_sec=30.0,
+            full_checkpoint_interval_sec=75.0,
+            now_mono=1080.0,
+            last_light_work_mono=1060.0,
+            last_light_export_mono=1060.0,
+            last_full_work_mono=1000.0,
+            published_periodic_fulls=0,
+            max_periodic_full_exports=3,
+            full_exports=mode_no_per,  # type: ignore[arg-type]
+        )
+        assert act_no_per.save_work_full is True
+        assert act_no_per.want_periodic_full_export is False
+        assert act_no_per.want_periodic_light_export is False
+
+    ok_none_b, proj_none_b = check_periodic_export_budget(
+        current_exported_bytes=200,
+        new_files_bytes=50,
+        max_session_export_bytes=320,
+        last_measured_full_bytes=10_000,
+        est_light_bytes=50,
+        num_envs=4,
+        include_final_full_reserve=False,
+    )
+    assert ok_none_b is True and proj_none_b == 300
+
+
+def test_full_exports_flag_precedence_legacy_mapping_and_conflict_refusals(
+    tmp_path: Path,
+) -> None:
+    """Verify `--full-exports`, legacy `--max-periodic-full-exports`, and conflict refusals."""
+    assert V3PPOConfig().full_exports == "none"
+    assert resolve_full_export_settings(None, None) == ("none", 3)
+    assert resolve_full_export_settings("none", None) == ("none", 3)
+    assert resolve_full_export_settings("final", None) == ("final", 0)
+    assert resolve_full_export_settings("periodic", None) == ("periodic", 3)
+    assert resolve_full_export_settings(None, 0) == ("final", 0)
+    assert resolve_full_export_settings(None, 2) == ("periodic", 2)
+    assert resolve_full_export_settings("final", 0) == ("final", 0)
+    assert resolve_full_export_settings("periodic", 2) == ("periodic", 2)
+
+    with pytest.raises(ValueError, match="full_exports='periodic' requires"):
+        V3PPOConfig(full_exports="periodic", max_periodic_full_exports=0)
+
+    parser = ppo_arg_parser()
+
+    # Legacy `--max-periodic-full-exports` without `--full-exports` keeps working
+    eff_mp0 = resolve_effective_train_config(
+        parser.parse_args(["--output-dir", "/tmp/o", "--max-periodic-full-exports", "0"]),
+        environ={},
+    )
+    assert eff_mp0.cfg.full_exports == "final"
+    assert eff_mp0.cfg.max_periodic_full_exports == 0
+
+    eff_mp2 = resolve_effective_train_config(
+        parser.parse_args(["--output-dir", "/tmp/o", "--max-periodic-full-exports", "2"]),
+        environ={},
+    )
+    assert eff_mp2.cfg.full_exports == "periodic"
+    assert eff_mp2.cfg.max_periodic_full_exports == 2
+
+    # CLI `--full-exports none` overrides `V3_PPO_CONFIG_JSON` `"periodic"` cleanly
+    eff_override = resolve_effective_train_config(
+        parser.parse_args(["--output-dir", "/tmp/o", "--full-exports", "none"]),
+        environ={
+            "V3_PPO_CONFIG_JSON": json.dumps(
+                {"full_exports": "periodic", "max_periodic_full_exports": 2}
+            )
+        },
+    )
+    assert eff_override.cfg.full_exports == "none"
+
+    # Conflicting `--full-exports` + `--max-periodic-full-exports` refused on `ppo` and `prepare`
+    conflict_pairs: list[tuple[str, int]] = [
+        ("none", 0),
+        ("none", 3),
+        ("final", 1),
+        ("periodic", 0),
+    ]
+    for fe_mode, mp_val in conflict_pairs:
+        with pytest.raises(ValueError, match="Conflicting FULL export options"):
+            resolve_full_export_settings(fe_mode, mp_val)
+        with pytest.raises(ValueError, match="Conflicting FULL export options"):
+            resolve_effective_train_config(
+                parser.parse_args(
+                    [
+                        "--output-dir",
+                        "/tmp/o",
+                        "--full-exports",
+                        fe_mode,
+                        "--max-periodic-full-exports",
+                        str(mp_val),
+                    ]
+                ),
+                environ={},
+            )
+        with pytest.raises(ValueError, match="Conflicting FULL export options"):
+            prepare_v3_ppo_packet(
+                tmp_path / f"pkt_conflict_{fe_mode}_{mp_val}",
+                commit="HEAD",
+                mode="train",
+                gpu="L4",
+                full_exports=fe_mode,  # type: ignore[arg-type]
+                max_periodic_full_exports=mp_val,
+                allow_missing_canary_receipt=True,
+                output_dir=tmp_path / f"out_conflict_{fe_mode}_{mp_val}",
+                allow_unmerged_commit=True,
+            )

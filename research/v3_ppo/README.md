@@ -17,10 +17,14 @@ From-scratch PPO self-play trainer, throughput/VRAM ruler, deterministic M-of-N 
    - Default `24/24` pure self-play; supports `M`-of-`N` learners via `LearnerIndex` against `food_seeking`, `random_safe`, or `cardinal6_safe` scripted opponents.
    - Life = episode (`max_life_ticks == 0`; `sim.step(actions, truncate=...)` at rollout boundaries bootstraps `V(s_T)` while keeping large snakes alive in the world; death has zero bootstrap).
    - **Simultaneous kill + death:** `GameV3Sim` awards `kill_credit` to a killer even if the killer also dies on the same tick. By design, `compute_step_reward` pays only `-reward_death_penalty` on dying ticks (never rewarding kamikaze trades), whereas `eval.py` counts all `l_acted` `kill_credit` events (including simultaneous kill+death) so reported `kills_per_1k_agent_steps` matches the simulator's exact kill tally.
-4. **Two-Tier Atomic Checkpointing, Immutable Exports & `work/`-Only Retention:**
-   - **`LIGHT` checkpoints** (`light_u*.pt`: network, optimizer, scaler, config, counters, episode accumulators, timestamp, restart generation, and all RNG streams; no simulator state) are exported to `output/checkpoints/` at every real `light_checkpoint_interval_sec = 1800`s (`30` min) with **no per-session count cap and no interval stretching**, plus at cooperative stop / wall guard.
-   - **`FULL` checkpoints** (`light_u*.pt` + whole-world `uint8`-zlib simulator shards `full_u*.sim_shard_*_of_*.pt` each `<= checkpoint_shard_bytes = 256 MiB` with `.sha256`/`.complete` sidecars + `full_u*.index.json` written last) are exported every `full_checkpoint_interval_sec = 7200`s (`2` h) up to `max_periodic_full_exports = 3` periodic publishes per session (sized by `prepare` against the session export cap), **plus always one at cooperative stop / wall guard**. Update-based checkpoint settings (`checkpoint_every_updates`, `full_checkpoint_every_updates`) obey the same session export cap.
-   - **Resume choice:** prefers newest verified `FULL` set (bit-identical on CPU including `_clean_step_streak`), switching to a newer verified `LIGHT` checkpoint **only if** the `LIGHT` is newer than the newest `FULL` by more than `light_resume_margin_minutes = 45.0` min, and logs `V3_PPO_RESUME_CHOICE` (with `V3_PPO_LIGHT_RESUME_WARNING` when worlds are re-initialised).
+4. **Two-Tier Atomic Checkpointing, `--full-exports` Policy, Immutable Exports & `work/`-Only Retention:**
+   - **`--full-exports {none,final,periodic}` (default `none`):** controls whether whole-world `uint8`-zlib simulator `FULL` shards (`full_u*.sim_shard_*_of_*.pt` + `full_u*.index.json`) are exported to `output/checkpoints/`:
+     - `none` *(default)*: **no** periodic `FULL` and **no** final `FULL` are built for export or published to `output/`; only unthrottled periodic `LIGHT` checkpoints (`light_u*.pt` every `light_checkpoint_interval_sec = 1800`s = `30` min) and the final boundary `LIGHT` are exported. `FULL` checkpoints are still saved inside the VM's `work/checkpoints/` at `full_checkpoint_interval_sec = 7200`s (`2` h) so in-session restarts keep mature worlds.
+     - `final`: periodic `FULL` exports off (equivalent to `--max-periodic-full-exports 0`), exporting `1` final `FULL` set after the final `LIGHT` is `.complete` in `output/checkpoints/`.
+     - `periodic`: periodic `FULL` exports (up to `max_periodic_full_exports = 3`) plus `1` final `FULL` export; `prepare` emits a loud `WARNING [V3_PPO_PERIODIC_FULL_EXPORTS]` because `2`-hourly `FULL` shard downloads have exhausted the Mac supervisor transfer-time cap (`UPLOAD_CAP`) and killed `8` h `L4`/`A100` runs mid-training.
+     - Legacy `--max-periodic-full-exports` remains supported (`0 -> final`, `k >= 1 -> periodic`); conflicting `--full-exports` and `--max-periodic-full-exports` values are refused.
+   - **`LIGHT` checkpoints** (`light_u*.pt`: network, optimizer, scaler, config, counters, episode accumulators, timestamp, restart generation, and all RNG streams; no simulator state) are exported at every real `light_checkpoint_interval_sec = 1800`s (`30` min) with **no per-session count cap and no interval stretching**, plus at cooperative stop / wall guard.
+   - **Resume choice:** prefers newest verified `FULL` set when present (bit-identical on CPU including `_clean_step_streak`), switching to a newer verified `LIGHT` checkpoint if newer by `> light_resume_margin_minutes = 45.0` min, and treats `LIGHT`-only prior outputs as normal (`reason=only_light_available`, logging informational `V3_PPO_LIGHT_RESUME` stating `"worlds reinitialised"` without error-like warning banners).
    - **Safety & `work/`-only retention:** completed exports in `output/` are immutable and never rewritten or deleted; `"keep newest N"` (`keep_full_checkpoints = 2`, `keep_light_checkpoints = 4`) prunes **only `work/checkpoints/`**. Cooperative stops mid-rollout or mid-PPO-epoch discard half-stepped weights and publish only clean update-boundary checkpoints; in-session restarts (`max_in_session_restarts = 2`) tag post-restart checkpoints (`_r01`, `_r02`) and never bind a `FULL` index to a stale pre-restart `LIGHT`.
 5. **Single-Pass Dual-Matchup Evaluation, Stop Polling & Unsynced Headline Ruler:**
    - Fixed-seed evaluation (`eval_every_minutes = 60.0`, `eval_envs = 192` -> `96` worlds vs `food_seeking` + `96` worlds vs `random_safe` in **one** `GameV3Sim` pass, `eval_learner_slots = 8`, `eval_burnin_ticks = 250`, `eval_ticks = 2000`) evaluates both matchups simultaneously without perturbing training worlds or RNG.
@@ -36,26 +40,26 @@ From-scratch PPO self-play trainer, throughput/VRAM ruler, deterministic M-of-N 
   - `L4` (`22.0 GB` budget): `E = 128, K = 24, T = 32` -> `19.832 GB` (`S`) / `20.298 GB` (`M`).
   - `A100` (`40.0 GB` budget): `E = 256, K = 24, T = 32` -> `32.097 GB` (`S`) / `32.563 GB` (`M`) (refused on `L4`).
   - `H100` (`80.0 GB` budget): `E = 512, K = 24, T = 32` -> `56.627 GB` (`S`) / `57.093 GB` (`M`).
-- **Checkpoint shard & session export arithmetic (`16.0 MiB/world` budget; `S` LIGHT budgeted `16 MiB` [`~11.5 MiB` measured], `M` LIGHT budgeted `68 MiB` [`~56 MiB` measured]; `max_periodic_full_exports = 3` + `1` stop FULL = `4` FULLs max; `64 MiB` telemetry):**
-  - **8 h session (`<= 17` LIGHTs + `<= 4` FULLs):**
-    - `L4` (`E = 128`, `8` shards/FULL, `12.0 GiB` cap): `8.330 GiB` (`S`) / `9.193 GiB` (`M`).
-    - `A100` (`E = 256`, `16` shards/FULL, `24.0 GiB` cap): `16.332 GiB` (`S`) / `17.195 GiB` (`M`).
-  - **24 h session (`<= 49` LIGHTs + `<= 4` FULLs):**
-    - `L4` (`E = 128`, `8` shards/FULL, `12.0 GiB` cap): `8.830 GiB` (`S`) / `11.318 GiB` (`M`).
-    - `A100` (`E = 256`, `16` shards/FULL, `24.0 GiB` cap): `16.832 GiB` (`S`) / `19.320 GiB` (`M`).
+- **Checkpoint shard & session export arithmetic (`S` LIGHT budgeted `16 MiB` [`~11.5 MiB` measured], `M` LIGHT budgeted `68 MiB` [`~56 MiB` measured]; `64 MiB` telemetry):**
+  - **Default `--full-exports none` (`0` FULL exports; per-file cap `80 MiB` `S` / `85 MiB` `M`; whole-session cap `4.0 GiB`; FULL shard/size refusals do not fire):**
+    - `8 h` (`<= 17` LIGHTs): `0.328 GiB` (`S`) / `1.191 GiB` (`M`) on all GPUs (`L4`, `A100`, `H100`).
+    - `24 h` (`<= 49` LIGHTs): `0.828 GiB` (`S`) / `3.316 GiB` (`M`) on all GPUs (`L4`, `A100`, `H100`).
+  - **`--full-exports final` (`1` FULL) & `--full-exports periodic` (`<= 4` FULLs at `16.0 MiB/world` budget; per-file cap `320 MiB`):**
+    - `8 h` (`periodic`, `<= 17` LIGHTs + `<= 4` FULLs): `L4` (`E = 128`, `12.0 GiB` cap) `8.330 GiB` (`S`) / `9.193 GiB` (`M`); `A100` (`E = 256`, `24.0 GiB` cap) `16.332 GiB` (`S`) / `17.195 GiB` (`M`).
+    - `24 h` (`periodic`, `<= 49` LIGHTs + `<= 4` FULLs): `L4` (`E = 128`, `12.0 GiB` cap) `8.830 GiB` (`S`) / `11.318 GiB` (`M`); `A100` (`E = 256`, `24.0 GiB` cap) `16.832 GiB` (`S`) / `19.320 GiB` (`M`).
 - **Train-mode wall-guard headroom (`prepare --mode train` only; `timeout_minutes` unchanged):**
-  - Sizes `headroom = setup_allowance (120 s) + final_eval_and_save_allowance (300 s default, or canary_eval_wall_seconds + 150 s when bound receipt provides it) + (final_full_bytes + final_light_bytes) / ASSUMED_FINAL_EXPORT_DOWNLOAD_RATE_MBPS (1.0 MB/s = 1,000,000 B/s)`, sets `V3_PPO_MAX_WALL_SECONDS = floor(timeout_seconds - headroom)`, and refuses any `train` packet with `headroom > 40%` of the session.
-  - On clean boundary stop (`completed`, `wall_clock_guard`, or boundary signal), final `LIGHT` (`light_<tag>.pt`) is always exported and `.complete` in `output/checkpoints/` **before** final `FULL` shard compression/publication begins.
-  - Default headroom table (`16.0 MiB/world` budget, default `300 s` finalize allowance, `1.0 MB/s` assumed download rate):
+  - Sizes `headroom = setup_allowance (120 s) + final_eval_and_save_allowance (300 s default, or canary_eval_wall_seconds + 150 s when bound receipt provides it) + final_export_bytes / ASSUMED_FINAL_EXPORT_DOWNLOAD_RATE_MBPS (1.0 MB/s = 1,000,000 B/s)`, where `final_export_bytes = final_light_bytes + 4 MiB` (`TRAIN_FINAL_TELEMETRY_EXPORT_BYTES`) in `none` mode and `final_full_bytes + final_light_bytes` (`16.0 MiB/world` budget) in `final`/`periodic` modes. Sets `V3_PPO_MAX_WALL_SECONDS = floor(timeout_seconds - headroom)` and refuses any `train` packet with `headroom > 40%` of the session.
+  - On clean boundary stop (`completed`, `wall_clock_guard`, or boundary signal), final `LIGHT` (`light_<tag>.pt`) is always exported and `.complete` in `output/checkpoints/`; in `final` and `periodic` modes, final `FULL` shard compression/publication starts only after final `LIGHT` completes.
+  - Side-by-side headroom across `--full-exports {none,final,periodic}` (default `300 s` finalize allowance, `1.0 MB/s` assumed download rate, `16.0 MiB/world` `FULL` budget):
 
-| GPU & Worlds | Net | Final Export (`FULL` sim + `LIGHT`) | Download @ `1.0 MB/s` | Total Headroom (`120 s` + `300 s` + dl) | `4 h` (`14,400 s`) Share / `V3_PPO_MAX_WALL_SECONDS` | `8 h` (`28,800 s`) Share / `V3_PPO_MAX_WALL_SECONDS` |
-| --- | --- | --- | --- | --- | --- | --- |
-| `L4`, `128` worlds | `S` | `2,164,785,152 B` (`2,164.79 MB`) | `2,164.79 s` | `2,584.79 s` (`43.08 min`) | `17.95%` / `11,815 s` | `8.97%` / `26,215 s` |
-| `L4`, `128` worlds | `M` | `2,219,311,104 B` (`2,219.31 MB`) | `2,219.31 s` | `2,639.31 s` (`43.99 min`) | `18.33%` / `11,760 s` | `9.16%` / `26,160 s` |
-| `A100`, `256` worlds | `S` | `4,312,793,088 B` (`4,312.79 MB`) | `4,312.79 s` | `4,732.79 s` (`78.88 min`) | `32.87%` / `9,667 s` | `16.43%` / `24,067 s` |
-| `A100`, `256` worlds | `M` | `4,367,319,040 B` (`4,367.32 MB`) | `4,367.32 s` | `4,787.32 s` (`79.79 min`) | `33.25%` / `9,612 s` | `16.62%` / `24,012 s` |
-| `H100`, `512` worlds | `S` | `8,608,808,960 B` (`8,608.81 MB`) | `8,608.81 s` | `9,028.81 s` (`150.48 min`) | `62.70%` — **REFUSED (`> 40%`)** | `31.35%` / `19,771 s` |
-| `H100`, `512` worlds | `M` | `8,663,334,912 B` (`8,663.33 MB`) | `8,663.33 s` | `9,083.33 s` (`151.39 min`) | `63.08%` — **REFUSED (`> 40%`)** | `31.54%` / `19,716 s` |
+| GPU & Worlds | Net | `none` Headroom / `4 h` (`14,400 s`) / `8 h` (`28,800 s`) *(default)* | `final` Headroom / `4 h` (`14,400 s`) / `8 h` (`28,800 s`) | `periodic` Headroom / `4 h` (`14,400 s`) / `8 h` (`28,800 s`) *(warns)* |
+| --- | --- | --- | --- | --- |
+| `L4`, `128` worlds | `S` | `440.97 s` (`7.35 min`) · `3.06%` / `13,959 s` · `1.53%` / `28,359 s` | `2,584.79 s` (`43.08 min`) · `17.95%` / `11,815 s` · `8.97%` / `26,215 s` | `2,584.79 s` (`43.08 min`) · `17.95%` / `11,815 s` · `8.97%` / `26,215 s` |
+| `L4`, `128` worlds | `M` | `495.50 s` (`8.26 min`) · `3.44%` / `13,904 s` · `1.72%` / `28,304 s` | `2,639.31 s` (`43.99 min`) · `18.33%` / `11,760 s` · `9.16%` / `26,160 s` | `2,639.31 s` (`43.99 min`) · `18.33%` / `11,760 s` · `9.16%` / `26,160 s` |
+| `A100`, `256` worlds | `S` | `440.97 s` (`7.35 min`) · `3.06%` / `13,959 s` · `1.53%` / `28,359 s` | `4,732.79 s` (`78.88 min`) · `32.87%` / `9,667 s` · `16.43%` / `24,067 s` | `4,732.79 s` (`78.88 min`) · `32.87%` / `9,667 s` · `16.43%` / `24,067 s` |
+| `A100`, `256` worlds | `M` | `495.50 s` (`8.26 min`) · `3.44%` / `13,904 s` · `1.72%` / `28,304 s` | `4,787.32 s` (`79.79 min`) · `33.25%` / `9,612 s` · `16.62%` / `24,012 s` | `4,787.32 s` (`79.79 min`) · `33.25%` / `9,612 s` · `16.62%` / `24,012 s` |
+| `H100`, `512` worlds | `S` | `440.97 s` (`7.35 min`) · `3.06%` / `13,959 s` · `1.53%` / `28,359 s` | `9,028.81 s` (`150.48 min`) · `62.70%` **REFUSED** · `31.35%` / `19,771 s` | `9,028.81 s` (`150.48 min`) · `62.70%` **REFUSED** · `31.35%` / `19,771 s` |
+| `H100`, `512` worlds | `M` | `495.50 s` (`8.26 min`) · `3.44%` / `13,904 s` · `1.72%` / `28,304 s` | `9,083.33 s` (`151.39 min`) · `63.08%` **REFUSED** · `31.54%` / `19,716 s` | `9,083.33 s` (`151.39 min`) · `63.08%` **REFUSED** · `31.54%` / `19,716 s` |
 
 ## Packet Preparation Commands (Do Not Dispatch Without Operator)
 
@@ -75,7 +79,7 @@ From-scratch PPO self-play trainer, throughput/VRAM ruler, deterministic M-of-N 
   --canary-receipt /path/to/a100-or-l4-canary/output/receipt.json \
   --packet /tmp/v3_ppo_a100_ruler_pkt
 
-# A100 256-world M training packet (LIGHT every 30m, bounded FULL every 2h, single-pass eval every 60m)
+# A100 256-world M training packet (default --full-exports none: LIGHT every 30m + final LIGHT, eval every 60m)
 /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m research.v3_ppo.prepare \
   --mode train \
   --gpu A100 \

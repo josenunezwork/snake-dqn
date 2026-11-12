@@ -24,12 +24,15 @@ from research.v3_ppo.config import (
     ASSUMED_FINAL_EXPORT_DOWNLOAD_RATE_BYTES_PER_SEC,
     ASSUMED_FINAL_EXPORT_DOWNLOAD_RATE_MBPS,
     MAX_TRAIN_HEADROOM_SESSION_FRACTION,
+    NONE_MODE_MAX_TOTAL_EXPORT_BYTES,
     TRAIN_FINAL_EVAL_AND_SAVE_ALLOWANCE_SECONDS,
     TRAIN_FINAL_SAVE_AFTER_EVAL_ALLOWANCE_SECONDS,
+    TRAIN_FINAL_TELEMETRY_EXPORT_BYTES,
     TRAIN_SETUP_ALLOWANCE_SECONDS,
     V3PPOConfig,
     estimate_checkpoint_export_caps,
     estimate_train_wall_headroom,
+    estimate_train_wall_headroom_by_mode,
     estimate_training_memory,
 )
 from research.v3_ppo.job import build_arg_parser as build_train_arg_parser
@@ -40,6 +43,7 @@ from research.v3_ppo.ppo import (
 from research.v3_ppo.ppo import main as ppo_main
 from research.v3_ppo.ppo import (
     publish_checkpoint_to_output,
+    run_training_job,
     verify_full_checkpoint_set,
 )
 from research.v3_ppo.prepare import (
@@ -376,8 +380,9 @@ def test_prepare_canary_ruler_train_and_continuation_validate_with_colab_cli(
 def test_prepare_refuses_checkpoint_shard_and_session_export_cap_violations(
     tmp_path: Path,
 ) -> None:
-    """Verify `prepare` enforces single-world shard, 2 GiB supervisor, and session export caps."""
-    # 1. Shard smaller than 1 single worst-case world (~30.22 MiB at R=600, N=24) -> refused
+    """Verify FULL shard/session caps fire in `final`/`periodic` and NOT in default `none` mode."""
+    # 1. Shard smaller than 1 single worst-case world (~30.22 MiB at R=600, N=24):
+    #    refused in `periodic`/`final` modes, accepted in default `none` mode!
     tiny_shard_cfg = V3PPOConfig(num_envs=8, checkpoint_shard_bytes=4 * 1024 * 1024)
     with pytest.raises(ValueError, match="exceeds checkpoint_shard_bytes"):
         prepare_v3_ppo_packet(
@@ -385,6 +390,7 @@ def test_prepare_refuses_checkpoint_shard_and_session_export_cap_violations(
             commit="HEAD",
             mode="train",
             gpu="L4",
+            full_exports="periodic",
             ppo_config=tiny_shard_cfg,
             allow_missing_canary_receipt=True,
             output_dir=tmp_path / "out_bad_shard",
@@ -392,7 +398,20 @@ def test_prepare_refuses_checkpoint_shard_and_session_export_cap_violations(
         )
     assert not (tmp_path / "pkt_bad_shard").exists()
 
-    # 2. Shard cap whose 1.25x file envelope exceeds the 2.00 GiB supervisor per-file ceiling
+    ok_tiny_none = prepare_v3_ppo_packet(
+        tmp_path / "pkt_tiny_shard_none",
+        commit="HEAD",
+        mode="train",
+        gpu="L4",
+        ppo_config=tiny_shard_cfg,
+        allow_missing_canary_receipt=True,
+        output_dir=tmp_path / "out_tiny_shard_none",
+        allow_unmerged_commit=True,
+    )
+    assert ok_tiny_none["checkpoint_export_caps"]["max_full_exports"] == 0
+
+    # 2. Shard cap whose 1.25x file envelope exceeds the 2.00 GiB supervisor per-file ceiling:
+    #    refused in `final`/`periodic` modes, accepted in default `none` mode!
     huge_shard_cfg = V3PPOConfig(num_envs=16, checkpoint_shard_bytes=1800 * 1024 * 1024)
     with pytest.raises(ValueError, match="supervisor 2.00 GiB per-file limit"):
         prepare_v3_ppo_packet(
@@ -400,14 +419,32 @@ def test_prepare_refuses_checkpoint_shard_and_session_export_cap_violations(
             commit="HEAD",
             mode="train",
             gpu="L4",
+            full_exports="final",
             ppo_config=huge_shard_cfg,
             allow_missing_canary_receipt=True,
             output_dir=tmp_path / "out_huge_shard",
             allow_unmerged_commit=True,
         )
 
-    # 3. Total session export volume exceeding GPU session cap (`12.00 GiB` on L4):
+    ok_huge_none = prepare_v3_ppo_packet(
+        tmp_path / "pkt_huge_shard_none",
+        commit="HEAD",
+        mode="train",
+        gpu="L4",
+        ppo_config=huge_shard_cfg,
+        allow_missing_canary_receipt=True,
+        output_dir=tmp_path / "out_huge_shard_none",
+        allow_unmerged_commit=True,
+    )
+    assert ok_huge_none["checkpoint_export_caps"]["per_file_max_export_bytes"] == 80 * 1024 * 1024
+    assert (
+        ok_huge_none["checkpoint_export_caps"]["session_total_export_cap_bytes"]
+        == NONE_MODE_MAX_TOTAL_EXPORT_BYTES
+    )
+
+    # 3. Total session export volume exceeding GPU session cap:
     #    (3a) Excessive `max_periodic_full_exports` (`6` periodic + `1` stop = `7` FULLs > `12 GiB`)
+    #         refused when periodic FULLs are enabled, ignored in default `none` mode!
     bloated_full_cfg = V3PPOConfig(num_envs=128, max_periodic_full_exports=6)
     with pytest.raises(ValueError, match="exceeds L4 session export cap"):
         prepare_v3_ppo_packet(
@@ -416,13 +453,27 @@ def test_prepare_refuses_checkpoint_shard_and_session_export_cap_violations(
             mode="train",
             gpu="L4",
             hours=8.0,
+            full_exports="periodic",
             ppo_config=bloated_full_cfg,
             allow_missing_canary_receipt=True,
             output_dir=tmp_path / "out_bloated_session",
             allow_unmerged_commit=True,
         )
+    ok_bloated_full_none = prepare_v3_ppo_packet(
+        tmp_path / "pkt_bloated_session_none",
+        commit="HEAD",
+        mode="train",
+        gpu="L4",
+        hours=8.0,
+        ppo_config=bloated_full_cfg,
+        allow_missing_canary_receipt=True,
+        output_dir=tmp_path / "out_bloated_session_none",
+        allow_unmerged_commit=True,
+    )
+    assert ok_bloated_full_none["checkpoint_export_caps"]["max_full_exports"] == 0
 
-    #    (3b) Update-based checkpoint setting (`checkpoint_every_updates=1`) exceeding cap
+    #    (3b) Update-based LIGHT checkpoint setting (`checkpoint_every_updates=1`) STILL refuses
+    #         in default `none` mode against the shrunken 4.00 GiB LIGHT-only session cap!
     bloated_upd_cfg = V3PPOConfig(num_envs=128, checkpoint_every_updates=1)
     with pytest.raises(ValueError, match="exceeds L4 session export cap"):
         prepare_v3_ppo_packet(
@@ -437,7 +488,7 @@ def test_prepare_refuses_checkpoint_shard_and_session_export_cap_violations(
             allow_unmerged_commit=True,
         )
 
-    # 4. Explicit high `measured_packed_bytes_per_world` pushing E=128 over 12.00 GiB L4 cap
+    # 4. Explicit high `measured_packed_bytes_per_world`: refuses in `periodic`, accepted in `none`
     with pytest.raises(ValueError, match="exceeds L4 session export cap"):
         prepare_v3_ppo_packet(
             tmp_path / "pkt_high_measured",
@@ -445,37 +496,65 @@ def test_prepare_refuses_checkpoint_shard_and_session_export_cap_violations(
             mode="train",
             gpu="L4",
             num_envs=128,
+            full_exports="periodic",
             measured_packed_bytes_per_world=8 * 1024 * 1024,  # 8 MiB * 4.8x = 38.4 MiB/world
             allow_missing_canary_receipt=True,
             output_dir=tmp_path / "out_high_measured",
             allow_unmerged_commit=True,
         )
+    ok_high_meas_none = prepare_v3_ppo_packet(
+        tmp_path / "pkt_high_measured_none",
+        commit="HEAD",
+        mode="train",
+        gpu="L4",
+        num_envs=128,
+        measured_packed_bytes_per_world=8 * 1024 * 1024,
+        allow_missing_canary_receipt=True,
+        output_dir=tmp_path / "out_high_measured_none",
+        allow_unmerged_commit=True,
+    )
+    assert ok_high_meas_none["checkpoint_export_caps"]["max_full_exports"] == 0
 
     # 5. Verify 8 h and 24 h sessions fit cleanly on L4 (E=128) and A100 (E=256) for both S and M
-    for gpu_kind, n_envs in (("L4", 128), ("A100", 256)):
-        for h_val in (8.0, 24.0):
-            for net_sz in ("S", "M"):
-                slug = f"{gpu_kind.lower()}_{int(h_val)}h_{net_sz.lower()}"
-                ok_info = prepare_v3_ppo_packet(
-                    tmp_path / f"pkt_{slug}",
-                    commit="HEAD",
-                    mode="train",
-                    gpu=gpu_kind,
-                    hours=h_val,
-                    num_envs=n_envs,
-                    net_size=net_sz,
-                    allow_missing_canary_receipt=True,
-                    output_dir=tmp_path / f"out_{slug}",
-                    allow_unmerged_commit=True,
-                )
-                caps = ok_info["checkpoint_export_caps"]
-                assert caps["total_session_fits_cap"] is True
-                assert caps["max_light_exports"] == (17 if h_val == 8.0 else 49)
-                assert caps["max_full_exports"] == 4
-                mf_ok = json.loads(Path(ok_info["manifest_path"]).read_text(encoding="utf-8"))
-                assert int(mf_ok["env"]["V3_PPO_MAX_SESSION_EXPORT_BYTES"]) == int(
-                    caps["session_total_export_cap_bytes"]
-                )
+    #    in both default `none` mode (shrunken 80/85 MiB per-file & 4 GiB session caps) and
+    #    `periodic` mode (320 MiB per-file & 12/24 GiB session caps).
+    for fe_mode in ("none", "periodic"):
+        for gpu_kind, n_envs in (("L4", 128), ("A100", 256)):
+            for h_val in (8.0, 24.0):
+                for net_sz in ("S", "M"):
+                    slug = f"{fe_mode}_{gpu_kind.lower()}_{int(h_val)}h_{net_sz.lower()}"
+                    ok_info = prepare_v3_ppo_packet(
+                        tmp_path / f"pkt_{slug}",
+                        commit="HEAD",
+                        mode="train",
+                        gpu=gpu_kind,
+                        hours=h_val,
+                        num_envs=n_envs,
+                        net_size=net_sz,
+                        full_exports=fe_mode,  # type: ignore[arg-type]
+                        allow_missing_canary_receipt=True,
+                        output_dir=tmp_path / f"out_{slug}",
+                        allow_unmerged_commit=True,
+                    )
+                    caps = ok_info["checkpoint_export_caps"]
+                    assert caps["total_session_fits_cap"] is True
+                    assert caps["max_light_exports"] == (17 if h_val == 8.0 else 49)
+                    mf_ok = json.loads(Path(ok_info["manifest_path"]).read_text(encoding="utf-8"))
+                    if fe_mode == "none":
+                        assert caps["max_full_exports"] == 0
+                        assert (
+                            caps["session_total_export_cap_bytes"]
+                            == NONE_MODE_MAX_TOTAL_EXPORT_BYTES
+                        )
+                        exp_per_file = (80 if net_sz == "S" else 85) * 1024 * 1024
+                        assert caps["per_file_max_export_bytes"] == exp_per_file
+                        assert mf_ok["max_export_bytes"] == exp_per_file
+                    else:
+                        assert caps["max_full_exports"] == 4
+                        assert caps["per_file_max_export_bytes"] == 320 * 1024 * 1024
+                    assert int(mf_ok["env"]["V3_PPO_MAX_SESSION_EXPORT_BYTES"]) == int(
+                        caps["session_total_export_cap_bytes"]
+                    )
 
 
 def test_ruler_unsynced_headline_vram_precheck_and_single_slot_mature_state_cache(
@@ -1282,9 +1361,10 @@ def test_prepare_and_job_sh_effective_configs_match_e2865f93_baseline(tmp_path: 
         ("train_s_default", "L4", "S"),
         ("train_m_custom", "A100", "M"),
     ):
-        before_no_wall = {k: v for k, v in before[train_key].items() if k != "max_wall_seconds"}
-        after_no_wall = {k: v for k, v in after[train_key].items() if k != "max_wall_seconds"}
-        assert after_no_wall == before_no_wall
+        assert after[train_key]["entry"] == before[train_key]["entry"]
+        assert after[train_key]["device"] == before[train_key]["device"]
+        assert after[train_key]["cfg"] == {**before[train_key]["cfg"], "full_exports": "none"}
+        assert after[train_key]["max_session_export_bytes"] == NONE_MODE_MAX_TOTAL_EXPORT_BYTES
         exp_wall = float(
             estimate_train_wall_headroom(
                 V3PPOConfig(net_size=net_sz, num_envs=128),  # type: ignore[arg-type]
@@ -1293,7 +1373,6 @@ def test_prepare_and_job_sh_effective_configs_match_e2865f93_baseline(tmp_path: 
             )["max_wall_seconds"]
         )
         assert after[train_key]["max_wall_seconds"] == pytest.approx(exp_wall)
-        assert after[train_key]["max_wall_seconds"] < before[train_key]["max_wall_seconds"]
 
 
 def test_canary_and_ruler_packets_byte_for_byte_identical_vs_c85c6837(tmp_path: Path) -> None:
@@ -1440,81 +1519,254 @@ out_json.write_text(json.dumps(snapshots, sort_keys=True), encoding="utf-8")
         ), f"Summary JSON changed vs c85c6837 for {case_name}"
 
 
+def test_default_train_packet_differs_from_c85c6837_only_in_documented_ways(
+    tmp_path: Path,
+) -> None:
+    """Prove default `train` packets differ from `c85c6837` strictly in documented `none` fields."""
+    baseline_root = _materialize_baseline_root(tmp_path, "c85c6837")
+    train_diff_script = tmp_path / "train_diff_c85c6837.py"
+    train_diff_script.write_text(
+        """from __future__ import annotations
+import base64, json, shutil, sys
+from pathlib import Path
+
+repo_root = Path(sys.argv[1]).resolve()
+shared_pkt_root = Path(sys.argv[2]).resolve()
+out_json = Path(sys.argv[3]).resolve()
+git_repo = Path(sys.argv[4]).resolve()
+sys.path.insert(0, str(repo_root))
+
+import research.v3_ppo.prepare as prep_mod
+prep_mod.ROOT = git_repo
+
+if shared_pkt_root.exists():
+    shutil.rmtree(shared_pkt_root)
+shared_pkt_root.mkdir(parents=True)
+
+cases = {
+    "train_l4_default": dict(mode="train", gpu="L4", allow_missing_canary_receipt=True),
+    "train_a100_8h_m": dict(
+        mode="train", gpu="A100", num_envs=256, net_size="M", hours=8.0,
+        allow_missing_canary_receipt=True,
+    ),
+}
+
+snapshots = {}
+for name, kw in cases.items():
+    pkt_dir = shared_pkt_root / f"pkt_{name}"
+    out_dir = shared_pkt_root / f"out_{name}"
+    prep_mod.prepare_v3_ppo_packet(
+        pkt_dir,
+        commit="c85c6837",
+        output_dir=out_dir,
+        allow_unmerged_commit=True,
+        **kw,
+    )
+    files_b64 = {}
+    for p in sorted(pkt_dir.rglob("*")):
+        if p.is_file():
+            files_b64[p.relative_to(pkt_dir).as_posix()] = base64.b64encode(
+                p.read_bytes()
+            ).decode("ascii")
+    snapshots[name] = {
+        "manifest": json.loads((pkt_dir / "dispatch-manifest.json").read_text(encoding="utf-8")),
+        "files_b64": files_b64,
+    }
+
+out_json.write_text(json.dumps(snapshots, sort_keys=True), encoding="utf-8")
+""",
+        encoding="utf-8",
+    )
+
+    sub_env = {
+        **os.environ,
+        "OMP_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+    }
+    shared_root = tmp_path / "shared_train_diff_pkts"
+    before_path = tmp_path / "train_c85c6837.json"
+    after_path = tmp_path / "train_head.json"
+    subprocess.run(
+        [
+            sys.executable,
+            str(train_diff_script),
+            str(baseline_root),
+            str(shared_root),
+            str(before_path),
+            str(ROOT),
+        ],
+        env={**sub_env, "PYTHONPATH": str(baseline_root)},
+        check=True,
+    )
+    subprocess.run(
+        [
+            sys.executable,
+            str(train_diff_script),
+            str(ROOT),
+            str(shared_root),
+            str(after_path),
+            str(ROOT),
+        ],
+        env={**sub_env, "PYTHONPATH": str(ROOT)},
+        check=True,
+    )
+    before = json.loads(before_path.read_text(encoding="utf-8"))
+    after = json.loads(after_path.read_text(encoding="utf-8"))
+
+    expected_case_specs = {
+        "train_l4_default": ("L4", 128, "S", 2.0, 80 * 1024 * 1024),
+        "train_a100_8h_m": ("A100", 256, "M", 8.0, 85 * 1024 * 1024),
+    }
+    for case_name, (gpu_kind, n_envs, net_sz, h_val, exp_per_file) in expected_case_specs.items():
+        b_files = before[case_name]["files_b64"]
+        a_files = after[case_name]["files_b64"]
+        expected_pkt_files = {
+            "dispatch-manifest.json",
+            "inputs/verified-ledger.json",
+            "inputs/verified-ledger.json.sha256",
+            "inputs/verified-ledger.json.complete",
+            "verified-ledger.json",
+        }
+        assert set(a_files.keys()) == set(b_files.keys()) == expected_pkt_files
+        # Every non-manifest packet file is byte-for-byte identical vs c85c6837!
+        for rel_non_mf in sorted(expected_pkt_files - {"dispatch-manifest.json"}):
+            assert a_files[rel_non_mf] == b_files[rel_non_mf]
+
+        mf_b = before[case_name]["manifest"]
+        mf_a = after[case_name]["manifest"]
+        documented_top_diffs = {"max_export_bytes", "env", "technical_envelope"}
+        assert {k: v for k, v in mf_a.items() if k not in documented_top_diffs} == {
+            k: v for k, v in mf_b.items() if k not in documented_top_diffs
+        }
+        assert mf_a["max_export_bytes"] == exp_per_file
+
+        # `env` differs ONLY in `V3_PPO_MAX_WALL_SECONDS`, `V3_PPO_MAX_SESSION_EXPORT_BYTES`, and
+        # `V3_PPO_CONFIG_JSON` (`"full_exports": "none"` added).
+        documented_env_diffs = {
+            "V3_PPO_MAX_WALL_SECONDS",
+            "V3_PPO_MAX_SESSION_EXPORT_BYTES",
+            "V3_PPO_CONFIG_JSON",
+        }
+        assert {k: v for k, v in mf_a["env"].items() if k not in documented_env_diffs} == {
+            k: v for k, v in mf_b["env"].items() if k not in documented_env_diffs
+        }
+        cfg_b = json.loads(mf_b["env"]["V3_PPO_CONFIG_JSON"])
+        cfg_a = json.loads(mf_a["env"]["V3_PPO_CONFIG_JSON"])
+        assert cfg_a == {**cfg_b, "full_exports": "none"}
+        assert (
+            int(mf_a["env"]["V3_PPO_MAX_SESSION_EXPORT_BYTES"]) == NONE_MODE_MAX_TOTAL_EXPORT_BYTES
+        )
+
+        exp_cfg = V3PPOConfig(num_envs=n_envs, net_size=net_sz, full_exports="none")  # type: ignore[arg-type]
+        exp_caps = estimate_checkpoint_export_caps(
+            exp_cfg, gpu=gpu_kind, max_wall_seconds=h_val * 3600.0
+        )
+        exp_hr = estimate_train_wall_headroom(exp_cfg, gpu=gpu_kind, session_seconds=h_val * 3600.0)
+        assert int(mf_a["env"]["V3_PPO_MAX_WALL_SECONDS"]) == int(exp_hr["max_wall_seconds"])
+
+        # `technical_envelope` differs ONLY in session export caps & `wall_headroom`.
+        documented_tech_diffs = {
+            "session_total_export_cap_bytes",
+            "worst_case_session_export_bytes",
+            "wall_headroom",
+        }
+        assert {
+            k: v for k, v in mf_a["technical_envelope"].items() if k not in documented_tech_diffs
+        } == {k: v for k, v in mf_b["technical_envelope"].items() if k not in documented_tech_diffs}
+        assert (
+            mf_a["technical_envelope"]["session_total_export_cap_bytes"]
+            == NONE_MODE_MAX_TOTAL_EXPORT_BYTES
+        )
+        assert mf_a["technical_envelope"]["worst_case_session_export_bytes"] == int(
+            exp_caps["worst_case_session_export_bytes"]
+        )
+        assert mf_a["technical_envelope"]["wall_headroom"] == exp_hr
+
+
 def test_train_wall_headroom_arithmetic_gpu_defaults_summary_and_40pct_refusal(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Verify headroom arithmetic across L4/A100/H100 defaults, receipt eval, summary, & >40% refusal."""
+    """Verify headroom arithmetic per mode (`none`/`final`/`periodic`), warnings, & >40% refusal."""
     assert TRAIN_SETUP_ALLOWANCE_SECONDS == 120.0
     assert TRAIN_FINAL_EVAL_AND_SAVE_ALLOWANCE_SECONDS == 300.0
     assert TRAIN_FINAL_SAVE_AFTER_EVAL_ALLOWANCE_SECONDS == 150.0
+    assert TRAIN_FINAL_TELEMETRY_EXPORT_BYTES == 4 * 1024 * 1024
     assert ASSUMED_FINAL_EXPORT_DOWNLOAD_RATE_MBPS == 1.0
     assert ASSUMED_FINAL_EXPORT_DOWNLOAD_RATE_BYTES_PER_SEC == 1_000_000.0
     assert MAX_TRAIN_HEADROOM_SESSION_FRACTION == 0.40
 
     expected_cases = [
-        # (gpu, num_envs, net_size, hours, expected_final_bytes, expected_wall_4h_or_8h, fits_40)
-        ("L4", 128, "S", 4.0, 2_164_785_152, 11_815, True),
-        ("L4", 128, "S", 8.0, 2_164_785_152, 26_215, True),
-        ("L4", 128, "M", 4.0, 2_219_311_104, 11_760, True),
-        ("L4", 128, "M", 8.0, 2_219_311_104, 26_160, True),
-        ("A100", 256, "S", 4.0, 4_312_793_088, 9_667, True),
-        ("A100", 256, "S", 8.0, 4_312_793_088, 24_067, True),
-        ("A100", 256, "M", 4.0, 4_367_319_040, 9_612, True),
-        ("A100", 256, "M", 8.0, 4_367_319_040, 24_012, True),
-        ("H100", 512, "S", 4.0, 8_608_808_960, 5_371, False),
-        ("H100", 512, "S", 8.0, 8_608_808_960, 19_771, True),
-        ("H100", 512, "M", 4.0, 8_663_334_912, 5_316, False),
-        ("H100", 512, "M", 8.0, 8_663_334_912, 19_716, True),
+        # (gpu, envs, net, hours, none_bytes, none_wall, full_bytes, full_wall, full_fits_40)
+        ("L4", 128, "S", 4.0, 20_971_520, 13_959, 2_164_785_152, 11_815, True),
+        ("L4", 128, "S", 8.0, 20_971_520, 28_359, 2_164_785_152, 26_215, True),
+        ("L4", 128, "M", 4.0, 75_497_472, 13_904, 2_219_311_104, 11_760, True),
+        ("L4", 128, "M", 8.0, 75_497_472, 28_304, 2_219_311_104, 26_160, True),
+        ("A100", 256, "S", 4.0, 20_971_520, 13_959, 4_312_793_088, 9_667, True),
+        ("A100", 256, "S", 8.0, 20_971_520, 28_359, 4_312_793_088, 24_067, True),
+        ("A100", 256, "M", 4.0, 75_497_472, 13_904, 4_367_319_040, 9_612, True),
+        ("A100", 256, "M", 8.0, 75_497_472, 28_304, 4_367_319_040, 24_012, True),
+        ("H100", 512, "S", 4.0, 20_971_520, 13_959, 8_608_808_960, 5_371, False),
+        ("H100", 512, "S", 8.0, 20_971_520, 28_359, 8_608_808_960, 19_771, True),
+        ("H100", 512, "M", 4.0, 75_497_472, 13_904, 8_663_334_912, 5_316, False),
+        ("H100", 512, "M", 8.0, 75_497_472, 28_304, 8_663_334_912, 19_716, True),
     ]
 
-    for gpu_kind, n_envs, net_sz, h_val, exp_bytes, exp_wall, exp_fits in expected_cases:
-        cfg = V3PPOConfig(num_envs=n_envs, net_size=net_sz)  # type: ignore[arg-type]
+    for (
+        gpu_kind,
+        n_envs,
+        net_sz,
+        h_val,
+        none_bytes,
+        none_wall,
+        full_bytes,
+        full_wall,
+        full_fits,
+    ) in expected_cases:
         sess_sec = h_val * 3600.0
-        caps = estimate_checkpoint_export_caps(cfg, gpu=gpu_kind, max_wall_seconds=sess_sec)
-        est = estimate_train_wall_headroom(cfg, gpu=gpu_kind, session_seconds=sess_sec)
-        assert est["final_full_bytes"] == int(caps["est_full_sim_bytes"])
-        assert est["final_light_bytes"] == int(caps["est_light_checkpoint_bytes"])
-        assert est["final_export_bytes"] == exp_bytes
-        assert est["setup_allowance_seconds"] == 120.0
-        assert est["final_eval_and_save_allowance_seconds"] == 300.0
-        assert est["final_export_download_seconds"] == pytest.approx(exp_bytes / 1_000_000.0)
-        assert est["headroom_seconds"] == pytest.approx(120.0 + 300.0 + exp_bytes / 1_000_000.0)
-        assert est["max_wall_seconds"] == exp_wall
-        assert est["fits_max_headroom_fraction"] is exp_fits
+        by_mode = estimate_train_wall_headroom_by_mode(
+            V3PPOConfig(num_envs=n_envs, net_size=net_sz),  # type: ignore[arg-type]
+            gpu=gpu_kind,
+            session_seconds=sess_sec,
+        )
+        assert tuple(by_mode.keys()) == ("none", "final", "periodic")
 
-        slug = f"{gpu_kind.lower()}_{n_envs}_{net_sz.lower()}_{int(h_val)}h"
-        pkt_path = tmp_path / f"pkt_{slug}"
-        if exp_fits:
-            summary = prepare_v3_ppo_packet(
-                pkt_path,
-                commit="HEAD",
-                mode="train",
-                gpu=gpu_kind,
-                hours=h_val,
+        for fe_mode in ("none", "final", "periodic"):
+            cfg = V3PPOConfig(
                 num_envs=n_envs,
                 net_size=net_sz,  # type: ignore[arg-type]
-                allow_missing_canary_receipt=True,
-                output_dir=tmp_path / f"out_{slug}",
-                allow_unmerged_commit=True,
+                full_exports=fe_mode,  # type: ignore[arg-type]
             )
-            assert summary["timeout_minutes"] == pytest.approx(h_val * 60.0)
-            assert summary["max_wall_seconds"] == exp_wall
-            wh = summary["wall_headroom"]
-            assert wh["headroom_seconds"] == pytest.approx(est["headroom_seconds"])
-            assert wh["setup_allowance_seconds"] == 120.0
-            assert wh["final_eval_and_save_allowance_seconds"] == 300.0
-            assert wh["final_export_download_seconds"] == pytest.approx(exp_bytes / 1_000_000.0)
-            mf = json.loads(Path(summary["manifest_path"]).read_text(encoding="utf-8"))
-            assert mf["timeout_minutes"] == pytest.approx(h_val * 60.0)
-            assert int(mf["env"]["V3_PPO_MAX_WALL_SECONDS"]) == exp_wall
-            assert mf["technical_envelope"]["wall_headroom"] == wh
-        else:
-            with pytest.raises(
-                ValueError,
-                match=rf"Refusing train packet whose wall-guard headroom.*exceeds 40% of the {int(h_val)} h session",
-            ):
-                prepare_v3_ppo_packet(
+            caps = estimate_checkpoint_export_caps(cfg, gpu=gpu_kind, max_wall_seconds=sess_sec)
+            est = estimate_train_wall_headroom(cfg, gpu=gpu_kind, session_seconds=sess_sec)
+            assert by_mode[fe_mode] == est
+
+            exp_bytes = none_bytes if fe_mode == "none" else full_bytes
+            exp_wall = none_wall if fe_mode == "none" else full_wall
+            exp_fits = True if fe_mode == "none" else full_fits
+
+            assert est["full_exports"] == fe_mode
+            assert est["final_light_bytes"] == int(caps["est_light_checkpoint_bytes"])
+            if fe_mode == "none":
+                assert est["final_full_bytes"] == 0
+                assert est["final_telemetry_bytes"] == TRAIN_FINAL_TELEMETRY_EXPORT_BYTES
+            else:
+                assert est["final_full_bytes"] == int(caps["est_full_sim_bytes"])
+                assert est["final_telemetry_bytes"] == 0
+            assert est["final_export_bytes"] == exp_bytes
+            assert est["setup_allowance_seconds"] == 120.0
+            assert est["final_eval_and_save_allowance_seconds"] == 300.0
+            assert est["final_export_download_seconds"] == pytest.approx(exp_bytes / 1_000_000.0)
+            assert est["headroom_seconds"] == pytest.approx(120.0 + 300.0 + exp_bytes / 1_000_000.0)
+            assert est["max_wall_seconds"] == exp_wall
+            assert est["fits_max_headroom_fraction"] is exp_fits
+
+            slug = f"{fe_mode}_{gpu_kind.lower()}_{n_envs}_{net_sz.lower()}_{int(h_val)}h"
+            pkt_path = tmp_path / f"pkt_{slug}"
+            capsys.readouterr()
+            if exp_fits:
+                summary = prepare_v3_ppo_packet(
                     pkt_path,
                     commit="HEAD",
                     mode="train",
@@ -1522,25 +1774,78 @@ def test_train_wall_headroom_arithmetic_gpu_defaults_summary_and_40pct_refusal(
                     hours=h_val,
                     num_envs=n_envs,
                     net_size=net_sz,  # type: ignore[arg-type]
+                    full_exports=None if fe_mode == "none" else fe_mode,  # type: ignore[arg-type]
                     allow_missing_canary_receipt=True,
                     output_dir=tmp_path / f"out_{slug}",
                     allow_unmerged_commit=True,
                 )
-            assert not pkt_path.exists()
+                prep_err = capsys.readouterr().err
+                assert summary["timeout_minutes"] == pytest.approx(h_val * 60.0)
+                assert summary["max_wall_seconds"] == exp_wall
+                wh = summary["wall_headroom"]
+                assert wh["headroom_seconds"] == pytest.approx(est["headroom_seconds"])
+                assert summary["wall_headroom_by_mode"] == by_mode
+                assert "V3_PPO_HEADROOM_BY_MODE " in prep_err
+                if fe_mode == "periodic":
+                    assert "WARNING [V3_PPO_PERIODIC_FULL_EXPORTS]" in prep_err
+                    assert "UPLOAD_CAP" in prep_err
+                else:
+                    assert "V3_PPO_PERIODIC_FULL_EXPORTS" not in prep_err
+                mf = json.loads(Path(summary["manifest_path"]).read_text(encoding="utf-8"))
+                assert mf["timeout_minutes"] == pytest.approx(h_val * 60.0)
+                assert int(mf["env"]["V3_PPO_MAX_WALL_SECONDS"]) == exp_wall
+                assert mf["technical_envelope"]["wall_headroom"] == wh
+            else:
+                with pytest.raises(
+                    ValueError,
+                    match=(
+                        rf"Refusing train packet whose wall-guard headroom.*"
+                        rf"exceeds 40% of the {int(h_val)} h session"
+                    ),
+                ):
+                    prepare_v3_ppo_packet(
+                        pkt_path,
+                        commit="HEAD",
+                        mode="train",
+                        gpu=gpu_kind,
+                        hours=h_val,
+                        num_envs=n_envs,
+                        net_size=net_sz,  # type: ignore[arg-type]
+                        full_exports=fe_mode,  # type: ignore[arg-type]
+                        allow_missing_canary_receipt=True,
+                        output_dir=tmp_path / f"out_{slug}",
+                        allow_unmerged_commit=True,
+                    )
+                assert not pkt_path.exists()
 
-    # Additional short-session refusals on A100 (256 worlds @ 2h) and L4 (128 worlds @ 1h)
-    for bad_gpu, bad_envs, bad_hours in (("A100", 256, 2.0), ("L4", 128, 1.0)):
-        bad_pkt = tmp_path / f"pkt_refuse_{bad_gpu.lower()}_{int(bad_hours)}h"
+    # Short sessions on A100 (256 worlds @ 2h) and L4 (128 worlds @ 1h):
+    # accepted in default `none` mode, refused in `final`/`periodic` modes!
+    for short_gpu, short_envs, short_hours in (("A100", 256, 2.0), ("L4", 128, 1.0)):
+        ok_short = prepare_v3_ppo_packet(
+            tmp_path / f"pkt_ok_none_{short_gpu.lower()}_{int(short_hours)}h",
+            commit="HEAD",
+            mode="train",
+            gpu=short_gpu,
+            hours=short_hours,
+            num_envs=short_envs,
+            allow_missing_canary_receipt=True,
+            output_dir=tmp_path / f"out_ok_none_{short_gpu.lower()}",
+            allow_unmerged_commit=True,
+        )
+        assert ok_short["wall_headroom"]["full_exports"] == "none"
+
+        bad_pkt = tmp_path / f"pkt_refuse_{short_gpu.lower()}_{int(short_hours)}h"
         with pytest.raises(ValueError, match="exceeds 40%"):
             prepare_v3_ppo_packet(
                 bad_pkt,
                 commit="HEAD",
                 mode="train",
-                gpu=bad_gpu,
-                hours=bad_hours,
-                num_envs=bad_envs,
+                gpu=short_gpu,
+                hours=short_hours,
+                num_envs=short_envs,
+                full_exports="final",
                 allow_missing_canary_receipt=True,
-                output_dir=tmp_path / f"out_refuse_{bad_gpu.lower()}",
+                output_dir=tmp_path / f"out_refuse_{short_gpu.lower()}",
                 allow_unmerged_commit=True,
             )
         assert not bad_pkt.exists()
@@ -1562,7 +1867,8 @@ def test_train_wall_headroom_arithmetic_gpu_defaults_summary_and_40pct_refusal(
     measured_eval_s = float(canary_checks["default_eval_wall_seconds"])
     capsys.readouterr()
 
-    rc_cli = prepare_main(
+    # Default CLI (`--full-exports none`) uses LIGHT+telemetry download term and emits NO warning
+    rc_cli_none = prepare_main(
         [
             "--mode",
             "train",
@@ -1577,25 +1883,169 @@ def test_train_wall_headroom_arithmetic_gpu_defaults_summary_and_40pct_refusal(
             "--canary-receipt",
             str(rcpt_l4),
             "--output-dir",
-            str(tmp_path / "out_cli_l4_4h"),
+            str(tmp_path / "out_cli_l4_4h_none"),
             "--packet",
-            str(tmp_path / "pkt_cli_l4_4h"),
+            str(tmp_path / "pkt_cli_l4_4h_none"),
             "--allow-unmerged-commit",
         ]
     )
-    assert rc_cli == 0
-    captured = capsys.readouterr()
-    cli_summary = json.loads(captured.out)
-    cli_wh = cli_summary["wall_headroom"]
-    assert cli_wh["final_eval_and_save_source"] == "canary_receipt_eval_plus_150s"
-    assert cli_wh["setup_allowance_seconds"] == 120.0
-    assert cli_wh["final_eval_and_save_allowance_seconds"] == pytest.approx(measured_eval_s + 150.0)
-    assert cli_wh["final_export_download_seconds"] == pytest.approx(2_164_785_152 / 1_000_000.0)
-    assert cli_wh["headroom_seconds"] == pytest.approx(
-        120.0 + (measured_eval_s + 150.0) + 2_164_785_152 / 1_000_000.0
+    assert rc_cli_none == 0
+    captured_none = capsys.readouterr()
+    cli_summary_none = json.loads(captured_none.out)
+    cli_wh_none = cli_summary_none["wall_headroom"]
+    assert cli_wh_none["full_exports"] == "none"
+    assert cli_wh_none["final_eval_and_save_source"] == "canary_receipt_eval_plus_150s"
+    assert cli_wh_none["setup_allowance_seconds"] == 120.0
+    assert cli_wh_none["final_eval_and_save_allowance_seconds"] == pytest.approx(
+        measured_eval_s + 150.0
     )
-    assert "V3_PPO_HEADROOM " in captured.err
-    assert '"setup_allowance_seconds": 120.0' in captured.err
+    assert cli_wh_none["final_export_download_seconds"] == pytest.approx(20_971_520 / 1_000_000.0)
+    assert cli_wh_none["headroom_seconds"] == pytest.approx(
+        120.0 + (measured_eval_s + 150.0) + 20_971_520 / 1_000_000.0
+    )
+    assert set(cli_summary_none["wall_headroom_by_mode"].keys()) == {"none", "final", "periodic"}
+    assert "V3_PPO_HEADROOM " in captured_none.err
+    assert "V3_PPO_HEADROOM_BY_MODE " in captured_none.err
+    assert "V3_PPO_PERIODIC_FULL_EXPORTS" not in captured_none.err
+
+    # CLI `--full-exports periodic` uses FULL+LIGHT download term and prints loud warning!
+    rc_cli_per = prepare_main(
+        [
+            "--mode",
+            "train",
+            "--gpu",
+            "L4",
+            "--num-envs",
+            "128",
+            "--net-size",
+            "S",
+            "--hours",
+            "4.0",
+            "--full-exports",
+            "periodic",
+            "--canary-receipt",
+            str(rcpt_l4),
+            "--output-dir",
+            str(tmp_path / "out_cli_l4_4h_per"),
+            "--packet",
+            str(tmp_path / "pkt_cli_l4_4h_per"),
+            "--allow-unmerged-commit",
+        ]
+    )
+    assert rc_cli_per == 0
+    captured_per = capsys.readouterr()
+    cli_summary_per = json.loads(captured_per.out)
+    cli_wh_per = cli_summary_per["wall_headroom"]
+    assert cli_wh_per["full_exports"] == "periodic"
+    assert cli_wh_per["final_export_download_seconds"] == pytest.approx(2_164_785_152 / 1_000_000.0)
+    assert "WARNING [V3_PPO_PERIODIC_FULL_EXPORTS]" in captured_per.err
+
+
+def test_light_only_prior_output_continuation_prepare_canary_and_train_without_error_warnings(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """LIGHT-only prior output resumes cleanly in `prepare`, canary, and `ppo` without WARN tags."""
+    prior_root = tmp_path / "prior_light_only_session"
+    prior_exports = prior_root / "exports"
+    prior_cfg = V3PPOConfig(
+        game_config=GameV3Config(arena_radius=60.0, num_snakes=6),
+        num_envs=3,
+        learner_slots=4,
+        rollout_len=4,
+        ppo_epochs=1,
+        minibatch_size=8,
+        amp=False,
+        use_channels_last=False,
+        total_updates=2,
+        eval_every_minutes=0.0,
+        eval_every_updates=0,
+        full_exports="none",
+    )
+    res_prior = run_training_job(
+        cfg=prior_cfg,
+        output_dir=prior_exports,
+        work_dir=tmp_path / "prior_work",
+        device="cpu",
+    )
+    assert res_prior["status"] == "PASS"
+    assert list(prior_exports.rglob("full_*")) == []
+    assert (prior_exports / "checkpoints" / "light_u0000002.pt").is_file()
+    capsys.readouterr()
+
+    # 1. `prepare --mode canary --prior-output-dir`: zero WARN/ERROR lines
+    canary_cont = prepare_v3_ppo_packet(
+        tmp_path / "pkt_canary_light_cont",
+        commit="HEAD",
+        mode="canary",
+        gpu="L4",
+        prior_output_dir=prior_root,
+        output_dir=tmp_path / "out_canary_light_cont",
+        allow_unmerged_commit=True,
+    )
+    prep_c_io = capsys.readouterr()
+    assert "WARN" not in prep_c_io.out and "WARN" not in prep_c_io.err
+    assert "ERROR" not in prep_c_io.out and "ERROR" not in prep_c_io.err
+
+    mf_c_cont = json.loads(Path(canary_cont["manifest_path"]).read_text(encoding="utf-8"))
+    rcpt_cont = _build_synthetic_canary_receipt(mf_c_cont, "L4")
+    canary_io = capsys.readouterr()
+    assert "worlds reinitialised" in canary_io.out
+    assert "WARN" not in canary_io.out and "WARN" not in canary_io.err
+    assert "ERROR" not in canary_io.out and "ERROR" not in canary_io.err
+
+    canary_checks = json.loads(
+        (Path(mf_c_cont["output_dir"]) / "exports" / "canary_checks.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    cont_probe = canary_checks["staged_input_verification"]
+    assert cont_probe is not None
+    assert cont_probe["kind"] == "light"
+    assert cont_probe["num_shards"] == 0
+    assert cont_probe["updates_completed"] == 2
+
+    # 2. `prepare --mode train --prior-output-dir` + `run_training_job`: zero WARN/ERROR lines,
+    #    and `"worlds reinitialised"` stays in stdout!
+    train_cont = prepare_v3_ppo_packet(
+        tmp_path / "pkt_train_light_cont",
+        commit="HEAD",
+        mode="train",
+        gpu="L4",
+        hours=2.0,
+        prior_output_dir=prior_root,
+        canary_receipt=rcpt_cont,
+        output_dir=tmp_path / "out_train_light_cont",
+        allow_unmerged_commit=True,
+    )
+    prep_t_io = capsys.readouterr()
+    assert "WARN" not in prep_t_io.out and "WARN" not in prep_t_io.err
+    assert "ERROR" not in prep_t_io.out and "ERROR" not in prep_t_io.err
+
+    mf_t_cont = json.loads(Path(train_cont["manifest_path"]).read_text(encoding="utf-8"))
+    staged_in = _stage_manifest_inputs(mf_t_cont, tmp_path / "staged_train_light_in")
+    cont_cfg = V3PPOConfig.from_dict(
+        {**json.loads(mf_t_cont["env"]["V3_PPO_CONFIG_JSON"]), "total_updates": 4}
+    )
+    assert cont_cfg.full_exports == "none"
+
+    res_cont = run_training_job(
+        cfg=cont_cfg,
+        output_dir=tmp_path / "exec_train_light_cont_out",
+        work_dir=tmp_path / "exec_train_light_cont_work",
+        device="cpu",
+        input_dir=staged_in,
+        ledger_path=staged_in / "verified-ledger.json",
+    )
+    run_t_io = capsys.readouterr()
+    assert res_cont["status"] == "PASS"
+    assert res_cont["updates_completed"] == 4
+    assert res_cont["updates_this_session"] == 2
+    assert res_cont["resumed_from"]["checkpoint_kind"] == "light"
+    assert res_cont["resumed_from"]["worlds_reinitialized"] is True
+    assert "worlds reinitialised" in run_t_io.out
+    assert "WARN" not in run_t_io.out and "WARN" not in run_t_io.err
+    assert "ERROR" not in run_t_io.out and "ERROR" not in run_t_io.err
 
 
 def _resolve_project_module_relpaths(dotted: str) -> list[str]:

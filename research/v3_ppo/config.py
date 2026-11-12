@@ -106,6 +106,9 @@ VALID_OPPONENT_POLICIES: tuple[OpponentPolicy, ...] = (
     "cardinal6_safe",
 )
 
+FullExportMode = Literal["none", "final", "periodic"]
+VALID_FULL_EXPORT_MODES: tuple[FullExportMode, ...] = ("none", "final", "periodic")
+
 # Rollout targets/flags per learner-step:
 # actions (u8: 1) + log_probs, values, rewards, advantages, returns (5 * f32: 20)
 # + died, truncated, acted (3 * bool: 3) = 24 bytes.
@@ -266,6 +269,9 @@ TELEMETRY_EXPORT_RESERVE_BYTES: int = 64 * 1024 * 1024  # 64 MiB JSONL/meta/mani
 # Whole-session total export volume caps (bytes) across all published LIGHT + FULL exports.
 # Sized for up to 24 h of unthrottled 30-min LIGHT exports (<=49 files) plus bounded FULL sets
 # (`max_periodic_full_exports + 1` stop FULL = 4 FULL sets by default) + 64 MiB telemetry.
+# In `--full-exports none` (default), simulator FULL shards are not exported, so the session export
+# cap shrinks to a 4.0 GiB LIGHT-only ceiling (49 * 68 MiB M LIGHTs + 64 MiB telemetry = 3.32 GiB).
+NONE_MODE_MAX_TOTAL_EXPORT_BYTES: int = 4 * 1024 * 1024 * 1024  # 4.0 GiB LIGHT-only session cap
 GPU_MAX_TOTAL_EXPORT_BYTES: dict[str, int] = {
     "L4": 12 * 1024 * 1024 * 1024,  # 12.0 GiB session cap (E=128, 24h M <= 11.32 GiB)
     "A100": 24 * 1024 * 1024 * 1024,  # 24.0 GiB session cap (E=256, 24h M <= 19.32 GiB)
@@ -277,6 +283,7 @@ GPU_MAX_TOTAL_EXPORT_BYTES: dict[str, int] = {
 TRAIN_SETUP_ALLOWANCE_SECONDS: float = 120.0
 TRAIN_FINAL_EVAL_AND_SAVE_ALLOWANCE_SECONDS: float = 300.0
 TRAIN_FINAL_SAVE_AFTER_EVAL_ALLOWANCE_SECONDS: float = 150.0
+TRAIN_FINAL_TELEMETRY_EXPORT_BYTES: int = 4 * 1024 * 1024  # 4 MiB final metrics/eval/result JSONLs
 ASSUMED_FINAL_EXPORT_DOWNLOAD_RATE_MBPS: float = 1.0  # 1.0 MB/s (1,000,000 B/s)
 ASSUMED_FINAL_EXPORT_DOWNLOAD_RATE_BYTES_PER_SEC: float = (
     ASSUMED_FINAL_EXPORT_DOWNLOAD_RATE_MBPS * 1_000_000.0
@@ -358,13 +365,15 @@ class V3PPOConfig:
     reward_death_penalty: float = 1.0
 
     # Schedule, two-tier atomic checkpointing (every LIGHT exported at
-    # `light_checkpoint_interval_sec` default 30 min; periodic FULL exports every
-    # `full_checkpoint_interval_sec` default 2 h bounded by `max_periodic_full_exports` plus 1 at
-    # cooperative stop / wall guard; `keep_*_checkpoints` prune `work/` only — completed exports in
-    # `output/` are never rewritten or deleted), and in-session recovery.
+    # `light_checkpoint_interval_sec` default 30 min; `full_exports` defaults to `"none"` so no
+    # simulator FULL shards are exported to `output/` while `work/` FULL saves still run for
+    # in-session restart; `"final"` exports only the final boundary FULL; `"periodic"` exports
+    # periodic FULLs bounded by `max_periodic_full_exports` plus 1 at cooperative stop / wall
+    # guard; `keep_*_checkpoints` prune `work/` only), and in-session recovery.
     total_updates: int = 100
     light_checkpoint_interval_sec: float = 1800.0
     full_checkpoint_interval_sec: float = 7200.0
+    full_exports: FullExportMode = "none"
     max_periodic_full_exports: int = 3
     light_resume_margin_minutes: float = 45.0
     checkpoint_shard_bytes: int = DEFAULT_CHECKPOINT_SHARD_BYTES
@@ -478,9 +487,18 @@ class V3PPOConfig:
             raise ValueError(
                 f"checkpoint_shard_bytes must be >= 1024, got {self.checkpoint_shard_bytes}"
             )
+        if self.full_exports not in VALID_FULL_EXPORT_MODES:
+            raise ValueError(
+                f"full_exports must be one of {VALID_FULL_EXPORT_MODES}, got {self.full_exports!r}"
+            )
         if int(self.max_periodic_full_exports) < 0:
             raise ValueError(
                 f"max_periodic_full_exports must be >= 0, got {self.max_periodic_full_exports}"
+            )
+        if self.full_exports == "periodic" and int(self.max_periodic_full_exports) < 1:
+            raise ValueError(
+                "full_exports='periodic' requires max_periodic_full_exports >= 1 "
+                "(use full_exports='final' for 0 periodic FULL exports)"
             )
         if (
             not math.isfinite(self.light_resume_margin_minutes)
@@ -585,6 +603,18 @@ class V3PPOConfig:
             return int(self.eval_learner_slots)
         return default_eval_learner_slots(self.num_snakes)
 
+    @property
+    def exports_final_full(self) -> bool:
+        """Whether final boundary FULL simulator checkpoints are exported to ``output/``."""
+        return self.full_exports in ("final", "periodic")
+
+    @property
+    def effective_max_periodic_full_exports(self) -> int:
+        """Effective periodic FULL export cap in ``output/`` under ``self.full_exports``."""
+        if self.full_exports == "periodic":
+            return int(self.max_periodic_full_exports)
+        return 0
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize config (including nested ``GameV3Config``) to plain JSON dict."""
         out = asdict(self)
@@ -606,11 +636,85 @@ class V3PPOConfig:
         return cls(game_config=game_cfg, **raw)
 
 
+def resolve_full_export_settings(
+    full_exports: str | None,
+    max_periodic_full_exports: int | None,
+    *,
+    default_full_exports: FullExportMode = "none",
+    default_max_periodic: int = 3,
+) -> tuple[FullExportMode, int]:
+    """Resolve ``(full_exports, max_periodic_full_exports)`` and refuse conflicting explicit flags.
+
+    Rules:
+      - ``--full-exports none`` (default): zero periodic FULL exports and zero final FULL exports.
+      - ``--full-exports final``: zero periodic FULL exports + 1 final FULL export (equivalent to
+        ``--max-periodic-full-exports 0``).
+      - ``--full-exports periodic``: periodic FULL exports (bounded by
+        ``max_periodic_full_exports >= 1``) + 1 final FULL export.
+      - When only ``--max-periodic-full-exports`` is explicitly provided, ``0`` maps to
+        ``("final", 0)`` and ``k >= 1`` maps to ``("periodic", k)``.
+      - When both are explicitly provided and disagree, raises ``ValueError``.
+    """
+    if full_exports is not None and full_exports not in VALID_FULL_EXPORT_MODES:
+        raise ValueError(
+            f"full_exports must be one of {VALID_FULL_EXPORT_MODES}, got {full_exports!r}"
+        )
+    if max_periodic_full_exports is not None and int(max_periodic_full_exports) < 0:
+        raise ValueError(f"max_periodic_full_exports must be >= 0, got {max_periodic_full_exports}")
+
+    if full_exports is not None and max_periodic_full_exports is not None:
+        mp = int(max_periodic_full_exports)
+        if full_exports == "none":
+            implied = "final" if mp == 0 else "periodic"
+            raise ValueError(
+                "Conflicting FULL export options: --full-exports none disables all FULL "
+                f"simulator exports, whereas --max-periodic-full-exports {mp} selects "
+                f"--full-exports {implied}. Omit --max-periodic-full-exports or pass "
+                f"--full-exports {implied}."
+            )
+        if full_exports == "final" and mp != 0:
+            raise ValueError(
+                "Conflicting FULL export options: --full-exports final disables periodic FULL "
+                f"exports (equivalent to --max-periodic-full-exports 0), but "
+                f"--max-periodic-full-exports {mp} was given."
+            )
+        if full_exports == "periodic" and mp == 0:
+            raise ValueError(
+                "Conflicting FULL export options: --full-exports periodic requires "
+                "--max-periodic-full-exports >= 1, but --max-periodic-full-exports 0 "
+                "(equivalent to --full-exports final) was given."
+            )
+        mode_both: FullExportMode = "final" if full_exports == "final" else "periodic"
+        return mode_both, mp
+
+    if max_periodic_full_exports is not None:
+        mp_only = int(max_periodic_full_exports)
+        if mp_only == 0:
+            return "final", 0
+        return "periodic", mp_only
+
+    eff_mode: FullExportMode = (
+        default_full_exports
+        if full_exports is None
+        else (
+            "none"
+            if full_exports == "none"
+            else ("final" if full_exports == "final" else "periodic")
+        )
+    )
+    if eff_mode == "none":
+        return "none", max(0, int(default_max_periodic))
+    if eff_mode == "final":
+        return "final", 0
+    return "periodic", max(1, int(default_max_periodic))
+
+
 RESUME_MUTABLE_CONFIG_KEYS: frozenset[str] = frozenset(
     {
         "total_updates",
         "light_checkpoint_interval_sec",
         "full_checkpoint_interval_sec",
+        "full_exports",
         "max_periodic_full_exports",
         "light_resume_margin_minutes",
         "checkpoint_shard_bytes",
@@ -1002,16 +1106,25 @@ def estimate_checkpoint_export_caps(
             u_bound = int(math.ceil(max(1.0, float(max_wall_seconds))))
         n_light_updates = u_bound // int(cfg.checkpoint_every_updates)
 
-    max_periodic_full = int(cfg.max_periodic_full_exports)
-    max_full_exports = max_periodic_full + 1
-    extra_full_lights = (
-        max_periodic_full
-        if (
-            float(cfg.full_checkpoint_interval_sec) < float(cfg.light_checkpoint_interval_sec)
-            or int(cfg.full_checkpoint_every_updates) > 0
+    if cfg.full_exports == "none":
+        max_periodic_full = 0
+        max_full_exports = 0
+        extra_full_lights = 0
+    elif cfg.full_exports == "final":
+        max_periodic_full = 0
+        max_full_exports = 1
+        extra_full_lights = 0
+    else:
+        max_periodic_full = int(cfg.max_periodic_full_exports)
+        max_full_exports = max_periodic_full + 1
+        extra_full_lights = (
+            max_periodic_full
+            if (
+                float(cfg.full_checkpoint_interval_sec) < float(cfg.light_checkpoint_interval_sec)
+                or int(cfg.full_checkpoint_every_updates) > 0
+            )
+            else 0
         )
-        else 0
-    )
     max_light_exports = n_light_time + n_light_updates + extra_full_lights
 
     total_light_export_bytes = max_light_exports * est_light_bytes
@@ -1020,15 +1133,21 @@ def estimate_checkpoint_export_caps(
         total_light_export_bytes + total_full_sim_export_bytes + TELEMETRY_EXPORT_RESERVE_BYTES
     )
 
-    largest_single_file_bytes = max(shard_cap_bytes, est_light_bytes)
-    per_file_max_export_bytes = max(
-        256 * 1024 * 1024,
-        int(math.ceil(largest_single_file_bytes * 1.25)),
-    )
-    session_total_cap_bytes = GPU_MAX_TOTAL_EXPORT_BYTES[gpu_norm]
+    if max_full_exports == 0:
+        largest_single_file_bytes = max(est_light_bytes, TELEMETRY_EXPORT_RESERVE_BYTES)
+        per_file_max_export_bytes = int(math.ceil(largest_single_file_bytes * 1.25))
+        session_total_cap_bytes = NONE_MODE_MAX_TOTAL_EXPORT_BYTES
+    else:
+        largest_single_file_bytes = max(shard_cap_bytes, est_light_bytes)
+        per_file_max_export_bytes = max(
+            256 * 1024 * 1024,
+            int(math.ceil(largest_single_file_bytes * 1.25)),
+        )
+        session_total_cap_bytes = GPU_MAX_TOTAL_EXPORT_BYTES[gpu_norm]
 
     return {
         "gpu": gpu_norm,
+        "full_exports": cfg.full_exports,
         "max_wall_seconds": float(max_wall_seconds),
         "raw_world_bytes": raw_world_bytes,
         "measured_world_bytes_3k": int(math.ceil(MEASURED_PACKED_WORLD_BYTES_3K * scale)),
@@ -1075,7 +1194,7 @@ def validate_checkpoint_export_caps(
         expected_updates=expected_updates,
         measured_packed_bytes_per_world=measured_packed_bytes_per_world,
     )
-    if not caps["single_world_fits_shard"]:
+    if int(caps["max_full_exports"]) > 0 and not caps["single_world_fits_shard"]:
         raise ValueError(
             f"Refusing configuration whose single-world worst-case state "
             f"({caps['max_single_world_bytes'] / 2**20:.2f} MiB) exceeds "
@@ -1114,9 +1233,12 @@ def estimate_train_wall_headroom(
       1. ``setup_allowance_seconds`` (`120.0` s),
       2. ``final_eval_and_save_allowance_seconds`` (`300.0` s default, or
          ``canary_eval_wall_seconds + 150.0`` s when provided by the bound canary receipt),
-      3. ``final_export_download_seconds``: ``(final_full_bytes + final_light_bytes)`` from
-         :func:`estimate_checkpoint_export_caps`'s per-world size model divided by the assumed
-         download rate (`1.0 MB/s` = `1,000,000 B/s` default).
+      3. ``final_export_download_seconds``:
+         - for ``full_exports == "none"`` (default): ``(final_light_bytes + final_telemetry_bytes)``
+           divided by ``assumed_download_rate_mbps`` (`1.0 MB/s` = `1,000,000 B/s`);
+         - for ``full_exports in {"final", "periodic"}``: ``(final_full_bytes + final_light_bytes)``
+           from :func:`estimate_checkpoint_export_caps`'s per-world size model divided by
+           ``assumed_download_rate_mbps`` (`1.0 MB/s` = `1,000,000 B/s`).
     """
     if not math.isfinite(session_seconds) or float(session_seconds) <= 0.0:
         raise ValueError(f"session_seconds must be finite and > 0, got {session_seconds}")
@@ -1147,9 +1269,14 @@ def estimate_train_wall_headroom(
         eval_save_sec = float(TRAIN_FINAL_EVAL_AND_SAVE_ALLOWANCE_SECONDS)
         eval_save_source = "default_300s"
 
-    final_full_bytes = int(caps["est_full_sim_bytes"])
     final_light_bytes = int(caps["est_light_checkpoint_bytes"])
-    final_export_bytes = final_full_bytes + final_light_bytes
+    if cfg.full_exports == "none":
+        final_full_bytes = 0
+        final_telemetry_bytes = int(TRAIN_FINAL_TELEMETRY_EXPORT_BYTES)
+    else:
+        final_full_bytes = int(caps["est_full_sim_bytes"])
+        final_telemetry_bytes = 0
+    final_export_bytes = final_full_bytes + final_light_bytes + final_telemetry_bytes
 
     download_rate_bps = float(assumed_download_rate_mbps) * 1_000_000.0
     download_sec = float(final_export_bytes) / download_rate_bps
@@ -1163,6 +1290,7 @@ def estimate_train_wall_headroom(
 
     return {
         "gpu": str(caps["gpu"]),
+        "full_exports": cfg.full_exports,
         "num_envs": int(cfg.num_envs),
         "net_size": cfg.net_size,
         "session_seconds": sess_sec,
@@ -1174,6 +1302,7 @@ def estimate_train_wall_headroom(
         ),
         "final_full_bytes": final_full_bytes,
         "final_light_bytes": final_light_bytes,
+        "final_telemetry_bytes": final_telemetry_bytes,
         "final_export_bytes": final_export_bytes,
         "budgeted_packed_world_bytes": int(caps["budgeted_packed_world_bytes"]),
         "assumed_download_rate_mbps": float(assumed_download_rate_mbps),
@@ -1187,6 +1316,35 @@ def estimate_train_wall_headroom(
         "fits_max_headroom_fraction": fits_fraction,
         "max_wall_seconds": max_wall_seconds,
     }
+
+
+def estimate_train_wall_headroom_by_mode(
+    cfg: V3PPOConfig,
+    *,
+    gpu: str = "L4",
+    session_seconds: float = 4.0 * 3600.0,
+    canary_eval_wall_seconds: float | None = None,
+    measured_packed_bytes_per_world: int | None = None,
+    assumed_download_rate_mbps: float = ASSUMED_FINAL_EXPORT_DOWNLOAD_RATE_MBPS,
+) -> dict[FullExportMode, dict[str, Any]]:
+    """Compute train wall-guard headroom side by side across ``none``, ``final``, & ``periodic``."""
+    base_dict = cfg.to_dict()
+    periodic_cap = max(1, int(cfg.max_periodic_full_exports))
+    out: dict[FullExportMode, dict[str, Any]] = {}
+    for mode in VALID_FULL_EXPORT_MODES:
+        mode_dict = dict(base_dict)
+        mode_dict["full_exports"] = mode
+        mode_dict["max_periodic_full_exports"] = periodic_cap if mode == "periodic" else 0
+        mode_cfg = V3PPOConfig.from_dict(mode_dict)
+        out[mode] = estimate_train_wall_headroom(
+            mode_cfg,
+            gpu=gpu,
+            session_seconds=session_seconds,
+            canary_eval_wall_seconds=canary_eval_wall_seconds,
+            measured_packed_bytes_per_world=measured_packed_bytes_per_world,
+            assumed_download_rate_mbps=assumed_download_rate_mbps,
+        )
+    return out
 
 
 def validate_train_wall_headroom(
@@ -1214,7 +1372,7 @@ def validate_train_wall_headroom(
         raise ValueError(
             f"Refusing train packet whose wall-guard headroom "
             f"({est['headroom_seconds']:.1f} s = {est['headroom_seconds'] / 60.0:.1f} min, "
-            f"{pct:.1f}% of session: "
+            f"{pct:.1f}% of session in full_exports={cfg.full_exports!r}: "
             f"setup={est['setup_allowance_seconds']:.1f} s + "
             f"final_eval_and_save={est['final_eval_and_save_allowance_seconds']:.1f} s + "
             f"final_export_download={est['final_export_download_seconds']:.1f} s for "
@@ -1223,7 +1381,7 @@ def validate_train_wall_headroom(
             f"exceeds {max_pct:.0f}% of the {sess_hours:g} h session "
             f"({est['max_allowed_headroom_seconds']:.1f} s max on {float(session_seconds):.0f} s "
             f"timeout; worlds={cfg.num_envs}, net_size={cfg.net_size}, gpu={est['gpu']}). "
-            "Increase --hours, reduce --num-envs, or supply --measured-packed-bytes-per-world "
-            "from a verified run."
+            "Use --full-exports none (LIGHT-only exports), increase --hours, reduce --num-envs, "
+            "or supply --measured-packed-bytes-per-world from a verified run."
         )
     return est

@@ -1053,15 +1053,15 @@ class V3PPOTrainer:
             self.episode_return_acc.zero_()
             self._bootstrap_obs_valid = False
             print(
-                f"V3_PPO_LIGHT_RESUME_WARNING checkpoint={ckpt_path.name} "
+                f"V3_PPO_LIGHT_RESUME checkpoint={ckpt_path.name} "
                 f"updates_completed={self.updates_completed} worlds_reinitialized=True "
-                "message='Resumed from LIGHT checkpoint (no sim state); worlds were freshly "
-                "initialised and episodic return/length statistics need a warm-up.'",
+                "message='Resumed from LIGHT checkpoint (worlds reinitialised; "
+                "episodic return/length statistics warm up from fresh worlds).'",
                 flush=True,
             )
             phase_stamp(
                 "light_checkpoint_resume",
-                "WARN_WORLDS_REINITIALIZED",
+                "WORLDS_REINITIALIZED",
                 checkpoint=ckpt_path.name,
                 updates_completed=self.updates_completed,
             )
