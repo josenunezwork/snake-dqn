@@ -1012,7 +1012,9 @@ class CLI:
                 recover_idle()
             try:
                 rpc_seconds = (
-                    self.staging_control_seconds() if upload_staging else policy.RPC_SECONDS
+                    self.staging_control_seconds()
+                    if upload_staging
+                    else (policy.RPC_SECONDS if is_mutating else policy.POLL_RPC_SECONDS)
                 )
                 return self.rpc(code, min(rpc_seconds, remaining()), completion_grace=0)
             except (Refused, OSError, subprocess.SubprocessError) as exc:
@@ -1021,6 +1023,7 @@ class CLI:
                 ):
                     raise
                 attempt += 1
+                remaining()
                 if not extended and attempt >= policy.ATTEMPTS:
                     raise
                 budget_warning(

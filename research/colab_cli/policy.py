@@ -11,6 +11,9 @@ import subprocess
 
 READ_SECONDS = 120.0
 RPC_SECONDS = 120.0
+# Successful colab exec calls complete within <=43s (p99 28s across 13.7k calls);
+# cap read-only status/renewal polls at 60s while keeping mutating RPCs at 120s.
+POLL_RPC_SECONDS = 60.0
 # Foreground staging controls must leave headroom for immutable payload PUTs.
 # These are attempt/recovery limits, not replacements for the 150/300s bars.
 STAGING_CONTROL_SECONDS = 30.0

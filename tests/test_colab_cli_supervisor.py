@@ -1880,7 +1880,7 @@ def test_poll_rpc_completion_grace_cannot_extend_per_attempt_budget(
     monkeypatch.setattr(supervisor.time, "monotonic", lambda: 100)
 
     def invoke(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        assert kwargs["timeout"] == 120  # Not the ordinary mutation RPC's 130s outer grace.
+        assert kwargs["timeout"] == 60  # Read-only poll uses 60s with 0s completion grace.
         code = Path(argv[argv.index("-f") + 1]).read_text()
         nonce = "SNAKE_RPC_" + code.split("SNAKE_RPC_")[1][:32]
         return subprocess.CompletedProcess(argv, 0, nonce + '{"ok":true,"value":true}', "")

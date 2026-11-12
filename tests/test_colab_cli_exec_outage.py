@@ -49,7 +49,7 @@ def test_live_owned_exec_outage_recovers_or_expires(
     try:
         if failure_count < 50:
             assert cli.poll_rpc("# TRANSPORT_OUTAGE_READ\nresult=True") is True
-            assert clock.now - before > 300
+            assert clock.now - before > 240
             assert not cli.exec_uncertain
         else:
             with pytest.raises(
@@ -63,9 +63,9 @@ def test_live_owned_exec_outage_recovers_or_expires(
         state = json.loads((tmp_path / "fake-state.json").read_text())
         assert state["allocation_count"] == 1
         assert len(state["sessions"]) == 1
-        assert len([e for e in events if e["argv"][4] == "upload"]) >= 10
+        assert len([e for e in events if e["argv"][4] == "upload"]) >= 9
         execs = [e for e in events if e["argv"][4] == "exec"]
-        assert all(0 < float(e["argv"][-1]) <= policy.RPC_SECONDS for e in execs)
+        assert all(0 < float(e["argv"][-1]) <= policy.POLL_RPC_SECONDS for e in execs)
     finally:
         cli.stop_lease()
         supervisor.stop_verified(cli, cli.poll_recovery_endpoint)
@@ -190,7 +190,7 @@ def test_supervisor_outage_receipt_and_verified_release(
     assert receipt["status"] == ("PASS" if recovers else "INCOMPLETE")
     assert receipt["failure_class"] == (None if recovers else "RPC_EXEC_POLL_TIMEOUT")
     assert receipt["stop_verified"] is True and receipt["cleanup_error"] is None
-    assert receipt["elapsed_seconds"] > 300
+    assert receipt["elapsed_seconds"] > 240
     assert receipt["exec_poll_recovery_seconds"] == 1200
     assert state["allocation_count"] == 1
     assert list(state["job_launches"].values()) == [1]

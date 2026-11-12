@@ -44,8 +44,8 @@ def test_telemetry_recovery_cannot_extend_real_or_explicit_caps(
     monkeypatch.setattr(cli_guard, "kernel_idle", idle)
     with pytest.raises(supervisor.Refused, match="deadline reached during telemetry recovery"):
         cli.poll_rpc("result=True", **({"timeout": 150} if cap == "explicit" else {}))
-    assert calls == [120, 28]
-    assert probes == [30]
+    assert calls == [60, 60, 23]
+    assert probes == [90, 28]
     assert now[0] == 150
     assert cli.exec_uncertain  # Exhaustion never clears uncertain kernel state.
 
@@ -53,7 +53,7 @@ def test_telemetry_recovery_cannot_extend_real_or_explicit_caps(
 def test_telemetry_attempt_does_not_shorten_independent_heartbeat_budget(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """At t=110 an in-flight 120s poll must still allow a 60s lease PUT."""
+    """At t=50 an in-flight 60s poll must still allow a 60s lease PUT."""
     cli = supervisor.CLI("fake", tmp_path / "config", "owned")
     cli.deadline = 1000
     cli.priced_deadline = 900
@@ -61,8 +61,8 @@ def test_telemetry_attempt_does_not_shorten_independent_heartbeat_budget(
     allowances = []
 
     def invoke(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        assert kwargs["timeout"] == 120
-        now[0] = 110
+        assert kwargs["timeout"] == 60
+        now[0] = 50
         worker = threading.Thread(target=lambda: allowances.append(cli.remaining_seconds(60)))
         worker.start()
         worker.join(timeout=2)
