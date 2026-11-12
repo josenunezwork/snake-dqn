@@ -1255,7 +1255,6 @@ def test_full_exports_flag_precedence_legacy_mapping_and_conflict_refusals(
         (
             {"num_envs": 128, "max_periodic_full_exports": 3},
             {"num_envs": 128, "max_periodic_full_exports": 0},
-            {"num_envs": 128, "full_exports": "periodic", "max_periodic_full_exports": 2},
         )
     ):
         p_parser = prep_arg_parser()
@@ -1283,6 +1282,34 @@ def test_full_exports_flag_precedence_legacy_mapping_and_conflict_refusals(
         cfg_dump = json.loads(mf_dump["env"]["V3_PPO_CONFIG_JSON"])
         assert cfg_dump["full_exports"] == "none"
         assert "max_periodic_full_exports" not in cfg_dump
+
+    # Explicit `"full_exports"` inside `prepare --ppo-config-json` is refused with a clear message
+    # stating that export mode is selected only on the command line.
+    for fe_json_val in ("periodic", "final", "none"):
+        p_parser = prep_arg_parser()
+        p_args = p_parser.parse_args(
+            [
+                "--mode",
+                "train",
+                "--gpu",
+                "L4",
+                "--hours",
+                "4.0",
+                "--ppo-config-json",
+                json.dumps({"num_envs": 128, "full_exports": fe_json_val}),
+                "--allow-missing-canary-receipt",
+                "--allow-unmerged-commit",
+                "--output-dir",
+                str(tmp_path / f"out_refuse_fe_{fe_json_val}"),
+                "--packet",
+                str(tmp_path / f"pkt_refuse_fe_{fe_json_val}"),
+            ]
+        )
+        with pytest.raises(
+            ValueError,
+            match="selected only on the command line via --full-exports",
+        ):
+            options_from_cli_args(p_args, p_parser)
 
     # Conflicting `--full-exports` + `--max-periodic-full-exports` refused on `ppo` and `prepare`
     conflict_pairs: list[tuple[str, int]] = [
@@ -1436,3 +1463,111 @@ def test_recipe_override_allowlist_and_config_type_range_validation(tmp_path: Pa
                 ),
                 environ={},
             )
+
+    # Setting recipe fields equal to code defaults (including preset minibatch_size) reports no overrides
+    eff_default_eq_s = resolve_effective_train_config(
+        parser.parse_args(
+            [
+                "--output-dir",
+                "/tmp/o",
+                "--net-size",
+                "S",
+                "--recipe-json",
+                json.dumps({"gamma": 0.99, "minibatch_size": 2048, "rollout_len": 32}),
+            ]
+        ),
+        environ={},
+    )
+    assert eff_default_eq_s.recipe_overrides == {}
+    assert format_recipe_overrides(eff_default_eq_s.recipe_overrides) == "none"
+
+    eff_default_eq_m = resolve_effective_train_config(
+        parser.parse_args(
+            [
+                "--output-dir",
+                "/tmp/o",
+                "--net-size",
+                "M",
+                "--recipe-json",
+                json.dumps({"minibatch_size": 1024}),
+            ]
+        ),
+        environ={},
+    )
+    assert eff_default_eq_m.recipe_overrides == {}
+
+
+def test_config_overlay_validates_recipe_change_history_and_minibatch_divisibility() -> None:
+    """`recipe_change_history` passes through env/CLI overlays with strict validation; mb remainder checked."""
+    from research.v3_ppo.config import (
+        check_minibatch_divisibility,
+        format_minibatch_remainder_warning,
+    )
+
+    parser = ppo_arg_parser()
+    valid_hist = [
+        {
+            "update": 12,
+            "changed_fields": {
+                "gamma": {"old": 0.99, "new": 0.995},
+                "minibatch_size": {"old": None, "new": 512},
+            },
+        }
+    ]
+    base_saved = V3PPOConfig(gamma=0.995, minibatch_size=512, recipe_change_history=valid_hist)
+    saved_json = json.dumps(base_saved.to_dict())
+
+    eff_env = resolve_effective_train_config(
+        parser.parse_args(["--output-dir", "/tmp/o"]),
+        environ={"V3_PPO_CONFIG_JSON": saved_json},
+    )
+    assert list(eff_env.cfg.recipe_change_history) == valid_hist
+    assert eff_env.recipe_overrides == {"gamma": 0.995, "minibatch_size": 512}
+
+    eff_cli = resolve_effective_train_config(
+        parser.parse_args(["--output-dir", "/tmp/o", "--config-json", saved_json]),
+        environ={},
+    )
+    assert list(eff_cli.cfg.recipe_change_history) == valid_hist
+
+    # Malformed `recipe_change_history` payloads in `V3_PPO_CONFIG_JSON` are rejected
+    bad_histories: list[object] = [
+        "not-a-list",
+        [{"update": -1, "changed_fields": {"gamma": {"old": 0.99, "new": 0.995}}}],
+        [{"update": True, "changed_fields": {"gamma": {"old": 0.99, "new": 0.995}}}],
+        [{"update": 2, "extra": 1, "changed_fields": {"gamma": {"old": 0.99, "new": 0.995}}}],
+        [{"update": 2, "changed_fields": {}}],
+        [{"update": 2, "changed_fields": {"num_envs": {"old": 4, "new": 8}}}],
+        [{"update": 2, "changed_fields": {"gamma": {"old": 0.99, "new": 0.995, "extra": 0}}}],
+        [{"update": 2, "changed_fields": {"gamma": {"old": 0.99, "new": 1.5}}}],
+        [{"update": 2, "changed_fields": {"ppo_epochs": {"old": 2, "new": "3"}}}],
+        [{"update": 2, "changed_fields": {"gamma": {"old": 0.99, "new": 0.99}}}],
+    ]
+    for bad_h in bad_histories:
+        with pytest.raises((ValueError, ConfigTypeError)):
+            resolve_effective_train_config(
+                parser.parse_args(["--output-dir", "/tmp/o"]),
+                environ={"V3_PPO_CONFIG_JSON": json.dumps({"recipe_change_history": bad_h})},
+            )
+
+    # Minibatch divisibility: exact multiple -> None; <= 25% -> warning dict; > 25% -> ValueError
+    assert (
+        check_minibatch_divisibility(
+            V3PPOConfig(num_envs=4, learner_slots=4, rollout_len=4, minibatch_size=16)
+        )
+        is None
+    )
+    exact_25 = check_minibatch_divisibility(
+        V3PPOConfig(num_envs=4, learner_slots=4, rollout_len=4, minibatch_size=48)
+    )
+    assert exact_25 is not None
+    assert exact_25["dropped_rows_per_epoch"] == 16
+    assert exact_25["dropped_percent"] == 25.0
+    warn_line = format_minibatch_remainder_warning(exact_25)
+    assert "\n" not in warn_line
+    assert "16/64 rows (25.00%)" in warn_line
+
+    with pytest.raises(ValueError, match="exceeding the 25% cap"):
+        check_minibatch_divisibility(
+            V3PPOConfig(num_envs=4, learner_slots=4, rollout_len=4, minibatch_size=47)
+        )

@@ -2585,11 +2585,63 @@ def test_prepare_recipe_json_overrides_summary_vram_guard_and_runtime_recording(
     mf_ov = json.loads(
         (tmp_path / "pkt_recipe_ov" / "dispatch-manifest.json").read_text(encoding="utf-8")
     )
-    staged_cfg_ov = V3PPOConfig.from_dict(json.loads(mf_ov["env"]["V3_PPO_CONFIG_JSON"]))
+    eff_ov = resolve_effective_train_config(
+        build_train_arg_parser().parse_args(["--output-dir", str(tmp_path / "eff_ov_out")]),
+        environ=mf_ov["env"],
+    )
+    staged_cfg_ov = eff_ov.cfg
     for key, val in recipe_obj.items():
         assert getattr(staged_cfg_ov, key) == val
     assert staged_cfg_ov.net_size == "M"
     assert staged_cfg_ov.resolved_minibatch_size == 512
+    assert eff_ov.recipe_overrides == recipe_obj
+
+    # 2b. Setting `--recipe-json` to code-default values produces `recipe overrides: none` in both
+    #     `prepare` and `resolve_effective_train_config` / `V3_PPO_RECIPE`, while `--rollout-len 64`
+    #     (without `--recipe-json`) reports `rollout_len=64` in both!
+    capsys.readouterr()
+    summary_def_eq = prepare_v3_ppo_packet(
+        tmp_path / "pkt_recipe_def_eq",
+        commit="HEAD",
+        mode="train",
+        gpu="L4",
+        hours=4.0,
+        recipe_json=json.dumps({"gamma": 0.99, "minibatch_size": 2048, "rollout_len": 32}),
+        allow_missing_canary_receipt=True,
+        output_dir=tmp_path / "out_recipe_def_eq",
+        allow_unmerged_commit=True,
+    )
+    err_def_eq = capsys.readouterr().err
+    assert "recipe overrides: none" in err_def_eq
+    assert "recipe_overrides" not in summary_def_eq
+    mf_def_eq = json.loads(Path(summary_def_eq["manifest_path"]).read_text(encoding="utf-8"))
+    eff_def_eq = resolve_effective_train_config(
+        build_train_arg_parser().parse_args(["--output-dir", str(tmp_path / "eff_def_eq_out")]),
+        environ=mf_def_eq["env"],
+    )
+    assert eff_def_eq.recipe_overrides == {}
+
+    capsys.readouterr()
+    summary_rl64 = prepare_v3_ppo_packet(
+        tmp_path / "pkt_recipe_rl64",
+        commit="HEAD",
+        mode="train",
+        gpu="A100",
+        hours=4.0,
+        rollout_len=64,
+        allow_missing_canary_receipt=True,
+        output_dir=tmp_path / "out_recipe_rl64",
+        allow_unmerged_commit=True,
+    )
+    err_rl64 = capsys.readouterr().err
+    assert "recipe overrides: rollout_len=64" in err_rl64
+    assert summary_rl64["recipe_overrides"] == {"rollout_len": 64}
+    mf_rl64 = json.loads(Path(summary_rl64["manifest_path"]).read_text(encoding="utf-8"))
+    eff_rl64 = resolve_effective_train_config(
+        build_train_arg_parser().parse_args(["--output-dir", str(tmp_path / "eff_rl64_out")]),
+        environ=mf_rl64["env"],
+    )
+    assert eff_rl64.recipe_overrides == {"rollout_len": 64}
 
     # 3. Memory budget check uses overridden rollout_len and minibatch_size!
     with pytest.raises(ValueError, match="exceeds L4 memory budget"):
@@ -2652,11 +2704,13 @@ def test_prepare_recipe_json_overrides_summary_vram_guard_and_runtime_recording(
                 allow_unmerged_commit=True,
             )
 
-    # 5. Tiny CPU training job logs `V3_PPO_RECIPE` once at start and records recipe in checkpoints
-    #    and `train_result.json`
-    tiny_recipe_cfg = V3PPOConfig(
+    # 5. Prepare a tiny CPU packet, resolve its manifest env via `resolve_effective_train_config`,
+    #    and verify `prepare` and `V3_PPO_RECIPE` report the exact same overrides and record them
+    #    in checkpoints and `train_result.json`
+    tiny_base_cfg = V3PPOConfig(
         game_config=GameV3Config(arena_radius=300.0, num_snakes=6),
         num_envs=2,
+        learner_slots=4,
         net_size="S",
         amp=False,
         use_channels_last=False,
@@ -2667,24 +2721,66 @@ def test_prepare_recipe_json_overrides_summary_vram_guard_and_runtime_recording(
         checkpoint_every_updates=1,
         eval_every_minutes=0.0,
         eval_every_updates=0,
-        reward_alive_length_coef=0.0,
-        reward_death_penalty=2.5,
-        gamma=0.995,
     )
     capsys.readouterr()
+    tiny_pkt_summary = prepare_v3_ppo_packet(
+        tmp_path / "pkt_tiny_recipe_job",
+        commit="HEAD",
+        mode="train",
+        gpu="L4",
+        ppo_config=tiny_base_cfg,
+        explicit_total_updates=True,
+        recipe_json=json.dumps(
+            {
+                "reward_alive_length_coef": 0.0,
+                "reward_death_penalty": 2.5,
+                "gamma": 0.995,
+            }
+        ),
+        allow_missing_canary_receipt=True,
+        output_dir=tmp_path / "remote_tiny_recipe_job",
+        allow_unmerged_commit=True,
+    )
+    prep_tiny_err = capsys.readouterr().err
+    expected_tiny_ov_str = (
+        "gamma=0.995, minibatch_size=4, ppo_epochs=1, reward_alive_length_coef=0.0, "
+        "reward_death_penalty=2.5, rollout_len=4"
+    )
+    assert f"recipe overrides: {expected_tiny_ov_str}" in prep_tiny_err
+
+    mf_tiny = json.loads(Path(tiny_pkt_summary["manifest_path"]).read_text(encoding="utf-8"))
     run_out = tmp_path / "tiny_recipe_job_out"
+    eff_tiny = resolve_effective_train_config(
+        build_train_arg_parser().parse_args(
+            [
+                "--output-dir",
+                str(run_out),
+                "--work-dir",
+                str(tmp_path / "tiny_recipe_job_work"),
+                "--input-dir",
+                str(tmp_path / "pkt_tiny_recipe_job" / "inputs"),
+                "--ledger",
+                str(tmp_path / "pkt_tiny_recipe_job" / "inputs" / "verified-ledger.json"),
+            ]
+        ),
+        environ={**mf_tiny["env"], "SNAKE_DQN_DEVICE": "cpu"},
+    )
+    assert eff_tiny.recipe_overrides == tiny_pkt_summary["recipe_overrides"]
+
+    capsys.readouterr()
     res_tiny = run_training_job(
-        cfg=tiny_recipe_cfg,
-        output_dir=run_out,
-        work_dir=tmp_path / "tiny_recipe_job_work",
-        device="cpu",
+        cfg=eff_tiny.cfg,
+        output_dir=eff_tiny.output_dir,
+        work_dir=eff_tiny.work_dir,
+        device=eff_tiny.device,
+        input_dir=eff_tiny.input_dir,
+        ledger_path=eff_tiny.ledger_path,
+        allow_recipe_change=eff_tiny.allow_recipe_change,
     )
     job_stdout = capsys.readouterr().out
     recipe_log_lines = [ln for ln in job_stdout.splitlines() if ln.startswith("V3_PPO_RECIPE ")]
     assert len(recipe_log_lines) == 1
-    assert "gamma=0.995" in recipe_log_lines[0]
-    assert "reward_alive_length_coef=0.0" in recipe_log_lines[0]
-    assert "reward_death_penalty=2.5" in recipe_log_lines[0]
+    assert f'overrides="{expected_tiny_ov_str}"' in recipe_log_lines[0]
     assert res_tiny["status"] == "PASS"
     assert res_tiny["config"]["reward_alive_length_coef"] == 0.0
     assert res_tiny["config"]["reward_death_penalty"] == 2.5
@@ -2874,3 +2970,72 @@ out_json.write_text(json.dumps(snapshots, sort_keys=True), encoding="utf-8")
     }
     assert bytes_empty_r == bytes_no_r
     assert s_empty_r == s_no_r
+
+
+def test_prepare_minibatch_remainder_warning_and_25pct_drop_refusal(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`prepare` warns (1 stderr line + summary) on mb remainder <= 25% and refuses > 25%."""
+    # 1. Exact divisibility (98,304 % 2048 == 0): no warning and no summary key
+    capsys.readouterr()
+    s_div = prepare_v3_ppo_packet(
+        tmp_path / "pkt_mb_div",
+        commit="HEAD",
+        mode="train",
+        gpu="L4",
+        hours=4.0,
+        allow_missing_canary_receipt=True,
+        output_dir=tmp_path / "out_mb_div",
+        allow_unmerged_commit=True,
+    )
+    err_div = capsys.readouterr().err
+    assert "V3_PPO_MINIBATCH_REMAINDER" not in err_div
+    assert "minibatch_remainder" not in s_div
+
+    # 2. Non-divisible with <= 25% dropped (98,304 % 20,000 == 18,304 -> 18.62% dropped)
+    capsys.readouterr()
+    s_warn = prepare_v3_ppo_packet(
+        tmp_path / "pkt_mb_warn",
+        commit="HEAD",
+        mode="train",
+        gpu="A100",
+        num_envs=128,
+        hours=4.0,
+        recipe_json=json.dumps({"minibatch_size": 20000}),
+        allow_missing_canary_receipt=True,
+        output_dir=tmp_path / "out_mb_warn",
+        allow_unmerged_commit=True,
+    )
+    err_warn = capsys.readouterr().err
+    warn_lines = [ln for ln in err_warn.splitlines() if "V3_PPO_MINIBATCH_REMAINDER" in ln]
+    assert len(warn_lines) == 1
+    assert "dropping 18304/98304 rows (18.62%) per PPO epoch" in warn_lines[0]
+    assert s_warn["minibatch_remainder"] == {
+        "rows_per_update": 98304,
+        "minibatch_size": 20000,
+        "dropped_rows_per_epoch": 18304,
+        "dropped_fraction": round(18304 / 98304, 6),
+        "dropped_percent": 18.62,
+        "padded_rows_per_epoch": 0,
+    }
+
+    # 3. Non-divisible with > 25% dropped (98,304 % 32,769 == 32,766 -> 33.33% > 25%): refused!
+    refused_pkt = tmp_path / "pkt_mb_refused"
+    with pytest.raises(
+        ValueError,
+        match=r"32766/98304 rows \(33\.33%\) per PPO epoch, exceeding the 25% cap",
+    ):
+        prepare_v3_ppo_packet(
+            refused_pkt,
+            commit="HEAD",
+            mode="train",
+            gpu="A100",
+            num_envs=128,
+            hours=4.0,
+            recipe_json=json.dumps({"minibatch_size": 32769}),
+            allow_missing_canary_receipt=True,
+            output_dir=tmp_path / "out_mb_refused",
+            allow_unmerged_commit=True,
+        )
+    assert not refused_pkt.exists()

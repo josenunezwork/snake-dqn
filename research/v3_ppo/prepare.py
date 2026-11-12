@@ -47,10 +47,12 @@ from research.v3_ppo.config import (
     V3PPOConfig,
     assert_resume_config_compatible,
     build_recipe_change_record,
+    check_minibatch_divisibility,
     default_train_envs_for_gpu,
     estimate_train_wall_headroom,
     estimate_train_wall_headroom_by_mode,
     estimate_training_memory,
+    format_minibatch_remainder_warning,
     format_recipe_overrides,
     get_net_preset,
     merge_and_append_recipe_history,
@@ -183,6 +185,7 @@ class _SizedModePlan:
     wall_headroom_by_mode: dict[FullExportMode, dict[str, Any]] | None = None
     recipe_overrides: dict[str, Any] | None = None
     recipe_change: dict[str, Any] | None = None
+    minibatch_remainder: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -963,6 +966,7 @@ def _size_train_mode(
             )
 
     memory_estimate = validate_memory_budget(cfg_obj, ctx.gpu_norm)
+    minibatch_remainder = check_minibatch_divisibility(cfg_obj)
 
     eff_world_bytes = _resolve_measured_world_bytes(opts, cfg_obj)
     canary_eval_wall_sec = (
@@ -1036,6 +1040,7 @@ def _size_train_mode(
         wall_headroom=wall_headroom,
         recipe_overrides=eff_train.recipe_overrides,
         recipe_change=recipe_change_rec,
+        minibatch_remainder=minibatch_remainder,
     )
 
 
@@ -1139,6 +1144,12 @@ def _stage_export_caps(
             "(UPLOAD_CAP), losing all training progress after the last LIGHT checkpoint. "
             "Prefer the default --full-exports none (LIGHT checkpoints only; resumes cleanly "
             "with fresh worlds) or --full-exports final.",
+            file=sys.stderr,
+            flush=True,
+        )
+    if sized.minibatch_remainder is not None:
+        print(
+            format_minibatch_remainder_warning(sized.minibatch_remainder),
             file=sys.stderr,
             flush=True,
         )
@@ -1423,6 +1434,8 @@ def _stage_write_manifest(
         summary["canary_eval_metrics"] = ctx.canary_eval_metrics
     if sized.recipe_overrides:
         summary["recipe_overrides"] = dict(sized.recipe_overrides)
+    if sized.minibatch_remainder is not None:
+        summary["minibatch_remainder"] = dict(sized.minibatch_remainder)
     if opts.allow_recipe_change:
         summary["allow_recipe_change"] = True
         summary["recipe_change"] = sized.recipe_change
@@ -1670,6 +1683,12 @@ def options_from_cli_args(
             raw_dict = json.loads(Path(raw_source).read_text(encoding="utf-8"))
         if not isinstance(raw_dict, dict):
             raise ValueError("--ppo-config-json root must be a JSON object")
+        if "full_exports" in raw_dict:
+            raise ValueError(
+                "--ppo-config-json cannot set 'full_exports'; simulator FULL export mode is "
+                "selected only on the command line via --full-exports {none,final,periodic} "
+                "(or --max-periodic-full-exports)."
+            )
         explicit_total_updates = "total_updates" in raw_dict
         explicit_eval_estimated_seconds = "eval_estimated_seconds" in raw_dict
         ppo_cfg = V3PPOConfig.from_dict(raw_dict)

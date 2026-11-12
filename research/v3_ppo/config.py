@@ -545,6 +545,13 @@ class V3PPOConfig:
                 raise ConfigTypeError(
                     f"recipe_change_history[{idx_h}] must be a mapping, got {type(entry)!r}"
                 )
+            extra_entry_keys = sorted(
+                str(k) for k in entry.keys() if k not in {"update", "changed_fields"}
+            )
+            if extra_entry_keys:
+                raise ValueError(
+                    f"Unsupported keys in recipe_change_history[{idx_h}]: {extra_entry_keys}"
+                )
             upd = entry.get("update")
             if isinstance(upd, bool) or not isinstance(upd, int) or upd < 0:
                 raise ValueError(
@@ -561,12 +568,29 @@ class V3PPOConfig:
                     raise ValueError(
                         f"Unsupported key {ch_k!r} in recipe_change_history[{idx_h}].changed_fields"
                     )
-                if not isinstance(ch_v, Mapping) or "old" not in ch_v or "new" not in ch_v:
+                if not isinstance(ch_v, Mapping) or set(ch_v.keys()) != {"old", "new"}:
                     raise ValueError(
                         f"recipe_change_history[{idx_h}].changed_fields[{ch_k!r}] must map to "
-                        "{'old': ..., 'new': ...}"
+                        "exactly {'old': ..., 'new': ...}"
                     )
-                norm_ch[str(ch_k)] = {"old": ch_v["old"], "new": ch_v["new"]}
+                old_val = ch_v["old"]
+                new_val = ch_v["new"]
+                _validate_recipe_field_value(
+                    str(ch_k),
+                    old_val,
+                    context=f"recipe_change_history[{idx_h}].changed_fields[{ch_k!r}].old",
+                )
+                _validate_recipe_field_value(
+                    str(ch_k),
+                    new_val,
+                    context=f"recipe_change_history[{idx_h}].changed_fields[{ch_k!r}].new",
+                )
+                if old_val == new_val and type(old_val) is type(new_val):
+                    raise ValueError(
+                        f"recipe_change_history[{idx_h}].changed_fields[{ch_k!r}] has identical "
+                        f"old and new values ({old_val!r})"
+                    )
+                norm_ch[str(ch_k)] = {"old": old_val, "new": new_val}
             norm_history.append({"update": int(upd), "changed_fields": norm_ch})
         object.__setattr__(self, "recipe_change_history", tuple(norm_history))
 
@@ -869,6 +893,16 @@ def parse_recipe_overrides(
     return {key: parsed[key] for key in RECIPE_OVERRIDE_KEYS if key in parsed}
 
 
+def _validate_recipe_field_value(field_name: str, value: Any, *, context: str) -> None:
+    """Validate a single allow-listed recipe field value against ``V3PPOConfig`` invariants."""
+    try:
+        V3PPOConfig(**{field_name: value})
+    except ConfigTypeError as exc:
+        raise ConfigTypeError(f"Invalid {context}: {exc}") from exc
+    except ValueError as exc:
+        raise ValueError(f"Invalid {context}: {exc}") from exc
+
+
 def extract_recipe_dict(cfg: V3PPOConfig) -> dict[str, Any]:
     """Return all allow-listed recipe fields of ``cfg`` in canonical ``RECIPE_OVERRIDE_KEYS`` order."""
     return {key: getattr(cfg, key) for key in RECIPE_OVERRIDE_KEYS}
@@ -879,13 +913,17 @@ def recipe_overrides_from_default(
     *,
     reference: V3PPOConfig | None = None,
 ) -> dict[str, Any]:
-    """Return allow-listed recipe fields on ``cfg`` that differ from ``reference`` (default cfg)."""
-    ref = reference if reference is not None else V3PPOConfig()
-    return {
-        key: getattr(cfg, key)
-        for key in RECIPE_OVERRIDE_KEYS
-        if getattr(cfg, key) != getattr(ref, key)
-    }
+    """Return allow-listed recipe fields whose effective value on ``cfg`` differs from defaults."""
+    ref = reference if reference is not None else V3PPOConfig(net_size=cfg.net_size)
+    out: dict[str, Any] = {}
+    for key in RECIPE_OVERRIDE_KEYS:
+        if key == "minibatch_size":
+            if int(cfg.resolved_minibatch_size) != int(ref.resolved_minibatch_size):
+                out[key] = int(cfg.resolved_minibatch_size)
+        else:
+            if getattr(cfg, key) != getattr(ref, key):
+                out[key] = getattr(cfg, key)
+    return out
 
 
 def format_recipe_overrides(overrides: Mapping[str, Any] | None) -> str:
@@ -893,6 +931,66 @@ def format_recipe_overrides(overrides: Mapping[str, Any] | None) -> str:
     if not overrides:
         return "none"
     return ", ".join(f"{key}={json.dumps(overrides[key])}" for key in sorted(overrides.keys()))
+
+
+MAX_DROPPED_MINIBATCH_ROW_FRACTION: float = 0.25
+
+
+def check_minibatch_divisibility(cfg: V3PPOConfig) -> dict[str, Any] | None:
+    """Check ``rows_per_update`` divisibility by ``resolved_minibatch_size``.
+
+    Returns ``None`` when ``rows_per_update`` is an exact multiple of ``minibatch_size``.
+    Otherwise returns a summary dictionary describing the dropped (or zero-loss-padded) rows per
+    PPO epoch, and raises ``ValueError`` when strictly more than ``25%`` of ``rows_per_update``
+    would be dropped per epoch.
+    """
+    rows_per_update = int(cfg.rollout_len) * int(cfg.total_learners)
+    mb_size = int(cfg.resolved_minibatch_size)
+    if rows_per_update % mb_size == 0:
+        return None
+    if rows_per_update < mb_size:
+        dropped_rows = 0
+        padded_rows = mb_size - rows_per_update
+    else:
+        dropped_rows = rows_per_update % mb_size
+        padded_rows = 0
+
+    dropped_fraction = float(dropped_rows) / float(rows_per_update)
+    dropped_pct = 100.0 * dropped_fraction
+    if dropped_rows * 4 > rows_per_update:
+        raise ValueError(
+            f"Refusing train packet: rows_per_update={rows_per_update} "
+            f"(rollout_len={cfg.rollout_len} * total_learners={cfg.total_learners}) is not "
+            f"divisible by minibatch_size={mb_size} and would drop {dropped_rows}/{rows_per_update} "
+            f"rows ({dropped_pct:.2f}%) per PPO epoch, exceeding the 25% cap."
+        )
+    return {
+        "rows_per_update": rows_per_update,
+        "minibatch_size": mb_size,
+        "dropped_rows_per_epoch": dropped_rows,
+        "dropped_fraction": round(dropped_fraction, 6),
+        "dropped_percent": round(dropped_pct, 2),
+        "padded_rows_per_epoch": padded_rows,
+    }
+
+
+def format_minibatch_remainder_warning(info: Mapping[str, Any]) -> str:
+    """Format a single-line warning message for non-divisible ``rows_per_update``."""
+    rows = int(info["rows_per_update"])
+    mb = int(info["minibatch_size"])
+    dropped = int(info["dropped_rows_per_epoch"])
+    pct = float(info["dropped_percent"])
+    padded = int(info.get("padded_rows_per_epoch", 0))
+    if padded > 0:
+        return (
+            f"WARNING [V3_PPO_MINIBATCH_REMAINDER]: rows_per_update={rows} is not divisible by "
+            f"minibatch_size={mb}; {dropped}/{rows} rows ({pct:.2f}%) dropped per PPO epoch "
+            f"(batch padded with {padded} zero-masked rows to {mb})."
+        )
+    return (
+        f"WARNING [V3_PPO_MINIBATCH_REMAINDER]: rows_per_update={rows} is not divisible by "
+        f"minibatch_size={mb}; dropping {dropped}/{rows} rows ({pct:.2f}%) per PPO epoch."
+    )
 
 
 def resolve_full_export_settings(

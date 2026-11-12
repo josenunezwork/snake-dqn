@@ -696,7 +696,11 @@ class V3PPOTrainer:
         should_stop: Callable[[], bool] | None = None,
         stage_timing: bool = False,
     ) -> dict[str, Any]:
-        """Run one complete rollout + PPO update and return metrics + timing."""
+        """Run one complete rollout + PPO update and return metrics + timing.
+
+        Note: ``mean_ep_return`` (from ``self.last_rollout_mean_ep_return``) is **recipe-dependent**
+        because rollout returns sum ``self.cfg``'s ``reward_*`` terms over completed learner lives.
+        """
         coll = self.collect_rollout(should_stop=should_stop, stage_timing=stage_timing)
         ppo_stats, learn_sec = self.ppo_update(should_stop=should_stop)
         collect_sec = float(coll["collect_seconds"])

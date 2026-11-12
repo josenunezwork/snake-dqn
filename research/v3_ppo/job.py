@@ -9,13 +9,14 @@ import os
 import time
 import traceback
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
 import torch
 
 from research.arena_ppo.runtime import SignalStopFlag, phase_stamp, verify_completed_artifact
+from research.game_v3.config import GameV3Config
 from research.v3_ppo.checkpoint_io import (
     INIT_ANCHOR_LIGHT_NAME,
     ckpt_tag,
@@ -260,6 +261,13 @@ def _format_progress_line(
     eval_wall_total: float = 0.0,
     eval_metrics: dict[str, Any] | None = None,
 ) -> str:
+    """Format one ``V3_PPO_PROGRESS`` telemetry line for a completed training update.
+
+    Note: ``ep_ret`` (``step_metrics['mean_ep_return']``, also recorded in ``metrics/updates_*.jsonl``
+    and as ``last_rollout_mean_ep_return`` in ``train_result.json`` / checkpoints) is
+    **recipe-dependent** because it sums ``cfg``'s ``reward_*`` terms over completed learner lives;
+    compare policies across recipes using the recipe-invariant ``eval_*`` fields instead.
+    """
     eval_share_pct = 100.0 * float(eval_wall_total) / max(1.0e-9, float(wall_elapsed))
     line = (
         f"V3_PPO_PROGRESS "
@@ -630,6 +638,7 @@ def _stage_save_and_publish_checkpoints(
     *,
     now_mono: float,
     final_boundary: bool = False,
+    is_stopping: Callable[[], bool] | None = None,
 ) -> None:
     """Save due ``work/`` checkpoints, prune ``work/``, and publish periodic ``output/`` exports.
 
@@ -663,9 +672,10 @@ def _stage_save_and_publish_checkpoints(
             )
         state.last_light_work_mono = now_mono
 
+    eff_final_boundary = bool(final_boundary or (is_stopping is not None and is_stopping()))
     full_work_index: Path | None = None
     full_work_meta: dict[str, Any] | None = None
-    if sched.save_work_full and not final_boundary:
+    if sched.save_work_full and not eff_final_boundary:
         cand_idx = state.work_ckpts / f"full_{tag}.index.json"
         if not artifact_or_sidecar_exists(cand_idx):
             work_shard_cap = (
@@ -1142,6 +1152,13 @@ def run_training_job(
                 state.stopped_reason = "wall_clock_guard"
             else:
                 while state.trainer.updates_completed < int(cfg.total_updates):
+                    if stop_flag.stopped:
+                        state.stopped_reason = f"signal:{stop_flag.signal_name or 'STOP'}"
+                        break
+                    if state.wall_expired():
+                        state.stopped_reason = "wall_clock_guard"
+                        break
+
                     try:
                         state.trainer_state_clean = False
                         u_t0 = time.monotonic()
@@ -1209,6 +1226,7 @@ def run_training_job(
                         state,
                         now_mono=now_mono,
                         final_boundary=(post_stop_reason is not None),
+                        is_stopping=lambda: bool(stop_flag.stopped or state.wall_expired()),
                     )
                     if post_stop_reason is not None:
                         state.stopped_reason = post_stop_reason
@@ -1267,12 +1285,13 @@ def _merge_config_json_overlay(
     parsed = json.loads(raw_json_str)
     if not isinstance(parsed, dict):
         raise ValueError(f"{source_label} must decode to a JSON object, got {type(parsed)!r}")
-    valid_top_keys = set(cfg_dict.keys()) | {"schema"}
+    valid_top_keys = {f.name for f in fields(V3PPOConfig)} | {"schema"}
     unknown_top = sorted(set(parsed.keys()) - valid_top_keys)
     if unknown_top:
         raise ValueError(f"Unknown keys in {source_label}: {unknown_top}")
 
     prev_net_size = cfg_dict["net_size"]
+    valid_gc_keys = {f.name for f in fields(GameV3Config)}
     for key, val in parsed.items():
         if key == "schema":
             continue
@@ -1281,7 +1300,6 @@ def _merge_config_json_overlay(
                 raise ValueError(
                     f"{source_label}.game_config must be a JSON object, got {type(val)!r}"
                 )
-            valid_gc_keys = set(cfg_dict["game_config"].keys())
             unknown_gc = sorted(set(val.keys()) - valid_gc_keys)
             if unknown_gc:
                 raise ValueError(f"Unknown keys in {source_label}.game_config: {unknown_gc}")
@@ -1566,9 +1584,7 @@ def resolve_effective_train_config(
     )
 
     resolved_cfg = V3PPOConfig.from_dict(cfg_dict)
-    resolved_recipe_overrides = {
-        key: getattr(resolved_cfg, key) for key in RECIPE_OVERRIDE_KEYS if key in merged_recipe
-    }
+    resolved_recipe_overrides = recipe_overrides_from_default(resolved_cfg)
 
     return EffectiveTrainJobConfig(
         cfg=resolved_cfg,
