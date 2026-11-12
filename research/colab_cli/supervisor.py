@@ -956,7 +956,9 @@ class CLI:
                 )
                 return self.rpc(code, min(rpc_seconds, remaining()), completion_grace=0)
             except (Refused, OSError, subprocess.SubprocessError) as exc:
-                if not self.exec_uncertain or not policy.transient_error(exc):
+                if not self.exec_uncertain or not policy.transient_poll_error(
+                    exc, mutating=is_mutating
+                ):
                     raise
                 attempt += 1
                 if not extended and attempt >= policy.ATTEMPTS:

@@ -40,10 +40,17 @@ BACKOFF_SECONDS = (2.0, 5.0)
 READ_COMMANDS = frozenset({"version", "whoami", "sessions", "usage", "url"})
 
 
-def transient_error(exc: BaseException) -> bool:
-    """Retry transport outages only; auth, quota, hashes and kernel errors fail."""
-    if isinstance(exc, (ConnectionError, TimeoutError, subprocess.TimeoutExpired)):
-        return True
+READ_ONLY_POLL_TRANSIENT_MARKERS = (
+    "websocketconnectionclosed",
+    "connection is already closed",
+    "socket is already closed",
+    "connectionclosederror",
+    "connectionclosedok",
+    "connection closed",
+)
+
+
+def _normalized_error_message(exc: BaseException) -> str:
     message = str(exc).lower()
     # Rich's CLI traceback includes adjacent source lines. A permanent guard
     # refusal can therefore display the reconnect-required raise (or timeout
@@ -51,7 +58,15 @@ def transient_error(exc: BaseException) -> bool:
     # preserving genuine saved-kernel reconnect recovery after idle proof.
     guard_errors = re.findall(r"(?:^|\n)(?:cli_guard: )?guarderror: ([^\n]+)", message)
     if guard_errors:
-        message = guard_errors[-1]
+        return guard_errors[-1]
+    return message
+
+
+def transient_error(exc: BaseException) -> bool:
+    """Retry transport outages only; auth, quota, hashes and kernel errors fail."""
+    if isinstance(exc, (ConnectionError, TimeoutError, subprocess.TimeoutExpired)):
+        return True
+    message = _normalized_error_message(exc)
     return bool(
         re.search(r"\b(?:500|502|503|504)\b", message)
         or any(
@@ -75,3 +90,13 @@ def transient_error(exc: BaseException) -> bool:
             )
         )
     )
+
+
+def transient_poll_error(exc: BaseException, *, mutating: bool = False) -> bool:
+    """Classify transient colab exec failures, adding WebSocket closes on read-only polls."""
+    if transient_error(exc):
+        return True
+    if mutating:
+        return False
+    message = _normalized_error_message(exc)
+    return any(marker in message for marker in READ_ONLY_POLL_TRANSIENT_MARKERS)
