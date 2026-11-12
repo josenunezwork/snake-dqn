@@ -43,6 +43,19 @@ From-scratch PPO self-play trainer, throughput/VRAM ruler, deterministic M-of-N 
   - **24 h session (`<= 49` LIGHTs + `<= 4` FULLs):**
     - `L4` (`E = 128`, `8` shards/FULL, `12.0 GiB` cap): `8.830 GiB` (`S`) / `11.318 GiB` (`M`).
     - `A100` (`E = 256`, `16` shards/FULL, `24.0 GiB` cap): `16.832 GiB` (`S`) / `19.320 GiB` (`M`).
+- **Train-mode wall-guard headroom (`prepare --mode train` only; `timeout_minutes` unchanged):**
+  - Sizes `headroom = setup_allowance (120 s) + final_eval_and_save_allowance (300 s default, or canary_eval_wall_seconds + 150 s when bound receipt provides it) + (final_full_bytes + final_light_bytes) / ASSUMED_FINAL_EXPORT_DOWNLOAD_RATE_MBPS (1.0 MB/s = 1,000,000 B/s)`, sets `V3_PPO_MAX_WALL_SECONDS = floor(timeout_seconds - headroom)`, and refuses any `train` packet with `headroom > 40%` of the session.
+  - On clean boundary stop (`completed`, `wall_clock_guard`, or boundary signal), final `LIGHT` (`light_<tag>.pt`) is always exported and `.complete` in `output/checkpoints/` **before** final `FULL` shard compression/publication begins.
+  - Default headroom table (`16.0 MiB/world` budget, default `300 s` finalize allowance, `1.0 MB/s` assumed download rate):
+
+| GPU & Worlds | Net | Final Export (`FULL` sim + `LIGHT`) | Download @ `1.0 MB/s` | Total Headroom (`120 s` + `300 s` + dl) | `4 h` (`14,400 s`) Share / `V3_PPO_MAX_WALL_SECONDS` | `8 h` (`28,800 s`) Share / `V3_PPO_MAX_WALL_SECONDS` |
+| --- | --- | --- | --- | --- | --- | --- |
+| `L4`, `128` worlds | `S` | `2,164,785,152 B` (`2,164.79 MB`) | `2,164.79 s` | `2,584.79 s` (`43.08 min`) | `17.95%` / `11,815 s` | `8.97%` / `26,215 s` |
+| `L4`, `128` worlds | `M` | `2,219,311,104 B` (`2,219.31 MB`) | `2,219.31 s` | `2,639.31 s` (`43.99 min`) | `18.33%` / `11,760 s` | `9.16%` / `26,160 s` |
+| `A100`, `256` worlds | `S` | `4,312,793,088 B` (`4,312.79 MB`) | `4,312.79 s` | `4,732.79 s` (`78.88 min`) | `32.87%` / `9,667 s` | `16.43%` / `24,067 s` |
+| `A100`, `256` worlds | `M` | `4,367,319,040 B` (`4,367.32 MB`) | `4,367.32 s` | `4,787.32 s` (`79.79 min`) | `33.25%` / `9,612 s` | `16.62%` / `24,012 s` |
+| `H100`, `512` worlds | `S` | `8,608,808,960 B` (`8,608.81 MB`) | `8,608.81 s` | `9,028.81 s` (`150.48 min`) | `62.70%` — **REFUSED (`> 40%`)** | `31.35%` / `19,771 s` |
+| `H100`, `512` worlds | `M` | `8,663,334,912 B` (`8,663.33 MB`) | `8,663.33 s` | `9,083.33 s` (`151.39 min`) | `63.08%` — **REFUSED (`> 40%`)** | `31.54%` / `19,716 s` |
 
 ## Packet Preparation Commands (Do Not Dispatch Without Operator)
 

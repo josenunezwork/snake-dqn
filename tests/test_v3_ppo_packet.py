@@ -21,7 +21,15 @@ from research.colab_cli import source as colab_source
 from research.colab_cli import supervisor as colab_supervisor
 from research.game_v3.config import GameV3Config
 from research.v3_ppo.config import (
+    ASSUMED_FINAL_EXPORT_DOWNLOAD_RATE_BYTES_PER_SEC,
+    ASSUMED_FINAL_EXPORT_DOWNLOAD_RATE_MBPS,
+    MAX_TRAIN_HEADROOM_SESSION_FRACTION,
+    TRAIN_FINAL_EVAL_AND_SAVE_ALLOWANCE_SECONDS,
+    TRAIN_FINAL_SAVE_AFTER_EVAL_ALLOWANCE_SECONDS,
+    TRAIN_SETUP_ALLOWANCE_SECONDS,
     V3PPOConfig,
+    estimate_checkpoint_export_caps,
+    estimate_train_wall_headroom,
     estimate_training_memory,
 )
 from research.v3_ppo.job import build_arg_parser as build_train_arg_parser
@@ -270,7 +278,7 @@ def test_prepare_canary_ruler_train_and_continuation_validate_with_colab_cli(
         gpu="A100",
         num_envs=256,
         net_size="M",
-        hours=2.0,
+        hours=4.0,
         canary_receipt=rcpt_a100,
         output_dir=tmp_path / "out_train_a100",
         allow_unmerged_commit=True,
@@ -694,6 +702,7 @@ def test_prepare_refuses_bad_configs_and_oom_vram_budgets(tmp_path: Path) -> Non
         commit="HEAD",
         mode="train",
         gpu="H100",
+        hours=8.0,
         num_envs=512,
         learner_slots=24,
         rollout_len=32,
@@ -1049,14 +1058,10 @@ def test_canary_eval_resident_train_sim_combined_peak_and_prepare_eval_estimate_
     assert override_cfg["eval_estimated_seconds"] == pytest.approx(110.0)
 
 
-def test_prepare_and_job_sh_effective_configs_match_e2865f93_baseline(tmp_path: Path) -> None:
-    """Prove canary/ruler/train packets produce identical effective runtime configs vs e2865f93."""
-    import os
-    import sys
-
-    baseline_root = tmp_path / "baseline_e2865f93"
+def _materialize_baseline_root(tmp_path: Path, commit_ref: str) -> Path:
+    """Create an isolated repo tree with ``commit_ref``'s ``research/v3_ppo/`` extracted."""
+    baseline_root = tmp_path / f"baseline_{commit_ref}"
     baseline_root.mkdir(parents=True)
-    # Symlink shared read-only packages and extract e2865f93's `research/v3_ppo/`
     (baseline_root / "src").symlink_to(ROOT / "src")
     (baseline_root / "tools").symlink_to(ROOT / "tools")
     (baseline_root / "research").mkdir()
@@ -1064,7 +1069,7 @@ def test_prepare_and_job_sh_effective_configs_match_e2865f93_baseline(tmp_path: 
         if src_p.name != "v3_ppo":
             (baseline_root / "research" / src_p.name).symlink_to(src_p)
     archive = subprocess.run(
-        ["git", "-C", str(ROOT), "archive", "e2865f93", "research/v3_ppo"],
+        ["git", "-C", str(ROOT), "archive", commit_ref, "research/v3_ppo"],
         capture_output=True,
         check=True,
     )
@@ -1073,8 +1078,11 @@ def test_prepare_and_job_sh_effective_configs_match_e2865f93_baseline(tmp_path: 
         input=archive.stdout,
         check=True,
     )
+    return baseline_root
 
-    probe_script = tmp_path / "probe_effective_packets.py"
+
+def _write_effective_packet_probe_script(probe_script: Path) -> Path:
+    """Write helper script capturing `job.sh` effective configs across canary/ruler/train."""
     probe_script.write_text(
         """from __future__ import annotations
 import json, os, shutil, subprocess, sys
@@ -1225,6 +1233,13 @@ out_json.write_text(json.dumps(results, sort_keys=True), encoding="utf-8")
 """,
         encoding="utf-8",
     )
+    return probe_script
+
+
+def test_prepare_and_job_sh_effective_configs_match_e2865f93_baseline(tmp_path: Path) -> None:
+    """Prove canary/ruler/train packets match e2865f93 effective configs (with earlier wall guard)."""
+    baseline_root = _materialize_baseline_root(tmp_path, "e2865f93")
+    probe_script = _write_effective_packet_probe_script(tmp_path / "probe_effective_packets.py")
 
     sub_env = {
         **os.environ,
@@ -1260,7 +1275,327 @@ out_json.write_text(json.dumps(results, sort_keys=True), encoding="utf-8")
     )
     before = json.loads(before_json.read_text(encoding="utf-8"))
     after = json.loads(after_json.read_text(encoding="utf-8"))
-    assert after == before
+    assert after["canary_l4"] == before["canary_l4"]
+    assert after["ruler_a100_custom"] == before["ruler_a100_custom"]
+
+    for train_key, gpu_kind, net_sz in (
+        ("train_s_default", "L4", "S"),
+        ("train_m_custom", "A100", "M"),
+    ):
+        before_no_wall = {k: v for k, v in before[train_key].items() if k != "max_wall_seconds"}
+        after_no_wall = {k: v for k, v in after[train_key].items() if k != "max_wall_seconds"}
+        assert after_no_wall == before_no_wall
+        exp_wall = float(
+            estimate_train_wall_headroom(
+                V3PPOConfig(net_size=net_sz, num_envs=128),  # type: ignore[arg-type]
+                gpu=gpu_kind,
+                session_seconds=7200.0,
+            )["max_wall_seconds"]
+        )
+        assert after[train_key]["max_wall_seconds"] == pytest.approx(exp_wall)
+        assert after[train_key]["max_wall_seconds"] < before[train_key]["max_wall_seconds"]
+
+
+def test_canary_and_ruler_packets_byte_for_byte_identical_vs_c85c6837(tmp_path: Path) -> None:
+    """Prove canary and ruler packets are unchanged byte-for-byte vs c85c6837."""
+    baseline_root = _materialize_baseline_root(tmp_path, "c85c6837")
+    probe_script = _write_effective_packet_probe_script(tmp_path / "probe_effective_c85c6837.py")
+
+    sub_env = {
+        **os.environ,
+        "OMP_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+    }
+    eff_before_json = tmp_path / "eff_c85c6837.json"
+    eff_after_json = tmp_path / "eff_head.json"
+    subprocess.run(
+        [
+            sys.executable,
+            str(probe_script),
+            str(baseline_root),
+            str(tmp_path / "eff_w_before"),
+            str(eff_before_json),
+            str(ROOT),
+        ],
+        env={**sub_env, "PYTHONPATH": str(baseline_root)},
+        check=True,
+    )
+    subprocess.run(
+        [
+            sys.executable,
+            str(probe_script),
+            str(ROOT),
+            str(tmp_path / "eff_w_after"),
+            str(eff_after_json),
+            str(ROOT),
+        ],
+        env={**sub_env, "PYTHONPATH": str(ROOT)},
+        check=True,
+    )
+    eff_before = json.loads(eff_before_json.read_text(encoding="utf-8"))
+    eff_after = json.loads(eff_after_json.read_text(encoding="utf-8"))
+    assert eff_after["canary_l4"] == eff_before["canary_l4"]
+    assert eff_after["ruler_a100_custom"] == eff_before["ruler_a100_custom"]
+
+    # Now verify literal byte-for-byte identity of every file in canary and ruler packet dirs
+    byte_script = tmp_path / "byte_compare_canary_ruler.py"
+    byte_script.write_text(
+        """from __future__ import annotations
+import base64, json, shutil, sys
+from pathlib import Path
+
+repo_root = Path(sys.argv[1]).resolve()
+shared_pkt_root = Path(sys.argv[2]).resolve()
+out_json = Path(sys.argv[3]).resolve()
+git_repo = Path(sys.argv[4]).resolve()
+sys.path.insert(0, str(repo_root))
+
+import research.v3_ppo.prepare as prep_mod
+prep_mod.ROOT = git_repo
+
+if shared_pkt_root.exists():
+    shutil.rmtree(shared_pkt_root)
+shared_pkt_root.mkdir(parents=True)
+
+cases = {
+    "canary_l4": dict(mode="canary", gpu="L4"),
+    "canary_a100_flags": dict(
+        mode="canary", gpu="A100", compile_model=True, fast_learner_ops=False
+    ),
+    "canary_h100": dict(mode="canary", gpu="H100"),
+    "ruler_l4_default": dict(
+        mode="ruler", gpu="L4", allow_missing_canary_receipt=True
+    ),
+    "ruler_a100_custom": dict(
+        mode="ruler", gpu="A100", ruler_nets="S,M", ruler_envs="512,1024",
+        amp=False, use_channels_last=False, compile_model=True, fast_learner_ops=False,
+        allow_missing_canary_receipt=True,
+    ),
+}
+
+snapshots = {}
+for name, kw in cases.items():
+    pkt_dir = shared_pkt_root / f"pkt_{name}"
+    out_dir = shared_pkt_root / f"out_{name}"
+    summary = prep_mod.prepare_v3_ppo_packet(
+        pkt_dir,
+        commit="c85c6837",
+        output_dir=out_dir,
+        allow_unmerged_commit=True,
+        **kw,
+    )
+    files_b64 = {}
+    for p in sorted(pkt_dir.rglob("*")):
+        if p.is_file():
+            files_b64[p.relative_to(pkt_dir).as_posix()] = base64.b64encode(
+                p.read_bytes()
+            ).decode("ascii")
+    snapshots[name] = {
+        "summary_json": json.dumps(summary, indent=2, sort_keys=True),
+        "files_b64": files_b64,
+    }
+
+out_json.write_text(json.dumps(snapshots, sort_keys=True), encoding="utf-8")
+""",
+        encoding="utf-8",
+    )
+
+    shared_pkt_root = tmp_path / "shared_byte_pkts"
+    snap_before_json = tmp_path / "snap_c85c6837.json"
+    snap_after_json = tmp_path / "snap_head.json"
+    subprocess.run(
+        [
+            sys.executable,
+            str(byte_script),
+            str(baseline_root),
+            str(shared_pkt_root),
+            str(snap_before_json),
+            str(ROOT),
+        ],
+        env={**sub_env, "PYTHONPATH": str(baseline_root)},
+        check=True,
+    )
+    subprocess.run(
+        [
+            sys.executable,
+            str(byte_script),
+            str(ROOT),
+            str(shared_pkt_root),
+            str(snap_after_json),
+            str(ROOT),
+        ],
+        env={**sub_env, "PYTHONPATH": str(ROOT)},
+        check=True,
+    )
+    snap_before = json.loads(snap_before_json.read_text(encoding="utf-8"))
+    snap_after = json.loads(snap_after_json.read_text(encoding="utf-8"))
+    assert snap_after.keys() == snap_before.keys()
+    for case_name in snap_before:
+        assert (
+            snap_after[case_name]["files_b64"] == snap_before[case_name]["files_b64"]
+        ), f"Packet file bytes changed vs c85c6837 for {case_name}"
+        assert (
+            snap_after[case_name]["summary_json"] == snap_before[case_name]["summary_json"]
+        ), f"Summary JSON changed vs c85c6837 for {case_name}"
+
+
+def test_train_wall_headroom_arithmetic_gpu_defaults_summary_and_40pct_refusal(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify headroom arithmetic across L4/A100/H100 defaults, receipt eval, summary, & >40% refusal."""
+    assert TRAIN_SETUP_ALLOWANCE_SECONDS == 120.0
+    assert TRAIN_FINAL_EVAL_AND_SAVE_ALLOWANCE_SECONDS == 300.0
+    assert TRAIN_FINAL_SAVE_AFTER_EVAL_ALLOWANCE_SECONDS == 150.0
+    assert ASSUMED_FINAL_EXPORT_DOWNLOAD_RATE_MBPS == 1.0
+    assert ASSUMED_FINAL_EXPORT_DOWNLOAD_RATE_BYTES_PER_SEC == 1_000_000.0
+    assert MAX_TRAIN_HEADROOM_SESSION_FRACTION == 0.40
+
+    expected_cases = [
+        # (gpu, num_envs, net_size, hours, expected_final_bytes, expected_wall_4h_or_8h, fits_40)
+        ("L4", 128, "S", 4.0, 2_164_785_152, 11_815, True),
+        ("L4", 128, "S", 8.0, 2_164_785_152, 26_215, True),
+        ("L4", 128, "M", 4.0, 2_219_311_104, 11_760, True),
+        ("L4", 128, "M", 8.0, 2_219_311_104, 26_160, True),
+        ("A100", 256, "S", 4.0, 4_312_793_088, 9_667, True),
+        ("A100", 256, "S", 8.0, 4_312_793_088, 24_067, True),
+        ("A100", 256, "M", 4.0, 4_367_319_040, 9_612, True),
+        ("A100", 256, "M", 8.0, 4_367_319_040, 24_012, True),
+        ("H100", 512, "S", 4.0, 8_608_808_960, 5_371, False),
+        ("H100", 512, "S", 8.0, 8_608_808_960, 19_771, True),
+        ("H100", 512, "M", 4.0, 8_663_334_912, 5_316, False),
+        ("H100", 512, "M", 8.0, 8_663_334_912, 19_716, True),
+    ]
+
+    for gpu_kind, n_envs, net_sz, h_val, exp_bytes, exp_wall, exp_fits in expected_cases:
+        cfg = V3PPOConfig(num_envs=n_envs, net_size=net_sz)  # type: ignore[arg-type]
+        sess_sec = h_val * 3600.0
+        caps = estimate_checkpoint_export_caps(cfg, gpu=gpu_kind, max_wall_seconds=sess_sec)
+        est = estimate_train_wall_headroom(cfg, gpu=gpu_kind, session_seconds=sess_sec)
+        assert est["final_full_bytes"] == int(caps["est_full_sim_bytes"])
+        assert est["final_light_bytes"] == int(caps["est_light_checkpoint_bytes"])
+        assert est["final_export_bytes"] == exp_bytes
+        assert est["setup_allowance_seconds"] == 120.0
+        assert est["final_eval_and_save_allowance_seconds"] == 300.0
+        assert est["final_export_download_seconds"] == pytest.approx(exp_bytes / 1_000_000.0)
+        assert est["headroom_seconds"] == pytest.approx(120.0 + 300.0 + exp_bytes / 1_000_000.0)
+        assert est["max_wall_seconds"] == exp_wall
+        assert est["fits_max_headroom_fraction"] is exp_fits
+
+        slug = f"{gpu_kind.lower()}_{n_envs}_{net_sz.lower()}_{int(h_val)}h"
+        pkt_path = tmp_path / f"pkt_{slug}"
+        if exp_fits:
+            summary = prepare_v3_ppo_packet(
+                pkt_path,
+                commit="HEAD",
+                mode="train",
+                gpu=gpu_kind,
+                hours=h_val,
+                num_envs=n_envs,
+                net_size=net_sz,  # type: ignore[arg-type]
+                allow_missing_canary_receipt=True,
+                output_dir=tmp_path / f"out_{slug}",
+                allow_unmerged_commit=True,
+            )
+            assert summary["timeout_minutes"] == pytest.approx(h_val * 60.0)
+            assert summary["max_wall_seconds"] == exp_wall
+            wh = summary["wall_headroom"]
+            assert wh["headroom_seconds"] == pytest.approx(est["headroom_seconds"])
+            assert wh["setup_allowance_seconds"] == 120.0
+            assert wh["final_eval_and_save_allowance_seconds"] == 300.0
+            assert wh["final_export_download_seconds"] == pytest.approx(exp_bytes / 1_000_000.0)
+            mf = json.loads(Path(summary["manifest_path"]).read_text(encoding="utf-8"))
+            assert mf["timeout_minutes"] == pytest.approx(h_val * 60.0)
+            assert int(mf["env"]["V3_PPO_MAX_WALL_SECONDS"]) == exp_wall
+            assert mf["technical_envelope"]["wall_headroom"] == wh
+        else:
+            with pytest.raises(
+                ValueError,
+                match=rf"Refusing train packet whose wall-guard headroom.*exceeds 40% of the {int(h_val)} h session",
+            ):
+                prepare_v3_ppo_packet(
+                    pkt_path,
+                    commit="HEAD",
+                    mode="train",
+                    gpu=gpu_kind,
+                    hours=h_val,
+                    num_envs=n_envs,
+                    net_size=net_sz,  # type: ignore[arg-type]
+                    allow_missing_canary_receipt=True,
+                    output_dir=tmp_path / f"out_{slug}",
+                    allow_unmerged_commit=True,
+                )
+            assert not pkt_path.exists()
+
+    # Additional short-session refusals on A100 (256 worlds @ 2h) and L4 (128 worlds @ 1h)
+    for bad_gpu, bad_envs, bad_hours in (("A100", 256, 2.0), ("L4", 128, 1.0)):
+        bad_pkt = tmp_path / f"pkt_refuse_{bad_gpu.lower()}_{int(bad_hours)}h"
+        with pytest.raises(ValueError, match="exceeds 40%"):
+            prepare_v3_ppo_packet(
+                bad_pkt,
+                commit="HEAD",
+                mode="train",
+                gpu=bad_gpu,
+                hours=bad_hours,
+                num_envs=bad_envs,
+                allow_missing_canary_receipt=True,
+                output_dir=tmp_path / f"out_refuse_{bad_gpu.lower()}",
+                allow_unmerged_commit=True,
+            )
+        assert not bad_pkt.exists()
+
+    # Bound canary receipt provides measured evaluation seconds -> term 2 = eval_wall_s + 150 s!
+    canary_l4 = prepare_v3_ppo_packet(
+        tmp_path / "pkt_c_l4_hr",
+        commit="HEAD",
+        mode="canary",
+        gpu="L4",
+        output_dir=tmp_path / "out_c_l4_hr",
+        allow_unmerged_commit=True,
+    )
+    mf_c_l4 = json.loads(Path(canary_l4["manifest_path"]).read_text(encoding="utf-8"))
+    rcpt_l4 = _build_synthetic_canary_receipt(mf_c_l4, "L4")
+    canary_checks = json.loads(
+        (Path(mf_c_l4["output_dir"]) / "exports" / "canary_checks.json").read_text(encoding="utf-8")
+    )
+    measured_eval_s = float(canary_checks["default_eval_wall_seconds"])
+    capsys.readouterr()
+
+    rc_cli = prepare_main(
+        [
+            "--mode",
+            "train",
+            "--gpu",
+            "L4",
+            "--num-envs",
+            "128",
+            "--net-size",
+            "S",
+            "--hours",
+            "4.0",
+            "--canary-receipt",
+            str(rcpt_l4),
+            "--output-dir",
+            str(tmp_path / "out_cli_l4_4h"),
+            "--packet",
+            str(tmp_path / "pkt_cli_l4_4h"),
+            "--allow-unmerged-commit",
+        ]
+    )
+    assert rc_cli == 0
+    captured = capsys.readouterr()
+    cli_summary = json.loads(captured.out)
+    cli_wh = cli_summary["wall_headroom"]
+    assert cli_wh["final_eval_and_save_source"] == "canary_receipt_eval_plus_150s"
+    assert cli_wh["setup_allowance_seconds"] == 120.0
+    assert cli_wh["final_eval_and_save_allowance_seconds"] == pytest.approx(measured_eval_s + 150.0)
+    assert cli_wh["final_export_download_seconds"] == pytest.approx(2_164_785_152 / 1_000_000.0)
+    assert cli_wh["headroom_seconds"] == pytest.approx(
+        120.0 + (measured_eval_s + 150.0) + 2_164_785_152 / 1_000_000.0
+    )
+    assert "V3_PPO_HEADROOM " in captured.err
+    assert '"setup_allowance_seconds": 120.0' in captured.err
 
 
 def _resolve_project_module_relpaths(dotted: str) -> list[str]:

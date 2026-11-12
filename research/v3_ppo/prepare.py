@@ -44,10 +44,12 @@ from research.v3_ppo.config import (
     V3PPOConfig,
     assert_resume_config_compatible,
     default_train_envs_for_gpu,
+    estimate_train_wall_headroom,
     estimate_training_memory,
     get_net_preset,
     validate_checkpoint_export_caps,
     validate_memory_budget,
+    validate_train_wall_headroom,
 )
 from research.v3_ppo.exports import write_create_only_artifact
 from research.v3_ppo.resume import resolve_resume_checkpoint
@@ -163,6 +165,7 @@ class _SizedModePlan:
     train_cfg: V3PPOConfig | None = None
     training_plan: dict[str, Any] | None = None
     memory_estimate: dict[str, Any] | None = None
+    wall_headroom: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -796,6 +799,23 @@ def _size_ruler_mode(
     )
 
 
+def _resolve_measured_world_bytes(
+    opts: PreparePacketOptions,
+    cfg_obj: V3PPOConfig,
+) -> int | None:
+    """Resolve optional per-world packed checkpoint byte measurement from ``opts``."""
+    eff_world_bytes = opts.measured_packed_bytes_per_world
+    if eff_world_bytes is None and opts.measured_checkpoint_bytes is not None:
+        if int(opts.measured_checkpoint_bytes) < 1:
+            raise ValueError(
+                f"measured_checkpoint_bytes must be >= 1, got {opts.measured_checkpoint_bytes}"
+            )
+        eff_world_bytes = max(
+            1, int(math.ceil(int(opts.measured_checkpoint_bytes) / cfg_obj.num_envs))
+        )
+    return eff_world_bytes
+
+
 def _size_train_mode(
     opts: PreparePacketOptions,
     ctx: _ValidatedPacketContext,
@@ -808,8 +828,6 @@ def _size_train_mode(
     est_minutes = round(timeout_minutes / 2.0, 2)
     base_sec = est_minutes * 60.0
     eff_sec = timeout_minutes * 60.0
-    headroom_sec = min(480.0, max(60.0, eff_sec * 0.08))
-    max_wall_sec_int = int(max(30.0, eff_sec - headroom_sec))
 
     staged_base_cfg = ctx.prior.staged_base_cfg
     base_cfg = opts.ppo_config or staged_base_cfg or V3PPOConfig()
@@ -872,6 +890,23 @@ def _size_train_mode(
             candidate_label="requested",
         )
 
+    memory_estimate = validate_memory_budget(cfg_obj, ctx.gpu_norm)
+
+    eff_world_bytes = _resolve_measured_world_bytes(opts, cfg_obj)
+    canary_eval_wall_sec = (
+        float(ctx.canary_eval_metrics["wall_seconds"])
+        if ctx.canary_eval_metrics is not None
+        else None
+    )
+    wall_headroom = estimate_train_wall_headroom(
+        cfg_obj,
+        gpu=ctx.gpu_norm,
+        session_seconds=eff_sec,
+        canary_eval_wall_seconds=canary_eval_wall_sec,
+        measured_packed_bytes_per_world=eff_world_bytes,
+    )
+    max_wall_sec_int = max(1, int(wall_headroom["max_wall_seconds"]))
+
     training_plan: dict[str, Any] | None = None
     if opts.expected_steps_per_sec is not None:
         if (
@@ -898,13 +933,6 @@ def _size_train_mode(
             expected_steps_per_sec=float(opts.expected_steps_per_sec),
             max_wall_seconds=float(max_wall_sec_int),
         )
-        print(
-            f"V3_PPO_PLAN {json.dumps(training_plan, sort_keys=True)}",
-            file=sys.stderr,
-            flush=True,
-        )
-
-    memory_estimate = validate_memory_budget(cfg_obj, ctx.gpu_norm)
 
     return _SizedModePlan(
         job_id=f"v3-ppo-train-{ctx.gpu_slug}-{opts.attempt}",
@@ -927,6 +955,7 @@ def _size_train_mode(
         train_cfg=cfg_obj,
         training_plan=training_plan,
         memory_estimate=memory_estimate,
+        wall_headroom=wall_headroom,
     )
 
 
@@ -963,15 +992,7 @@ def _stage_export_caps(
 
     assert sized.train_cfg is not None
     cfg_obj = sized.train_cfg
-    eff_world_bytes = opts.measured_packed_bytes_per_world
-    if eff_world_bytes is None and opts.measured_checkpoint_bytes is not None:
-        if int(opts.measured_checkpoint_bytes) < 1:
-            raise ValueError(
-                f"measured_checkpoint_bytes must be >= 1, got {opts.measured_checkpoint_bytes}"
-            )
-        eff_world_bytes = max(
-            1, int(math.ceil(int(opts.measured_checkpoint_bytes) / cfg_obj.num_envs))
-        )
+    eff_world_bytes = _resolve_measured_world_bytes(opts, cfg_obj)
 
     if opts.ppo_config is None or not opts.explicit_total_updates:
         cfg_obj = replace(
@@ -1003,6 +1024,31 @@ def _stage_export_caps(
         measured_packed_bytes_per_world=eff_world_bytes,
     )
 
+    canary_eval_wall_sec = (
+        float(ctx.canary_eval_metrics["wall_seconds"])
+        if ctx.canary_eval_metrics is not None
+        else None
+    )
+    wall_headroom = validate_train_wall_headroom(
+        cfg_obj,
+        ctx.gpu_norm,
+        session_seconds=sized.eff_sec,
+        canary_eval_wall_seconds=canary_eval_wall_sec,
+        measured_packed_bytes_per_world=eff_world_bytes,
+    )
+
+    print(
+        f"V3_PPO_HEADROOM {json.dumps(wall_headroom, sort_keys=True)}",
+        file=sys.stderr,
+        flush=True,
+    )
+    if sized.training_plan is not None:
+        print(
+            f"V3_PPO_PLAN {json.dumps(sized.training_plan, sort_keys=True)}",
+            file=sys.stderr,
+            flush=True,
+        )
+
     extra_env = dict(sized.extra_env)
     extra_env["V3_PPO_AMP"] = "1" if bool(cfg_obj.amp) else "0"
     extra_env["V3_PPO_CHANNELS_LAST"] = "1" if bool(cfg_obj.use_channels_last) else "0"
@@ -1016,7 +1062,7 @@ def _stage_export_caps(
     extra_env["V3_PPO_CONFIG_JSON"] = json.dumps(cfg_obj.to_dict(), sort_keys=True)
 
     return _CappedModePlan(
-        sized=replace(sized, train_cfg=cfg_obj),
+        sized=replace(sized, train_cfg=cfg_obj, wall_headroom=wall_headroom),
         extra_env=extra_env,
         max_export_bytes=int(checkpoint_export_caps["per_file_max_export_bytes"]),
         checkpoint_export_caps=checkpoint_export_caps,
@@ -1161,6 +1207,8 @@ def _stage_write_manifest(
             tech_envelope["canary_eval_peak_memory_bytes"] = int(
                 ctx.canary_eval_metrics["peak_memory_bytes"]
             )
+    if sized.wall_headroom is not None:
+        tech_envelope["wall_headroom"] = sized.wall_headroom
 
     manifest: dict[str, Any] = {
         "job_id": sized.job_id[:64],
@@ -1227,6 +1275,8 @@ def _stage_write_manifest(
         summary["memory_estimate"] = sized.memory_estimate
     if capped.checkpoint_export_caps is not None:
         summary["checkpoint_export_caps"] = capped.checkpoint_export_caps
+    if sized.wall_headroom is not None:
+        summary["wall_headroom"] = sized.wall_headroom
     if sized.training_plan is not None:
         summary["training_plan"] = sized.training_plan
     if ctx.canary_eval_metrics is not None:

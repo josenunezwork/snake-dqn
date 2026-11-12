@@ -272,6 +272,17 @@ GPU_MAX_TOTAL_EXPORT_BYTES: dict[str, int] = {
     "H100": 40 * 1024 * 1024 * 1024,  # 40.0 GiB session cap (E=512, 24h M <= 35.33 GiB)
 }
 
+# Train-mode wall-guard headroom constants (`prepare --mode train` only; canary & ruler untouched):
+#   headroom = setup_allowance + final_eval_and_save_allowance + final_export_bytes / download_rate
+TRAIN_SETUP_ALLOWANCE_SECONDS: float = 120.0
+TRAIN_FINAL_EVAL_AND_SAVE_ALLOWANCE_SECONDS: float = 300.0
+TRAIN_FINAL_SAVE_AFTER_EVAL_ALLOWANCE_SECONDS: float = 150.0
+ASSUMED_FINAL_EXPORT_DOWNLOAD_RATE_MBPS: float = 1.0  # 1.0 MB/s (1,000,000 B/s)
+ASSUMED_FINAL_EXPORT_DOWNLOAD_RATE_BYTES_PER_SEC: float = (
+    ASSUMED_FINAL_EXPORT_DOWNLOAD_RATE_MBPS * 1_000_000.0
+)
+MAX_TRAIN_HEADROOM_SESSION_FRACTION: float = 0.40
+
 # Calibrated against measured A100 GameV3Sim footprint at (R=600, N=24, max_length=2048):
 # exact persistent world grids+rings = 28,779,936 bytes (27.45 MiB/world; measured 27.4 MiB/world);
 # measured peak = ~31.0 MiB/world.
@@ -1086,3 +1097,133 @@ def validate_checkpoint_export_caps(
             f"({caps['session_total_export_cap_bytes'] / 2**30:.2f} GiB)."
         )
     return caps
+
+
+def estimate_train_wall_headroom(
+    cfg: V3PPOConfig,
+    *,
+    gpu: str = "L4",
+    session_seconds: float = 4.0 * 3600.0,
+    canary_eval_wall_seconds: float | None = None,
+    measured_packed_bytes_per_world: int | None = None,
+    assumed_download_rate_mbps: float = ASSUMED_FINAL_EXPORT_DOWNLOAD_RATE_MBPS,
+) -> dict[str, Any]:
+    """Size ``prepare --mode train`` headroom between ``V3_PPO_MAX_WALL_SECONDS`` and timeout.
+
+    Sizes headroom as the sum of three terms:
+      1. ``setup_allowance_seconds`` (`120.0` s),
+      2. ``final_eval_and_save_allowance_seconds`` (`300.0` s default, or
+         ``canary_eval_wall_seconds + 150.0`` s when provided by the bound canary receipt),
+      3. ``final_export_download_seconds``: ``(final_full_bytes + final_light_bytes)`` from
+         :func:`estimate_checkpoint_export_caps`'s per-world size model divided by the assumed
+         download rate (`1.0 MB/s` = `1,000,000 B/s` default).
+    """
+    if not math.isfinite(session_seconds) or float(session_seconds) <= 0.0:
+        raise ValueError(f"session_seconds must be finite and > 0, got {session_seconds}")
+    if not math.isfinite(assumed_download_rate_mbps) or float(assumed_download_rate_mbps) <= 0.0:
+        raise ValueError(
+            f"assumed_download_rate_mbps must be finite and > 0, got {assumed_download_rate_mbps}"
+        )
+    if canary_eval_wall_seconds is not None and (
+        not math.isfinite(canary_eval_wall_seconds) or float(canary_eval_wall_seconds) < 0.0
+    ):
+        raise ValueError(
+            f"canary_eval_wall_seconds must be finite and >= 0, got {canary_eval_wall_seconds}"
+        )
+
+    caps = estimate_checkpoint_export_caps(
+        cfg,
+        gpu=gpu,
+        max_wall_seconds=float(session_seconds),
+        measured_packed_bytes_per_world=measured_packed_bytes_per_world,
+    )
+    setup_sec = float(TRAIN_SETUP_ALLOWANCE_SECONDS)
+    if canary_eval_wall_seconds is not None:
+        eval_save_sec = float(canary_eval_wall_seconds) + float(
+            TRAIN_FINAL_SAVE_AFTER_EVAL_ALLOWANCE_SECONDS
+        )
+        eval_save_source = "canary_receipt_eval_plus_150s"
+    else:
+        eval_save_sec = float(TRAIN_FINAL_EVAL_AND_SAVE_ALLOWANCE_SECONDS)
+        eval_save_source = "default_300s"
+
+    final_full_bytes = int(caps["est_full_sim_bytes"])
+    final_light_bytes = int(caps["est_light_checkpoint_bytes"])
+    final_export_bytes = final_full_bytes + final_light_bytes
+
+    download_rate_bps = float(assumed_download_rate_mbps) * 1_000_000.0
+    download_sec = float(final_export_bytes) / download_rate_bps
+    headroom_sec = setup_sec + eval_save_sec + download_sec
+
+    sess_sec = float(session_seconds)
+    max_allowed_sec = float(MAX_TRAIN_HEADROOM_SESSION_FRACTION) * sess_sec
+    headroom_fraction = headroom_sec / sess_sec
+    fits_fraction = bool(headroom_sec <= max_allowed_sec)
+    max_wall_seconds = int(math.floor(sess_sec - headroom_sec))
+
+    return {
+        "gpu": str(caps["gpu"]),
+        "num_envs": int(cfg.num_envs),
+        "net_size": cfg.net_size,
+        "session_seconds": sess_sec,
+        "setup_allowance_seconds": setup_sec,
+        "final_eval_and_save_allowance_seconds": eval_save_sec,
+        "final_eval_and_save_source": eval_save_source,
+        "canary_eval_wall_seconds": (
+            float(canary_eval_wall_seconds) if canary_eval_wall_seconds is not None else None
+        ),
+        "final_full_bytes": final_full_bytes,
+        "final_light_bytes": final_light_bytes,
+        "final_export_bytes": final_export_bytes,
+        "budgeted_packed_world_bytes": int(caps["budgeted_packed_world_bytes"]),
+        "assumed_download_rate_mbps": float(assumed_download_rate_mbps),
+        "assumed_download_rate_bytes_per_sec": download_rate_bps,
+        "final_export_download_seconds": download_sec,
+        "headroom_seconds": headroom_sec,
+        "headroom_minutes": round(headroom_sec / 60.0, 2),
+        "headroom_fraction": round(headroom_fraction, 6),
+        "max_headroom_fraction": float(MAX_TRAIN_HEADROOM_SESSION_FRACTION),
+        "max_allowed_headroom_seconds": max_allowed_sec,
+        "fits_max_headroom_fraction": fits_fraction,
+        "max_wall_seconds": max_wall_seconds,
+    }
+
+
+def validate_train_wall_headroom(
+    cfg: V3PPOConfig,
+    gpu: str,
+    *,
+    session_seconds: float,
+    canary_eval_wall_seconds: float | None = None,
+    measured_packed_bytes_per_world: int | None = None,
+    assumed_download_rate_mbps: float = ASSUMED_FINAL_EXPORT_DOWNLOAD_RATE_MBPS,
+) -> dict[str, Any]:
+    """Validate ``train`` wall-guard headroom fits ``<= 40%`` of ``session_seconds``."""
+    est = estimate_train_wall_headroom(
+        cfg,
+        gpu=gpu,
+        session_seconds=session_seconds,
+        canary_eval_wall_seconds=canary_eval_wall_seconds,
+        measured_packed_bytes_per_world=measured_packed_bytes_per_world,
+        assumed_download_rate_mbps=assumed_download_rate_mbps,
+    )
+    if not est["fits_max_headroom_fraction"]:
+        sess_hours = float(session_seconds) / 3600.0
+        pct = 100.0 * float(est["headroom_seconds"]) / float(session_seconds)
+        max_pct = 100.0 * float(est["max_headroom_fraction"])
+        raise ValueError(
+            f"Refusing train packet whose wall-guard headroom "
+            f"({est['headroom_seconds']:.1f} s = {est['headroom_seconds'] / 60.0:.1f} min, "
+            f"{pct:.1f}% of session: "
+            f"setup={est['setup_allowance_seconds']:.1f} s + "
+            f"final_eval_and_save={est['final_eval_and_save_allowance_seconds']:.1f} s + "
+            f"final_export_download={est['final_export_download_seconds']:.1f} s for "
+            f"{est['final_export_bytes'] / 1e6:.1f} MB at "
+            f"{est['assumed_download_rate_mbps']:.2f} MB/s) "
+            f"exceeds {max_pct:.0f}% of the {sess_hours:g} h session "
+            f"({est['max_allowed_headroom_seconds']:.1f} s max on {float(session_seconds):.0f} s "
+            f"timeout; worlds={cfg.num_envs}, net_size={cfg.net_size}, gpu={est['gpu']}). "
+            "Increase --hours, reduce --num-envs, or supply --measured-packed-bytes-per-world "
+            "from a verified run."
+        )
+    return est

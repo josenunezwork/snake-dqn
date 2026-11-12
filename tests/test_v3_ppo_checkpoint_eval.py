@@ -17,6 +17,7 @@ import pytest
 import torch
 
 import research.v3_ppo.eval as eval_mod
+import research.v3_ppo.exports as exports_mod
 import research.v3_ppo.job as job_mod
 import research.v3_ppo.ppo as ppo_mod
 import research.v3_ppo.trainer as trainer_mod
@@ -1434,3 +1435,152 @@ Path(sys.argv[3]).write_text(
     for _ in range(k_updates):
         new_full.train_step()
     assert _snapshot_trainer_hashes(new_full) == golden["full"]
+
+
+def test_final_light_completes_in_output_before_final_full_shards_start(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Final `LIGHT` must be `.complete` in `output/` before final `FULL` shards start building."""
+    probe_cfg = _tiny_cfg(num_envs=4, total_updates=2, eval_every_updates=0)
+    probe_tr = V3PPOTrainer(probe_cfg, device="cpu")
+    probe_tr.train_step()
+    probe_idx = probe_tr.save_full_checkpoint(tmp_path / "probe_1shard", tag="u0000001")
+    one_shard_size = verify_full_checkpoint_set(probe_idx)["shard_paths"][0].stat().st_size
+    multi_shard_cap = one_shard_size - 1024
+
+    real_publish_sidecars = exports_mod._publish_sidecars_for_existing_payload
+    real_save_full = V3PPOTrainer.save_full_checkpoint
+    real_monotonic = job_mod.time.monotonic
+
+    for case_name, expected_reason, expected_tag, total_updates, full_every_u, max_wall_s in (
+        ("wall_guard_coincident_periodic_full", "wall_clock_guard", "u0000001", 4, 1, 20.0),
+        ("completed_multi_shard", "completed", "u0000002", 2, 0, None),
+    ):
+        case_root = tmp_path / case_name
+        out_dir = case_root / "out"
+        work_dir = case_root / "work"
+        out_ckpts = out_dir / "checkpoints"
+        work_ckpts = work_dir / "checkpoints"
+
+        completed_targets: list[Path] = []
+        full_save_calls: list[str] = []
+
+        def _spy_sidecars(
+            target: Path,
+            digest: str,
+            _sink: list[Path] = completed_targets,
+        ) -> None:
+            real_publish_sidecars(target, digest)
+            _sink.append(Path(target))
+
+        def _spy_save_full(
+            self_tr: V3PPOTrainer,
+            checkpoints_dir: Path,
+            *,
+            tag: str | None = None,
+            _exp_tag: str = expected_tag,
+            _out_ckpts: Path = out_ckpts,
+            _work_ckpts: Path = work_ckpts,
+            _calls: list[str] = full_save_calls,
+            **kwargs: object,
+        ) -> Path:
+            eff_tag = tag if tag is not None else f"u{self_tr.updates_completed:07d}"
+            _calls.append(eff_tag)
+            if eff_tag == _exp_tag:
+                out_light = _out_ckpts / f"light_{_exp_tag}.pt"
+                assert out_light.is_file(), f"Missing exported {out_light} before FULL shard build"
+                assert Path(f"{out_light}.sha256").is_file()
+                assert Path(f"{out_light}.complete").is_file()
+                verify_completed_artifact(out_light)
+                verify_light_checkpoint(out_light, require_markers=True)
+                assert list(_work_ckpts.glob(f"full_{_exp_tag}*")) == []
+                assert list(_out_ckpts.glob(f"full_{_exp_tag}*")) == []
+            return real_save_full(
+                self_tr,
+                checkpoints_dir,
+                tag=tag,
+                **kwargs,  # type: ignore[arg-type]
+            )
+
+        monkeypatch.setattr(exports_mod, "_publish_sidecars_for_existing_payload", _spy_sidecars)
+        monkeypatch.setattr(V3PPOTrainer, "save_full_checkpoint", _spy_save_full)
+
+        fake_clock = {"t": 1000.0}
+        if max_wall_s is not None:
+            monkeypatch.setattr(job_mod.time, "monotonic", lambda _fc=fake_clock: _fc["t"])
+        else:
+            monkeypatch.setattr(job_mod.time, "monotonic", real_monotonic)
+
+        def _step_hook(
+            _tr: V3PPOTrainer,
+            _next_u: int,
+            _fc: dict[str, float] = fake_clock,
+            _use_wall: bool = (max_wall_s is not None),
+        ) -> None:
+            if _use_wall:
+                _fc["t"] += 16.0
+
+        cfg_case = V3PPOConfig.from_dict(
+            {
+                **_tiny_cfg(
+                    num_envs=4,
+                    total_updates=total_updates,
+                    eval_every_updates=0,
+                    checkpoint_shard_bytes=multi_shard_cap,
+                ).to_dict(),
+                "checkpoint_every_updates": 0,
+                "full_checkpoint_every_updates": full_every_u,
+                "light_checkpoint_interval_sec": 3600.0,
+                "full_checkpoint_interval_sec": 7200.0,
+            }
+        )
+        res = run_training_job(
+            cfg=cfg_case,
+            output_dir=out_dir,
+            work_dir=work_dir,
+            device="cpu",
+            max_wall_seconds=max_wall_s,
+            step_hook=_step_hook,
+        )
+        assert res["status"] == "PASS"
+        assert res["stopped_reason"] == expected_reason
+        assert full_save_calls == [expected_tag]
+
+        full_meta = verify_full_checkpoint_set(
+            out_ckpts / f"full_{expected_tag}.index.json",
+            require_markers=True,
+        )
+        assert full_meta["num_shards"] >= 2
+
+        out_completed_names = [
+            p.name for p in completed_targets if p.resolve().parent == out_ckpts.resolve()
+        ]
+        light_pos = out_completed_names.index(f"light_{expected_tag}.pt")
+        shard_positions = [out_completed_names.index(sp.name) for sp in full_meta["shard_paths"]]
+        index_pos = out_completed_names.index(f"full_{expected_tag}.index.json")
+        assert all(
+            light_pos < s_pos for s_pos in shard_positions
+        ), f"Expected light_{expected_tag}.pt before shards in {out_completed_names}"
+        assert max(shard_positions) < index_pos
+
+        # Simulate supervisor timeout mid-FULL download (LIGHT + shard 0 arrived; shard 1 & index
+        # missing): final weights in `light_<tag>.pt` are already complete and resumable.
+        partial_dl = case_root / "partial_download"
+        partial_dl.mkdir(parents=True, exist_ok=True)
+        first_shard = full_meta["shard_paths"][0]
+        for base_file in (out_ckpts / f"light_{expected_tag}.pt", first_shard):
+            for suffix in ("", ".sha256", ".complete"):
+                src_f = Path(f"{base_file}{suffix}")
+                shutil.copy2(src_f, partial_dl / src_f.name)
+
+        resolved = resolve_resume_checkpoint(partial_dl, require_markers=True)
+        assert resolved is not None
+        assert resolved["kind"] == "light"
+        assert Path(resolved["path"]).name == f"light_{expected_tag}.pt"
+        assert resolved["updates_completed"] == res["updates_completed"]
+
+        reloaded = V3PPOTrainer(cfg_case, device="cpu")
+        loaded_meta = reloaded.load_checkpoint(Path(resolved["path"]))
+        assert loaded_meta["checkpoint_kind"] == "light"
+        assert reloaded.updates_completed == res["updates_completed"]

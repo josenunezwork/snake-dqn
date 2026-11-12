@@ -590,8 +590,19 @@ def _can_export_periodic_files(
     return within_budget
 
 
-def _stage_save_and_publish_checkpoints(state: _JobRunState, *, now_mono: float) -> None:
-    """Save due ``work/`` checkpoints, prune ``work/``, and publish periodic ``output/`` exports."""
+def _stage_save_and_publish_checkpoints(
+    state: _JobRunState,
+    *,
+    now_mono: float,
+    final_boundary: bool = False,
+) -> None:
+    """Save due ``work/`` checkpoints, prune ``work/``, and publish periodic ``output/`` exports.
+
+    When ``final_boundary`` is ``True`` (the loop is about to exit on ``completed``,
+    ``wall_clock_guard``, or ``stop_flag``), any coincidental periodic FULL build is deferred to
+    ``_stage_finalize_training_job`` so the final ``LIGHT`` checkpoint is always exported and
+    ``.complete`` before the final ``FULL`` shards start.
+    """
     tag = ckpt_tag(state.trainer.updates_completed, state.in_session_restarts)
     sched = decide_checkpoint_actions(
         updates_completed=state.trainer.updates_completed,
@@ -618,7 +629,7 @@ def _stage_save_and_publish_checkpoints(state: _JobRunState, *, now_mono: float)
 
     full_work_index: Path | None = None
     full_work_meta: dict[str, Any] | None = None
-    if sched.save_work_full:
+    if sched.save_work_full and not final_boundary:
         cand_idx = state.work_ckpts / f"full_{tag}.index.json"
         if not artifact_or_sidecar_exists(cand_idx):
             full_work_index = state.trainer.save_full_checkpoint(
@@ -1110,7 +1121,15 @@ def run_training_job(
                     ),
                     flush=True,
                 )
-                _stage_save_and_publish_checkpoints(state, now_mono=now_mono)
+                _stage_save_and_publish_checkpoints(
+                    state,
+                    now_mono=now_mono,
+                    final_boundary=bool(
+                        stop_flag.stopped
+                        or state.wall_expired()
+                        or state.trainer.updates_completed >= int(cfg.total_updates)
+                    ),
+                )
 
         except Exception as exc:
             state.error_class = type(exc).__name__
