@@ -29,6 +29,11 @@ from research.game_v3.config import GameV3Config
 from research.game_v3.obs import LearnerIndex, allocate_obs_batch, build_obs
 from research.game_v3.scripted import food_seeking_actions
 from research.game_v3.sim import GameV3Sim
+from research.v3_ppo.checkpoint_io import (
+    pack_sim_state_dict,
+    unpack_sim_state_dict,
+    verify_full_checkpoint_set,
+)
 from research.v3_ppo.config import (
     GPU_DEFAULT_TRAIN_ENVS,
     V3_PPO_NAMESPACE,
@@ -43,23 +48,21 @@ from research.v3_ppo.config import (
     parse_env_bool,
 )
 from research.v3_ppo.eval import derive_world_seeds, evaluate_policy
-from research.v3_ppo.net import build_ego_multiscale_net
-from research.v3_ppo.ppo import (
-    StopRequestedError,
-    V3PPOTrainer,
-    _artifact_or_sidecar_exists,
-    _exported_payload_bytes,
-    _validate_staged_ledger_resume,
-    pack_sim_state_dict,
-    resolve_resume_checkpoint,
-    run_training_job,
-    unpack_sim_state_dict,
-    verify_full_checkpoint_set,
-    verify_staged_checkpoint,
+from research.v3_ppo.exports import (
+    artifact_or_sidecar_exists,
+    exported_payload_bytes,
     write_create_only_artifact,
     write_create_only_json,
+)
+from research.v3_ppo.job import run_training_job
+from research.v3_ppo.net import build_ego_multiscale_net
+from research.v3_ppo.resume import (
+    resolve_resume_checkpoint,
+    validate_staged_ledger_resume,
+    verify_staged_checkpoint,
     write_latest_checkpoint_manifest,
 )
+from research.v3_ppo.trainer import StopRequestedError, V3PPOTrainer
 
 V3_PPO_RULER_SCHEMA = "v3-ppo-ruler-result/v1"
 V3_PPO_CANARY_SCHEMA = "v3-ppo-canary-checks/v1"
@@ -495,72 +498,23 @@ def _format_cell_id(
     return f"{base}_fp32" if fp32_probe else base
 
 
-def run_ruler(
+def _ruler_build_ordered_grid(
     *,
-    output_dir: Path,
-    device: str | torch.device = "cuda",
-    input_dir: Path | None = None,
-    envs_list: Sequence[int] = DEFAULT_RULER_ENVS,
-    net_sizes: Sequence[NetSize] = DEFAULT_RULER_NETS,
-    learners_list: Sequence[int] = DEFAULT_RULER_LEARNERS,
-    arena_radius: float = 600.0,
-    num_snakes: int = 24,
-    burnin_ticks: int = 60,
-    warmup_ticks: int = 4,
-    collect_ticks: int = 24,
-    warmup_updates: int = DEFAULT_RULER_WARMUP_UPDATES,
-    timed_updates: int = DEFAULT_RULER_TIMED_UPDATES,
-    rollout_len: int = DEFAULT_RULER_ROLLOUT_LEN,
-    ppo_epochs: int = 2,
-    minibatch_size: int | None = None,
-    amp: bool = True,
-    use_channels_last: bool = True,
-    compile_model: bool = False,
-    fast_learner_ops: bool = True,
-    include_fp32: bool = False,
-    vram_budget_bytes: int | None = None,
-    max_wall_seconds: float | None = None,
-    seed: int = 20261111,
-) -> dict[str, Any]:
-    """Sweep ``worlds x net_size x learners`` and export create-only ``ruler_result.json``.
-
-    Pre-checks estimated VRAM before allocating each cell (`precheck_oom=True` if exceeding
-    ``vram_budget_bytes`` or CUDA physical VRAM) and caches at most one compressed mature
-    simulator state in host RAM across consecutive cells sharing ``num_envs``.
-    """
-    if int(timed_updates) < 1:
-        raise ValueError(f"timed_updates must be >= 1, got {timed_updates}")
-    if int(warmup_updates) < 0:
-        raise ValueError(f"warmup_updates must be >= 0, got {warmup_updates}")
-
-    out = Path(output_dir).resolve()
-    out.mkdir(parents=True, exist_ok=True)
-    cells_dir = out / "cells"
-    cells_dir.mkdir(parents=True, exist_ok=True)
-
-    resolved_dev = normalize_device(device)
-    ensure_cuda_initialized(resolved_dev)
-    device_name = (
-        torch.cuda.get_device_name(resolved_dev)
-        if resolved_dev.type == "cuda"
-        else str(resolved_dev)
-    )
-    total_vram_bytes = (
-        int(torch.cuda.get_device_properties(resolved_dev).total_memory)
-        if resolved_dev.type == "cuda"
-        else None
-    )
-    eff_vram_limit = int(vram_budget_bytes) if vram_budget_bytes is not None else total_vram_bytes
-
-    game_cfg = GameV3Config(arena_radius=float(arena_radius), num_snakes=int(num_snakes))
+    envs_list: Sequence[int],
+    net_sizes: Sequence[NetSize],
+    learners_list: Sequence[int],
+    num_snakes: int,
+    amp: bool,
+    include_fp32: bool,
+    resolved_dev: torch.device,
+) -> tuple[list[int], list[tuple[int, int, NetSize, bool, bool]]]:
+    """Clamp learner counts and order cells cheapest-first so equal ``num_envs`` run together."""
     eff_learners: list[int] = []
     for k in learners_list:
         k_clamped = min(max(1, int(k)), int(num_snakes))
         if k_clamped not in eff_learners:
             eff_learners.append(k_clamped)
 
-    # Order cheapest cells first: (num_envs, learner_slots, ruler_order) so all cells sharing
-    # `num_envs` execute back-to-back and share a single compressed mature sim snapshot.
     ordered_nets = sorted(net_sizes, key=lambda s: get_net_preset(s).ruler_order)
     ordered_grid: list[tuple[int, int, NetSize, bool, bool]] = []
     for e in sorted(int(x) for x in envs_list):
@@ -569,243 +523,255 @@ def run_ruler(
                 ordered_grid.append((e, k_slots, n_sz, bool(amp), False))
                 if include_fp32 and resolved_dev.type == "cuda" and bool(amp):
                     ordered_grid.append((e, k_slots, n_sz, False, True))
+    return eff_learners, ordered_grid
 
-    wall_t0 = time.monotonic()
-    export_reserve_sec = (
-        min(30.0, max(2.0, float(max_wall_seconds) * 0.05)) if max_wall_seconds is not None else 0.0
+
+def _ruler_load_staged_or_local_cell(
+    cid: str,
+    *,
+    cells_dir: Path,
+    input_dir: Path | None,
+) -> dict[str, Any] | None:
+    """Return an already-completed cell result from ``cells_dir`` or staged ``input_dir``."""
+    local_path = cells_dir / f"{cid}.json"
+    if artifact_or_sidecar_exists(local_path):
+        verify_completed_artifact(local_path)
+        return json.loads(local_path.read_text(encoding="utf-8"))
+    if input_dir is not None:
+        staged = Path(input_dir) / "cells" / f"{cid}.json"
+        if staged.is_file():
+            parsed = json.loads(staged.read_text(encoding="utf-8"))
+            if isinstance(parsed, dict) and "error" not in parsed:
+                write_create_only_json(local_path, parsed)
+                return parsed
+    return None
+
+
+def _ruler_execute_single_cell(
+    *,
+    cid: str,
+    num_envs: int,
+    k_slots: int,
+    net_sz: NetSize,
+    cell_amp: bool,
+    is_fp32_probe: bool,
+    game_cfg: GameV3Config,
+    arena_radius: float,
+    num_snakes: int,
+    burnin_ticks: int,
+    warmup_ticks: int,
+    collect_ticks: int,
+    warmup_updates: int,
+    timed_updates: int,
+    rollout_len: int,
+    ppo_epochs: int,
+    minibatch_size: int | None,
+    use_channels_last: bool,
+    compile_model: bool,
+    fast_learner_ops: bool,
+    eff_vram_limit: int | None,
+    seed: int,
+    resolved_dev: torch.device,
+    cells_dir: Path,
+    cached_mature_envs: int | None,
+    cached_packed_mature_state: dict[str, Any] | None,
+    should_stop: Callable[[], bool],
+) -> tuple[dict[str, Any], int | None, dict[str, Any] | None]:
+    """Run VRAM precheck + collection/integrated measurements for one ruler cell."""
+    cell_t0 = time.monotonic()
+    phase_stamp(
+        cid,
+        "START",
+        num_envs=num_envs,
+        learner_slots=k_slots,
+        net_size=net_sz,
+        amp=cell_amp,
     )
 
-    cached_mature_envs: int | None = None
-    cached_packed_mature_state: dict[str, Any] | None = None
+    cell_cfg = V3PPOConfig(
+        game_config=game_cfg,
+        num_envs=num_envs,
+        learner_slots=k_slots,
+        net_size=net_sz,
+        amp=cell_amp,
+        use_channels_last=use_channels_last,
+        compile_model=compile_model,
+        fast_learner_ops=bool(fast_learner_ops),
+        rollout_len=rollout_len,
+        ppo_epochs=ppo_epochs,
+        minibatch_size=minibatch_size,
+        eval_every_minutes=0.0,
+        eval_every_updates=0,
+    )
+    mem_est = estimate_training_memory(cell_cfg)
+    est_peak_bytes = int(mem_est["estimated_peak_bytes"])
 
-    cells: list[dict[str, Any]] = []
-    reused_cell_ids: list[str] = []
-    skipped_cells: list[dict[str, Any]] = []
-    stopped_reason = "completed"
+    cell_record: dict[str, Any] = {
+        "namespace": V3_PPO_NAMESPACE,
+        "cell_id": cid,
+        "num_envs": int(num_envs),
+        "num_snakes": int(num_snakes),
+        "learner_slots": int(k_slots),
+        "arena_radius": float(arena_radius),
+        "net_size": net_sz,
+        "amp": bool(cell_amp),
+        "is_fp32_probe": bool(is_fp32_probe),
+        "use_channels_last": bool(use_channels_last),
+        "compile_model": bool(compile_model),
+        "fast_learner_ops": bool(fast_learner_ops),
+        "estimated_peak_bytes": est_peak_bytes,
+        "estimated_peak_mib": round(est_peak_bytes / float(1024 * 1024), 2),
+        "precheck_oom": False,
+        "oom": False,
+        "collection_only": None,
+        "integrated": None,
+    }
 
-    def _load_staged_cell(cid: str) -> dict[str, Any] | None:
-        local_path = cells_dir / f"{cid}.json"
-        if _artifact_or_sidecar_exists(local_path):
-            verify_completed_artifact(local_path)
-            return json.loads(local_path.read_text(encoding="utf-8"))
-        if input_dir is not None:
-            staged = Path(input_dir) / "cells" / f"{cid}.json"
-            if staged.is_file():
-                parsed = json.loads(staged.read_text(encoding="utf-8"))
-                if isinstance(parsed, dict) and "error" not in parsed:
-                    write_create_only_json(local_path, parsed)
-                    return parsed
-        return None
+    if eff_vram_limit is not None and est_peak_bytes > eff_vram_limit:
+        cell_record["oom"] = True
+        cell_record["precheck_oom"] = True
+        cell_record["oom_error"] = (
+            f"Memory precheck refused cell {cid}: estimated_peak_bytes="
+            f"{est_peak_bytes} > vram_limit_bytes={eff_vram_limit}"
+        )
+        cell_record["cell_wall_seconds"] = round(time.monotonic() - cell_t0, 4)
+        write_create_only_json(cells_dir / f"{cid}.json", cell_record)
+        print(
+            f"V3_PPO_RULER_CELL cell={cid} status=PRECHECK_OOM "
+            f"est_mib={cell_record['estimated_peak_mib']:.1f} "
+            f"limit_mib={eff_vram_limit / float(1024 * 1024):.1f}",
+            flush=True,
+        )
+        return cell_record, cached_mature_envs, cached_packed_mature_state
 
-    with SignalStopFlag() as stop_flag:
-        should_stop = lambda: bool(stop_flag.stopped)  # noqa: E731
-        try:
-            for num_envs, k_slots, net_sz, cell_amp, is_fp32_probe in ordered_grid:
-                if should_stop():
-                    raise StopRequestedError("Signal stop requested between ruler cells")
-                cid = _format_cell_id(
-                    num_envs=num_envs,
-                    learner_slots=k_slots,
-                    net_size=net_sz,
-                    fp32_probe=is_fp32_probe,
-                )
-
-                staged_rec = _load_staged_cell(cid)
-                if staged_rec is not None:
-                    cells.append(staged_rec)
-                    reused_cell_ids.append(cid)
-                    continue
-
-                elapsed_now = time.monotonic() - wall_t0
-                if max_wall_seconds is not None and elapsed_now >= (
-                    float(max_wall_seconds) - export_reserve_sec
-                ):
-                    stopped_reason = "wall_budget_guard"
-                    skipped_cells.append(
-                        {
-                            "cell_id": cid,
-                            "num_envs": num_envs,
-                            "learner_slots": k_slots,
-                            "net_size": net_sz,
-                            "reason": "elapsed_wall_budget_skip",
-                        }
-                    )
-                    continue
-
-                cell_t0 = time.monotonic()
-                phase_stamp(
-                    cid,
-                    "START",
-                    num_envs=num_envs,
-                    learner_slots=k_slots,
-                    net_size=net_sz,
-                    amp=cell_amp,
-                )
-
-                cell_cfg = V3PPOConfig(
-                    game_config=game_cfg,
-                    num_envs=num_envs,
-                    learner_slots=k_slots,
-                    net_size=net_sz,
-                    amp=cell_amp,
-                    use_channels_last=use_channels_last,
-                    compile_model=compile_model,
-                    fast_learner_ops=bool(fast_learner_ops),
-                    rollout_len=rollout_len,
-                    ppo_epochs=ppo_epochs,
-                    minibatch_size=minibatch_size,
-                    eval_every_minutes=0.0,
-                    eval_every_updates=0,
-                )
-                mem_est = estimate_training_memory(cell_cfg)
-                est_peak_bytes = int(mem_est["estimated_peak_bytes"])
-
-                cell_record: dict[str, Any] = {
-                    "namespace": V3_PPO_NAMESPACE,
-                    "cell_id": cid,
-                    "num_envs": int(num_envs),
-                    "num_snakes": int(num_snakes),
-                    "learner_slots": int(k_slots),
-                    "arena_radius": float(arena_radius),
-                    "net_size": net_sz,
-                    "amp": bool(cell_amp),
-                    "is_fp32_probe": bool(is_fp32_probe),
-                    "use_channels_last": bool(use_channels_last),
-                    "compile_model": bool(compile_model),
-                    "fast_learner_ops": bool(fast_learner_ops),
-                    "estimated_peak_bytes": est_peak_bytes,
-                    "estimated_peak_mib": round(est_peak_bytes / float(1024 * 1024), 2),
-                    "precheck_oom": False,
-                    "oom": False,
-                    "collection_only": None,
-                    "integrated": None,
-                }
-
-                if eff_vram_limit is not None and est_peak_bytes > eff_vram_limit:
-                    cell_record["oom"] = True
-                    cell_record["precheck_oom"] = True
-                    cell_record["oom_error"] = (
-                        f"Memory precheck refused cell {cid}: estimated_peak_bytes="
-                        f"{est_peak_bytes} > vram_limit_bytes={eff_vram_limit}"
-                    )
-                    cell_record["cell_wall_seconds"] = round(time.monotonic() - cell_t0, 4)
-                    write_create_only_json(cells_dir / f"{cid}.json", cell_record)
-                    cells.append(cell_record)
-                    print(
-                        f"V3_PPO_RULER_CELL cell={cid} status=PRECHECK_OOM "
-                        f"est_mib={cell_record['estimated_peak_mib']:.1f} "
-                        f"limit_mib={eff_vram_limit / float(1024 * 1024):.1f}",
-                        flush=True,
-                    )
-                    continue
-
-                try:
-                    if cached_mature_envs != num_envs or cached_packed_mature_state is None:
-                        cached_packed_mature_state = None
-                        cached_mature_envs = None
-                        gc.collect()
-                        cached_packed_mature_state = _build_packed_mature_sim_state(
-                            game_cfg=game_cfg,
-                            num_envs=num_envs,
-                            burnin_ticks=burnin_ticks,
-                            device=resolved_dev,
-                            seed=seed,
-                            should_stop=should_stop,
-                        )
-                        cached_mature_envs = num_envs
-
-                    coll = _measure_collection_only_cell(
-                        game_cfg=game_cfg,
-                        packed_mature_sim_state=cached_packed_mature_state,
-                        num_envs=num_envs,
-                        learner_slots=k_slots,
-                        net_size=net_sz,
-                        amp=cell_amp,
-                        use_channels_last=use_channels_last,
-                        compile_model=compile_model,
-                        fast_learner_ops=bool(fast_learner_ops),
-                        warmup_ticks=warmup_ticks,
-                        collect_ticks=collect_ticks,
-                        device=resolved_dev,
-                        should_stop=should_stop,
-                    )
-                    cell_record["collection_only"] = coll
-
-                    integ = _measure_integrated_cell(
-                        game_cfg=game_cfg,
-                        packed_mature_sim_state=cached_packed_mature_state,
-                        num_envs=num_envs,
-                        learner_slots=k_slots,
-                        net_size=net_sz,
-                        rollout_len=rollout_len,
-                        ppo_epochs=ppo_epochs,
-                        minibatch_size=minibatch_size,
-                        amp=cell_amp,
-                        use_channels_last=use_channels_last,
-                        compile_model=compile_model,
-                        fast_learner_ops=bool(fast_learner_ops),
-                        warmup_updates=warmup_updates,
-                        timed_updates=timed_updates,
-                        seed=seed,
-                        device=resolved_dev,
-                        should_stop=should_stop,
-                    )
-                    cell_record["integrated"] = integ
-                    cell_record["parameter_count"] = integ["parameter_count"]
-                    cell_record["collection_agent_steps_per_sec"] = coll["agent_steps_per_sec"]
-                    cell_record["integrated_agent_steps_per_sec"] = integ["agent_steps_per_sec"]
-                    cell_record["collect_seconds"] = integ["collect_seconds"]
-                    cell_record["learn_seconds"] = integ["learn_seconds"]
-                    cell_record["time_split_pct"] = integ["time_split_pct"]
-                    cell_record["peak_memory_bytes"] = max(
-                        int(coll["peak_memory_bytes"]), int(integ["peak_memory_bytes"])
-                    )
-                    cell_record["peak_memory_mib"] = round(
-                        cell_record["peak_memory_bytes"] / float(1024 * 1024), 2
-                    )
-                except (StopRequestedError, KeyboardInterrupt, SystemExit):
-                    raise
-                except Exception as exc:
-                    _cleanup_device_memory(resolved_dev)
-                    if _is_oom_exception(exc):
-                        cell_record["oom"] = True
-                        cell_record["oom_error"] = str(exc)
-                    else:
-                        cell_record["error"] = f"{type(exc).__name__}: {exc}"
-                        cell_record["traceback"] = traceback.format_exc()
-
-                cell_record["cell_wall_seconds"] = round(time.monotonic() - cell_t0, 4)
-                write_create_only_json(cells_dir / f"{cid}.json", cell_record)
-                cells.append(cell_record)
-
-                if cell_record["oom"]:
-                    print(f"V3_PPO_RULER_CELL cell={cid} status=OOM", flush=True)
-                elif "error" in cell_record:
-                    print(
-                        f"V3_PPO_RULER_CELL cell={cid} status=ERROR error={cell_record['error']}",
-                        flush=True,
-                    )
-                else:
-                    sp = cell_record["time_split_pct"]
-                    print(
-                        f"V3_PPO_RULER_CELL cell={cid} status=OK "
-                        f"coll_sps={cell_record['collection_agent_steps_per_sec']:.1f} "
-                        f"int_sps={cell_record['integrated_agent_steps_per_sec']:.1f} "
-                        f"collect_s={cell_record['collect_seconds']:.3f} "
-                        f"learn_s={cell_record['learn_seconds']:.3f} "
-                        f"sim_pct={sp['sim']:.1f} obs_pct={sp['obs']:.1f} "
-                        f"fwd_pct={sp['forward']:.1f} lrn_pct={sp['learner']:.1f} "
-                        f"peak_mib={cell_record['peak_memory_mib']:.1f}",
-                        flush=True,
-                    )
-
-        except StopRequestedError:
-            stopped_reason = f"signal:{stop_flag.signal_name or 'STOP'}"
-        finally:
+    try:
+        if cached_mature_envs != num_envs or cached_packed_mature_state is None:
             cached_packed_mature_state = None
             cached_mature_envs = None
             gc.collect()
+            cached_packed_mature_state = _build_packed_mature_sim_state(
+                game_cfg=game_cfg,
+                num_envs=num_envs,
+                burnin_ticks=burnin_ticks,
+                device=resolved_dev,
+                seed=seed,
+                should_stop=should_stop,
+            )
+            cached_mature_envs = num_envs
 
+        coll = _measure_collection_only_cell(
+            game_cfg=game_cfg,
+            packed_mature_sim_state=cached_packed_mature_state,
+            num_envs=num_envs,
+            learner_slots=k_slots,
+            net_size=net_sz,
+            amp=cell_amp,
+            use_channels_last=use_channels_last,
+            compile_model=compile_model,
+            fast_learner_ops=bool(fast_learner_ops),
+            warmup_ticks=warmup_ticks,
+            collect_ticks=collect_ticks,
+            device=resolved_dev,
+            should_stop=should_stop,
+        )
+        cell_record["collection_only"] = coll
+
+        integ = _measure_integrated_cell(
+            game_cfg=game_cfg,
+            packed_mature_sim_state=cached_packed_mature_state,
+            num_envs=num_envs,
+            learner_slots=k_slots,
+            net_size=net_sz,
+            rollout_len=rollout_len,
+            ppo_epochs=ppo_epochs,
+            minibatch_size=minibatch_size,
+            amp=cell_amp,
+            use_channels_last=use_channels_last,
+            compile_model=compile_model,
+            fast_learner_ops=bool(fast_learner_ops),
+            warmup_updates=warmup_updates,
+            timed_updates=timed_updates,
+            seed=seed,
+            device=resolved_dev,
+            should_stop=should_stop,
+        )
+        cell_record["integrated"] = integ
+        cell_record["parameter_count"] = integ["parameter_count"]
+        cell_record["collection_agent_steps_per_sec"] = coll["agent_steps_per_sec"]
+        cell_record["integrated_agent_steps_per_sec"] = integ["agent_steps_per_sec"]
+        cell_record["collect_seconds"] = integ["collect_seconds"]
+        cell_record["learn_seconds"] = integ["learn_seconds"]
+        cell_record["time_split_pct"] = integ["time_split_pct"]
+        cell_record["peak_memory_bytes"] = max(
+            int(coll["peak_memory_bytes"]), int(integ["peak_memory_bytes"])
+        )
+        cell_record["peak_memory_mib"] = round(
+            cell_record["peak_memory_bytes"] / float(1024 * 1024), 2
+        )
+    except (StopRequestedError, KeyboardInterrupt, SystemExit):
+        raise
+    except Exception as exc:
+        _cleanup_device_memory(resolved_dev)
+        if _is_oom_exception(exc):
+            cell_record["oom"] = True
+            cell_record["oom_error"] = str(exc)
+        else:
+            cell_record["error"] = f"{type(exc).__name__}: {exc}"
+            cell_record["traceback"] = traceback.format_exc()
+
+    cell_record["cell_wall_seconds"] = round(time.monotonic() - cell_t0, 4)
+    write_create_only_json(cells_dir / f"{cid}.json", cell_record)
+
+    if cell_record["oom"]:
+        print(f"V3_PPO_RULER_CELL cell={cid} status=OOM", flush=True)
+    elif "error" in cell_record:
+        print(
+            f"V3_PPO_RULER_CELL cell={cid} status=ERROR error={cell_record['error']}",
+            flush=True,
+        )
+    else:
+        sp = cell_record["time_split_pct"]
+        print(
+            f"V3_PPO_RULER_CELL cell={cid} status=OK "
+            f"coll_sps={cell_record['collection_agent_steps_per_sec']:.1f} "
+            f"int_sps={cell_record['integrated_agent_steps_per_sec']:.1f} "
+            f"collect_s={cell_record['collect_seconds']:.3f} "
+            f"learn_s={cell_record['learn_seconds']:.3f} "
+            f"sim_pct={sp['sim']:.1f} obs_pct={sp['obs']:.1f} "
+            f"fwd_pct={sp['forward']:.1f} lrn_pct={sp['learner']:.1f} "
+            f"peak_mib={cell_record['peak_memory_mib']:.1f}",
+            flush=True,
+        )
+    return cell_record, cached_mature_envs, cached_packed_mature_state
+
+
+def _ruler_summarize_and_write_result(
+    *,
+    out: Path,
+    cells: list[dict[str, Any]],
+    reused_cell_ids: list[str],
+    skipped_cells: list[dict[str, Any]],
+    stopped_reason: str,
+    resolved_dev: torch.device,
+    device_name: str,
+    total_vram_bytes: int | None,
+    eff_vram_limit: int | None,
+    envs_list: Sequence[int],
+    net_sizes: Sequence[NetSize],
+    eff_learners: list[int],
+    arena_radius: float,
+    num_snakes: int,
+    rollout_len: int,
+    warmup_updates: int,
+    timed_updates: int,
+    ppo_epochs: int,
+    amp: bool,
+    use_channels_last: bool,
+    compile_model: bool,
+    fast_learner_ops: bool,
+    wall_t0: float,
+) -> dict[str, Any]:
+    """Summarize completed/OOM/failed cells and write create-only ``ruler_result.json``."""
     succeeded_ids = [
         str(c["cell_id"])
         for c in cells
@@ -872,9 +838,194 @@ def run_ruler(
         "wall_seconds": round(time.monotonic() - wall_t0, 4),
     }
     result_path = out / "ruler_result.json"
-    if not _artifact_or_sidecar_exists(result_path):
+    if not artifact_or_sidecar_exists(result_path):
         write_create_only_json(result_path, result_payload)
     return json.loads(result_path.read_text(encoding="utf-8"))
+
+
+def run_ruler(
+    *,
+    output_dir: Path,
+    device: str | torch.device = "cuda",
+    input_dir: Path | None = None,
+    envs_list: Sequence[int] = DEFAULT_RULER_ENVS,
+    net_sizes: Sequence[NetSize] = DEFAULT_RULER_NETS,
+    learners_list: Sequence[int] = DEFAULT_RULER_LEARNERS,
+    arena_radius: float = 600.0,
+    num_snakes: int = 24,
+    burnin_ticks: int = 60,
+    warmup_ticks: int = 4,
+    collect_ticks: int = 24,
+    warmup_updates: int = DEFAULT_RULER_WARMUP_UPDATES,
+    timed_updates: int = DEFAULT_RULER_TIMED_UPDATES,
+    rollout_len: int = DEFAULT_RULER_ROLLOUT_LEN,
+    ppo_epochs: int = 2,
+    minibatch_size: int | None = None,
+    amp: bool = True,
+    use_channels_last: bool = True,
+    compile_model: bool = False,
+    fast_learner_ops: bool = True,
+    include_fp32: bool = False,
+    vram_budget_bytes: int | None = None,
+    max_wall_seconds: float | None = None,
+    seed: int = 20261111,
+) -> dict[str, Any]:
+    """Sweep ``worlds x net_size x learners`` and export create-only ``ruler_result.json``.
+
+    Pre-checks estimated VRAM before allocating each cell (`precheck_oom=True` if exceeding
+    ``vram_budget_bytes`` or CUDA physical VRAM) and caches at most one compressed mature
+    simulator state in host RAM across consecutive cells sharing ``num_envs``.
+    """
+    if int(timed_updates) < 1:
+        raise ValueError(f"timed_updates must be >= 1, got {timed_updates}")
+    if int(warmup_updates) < 0:
+        raise ValueError(f"warmup_updates must be >= 0, got {warmup_updates}")
+
+    out = Path(output_dir).resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    cells_dir = out / "cells"
+    cells_dir.mkdir(parents=True, exist_ok=True)
+
+    resolved_dev = normalize_device(device)
+    ensure_cuda_initialized(resolved_dev)
+    device_name = (
+        torch.cuda.get_device_name(resolved_dev)
+        if resolved_dev.type == "cuda"
+        else str(resolved_dev)
+    )
+    total_vram_bytes = (
+        int(torch.cuda.get_device_properties(resolved_dev).total_memory)
+        if resolved_dev.type == "cuda"
+        else None
+    )
+    eff_vram_limit = int(vram_budget_bytes) if vram_budget_bytes is not None else total_vram_bytes
+
+    game_cfg = GameV3Config(arena_radius=float(arena_radius), num_snakes=int(num_snakes))
+    eff_learners, ordered_grid = _ruler_build_ordered_grid(
+        envs_list=envs_list,
+        net_sizes=net_sizes,
+        learners_list=learners_list,
+        num_snakes=int(num_snakes),
+        amp=bool(amp),
+        include_fp32=bool(include_fp32),
+        resolved_dev=resolved_dev,
+    )
+
+    wall_t0 = time.monotonic()
+    export_reserve_sec = (
+        min(30.0, max(2.0, float(max_wall_seconds) * 0.05)) if max_wall_seconds is not None else 0.0
+    )
+
+    cached_mature_envs: int | None = None
+    cached_packed_mature_state: dict[str, Any] | None = None
+
+    cells: list[dict[str, Any]] = []
+    reused_cell_ids: list[str] = []
+    skipped_cells: list[dict[str, Any]] = []
+    stopped_reason = "completed"
+
+    with SignalStopFlag() as stop_flag:
+        should_stop = lambda: bool(stop_flag.stopped)  # noqa: E731
+        try:
+            for num_envs, k_slots, net_sz, cell_amp, is_fp32_probe in ordered_grid:
+                if should_stop():
+                    raise StopRequestedError("Signal stop requested between ruler cells")
+                cid = _format_cell_id(
+                    num_envs=num_envs,
+                    learner_slots=k_slots,
+                    net_size=net_sz,
+                    fp32_probe=is_fp32_probe,
+                )
+
+                staged_rec = _ruler_load_staged_or_local_cell(
+                    cid, cells_dir=cells_dir, input_dir=input_dir
+                )
+                if staged_rec is not None:
+                    cells.append(staged_rec)
+                    reused_cell_ids.append(cid)
+                    continue
+
+                elapsed_now = time.monotonic() - wall_t0
+                if max_wall_seconds is not None and elapsed_now >= (
+                    float(max_wall_seconds) - export_reserve_sec
+                ):
+                    stopped_reason = "wall_budget_guard"
+                    skipped_cells.append(
+                        {
+                            "cell_id": cid,
+                            "num_envs": num_envs,
+                            "learner_slots": k_slots,
+                            "net_size": net_sz,
+                            "reason": "elapsed_wall_budget_skip",
+                        }
+                    )
+                    continue
+
+                cell_record, cached_mature_envs, cached_packed_mature_state = (
+                    _ruler_execute_single_cell(
+                        cid=cid,
+                        num_envs=num_envs,
+                        k_slots=k_slots,
+                        net_sz=net_sz,
+                        cell_amp=cell_amp,
+                        is_fp32_probe=is_fp32_probe,
+                        game_cfg=game_cfg,
+                        arena_radius=arena_radius,
+                        num_snakes=num_snakes,
+                        burnin_ticks=burnin_ticks,
+                        warmup_ticks=warmup_ticks,
+                        collect_ticks=collect_ticks,
+                        warmup_updates=warmup_updates,
+                        timed_updates=timed_updates,
+                        rollout_len=rollout_len,
+                        ppo_epochs=ppo_epochs,
+                        minibatch_size=minibatch_size,
+                        use_channels_last=use_channels_last,
+                        compile_model=compile_model,
+                        fast_learner_ops=fast_learner_ops,
+                        eff_vram_limit=eff_vram_limit,
+                        seed=seed,
+                        resolved_dev=resolved_dev,
+                        cells_dir=cells_dir,
+                        cached_mature_envs=cached_mature_envs,
+                        cached_packed_mature_state=cached_packed_mature_state,
+                        should_stop=should_stop,
+                    )
+                )
+                cells.append(cell_record)
+
+        except StopRequestedError:
+            stopped_reason = f"signal:{stop_flag.signal_name or 'STOP'}"
+        finally:
+            cached_packed_mature_state = None
+            cached_mature_envs = None
+            gc.collect()
+
+    return _ruler_summarize_and_write_result(
+        out=out,
+        cells=cells,
+        reused_cell_ids=reused_cell_ids,
+        skipped_cells=skipped_cells,
+        stopped_reason=stopped_reason,
+        resolved_dev=resolved_dev,
+        device_name=device_name,
+        total_vram_bytes=total_vram_bytes,
+        eff_vram_limit=eff_vram_limit,
+        envs_list=envs_list,
+        net_sizes=net_sizes,
+        eff_learners=eff_learners,
+        arena_radius=arena_radius,
+        num_snakes=num_snakes,
+        rollout_len=rollout_len,
+        warmup_updates=warmup_updates,
+        timed_updates=timed_updates,
+        ppo_epochs=ppo_epochs,
+        amp=amp,
+        use_channels_last=use_channels_last,
+        compile_model=compile_model,
+        fast_learner_ops=fast_learner_ops,
+        wall_t0=wall_t0,
+    )
 
 
 @torch.no_grad()
@@ -917,53 +1068,49 @@ def _copy_verified_export_single_inode(src: Path, dst: Path) -> str:
     return write_create_only_artifact(dst, lambda tmp, s=src: shutil.copyfile(s, tmp))
 
 
-def run_canary_suite(
+def _canary_stage_verify_staged_input(
     *,
-    output_dir: Path,
-    device: str | torch.device = "cuda",
-    input_dir: Path | None = None,
-    ledger_path: Path | None = None,
-    max_wall_seconds: float | None = None,
-    canary_envs: int = 8,
-    canary_arena_radius: float = 120.0,
-    canary_num_snakes: int = 12,
-    canary_rollout_len: int = 4,
-    canary_train_envs: int | None = None,
-    compile_model: bool = False,
-    fast_learner_ops: bool = True,
-    canary_eval_cfg_override: V3PPOConfig | None = None,
-    seed: int = 20261111,
-) -> dict[str, Any]:
-    """Run instrumented family canary exercising ruler, resume, & 1 default-config evaluation."""
-    out = Path(output_dir).resolve()
-    out.mkdir(parents=True, exist_ok=True)
-    resolved_dev = normalize_device(device)
-    wall_t0 = time.monotonic()
+    input_dir: Path | None,
+    ledger_path: Path | None,
+    resolved_dev: torch.device,
+) -> dict[str, Any] | None:
+    """Stage 1 of canary suite: validate optional staged continuation checkpoint."""
+    staged_meta = validate_staged_ledger_resume(input_dir=input_dir, ledger_path=ledger_path)
+    if staged_meta is None:
+        return None
+    verified_meta = verify_staged_checkpoint(
+        Path(staged_meta["path"]),
+        device=resolved_dev,
+        verify_markers=False,
+    )
+    staged_verification = {
+        "kind": str(verified_meta["checkpoint_kind"]),
+        "relpath": str(staged_meta["relpath"]),
+        "sha256": str(staged_meta["sha256"]),
+        "num_shards": int(verified_meta["num_shards"]),
+        "updates_completed": int(verified_meta["updates_completed"]),
+    }
+    _cleanup_device_memory(resolved_dev)
+    return staged_verification
 
-    phase_stamp("v3_ppo_canary", "START", device=str(resolved_dev))
 
-    # 1. Verify staged continuation input if present in `verified-ledger.json`
-    staged_verification: dict[str, Any] | None = None
-    staged_meta = _validate_staged_ledger_resume(input_dir=input_dir, ledger_path=ledger_path)
-    if staged_meta is not None:
-        verified_meta = verify_staged_checkpoint(
-            Path(staged_meta["path"]),
-            device=resolved_dev,
-            verify_markers=False,
-        )
-        staged_verification = {
-            "kind": str(verified_meta["checkpoint_kind"]),
-            "relpath": str(staged_meta["relpath"]),
-            "sha256": str(staged_meta["sha256"]),
-            "num_shards": int(verified_meta["num_shards"]),
-            "updates_completed": int(verified_meta["updates_completed"]),
-        }
-        _cleanup_device_memory(resolved_dev)
-
-    # 2. Tiny ruler sweep probing S and M, all snakes and subset learners, plus fp32 on CUDA
-    n_snakes = max(6, int(canary_num_snakes))
-    subset_learners = min(4, max(1, n_snakes // 2))
-    canary_game_cfg = GameV3Config(arena_radius=float(canary_arena_radius), num_snakes=n_snakes)
+def _canary_stage_ruler_sweep(
+    *,
+    out: Path,
+    resolved_dev: torch.device,
+    canary_game_cfg: GameV3Config,
+    canary_envs: int,
+    canary_arena_radius: float,
+    n_snakes: int,
+    subset_learners: int,
+    canary_rollout_len: int,
+    compile_model: bool,
+    fast_learner_ops: bool,
+    max_wall_seconds: float | None,
+    wall_t0: float,
+    seed: int,
+) -> tuple[int, dict[str, Any]]:
+    """Stage 2 of canary suite: 6-cardinal decision probe + tiny multi-preset ruler sweep."""
     cardinal6_decisions = _verify_cardinal6_canary_decisions(
         resolved_dev,
         canary_game_cfg,
@@ -1009,8 +1156,23 @@ def run_canary_suite(
             f"Canary ruler sweep did not complete cleanly: status={ruler_res.get('status')}, "
             f"oom={ruler_res.get('oom_cell_ids')}, failed={ruler_res.get('failed_cell_ids')}"
         )
+    return cardinal6_decisions, ruler_res
 
-    # 3. Real 2-update train + sharded FULL checkpoint + staged ledger resume + deterministic eval
+
+def _canary_stage_train_and_resume(
+    *,
+    out: Path,
+    resolved_dev: torch.device,
+    canary_envs: int,
+    canary_arena_radius: float,
+    n_snakes: int,
+    subset_learners: int,
+    canary_rollout_len: int,
+    max_wall_seconds: float | None,
+    wall_t0: float,
+    seed: int,
+) -> dict[str, Any]:
+    """Stage 3 of canary suite: 2-update train + sharded FULL checkpoint + staged ledger resume."""
     tmp_dir = Path(tempfile.mkdtemp(prefix=f".{out.name}_canary_", dir=str(out.parent)))
     try:
         game_cfg = GameV3Config(arena_radius=float(canary_arena_radius), num_snakes=n_snakes)
@@ -1123,9 +1285,6 @@ def run_canary_suite(
         ):
             raise RuntimeError(f"Canary scratch missing verified u2 FULL checkpoint: {u2_resolved}")
 
-        # Publish canary exports from scratch `u2_out` into `out` strictly as fresh single-inode
-        # (`st_nlink == 1`) create-only copies so `shutil.rmtree(tmp_dir)` never mutates `st_nlink`
-        # or `st_ctime_ns` on any completed export observed by `colab_cli.runtime._exports`.
         _copy_verified_export_single_inode(u2_out / "config.json", out / "config.json")
 
         u2_full_idx = Path(u2_resolved["path"])
@@ -1157,17 +1316,32 @@ def run_canary_suite(
 
         verify_completed_artifact(u2_out / "train_result.json")
         u2_result_payload = json.loads((u2_out / "train_result.json").read_text(encoding="utf-8"))
-        u2_result_payload["session_export_bytes_published"] = int(_exported_payload_bytes(out))
+        u2_result_payload["session_export_bytes_published"] = int(exported_payload_bytes(out))
         write_create_only_json(out / "train_result.json", u2_result_payload)
 
         final_resolved = resolve_resume_checkpoint(out_ckpts, require_markers=True)
         if final_resolved is None or int(final_resolved["updates_completed"]) != 2:
             raise RuntimeError(f"Canary output missing verified u2 checkpoint: {final_resolved}")
+        return res_u2
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
-    # 4. Run 1 evaluation at the DEFAULT evaluation config on `resolved_dev` WITH a training-size
-    #    simulator + rollout buffer resident concurrently, recording wall seconds and combined peak!
+
+def _canary_stage_default_eval_benchmark(
+    *,
+    resolved_dev: torch.device,
+    canary_game_cfg: GameV3Config,
+    canary_envs: int,
+    canary_rollout_len: int,
+    canary_train_envs: int | None,
+    compile_model: bool,
+    fast_learner_ops: bool,
+    canary_eval_cfg_override: V3PPOConfig | None,
+    max_wall_seconds: float | None,
+    wall_t0: float,
+    seed: int,
+) -> tuple[dict[str, Any], int, float, int]:
+    """Stage 4 of canary suite: default-config evaluation with resident trainer memory."""
     default_eval_cfg = (
         canary_eval_cfg_override
         if canary_eval_cfg_override is not None
@@ -1306,6 +1480,95 @@ def run_canary_suite(
         f"ticks={default_eval_benchmark['eval_ticks']} "
         f"rs_completed_lives={default_eval_benchmark['vs_random_safe_completed_lives']}",
         flush=True,
+    )
+    return (
+        default_eval_benchmark,
+        int(eval_peak_bytes),
+        eval_peak_mib,
+        int(eff_resident_train_envs),
+    )
+
+
+def run_canary_suite(
+    *,
+    output_dir: Path,
+    device: str | torch.device = "cuda",
+    input_dir: Path | None = None,
+    ledger_path: Path | None = None,
+    max_wall_seconds: float | None = None,
+    canary_envs: int = 8,
+    canary_arena_radius: float = 120.0,
+    canary_num_snakes: int = 12,
+    canary_rollout_len: int = 4,
+    canary_train_envs: int | None = None,
+    compile_model: bool = False,
+    fast_learner_ops: bool = True,
+    canary_eval_cfg_override: V3PPOConfig | None = None,
+    seed: int = 20261111,
+) -> dict[str, Any]:
+    """Run instrumented family canary exercising ruler, resume, & 1 default-config evaluation."""
+    out = Path(output_dir).resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    resolved_dev = normalize_device(device)
+    wall_t0 = time.monotonic()
+
+    phase_stamp("v3_ppo_canary", "START", device=str(resolved_dev))
+
+    staged_verification = _canary_stage_verify_staged_input(
+        input_dir=input_dir,
+        ledger_path=ledger_path,
+        resolved_dev=resolved_dev,
+    )
+
+    n_snakes = max(6, int(canary_num_snakes))
+    subset_learners = min(4, max(1, n_snakes // 2))
+    canary_game_cfg = GameV3Config(arena_radius=float(canary_arena_radius), num_snakes=n_snakes)
+    cardinal6_decisions, ruler_res = _canary_stage_ruler_sweep(
+        out=out,
+        resolved_dev=resolved_dev,
+        canary_game_cfg=canary_game_cfg,
+        canary_envs=canary_envs,
+        canary_arena_radius=canary_arena_radius,
+        n_snakes=n_snakes,
+        subset_learners=subset_learners,
+        canary_rollout_len=canary_rollout_len,
+        compile_model=compile_model,
+        fast_learner_ops=fast_learner_ops,
+        max_wall_seconds=max_wall_seconds,
+        wall_t0=wall_t0,
+        seed=seed,
+    )
+
+    res_u2 = _canary_stage_train_and_resume(
+        out=out,
+        resolved_dev=resolved_dev,
+        canary_envs=canary_envs,
+        canary_arena_radius=canary_arena_radius,
+        n_snakes=n_snakes,
+        subset_learners=subset_learners,
+        canary_rollout_len=canary_rollout_len,
+        max_wall_seconds=max_wall_seconds,
+        wall_t0=wall_t0,
+        seed=seed,
+    )
+
+    (
+        default_eval_benchmark,
+        eval_peak_bytes,
+        eval_peak_mib,
+        eff_resident_train_envs,
+    ) = _canary_stage_default_eval_benchmark(
+        resolved_dev=resolved_dev,
+        canary_game_cfg=canary_game_cfg,
+        canary_envs=canary_envs,
+        canary_rollout_len=canary_rollout_len,
+        canary_train_envs=canary_train_envs,
+        compile_model=compile_model,
+        fast_learner_ops=fast_learner_ops,
+        canary_eval_cfg_override=canary_eval_cfg_override,
+        max_wall_seconds=max_wall_seconds,
+        wall_t0=wall_t0,
+        seed=seed,
     )
 
     canary_payload = {

@@ -50,10 +50,8 @@ from research.v3_ppo.config import (
     validate_checkpoint_export_caps,
     validate_memory_budget,
 )
-from research.v3_ppo.ppo import (
-    resolve_resume_checkpoint,
-    write_create_only_artifact,
-)
+from research.v3_ppo.exports import write_create_only_artifact
+from research.v3_ppo.resume import resolve_resume_checkpoint
 from research.v3_ppo.ruler import (
     CANARY_REQUIRED_EXPORTS,
     DEFAULT_RULER_ENVS,
@@ -98,14 +96,19 @@ def runtime_source_paths(commit: str) -> list[str]:
     }
     v3_ppo_names = {
         "__init__.py",
-        "config.py",
-        "net.py",
         "buffer.py",
+        "checkpoint_io.py",
+        "config.py",
         "eval.py",
-        "ppo.py",
-        "ruler.py",
+        "exports.py",
+        "job.py",
         "job.sh",
+        "net.py",
+        "ppo.py",
         "requirements.txt",
+        "resume.py",
+        "ruler.py",
+        "trainer.py",
     }
     tracked = sorted(
         set(

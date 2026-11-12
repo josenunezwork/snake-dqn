@@ -13,7 +13,9 @@ import pytest
 import torch
 
 import research.v3_ppo.eval as eval_mod
+import research.v3_ppo.job as job_mod
 import research.v3_ppo.ppo as ppo_mod
+import research.v3_ppo.trainer as trainer_mod
 from research.arena_ppo.runtime import (
     sha256_file,
     verify_completed_artifact,
@@ -783,12 +785,12 @@ def test_restart_generation_light_margin_protected_finally_and_update_cap(
     m2_tr.train_step()
     m2_tr.train_step()
     base_ts = 1_700_000_000.0
-    monkeypatch.setattr(ppo_mod.time, "time", lambda: base_ts)
+    monkeypatch.setattr(trainer_mod.time, "time", lambda: base_ts)
     m2_tr.save_full_checkpoint(margin_dir, tag="u0000002")
     m2_tr.train_step()
     m2_tr.train_step()
     # 20 minutes newer (< default 45 min margin) -> chooses FULL u=2!
-    monkeypatch.setattr(ppo_mod.time, "time", lambda: base_ts + 20.0 * 60.0)
+    monkeypatch.setattr(trainer_mod.time, "time", lambda: base_ts + 20.0 * 60.0)
     m2_tr.save_light_checkpoint(margin_dir / "light_u0000004.pt")
     capsys.readouterr()
 
@@ -967,12 +969,12 @@ def test_single_pass_eval_bit_identical_training_stop_abort_and_wall_skip(
     assert aborted_ev["ticks_completed"] < 240
 
     # Verify mid-eval abort inside `run_training_job` is NOT recorded in `eval/*.jsonl`
-    real_eval_pol = ppo_mod.evaluate_policy
+    real_eval_pol = trainer_mod.evaluate_policy
 
     def _aborting_eval_pol(*args, **kwargs):  # type: ignore[no-untyped-def]
         return real_eval_pol(*args, **{**kwargs, "should_stop": lambda: True})
 
-    monkeypatch.setattr(ppo_mod, "evaluate_policy", _aborting_eval_pol)
+    monkeypatch.setattr(trainer_mod, "evaluate_policy", _aborting_eval_pol)
     out_abort = tmp_path / "abort_ev_out"
     res_abort = run_training_job(
         cfg=V3PPOConfig.from_dict({**cfg_with_ev.to_dict(), "total_updates": 2}),
@@ -981,7 +983,7 @@ def test_single_pass_eval_bit_identical_training_stop_abort_and_wall_skip(
         device="cpu",
     )
     abort_stdout = capsys.readouterr().out
-    monkeypatch.setattr(ppo_mod, "evaluate_policy", real_eval_pol)
+    monkeypatch.setattr(trainer_mod, "evaluate_policy", real_eval_pol)
 
     assert res_abort["eval_runs_aborted"] == 1
     assert res_abort["eval_runs_completed"] == 0
@@ -1057,10 +1059,10 @@ def test_light_exports_maintain_real_interval_after_periodic_full_cap_reached(
     #   1.67x gap). With `last_light_export_mono`, u=17 (170s, 170-140=30s) and u=20 (200s) export
     #   LIGHT right at 1.00x interval!
     fake_clock = {"t": 1000.0}
-    monkeypatch.setattr(ppo_mod.time, "monotonic", lambda: fake_clock["t"])
+    monkeypatch.setattr(job_mod.time, "monotonic", lambda: fake_clock["t"])
 
     periodic_events: list[tuple[str, int, float]] = []
-    real_publish = ppo_mod.publish_checkpoint_to_output
+    real_publish = job_mod.publish_checkpoint_to_output
 
     def _spy_publish(
         work_ckpt_path: Path,
@@ -1083,7 +1085,7 @@ def test_light_exports_maintain_real_interval_after_periodic_full_cap_reached(
             )
         return published
 
-    monkeypatch.setattr(ppo_mod, "publish_checkpoint_to_output", _spy_publish)
+    monkeypatch.setattr(job_mod, "publish_checkpoint_to_output", _spy_publish)
 
     def _advance_clock(_tr: V3PPOTrainer, _next_u: int) -> None:
         fake_clock["t"] += 10.0

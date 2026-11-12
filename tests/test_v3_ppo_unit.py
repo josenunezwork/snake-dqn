@@ -10,7 +10,7 @@ import pytest
 import torch
 from torch import nn
 
-import research.v3_ppo.ppo as ppo_mod
+import research.v3_ppo.trainer as trainer_mod
 from research.game_v3.config import GameV3Config
 from research.game_v3.obs import LearnerIndex, build_obs
 from research.game_v3.sim import GameV3Sim, StepInfo
@@ -30,6 +30,12 @@ from research.v3_ppo.config import (
     obs_layout_from_game_config,
 )
 from research.v3_ppo.eval import compute_step_reward
+from research.v3_ppo.job import (
+    check_eval_wall_budget,
+    check_periodic_export_budget,
+    decide_checkpoint_actions,
+    decide_eval_action,
+)
 from research.v3_ppo.net import (
     MASK_FILL_VALUE,
     EgoMultiScaleNet,
@@ -266,15 +272,15 @@ def test_uint8_rollout_buffer_indexing_and_single_obs_per_tick(
         assert pytest.approx(float(mb.advantages[idx_i].item())) == 0.75 * (idx_i + 1)
         assert pytest.approx(float(mb.returns[idx_i].item())) == 2.0 * (idx_i + 1)
 
-    # Spy on `build_obs` inside `ppo` to prove strictly 1 `build_obs` per tick in steady state
-    real_build_obs = ppo_mod.build_obs
+    # Spy on `build_obs` inside `trainer` to prove strictly 1 `build_obs` per tick in steady state
+    real_build_obs = trainer_mod.build_obs
     call_counter = {"count": 0}
 
     def _counted_build_obs(*args, **kwargs):  # type: ignore[no-untyped-def]
         call_counter["count"] += 1
         return real_build_obs(*args, **kwargs)
 
-    monkeypatch.setattr(ppo_mod, "build_obs", _counted_build_obs)
+    monkeypatch.setattr(trainer_mod, "build_obs", _counted_build_obs)
 
     cfg = V3PPOConfig(
         game_config=gcfg,
@@ -951,3 +957,133 @@ def test_config_precedence_and_resume_diff_helper() -> None:
             reference_label="ckpt",
             candidate_label="requested",
         )
+
+
+def test_pure_checkpoint_and_eval_schedulers() -> None:
+    """Verify pure checkpoint and evaluation scheduling functions across edge cases."""
+    # 1. Idle step: nothing due
+    idle = decide_checkpoint_actions(
+        updates_completed=5,
+        checkpoint_every_updates=0,
+        full_checkpoint_every_updates=0,
+        light_checkpoint_interval_sec=1800.0,
+        full_checkpoint_interval_sec=7200.0,
+        now_mono=1100.0,
+        last_light_work_mono=1000.0,
+        last_light_export_mono=1000.0,
+        last_full_work_mono=1000.0,
+        published_periodic_fulls=0,
+        max_periodic_full_exports=3,
+    )
+    assert not idle.save_work_light
+    assert not idle.save_work_full
+    assert not idle.want_periodic_full_export
+    assert not idle.want_periodic_light_export
+
+    # 2. Capped periodic FULL: saves FULL in work/, blocks FULL export, preserves LIGHT interval
+    capped_full = decide_checkpoint_actions(
+        updates_completed=16,
+        checkpoint_every_updates=0,
+        full_checkpoint_every_updates=0,
+        light_checkpoint_interval_sec=30.0,
+        full_checkpoint_interval_sec=75.0,
+        now_mono=1160.0,
+        last_light_work_mono=1140.0,
+        last_light_export_mono=1140.0,
+        last_full_work_mono=1080.0,
+        published_periodic_fulls=1,
+        max_periodic_full_exports=1,
+    )
+    assert capped_full.save_work_light is True
+    assert capped_full.save_work_full is True
+    assert capped_full.want_periodic_full_export is False
+    assert capped_full.want_periodic_light_export is False
+
+    # Next step (`now_mono=1170.0`): `last_light_work_mono` advanced to 1160, but
+    # `last_light_export_mono` stayed 1140 -> LIGHT export triggers right on time (+30s)!
+    next_light = decide_checkpoint_actions(
+        updates_completed=17,
+        checkpoint_every_updates=0,
+        full_checkpoint_every_updates=0,
+        light_checkpoint_interval_sec=30.0,
+        full_checkpoint_interval_sec=75.0,
+        now_mono=1170.0,
+        last_light_work_mono=1160.0,
+        last_light_export_mono=1140.0,
+        last_full_work_mono=1160.0,
+        published_periodic_fulls=1,
+        max_periodic_full_exports=1,
+    )
+    assert next_light.due_light_work_time is False
+    assert next_light.due_light_export_time is True
+    assert next_light.save_work_light is True
+    assert next_light.want_periodic_light_export is True
+
+    # 3. Export byte-budget reserve calculation
+    ok_b, proj_b = check_periodic_export_budget(
+        current_exported_bytes=200,
+        new_files_bytes=100,
+        max_session_export_bytes=500,
+        last_measured_full_bytes=150,
+        est_light_bytes=50,
+        num_envs=4,
+    )
+    assert ok_b is True and proj_b == 450
+    no_b, proj_over = check_periodic_export_budget(
+        current_exported_bytes=260,
+        new_files_bytes=100,
+        max_session_export_bytes=500,
+        last_measured_full_bytes=150,
+        est_light_bytes=50,
+        num_envs=4,
+    )
+    assert no_b is False and proj_over == 510
+
+    # 4. Evaluation scheduling: update/minute triggers and 2x wall-clock budget guard
+    ev_run = decide_eval_action(
+        updates_completed=10,
+        total_updates=100,
+        eval_every_updates=5,
+        eval_every_minutes=0.0,
+        now_mono=1050.0,
+        last_eval_mono=1000.0,
+        wall_t0=1000.0,
+        max_wall_seconds=300.0,
+        checkpoint_reserve_seconds=20.0,
+        eval_estimated_seconds=45.0,
+        last_eval_wall_seconds=None,
+    )
+    assert ev_run.due_by_updates is True
+    assert ev_run.should_run is True
+    assert ev_run.should_skip_for_wall is False
+    assert ev_run.required_wall_seconds == pytest.approx(90.0)
+    assert ev_run.remaining_wall_seconds == pytest.approx(230.0)
+
+    ev_skip = decide_eval_action(
+        updates_completed=11,
+        total_updates=100,
+        eval_every_updates=0,
+        eval_every_minutes=2.0,
+        now_mono=1250.0,
+        last_eval_mono=1100.0,
+        wall_t0=1000.0,
+        max_wall_seconds=300.0,
+        checkpoint_reserve_seconds=20.0,
+        eval_estimated_seconds=45.0,
+        last_eval_wall_seconds=20.0,
+    )
+    # Measured `last_eval_wall_seconds=20.0` -> requires 40.0s, only 30.0s remain!
+    assert ev_skip.due_by_minutes is True
+    assert ev_skip.should_run is False
+    assert ev_skip.should_skip_for_wall is True
+    assert ev_skip.required_wall_seconds == pytest.approx(40.0)
+    assert ev_skip.remaining_wall_seconds == pytest.approx(30.0)
+
+    can_unl, rem_unl, req_unl = check_eval_wall_budget(
+        elapsed_wall_seconds=9999.0,
+        max_wall_seconds=None,
+        checkpoint_reserve_seconds=0.0,
+        eval_estimated_seconds=30.0,
+        last_eval_wall_seconds=None,
+    )
+    assert can_unl is True and rem_unl == float("inf") and req_unl == pytest.approx(60.0)
