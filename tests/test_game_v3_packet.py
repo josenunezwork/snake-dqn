@@ -469,7 +469,7 @@ def test_job_sh_executes_canary_end_to_end_and_cardinal6_uses_shape6_argmax(
 def test_cuda_check_non_oom_failure_writes_failed_status_and_wall_guard_survives(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Task B.1, B.2 & Task A: failed status + re-raise, 256-world plan/stage, wall guard."""
+    """Verify failed status + re-raise, 256-world rebase/reset stage, and wall-time guard."""
     # 1. Default plan includes 256-world R=600 rebase/reset stage and early-game memory note.
     plan = build_cuda_check_plan(
         device=torch.device("cuda"),
@@ -508,7 +508,7 @@ def test_cuda_check_non_oom_failure_writes_failed_status_and_wall_guard_survives
     assert rr_res["reset_worlds"]["max_memory_allocated_after_bytes"] > 0
     assert "early-game memory" in rr_res["memory_measurement_note"]
 
-    # 2. Task B.1: Non-OOM failure writes status="failed" + error text, then re-raises.
+    # 2. Non-OOM failure writes status="failed" + error text, then re-raises.
     def _boom_bench(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
         raise RuntimeError("synthetic non-OOM benchmark kernel bug")
 

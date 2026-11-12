@@ -905,8 +905,8 @@ def _load_legacy_e2865f93_sim_class() -> type[Any] | None:
     return mod.GameV3Sim
 
 
-def test_pre_refactor_checkpoint_loads_and_strict_state_dict_validation() -> None:
-    """Pre-refactor e2865f93 checkpoints load bit-identically; missing/unknown keys raise."""
+def test_checkpoint_without_clean_step_streak_loads_and_strict_state_dict_validation() -> None:
+    """Checkpoints omitting optional clean_step_streak load bit-identically; bad keys raise."""
     cfg = GameV3Config(
         arena_radius=90.0,
         num_snakes=12,
@@ -1014,7 +1014,7 @@ def test_pre_refactor_checkpoint_loads_and_strict_state_dict_validation() -> Non
 
 
 def test_learner_index_address_reuse_and_out_mismatch_refusal() -> None:
-    """MAJOR 1: LearnerIndex avoids stale address-reuse rows and refuses mismatched out batches."""
+    """LearnerIndex avoids stale address-reuse rows and refuses mismatched out batches."""
     cfg = GameV3Config(arena_radius=100.0, num_snakes=12, ambient_food_density=0.01)
     sim = GameV3Sim(cfg, num_envs=2, device="cpu", seeds=[11, 22])
     for _ in range(4):
@@ -1076,7 +1076,7 @@ def test_learner_index_address_reuse_and_out_mismatch_refusal() -> None:
 
 
 def test_subtick_overflow_guard_and_forced_rebase_bitwise_identity() -> None:
-    """MAJOR 2a/2b: Host overflow check raises pre-limit; forced mid-run rebase is bitwise-exact."""
+    """Host overflow check raises pre-limit; forced mid-run rebase is bitwise-exact."""
     cfg = GameV3Config(arena_radius=80.0, num_snakes=10, respawn_delay=5, ambient_food_density=0.01)
 
     # Part A: With auto_rebase=False, stepping into MAX_OCC_SUBTICK raises OverflowError on host.
@@ -1144,7 +1144,7 @@ def test_subtick_overflow_guard_and_forced_rebase_bitwise_identity() -> None:
 
 
 def test_reset_worlds_mask_isolation_and_reference_parity() -> None:
-    """MAJOR 2c: reset_worlds(mask) resets selected worlds cleanly without disturbing others."""
+    """reset_worlds(mask) resets selected worlds cleanly without disturbing others."""
     cfg = GameV3Config(arena_radius=90.0, num_snakes=10, respawn_delay=4, ambient_food_density=0.01)
     init_seeds = [400, 401, 402, 403]
     sim = GameV3Sim(cfg, num_envs=4, device="cpu", seeds=init_seeds)
@@ -1200,7 +1200,7 @@ def test_reset_worlds_mask_isolation_and_reference_parity() -> None:
 
 
 def test_default_max_life_ticks_off_and_rollout_truncation_keeps_snakes() -> None:
-    """MAJOR 3: Default max_life_ticks=0 keeps large snakes; rollout truncate is non-destructive."""
+    """Default max_life_ticks=0 keeps large snakes; rollout truncate is non-destructive."""
     cfg = GameV3Config(arena_radius=120.0, num_snakes=6, ambient_food_density=0.0)
     assert cfg.max_life_ticks == 0
 
@@ -1236,7 +1236,7 @@ def test_default_max_life_ticks_off_and_rollout_truncation_keeps_snakes() -> Non
 
 
 def test_compact_food_grid_dtypes_saturation_and_memory_budget() -> None:
-    """MAJOR 4: ambient_grid is uint8, corpse_grid is int16 saturating at 32767, saving memory."""
+    """ambient_grid is uint8, corpse_grid is int16 saturating at 32767, within memory budget."""
     cfg_small = GameV3Config(arena_radius=60.0, num_snakes=6, ambient_food_density=0.0)
     sim = GameV3Sim(cfg_small, num_envs=1, device="cpu", seeds=[5])
     ref = ReferenceWorld(cfg_small, seed=5)
@@ -1304,14 +1304,14 @@ def test_compact_food_grid_dtypes_saturation_and_memory_budget() -> None:
     obs_r = build_obs_reference(ref)
     assert np.array_equal(obs_s.raster_s1[0].numpy(), obs_r.raster_s1)
 
-    # Verify R=600, N=24 per-world sim footprint dropped well below the old 34.87 MiB/world.
+    # Verify R=600, N=24 per-world sim footprint stays under the 28.0 MiB/world budget.
     sim_r600 = GameV3Sim(GameV3Config(), num_envs=2, device="cpu")
     mib_per_world = _tensor_bytes_of_sim_and_obs(sim_r600, None) / (2 * 1024.0 * 1024.0)
     assert mib_per_world < 28.0, f"Expected < 28 MiB/world at R=600, got {mib_per_world:.2f}"
 
 
 def test_surviving_discs_never_overlap_long_random_run() -> None:
-    """SMALLER 1: debug_assert_invariants verifies <= 1 surviving owner/cell over a long run."""
+    """debug_assert_invariants verifies <= 1 surviving owner/cell over a long run."""
     cfg = GameV3Config(
         arena_radius=90.0,
         num_snakes=20,
@@ -1344,7 +1344,7 @@ def test_surviving_discs_never_overlap_long_random_run() -> None:
 
 
 def test_spawn_wall_margin_20_and_headings_point_away_from_wall() -> None:
-    """SMALLER 4: Spawn margin is 20 units and initial/respawn headings point inward (dot <= 0)."""
+    """Spawn margin is 20 units and initial/respawn headings point inward (dot <= 0)."""
     cfg = GameV3Config(arena_radius=80.0, num_snakes=24, respawn_delay=2, ambient_food_density=0.01)
     assert cfg.spawn_wall_margin == 20.0
 
@@ -1384,7 +1384,7 @@ def test_spawn_wall_margin_20_and_headings_point_away_from_wall() -> None:
 
 
 def test_obs_prev_enemy_heads_projected_into_current_ego_frame() -> None:
-    """SMALLER 5: Previous-tick (t-1) enemy heads are projected into the CURRENT observer frame."""
+    """Previous-tick (t-1) enemy heads are projected into the CURRENT observer frame."""
     # Set turn_rate = pi/2 so action 0 turns a start-length snake by +90 deg (+x -> +y) in 1 tick.
     cfg = GameV3Config(
         arena_radius=80.0,
@@ -1404,9 +1404,9 @@ def test_obs_prev_enemy_heads_projected_into_current_ego_frame() -> None:
     ref.ambient_count = 0
 
     # At t-1: observer slot 0 is at (0.5, 0.5) facing +x (theta=0); enemy slot 1 is at (0.5, 12.5).
-    # In the OLD code (previous ego frame facing +x), (0.5, 12.5) was to the LEFT (col < 32).
-    # On tick 1, observer turns +90 deg to face +y: in the CURRENT ego frame facing +y, enemy's t-1
-    # head at (0.5, 12.5) is STRAIGHT AHEAD (+ego_y -> row < 25, col ~ 32)!
+    # In the t-1 ego frame facing +x, (0.5, 12.5) lies to the left (col < 32).
+    # On tick 1, observer turns +90 deg to face +y: in the current ego frame facing +y, enemy's t-1
+    # head at (0.5, 12.5) lies straight ahead (+ego_y -> row < 25, col ~ 32).
     _place_snake(sim, 0, 0, [(0.5, 0.5)], theta_idx=0, length=10)
     _place_snake(sim, 0, 1, [(0.5, 12.5)], theta_idx=0, length=20)
     _stamp_placed_snakes(sim)
@@ -1447,7 +1447,7 @@ def test_obs_prev_enemy_heads_projected_into_current_ego_frame() -> None:
 
 
 def test_step_info_prev_length_on_death_and_survival() -> None:
-    """SMALLER 6: StepInfo.prev_length preserves pre-tick length even when length=0 on death."""
+    """StepInfo.prev_length preserves pre-tick length even when length=0 on death."""
     cfg = GameV3Config(arena_radius=30.0, num_snakes=6, ambient_food_density=0.0)
     sim = GameV3Sim(cfg, num_envs=1, device="cpu", seeds=[3])
     ref = ReferenceWorld(cfg, seed=3)
@@ -1503,7 +1503,7 @@ def test_step_info_prev_length_on_death_and_survival() -> None:
 
 
 def test_boosting_cross_path_head_only_death_and_head_on_symmetry() -> None:
-    """SMALLER 7: Boosting snake crossing ahead survives; follower hitting trailing point dies."""
+    """Boosting snake crossing ahead survives; follower hitting trailing point dies."""
     cfg = GameV3Config(
         arena_radius=80.0,
         num_snakes=6,
@@ -1593,7 +1593,7 @@ def test_boosting_cross_path_head_only_death_and_head_on_symmetry() -> None:
 def test_ready_only_respawn_skips_work_and_n64_food_tiebreak_parity(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """SMALLER 9: Respawn evaluates ONLY ready slots; key-sort food tie-break matches N=64."""
+    """Respawn evaluates only ready slots; key-sort food tie-break matches N=64."""
     cfg = GameV3Config(arena_radius=120.0, num_snakes=24, respawn_delay=5, ambient_food_density=0.0)
     sim = GameV3Sim(cfg, num_envs=4, device="cpu", seeds=[70, 71, 72, 73])
 
@@ -1711,7 +1711,7 @@ def test_ready_only_respawn_skips_work_and_n64_food_tiebreak_parity(
 
 
 def test_cuda_check_cli_smoke_on_cpu(tmp_path: Path) -> None:
-    """SMALLER 10: cuda_check.py CLI runs dual parity + benchmark and writes one valid JSON."""
+    """cuda_check.py CLI runs dual parity + benchmark and writes one valid JSON."""
     out_json = tmp_path / "cuda_check_cpu_smoke.json"
     rc = cuda_check.main(
         [
@@ -1835,7 +1835,7 @@ class _CpuStorageWaterMarkTracker(TorchDispatchMode):
 
 
 def _reference_out_of_place_rebase_1x(grid: torch.Tensor, shift_val: int) -> torch.Tensor:
-    """Reference pre-optimization bit-shift formula for 1x packed occupancy grids."""
+    """Reference 64-bit bit-shift formula for 1x packed occupancy grids."""
     g64 = grid.to(torch.int64)
     st = g64 >> 6
     return torch.where(
@@ -1846,7 +1846,7 @@ def _reference_out_of_place_rebase_1x(grid: torch.Tensor, shift_val: int) -> tor
 
 
 def test_rebase_subticks_inplace_bitwise_identity_and_int32_boundaries() -> None:
-    """MAJOR: In-place chunked rebase_subticks is bitwise identical to bit-shift reference."""
+    """In-place chunked rebase_subticks is bitwise identical to bit-shift reference."""
     # Part 1: Multi-chunk E=19 (> 2 * _REBASE_ENV_CHUNK) realistic world with boosts & deaths.
     cfg = GameV3Config(arena_radius=90.0, num_snakes=16, respawn_delay=4, ambient_food_density=0.02)
     sim = GameV3Sim(cfg, num_envs=19, device="cpu", seeds=[700 + e for e in range(19)])
@@ -2010,7 +2010,7 @@ def test_rebase_subticks_inplace_bitwise_identity_and_int32_boundaries() -> None
 
 
 def test_rebase_subticks_and_reset_worlds_peak_temp_memory_fraction() -> None:
-    """MAJOR: Peak live temporary CPU tensor memory of rebase_subticks & reset_worlds < 5% state.
+    """Peak live temporary CPU tensor memory of rebase_subticks & reset_worlds stays < 5% state.
 
     Exact measurement methodology:
       - ``state_bytes`` is the deduplicated byte footprint of all simulator tensors owned by
@@ -2038,7 +2038,7 @@ def test_rebase_subticks_and_reset_worlds_peak_temp_memory_fraction() -> None:
 
     state_bytes = _tensor_bytes_of_sim_and_obs(sim, None)
     assert state_bytes > 400 * 1024 * 1024  # ~439.36 MiB across 16 worlds (27.46 MiB/world)
-    max_allowed_fraction = 0.05  # 5% of state (~21.97 MiB cap vs ~513.96 MiB / 117% pre-fix!)
+    max_allowed_fraction = 0.05  # 5% of persistent state (~21.97 MiB cap across 16 worlds)
 
     # 1. Measure rebase_subticks() peak live temporary CPU memory.
     baseline_ptrs = _collect_sim_storage_ptrs(sim)
@@ -2108,7 +2108,7 @@ def test_rebase_subticks_and_reset_worlds_peak_temp_memory_fraction() -> None:
 
 
 def test_occ_subtick_4x_returns_on_sim_device_for_multi_block_sim() -> None:
-    """MINOR 4: occ_subtick_4x returns on sim.device even when sharded across >1 _occ_4x_blocks."""
+    """occ_subtick_4x returns on sim.device even when sharded across >1 _occ_4x_blocks."""
     cfg = GameV3Config(arena_radius=48.0, num_snakes=8)
     sim_cpu = GameV3Sim(cfg, num_envs=300, device="cpu", seeds=list(range(300)))
     assert len(sim_cpu._occ_4x_blocks) == 2
@@ -2128,7 +2128,7 @@ def test_occ_subtick_4x_returns_on_sim_device_for_multi_block_sim() -> None:
 def test_build_obs_out_learner_index_zero_equal_sync_vs_raw_mask_equal_sync(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """MINOR 3: Reusing LearnerIndex with out= skips torch.equal; raw mask with out= runs it."""
+    """Reusing LearnerIndex with out= skips torch.equal; raw mask with out= runs it."""
     cfg = GameV3Config(arena_radius=80.0, num_snakes=12)
     sim = GameV3Sim(cfg, num_envs=2, device="cpu", seeds=[1, 2])
     raw_mask = torch.tensor([[j < 4 for j in range(12)] for _ in range(2)], dtype=torch.bool)
@@ -2162,7 +2162,7 @@ def test_build_obs_out_learner_index_zero_equal_sync_vs_raw_mask_equal_sync(
 def test_cuda_check_dual_parity_incremental_json_and_oom_isolation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """MINOR 2: cuda_check runs normal + det parity, bench with flag off, atomic JSON, OOM catch."""
+    """cuda_check runs normal + det parity, bench with flag off, atomic JSON, OOM catch."""
     # Verify default L4 plan stays well below 15 minutes and 20 GB peak VRAM.
     default_plan = cuda_check.build_cuda_check_plan(
         device=torch.device("cuda", 0),

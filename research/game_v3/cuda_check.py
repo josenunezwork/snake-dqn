@@ -356,7 +356,7 @@ def run_device_vs_cpu_parity(
 ) -> dict[str, Any]:
     """Run exact bitwise trajectory parity on ``device`` vs CPU across ``num_envs x num_ticks``.
 
-    Exercises automatic ``rebase_subticks`` (with ``AUTO_REBASE_SUBTICK_THRESHOLD`` patched down),
+    Exercises automatic ``rebase_subticks`` (via a lowered ``auto_rebase_threshold``),
     explicit ``rebase_subticks()``, ``reset_worlds()`` (including one triggering auto-rebase),
     and ``bool`` / ``(E,)`` / ``(E, N)`` ``truncate=`` masks.
     """
@@ -1259,7 +1259,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--rebase-threshold",
         type=int,
         default=400,
-        help="Patched AUTO_REBASE_SUBTICK_THRESHOLD exercised during parity (default: 400).",
+        help="Simulator auto_rebase_threshold exercised during parity (default: 400).",
     )
     parser.add_argument("--bench-envs", type=_parse_int_list, default=[64, 256])
     parser.add_argument("--bench-snakes", type=_parse_int_list, default=[24, 64])

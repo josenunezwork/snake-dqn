@@ -1,4 +1,4 @@
-"""Bitwise golden-trace regression check recorded from pre-refactor Game V3.1 code."""
+"""Bitwise golden-trace check for Game V3.1 state, StepInfo, and observation digests."""
 
 from __future__ import annotations
 
@@ -209,8 +209,8 @@ def write_golden_data_module(target: Path = GOLDEN_DATA_PATH) -> None:
     target.write_text(content, encoding="utf-8")
 
 
-def test_simulator_and_observations_match_pre_refactor_golden_trace() -> None:
-    """Verify state, StepInfo, and observation tensors match pre-refactor sha256 digests."""
+def test_simulator_and_observations_match_golden_trace() -> None:
+    """Verify state, StepInfo, and observation tensors match recorded sha256 digests."""
     from tests.test_game_v3_golden_data import GOLDEN_TRACE
 
     actual = compute_golden_traces()

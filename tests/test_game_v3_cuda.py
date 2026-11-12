@@ -19,7 +19,7 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.mark.slow
 def test_cuda_32_worlds_x_1000_ticks_vs_cpu_bitwise_parity() -> None:
-    """SMALLER 10: 32 worlds x 1,000 ticks at N=24 on CUDA matches CPU bit-for-bit."""
+    """32 worlds x 1,000 ticks at N=24 on CUDA matches CPU bit-for-bit."""
     result = run_device_vs_cpu_parity(
         device="cuda",
         num_envs=32,
@@ -39,7 +39,7 @@ def test_cuda_32_worlds_x_1000_ticks_vs_cpu_bitwise_parity() -> None:
 
 
 def test_cuda_check_entrypoint_writes_single_json(tmp_path: Path) -> None:
-    """SMALLER 10: cuda_check.py runs parity + benchmark on CUDA and writes one JSON result."""
+    """cuda_check.py runs parity + benchmark on CUDA and writes one JSON result."""
     out_json = tmp_path / "cuda_check_smoke.json"
     rc = cuda_check_main(
         [
