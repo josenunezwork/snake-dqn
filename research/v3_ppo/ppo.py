@@ -12,6 +12,7 @@ import random
 import shutil
 import tempfile
 import time
+import traceback
 import zlib
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -2471,8 +2472,11 @@ def run_training_job(
     last_eval_wall_sec: float | None = None
 
     in_session_restarts = 0
+    in_session_restart_errors: list[dict[str, Any]] = []
     stopped_reason = "completed"
+    error_class: str | None = None
     error_message: str | None = None
+    error_traceback: str | None = None
     trainer_state_clean = True
     aborted_mid_update = False
 
@@ -2604,16 +2608,30 @@ def run_training_job(
                     ):
                         raise
                     in_session_restarts += 1
+                    exc_class = type(exc).__name__
+                    exc_tb = traceback.format_exc()
+                    in_session_restart_errors.append(
+                        {
+                            "attempt": int(in_session_restarts),
+                            "failed_update": int(trainer.updates_completed) + 1,
+                            "error_class": exc_class,
+                            "error": str(exc),
+                            "traceback": exc_tb,
+                        }
+                    )
                     print(
                         f"V3_PPO_IN_SESSION_RESTART attempt={in_session_restarts}/"
-                        f"{cfg.max_in_session_restarts} error={type(exc).__name__}: {exc}",
+                        f"{cfg.max_in_session_restarts} error_class={exc_class} "
+                        f"error={exc_class}: {exc}",
                         flush=True,
                     )
+                    print(exc_tb.rstrip("\n"), flush=True)
                     phase_stamp(
                         "in_session_restart",
                         "RECOVER",
                         attempt=in_session_restarts,
-                        error=f"{type(exc).__name__}: {exc}",
+                        error_class=exc_class,
+                        error=f"{exc_class}: {exc}",
                     )
                     rec_dev = trainer.device
                     del trainer
@@ -2805,19 +2823,31 @@ def run_training_job(
                     eval_writer.seal_current_segment()
 
         except Exception as exc:
-            stopped_reason = f"exception:{type(exc).__name__}"
+            error_class = type(exc).__name__
             error_message = str(exc)
+            error_traceback = traceback.format_exc()
+            stopped_reason = f"exception:{error_class}"
+            print(
+                f"V3_PPO_FINAL_FAILURE error_class={error_class} error={error_class}: {exc}",
+                flush=True,
+            )
+            print(error_traceback.rstrip("\n"), flush=True)
             raise
         finally:
+
+            def _log_finally_warn(stage: str, warn_exc: BaseException) -> None:
+                warn_cls = type(warn_exc).__name__
+                print(
+                    f"V3_PPO_FINALLY_WARN stage={stage} error={warn_cls}: {warn_exc}",
+                    flush=True,
+                )
+                print(traceback.format_exc().rstrip("\n"), flush=True)
+
             for writer_obj in (metrics_writer, eval_writer):
                 try:
                     writer_obj.close()
                 except Exception as w_exc:
-                    print(
-                        f"V3_PPO_FINALLY_WARN stage=close_writer error={type(w_exc).__name__}: "
-                        f"{w_exc}",
-                        flush=True,
-                    )
+                    _log_finally_warn("close_writer", w_exc)
 
             is_boundary_stop = (
                 trainer_state_clean and not aborted_mid_update and error_message is None
@@ -2869,11 +2899,7 @@ def run_training_job(
                             )
                             eval_writer_final.close()
                     except Exception as ev_exc:
-                        print(
-                            f"V3_PPO_FINALLY_WARN stage=final_eval "
-                            f"error={type(ev_exc).__name__}: {ev_exc}",
-                            flush=True,
-                        )
+                        _log_finally_warn("final_eval", ev_exc)
 
             final_summary = dict(clean_summary)
             if is_boundary_stop:
@@ -2913,11 +2939,7 @@ def run_training_job(
                         keep_light=int(cfg.keep_light_checkpoints),
                     )
                 except Exception as ck_exc:
-                    print(
-                        f"V3_PPO_FINALLY_WARN stage=boundary_checkpoint "
-                        f"error={type(ck_exc).__name__}: {ck_exc}",
-                        flush=True,
-                    )
+                    _log_finally_warn("boundary_checkpoint", ck_exc)
                 final_summary = _snapshot_clean_state(trainer)
             else:
                 # Mid-update stop or fatal exception: NEVER save or publish half-updated state!
@@ -2948,11 +2970,7 @@ def run_training_job(
                                 },
                             )
                 except Exception as rb_exc1:
-                    print(
-                        f"V3_PPO_FINALLY_WARN stage=rollback_publish_work "
-                        f"error={type(rb_exc1).__name__}: {rb_exc1}",
-                        flush=True,
-                    )
+                    _log_finally_warn("rollback_publish_work", rb_exc1)
 
                 try:
                     clean_fallback = _select_best_resume_candidate(
@@ -3007,17 +3025,9 @@ def run_training_job(
                             )
                             final_summary = _snapshot_clean_state(trainer)
                         except Exception as load_exc:
-                            print(
-                                f"V3_PPO_FINALLY_WARN stage=rollback_load_checkpoint "
-                                f"error={type(load_exc).__name__}: {load_exc}",
-                                flush=True,
-                            )
+                            _log_finally_warn("rollback_load_checkpoint", load_exc)
                 except Exception as rb_exc2:
-                    print(
-                        f"V3_PPO_FINALLY_WARN stage=rollback_select "
-                        f"error={type(rb_exc2).__name__}: {rb_exc2}",
-                        flush=True,
-                    )
+                    _log_finally_warn("rollback_select", rb_exc2)
 
             final_counters = {
                 "updates_completed": int(final_summary["updates_completed"]),
@@ -3032,11 +3042,7 @@ def run_training_job(
                     light_resume_margin_minutes=float(cfg.light_resume_margin_minutes),
                 )
             except Exception as mf_exc:
-                print(
-                    f"V3_PPO_FINALLY_WARN stage=latest_manifest "
-                    f"error={type(mf_exc).__name__}: {mf_exc}",
-                    flush=True,
-                )
+                _log_finally_warn("latest_manifest", mf_exc)
 
             passed = (
                 error_message is None
@@ -3065,7 +3071,10 @@ def run_training_job(
                     "stopped_reason": stopped_reason,
                     "aborted_mid_update": bool(aborted_mid_update),
                     "in_session_restarts": int(in_session_restarts),
+                    "in_session_restart_errors": in_session_restart_errors,
                     "error": error_message,
+                    "error_class": error_class,
+                    "error_traceback": error_traceback,
                     "device": str(final_summary["device"]),
                     "parameter_count": int(final_summary["parameter_count"]),
                     "updates_completed": int(final_summary["updates_completed"]),

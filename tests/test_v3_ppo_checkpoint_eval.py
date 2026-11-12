@@ -1115,3 +1115,80 @@ def test_light_exports_maintain_real_interval_after_periodic_full_cap_reached(
     times = [ev[2] for ev in periodic_events]
     gaps = [b - a for a, b in zip(times, times[1:], strict=False)]
     assert max(gaps) <= light_interval
+
+
+def test_restart_and_final_failure_record_exception_class_and_traceback(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Verify full traceback and exception class are logged and recorded on restart and failure."""
+    cfg_ok = V3PPOConfig.from_dict(
+        {
+            **_tiny_cfg(num_envs=2, total_updates=2, eval_every_updates=0).to_dict(),
+            "checkpoint_every_updates": 1,
+            "max_in_session_restarts": 2,
+        }
+    )
+    raised_once = {"done": False}
+
+    def _restart_once_hook(_tr: V3PPOTrainer, next_update: int) -> None:
+        if next_update == 2 and not raised_once["done"]:
+            raised_once["done"] = True
+            raise RuntimeError("injected transient restart boom")
+
+    res_restart = run_training_job(
+        cfg=cfg_ok,
+        output_dir=tmp_path / "restart_out",
+        work_dir=tmp_path / "restart_work",
+        device="cpu",
+        step_hook=_restart_once_hook,
+    )
+    restart_log = capsys.readouterr().out
+    assert "V3_PPO_IN_SESSION_RESTART attempt=1/2 error_class=RuntimeError" in restart_log
+    assert "Traceback (most recent call last):" in restart_log
+    assert "_restart_once_hook" in restart_log
+    assert res_restart["status"] == "PASS"
+    assert res_restart["error"] is None
+    assert res_restart["error_class"] is None
+    assert res_restart["error_traceback"] is None
+    assert len(res_restart["in_session_restart_errors"]) == 1
+    rec_err = res_restart["in_session_restart_errors"][0]
+    assert rec_err["attempt"] == 1
+    assert rec_err["failed_update"] == 2
+    assert rec_err["error_class"] == "RuntimeError"
+    assert rec_err["error"] == "injected transient restart boom"
+    assert "Traceback (most recent call last):" in rec_err["traceback"]
+    assert "_restart_once_hook" in rec_err["traceback"]
+
+    # Now test final failure after 1 restart attempt
+    cfg_fail = V3PPOConfig.from_dict(
+        {
+            **_tiny_cfg(num_envs=2, total_updates=2, eval_every_updates=0).to_dict(),
+            "checkpoint_every_updates": 1,
+            "max_in_session_restarts": 1,
+        }
+    )
+
+    def _always_fail_u2(_tr: V3PPOTrainer, next_update: int) -> None:
+        if next_update == 2:
+            raise KeyError("fatal_missing_key_u2")
+
+    with pytest.raises(KeyError, match="fatal_missing_key_u2"):
+        run_training_job(
+            cfg=cfg_fail,
+            output_dir=tmp_path / "fail_out",
+            work_dir=tmp_path / "fail_work",
+            device="cpu",
+            step_hook=_always_fail_u2,
+        )
+    fail_log = capsys.readouterr().out
+    assert "V3_PPO_FINAL_FAILURE error_class=KeyError" in fail_log
+    assert "Traceback (most recent call last):" in fail_log
+    assert "_always_fail_u2" in fail_log
+
+    res_fail = json.loads((tmp_path / "fail_out" / "train_result.json").read_text(encoding="utf-8"))
+    assert res_fail["status"] == "FAIL"
+    assert res_fail["stopped_reason"] == "exception:KeyError"
+    assert res_fail["error_class"] == "KeyError"
+    assert "fatal_missing_key_u2" in res_fail["error"]
+    assert "Traceback (most recent call last):" in res_fail["error_traceback"]
+    assert "_always_fail_u2" in res_fail["error_traceback"]
