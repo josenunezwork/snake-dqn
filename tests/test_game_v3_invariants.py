@@ -2009,9 +2009,7 @@ def test_rebase_subticks_inplace_bitwise_identity_and_int32_boundaries() -> None
     assert sim_bad._subtick_offset == snap_off
 
 
-def test_rebase_subticks_and_reset_worlds_peak_temp_memory_fraction(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_rebase_subticks_and_reset_worlds_peak_temp_memory_fraction() -> None:
     """MAJOR: Peak live temporary CPU tensor memory of rebase_subticks & reset_worlds < 5% state.
 
     Exact measurement methodology:
@@ -2093,7 +2091,7 @@ def test_rebase_subticks_and_reset_worlds_peak_temp_memory_fraction(
     sim.tick += 5000
     sim.oldest_active_subtick.add_(5000)
     sim.ring_subtick[sim.ring_subtick > 0] += 5000
-    monkeypatch.setattr(sim_mod, "AUTO_REBASE_SUBTICK_THRESHOLD", 64)
+    sim.auto_rebase_threshold = 64
     off_before = sim._subtick_offset
     baseline_ptrs = _collect_sim_storage_ptrs(sim)
     gc.collect()

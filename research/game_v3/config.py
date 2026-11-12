@@ -52,6 +52,8 @@ FOOD_LUT_MAX: int = 2048
 AMBIENT_FOOD_HALF_SAT: float = 1.0
 CORPSE_FOOD_HALF_SAT: float = 4.0
 
+SUPPORTED_OBS_SCALES: tuple[int, int, int] = (1, 4, 16)
+
 # 1x occupancy bit layout (signed int32):
 # - Empty sentinel is -1.
 # - Non-empty cells pack ``(subtick << OCC_OWNER_BITS) | owner_code`` where ``occ_hi``
@@ -238,8 +240,11 @@ class GameV3Config:
             raise ValueError("obs_fine_size must be an even integer >= 8")
         if self.obs_coarse_size < 8 or self.obs_coarse_size % 2 != 0:
             raise ValueError("obs_coarse_size must be an even integer >= 8")
-        if len(self.obs_scales) != 3 or any(s < 1 for s in self.obs_scales):
-            raise ValueError(f"obs_scales must be 3 positive integers, got {self.obs_scales}")
+        if self.obs_scales != SUPPORTED_OBS_SCALES:
+            raise ValueError(
+                f"obs_scales must be {SUPPORTED_OBS_SCALES} (matching the fixed 1x/4x/16x "
+                f"occupancy and food pyramids), got {self.obs_scales}"
+            )
 
     @property
     def num_actions(self) -> int:

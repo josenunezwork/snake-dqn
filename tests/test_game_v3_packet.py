@@ -766,6 +766,19 @@ def test_job_entrypoints_import_only_shipped_packet_modules(tmp_path: Path) -> N
             check=True,
         )
 
+    # Training modules (sim, obs, scripted, v3_ppo) must NOT import the ReferenceWorld oracle,
+    # while explicit package-level lookup of ReferenceWorld continues to work lazily.
+    isolation_code = (
+        "import sys; "
+        "import research.game_v3.sim, research.game_v3.obs, research.game_v3.scripted; "
+        "assert 'research.game_v3.reference' not in sys.modules, "
+        "'training-path modules eagerly imported research.game_v3.reference'; "
+        "from research.game_v3 import ReferenceStepInfo, ReferenceWorld; "
+        "assert 'research.game_v3.reference' in sys.modules; "
+        "assert ReferenceWorld is not None and ReferenceStepInfo is not None"
+    )
+    subprocess.run([sys.executable, "-c", isolation_code], cwd=ROOT, check=True)
+
     # Self-check: prove the walker catches a newly added unshipped module import.
     _, synthetic_missing = _collect_unshipped_project_imports(
         ("research/game_v3/cuda_check.py",),

@@ -43,6 +43,7 @@ from research.game_v3.rng import (
     rng_uniform_f32_np,
     rng_uniform_f32_torch,
 )
+from research.game_v3.sim import AUTO_REBASE_SUBTICK_THRESHOLD, GameV3Sim
 
 
 def test_config_defaults_and_json_roundtrip() -> None:
@@ -115,6 +116,10 @@ def test_config_validation_bounds() -> None:
         GameV3Config(ambient_pellet_value=256)  # ambient_grid is uint8 [0, 255].
     with pytest.raises(ValueError):
         GameV3Config(angle_steps=4000)  # Must be power of 2.
+    with pytest.raises(ValueError, match="obs_scales"):
+        GameV3Config(obs_scales=(1, 8, 32))
+    with pytest.raises(ValueError, match="obs_scales"):
+        GameV3Config(obs_scales=(1, 4, 8))
 
 
 def test_occupancy_bit_layout_pack_decode_and_derived_snake_cap() -> None:
@@ -228,3 +233,25 @@ def test_counter_rng_exact_parity_numpy_vs_torch_cpu_and_mps(purpose: int) -> No
         np.testing.assert_array_equal(scalar_np, scalar_th)
         assert np.all((uf_np >= 0.0) & (uf_np < 1.0))
         assert np.all((ang_np >= 0) & (ang_np < 4096))
+
+
+def test_sim_auto_rebase_threshold_constructor_argument() -> None:
+    """GameV3Sim accepts per-instance auto_rebase_threshold without mutating module globals."""
+    cfg = GameV3Config(arena_radius=80.0, num_snakes=8)
+    sim_default = GameV3Sim(cfg, num_envs=1, seeds=[11])
+    assert sim_default.auto_rebase_threshold == AUTO_REBASE_SUBTICK_THRESHOLD
+
+    with pytest.raises(ValueError, match="auto_rebase_threshold"):
+        GameV3Sim(cfg, num_envs=1, auto_rebase_threshold=0)
+    with pytest.raises(ValueError, match="auto_rebase_threshold"):
+        GameV3Sim(cfg, num_envs=1, auto_rebase_threshold=MAX_OCC_SUBTICK + 1)
+
+    sim_low = GameV3Sim(cfg, num_envs=1, seeds=[11], auto_rebase_threshold=24)
+    actions = torch.full((1, cfg.num_snakes), 2, dtype=torch.int64)
+    for _ in range(15):
+        sim_default.step(actions)
+        sim_low.step(actions)
+    assert sim_default._subtick_offset == 0
+    assert sim_low._subtick_offset > 0
+    assert torch.equal(sim_low.head_pos, sim_default.head_pos)
+    assert torch.equal(sim_low.active_occupancy_grid(), sim_default.active_occupancy_grid())

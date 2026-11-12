@@ -8,7 +8,6 @@ import numpy as np
 import pytest
 import torch
 
-from research.game_v3 import sim as sim_mod
 from research.game_v3.config import NUM_ACTIONS, GameV3Config
 from research.game_v3.obs import LearnerIndex, allocate_obs_batch, build_obs, build_obs_reference
 from research.game_v3.reference import ReferenceStepInfo, ReferenceWorld
@@ -597,14 +596,12 @@ def test_parity_truncate_masks_all_shapes_vs_reference() -> None:
     assert total_rollout_truncs >= 100
 
 
-def test_parity_forced_rebases_and_repeated_reset_worlds_600_ticks_vs_reference(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """MINOR 1b: Parity vs ReferenceWorld across forced rebases + repeated reset_worlds (600 ticks).
+def test_parity_forced_rebases_and_repeated_reset_worlds_600_ticks_vs_reference() -> None:
+    """Parity vs ReferenceWorld across forced rebases and repeated reset_worlds (600 ticks).
 
     Exercises:
-      - Patched low ``AUTO_REBASE_SUBTICK_THRESHOLD = 96`` triggering repeated automatic rebases
-        during ``step()`` and inside ``reset_worlds()``, plus explicit ``rebase_subticks()`` calls;
+      - Low ``auto_rebase_threshold=96`` triggering repeated automatic rebases during
+        ``step()`` and inside ``reset_worlds()``, plus explicit ``rebase_subticks()`` calls;
       - 8 ``reset_worlds`` calls across 600 ticks (single-world, subset, alternating, all-world,
         and empty masks; ``seeds=None``, ``(E,)`` seeds, and ``(m_envs,)`` seeds) while un-reset
         worlds continue running across multiple rebases;
@@ -612,7 +609,6 @@ def test_parity_forced_rebases_and_repeated_reset_worlds_600_ticks_vs_reference(
         and ``truncate=`` masks, verifying full game state, ``StepInfo``, rings, disjoint surviving
         discs, and ``build_obs`` vs ``build_obs_reference``.
     """
-    monkeypatch.setattr(sim_mod, "AUTO_REBASE_SUBTICK_THRESHOLD", 96)
     cfg = GameV3Config(
         arena_radius=105.0,
         num_snakes=18,
@@ -623,10 +619,12 @@ def test_parity_forced_rebases_and_repeated_reset_worlds_600_ticks_vs_reference(
     num_envs = 8
     num_ticks = 600
     init_seeds = [8200 + e * 13 for e in range(num_envs)]
-    sim = GameV3Sim(cfg, num_envs=num_envs, device="cpu", seeds=init_seeds)
+    sim = GameV3Sim(
+        cfg, num_envs=num_envs, device="cpu", seeds=init_seeds, auto_rebase_threshold=96
+    )
     refs = [ReferenceWorld(cfg, seed=s) for s in init_seeds]
     sim_mps = (
-        GameV3Sim(cfg, num_envs=num_envs, device="mps", seeds=init_seeds)
+        GameV3Sim(cfg, num_envs=num_envs, device="mps", seeds=init_seeds, auto_rebase_threshold=96)
         if torch.backends.mps.is_available()
         else None
     )
@@ -750,15 +748,20 @@ def test_parity_forced_rebases_and_repeated_reset_worlds_600_ticks_vs_reference(
                     refs[e_idx] = ReferenceWorld(cfg, seed=sub_seeds[k])
             elif seed_mode == "force_reset_rebase":
                 sub_seeds = [90_000 + t * 41 + k for k in range(len(sel_envs))]
-                saved_th = sim_mod.AUTO_REBASE_SUBTICK_THRESHOLD
+                saved_th = sim.auto_rebase_threshold
                 try:
                     init_st = max(1, sim.max_pts * sim.tick + 1 - sim._subtick_offset)
-                    sim_mod.AUTO_REBASE_SUBTICK_THRESHOLD = max(4, init_st)
+                    forced_th = max(4, init_st)
+                    sim.auto_rebase_threshold = forced_th
+                    if sim_mps is not None:
+                        sim_mps.auto_rebase_threshold = forced_th
                     sim.reset_worlds(wmask, seeds=sub_seeds)
                     if sim_mps is not None:
                         sim_mps.reset_worlds(wmask.to("mps"), seeds=sub_seeds)
                 finally:
-                    sim_mod.AUTO_REBASE_SUBTICK_THRESHOLD = saved_th
+                    sim.auto_rebase_threshold = saved_th
+                    if sim_mps is not None:
+                        sim_mps.auto_rebase_threshold = saved_th
                 assert sim._subtick_offset > off_pre_reset
                 for k, e_idx in enumerate(sel_envs):
                     refs[e_idx] = ReferenceWorld(cfg, seed=sub_seeds[k])

@@ -34,6 +34,7 @@ from __future__ import annotations
 import math
 import weakref
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import numpy as np
 import torch
@@ -53,8 +54,10 @@ from research.game_v3.config import (
     decode_occ_owner_lo,
     occ_entry_active,
 )
-from research.game_v3.reference import ReferenceWorld
 from research.game_v3.sim import GameV3Sim
+
+if TYPE_CHECKING:
+    from research.game_v3.reference import ReferenceWorld
 
 CH_OWN_BODY: int = 0
 CH_ENEMY_BODY: int = 1

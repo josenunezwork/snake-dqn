@@ -14,7 +14,6 @@ from typing import Any
 import numpy as np
 import torch
 
-import research.game_v3.sim as sim_mod
 from research.arena_ppo.runtime import SignalStopFlag, write_create_only_json
 from research.game_v3.bench import (
     _atomic_write_json,
@@ -37,7 +36,7 @@ from research.game_v3.scripted import (
     food_seeking_actions,
     random_safe_actions,
 )
-from research.game_v3.sim import STATE_FIELDS, GameV3Sim
+from research.game_v3.sim import AUTO_REBASE_SUBTICK_THRESHOLD, STATE_FIELDS, GameV3Sim
 
 CUDA_CHECK_EXPORT_FILENAME: str = "cuda_check_result.json"
 CUDA_CHECK_REQUIRED_EXPORTS: tuple[str, ...] = (CUDA_CHECK_EXPORT_FILENAME,)
@@ -367,7 +366,6 @@ def run_device_vs_cpu_parity(
 
     prev_det = torch.are_deterministic_algorithms_enabled()
     prev_warn = torch.is_deterministic_algorithms_warn_only_enabled()
-    orig_rebase_thresh = sim_mod.AUTO_REBASE_SUBTICK_THRESHOLD
 
     eff_rebase_thresh: int | None = None
     if rebase_threshold is not None:
@@ -376,6 +374,9 @@ def run_device_vs_cpu_parity(
             if num_ticks >= 20
             else int(rebase_threshold)
         )
+    sim_rebase_thresh = (
+        eff_rebase_thresh if eff_rebase_thresh is not None else AUTO_REBASE_SUBTICK_THRESHOLD
+    )
 
     try:
         if deterministic_algorithms is not None:
@@ -385,9 +386,6 @@ def run_device_vs_cpu_parity(
                 torch.use_deterministic_algorithms(True, warn_only=(dev.type == "mps"))
             else:
                 torch.use_deterministic_algorithms(False)
-
-        if eff_rebase_thresh is not None:
-            sim_mod.AUTO_REBASE_SUBTICK_THRESHOLD = eff_rebase_thresh
 
         det_active = bool(torch.are_deterministic_algorithms_enabled())
         t0 = time.perf_counter()
@@ -405,8 +403,20 @@ def run_device_vs_cpu_parity(
             ambient_food_density=0.006,
         )
         seeds = [30_000 + e * 19 for e in range(num_envs)]
-        sim_dev = GameV3Sim(cfg, num_envs=num_envs, device=dev, seeds=seeds)
-        sim_cpu = GameV3Sim(cfg, num_envs=num_envs, device="cpu", seeds=seeds)
+        sim_dev = GameV3Sim(
+            cfg,
+            num_envs=num_envs,
+            device=dev,
+            seeds=seeds,
+            auto_rebase_threshold=sim_rebase_thresh,
+        )
+        sim_cpu = GameV3Sim(
+            cfg,
+            num_envs=num_envs,
+            device="cpu",
+            seeds=seeds,
+            auto_rebase_threshold=sim_rebase_thresh,
+        )
 
         k_learn = min(max(1, int(learner_slots)), num_snakes)
         mask_cpu = torch.tensor(
@@ -574,15 +584,19 @@ def run_device_vs_cpu_parity(
                 m_sel = int(wmask_cpu.sum().item())
                 sub_seeds = [120_000 + t * 17 + k for k in range(m_sel)]
                 off_before = sim_cpu._subtick_offset
-                saved_thresh = sim_mod.AUTO_REBASE_SUBTICK_THRESHOLD
+                saved_dev_thresh = sim_dev.auto_rebase_threshold
+                saved_cpu_thresh = sim_cpu.auto_rebase_threshold
                 try:
                     if eff_rebase_thresh is not None:
                         init_st = max(1, sim_cpu.max_pts * sim_cpu.tick + 1 - off_before)
-                        sim_mod.AUTO_REBASE_SUBTICK_THRESHOLD = max(4, init_st)
+                        forced_thresh = max(4, init_st)
+                        sim_dev.auto_rebase_threshold = forced_thresh
+                        sim_cpu.auto_rebase_threshold = forced_thresh
                     sim_dev.reset_worlds(wmask_cpu.to(dev), seeds=sub_seeds)
                     sim_cpu.reset_worlds(wmask_cpu, seeds=sub_seeds)
                 finally:
-                    sim_mod.AUTO_REBASE_SUBTICK_THRESHOLD = saved_thresh
+                    sim_dev.auto_rebase_threshold = saved_dev_thresh
+                    sim_cpu.auto_rebase_threshold = saved_cpu_thresh
                 if sim_cpu._subtick_offset > off_before:
                     rebase_events += 1
                 world_reset_events += 1
@@ -647,7 +661,6 @@ def run_device_vs_cpu_parity(
             "action_counts": [int(c) for c in action_counts.tolist()],
         }
     finally:
-        sim_mod.AUTO_REBASE_SUBTICK_THRESHOLD = orig_rebase_thresh
         if deterministic_algorithms is not None:
             torch.use_deterministic_algorithms(prev_det, warn_only=prev_warn)
 

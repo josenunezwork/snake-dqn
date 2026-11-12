@@ -366,10 +366,16 @@ class GameV3Sim:
         seeds: Sequence[int] | torch.Tensor | None = None,
         device: str | torch.device = "cpu",
         auto_rebase: bool = True,
+        auto_rebase_threshold: int = AUTO_REBASE_SUBTICK_THRESHOLD,
         debug_assert_invariants: bool = False,
     ) -> None:
         if num_envs < 1:
             raise ValueError(f"num_envs must be >= 1, got {num_envs}")
+        if not (1 <= int(auto_rebase_threshold) <= MAX_OCC_SUBTICK):
+            raise ValueError(
+                f"auto_rebase_threshold must be in [1, {MAX_OCC_SUBTICK}], "
+                f"got {auto_rebase_threshold}"
+            )
         self.cfg: GameV3Config = cfg if cfg is not None else GameV3Config()
         req_dev = torch.device(device)
         self.device: torch.device = (
@@ -380,6 +386,10 @@ class GameV3Sim:
         self.E: int = int(num_envs)
         self.N: int = int(self.cfg.num_snakes)
         self.G: int = self.cfg.grid_size
+        assert self.G * self.G < (1 << OCC_SUBTICK_BITS), (
+            f"G * G ({self.G * self.G}) must be < 2**{OCC_SUBTICK_BITS} so packed "
+            f"(cell_flat << {OCC_OWNER_BITS}) | slot_id food/deposit sort keys fit signed int32"
+        )
         self.G4: int = self.G // 4
         self.G16: int = self.G // 16
         self.half_grid: int = self.cfg.half_grid
@@ -489,6 +499,7 @@ class GameV3Sim:
         self._subtick_offset: int = 0
         self._clean_step_streak: int = 0
         self.auto_rebase: bool = bool(auto_rebase)
+        self.auto_rebase_threshold: int = int(auto_rebase_threshold)
         self.debug_assert_invariants: bool = bool(debug_assert_invariants)
 
         max_per_env = max(1, self.G * self.G, self.G4 * self.G4 * self.N)
@@ -1598,7 +1609,7 @@ class GameV3Sim:
             return
 
         init_st = max(1, self.max_pts * self.tick + 1 - self._subtick_offset)
-        if self.auto_rebase and init_st + 1 >= AUTO_REBASE_SUBTICK_THRESHOLD:
+        if self.auto_rebase and init_st + 1 >= self.auto_rebase_threshold:
             self.rebase_subticks()
             init_st = max(1, self.max_pts * self.tick + 1 - self._subtick_offset)
         if init_st + 1 > MAX_OCC_SUBTICK:
@@ -1670,7 +1681,7 @@ class GameV3Sim:
         next_tick = self.tick + 1
         prospective_base = self.max_pts * next_tick + 2 - self._subtick_offset
         prospective_max = prospective_base + self.max_pts + 1
-        if self.auto_rebase and prospective_max >= AUTO_REBASE_SUBTICK_THRESHOLD:
+        if self.auto_rebase and prospective_max >= self.auto_rebase_threshold:
             self.rebase_subticks(_sync_free_hint=True)
             prospective_base = self.max_pts * next_tick + 2 - self._subtick_offset
             prospective_max = prospective_base + self.max_pts + 1
@@ -2065,23 +2076,15 @@ class GameV3Sim:
         raw_cor = self._gather_1x_grid_chunked(self.corpse_grid, flat_eat).to(torch.int32)
         can_eat_food_k = can_eat_k & ((raw_amb > 0) | (raw_cor > 0)).view_as(can_eat_k)
 
-        # O(E * N * K_eat * log(N * K_eat)) lowest-slot tie-break: all active keys
-        # ``(cell_flat << OCC_OWNER_BITS) | slot_id`` in a world are strictly distinct, so
-        # sorting places lowest slot first for every contested food cell with zero host syncs.
-        if self.G * self.G < (1 << OCC_SUBTICK_BITS):
-            sentinel_key = 0x7FFFFFFF
-            eat_key = torch.where(
-                can_eat_food_k,
-                (flat_eat_3d.to(torch.int32) << OCC_OWNER_BITS) | self._snake_ids[:, :, None],
-                sentinel_key,
-            ).view(self.E, -1)
-        else:
-            sentinel_key = 0x7FFFFFFFFFFFFFFF
-            eat_key = torch.where(
-                can_eat_food_k,
-                (flat_eat_3d << OCC_OWNER_BITS) | self._snake_ids_i64[:, :, None],
-                sentinel_key,
-            ).view(self.E, -1)
+        # O(E * N * K_eat * log(N * K_eat)) lowest-slot tie-break: G * G < 2**OCC_SUBTICK_BITS
+        # (asserted in __init__), so all active keys ``(cell_flat << OCC_OWNER_BITS) | slot_id``
+        # fit signed int32 and are strictly distinct within each world.
+        sentinel_key = 0x7FFFFFFF
+        eat_key = torch.where(
+            can_eat_food_k,
+            (flat_eat_3d.to(torch.int32) << OCC_OWNER_BITS) | self._snake_ids[:, :, None],
+            sentinel_key,
+        ).view(self.E, -1)
         sk, eat_perm = torch.sort(eat_key, dim=1)
         won_sorted = sk != sentinel_key
         won_sorted[:, 1:] = won_sorted[:, 1:] & (
@@ -2163,11 +2166,8 @@ class GameV3Sim:
 
         dep_flat = torch.cat((tail_flat, orb_flat), dim=1)
         dep_val = torch.cat((shed_val, orb_val), dim=1)
-        if self.G * self.G < (1 << 31):
-            sort_cell_raw, dep_perm = torch.sort(dep_flat.to(torch.int32), dim=1)
-            sort_cell = sort_cell_raw.to(torch.int64)
-        else:
-            sort_cell, dep_perm = torch.sort(dep_flat, dim=1)
+        sort_cell_raw, dep_perm = torch.sort(dep_flat.to(torch.int32), dim=1)
+        sort_cell = sort_cell_raw.to(torch.int64)
         sort_add = dep_val.gather(1, dep_perm).to(torch.int64)
         pref = sort_add.cumsum(dim=1)
         is_first = torch.ones_like(sort_cell, dtype=torch.bool)
@@ -2243,8 +2243,9 @@ class GameV3Sim:
                 ready_i = raw_i
                 valid_b = torch.ones((b_cnt,), dtype=torch.bool, device=self.device)
             else:
-                # Bucket to power-of-two row counts (>= 16) so MPSGraph / CUDA caches static shapes
-                # instead of recompiling kernels whenever ready count fluctuates tick-to-tick.
+                # Bucket to power-of-four row counts (16, 64, 256, ..., capped at E * N) so
+                # MPSGraph / CUDA caches a small set of static shapes instead of recompiling
+                # kernels whenever ready count fluctuates tick-to-tick.
                 b_cnt = 16
                 while b_cnt < r_cnt:
                     b_cnt <<= 2
