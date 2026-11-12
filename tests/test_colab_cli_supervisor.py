@@ -363,8 +363,9 @@ def test_staging_separates_verified_transfers_from_source_delivery(
     assert receipt["stop_verified"] is True
 
 
+@pytest.mark.parametrize("stage", ["upload", "source"])
 def test_whole_staging_over_300_seconds_cannot_qualify(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, stage: str
 ) -> None:
     binary = _fake_env(monkeypatch, tmp_path)
     now = [0.0]
@@ -374,28 +375,29 @@ def test_whole_staging_over_300_seconds_cannot_qualify(
 
     def timed_call(self, *args: str, timeout: float) -> str:
         if args[0] == "upload":
-            now[0] += 1
+            now[0] += 160 if stage == "upload" else 1
         return original_call(self, *args, timeout=timeout)
 
     def slow_source(self, code: str, timeout: float = 120) -> object:
-        if "SNAKE_SOURCE_DELIVERY" in code:
-            now[0] += 301
+        if "SNAKE_SOURCE_DELIVERY" in code and stage == "source":
+            now[0] += int(supervisor.policy.SOURCE_RECOVERY_SECONDS) + 1
         return original_rpc(self, code, timeout=timeout)
 
     monkeypatch.setattr(supervisor.CLI, "recoverable_rpc", slow_source)
     monkeypatch.setattr(supervisor.CLI, "_call_once", timed_call)
     manifest = _manifest(tmp_path)
-    manifest["timeout_minutes"] = 10
+    manifest["timeout_minutes"] = 12
     manifest["budget"]["unit_cap"] = 2
-    # Previously the broker completed staging after expiry and relied on the
-    # canary's post-success bar. It must now refuse before another control RPC.
+    # Local uploads remain bounded by 300s and source delivery by SOURCE_RECOVERY_SECONDS.
     with pytest.raises(supervisor.Refused, match="INCOMPLETE"):
         supervisor.Broker(tmp_path / "lanes", binary).run(manifest)
     output = Path(manifest["output_dir"])
     receipt = json.loads((output / "receipt.json").read_text())
     if (output / "upload-measurement.json").exists():
         measured = json.loads((output / "upload-measurement.json").read_text())
-        assert measured["elapsed_seconds"] > 300
+        assert measured["elapsed_seconds"] > (
+            300 if stage == "upload" else supervisor.policy.SOURCE_RECOVERY_SECONDS
+        )
     assert receipt["stop_verified"] is True
     assert receipt["status"] == "INCOMPLETE"
     assert receipt["terminal"] is None
@@ -1878,7 +1880,7 @@ def test_poll_rpc_completion_grace_cannot_extend_per_attempt_budget(
     monkeypatch.setattr(supervisor.time, "monotonic", lambda: 100)
 
     def invoke(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        assert kwargs["timeout"] == 120  # Not the ordinary mutation RPC's 130s outer grace.
+        assert kwargs["timeout"] == 60  # Read-only poll uses 60s with 0s completion grace.
         code = Path(argv[argv.index("-f") + 1]).read_text()
         nonce = "SNAKE_RPC_" + code.split("SNAKE_RPC_")[1][:32]
         return subprocess.CompletedProcess(argv, 0, nonce + '{"ok":true,"value":true}', "")

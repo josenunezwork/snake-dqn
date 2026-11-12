@@ -297,6 +297,7 @@ class CLI:
     def __init__(self, binary: str, config: Path, session: str = "") -> None:
         self.binary, self.config, self.session = binary, config, session
         self.exec_uncertain = False
+        self.cleanup_uncertain_reason: str | None = None
         self.poll_recovery_endpoint: str | None = None
         self.exec_poll_recovery_seconds = policy.EXEC_POLL_RECOVERY_SECONDS
         self.cleanup_mode = False
@@ -316,20 +317,36 @@ class CLI:
         self._lease_stop = threading.Event()
         self._lease_thread: threading.Thread | None = None
 
+    def _cap_label(self) -> str:
+        return (
+            "download"
+            if getattr(self._control_context, "transfer_direction", "upload") == "download"
+            else "upload"
+        )
+
     def remaining_seconds(self, allowance: float, *, staging_control: bool = True) -> float:
         """Clip non-CLI helpers to the same first-cap-wins session clock."""
         staging_deadline = getattr(self._control_context, "deadline", math.inf)
+        transfer_direction = getattr(self._control_context, "transfer_direction", "upload")
         remaining = min(
             allowance,
             (
                 self.staging_control_seconds()
-                if staging_control and staging_deadline != math.inf
+                if staging_control
+                and staging_deadline != math.inf
+                and transfer_direction == "upload"
                 else math.inf
             ),
             staging_deadline - time.monotonic(),
             (self.deadline if self.deadline is not None else math.inf) - time.monotonic(),
         )
         if remaining <= 0:
+            if (
+                transfer_direction == "download"
+                and time.monotonic() >= staging_deadline
+                and (self.deadline is None or staging_deadline <= self.deadline)
+            ):
+                raise Refused("total download time cap reached before helper")
             raise Refused("whole-session deadline reached before helper")
         return remaining
 
@@ -345,8 +362,10 @@ class CLI:
     def staging_controls(self, deadline: float, *, source_delivery: bool = False) -> Iterator[None]:
         """Bound foreground staging without starving the independent lease thread."""
         previous = getattr(self._control_context, "deadline", math.inf)
+        previous_direction = getattr(self._control_context, "transfer_direction", "upload")
         previous_source = getattr(self._control_context, "source_delivery", False)
         self._control_context.deadline = min(previous, deadline)
+        self._control_context.transfer_direction = "upload"
         self._control_context.source_delivery = source_delivery
         try:
             if time.monotonic() >= self._control_context.deadline:
@@ -354,6 +373,25 @@ class CLI:
             yield
         finally:
             self._control_context.deadline = previous
+            self._control_context.transfer_direction = previous_direction
+            self._control_context.source_delivery = previous_source
+
+    @contextlib.contextmanager
+    def download_controls(self, deadline: float) -> Iterator[None]:
+        """Bound per-file downloads and route lease renewals through Contents PUT."""
+        previous = getattr(self._control_context, "deadline", math.inf)
+        previous_direction = getattr(self._control_context, "transfer_direction", "upload")
+        previous_source = getattr(self._control_context, "source_delivery", False)
+        self._control_context.deadline = min(previous, deadline)
+        self._control_context.transfer_direction = "download"
+        self._control_context.source_delivery = False
+        try:
+            if time.monotonic() >= self._control_context.deadline:
+                raise Refused("total download time cap reached before download control")
+            yield
+        finally:
+            self._control_context.deadline = previous
+            self._control_context.transfer_direction = previous_direction
             self._control_context.source_delivery = previous_source
 
     @contextlib.contextmanager
@@ -515,7 +553,7 @@ class CLI:
             timeout = min(timeout, deadline - time.monotonic())
             if timeout <= 0:
                 if time.monotonic() >= getattr(self._control_context, "deadline", math.inf):
-                    raise Refused("total upload time cap reached before CLI call")
+                    raise Refused(f"total {self._cap_label()} time cap reached before CLI call")
                 raise Refused("whole-session deadline reached before CLI call")
         env = {
             **os.environ,
@@ -635,13 +673,16 @@ class CLI:
         if self.exec_uncertain:
             raise Refused("previous exec uncertain/busy; refusing to resubmit to kernel")
         staging_deadline = getattr(self._control_context, "deadline", math.inf)
+        transfer_direction = getattr(self._control_context, "transfer_direction", "upload")
         if staging_deadline != math.inf:
             timeout = min(
-                timeout, self.staging_control_seconds(), staging_deadline - time.monotonic()
+                timeout,
+                self.staging_control_seconds() if transfer_direction == "upload" else math.inf,
+                staging_deadline - time.monotonic(),
             )
             completion_grace = 0
             if timeout <= 0:
-                raise Refused("total upload time cap reached before control RPC")
+                raise Refused(f"total {self._cap_label()} time cap reached before control RPC")
         nonce = "SNAKE_RPC_" + uuid.uuid4().hex
         wrapped = (
             "import json, traceback\ntry:\n"
@@ -719,6 +760,7 @@ class CLI:
                         # A first exec creates the kernel. After uncertainty,
                         # only the independent kernel GET permits another exec.
                         self.exec_uncertain = False
+                        self.cleanup_uncertain_reason = None
                         remaining = deadline - time.monotonic()
                         if remaining <= 0:
                             break
@@ -766,18 +808,29 @@ class CLI:
         when its record does not exist, never merely because the kernel is idle.
         """
         record = "/content/.snake-rpc-" + uuid.uuid4().hex + ".json"
+        allow_idempotent_restart = bool(getattr(self._control_context, "source_delivery", False))
+        incomplete_branch = (
+            "        _snake_record.unlink(missing_ok=True)\n"
+            if allow_idempotent_restart
+            else (
+                "        raise RuntimeError('operation started without durable completion; '\n"
+                "                           'refusing replay')\n"
+            )
+        )
         guarded = (
             "# SNAKE_RECOVERABLE_RPC\n"
             "import json as _snake_json, os as _snake_os\n"
             "from pathlib import Path as _SnakePath\n"
             f"_snake_record=_SnakePath({record!r})\n"
+            "_snake_reused=False\n"
             "if _snake_record.exists():\n"
             "    _snake_saved=_snake_json.loads(_snake_record.read_text())\n"
             "    if _snake_saved.get('status') != 'completed':\n"
-            "        raise RuntimeError('operation started without durable completion; '\n"
-            "                           'refusing replay')\n"
-            "    result=_snake_saved['result']\n"
-            "else:\n"
+            + incomplete_branch
+            + "    else:\n"
+            "        result=_snake_saved['result']\n"
+            "        _snake_reused=True\n"
+            "if not _snake_reused:\n"
             "    with _snake_record.open('x') as _snake_handle:\n"
             "        _snake_json.dump({'status':'started'},_snake_handle)\n"
             "        _snake_handle.flush()\n"
@@ -790,7 +843,12 @@ class CLI:
             "        _snake_os.fsync(_snake_handle.fileno())\n"
             "    _snake_os.replace(_snake_temporary,_snake_record)\n"
         )
-        return self.poll_rpc(guarded, timeout=timeout)
+        previous_mutating = getattr(self._control_context, "mutating_rpc", False)
+        self._control_context.mutating_rpc = True
+        try:
+            return self.poll_rpc(guarded, timeout=timeout)
+        finally:
+            self._control_context.mutating_rpc = previous_mutating
 
     def recovery_identity(self, timeout: float) -> None:
         """Recheck durable ownership and backend membership before retrying exec."""
@@ -819,7 +877,49 @@ class CLI:
         if len(sessions) > ACCOUNT_ASSIGNMENT_CAP:
             raise Refused("account-wide assignment cap exceeded during telemetry recovery")
 
-    def poll_rpc(self, code: str, timeout: float | None = None) -> Any:
+    def clear_uncertain_if_idle(self, *, deadline: float | None = None) -> str | None:
+        """Clear exec_uncertain after a swallowed idempotent cleanup iff kernel is idle."""
+        from research.colab_cli.cli_guard import kernel_idle
+
+        if not self.exec_uncertain:
+            self.cleanup_uncertain_reason = None
+            return None
+        control_deadline = getattr(self._control_context, "deadline", math.inf)
+        bound = min(
+            deadline if deadline is not None else math.inf,
+            control_deadline,
+            self.deadline if self.deadline is not None else math.inf,
+        )
+        available = bound - time.monotonic()
+        if available <= 0:
+            return "transfer/session deadline reached before cleanup idle check"
+        try:
+            if self.poll_recovery_endpoint and control_deadline == math.inf:
+                self.recovery_identity(min(policy.READ_SECONDS, available))
+                available = bound - time.monotonic()
+                if available <= 0:
+                    return "transfer/session deadline reached during cleanup identity check"
+            probe_cap = (
+                policy.STAGING_CONTROL_SECONDS
+                if control_deadline != math.inf
+                else policy.WARMUP_PROBE_SECONDS
+            )
+            with self.operation("recovery-idle"):
+                idle = kernel_idle(
+                    self.oauth_python,
+                    self.config,
+                    self.session,
+                    timeout=min(probe_cap, available),
+                )
+        except Exception as exc:
+            return f"cleanup idle check failed: {redact(str(exc))[-300:]}"
+        if idle and bound - time.monotonic() > 0:
+            self.exec_uncertain = False
+            self.cleanup_uncertain_reason = None
+            return None
+        return "kernel remained busy/unknown during cleanup idle check"
+
+    def poll_rpc(self, code: str, timeout: float | None = None, *, mutating: bool = False) -> Any:
         """Retry transient reads on an owned assignment inside a wall-clock window.
 
         Uncertain execs require fresh backend ownership and independent kernel-idle
@@ -829,19 +929,29 @@ class CLI:
         """
         from research.colab_cli.cli_guard import kernel_idle
 
+        is_mutating = mutating or getattr(self._control_context, "mutating_rpc", False)
         staging_deadline = getattr(self._control_context, "deadline", math.inf)
-        extended = bool(self.poll_recovery_endpoint) and staging_deadline == math.inf
-        allowance = self.exec_poll_recovery_seconds if extended else policy.TELEMETRY_SECONDS
+        transfer_direction = getattr(self._control_context, "transfer_direction", "upload")
+        source_delivery = bool(getattr(self._control_context, "source_delivery", False))
+        upload_staging = staging_deadline != math.inf and transfer_direction == "upload"
+        extended = bool(self.poll_recovery_endpoint) and not upload_staging
+        allowance = (
+            self.exec_poll_recovery_seconds
+            if extended
+            else (policy.SOURCE_RECOVERY_SECONDS if source_delivery else policy.TELEMETRY_SECONDS)
+        )
         if timeout is not None:
             allowance = min(allowance, positive(timeout, "poll timeout"))
+        recovery_window = (
+            policy.SOURCE_RECOVERY_SECONDS if source_delivery else policy.STAGING_RECOVERY_SECONDS
+        )
         deadline = min(
             time.monotonic() + allowance,
             self.deadline if self.deadline is not None else math.inf,
             staging_deadline,
             (
-                time.monotonic()
-                + max(policy.STAGING_RECOVERY_SECONDS, self.staging_control_seconds())
-                if staging_deadline != math.inf
+                time.monotonic() + max(recovery_window, self.staging_control_seconds())
+                if upload_staging
                 else math.inf
             ),
         )
@@ -850,24 +960,70 @@ class CLI:
             seconds = deadline - time.monotonic()
             if seconds <= 0:
                 if time.monotonic() >= staging_deadline:
-                    raise Refused("total upload time cap reached during control recovery")
+                    raise Refused(
+                        f"total {self._cap_label()} time cap reached during control recovery"
+                    )
                 raise Refused("deadline reached during telemetry recovery")
             return seconds
+
+        def recover_idle() -> None:
+            probe = 0
+            while True:
+                remaining()
+                idle = False
+                try:
+                    if extended:
+                        self.recovery_identity(min(policy.READ_SECONDS, remaining()))
+                    with self.operation("recovery-idle"):
+                        idle = kernel_idle(
+                            self.oauth_python,
+                            self.config,
+                            self.session,
+                            timeout=min(
+                                (
+                                    policy.STAGING_CONTROL_SECONDS
+                                    if upload_staging
+                                    else policy.READ_SECONDS
+                                ),
+                                remaining(),
+                            ),
+                        )
+                except Exception as failure:
+                    if not policy.transient_error(failure):
+                        raise
+                if idle:
+                    # An expired idle proof must never clear uncertainty.
+                    remaining()
+                    self.exec_uncertain = False
+                    self.cleanup_uncertain_reason = None
+                    return
+                probe += 1
+                if not extended and probe >= policy.ATTEMPTS:
+                    raise Refused("kernel remains busy/unknown after telemetry hiccup")
+                delay = policy.EXEC_POLL_BACKOFF_SECONDS[min(probe - 1, 4)] if extended else 2
+                time.sleep(min(delay, remaining()))
 
         attempt = 0
         while True:
             remaining()
+            if self.exec_uncertain and (
+                not is_mutating or self.cleanup_uncertain_reason is not None
+            ):
+                recover_idle()
             try:
                 rpc_seconds = (
                     self.staging_control_seconds()
-                    if staging_deadline != math.inf
-                    else policy.RPC_SECONDS
+                    if upload_staging
+                    else (policy.RPC_SECONDS if is_mutating else policy.POLL_RPC_SECONDS)
                 )
                 return self.rpc(code, min(rpc_seconds, remaining()), completion_grace=0)
             except (Refused, OSError, subprocess.SubprocessError) as exc:
-                if not self.exec_uncertain or not policy.transient_error(exc):
+                if not self.exec_uncertain or not policy.transient_poll_error(
+                    exc, mutating=is_mutating
+                ):
                     raise
                 attempt += 1
+                remaining()
                 if not extended and attempt >= policy.ATTEMPTS:
                     raise
                 budget_warning(
@@ -876,40 +1032,7 @@ class CLI:
                     remaining_seconds=max(0, deadline - time.monotonic()),
                     error=redact(str(exc))[-1000:],
                 )
-                probe = 0
-                while True:
-                    remaining()
-                    idle = False
-                    try:
-                        if extended:
-                            self.recovery_identity(min(policy.READ_SECONDS, remaining()))
-                        with self.operation("recovery-idle"):
-                            idle = kernel_idle(
-                                self.oauth_python,
-                                self.config,
-                                self.session,
-                                timeout=min(
-                                    (
-                                        policy.STAGING_CONTROL_SECONDS
-                                        if staging_deadline != math.inf
-                                        else policy.READ_SECONDS
-                                    ),
-                                    remaining(),
-                                ),
-                            )
-                    except Exception as failure:
-                        if not policy.transient_error(failure):
-                            raise
-                    if idle:
-                        # An expired idle proof must never clear uncertainty.
-                        remaining()
-                        self.exec_uncertain = False
-                        break
-                    probe += 1
-                    if not extended and probe >= policy.ATTEMPTS:
-                        raise Refused("kernel remains busy/unknown after telemetry hiccup")
-                    delay = policy.EXEC_POLL_BACKOFF_SECONDS[min(probe - 1, 4)] if extended else 2
-                    time.sleep(min(delay, remaining()))
+                recover_idle()
                 delay = (
                     policy.EXEC_POLL_BACKOFF_SECONDS[min(attempt - 1, 4)]
                     if extended
@@ -1008,7 +1131,12 @@ def collect_exports(
 
 def export_file(cli: CLI, root: str, entry: dict[str, Any], output: Path, limit: int) -> None:
     """Download immutable data + digest + marker, verify, publish atomically."""
-    from research.colab_cli.transfers import TransferError, _contents_call, download_file
+    from research.colab_cli.transfers import (
+        TransferError,
+        _contents_call,
+        download_file,
+        transfer_timeout,
+    )
 
     rel = safe_relative(entry["path"])
     size = entry["size"]
@@ -1026,24 +1154,39 @@ def export_file(cli: CLI, root: str, entry: dict[str, Any], output: Path, limit:
         if not sidecar.is_file() or sidecar.read_text().split()[0] != digest:
             raise Refused("local export publication incomplete")
         return
-    with tempfile.TemporaryDirectory(dir=target.parent, prefix=".transfer-") as temp:
+    file_deadline = time.monotonic() + transfer_timeout(size)
+    download_scope = (
+        cli.download_controls(file_deadline)
+        if hasattr(cli, "download_controls")
+        else contextlib.nullcontext()
+    )
+    with (
+        download_scope,
+        tempfile.TemporaryDirectory(dir=target.parent, prefix=".transfer-") as temp,
+    ):
         data = Path(temp) / "data"
         marker = Path(temp) / "complete"
         sidecar = Path(temp) / "sha256"
         try:
             download_file(
-                cli, root + "/output/" + rel, data, size, renew=cli.renew, expected_sha256=digest
+                cli,
+                root + "/output/" + rel,
+                data,
+                size,
+                renew=cli.renew,
+                expected_sha256=digest,
+                deadline=file_deadline,
             )
+            for suffix, local in ((".sha256", sidecar), (".complete", marker)):
+                _contents_call(
+                    cli,
+                    ("download", "-s", cli.session, root + "/output/" + rel + suffix, str(local)),
+                    policy.READ_SECONDS,
+                    cli.renew,
+                    deadline=min(file_deadline, time.monotonic() + policy.READ_SECONDS),
+                )
         except TransferError as exc:
             raise Refused(f"download hash mismatch or transfer failure: {exc}") from exc
-        for suffix, local in ((".sha256", sidecar), (".complete", marker)):
-            _contents_call(
-                cli,
-                ("download", "-s", cli.session, root + "/output/" + rel + suffix, str(local)),
-                policy.READ_SECONDS,
-                cli.renew,
-                deadline=time.monotonic() + policy.READ_SECONDS,
-            )
         if data.stat().st_size != size or sha256(data) != digest:
             raise Refused("download hash mismatch; temporary export rejected")
         if sidecar.stat().st_size > 1024 or sidecar.read_text().split()[0] != digest:
@@ -1782,10 +1925,10 @@ class Broker:
             source_delivery_seconds = 0.0
             input_transfer_seconds: dict[str, float] = {}
 
-            def stage_upload(path: Path, dest: str) -> None:
+            def stage_upload(path: Path, dest: str, *, deadline: float = upload_deadline) -> None:
                 nonlocal transfer_seconds
                 started = time.monotonic()
-                upload_file(cli, path, dest, renew=renew, deadline=upload_deadline)
+                upload_file(cli, path, dest, renew=renew, deadline=deadline)
                 # Include verified-upload hashing, retries and lease renewals,
                 # while excluding the runtime's source fetch/install work.
                 elapsed = time.monotonic() - started
@@ -1808,8 +1951,8 @@ class Broker:
             ]
             setup_seconds = 0.0
             try:
+                checks = {}
                 with cli.staging_controls(upload_deadline):
-                    checks = {}
                     setup_started = time.monotonic()
                     parents = sorted(
                         {str(Path(root + "/" + dest).parent) for _, dest, _ in local_files}
@@ -1831,47 +1974,56 @@ class Broker:
                         checks[dest] = digest
                     checks["runtime.py"] = sha256(pinned["runtime.py"])
                     checks["release.py"] = sha256(pinned["release.py"])
-                    # Download source from GitHub instead of passing every
-                    # committed evidence blob through ContentsClient.
-                    plan = json.loads((staging / "source-plan.json").read_text())
+                # Download source from GitHub instead of passing every
+                # committed evidence blob through ContentsClient. Source fetch
+                # gets its own multi-attempt recovery window (G1), while local
+                # uploads remain strictly bounded by UPLOAD_TOTAL_TIMEOUT_SECONDS.
+                plan = json.loads((staging / "source-plan.json").read_text())
+                source_deadline = time.monotonic() + policy.SOURCE_RECOVERY_SECONDS
 
-                    def deliver_source(operation: str) -> Any:
-                        nonlocal source_delivery_seconds
-                        started = time.monotonic()
-                        renew()
-                        try:
-                            with cli.staging_controls(upload_deadline, source_delivery=True):
-                                with cli.operation("source-" + operation):
-                                    result = cli.recoverable_rpc(
-                                        "# SNAKE_SOURCE_DELIVERY\n"
-                                        "import importlib.util\nfrom pathlib import Path\n"
-                                        f"root=Path({root!r})\nplan={plan!r}\n"
-                                        "s=importlib.util.spec_from_file_location("
-                                        "'snake_source',root/'source.py')\n"
-                                        "mod=importlib.util.module_from_spec(s)\n"
-                                        "s.loader.exec_module(mod)\n"
-                                        f"result=mod.{operation}(root,plan)",
-                                    )
+                def deliver_source(operation: str) -> Any:
+                    nonlocal source_delivery_seconds
+                    started = time.monotonic()
+                    try:
+                        with cli.staging_controls(source_deadline, source_delivery=True):
                             renew()
-                        finally:
-                            source_delivery_seconds += time.monotonic() - started
-                        return result
+                            with cli.operation("source-" + operation):
+                                result = cli.recoverable_rpc(
+                                    "# SNAKE_SOURCE_DELIVERY\n"
+                                    "import importlib.util\nfrom pathlib import Path\n"
+                                    f"root=Path({root!r})\nplan={plan!r}\n"
+                                    "s=importlib.util.spec_from_file_location("
+                                    "'snake_source',root/'source.py')\n"
+                                    "mod=importlib.util.module_from_spec(s)\n"
+                                    "s.loader.exec_module(mod)\n"
+                                    f"result=mod.{operation}(root,plan)",
+                                )
+                            renew()
+                    finally:
+                        source_delivery_seconds += time.monotonic() - started
+                    return result
 
-                    delivery = deliver_source("fetch")
-                    if not isinstance(delivery, dict):
-                        raise Refused("source delivery returned no identity evidence")
-                    if delivery.get("transport") == "fallback_required":
-                        path = staging / "source.tar.gz"
-                        stage_upload(path, root + "/source.tar.gz")
-                        checks["source.tar.gz"] = sha256(path)
-                        delivery = deliver_source("install_fallback")
-                    if (
-                        not isinstance(delivery, dict)
-                        or delivery.get("transport") not in {"github", "fallback"}
-                        or delivery.get("commit") != plan["commit"]
-                        or delivery.get("tree") != plan["tree"]
-                    ):
-                        raise Refused("source delivery commit/tree identity mismatch")
+                delivery = deliver_source("fetch")
+                if not isinstance(delivery, dict):
+                    raise Refused("source delivery returned no identity evidence")
+                if delivery.get("transport") == "fallback_required":
+                    path = staging / "source.tar.gz"
+                    fallback_upload_deadline = min(
+                        source_deadline, upload_deadline + source_delivery_seconds
+                    )
+                    with cli.staging_controls(fallback_upload_deadline):
+                        stage_upload(
+                            path, root + "/source.tar.gz", deadline=fallback_upload_deadline
+                        )
+                    checks["source.tar.gz"] = sha256(path)
+                    delivery = deliver_source("install_fallback")
+                if (
+                    not isinstance(delivery, dict)
+                    or delivery.get("transport") not in {"github", "fallback"}
+                    or delivery.get("commit") != plan["commit"]
+                    or delivery.get("tree") != plan["tree"]
+                ):
+                    raise Refused("source delivery commit/tree identity mismatch")
             except Exception:
                 write_once(
                     output / "upload-measurement.json",
@@ -1906,8 +2058,12 @@ class Broker:
                     staging_measurement(m, measurement)
                 except StagingCapError as exc:
                     raise ClassifiedFailure(FailureClass.UPLOAD_CAP, str(exc)) from exc
-            elif time.monotonic() > upload_deadline:
+            elif time.monotonic() - upload_started - source_delivery_seconds > (
+                UPLOAD_TOTAL_TIMEOUT_SECONDS
+            ):
                 raise Refused("total upload time cap reached after staging control")
+            elif source_delivery_seconds > policy.SOURCE_RECOVERY_SECONDS:
+                raise Refused("source delivery recovery window reached after staging control")
             # Hardware admission and process launch are short RPCs. Bootstrap
             # runs in the lease-fenced child, never in the notebook kernel.
             code = (

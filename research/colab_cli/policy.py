@@ -11,6 +11,9 @@ import subprocess
 
 READ_SECONDS = 120.0
 RPC_SECONDS = 120.0
+# Successful colab exec calls complete within <=43s (p99 28s across 13.7k calls);
+# cap read-only status/renewal polls at 60s while keeping mutating RPCs at 120s.
+POLL_RPC_SECONDS = 60.0
 # Foreground staging controls must leave headroom for immutable payload PUTs.
 # These are attempt/recovery limits, not replacements for the 150/300s bars.
 STAGING_CONTROL_SECONDS = 30.0
@@ -18,6 +21,9 @@ STAGING_CONTROL_SECONDS = 30.0
 # init 10 + config 5 + fetch 120 + rev-parse 10 + checkout 10 = 155s.
 # Keep ordinary staging controls short; source alone gets 165s, with no grace.
 SOURCE_CONTROL_SECONDS = 165.0
+# Allow at least two full retries after a hung 165s source-fetch exec
+# (3 * 165s = 495s plus independent idle probes and 2s/5s backoff).
+SOURCE_RECOVERY_SECONDS = 540.0
 # A 30s exec stall followed by a 30s idle-helper stall must leave room for
 # fresh idle proof and a retry. All work still shares the 300s staging cap.
 STAGING_RECOVERY_SECONDS = 120.0
@@ -40,10 +46,17 @@ BACKOFF_SECONDS = (2.0, 5.0)
 READ_COMMANDS = frozenset({"version", "whoami", "sessions", "usage", "url"})
 
 
-def transient_error(exc: BaseException) -> bool:
-    """Retry transport outages only; auth, quota, hashes and kernel errors fail."""
-    if isinstance(exc, (ConnectionError, TimeoutError, subprocess.TimeoutExpired)):
-        return True
+READ_ONLY_POLL_TRANSIENT_MARKERS = (
+    "websocketconnectionclosed",
+    "connection is already closed",
+    "socket is already closed",
+    "connectionclosederror",
+    "connectionclosedok",
+    "connection closed",
+)
+
+
+def _normalized_error_message(exc: BaseException) -> str:
     message = str(exc).lower()
     # Rich's CLI traceback includes adjacent source lines. A permanent guard
     # refusal can therefore display the reconnect-required raise (or timeout
@@ -51,7 +64,15 @@ def transient_error(exc: BaseException) -> bool:
     # preserving genuine saved-kernel reconnect recovery after idle proof.
     guard_errors = re.findall(r"(?:^|\n)(?:cli_guard: )?guarderror: ([^\n]+)", message)
     if guard_errors:
-        message = guard_errors[-1]
+        return guard_errors[-1]
+    return message
+
+
+def transient_error(exc: BaseException) -> bool:
+    """Retry transport outages only; auth, quota, hashes and kernel errors fail."""
+    if isinstance(exc, (ConnectionError, TimeoutError, subprocess.TimeoutExpired)):
+        return True
+    message = _normalized_error_message(exc)
     return bool(
         re.search(r"\b(?:500|502|503|504)\b", message)
         or any(
@@ -75,3 +96,13 @@ def transient_error(exc: BaseException) -> bool:
             )
         )
     )
+
+
+def transient_poll_error(exc: BaseException, *, mutating: bool = False) -> bool:
+    """Classify transient colab exec failures, adding WebSocket closes on read-only polls."""
+    if transient_error(exc):
+        return True
+    if mutating:
+        return False
+    message = _normalized_error_message(exc)
+    return any(marker in message for marker in READ_ONLY_POLL_TRANSIENT_MARKERS)

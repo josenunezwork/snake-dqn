@@ -22,7 +22,7 @@ def test_source_fetch_gets_its_own_allowance_without_relaunch(
     _isolate_account: harness._TransportClock,
     seconds: int,
 ) -> None:
-    """Real Broker/CLI subprocess path; slow source cannot release ready early."""
+    """Real Broker/CLI subprocess path; single 165s+ source hang retries inside SOURCE_RECOVERY_SECONDS."""
     binary = harness._fake_env(
         monkeypatch,
         tmp_path,
@@ -46,33 +46,27 @@ def test_source_fetch_gets_its_own_allowance_without_relaunch(
     broker = supervisor.Broker(
         tmp_path / "lanes", binary, observer=lambda event, context: ready.append(event)
     )
-    if seconds <= policy.SOURCE_CONTROL_SECONDS:
-        broker.run(manifest)
-    else:
-        with pytest.raises(supervisor.Refused, match="deadline reached during telemetry recovery"):
-            broker.run(manifest)
+    broker.run(manifest)
     output = tmp_path / "job-output"
     receipt = json.loads((output / "receipt.json").read_text())
     measurement = json.loads((output / "upload-measurement.json").read_text())
     state = json.loads((tmp_path / "fake-state.json").read_text())
     calls = [c for c in receipt["cli_calls"] if c["operation"] == "source-fetch"]
-    assert len(calls) == 1
+    expected_calls = 1 if seconds <= policy.SOURCE_CONTROL_SECONDS else 2
+    assert len(calls) == expected_calls
     assert calls[0]["timeout_seconds"] == pytest.approx(policy.SOURCE_CONTROL_SECONDS)
     assert calls[0]["status"] == (
         "completed" if seconds <= policy.SOURCE_CONTROL_SECONDS else "failed"
     )
+    assert calls[-1]["status"] == "completed"
     assert measurement["source_delivery_seconds"] >= min(seconds, policy.SOURCE_CONTROL_SECONDS)
     assert measurement["elapsed_seconds"] <= 300
-    assert receipt["status"] == (
-        "PASS" if seconds <= policy.SOURCE_CONTROL_SECONDS else "INCOMPLETE"
-    )
+    assert receipt["status"] == "PASS"
     assert receipt["stop_verified"] is True and receipt["cleanup_error"] is None
     assert state["allocation_count"] == 1 and state["sessions"] == {}
     assert list(state["job_launches"].values()) == [1]  # Watchdog, not scientific entrypoint.
-    assert ("ready" in ready) == (seconds <= policy.SOURCE_CONTROL_SECONDS)
-    assert len(state.get("source_fetches", [])) == (
-        1 if seconds <= policy.SOURCE_CONTROL_SECONDS else 0
-    )
+    assert "ready" in ready
+    assert len(state.get("source_fetches", [])) == 1
     assert any(
         c["operation"] == "renewal-heartbeat"
         and c["status"] == "completed"

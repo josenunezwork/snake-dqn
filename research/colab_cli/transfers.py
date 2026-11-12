@@ -23,6 +23,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Protocol
 
 from research.colab_cli import policy
+from research.colab_cli.accounting import budget_warning
 
 # Uploads travel through ContentsClient JSON/base64 PUTs, where smaller writes
 # are materially more reliable on a fresh VM.  Downloads do not have that
@@ -141,12 +142,18 @@ def _is_retryable_contents_error(exc: BaseException) -> bool:
     return policy.transient_error(exc)
 
 
-def _bounded_timeout(timeout: float, deadline: float | None, call_site: str = "transfer") -> float:
+def _bounded_timeout(
+    timeout: float,
+    deadline: float | None,
+    call_site: str = "transfer",
+    *,
+    direction: str = "upload",
+) -> float:
     if deadline is None:
         return timeout
     remaining = deadline - time.monotonic()
     if remaining <= 0:
-        raise TransferError(f"total upload time cap reached at {call_site}")
+        raise TransferError(f"total {direction} time cap reached at {call_site}")
     return min(timeout, remaining)
 
 
@@ -166,13 +173,20 @@ def _contents_call(
     come through this helper.
     """
     failure: BaseException | None = None
+    transfer_direction = "upload" if args[0] == "upload" else "download"
     for attempt in range(CONTENTS_ATTEMPTS):
         if renew:
             renew()
         try:
             with _operation(cli, "PUT" if args[0] == "upload" else "GET"):
                 cli.call(
-                    *args, timeout=_bounded_timeout(timeout, deadline, f"{args[0]} {args[-1]}")
+                    *args,
+                    timeout=_bounded_timeout(
+                        timeout,
+                        deadline,
+                        f"{args[0]} {args[-1]}",
+                        direction=transfer_direction,
+                    ),
                 )
         except Exception as exc:
             failure = exc
@@ -328,6 +342,7 @@ def _cleanup(
     renew: Callable[[], None] | None,
     *,
     deadline: float | None = None,
+    direction: str = "upload",
 ) -> None:
     try:
         if deadline is not None and time.monotonic() >= deadline:
@@ -335,12 +350,29 @@ def _cleanup(
         if renew:
             renew()
         _rpc(
-            cli, "REMOVE_TREE", {"path": path}, _bounded_timeout(policy.TELEMETRY_SECONDS, deadline)
+            cli,
+            "REMOVE_TREE",
+            {"path": path},
+            _bounded_timeout(
+                policy.TELEMETRY_SECONDS, deadline, f"REMOVE_TREE {path}", direction=direction
+            ),
         )
         if renew:
             renew()
-    except Exception:
-        pass
+    except Exception as exc:
+        if getattr(cli, "exec_uncertain", False):
+            reason = (
+                cli.clear_uncertain_if_idle(deadline=deadline)
+                if hasattr(cli, "clear_uncertain_if_idle")
+                else "cli adapter lacks independent kernel_idle check"
+            )
+            if getattr(cli, "exec_uncertain", False):
+                detail = (
+                    f"{reason or 'cleanup left exec_uncertain'} "
+                    f"({type(exc).__name__}: {str(exc)[:240]})"
+                )
+                setattr(cli, "cleanup_uncertain_reason", detail)
+                budget_warning("TRANSFER_CLEANUP_UNCERTAIN", path=path, reason=detail)
 
 
 def _staging(remote: str, ident: str) -> tuple[str, str]:
@@ -530,7 +562,12 @@ def prepare_download(
             "size": size,
             "sha256": expected_sha256,
         },
-        _bounded_timeout(policy.TELEMETRY_SECONDS, deadline, f"DOWNLOAD_SPLIT {remote}"),
+        _bounded_timeout(
+            policy.TELEMETRY_SECONDS,
+            deadline,
+            f"DOWNLOAD_SPLIT {remote}",
+            direction="download",
+        ),
     )
     if renew:
         renew()
@@ -540,10 +577,10 @@ def prepare_download(
         or reply.get("sha256") != expected_sha256
         or reply.get("size") != size
     ):
-        _cleanup(cli, parts, renew)
+        _cleanup(cli, parts, renew, deadline=deadline, direction="download")
         raise TransferError("kernel did not acknowledge immutable export split")
     if reply.get("chunks") != count:
-        _cleanup(cli, parts, renew)
+        _cleanup(cli, parts, renew, deadline=deadline, direction="download")
         raise TransferError("kernel returned invalid export chunk count")
     return PreparedDownload(parts, count, size, expected_sha256)
 
@@ -558,6 +595,7 @@ def download_file(
     *,
     expected_sha256: str | None = None,
     prepared: PreparedDownload | None = None,
+    deadline: float | None = None,
 ) -> str:
     """Chunk-download an immutable export, digest check it, and atomically publish."""
     if type(size) is not int or size < 0:
@@ -568,63 +606,72 @@ def download_file(
         raise TransferError("download expected_sha256 must be lowercase SHA-256")
     local = Path(local)
     local.parent.mkdir(parents=True, exist_ok=True)
-    deadline = time.monotonic() + transfer_timeout(size)
-    if size <= DOWNLOAD_CHUNK_BYTES:
-        _contents_call(
-            cli,
-            ("download", "-s", cli.session, remote, str(local)),
-            _timeout(size),
-            renew,
-            deadline=deadline,
-        )
-        if local.stat().st_size != size or _digest(local) != expected_sha256:
-            local.unlink(missing_ok=True)
-            raise TransferError("download digest or size mismatch")
-        return expected_sha256
-    plan = prepared or prepare_download(
-        cli, remote, size, renew, expected_sha256=expected_sha256, deadline=deadline
+    transfer_deadline = time.monotonic() + transfer_timeout(size)
+    deadline = transfer_deadline if deadline is None else min(deadline, transfer_deadline)
+    download_scope = (
+        cli.download_controls(deadline)
+        if hasattr(cli, "download_controls")
+        else contextlib.nullcontext()
     )
-    if plan.size != size or plan.sha256 != expected_sha256:
-        raise TransferError("prepared download does not match immutable export inventory")
-    try:
-        with tempfile.NamedTemporaryFile(
-            dir=local.parent, prefix=".transfer-", delete=False
-        ) as handle:
-            temporary = Path(handle.name)
-            try:
-                for index in range(plan.chunks):
-                    part = Path(str(temporary) + f".{index}")
-                    expected_size = min(DOWNLOAD_CHUNK_BYTES, size - index * DOWNLOAD_CHUNK_BYTES)
-                    _contents_call(
-                        cli,
-                        (
-                            "download",
-                            "-s",
-                            cli.session,
-                            f"{plan.parts}/{index:08d}.part",
-                            str(part),
-                        ),
-                        _timeout(expected_size),
-                        renew,
-                        deadline=deadline,
-                    )
-                    try:
-                        if part.stat().st_size != expected_size:
-                            raise TransferError("downloaded chunk has unexpected size")
-                        with part.open("rb") as source:
-                            while block := source.read(1024 * 1024):
-                                handle.write(block)
-                    finally:
-                        part.unlink(missing_ok=True)
-                handle.flush()
-                os.fsync(handle.fileno())
-            except BaseException:
+    with download_scope:
+        if size <= DOWNLOAD_CHUNK_BYTES:
+            _contents_call(
+                cli,
+                ("download", "-s", cli.session, remote, str(local)),
+                _timeout(size),
+                renew,
+                deadline=deadline,
+            )
+            if local.stat().st_size != size or _digest(local) != expected_sha256:
+                local.unlink(missing_ok=True)
+                raise TransferError("download digest or size mismatch")
+            return expected_sha256
+        plan = prepared or prepare_download(
+            cli, remote, size, renew, expected_sha256=expected_sha256, deadline=deadline
+        )
+        if plan.size != size or plan.sha256 != expected_sha256:
+            raise TransferError("prepared download does not match immutable export inventory")
+        try:
+            with tempfile.NamedTemporaryFile(
+                dir=local.parent, prefix=".transfer-", delete=False
+            ) as handle:
+                temporary = Path(handle.name)
+                try:
+                    for index in range(plan.chunks):
+                        part = Path(str(temporary) + f".{index}")
+                        expected_size = min(
+                            DOWNLOAD_CHUNK_BYTES, size - index * DOWNLOAD_CHUNK_BYTES
+                        )
+                        _contents_call(
+                            cli,
+                            (
+                                "download",
+                                "-s",
+                                cli.session,
+                                f"{plan.parts}/{index:08d}.part",
+                                str(part),
+                            ),
+                            _timeout(expected_size),
+                            renew,
+                            deadline=deadline,
+                        )
+                        try:
+                            if part.stat().st_size != expected_size:
+                                raise TransferError("downloaded chunk has unexpected size")
+                            with part.open("rb") as source:
+                                while block := source.read(1024 * 1024):
+                                    handle.write(block)
+                        finally:
+                            part.unlink(missing_ok=True)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                except BaseException:
+                    temporary.unlink(missing_ok=True)
+                    raise
+            if temporary.stat().st_size != size or _digest(temporary) != expected_sha256:
                 temporary.unlink(missing_ok=True)
-                raise
-        if temporary.stat().st_size != size or _digest(temporary) != expected_sha256:
-            temporary.unlink(missing_ok=True)
-            raise TransferError("download digest or size mismatch")
-        os.replace(temporary, local)
-        return expected_sha256
-    finally:
-        _cleanup(cli, plan.parts, renew, deadline=deadline)
+                raise TransferError("download digest or size mismatch")
+            os.replace(temporary, local)
+            return expected_sha256
+        finally:
+            _cleanup(cli, plan.parts, renew, deadline=deadline, direction="download")
