@@ -20,15 +20,19 @@ from research.v3_ppo.config import (
     DEFAULT_OBS_LAYOUT,
     NET_PRESETS,
     OBS_RASTER_BYTES_PER_STEP,
+    RECIPE_OVERRIDE_KEYS,
     RESUME_MUTABLE_CONFIG_KEYS,
+    ConfigTypeError,
     NetPreset,
     V3PPOConfig,
     assert_resume_config_compatible,
     estimate_rollout_buffer_bytes,
     estimate_training_memory,
+    format_recipe_overrides,
     get_net_preset,
     immutable_config_diff,
     obs_layout_from_game_config,
+    parse_recipe_overrides,
     resolve_full_export_settings,
 )
 from research.v3_ppo.eval import compute_step_reward
@@ -1269,4 +1273,120 @@ def test_full_exports_flag_precedence_legacy_mapping_and_conflict_refusals(
                 allow_missing_canary_receipt=True,
                 output_dir=tmp_path / f"out_conflict_{fe_mode}_{mp_val}",
                 allow_unmerged_commit=True,
+            )
+
+
+def test_recipe_override_allowlist_and_config_type_range_validation(tmp_path: Path) -> None:
+    """Verify exact allow-list, inline/file parsing, and strict type & range validation."""
+    expected_allowlist = (
+        "reward_alive_length_coef",
+        "reward_alive_const",
+        "reward_length_delta_coef",
+        "reward_kill_coef",
+        "reward_death_penalty",
+        "gamma",
+        "gae_lambda",
+        "entropy_coef",
+        "lr",
+        "ppo_epochs",
+        "minibatch_size",
+        "rollout_len",
+        "clip_ratio",
+    )
+    assert RECIPE_OVERRIDE_KEYS == expected_allowlist
+    assert format_recipe_overrides({}) == "none"
+
+    all_recipe_payload = {
+        "reward_alive_length_coef": 0.0,
+        "reward_alive_const": -0.002,
+        "reward_length_delta_coef": 0.25,
+        "reward_kill_coef": 0.8,
+        "reward_death_penalty": 2.0,
+        "gamma": 0.995,
+        "gae_lambda": 0.92,
+        "entropy_coef": 0.005,
+        "lr": 1.5e-4,
+        "ppo_epochs": 3,
+        "minibatch_size": 512,
+        "rollout_len": 48,
+        "clip_ratio": 0.15,
+    }
+    recipe_file = tmp_path / "recipe.json"
+    recipe_file.write_text(json.dumps(all_recipe_payload), encoding="utf-8")
+
+    parsed_inline = parse_recipe_overrides(json.dumps(all_recipe_payload))
+    parsed_file = parse_recipe_overrides(str(recipe_file))
+    assert parsed_inline == all_recipe_payload
+    assert parsed_file == all_recipe_payload
+
+    parser = ppo_arg_parser()
+    eff = resolve_effective_train_config(
+        parser.parse_args(["--output-dir", "/tmp/o", "--recipe-json", str(recipe_file)]),
+        environ={},
+    )
+    for key, val in all_recipe_payload.items():
+        assert getattr(eff.cfg, key) == val
+    assert eff.recipe_overrides == all_recipe_payload
+
+    # Unknown keys (including real non-allowlisted V3PPOConfig fields) refused
+    for bad_key in ("unknown_key", "value_coef", "num_envs", "adam_eps", "net_size"):
+        with pytest.raises(ValueError, match="Unsupported recipe override keys"):
+            parse_recipe_overrides({bad_key: 1})
+
+    # Non-object JSON and missing file refused
+    for non_obj in ("[1, 2]", "42", "true", "null", str(tmp_path / "missing.json")):
+        with pytest.raises(ValueError):
+            parse_recipe_overrides(non_obj)
+
+    # Wrong types refused through V3PPOConfig validation (satisfies both TypeError and ValueError)
+    wrong_type_payloads: list[dict[str, object]] = [
+        {"ppo_epochs": True},
+        {"ppo_epochs": 2.5},
+        {"ppo_epochs": "2"},
+        {"rollout_len": False},
+        {"rollout_len": 16.0},
+        {"rollout_len": "16"},
+        {"minibatch_size": True},
+        {"minibatch_size": 64.5},
+        {"minibatch_size": "64"},
+        {"gamma": True},
+        {"gamma": "0.99"},
+        {"gamma": None},
+        {"lr": False},
+        {"lr": "3e-4"},
+        {"reward_death_penalty": "1.0"},
+        {"reward_alive_length_coef": [0.001]},
+    ]
+    for bad_type_ov in wrong_type_payloads:
+        with pytest.raises(ConfigTypeError):
+            resolve_effective_train_config(
+                parser.parse_args(
+                    ["--output-dir", "/tmp/o", "--recipe-json", json.dumps(bad_type_ov)]
+                ),
+                environ={},
+            )
+
+    # Out-of-range values refused through V3PPOConfig validation
+    out_of_range_payloads: list[dict[str, object]] = [
+        {"gamma": -0.01},
+        {"gamma": 1.01},
+        {"gae_lambda": -0.1},
+        {"gae_lambda": 1.2},
+        {"entropy_coef": -0.001},
+        {"lr": 0.0},
+        {"lr": -1.0e-4},
+        {"ppo_epochs": 0},
+        {"minibatch_size": 0},
+        {"rollout_len": 0},
+        {"clip_ratio": 0.0},
+        {"clip_ratio": -0.2},
+        {"reward_death_penalty": -0.5},
+    ]
+    for bad_range_ov in out_of_range_payloads:
+        with pytest.raises(ValueError):
+            resolve_effective_train_config(
+                parser.parse_args(
+                    ["--output-dir", "/tmp/o", "--recipe-json", json.dumps(bad_range_ov)]
+                ),
+                environ={},
             )

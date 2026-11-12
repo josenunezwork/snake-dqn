@@ -28,6 +28,7 @@ from research.v3_ppo.config import (
     DEFAULT_CHECKPOINT_SHARD_BYTES,
     GPU_MAX_TOTAL_EXPORT_BYTES,
     NONE_MODE_MAX_TOTAL_EXPORT_BYTES,
+    RECIPE_OVERRIDE_KEYS,
     V3_PPO_NAMESPACE,
     VALID_FULL_EXPORT_MODES,
     VALID_NET_SIZES,
@@ -36,8 +37,12 @@ from research.v3_ppo.config import (
     V3PPOConfig,
     assert_resume_config_compatible,
     estimate_training_memory,
+    extract_recipe_dict,
+    format_recipe_overrides,
     get_net_preset,
     parse_env_bool,
+    parse_recipe_overrides,
+    recipe_overrides_from_default,
     resolve_full_export_settings,
 )
 from research.v3_ppo.exports import (
@@ -1081,6 +1086,13 @@ def run_training_job(
             return bool(stop_flag.stopped or state.wall_expired())
 
         try:
+            active_recipe = extract_recipe_dict(cfg)
+            recipe_ov_str = format_recipe_overrides(recipe_overrides_from_default(cfg))
+            print(
+                f"V3_PPO_RECIPE overrides={json.dumps(recipe_ov_str)} "
+                f"recipe={json.dumps(active_recipe, sort_keys=True)}",
+                flush=True,
+            )
             phase_stamp(
                 "train_loop",
                 "START",
@@ -1199,6 +1211,7 @@ class EffectiveTrainJobConfig:
     ledger_path: Path | None
     max_wall_seconds: float | None
     max_session_export_bytes: int | None
+    recipe_overrides: dict[str, Any] = field(default_factory=dict)
 
 
 def _merge_config_json_overlay(
@@ -1259,6 +1272,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--input-dir", type=Path, default=None)
     parser.add_argument("--ledger", type=Path, default=None)
     parser.add_argument("--config-json", type=str, default=None)
+    parser.add_argument(
+        "--recipe-json",
+        type=str,
+        default=None,
+        help="Inline JSON object or path to JSON file overriding allow-listed recipe fields.",
+    )
 
     parser.add_argument("--num-envs", type=int, default=None)
     parser.add_argument("--num-snakes", type=int, default=None)
@@ -1333,20 +1352,36 @@ def resolve_effective_train_config(
     args: argparse.Namespace,
     *,
     environ: Mapping[str, str] | None = None,
+    base_cfg: V3PPOConfig | None = None,
+    recipe_overrides: Mapping[str, Any] | None = None,
+    default_full_exports: FullExportMode | None = None,
+    forbid_recipe_scalar_conflict: bool = False,
 ) -> EffectiveTrainJobConfig:
-    """Resolve effective training configuration from CLI args, ``--config-json``, and env vars.
+    """Resolve effective training configuration from CLI args, ``--recipe-json``, JSON, and env.
 
+    Single effective-config builder shared by ``prepare --mode train`` and ``ppo``.
     Precedence (highest to lowest):
       1. Explicit individual CLI flags (``--num-envs``, ``--lr``, ``--amp``/``--no-amp``, etc.)
-      2. Explicit ``--config-json`` CLI flag (keys present in the JSON object)
-      3. Environment variables (``V3_PPO_CONFIG_JSON``, overlaid by scalar ``V3_PPO_*`` and
+      2. Explicit ``--recipe-json`` / ``recipe_overrides`` (allow-listed ``RECIPE_OVERRIDE_KEYS``)
+      3. Explicit ``--config-json`` CLI flag (keys present in the JSON object)
+      4. Environment variables (``V3_PPO_CONFIG_JSON``, overlaid by scalar ``V3_PPO_*`` and
          ``SNAKE_DQN_DEVICE``)
-      4. :class:`V3PPOConfig` / :class:`GameV3Config` dataclass defaults.
+      5. ``base_cfg`` (when provided) or :class:`V3PPOConfig` / :class:`GameV3Config` defaults.
     """
     env = os.environ if environ is None else environ
 
-    cfg_dict = V3PPOConfig().to_dict()
+    seed_cfg = base_cfg if base_cfg is not None else V3PPOConfig()
+    cfg_dict = seed_cfg.to_dict()
     cfg_dict.pop("schema", None)
+    if default_full_exports is not None:
+        def_mode, def_mp = resolve_full_export_settings(
+            default_full_exports,
+            None,
+            default_full_exports=default_full_exports,
+            default_max_periodic=int(seed_cfg.max_periodic_full_exports),
+        )
+        cfg_dict["full_exports"] = def_mode
+        cfg_dict["max_periodic_full_exports"] = def_mp
 
     env_cfg_json = env.get("V3_PPO_CONFIG_JSON")
     if env_cfg_json:
@@ -1390,6 +1425,17 @@ def resolve_effective_train_config(
             cfg_dict["actor_chunk_learners"] = None
         cfg_dict["net_size"] = args.net_size
 
+    merged_recipe: dict[str, Any] = {}
+    if recipe_overrides is not None:
+        merged_recipe.update(
+            parse_recipe_overrides(recipe_overrides, source_label="recipe_overrides")
+        )
+    arg_recipe_json = getattr(args, "recipe_json", None)
+    if arg_recipe_json is not None:
+        merged_recipe.update(parse_recipe_overrides(arg_recipe_json, source_label="--recipe-json"))
+    if merged_recipe:
+        cfg_dict.update(merged_recipe)
+
     cli_scalar_overrides: tuple[tuple[str, str, Callable[[Any], Any]], ...] = (
         ("num_envs", "num_envs", int),
         ("learner_slots", "learner_slots", int),
@@ -1420,7 +1466,17 @@ def resolve_effective_train_config(
     for arg_attr, cfg_key, caster in cli_scalar_overrides:
         val = getattr(args, arg_attr, None)
         if val is not None:
-            cfg_dict[cfg_key] = caster(val)
+            cast_val = caster(val)
+            if (
+                forbid_recipe_scalar_conflict
+                and cfg_key in merged_recipe
+                and merged_recipe[cfg_key] != cast_val
+            ):
+                raise ValueError(
+                    f"Conflicting explicit override for {cfg_key!r}: CLI flag={cast_val!r} vs "
+                    f"recipe override={merged_recipe[cfg_key]!r}"
+                )
+            cfg_dict[cfg_key] = cast_val
 
     cli_full_exports = getattr(args, "full_exports", None)
     cli_max_periodic = getattr(args, "max_periodic_full_exports", None)
@@ -1452,8 +1508,13 @@ def resolve_effective_train_config(
         )
     )
 
+    resolved_cfg = V3PPOConfig.from_dict(cfg_dict)
+    resolved_recipe_overrides = {
+        key: getattr(resolved_cfg, key) for key in RECIPE_OVERRIDE_KEYS if key in merged_recipe
+    }
+
     return EffectiveTrainJobConfig(
-        cfg=V3PPOConfig.from_dict(cfg_dict),
+        cfg=resolved_cfg,
         output_dir=Path(args.output_dir),
         work_dir=Path(args.work_dir) if args.work_dir is not None else None,
         device=eff_device,
@@ -1461,6 +1522,7 @@ def resolve_effective_train_config(
         ledger_path=Path(args.ledger) if args.ledger is not None else None,
         max_wall_seconds=eff_max_wall_seconds,
         max_session_export_bytes=eff_max_export_bytes,
+        recipe_overrides=resolved_recipe_overrides,
     )
 
 

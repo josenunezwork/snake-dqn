@@ -8,7 +8,7 @@ import math
 import shutil
 import subprocess
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -36,6 +36,7 @@ from research.game_v3.config import GameV3Config
 from research.v3_ppo.config import (
     GPU_VRAM_BUDGET_BYTES,
     MAX_SUPERVISOR_EXPORT_BYTES,
+    RECIPE_OVERRIDE_KEYS,
     V3_PPO_NAMESPACE,
     VALID_FULL_EXPORT_MODES,
     VALID_NET_SIZES,
@@ -49,13 +50,16 @@ from research.v3_ppo.config import (
     estimate_train_wall_headroom,
     estimate_train_wall_headroom_by_mode,
     estimate_training_memory,
+    format_recipe_overrides,
     get_net_preset,
+    parse_recipe_overrides,
     resolve_full_export_settings,
     validate_checkpoint_export_caps,
     validate_memory_budget,
     validate_train_wall_headroom,
 )
 from research.v3_ppo.exports import write_create_only_artifact
+from research.v3_ppo.job import resolve_effective_train_config
 from research.v3_ppo.resume import resolve_resume_checkpoint
 from research.v3_ppo.ruler import (
     CANARY_REQUIRED_EXPORTS,
@@ -119,6 +123,8 @@ class PreparePacketOptions:
     canary_receipt: Path | None = None
     allow_missing_canary_receipt: bool = False
     ppo_config: V3PPOConfig | None = None
+    recipe_json: str | Path | None = None
+    recipe_overrides: Mapping[str, Any] | None = None
     explicit_total_updates: bool = False
     explicit_eval_estimated_seconds: bool = False
     measured_packed_bytes_per_world: int | None = None
@@ -172,6 +178,7 @@ class _SizedModePlan:
     memory_estimate: dict[str, Any] | None = None
     wall_headroom: dict[str, Any] | None = None
     wall_headroom_by_mode: dict[FullExportMode, dict[str, Any]] | None = None
+    recipe_overrides: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -542,6 +549,12 @@ def _stage_validate_options(opts: PreparePacketOptions) -> _ValidatedPacketConte
         _parse_nets_csv(opts.ruler_nets)
     if opts.full_exports is not None or opts.max_periodic_full_exports is not None:
         resolve_full_export_settings(opts.full_exports, opts.max_periodic_full_exports)
+    if (opts.recipe_json is not None or opts.recipe_overrides is not None) and opts.mode != "train":
+        raise ValueError(f"--recipe-json is only supported in --mode train, got --mode {opts.mode}")
+    if opts.recipe_overrides is not None:
+        parse_recipe_overrides(opts.recipe_overrides, source_label="recipe_overrides")
+    if opts.recipe_json is not None:
+        parse_recipe_overrides(opts.recipe_json, source_label="--recipe-json")
     if opts.mode == "canary" and opts.canary_receipt is not None:
         raise ValueError("canary mode produces a canary receipt and cannot bind --canary-receipt")
     if (
@@ -839,48 +852,9 @@ def _size_train_mode(
 
     staged_base_cfg = ctx.prior.staged_base_cfg
     base_cfg = opts.ppo_config or staged_base_cfg or V3PPOConfig()
-    cfg_dict = base_cfg.to_dict()
-    gc_dict = dict(cfg_dict["game_config"])
-    if opts.num_snakes is not None:
-        gc_dict["num_snakes"] = int(opts.num_snakes)
-    if opts.arena_radius is not None:
-        gc_dict["arena_radius"] = float(opts.arena_radius)
-    cfg_dict["game_config"] = gc_dict
-
-    if opts.net_size is not None:
-        if opts.net_size != base_cfg.net_size:
-            cfg_dict["minibatch_size"] = None
-            cfg_dict["actor_chunk_learners"] = None
-        cfg_dict["net_size"] = opts.net_size
-    if opts.num_envs is not None:
-        cfg_dict["num_envs"] = int(opts.num_envs)
-    if opts.learner_slots is not None:
-        cfg_dict["learner_slots"] = int(opts.learner_slots)
-    if opts.opponent_policy is not None:
-        cfg_dict["opponent_policy"] = opts.opponent_policy
-    if opts.rollout_len is not None:
-        cfg_dict["rollout_len"] = int(opts.rollout_len)
-    if opts.amp is not None:
-        cfg_dict["amp"] = bool(opts.amp)
-    if opts.use_channels_last is not None:
-        cfg_dict["use_channels_last"] = bool(opts.use_channels_last)
-    if opts.fast_learner_ops is not None:
-        cfg_dict["fast_learner_ops"] = bool(opts.fast_learner_ops)
-    if opts.compile_model:
-        cfg_dict["compile_model"] = True
     default_full_mode: FullExportMode = (
         opts.ppo_config.full_exports if opts.ppo_config is not None else "none"
     )
-    eff_full_mode, eff_max_periodic = resolve_full_export_settings(
-        opts.full_exports,
-        opts.max_periodic_full_exports,
-        default_full_exports=default_full_mode,
-        default_max_periodic=int(base_cfg.max_periodic_full_exports),
-    )
-    cfg_dict["full_exports"] = eff_full_mode
-    cfg_dict["max_periodic_full_exports"] = eff_max_periodic
-    if opts.light_resume_margin_minutes is not None:
-        cfg_dict["light_resume_margin_minutes"] = float(opts.light_resume_margin_minutes)
 
     default_eval_est = float(V3PPOConfig().eval_estimated_seconds)
     caller_overrode_eval_est = (
@@ -891,12 +865,61 @@ def _size_train_mode(
             and float(opts.ppo_config.eval_estimated_seconds) != default_eval_est
         )
     )
+    eff_eval_est: float | None = None
     if opts.eval_estimated_seconds is not None:
-        cfg_dict["eval_estimated_seconds"] = float(opts.eval_estimated_seconds)
+        eff_eval_est = float(opts.eval_estimated_seconds)
     elif not caller_overrode_eval_est and ctx.canary_eval_metrics is not None:
-        cfg_dict["eval_estimated_seconds"] = float(ctx.canary_eval_metrics["wall_seconds"])
+        eff_eval_est = float(ctx.canary_eval_metrics["wall_seconds"])
 
-    cfg_obj = V3PPOConfig.from_dict(cfg_dict)
+    eff_train = resolve_effective_train_config(
+        argparse.Namespace(
+            output_dir=ctx.out_path,
+            work_dir=None,
+            device="cuda",
+            input_dir=None,
+            ledger=None,
+            config_json=None,
+            recipe_json=opts.recipe_json,
+            num_envs=opts.num_envs,
+            num_snakes=opts.num_snakes,
+            arena_radius=opts.arena_radius,
+            learner_slots=opts.learner_slots,
+            opponent_policy=opts.opponent_policy,
+            net_size=opts.net_size,
+            rollout_len=opts.rollout_len,
+            total_updates=None,
+            ppo_epochs=None,
+            minibatch_size=None,
+            lr=None,
+            light_checkpoint_interval_sec=None,
+            full_checkpoint_interval_sec=None,
+            full_exports=opts.full_exports,
+            max_periodic_full_exports=opts.max_periodic_full_exports,
+            light_resume_margin_minutes=opts.light_resume_margin_minutes,
+            checkpoint_shard_bytes=None,
+            checkpoint_every_updates=None,
+            full_checkpoint_every_updates=None,
+            eval_every_minutes=None,
+            eval_every_updates=None,
+            eval_envs=None,
+            eval_burnin_ticks=None,
+            eval_ticks=None,
+            eval_estimated_seconds=eff_eval_est,
+            seed=None,
+            compile=(True if opts.compile_model else None),
+            fast_learner_ops=opts.fast_learner_ops,
+            amp=opts.amp,
+            use_channels_last=opts.use_channels_last,
+            max_wall_seconds=None,
+            max_session_export_bytes=None,
+        ),
+        environ={},
+        base_cfg=base_cfg,
+        recipe_overrides=opts.recipe_overrides,
+        default_full_exports=default_full_mode,
+        forbid_recipe_scalar_conflict=True,
+    )
+    cfg_obj = eff_train.cfg
 
     if staged_base_cfg is not None:
         assert_resume_config_compatible(
@@ -973,6 +996,7 @@ def _size_train_mode(
         training_plan=training_plan,
         memory_estimate=memory_estimate,
         wall_headroom=wall_headroom,
+        recipe_overrides=eff_train.recipe_overrides,
     )
 
 
@@ -1072,6 +1096,11 @@ def _stage_export_caps(
             file=sys.stderr,
             flush=True,
         )
+    print(
+        f"recipe overrides: {format_recipe_overrides(sized.recipe_overrides)}",
+        file=sys.stderr,
+        flush=True,
+    )
     print(
         f"V3_PPO_HEADROOM {json.dumps(wall_headroom, sort_keys=True)}",
         file=sys.stderr,
@@ -1341,6 +1370,8 @@ def _stage_write_manifest(
         summary["training_plan"] = sized.training_plan
     if ctx.canary_eval_metrics is not None:
         summary["canary_eval_metrics"] = ctx.canary_eval_metrics
+    if sized.recipe_overrides:
+        summary["recipe_overrides"] = dict(sized.recipe_overrides)
     return summary
 
 
@@ -1397,6 +1428,8 @@ def prepare_v3_ppo_packet(
     canary_receipt: Path | str | None = None,
     allow_missing_canary_receipt: bool = False,
     ppo_config: V3PPOConfig | None = None,
+    recipe_json: str | Path | None = None,
+    recipe_overrides: Mapping[str, Any] | None = None,
     explicit_total_updates: bool = False,
     explicit_eval_estimated_seconds: bool = False,
     measured_packed_bytes_per_world: int | None = None,
@@ -1447,6 +1480,8 @@ def prepare_v3_ppo_packet(
         canary_receipt=Path(canary_receipt) if canary_receipt is not None else None,
         allow_missing_canary_receipt=allow_missing_canary_receipt,
         ppo_config=ppo_config,
+        recipe_json=recipe_json,
+        recipe_overrides=recipe_overrides,
         explicit_total_updates=explicit_total_updates,
         explicit_eval_estimated_seconds=explicit_eval_estimated_seconds,
         measured_packed_bytes_per_world=measured_packed_bytes_per_world,
@@ -1529,6 +1564,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--canary-receipt", type=Path, default=None)
     parser.add_argument("--allow-missing-canary-receipt", action="store_true")
     parser.add_argument("--ppo-config-json", type=str, default=None)
+    parser.add_argument(
+        "--recipe-json",
+        type=str,
+        default=None,
+        help=(
+            "Inline JSON object or path to JSON file overriding allow-listed recipe fields "
+            f"({', '.join(RECIPE_OVERRIDE_KEYS)}) for --mode train."
+        ),
+    )
     parser.add_argument("--measured-packed-bytes-per-world", type=int, default=None)
     parser.add_argument("--measured-checkpoint-bytes", type=int, default=None)
     parser.add_argument("--attempt", type=str, default="attempt-01")
@@ -1605,6 +1649,7 @@ def options_from_cli_args(
         canary_receipt=args.canary_receipt,
         allow_missing_canary_receipt=bool(args.allow_missing_canary_receipt),
         ppo_config=ppo_cfg,
+        recipe_json=args.recipe_json,
         explicit_total_updates=explicit_total_updates,
         explicit_eval_estimated_seconds=explicit_eval_estimated_seconds,
         measured_packed_bytes_per_world=args.measured_packed_bytes_per_world,

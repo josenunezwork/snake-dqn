@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import math
-from dataclasses import asdict, dataclass, field
+from collections.abc import Mapping
+from dataclasses import asdict, dataclass, field, fields
+from pathlib import Path
 from typing import Any, Literal
 
 from research.game_v3.config import NUM_ACTIONS, GameV3Config
@@ -324,6 +327,86 @@ def default_train_envs_for_gpu(gpu: str) -> int:
     return int(GPU_DEFAULT_TRAIN_ENVS[gpu_norm])
 
 
+class ConfigTypeError(TypeError, ValueError):
+    """Raised when a ``V3PPOConfig`` field receives a value of the wrong type."""
+
+
+RECIPE_OVERRIDE_KEYS: tuple[str, ...] = (
+    "reward_alive_length_coef",
+    "reward_alive_const",
+    "reward_length_delta_coef",
+    "reward_kill_coef",
+    "reward_death_penalty",
+    "gamma",
+    "gae_lambda",
+    "entropy_coef",
+    "lr",
+    "ppo_epochs",
+    "minibatch_size",
+    "rollout_len",
+    "clip_ratio",
+)
+
+_V3_PPO_INT_FIELDS: tuple[str, ...] = (
+    "num_envs",
+    "rollout_len",
+    "ppo_epochs",
+    "total_updates",
+    "max_periodic_full_exports",
+    "checkpoint_shard_bytes",
+    "checkpoint_every_updates",
+    "full_checkpoint_every_updates",
+    "keep_full_checkpoints",
+    "keep_light_checkpoints",
+    "max_in_session_restarts",
+    "eval_every_updates",
+    "eval_envs",
+    "eval_burnin_ticks",
+    "eval_ticks",
+    "eval_seed",
+    "seed",
+)
+
+_V3_PPO_OPTIONAL_INT_FIELDS: tuple[str, ...] = (
+    "learner_slots",
+    "minibatch_size",
+    "actor_chunk_learners",
+    "eval_learner_slots",
+)
+
+_V3_PPO_FLOAT_FIELDS: tuple[str, ...] = (
+    "gamma",
+    "gae_lambda",
+    "lr",
+    "adam_eps",
+    "weight_decay",
+    "clip_ratio",
+    "entropy_coef",
+    "value_coef",
+    "max_grad_norm",
+    "reward_alive_length_coef",
+    "reward_alive_const",
+    "reward_length_delta_coef",
+    "reward_kill_coef",
+    "reward_death_penalty",
+    "light_checkpoint_interval_sec",
+    "full_checkpoint_interval_sec",
+    "light_resume_margin_minutes",
+    "eval_every_minutes",
+    "eval_estimated_seconds",
+)
+
+_V3_PPO_BOOL_FIELDS: tuple[str, ...] = (
+    "amp",
+    "use_channels_last",
+    "compile_model",
+    "fast_learner_ops",
+    "normalize_advantages",
+    "eval_greedy",
+    "deterministic",
+)
+
+
 @dataclass(frozen=True)
 class V3PPOConfig:
     """Immutable configuration for Game V3.1 PPO self-play training and evaluation."""
@@ -404,7 +487,41 @@ class V3PPOConfig:
 
     def __post_init__(self) -> None:
         if not isinstance(self.game_config, GameV3Config):
-            raise TypeError(f"game_config must be a GameV3Config, got {type(self.game_config)!r}")
+            raise ConfigTypeError(
+                f"game_config must be a GameV3Config, got {type(self.game_config)!r}"
+            )
+        for int_name in _V3_PPO_INT_FIELDS:
+            iv = getattr(self, int_name)
+            if isinstance(iv, bool) or not isinstance(iv, int):
+                raise ConfigTypeError(f"{int_name} must be an int, got {iv!r}")
+        for opt_int_name in _V3_PPO_OPTIONAL_INT_FIELDS:
+            oiv = getattr(self, opt_int_name)
+            if oiv is not None and (isinstance(oiv, bool) or not isinstance(oiv, int)):
+                raise ConfigTypeError(f"{opt_int_name} must be an int or None, got {oiv!r}")
+        for float_name in _V3_PPO_FLOAT_FIELDS:
+            fv = getattr(self, float_name)
+            if isinstance(fv, bool) or not isinstance(fv, (int, float)):
+                raise ConfigTypeError(f"{float_name} must be a float, got {fv!r}")
+            if isinstance(fv, int):
+                object.__setattr__(self, float_name, float(fv))
+        if self.max_update_seconds is not None:
+            if isinstance(self.max_update_seconds, bool) or not isinstance(
+                self.max_update_seconds, (int, float)
+            ):
+                raise ConfigTypeError(
+                    f"max_update_seconds must be a float or None, got {self.max_update_seconds!r}"
+                )
+            if isinstance(self.max_update_seconds, int):
+                object.__setattr__(self, "max_update_seconds", float(self.max_update_seconds))
+        for bool_name in _V3_PPO_BOOL_FIELDS:
+            bv = getattr(self, bool_name)
+            if not isinstance(bv, bool):
+                raise ConfigTypeError(f"{bool_name} must be a bool, got {bv!r}")
+        for str_name in ("opponent_policy", "net_size", "full_exports"):
+            sv = getattr(self, str_name)
+            if not isinstance(sv, str):
+                raise ConfigTypeError(f"{str_name} must be a str, got {sv!r}")
+
         if int(self.game_config.max_life_ticks) != 0:
             raise ValueError(
                 "V3PPOConfig requires game_config.max_life_ticks == 0 so surviving snakes stay "
@@ -460,6 +577,8 @@ class V3PPOConfig:
             val = float(getattr(self, coef_name))
             if not math.isfinite(val):
                 raise ValueError(f"{coef_name} must be finite, got {val}")
+        if float(self.entropy_coef) < 0.0:
+            raise ValueError(f"entropy_coef must be >= 0, got {self.entropy_coef}")
         if float(self.reward_death_penalty) < 0.0:
             raise ValueError(
                 "reward_death_penalty must be >= 0 (subtracted as -reward_death_penalty on death); "
@@ -623,17 +742,105 @@ class V3PPOConfig:
         return out
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> V3PPOConfig:
+    def from_dict(cls, data: Mapping[str, Any]) -> V3PPOConfig:
         """Deserialize config produced by :meth:`to_dict`."""
+        if not isinstance(data, Mapping):
+            raise ConfigTypeError(f"V3PPOConfig.from_dict expects a mapping, got {type(data)!r}")
         raw = dict(data)
         raw.pop("schema", None)
         gc_raw = raw.pop("game_config", None)
-        game_cfg = (
-            gc_raw
-            if isinstance(gc_raw, GameV3Config)
-            else (GameV3Config.from_dict(gc_raw) if isinstance(gc_raw, dict) else GameV3Config())
-        )
+        if gc_raw is None:
+            game_cfg = GameV3Config()
+        elif isinstance(gc_raw, GameV3Config):
+            game_cfg = gc_raw
+        elif isinstance(gc_raw, dict):
+            game_cfg = GameV3Config.from_dict(gc_raw)
+        else:
+            raise ConfigTypeError(
+                f"game_config must be a mapping or GameV3Config, got {type(gc_raw)!r}"
+            )
+        valid_fields = {f.name for f in fields(cls)} - {"game_config"}
+        unknown = sorted(str(k) for k in raw.keys() if k not in valid_fields)
+        if unknown:
+            raise ConfigTypeError(f"Unknown V3PPOConfig keys: {unknown}")
         return cls(game_config=game_cfg, **raw)
+
+
+def parse_recipe_overrides(
+    source: str | Path | Mapping[str, Any] | None,
+    *,
+    source_label: str = "--recipe-json",
+) -> dict[str, Any]:
+    """Parse and allow-list validate recipe overrides from JSON text, a file path, or a mapping."""
+    if source is None:
+        return {}
+    if isinstance(source, Mapping):
+        parsed = dict(source)
+    elif isinstance(source, Path):
+        if not source.is_file():
+            raise ValueError(f"{source_label} file does not exist: {source}")
+        parsed = json.loads(source.read_text(encoding="utf-8"))
+    elif isinstance(source, str):
+        stripped = source.lstrip()
+        if stripped.startswith("{"):
+            parsed = json.loads(source)
+        else:
+            cand_path = Path(source)
+            if cand_path.is_file():
+                parsed = json.loads(cand_path.read_text(encoding="utf-8"))
+            else:
+                try:
+                    parsed = json.loads(source)
+                except Exception as exc:
+                    raise ValueError(
+                        f"{source_label} must be a JSON object string or an existing JSON file "
+                        f"path, got {source!r}"
+                    ) from exc
+    else:
+        raise ConfigTypeError(
+            f"{source_label} must be a JSON string, Path, or mapping, got {type(source)!r}"
+        )
+
+    if not isinstance(parsed, dict):
+        raise ValueError(
+            f"{source_label} must decode to a JSON object, got {type(parsed).__name__}"
+        )
+
+    allowed = set(RECIPE_OVERRIDE_KEYS)
+    unknown = sorted(str(k) for k in parsed.keys() if k not in allowed)
+    if unknown:
+        raise ValueError(
+            f"Unsupported recipe override keys in {source_label}: {unknown}; "
+            f"allowed keys are {list(RECIPE_OVERRIDE_KEYS)}"
+        )
+
+    return {key: parsed[key] for key in RECIPE_OVERRIDE_KEYS if key in parsed}
+
+
+def extract_recipe_dict(cfg: V3PPOConfig) -> dict[str, Any]:
+    """Return all allow-listed recipe fields of ``cfg`` in canonical ``RECIPE_OVERRIDE_KEYS`` order."""
+    return {key: getattr(cfg, key) for key in RECIPE_OVERRIDE_KEYS}
+
+
+def recipe_overrides_from_default(
+    cfg: V3PPOConfig,
+    *,
+    reference: V3PPOConfig | None = None,
+) -> dict[str, Any]:
+    """Return allow-listed recipe fields on ``cfg`` that differ from ``reference`` (default cfg)."""
+    ref = reference if reference is not None else V3PPOConfig()
+    return {
+        key: getattr(cfg, key)
+        for key in RECIPE_OVERRIDE_KEYS
+        if getattr(cfg, key) != getattr(ref, key)
+    }
+
+
+def format_recipe_overrides(overrides: Mapping[str, Any] | None) -> str:
+    """Format recipe overrides for summary/log output (`'none'` when empty)."""
+    if not overrides:
+        return "none"
+    return ", ".join(f"{key}={json.dumps(overrides[key])}" for key in sorted(overrides.keys()))
 
 
 def resolve_full_export_settings(
