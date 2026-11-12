@@ -833,6 +833,102 @@ class GameV3Sim:
                 )
                 sub_g[0:1] = torch.where(wrote0, val0, orig0)
 
+    @staticmethod
+    def _max_scatter_(
+        flat_grid: torch.Tensor,
+        idx: torch.Tensor,
+        cand: torch.Tensor,
+        valid: torch.Tensor,
+        zero_i32: torch.Tensor,
+    ) -> None:
+        """Order-independently update ``flat_grid[idx] = max(flat_grid[idx], cand)`` where ``valid``."""
+        cur = flat_grid.index_select(0, idx)
+        delta = torch.where(valid, torch.maximum(cur, cand) - cur, zero_i32)
+        flat_grid.index_put_((idx,), delta, accumulate=True)
+
+    def _stamp_rows(
+        self,
+        e0: int,
+        e1: int,
+        env_local: torch.Tensor,
+        gx: torch.Tensor,
+        gy: torch.Tensor,
+        r_sq: torch.Tensor | int,
+        tier: torch.Tensor,
+        sids: torch.Tensor,
+        sids_i64: torch.Tensor,
+        subtick: torch.Tensor | int,
+        act_mask: torch.Tensor | None,
+        zero_i32: torch.Tensor,
+        subtick_scalar: torch.Tensor | None = None,
+    ) -> None:
+        """Stamp 1D sparse rows ``(R,)`` or 2D block points ``(eb, S)`` into ``[e0:e1]``."""
+        full_env = e0 == 0 and e1 == self.E
+        env_exp = env_local[..., None]
+        act_exp = act_mask[..., None] if act_mask is not None else None
+
+        # 1. Fine 1x dual-bound grids (occ_hi & occ_lo).
+        sx = gx[..., None] + self._disc_dx
+        sy = gy[..., None] + self._disc_dy
+        r_bound = r_sq if isinstance(r_sq, int) else r_sq[..., None]
+        in_1x = (
+            (sx >= 0) & (sx < self.G) & (sy >= 0) & (sy < self.G) & (self._disc_dist_sq <= r_bound)
+        )
+        valid_1x = (act_exp & in_1x if act_exp is not None else in_1x).reshape(-1)
+        sx_c = sx.clamp(0, self.G - 1).to(torch.int64)
+        sy_c = sy.clamp(0, self.G - 1).to(torch.int64)
+        idx_1x = (env_exp * (self.G * self.G) + sy_c * self.G + sx_c).reshape(-1)
+
+        cand_hi = pack_occ_hi(subtick, sids)[..., None].expand_as(sx).reshape(-1)
+        cand_lo = pack_occ_lo(subtick, sids)[..., None].expand_as(sx).reshape(-1)
+        occ_hi_1d = (self.occ_hi if full_env else self.occ_hi[e0:e1]).view(-1)
+        occ_lo_1d = (self.occ_lo if full_env else self.occ_lo[e0:e1]).view(-1)
+        self._max_scatter_(occ_hi_1d, idx_1x, cand_hi, valid_1x, zero_i32)
+        self._max_scatter_(occ_lo_1d, idx_1x, cand_lo, valid_1x, zero_i32)
+
+        # 2. Deduplicated 4x max-pooled per-snake subtick pyramid (N-last).
+        mask_4x = self._disc_4x_mask[tier, (gy & 3).to(torch.int64), (gx & 3).to(torch.int64)]
+        gx4 = (gx >> 2)[..., None] + self._disc_4x_dx
+        gy4 = (gy >> 2)[..., None] + self._disc_4x_dy
+        in_4x = mask_4x & (gx4 >= 0) & (gx4 < self.G4) & (gy4 >= 0) & (gy4 < self.G4)
+        valid_4x = (act_exp & in_4x if act_exp is not None else in_4x).reshape(-1)
+        gx4_c = gx4.clamp(0, self.G4 - 1).to(torch.int64)
+        gy4_c = gy4.clamp(0, self.G4 - 1).to(torch.int64)
+        idx_4x = (
+            (env_exp * (self.G4 * self.G4) + gy4_c * self.G4 + gx4_c) * self.N + sids_i64[..., None]
+        ).reshape(-1)
+        if subtick_scalar is not None:
+            cand_st4 = subtick_scalar.expand_as(idx_4x)
+        else:
+            assert isinstance(subtick, torch.Tensor)
+            cand_st4 = subtick[..., None].expand_as(gx4).reshape(-1)
+        occ_4x_1d = (
+            self._occ_4x_blocks[0]
+            if (full_env and len(self._occ_4x_blocks) == 1)
+            else self.occ_4x_slice(e0, e1)
+        ).view(-1)
+        self._max_scatter_(occ_4x_1d, idx_4x, cand_st4, valid_4x, zero_i32)
+
+        # 3. Deduplicated 16x max-pooled per-snake subtick pyramid (N-last).
+        mask_16x = self._disc_16x_mask[tier, (gy & 15).to(torch.int64), (gx & 15).to(torch.int64)]
+        gx16 = (gx >> 4)[..., None] + self._disc_16x_dx
+        gy16 = (gy >> 4)[..., None] + self._disc_16x_dy
+        in_16x = mask_16x & (gx16 >= 0) & (gx16 < self.G16) & (gy16 >= 0) & (gy16 < self.G16)
+        valid_16x = (act_exp & in_16x if act_exp is not None else in_16x).reshape(-1)
+        gx16_c = gx16.clamp(0, self.G16 - 1).to(torch.int64)
+        gy16_c = gy16.clamp(0, self.G16 - 1).to(torch.int64)
+        idx_16x = (
+            (env_exp * (self.G16 * self.G16) + gy16_c * self.G16 + gx16_c) * self.N
+            + sids_i64[..., None]
+        ).reshape(-1)
+        if subtick_scalar is not None:
+            cand_st16 = subtick_scalar.expand_as(idx_16x)
+        else:
+            assert isinstance(subtick, torch.Tensor)
+            cand_st16 = subtick[..., None].expand_as(gx16).reshape(-1)
+        occ_16x_1d = (self.occ_subtick_16x if full_env else self.occ_subtick_16x[e0:e1]).view(-1)
+        self._max_scatter_(occ_16x_1d, idx_16x, cand_st16, valid_16x, zero_i32)
+
     def _stamp_sparse_points(
         self,
         env_rows: torch.Tensor,
@@ -852,105 +948,20 @@ class GameV3Sim:
         cand_st_scalar = torch.full((1,), subtick_val, dtype=torch.int32, device=self.device)
 
         if len(self._occ_4x_blocks) == 1 and self._env_block_1x == self.E:
-            le = env_rows
-            sids = slot_rows.to(torch.int32)
-            sids_i64 = slot_rows.to(torch.int64)
-            gxs = gx_s
-            gys = gy_s
-            act_col = (
-                active_rows[:, None]
-                if active_rows is not None
-                else torch.ones((int(le.shape[0]), 1), dtype=torch.bool, device=self.device)
-            )
-
-            sx = gxs[:, None] + self._disc_dx[None, :]
-            sy = gys[:, None] + self._disc_dy[None, :]
-            valid_1x = (
-                act_col
-                & (sx >= 0)
-                & (sx < self.G)
-                & (sy >= 0)
-                & (sy < self.G)
-                & (self._disc_dist_sq[None, :] <= r_sq_val)
-            ).reshape(-1)
-            sx_c = sx.clamp(0, self.G - 1).to(torch.int64)
-            sy_c = sy.clamp(0, self.G - 1).to(torch.int64)
-            idx_1x = (le[:, None] * (self.G * self.G) + sy_c * self.G + sx_c).reshape(-1)
-
-            cand_hi = (pack_occ_hi(subtick_val, sids)[:, None].expand_as(sx)).reshape(-1)
-            cand_lo = (pack_occ_lo(subtick_val, sids)[:, None].expand_as(sx)).reshape(-1)
-
-            occ_hi_1d = self.occ_hi.view(-1)
-            cur_hi = occ_hi_1d.index_select(0, idx_1x)
-            occ_hi_1d.index_put_(
-                (idx_1x,),
-                torch.where(valid_1x, torch.maximum(cur_hi, cand_hi) - cur_hi, z_i32),
-                accumulate=True,
-            )
-
-            occ_lo_1d = self.occ_lo.view(-1)
-            cur_lo = occ_lo_1d.index_select(0, idx_1x)
-            occ_lo_1d.index_put_(
-                (idx_1x,),
-                torch.where(valid_1x, torch.maximum(cur_lo, cand_lo) - cur_lo, z_i32),
-                accumulate=True,
-            )
-
-            mask_4x = self._disc_4x_mask[
-                tier_t, (gys & 3).to(torch.int64), (gxs & 3).to(torch.int64)
-            ]
-            gx4 = (gxs >> 2)[:, None] + self._disc_4x_dx[None, :]
-            gy4 = (gys >> 2)[:, None] + self._disc_4x_dy[None, :]
-            valid_4x = (
-                act_col & mask_4x & (gx4 >= 0) & (gx4 < self.G4) & (gy4 >= 0) & (gy4 < self.G4)
-            ).reshape(-1)
-            idx_4x = (
-                (
-                    le[:, None] * (self.G4 * self.G4)
-                    + gy4.clamp(0, self.G4 - 1).to(torch.int64) * self.G4
-                    + gx4.clamp(0, self.G4 - 1).to(torch.int64)
-                )
-                * self.N
-                + sids_i64[:, None]
-            ).reshape(-1)
-            cand_st4 = cand_st_scalar.expand_as(idx_4x)
-            occ_4x_1d = self._occ_4x_blocks[0].view(-1)
-            cur_4x = occ_4x_1d.index_select(0, idx_4x)
-            occ_4x_1d.index_put_(
-                (idx_4x,),
-                torch.where(valid_4x, torch.maximum(cur_4x, cand_st4) - cur_4x, z_i32),
-                accumulate=True,
-            )
-
-            mask_16x = self._disc_16x_mask[
-                tier_t, (gys & 15).to(torch.int64), (gxs & 15).to(torch.int64)
-            ]
-            gx16 = (gxs >> 4)[:, None] + self._disc_16x_dx[None, :]
-            gy16 = (gys >> 4)[:, None] + self._disc_16x_dy[None, :]
-            valid_16x = (
-                act_col
-                & mask_16x
-                & (gx16 >= 0)
-                & (gx16 < self.G16)
-                & (gy16 >= 0)
-                & (gy16 < self.G16)
-            ).reshape(-1)
-            idx_16x = (
-                (
-                    le[:, None] * (self.G16 * self.G16)
-                    + gy16.clamp(0, self.G16 - 1).to(torch.int64) * self.G16
-                    + gx16.clamp(0, self.G16 - 1).to(torch.int64)
-                )
-                * self.N
-                + sids_i64[:, None]
-            ).reshape(-1)
-            cand_st16 = cand_st_scalar.expand_as(idx_16x)
-            occ_16x_1d = self.occ_subtick_16x.view(-1)
-            cur_16x = occ_16x_1d.index_select(0, idx_16x)
-            occ_16x_1d.index_put_(
-                (idx_16x,),
-                torch.where(valid_16x, torch.maximum(cur_16x, cand_st16) - cur_16x, z_i32),
-                accumulate=True,
+            self._stamp_rows(
+                0,
+                self.E,
+                env_rows,
+                gx_s,
+                gy_s,
+                r_sq_val,
+                tier_t,
+                slot_rows.to(torch.int32),
+                slot_rows.to(torch.int64),
+                subtick_val,
+                active_rows,
+                z_i32,
+                subtick_scalar=cand_st_scalar,
             )
             return
 
@@ -962,97 +973,21 @@ class GameV3Sim:
             rows = torch.where(in_b)[0]
             if int(rows.shape[0]) == 0:
                 continue
-            le = env_rows.index_select(0, rows) - e0
             sids = slot_rows.index_select(0, rows).to(torch.int32)
-            sids_i64 = sids.to(torch.int64)
-            gxs = gx_s.index_select(0, rows)
-            gys = gy_s.index_select(0, rows)
-
-            # 1x fine occupancy grids (occ_hi & occ_lo).
-            sx = gxs[:, None] + self._disc_dx[None, :]
-            sy = gys[:, None] + self._disc_dy[None, :]
-            valid_1x = (
-                (sx >= 0)
-                & (sx < self.G)
-                & (sy >= 0)
-                & (sy < self.G)
-                & (self._disc_dist_sq[None, :] <= r_sq_val)
-            ).reshape(-1)
-            sx_c = sx.clamp(0, self.G - 1).to(torch.int64)
-            sy_c = sy.clamp(0, self.G - 1).to(torch.int64)
-            idx_1x = (le[:, None] * (self.G * self.G) + sy_c * self.G + sx_c).reshape(-1)
-
-            cand_hi = (pack_occ_hi(subtick_val, sids)[:, None].expand_as(sx)).reshape(-1)
-            cand_lo = (pack_occ_lo(subtick_val, sids)[:, None].expand_as(sx)).reshape(-1)
-
-            occ_hi_1d = self.occ_hi[e0:e1].view(-1)
-            cur_hi = occ_hi_1d.index_select(0, idx_1x)
-            occ_hi_1d.index_put_(
-                (idx_1x,),
-                torch.where(valid_1x, torch.maximum(cur_hi, cand_hi) - cur_hi, z_i32),
-                accumulate=True,
-            )
-
-            occ_lo_1d = self.occ_lo[e0:e1].view(-1)
-            cur_lo = occ_lo_1d.index_select(0, idx_1x)
-            occ_lo_1d.index_put_(
-                (idx_1x,),
-                torch.where(valid_1x, torch.maximum(cur_lo, cand_lo) - cur_lo, z_i32),
-                accumulate=True,
-            )
-
-            # 4x coarse occupancy pyramid.
-            mask_4x = self._disc_4x_mask[
-                tier_t, (gys & 3).to(torch.int64), (gxs & 3).to(torch.int64)
-            ]
-            gx4 = (gxs >> 2)[:, None] + self._disc_4x_dx[None, :]
-            gy4 = (gys >> 2)[:, None] + self._disc_4x_dy[None, :]
-            valid_4x = (
-                mask_4x & (gx4 >= 0) & (gx4 < self.G4) & (gy4 >= 0) & (gy4 < self.G4)
-            ).reshape(-1)
-            idx_4x = (
-                (
-                    le[:, None] * (self.G4 * self.G4)
-                    + gy4.clamp(0, self.G4 - 1).to(torch.int64) * self.G4
-                    + gx4.clamp(0, self.G4 - 1).to(torch.int64)
-                )
-                * self.N
-                + sids_i64[:, None]
-            ).reshape(-1)
-            cand_st4 = cand_st_scalar.expand_as(idx_4x)
-            occ_4x_1d = self.occ_4x_slice(e0, e1).view(-1)
-            cur_4x = occ_4x_1d.index_select(0, idx_4x)
-            occ_4x_1d.index_put_(
-                (idx_4x,),
-                torch.where(valid_4x, torch.maximum(cur_4x, cand_st4) - cur_4x, z_i32),
-                accumulate=True,
-            )
-
-            # 16x coarse occupancy pyramid.
-            mask_16x = self._disc_16x_mask[
-                tier_t, (gys & 15).to(torch.int64), (gxs & 15).to(torch.int64)
-            ]
-            gx16 = (gxs >> 4)[:, None] + self._disc_16x_dx[None, :]
-            gy16 = (gys >> 4)[:, None] + self._disc_16x_dy[None, :]
-            valid_16x = (
-                mask_16x & (gx16 >= 0) & (gx16 < self.G16) & (gy16 >= 0) & (gy16 < self.G16)
-            ).reshape(-1)
-            idx_16x = (
-                (
-                    le[:, None] * (self.G16 * self.G16)
-                    + gy16.clamp(0, self.G16 - 1).to(torch.int64) * self.G16
-                    + gx16.clamp(0, self.G16 - 1).to(torch.int64)
-                )
-                * self.N
-                + sids_i64[:, None]
-            ).reshape(-1)
-            cand_st16 = cand_st_scalar.expand_as(idx_16x)
-            occ_16x_1d = self.occ_subtick_16x[e0:e1].view(-1)
-            cur_16x = occ_16x_1d.index_select(0, idx_16x)
-            occ_16x_1d.index_put_(
-                (idx_16x,),
-                torch.where(valid_16x, torch.maximum(cur_16x, cand_st16) - cur_16x, z_i32),
-                accumulate=True,
+            self._stamp_rows(
+                e0,
+                e1,
+                env_rows.index_select(0, rows) - e0,
+                gx_s.index_select(0, rows),
+                gy_s.index_select(0, rows),
+                r_sq_val,
+                tier_t,
+                sids,
+                sids.to(torch.int64),
+                subtick_val,
+                None,
+                z_i32,
+                subtick_scalar=cand_st_scalar,
             )
 
     def _stamp_slice_point(
@@ -1068,89 +1003,23 @@ class GameV3Sim:
     ) -> None:
         """Stamp one subpoint ``(eb, S)`` of pairwise-disjoint discs into ``[e0:e1]``."""
         eb = e1 - e0
-        env_local = torch.arange(eb, dtype=torch.int64, device=self.device)[:, None, None]
+        env_local = torch.arange(eb, dtype=torch.int64, device=self.device)[:, None]
         z_i32 = torch.zeros((1,), dtype=torch.int32, device=self.device)
-
-        # 1. Fine 1x dual-bound grids (occ_hi & occ_lo).
-        sx = gx_p[..., None] + self._disc_dx[None, None, :]
-        sy = gy_p[..., None] + self._disc_dy[None, None, :]
-        valid_1x = (
-            act_p[..., None]
-            & (sx >= 0)
-            & (sx < self.G)
-            & (sy >= 0)
-            & (sy < self.G)
-            & (self._disc_dist_sq[None, None, :] <= r_sq_p[..., None])
-        )
-        sx_c = sx.clamp(0, self.G - 1).to(torch.int64)
-        sy_c = sy.clamp(0, self.G - 1).to(torch.int64)
-        idx_1x = (env_local * (self.G * self.G) + sy_c * self.G + sx_c).reshape(-1)
-        valid_1x_flat = valid_1x.reshape(-1)
-
-        sid_3d = slot_ids[..., None]
-        cand_hi = pack_occ_hi(st_p, slot_ids)[..., None].expand_as(sx).reshape(-1)
-        cand_lo = pack_occ_lo(st_p, slot_ids)[..., None].expand_as(sx).reshape(-1)
-
-        occ_hi_1d = self.occ_hi[e0:e1].view(-1)
-        cur_hi = occ_hi_1d.index_select(0, idx_1x)
-        delta_hi = torch.where(valid_1x_flat, torch.maximum(cur_hi, cand_hi) - cur_hi, z_i32)
-        occ_hi_1d.index_put_((idx_1x,), delta_hi, accumulate=True)
-
-        occ_lo_1d = self.occ_lo[e0:e1].view(-1)
-        cur_lo = occ_lo_1d.index_select(0, idx_1x)
-        delta_lo = torch.where(valid_1x_flat, torch.maximum(cur_lo, cand_lo) - cur_lo, z_i32)
-        occ_lo_1d.index_put_((idx_1x,), delta_lo, accumulate=True)
-
-        # 2. Deduplicated 4x max-pooled per-snake subtick pyramid (N-last).
         tier = self._r_sq_to_tier[r_sq_p.clamp_min(0).to(torch.int64)]
-        mask_4x = self._disc_4x_mask[tier, (gy_p & 3).to(torch.int64), (gx_p & 3).to(torch.int64)]
-        gx4 = (gx_p >> 2)[..., None] + self._disc_4x_dx[None, None, :]
-        gy4 = (gy_p >> 2)[..., None] + self._disc_4x_dy[None, None, :]
-        valid_4x = (
-            act_p[..., None] & mask_4x & (gx4 >= 0) & (gx4 < self.G4) & (gy4 >= 0) & (gy4 < self.G4)
+        self._stamp_rows(
+            e0,
+            e1,
+            env_local,
+            gx_p,
+            gy_p,
+            r_sq_p,
+            tier,
+            slot_ids,
+            slot_ids.to(torch.int64),
+            st_p,
+            act_p,
+            z_i32,
         )
-        gx4_c = gx4.clamp(0, self.G4 - 1).to(torch.int64)
-        gy4_c = gy4.clamp(0, self.G4 - 1).to(torch.int64)
-        sid_i64 = sid_3d.to(torch.int64)
-        idx_4x = (
-            (env_local * (self.G4 * self.G4) + gy4_c * self.G4 + gx4_c) * self.N + sid_i64
-        ).reshape(-1)
-        cand_st4 = st_p[..., None].expand_as(gx4).reshape(-1)
-
-        occ_4x_1d = self.occ_4x_slice(e0, e1).view(-1)
-        cur_4x = occ_4x_1d.index_select(0, idx_4x)
-        delta_4x = torch.where(
-            valid_4x.reshape(-1), torch.maximum(cur_4x, cand_st4) - cur_4x, z_i32
-        )
-        occ_4x_1d.index_put_((idx_4x,), delta_4x, accumulate=True)
-
-        # 3. Deduplicated 16x max-pooled per-snake subtick pyramid (N-last).
-        mask_16x = self._disc_16x_mask[
-            tier, (gy_p & 15).to(torch.int64), (gx_p & 15).to(torch.int64)
-        ]
-        gx16 = (gx_p >> 4)[..., None] + self._disc_16x_dx[None, None, :]
-        gy16 = (gy_p >> 4)[..., None] + self._disc_16x_dy[None, None, :]
-        valid_16x = (
-            act_p[..., None]
-            & mask_16x
-            & (gx16 >= 0)
-            & (gx16 < self.G16)
-            & (gy16 >= 0)
-            & (gy16 < self.G16)
-        )
-        gx16_c = gx16.clamp(0, self.G16 - 1).to(torch.int64)
-        gy16_c = gy16.clamp(0, self.G16 - 1).to(torch.int64)
-        idx_16x = (
-            (env_local * (self.G16 * self.G16) + gy16_c * self.G16 + gx16_c) * self.N + sid_i64
-        ).reshape(-1)
-        cand_st16 = st_p[..., None].expand_as(gx16).reshape(-1)
-
-        occ_16x_1d = self.occ_subtick_16x[e0:e1].view(-1)
-        cur_16x = occ_16x_1d.index_select(0, idx_16x)
-        delta_16x = torch.where(
-            valid_16x.reshape(-1), torch.maximum(cur_16x, cand_st16) - cur_16x, z_i32
-        )
-        occ_16x_1d.index_put_((idx_16x,), delta_16x, accumulate=True)
 
     def _stamp_discs(
         self,
