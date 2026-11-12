@@ -254,7 +254,7 @@ def test_prune_old_checkpoints_protects_lights_referenced_by_retained_fulls(
 
 
 def test_bit_identical_cpu_resume_on_multishard_full_with_clean_step_streak(tmp_path: Path) -> None:
-    """Train k=3, save >1-shard FULL (non-zero _clean_step_streak), resume k=3: bit-identical!"""
+    """Train k=3, save >1-shard FULL (non-zero clean_step_streak), resume k=3: bit-identical!"""
     cfg = _tiny_cfg(num_envs=4, total_updates=6, eval_every_updates=2, learner_slots=4, seed=314159)
 
     trainer_a = V3PPOTrainer(cfg, device="cpu")
@@ -263,8 +263,8 @@ def test_bit_identical_cpu_resume_on_multishard_full_with_clean_step_streak(tmp_
         if trainer_a.updates_completed % cfg.eval_every_updates == 0:
             trainer_a.run_evaluation()
 
-    # Explicitly set non-zero `_clean_step_streak` to verify preservation across FULL resume!
-    trainer_a.sim._clean_step_streak = 1234
+    # Explicitly set non-zero `clean_step_streak` to verify preservation across FULL resume!
+    trainer_a.sim.clean_step_streak = 1234
 
     probe_idx = trainer_a.save_full_checkpoint(tmp_path / "probe", tag="u0000003")
     shard_cap = verify_full_checkpoint_set(probe_idx)["shard_paths"][0].stat().st_size - 1024
@@ -295,7 +295,7 @@ def test_bit_identical_cpu_resume_on_multishard_full_with_clean_step_streak(tmp_
     load_res = trainer_b.load_checkpoint(full_idx_path)
     assert load_res["checkpoint_kind"] == "full"
     assert load_res["num_shards"] >= 2
-    assert trainer_b.sim._clean_step_streak == 1234
+    assert trainer_b.sim.clean_step_streak == 1234
 
     metrics_b = []
     evals_b = []
@@ -341,8 +341,9 @@ def test_bit_identical_cpu_resume_on_multishard_full_with_clean_step_streak(tmp_
     sim_b = trainer_b.sim.state_dict()
     assert sim_a["tick"] == sim_b["tick"]
     assert sim_a["subtick_offset"] == sim_b["subtick_offset"]
-    assert trainer_a.sim._clean_step_streak == trainer_b.sim._clean_step_streak
-    assert trainer_b.sim._clean_step_streak == 1234 + 3 * cfg.rollout_len
+    assert sim_a["clean_step_streak"] == sim_b["clean_step_streak"]
+    assert trainer_a.sim.clean_step_streak == trainer_b.sim.clean_step_streak
+    assert trainer_b.sim.clean_step_streak == 1234 + 3 * cfg.rollout_len
     for t_name in sim_a["tensors"]:
         assert torch.equal(
             sim_a["tensors"][t_name], sim_b["tensors"][t_name]
@@ -1296,7 +1297,7 @@ def _snapshot_trainer_hashes(trainer: V3PPOTrainer) -> dict[str, object]:
         "agent_steps_collected": int(trainer.agent_steps_collected),
         "sim_tick": int(sim_sd["tick"]),
         "sim_subtick_offset": int(sim_sd.get("subtick_offset", 0)),
-        "sim_clean_step_streak": int(getattr(trainer.sim, "_clean_step_streak", 0)),
+        "sim_clean_step_streak": int(trainer.sim.clean_step_streak),
         "net_state_sha256": net_hashes,
         "sim_state_sha256": sim_hashes,
     }
@@ -1353,7 +1354,7 @@ def snap(tr: V3PPOTrainer) -> dict:
         "agent_steps_collected": int(tr.agent_steps_collected),
         "sim_tick": int(sim_sd["tick"]),
         "sim_subtick_offset": int(sim_sd.get("subtick_offset", 0)),
-        "sim_clean_step_streak": int(getattr(tr.sim, "_clean_step_streak", 0)),
+        "sim_clean_step_streak": int(tr.sim.clean_step_streak),
         "net_state_sha256": {
             k: tensor_sha(v) for k, v in sorted(tr.raw_model.state_dict().items())
         },
@@ -1375,7 +1376,7 @@ cfg = make_cfg()
 tr = V3PPOTrainer(cfg, device=torch.device("cpu"))
 tr.train_step()
 tr.train_step()
-tr.sim._clean_step_streak = 77
+tr.sim.clean_step_streak = 77
 
 probe_idx = tr.save_full_checkpoint(probe_dir, tag="u0000002")
 one_size = verify_full_checkpoint_set(probe_idx)["shard_paths"][0].stat().st_size

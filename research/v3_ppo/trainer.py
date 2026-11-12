@@ -845,7 +845,7 @@ class V3PPOTrainer:
             light_sha = str(light_meta["sha256"])
 
         raw_sim_sd = self.sim.state_dict()
-        clean_streak = int(self.sim._clean_step_streak)
+        clean_streak = int(self.sim.clean_step_streak)
         total_worlds = int(self.sim.E)
 
         serialized_shards: list[tuple[int, int, bytes]] = []
@@ -1042,7 +1042,7 @@ class V3PPOTrainer:
                 expected_num_envs=self.sim.E,
             )
             self.sim.load_state_dict(merged_sim_sd)
-            self.sim._clean_step_streak = int(clean_streak)
+            self.sim.clean_step_streak = int(clean_streak)
             self.episode_return_acc.copy_(
                 light_ckpt["episode_return_acc"].to(device=self.device, dtype=torch.float32)
             )
