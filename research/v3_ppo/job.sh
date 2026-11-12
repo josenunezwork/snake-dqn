@@ -29,6 +29,9 @@ if [ "$MODE" = "canary" ]; then
   if [ -n "${V3_PPO_CANARY_TRAIN_ENVS:-}" ]; then
     CANARY_ARGS+=(--canary-train-envs "$V3_PPO_CANARY_TRAIN_ENVS")
   fi
+  if [ -n "${V3_PPO_CANARY_EVAL_TICKS:-}" ]; then
+    export V3_PPO_CANARY_EVAL_TICKS
+  fi
   if [ "${V3_PPO_COMPILE:-0}" = "1" ]; then
     CANARY_ARGS+=(--compile)
   fi
@@ -169,6 +172,12 @@ elif [ "$MODE" = "eval" ]; then
   fi
   if [ "${V3_PPO_EVAL_GREEDY:-0}" = "1" ]; then
     EVAL_ARGS+=(--greedy)
+  fi
+  if [ "${V3_PPO_EVAL_SEQUENTIAL_PAIRS:-0}" = "1" ]; then
+    EVAL_ARGS+=(--sequential-pairs)
+  fi
+  if [ -n "${V3_PPO_EVAL_MAX_PAIRS_PER_BATCH:-}" ]; then
+    EVAL_ARGS+=(--max-pairs-per-batch "$V3_PPO_EVAL_MAX_PAIRS_PER_BATCH")
   fi
   if [ "${V3_PPO_COMPILE:-0}" = "1" ]; then
     EVAL_ARGS+=(--compile)

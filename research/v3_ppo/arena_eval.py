@@ -22,6 +22,7 @@ from typing import Any
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 from research.arena_ppo.runtime import (
     SignalStopFlag,
@@ -44,6 +45,9 @@ from research.game_v3.sim import FP_SHIFT, GameV3Sim, step_delta_fp_torch
 from research.v3_ppo.buffer import assert_obs_batch_matches_layout
 from research.v3_ppo.checkpoint_io import V3_PPO_LIGHT_CHECKPOINT_SCHEMA, verify_light_checkpoint
 from research.v3_ppo.config import (
+    _CUDA_RUNTIME_RESERVE_BYTES,
+    _OBS_BUILD_TEMP_BYTES,
+    GPU_VRAM_BUDGET_BYTES,
     V3_PPO_NAMESPACE,
     VALID_OPPONENT_POLICIES,
     NetSize,
@@ -51,7 +55,10 @@ from research.v3_ppo.config import (
     OpponentPolicy,
     V3PPOConfig,
     default_actor_chunk_learners,
+    estimate_actor_chunk_temp_bytes,
+    estimate_sim_memory_bytes,
     extract_recipe_dict,
+    get_net_preset,
     obs_layout_from_game_config,
     recipe_overrides_from_default,
 )
@@ -72,13 +79,23 @@ V3_WEIGHTS_ONLY_EVAL_BUNDLE_SCHEMA = "v3-ppo-eval-weights-bundle/v1"
 
 EVAL_MODES: tuple[str, ...] = ("head-to-head", "round-robin", "long-game")
 EVAL_REQUIRED_EXPORTS: tuple[str, ...] = ("eval_result.json", "summary.md")
+PAIR_REUSE_KEY_FIELDS: tuple[str, ...] = (
+    "num_envs",
+    "burnin_ticks",
+    "window_ticks",
+    "greedy",
+    "seed",
+    "policy_a_sha256",
+    "policy_b_sha256",
+)
 
-# Sizing defaults (calibrated on CPU maturation/variance + measured L4 collection throughput):
+# Horizon defaults:
 # - Head-to-head / round-robin: 24 worlds * (2,000 burn-in + 2,500 window = 4,500 ticks) =
-#   2.592M agent-steps/pair (24 is divisible by 2, 3, 4, 6 for exact spawn-slot balance) ->
-#   95% bootstrap CI half-width <= +-0.015 on pairwise mass share (separating 52.5% vs 47.5%),
-#   and a 6-policy round-robin (15 pairs = 38.88M agent-steps) finishes in ~29 min (6xS) to
-#   ~45 min (6xM) on a single L4 GPU.
+#   2.592M agent-steps/pair (24 is divisible by 2, 3, 4, 6 so cyclic seat rotation cancels
+#   spawn-slot bias). Round-robin batches pairs side by side in a single simulator tick loop
+#   (sized to fit GPU VRAM) and `prepare --mode eval` gates session wall time from a measured
+#   eval-canary ms/tick with a 1.5x margin. World-to-world spread and 95% CI half-widths are
+#   reported directly from each run's measured data.
 # - Long-game: 32 worlds * (6,500 burn-in + 6,000 window = 12,500 ticks), setting burn-in at
 #   6,500 ticks (>= 3,000) where strong policies (rwa-01 u1472) reach crowding equilibrium
 #   (~350-385 time-averaged length).
@@ -438,6 +455,262 @@ def validate_compatible_policies(policies: Sequence[LoadedEvalPolicy]) -> GameV3
     return GameV3Config.from_dict({**ref_dict, "max_life_ticks": 0})
 
 
+def estimate_eval_memory(
+    *,
+    game_cfg: GameV3Config,
+    net_sizes: Sequence[NetSize],
+    eval_mode: str,
+    num_envs_per_match: int,
+    pairs_per_batch: int = 1,
+    learner_slots: int | None = None,
+    amp: bool = True,
+    gpu: str | None = None,
+) -> dict[str, Any]:
+    """Estimate GPU VRAM footprint for standalone arena evaluation (including batched pairs)."""
+    if eval_mode not in EVAL_MODES:
+        raise ValueError(f"eval_mode must be one of {EVAL_MODES}, got {eval_mode!r}")
+    if not net_sizes:
+        raise ValueError("net_sizes must be non-empty")
+    w_per_match = int(num_envs_per_match)
+    if w_per_match < 1:
+        raise ValueError(f"num_envs_per_match must be >= 1, got {w_per_match}")
+    b_pairs = max(1, int(pairs_per_batch)) if eval_mode == "round-robin" else 1
+    total_worlds = w_per_match * b_pairs
+    n_snakes = int(game_cfg.num_snakes)
+    layout = obs_layout_from_game_config(game_cfg)
+
+    sim_mem = estimate_sim_memory_bytes(game_cfg, total_worlds)
+    obs_rows_per_world = (
+        n_snakes
+        if (eval_mode != "long-game" or learner_slots is None)
+        else max(1, min(n_snakes, int(learner_slots)))
+    )
+    total_obs_rows = total_worlds * obs_rows_per_world
+    obs_batch_bytes = total_obs_rows * int(layout.obs_batch_bytes_per_row)
+
+    policy_weights_bytes = sum(
+        int(get_net_preset(sz).memory_model_param_count) * 4 for sz in net_sizes
+    )
+
+    if eval_mode == "long-game":
+        max_pol_rows = total_obs_rows
+    elif eval_mode == "head-to-head":
+        max_pol_rows = int(math.ceil(total_obs_rows / float(max(1, len(net_sizes)))))
+    else:
+        max_pairs_for_one_policy = min(b_pairs, max(1, len(net_sizes) - 1))
+        seats_per_pair_side = (w_per_match * n_snakes + 1) // 2
+        max_pol_rows = max_pairs_for_one_policy * seats_per_pair_side
+
+    fwd_workspace_bytes = 0
+    for sz in set(net_sizes):
+        preset = get_net_preset(sz)
+        chunk_rows = min(max(1, max_pol_rows), int(preset.default_actor_chunk_learners))
+        chunk_temp = estimate_actor_chunk_temp_bytes(
+            actor_chunk_rows=chunk_rows,
+            net_size=sz,
+            amp=bool(amp),
+            game_cfg=game_cfg,
+        )
+        gather_slice_bytes = max_pol_rows * int(layout.obs_batch_bytes_per_row)
+        fwd_workspace_bytes = max(fwd_workspace_bytes, int(chunk_temp + gather_slice_bytes))
+
+    accumulators_bytes = total_worlds * 4096
+    obs_build_temp_bytes = int(_OBS_BUILD_TEMP_BYTES)
+    cuda_runtime_reserve_bytes = int(_CUDA_RUNTIME_RESERVE_BYTES)
+
+    estimated_peak_bytes = int(
+        sim_mem["sim_peak_bytes"]
+        + obs_batch_bytes
+        + obs_build_temp_bytes
+        + policy_weights_bytes
+        + fwd_workspace_bytes
+        + accumulators_bytes
+        + cuda_runtime_reserve_bytes
+    )
+    out: dict[str, Any] = {
+        "eval_mode": eval_mode,
+        "num_policies": len(net_sizes),
+        "net_sizes": [str(sz) for sz in net_sizes],
+        "num_envs_per_match": w_per_match,
+        "pairs_per_batch": b_pairs,
+        "total_worlds": total_worlds,
+        "total_obs_rows": total_obs_rows,
+        "max_policy_rows_per_tick": max_pol_rows,
+        "persistent_per_world_bytes": int(sim_mem["persistent_per_world_bytes"]),
+        "peak_per_world_bytes": int(sim_mem["peak_per_world_bytes"]),
+        "sim_persistent_bytes": int(sim_mem["sim_persistent_bytes"]),
+        "sim_peak_bytes": int(sim_mem["sim_peak_bytes"]),
+        "obs_batch_bytes": int(obs_batch_bytes),
+        "obs_build_temp_bytes": obs_build_temp_bytes,
+        "policy_weights_bytes": int(policy_weights_bytes),
+        "fwd_workspace_bytes": int(fwd_workspace_bytes),
+        "accumulators_bytes": int(accumulators_bytes),
+        "cuda_runtime_reserve_bytes": cuda_runtime_reserve_bytes,
+        "estimated_peak_bytes": estimated_peak_bytes,
+    }
+    if gpu is not None:
+        gpu_key = str(gpu).strip().upper()
+        if gpu_key in GPU_VRAM_BUDGET_BYTES:
+            budget = int(GPU_VRAM_BUDGET_BYTES[gpu_key])
+            out["gpu"] = gpu_key
+            out["budget_bytes"] = budget
+            out["fits_budget"] = bool(estimated_peak_bytes <= budget)
+            out["headroom_bytes"] = int(budget - estimated_peak_bytes)
+    return out
+
+
+def select_pairs_per_batch(
+    *,
+    game_cfg: GameV3Config,
+    net_sizes: Sequence[NetSize],
+    num_envs_per_pair: int,
+    total_pairs_to_run: int,
+    vram_budget_bytes: int,
+    amp: bool = True,
+    max_pairs_override: int | None = None,
+    gpu_label: str = "GPU",
+) -> tuple[int, dict[str, Any]]:
+    """Choose the largest number of round-robin pairs per batch fitting ``vram_budget_bytes``."""
+    if max_pairs_override is not None and int(max_pairs_override) < 1:
+        raise ValueError(f"max_pairs_per_batch must be >= 1, got {max_pairs_override}")
+    budget = int(vram_budget_bytes)
+    single_mem = estimate_eval_memory(
+        game_cfg=game_cfg,
+        net_sizes=net_sizes,
+        eval_mode="round-robin",
+        num_envs_per_match=int(num_envs_per_pair),
+        pairs_per_batch=1,
+        amp=amp,
+        gpu=gpu_label if gpu_label in GPU_VRAM_BUDGET_BYTES else None,
+    )
+    if int(single_mem["estimated_peak_bytes"]) > budget:
+        raise ValueError(
+            f"Refusing round-robin configuration on {gpu_label}: even 1 pair "
+            f"({num_envs_per_pair} worlds) requires {single_mem['estimated_peak_bytes'] / 1e9:.2f} GB "
+            f"peak VRAM, exceeding {budget / 1e9:.2f} GB budget."
+        )
+
+    upper = max(1, int(total_pairs_to_run))
+    if max_pairs_override is not None:
+        upper = min(upper, int(max_pairs_override))
+
+    lo, hi = 1, upper
+    best_b = 1
+    best_mem = single_mem
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        cand_mem = estimate_eval_memory(
+            game_cfg=game_cfg,
+            net_sizes=net_sizes,
+            eval_mode="round-robin",
+            num_envs_per_match=int(num_envs_per_pair),
+            pairs_per_batch=mid,
+            amp=amp,
+            gpu=gpu_label if gpu_label in GPU_VRAM_BUDGET_BYTES else None,
+        )
+        if int(cand_mem["estimated_peak_bytes"]) <= budget:
+            best_b = mid
+            best_mem = cand_mem
+            lo = mid + 1
+        else:
+            hi = mid - 1
+
+    best_mem = dict(best_mem)
+    best_mem["budget_bytes"] = budget
+    best_mem["fits_budget"] = True
+    best_mem["headroom_bytes"] = int(budget - int(best_mem["estimated_peak_bytes"]))
+    return best_b, best_mem
+
+
+def build_pair_reuse_key(
+    *,
+    num_envs: int,
+    burnin_ticks: int,
+    window_ticks: int,
+    greedy: bool,
+    seed: int,
+    policy_a_sha256: str,
+    policy_b_sha256: str,
+) -> dict[str, Any]:
+    """Build the complete reuse key governing round-robin pair artifact skipping."""
+    return {
+        "num_envs": int(num_envs),
+        "burnin_ticks": int(burnin_ticks),
+        "window_ticks": int(window_ticks),
+        "greedy": bool(greedy),
+        "seed": int(seed),
+        "policy_a_sha256": str(policy_a_sha256),
+        "policy_b_sha256": str(policy_b_sha256),
+    }
+
+
+def extract_pair_reuse_key(unit_payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Extract the full pair reuse key from a completed ``pairs/pair_XX_YY.json`` payload."""
+    if not isinstance(unit_payload, Mapping):
+        raise ValueError(f"Pair unit payload must be a dict, got {type(unit_payload)!r}")
+    rk = unit_payload.get("reuse_key")
+    if isinstance(rk, Mapping):
+        missing = [k for k in PAIR_REUSE_KEY_FIELDS if k not in rk]
+        if missing:
+            raise ValueError(f"Pair unit reuse_key missing required fields: {missing}")
+        if not isinstance(rk["greedy"], bool):
+            raise ValueError(f"Pair unit reuse_key.greedy must be bool, got {rk['greedy']!r}")
+        return build_pair_reuse_key(
+            num_envs=int(rk["num_envs"]),
+            burnin_ticks=int(rk["burnin_ticks"]),
+            window_ticks=int(rk["window_ticks"]),
+            greedy=bool(rk["greedy"]),
+            seed=int(rk["seed"]),
+            policy_a_sha256=str(rk["policy_a_sha256"]),
+            policy_b_sha256=str(rk["policy_b_sha256"]),
+        )
+
+    match_obj = unit_payload.get("match")
+    if not isinstance(match_obj, Mapping):
+        raise ValueError("Pair unit payload missing 'match' mapping")
+    ecfg = match_obj.get("eval_config")
+    if not isinstance(ecfg, Mapping):
+        raise ValueError("Pair unit match missing 'eval_config' mapping")
+    for req_k in ("num_envs", "burnin_ticks", "window_ticks"):
+        if req_k not in ecfg:
+            raise ValueError(f"Pair unit eval_config missing required field {req_k!r}")
+    if "greedy" not in match_obj or not isinstance(match_obj["greedy"], bool):
+        raise ValueError("Pair unit match missing boolean 'greedy' field")
+    if "seed" not in unit_payload:
+        raise ValueError("Pair unit payload missing 'seed' field")
+    pols = unit_payload.get("policies")
+    if not isinstance(pols, Sequence) or len(pols) != 2:
+        raise ValueError("Pair unit payload must record exactly 2 policies")
+    return build_pair_reuse_key(
+        num_envs=int(ecfg["num_envs"]),
+        burnin_ticks=int(ecfg["burnin_ticks"]),
+        window_ticks=int(ecfg["window_ticks"]),
+        greedy=bool(match_obj["greedy"]),
+        seed=int(unit_payload["seed"]),
+        policy_a_sha256=str(pols[0]["checkpoint_sha256"]),
+        policy_b_sha256=str(pols[1]["checkpoint_sha256"]),
+    )
+
+
+def validate_pair_unit_reuse(
+    unit_id: str,
+    unit_payload: Mapping[str, Any],
+    expected_key: Mapping[str, Any],
+) -> None:
+    """Raise ``ValueError`` if ``unit_payload`` disagrees with ``expected_key`` on any reuse field."""
+    actual = extract_pair_reuse_key(unit_payload)
+    mismatches = {
+        k: (actual.get(k), expected_key.get(k))
+        for k in PAIR_REUSE_KEY_FIELDS
+        if actual.get(k) != expected_key.get(k)
+    }
+    if mismatches:
+        detail = ", ".join(
+            f"{k}={got!r} != expected {exp!r}" for k, (got, exp) in mismatches.items()
+        )
+        raise ValueError(f"Staged/existing pair unit {unit_id} reuse-key mismatch: {detail}")
+
+
 @torch.no_grad()
 def act_policy_chunked(
     policy: LoadedEvalPolicy,
@@ -483,6 +756,86 @@ def act_policy_chunked(
     return actions
 
 
+@torch.no_grad()
+def _batched_policy_logits_and_probs(
+    policy: LoadedEvalPolicy,
+    obs_s1: torch.Tensor,
+    obs_s4: torch.Tensor,
+    obs_s16: torch.Tensor,
+    obs_scalars: torch.Tensor,
+    obs_mask: torch.Tensor,
+    *,
+    greedy: bool,
+) -> tuple[torch.Tensor, torch.Tensor | None]:
+    """Run one chunked forward for ``policy`` across all seats it plays in across a pair batch."""
+    m_total = int(obs_s1.shape[0])
+    dev = obs_s1.device
+    if m_total == 0:
+        empty = torch.empty((0, NUM_ACTIONS), dtype=torch.float32, device=dev)
+        return empty, (None if greedy else empty)
+
+    chunk = max(1, min(m_total, int(policy.actor_chunk_learners)))
+    model = policy.model
+    masked_logits_out = torch.empty((m_total, NUM_ACTIONS), dtype=torch.float32, device=dev)
+    probs_out = (
+        None if greedy else torch.empty((m_total, NUM_ACTIONS), dtype=torch.float32, device=dev)
+    )
+    for start in range(0, m_total, chunk):
+        end = min(m_total, start + chunk)
+        with model._autocast_ctx(dev):
+            trunk, _ = model.encode_trunk(
+                obs_s1[start:end],
+                obs_s4[start:end],
+                obs_s16[start:end],
+                obs_scalars[start:end],
+            )
+        if dev.type == "cuda":
+            with torch.amp.autocast(device_type="cuda", enabled=False):
+                raw_logits = model.policy_head(trunk.float())
+                m_logits, safe_mask = model.mask_policy_logits(raw_logits, obs_mask[start:end])
+                masked_logits_out[start:end] = m_logits
+                if probs_out is not None:
+                    p_chunk = F.softmax(m_logits, dim=-1).masked_fill(~safe_mask, 0.0)
+                    probs_out[start:end] = p_chunk / p_chunk.sum(dim=-1, keepdim=True).clamp_min(
+                        1e-12
+                    )
+        else:
+            raw_logits = model.policy_head(trunk.float())
+            m_logits, safe_mask = model.mask_policy_logits(raw_logits, obs_mask[start:end])
+            masked_logits_out[start:end] = m_logits
+            if probs_out is not None:
+                p_chunk = F.softmax(m_logits, dim=-1).masked_fill(~safe_mask, 0.0)
+                probs_out[start:end] = p_chunk / p_chunk.sum(dim=-1, keepdim=True).clamp_min(1e-12)
+    return masked_logits_out, probs_out
+
+
+@torch.no_grad()
+def _sample_actions_from_probs_chunked(
+    probs: torch.Tensor,
+    *,
+    actor_chunk_learners: int,
+    generator: torch.Generator | None,
+) -> torch.Tensor:
+    """Sample actions from ``probs`` using the exact per-chunk ``torch.multinomial`` sequence."""
+    m_side = int(probs.shape[0])
+    dev = probs.device
+    if m_side == 0:
+        return torch.empty((0,), dtype=torch.long, device=dev)
+    chunk = max(1, min(m_side, int(actor_chunk_learners)))
+    out = torch.empty((m_side,), dtype=torch.long, device=dev)
+    for start in range(0, m_side, chunk):
+        end = min(m_side, start + chunk)
+        p_slice = probs[start:end]
+        if generator is not None and generator.device.type == "cpu" and dev.type != "cpu":
+            act_cpu = torch.multinomial(p_slice.detach().cpu(), num_samples=1, generator=generator)
+            out[start:end] = act_cpu.squeeze(-1).to(device=dev, dtype=torch.long)
+        else:
+            out[start:end] = torch.multinomial(p_slice, num_samples=1, generator=generator).squeeze(
+                -1
+            )
+    return out
+
+
 def build_rotated_seat_assignment(
     num_envs: int,
     num_snakes: int,
@@ -497,7 +850,7 @@ def build_rotated_seat_assignment(
        e.g., ``12, 8, 6, 4`` seats for ``P = 2, 3, 4, 6`` on ``N = 24``; ``5`` or ``4`` for ``P = 5``).
     2. Interleaves policies across slot indices within every world (avoiding slot-index tie bias).
     3. Rotates spawn slot assignments across worlds with period ``P`` so every policy occupies
-       every spawn slot ``s`` equally often over any multiple of ``P`` worlds.
+       every spawn slot ``s`` equally often when ``num_envs`` is a multiple of ``P``.
     """
     if num_envs < 1:
         raise ValueError(f"num_envs must be >= 1, got {num_envs}")
@@ -507,6 +860,11 @@ def build_rotated_seat_assignment(
         raise ValueError(f"head-to-head requires 2 to 6 policies, got {num_policies}")
     if num_policies > num_snakes:
         raise ValueError(f"num_policies ({num_policies}) cannot exceed num_snakes ({num_snakes})")
+    if int(num_envs) % int(num_policies) != 0:
+        raise ValueError(
+            f"num_envs ({num_envs}) must be a multiple of num_policies ({num_policies}) "
+            "so cyclic seat rotation (slot + world) % P cancels spawn-slot bias"
+        )
     dev = normalize_device(device)
     w_idx = torch.arange(int(num_envs), dtype=torch.int64, device=dev)[:, None]
     s_idx = torch.arange(int(num_snakes), dtype=torch.int64, device=dev)[None, :]
@@ -983,6 +1341,69 @@ def evaluate_head_to_head(
     world_kill_mat_np = world_kill_mat_1d.view(e_cnt, p_cnt, kill_cols).cpu().numpy()
     death_causes_np = death_causes_pc.view(p_cnt, 4).cpu().numpy()
 
+    return _finalize_head_to_head_result(
+        policies=policies,
+        game_cfg=game_cfg,
+        dev=dev,
+        num_envs=int(num_envs),
+        burnin_ticks=int(burnin_ticks),
+        window_ticks=int(window_ticks),
+        mass_bin_ticks=int(mass_bin_ticks),
+        greedy=bool(greedy),
+        seed=int(seed),
+        bootstrap_samples=int(bootstrap_samples),
+        deterministic=bool(deterministic),
+        wall_seconds=wall_seconds,
+        seats_per_world_np=seats_per_world_np,
+        ts_mass_np=ts_mass_np,
+        ts_ticks=ts_ticks,
+        win_mass_np=win_mass_np,
+        win_steps_np=win_steps_np,
+        win_kills_np=win_kills_np,
+        win_deaths_np=win_deaths_np,
+        win_boost_np=win_boost_np,
+        win_eaten_np=win_eaten_np,
+        win_shed_np=win_shed_np,
+        world_kill_mat_np=world_kill_mat_np,
+        death_causes_np=death_causes_np,
+    )
+
+
+def _finalize_head_to_head_result(
+    *,
+    policies: Sequence[LoadedEvalPolicy],
+    game_cfg: GameV3Config,
+    dev: torch.device,
+    num_envs: int,
+    burnin_ticks: int,
+    window_ticks: int,
+    mass_bin_ticks: int,
+    greedy: bool,
+    seed: int,
+    bootstrap_samples: int,
+    deterministic: bool,
+    wall_seconds: float,
+    seats_per_world_np: np.ndarray,
+    ts_mass_np: np.ndarray,
+    ts_ticks: np.ndarray,
+    win_mass_np: np.ndarray,
+    win_steps_np: np.ndarray,
+    win_kills_np: np.ndarray,
+    win_deaths_np: np.ndarray,
+    win_boost_np: np.ndarray,
+    win_eaten_np: np.ndarray,
+    win_shed_np: np.ndarray,
+    world_kill_mat_np: np.ndarray,
+    death_causes_np: np.ndarray,
+) -> dict[str, Any]:
+    """Build the canonical ``head-to-head`` JSON payload from per-world numpy accumulators."""
+    p_cnt = len(policies)
+    e_cnt = int(num_envs)
+    n_cnt = int(game_cfg.num_snakes)
+    total_ticks = int(burnin_ticks) + int(window_ticks)
+    num_ts_bins = int(ts_mass_np.shape[0])
+    kill_cols = p_cnt + 2
+
     total_arena_mass = float(win_mass_np.sum())
     labels = [pol.label for pol in policies]
 
@@ -1110,6 +1531,9 @@ def evaluate_head_to_head(
                 0.5,
             )
             world_share_std = float(np.std(world_shares_i, ddof=1)) if e_cnt > 1 else 0.0
+            share_half_width = 0.5 * (
+                float(mass_ci["share_a_ci95_high"]) - float(mass_ci["share_a_ci95_low"])
+            )
 
             k_ij_tot = int(kills_i_on_j_w.sum())
             k_ji_tot = int(kills_j_on_i_w.sum())
@@ -1122,6 +1546,8 @@ def evaluate_head_to_head(
                     "world_mass_wins_a": world_wins_i,
                     "world_mass_win_rate_a": round(world_wins_i / max(1, e_cnt), 6),
                     "per_world_mass_share_std": round(world_share_std, 6),
+                    "mass_share_ci95_half_width": round(share_half_width, 6),
+                    "mass_share_diff_ci95_half_width": round(2.0 * share_half_width, 6),
                     "mass_share_a": mass_ci["share_a"],
                     "mass_share_b": round(1.0 - mass_ci["share_a"], 6),
                     "mass_share_a_ci95": [
@@ -1146,8 +1572,8 @@ def evaluate_head_to_head(
                         kill_ci["share_a_ci95_low"],
                         kill_ci["share_a_ci95_high"],
                     ],
-                    "per_world_norm_mass_a": [round(float(x), 2) for x in norm_mass_i.tolist()],
-                    "per_world_norm_mass_b": [round(float(x), 2) for x in norm_mass_j.tolist()],
+                    "per_world_norm_mass_a": [round(float(x), 6) for x in norm_mass_i.tolist()],
+                    "per_world_norm_mass_b": [round(float(x), 6) for x in norm_mass_j.tolist()],
                 }
             )
 
@@ -1191,6 +1617,311 @@ def evaluate_head_to_head(
             "agent_steps_per_sec": round(total_agent_steps / max(1e-9, wall_seconds), 2),
         },
     }
+
+
+@torch.no_grad()
+def _evaluate_pairs_batched(
+    policies: Sequence[LoadedEvalPolicy],
+    batch_pairs: Sequence[tuple[int, int]],
+    *,
+    num_envs: int,
+    burnin_ticks: int,
+    window_ticks: int,
+    mass_bin_ticks: int,
+    greedy: bool,
+    seed: int,
+    bootstrap_samples: int,
+    deterministic: bool,
+    should_stop: Callable[[], bool] | None = None,
+) -> tuple[list[dict[str, Any]], float]:
+    """Run ``len(batch_pairs)`` 2-policy matches simultaneously in one batched ``GameV3Sim``.
+
+    Pair ``b`` owns worlds ``[b * num_envs, (b + 1) * num_envs)`` with identical per-pair world
+    seeds and independent per-(pair, side) RNG streams, while batching each unique policy's
+    network forward across every world it plays in during that tick.
+    """
+    b_cnt = len(batch_pairs)
+    if b_cnt < 1:
+        return [], 0.0
+    w_cnt = int(num_envs)
+    if w_cnt < 2 or w_cnt % 2 != 0:
+        raise ValueError(
+            f"Round-robin num_envs per pair ({w_cnt}) must be an even integer >= 2 "
+            "so cyclic seat rotation (slot + world) % 2 cancels spawn-slot bias"
+        )
+    if burnin_ticks < 0:
+        raise ValueError(f"burnin_ticks must be >= 0, got {burnin_ticks}")
+    if window_ticks < 1:
+        raise ValueError(f"window_ticks must be >= 1, got {window_ticks}")
+    if mass_bin_ticks < 1:
+        raise ValueError(f"mass_bin_ticks must be >= 1, got {mass_bin_ticks}")
+
+    game_cfg = validate_compatible_policies(policies)
+    dev = next(policies[0].model.parameters()).device
+    for pol in policies:
+        pol.model.eval()
+
+    total_ticks = int(burnin_ticks) + int(window_ticks)
+    num_ts_bins = max(1, int(math.ceil(total_ticks / float(mass_bin_ticks))))
+    e_total = b_cnt * w_cnt
+
+    t_wall0 = time.perf_counter()
+    with preserve_rng_state():
+        if dev.type == "cpu" and deterministic:
+            configure_determinism(True)
+        seed_everything(int(seed))
+
+        pair_world_seeds = derive_world_seeds(int(seed), w_cnt, stream_id=701)
+        all_world_seeds = pair_world_seeds * b_cnt
+        sim = GameV3Sim(game_cfg, num_envs=e_total, device=dev, seeds=all_world_seeds)
+        n_cnt = sim.N
+
+        single_seat_side = build_rotated_seat_assignment(w_cnt, n_cnt, 2, device=dev)
+        seats_per_world_single_np = (
+            torch.stack([(single_seat_side == side).sum(dim=1) for side in range(2)], dim=1)
+            .cpu()
+            .numpy()
+        )
+        single_flat = single_seat_side.reshape(-1)
+        local_f0 = torch.nonzero(single_flat == 0, as_tuple=False).squeeze(1)
+        local_f1 = torch.nonzero(single_flat == 1, as_tuple=False).squeeze(1)
+        local_seat_side = single_seat_side.repeat(b_cnt, 1)
+
+        occurrences_by_pol: dict[int, list[tuple[torch.Tensor, torch.Generator | None]]] = {}
+        for b_idx, (pol_i, pol_j) in enumerate(batch_pairs):
+            base_flat = b_idx * w_cnt * n_cnt
+            gen_0 = _make_action_generator(dev, int(seed) ^ (0x9E37_79B9 * 1))
+            gen_1 = _make_action_generator(dev, int(seed) ^ (0x9E37_79B9 * 2))
+            occurrences_by_pol.setdefault(pol_i, []).append((base_flat + local_f0, gen_0))
+            occurrences_by_pol.setdefault(pol_j, []).append((base_flat + local_f1, gen_1))
+
+        active_pol_plans: list[
+            tuple[int, torch.Tensor, list[tuple[int, int, torch.Generator | None]]]
+        ] = []
+        for pol_idx in sorted(occurrences_by_pol.keys()):
+            occ_list = occurrences_by_pol[pol_idx]
+            cat_idx = torch.cat([f_idx for f_idx, _ in occ_list], dim=0)
+            slices: list[tuple[int, int, torch.Generator | None]] = []
+            cursor = 0
+            for f_idx, gen_bs in occ_list:
+                nxt = cursor + int(f_idx.shape[0])
+                slices.append((cursor, nxt, gen_bs))
+                cursor = nxt
+            active_pol_plans.append((pol_idx, cat_idx, slices))
+
+        full_obs: ObservationBatch = allocate_obs_batch(sim)
+        assert_obs_batch_matches_layout(
+            ObservationBatch(
+                raster_s1=full_obs.raster_s1.flatten(0, 1),
+                raster_s4=full_obs.raster_s4.flatten(0, 1),
+                raster_s16=full_obs.raster_s16.flatten(0, 1),
+                scalars=full_obs.scalars.flatten(0, 1),
+                action_mask=full_obs.action_mask.flatten(0, 1),
+            ),
+            policies[0].obs_layout,
+            batch_rows=e_total * n_cnt,
+            context="arena_eval.round_robin_batched",
+        )
+
+        # Device accumulators across all B * W worlds (zero host syncs inside loop)
+        ts_mass_bp = torch.zeros((b_cnt, num_ts_bins, 2), dtype=torch.int64, device=dev)
+        ts_ticks = np.zeros((num_ts_bins,), dtype=np.int64)
+
+        win_mass_ep = torch.zeros((e_total, 2), dtype=torch.int64, device=dev)
+        win_steps_ep = torch.zeros((e_total, 2), dtype=torch.int64, device=dev)
+        win_kills_ep = torch.zeros((e_total, 2), dtype=torch.int64, device=dev)
+        win_deaths_ep = torch.zeros((e_total, 2), dtype=torch.int64, device=dev)
+        win_boost_ep = torch.zeros((e_total, 2), dtype=torch.int64, device=dev)
+        win_eaten_ep = torch.zeros((e_total, 2), dtype=torch.int64, device=dev)
+        win_shed_ep = torch.zeros((e_total, 2), dtype=torch.int64, device=dev)
+
+        kill_cols = 4
+        world_kill_mat_1d = torch.zeros((e_total * 2 * kill_cols,), dtype=torch.int64, device=dev)
+        world_ids_en = torch.arange(e_total, dtype=torch.int64, device=dev)[:, None].expand(
+            e_total, n_cnt
+        )
+        pair_ids_en = torch.div(world_ids_en, w_cnt, rounding_mode="floor")
+        death_causes_bpc_1d = torch.zeros((b_cnt * 2 * 4,), dtype=torch.int64, device=dev)
+
+        world_actions_flat = torch.empty((e_total * n_cnt,), dtype=torch.long, device=dev)
+        last_progress_mono = time.perf_counter()
+
+        for tick in range(total_ticks):
+            if should_stop is not None and should_stop():
+                raise StopRequestedError(
+                    f"Stop requested during batched round-robin ({b_cnt} pairs) at tick {tick}"
+                )
+            now_mono = time.perf_counter()
+            if (now_mono - last_progress_mono) >= 90.0:
+                phase_stamp(
+                    "arena_eval_rr_batch",
+                    "PROGRESS",
+                    pairs_in_batch=b_cnt,
+                    worlds=e_total,
+                    tick=tick,
+                    total_ticks=total_ticks,
+                    elapsed_sec=round(now_mono - t_wall0, 2),
+                )
+                last_progress_mono = now_mono
+
+            build_obs(sim, out=full_obs)
+            r1 = full_obs.raster_s1.flatten(0, 1)
+            r4 = full_obs.raster_s4.flatten(0, 1)
+            r16 = full_obs.raster_s16.flatten(0, 1)
+            sc = full_obs.scalars.flatten(0, 1)
+            am = full_obs.action_mask.flatten(0, 1)
+
+            for pol_idx, pol_flat_idx, pol_slices in active_pol_plans:
+                pol = policies[pol_idx]
+                m_logits, probs = _batched_policy_logits_and_probs(
+                    pol,
+                    r1.index_select(0, pol_flat_idx),
+                    r4.index_select(0, pol_flat_idx),
+                    r16.index_select(0, pol_flat_idx),
+                    sc.index_select(0, pol_flat_idx),
+                    am.index_select(0, pol_flat_idx),
+                    greedy=bool(greedy),
+                )
+                if greedy:
+                    acts_pol = m_logits.argmax(dim=-1)
+                else:
+                    assert probs is not None
+                    acts_pol = torch.empty(
+                        (int(pol_flat_idx.shape[0]),), dtype=torch.long, device=dev
+                    )
+                    for sl_start, sl_end, gen_bs in pol_slices:
+                        acts_pol[sl_start:sl_end] = _sample_actions_from_probs_chunked(
+                            probs[sl_start:sl_end],
+                            actor_chunk_learners=pol.actor_chunk_learners,
+                            generator=gen_bs,
+                        )
+                world_actions_flat.index_copy_(0, pol_flat_idx, acts_pol)
+
+            world_actions = world_actions_flat.view(e_total, n_cnt)
+            acted_es = sim.alive & (~sim.truncated_pending)
+            pre_len = sim.length.clone()
+            pre_boost_ticks = sim.boost_ticks.clone()
+
+            in_window = tick >= int(burnin_ticks)
+            if in_window:
+                pre_hx = sim.head_pos[:, :, 0].clone()
+                pre_hy = sim.head_pos[:, :, 1].clone()
+                pre_theta = sim.theta.clone()
+                pre_accum = sim.dist_accum_fp.clone()
+
+            live_len_i64 = torch.where(
+                acted_es, pre_len.to(torch.int64), torch.zeros_like(local_seat_side)
+            )
+            wp_mass_tick = torch.zeros((e_total, 2), dtype=torch.int64, device=dev)
+            wp_mass_tick.scatter_add_(1, local_seat_side, live_len_i64)
+
+            ts_idx = min(num_ts_bins - 1, tick // int(mass_bin_ticks))
+            ts_mass_bp[:, ts_idx, :] += wp_mass_tick.view(b_cnt, w_cnt, 2).sum(dim=1)
+            ts_ticks[ts_idx] += 1
+
+            info = sim.step(world_actions)
+
+            if in_window:
+                win_mass_ep += wp_mass_tick
+                win_steps_ep.scatter_add_(1, local_seat_side, acted_es.to(torch.int64))
+                died_es = acted_es & info.died
+                win_deaths_ep.scatter_add_(1, local_seat_side, died_es.to(torch.int64))
+                win_kills_ep.scatter_add_(1, local_seat_side, info.kill_credit.to(torch.int64))
+
+                boosting_es = (
+                    acted_es
+                    & (world_actions >= NUM_TURN_LEVELS)
+                    & (pre_len > int(sim.cfg.min_boost_length))
+                )
+                inc_bt = torch.where(boosting_es, pre_boost_ticks + 1, pre_boost_ticks)
+                shed_es = boosting_es & (inc_bt >= int(sim.cfg.boost_shed_ticks))
+                win_boost_ep.scatter_add_(1, local_seat_side, boosting_es.to(torch.int64))
+                win_shed_ep.scatter_add_(
+                    1, local_seat_side, shed_es.to(torch.int64) * int(sim.cfg.boost_shed_mass)
+                )
+                win_eaten_ep.scatter_add_(1, local_seat_side, info.mass_eaten.to(torch.int64))
+
+                ks = info.killer_id
+                killer_side = local_seat_side.gather(1, ks.clamp(0, n_cnt - 1).to(torch.int64))
+                killer_col = torch.where(
+                    ks >= 0,
+                    killer_side,
+                    torch.full_like(local_seat_side, 2),
+                )
+                flat_km_key = (
+                    world_ids_en * (2 * kill_cols) + local_seat_side * kill_cols + killer_col
+                ).reshape(-1)
+                world_kill_mat_1d.index_put_(
+                    (flat_km_key,),
+                    died_es.reshape(-1).to(torch.int64),
+                    accumulate=True,
+                )
+
+                causes = classify_step_deaths(
+                    sim,
+                    acted_es=acted_es,
+                    world_actions=world_actions,
+                    pre_hx=pre_hx,
+                    pre_hy=pre_hy,
+                    pre_theta=pre_theta,
+                    pre_len=pre_len,
+                    pre_accum=pre_accum,
+                    pre_boost_ticks=pre_boost_ticks,
+                    died=info.died,
+                    killer_id=info.killer_id,
+                )
+                valid_c = causes >= 0
+                c_key = (pair_ids_en * 8 + local_seat_side * 4 + causes.clamp_min(0)).reshape(-1)
+                death_causes_bpc_1d.index_put_(
+                    (c_key,), valid_c.reshape(-1).to(torch.int64), accumulate=True
+                )
+
+        synchronize_device(dev)
+        batch_wall_seconds = time.perf_counter() - t_wall0
+
+    ts_mass_bp_np = ts_mass_bp.cpu().numpy()
+    win_mass_all = win_mass_ep.view(b_cnt, w_cnt, 2).cpu().numpy()
+    win_steps_all = win_steps_ep.view(b_cnt, w_cnt, 2).cpu().numpy()
+    win_kills_all = win_kills_ep.view(b_cnt, w_cnt, 2).cpu().numpy()
+    win_deaths_all = win_deaths_ep.view(b_cnt, w_cnt, 2).cpu().numpy()
+    win_boost_all = win_boost_ep.view(b_cnt, w_cnt, 2).cpu().numpy()
+    win_eaten_all = win_eaten_ep.view(b_cnt, w_cnt, 2).cpu().numpy()
+    win_shed_all = win_shed_ep.view(b_cnt, w_cnt, 2).cpu().numpy()
+    world_kill_all = world_kill_mat_1d.view(b_cnt, w_cnt, 2, kill_cols).cpu().numpy()
+    death_causes_all = death_causes_bpc_1d.view(b_cnt, 2, 4).cpu().numpy()
+
+    per_pair_wall = batch_wall_seconds / float(max(1, b_cnt))
+    h2h_list: list[dict[str, Any]] = []
+    for b_idx, (pol_i, pol_j) in enumerate(batch_pairs):
+        h2h_list.append(
+            _finalize_head_to_head_result(
+                policies=[policies[pol_i], policies[pol_j]],
+                game_cfg=game_cfg,
+                dev=dev,
+                num_envs=w_cnt,
+                burnin_ticks=int(burnin_ticks),
+                window_ticks=int(window_ticks),
+                mass_bin_ticks=int(mass_bin_ticks),
+                greedy=bool(greedy),
+                seed=int(seed),
+                bootstrap_samples=int(bootstrap_samples),
+                deterministic=bool(deterministic),
+                wall_seconds=per_pair_wall,
+                seats_per_world_np=seats_per_world_single_np,
+                ts_mass_np=ts_mass_bp_np[b_idx],
+                ts_ticks=ts_ticks,
+                win_mass_np=win_mass_all[b_idx],
+                win_steps_np=win_steps_all[b_idx],
+                win_kills_np=win_kills_all[b_idx],
+                win_deaths_np=win_deaths_all[b_idx],
+                win_boost_np=win_boost_all[b_idx],
+                win_eaten_np=win_eaten_all[b_idx],
+                win_shed_np=win_shed_all[b_idx],
+                world_kill_mat_np=world_kill_all[b_idx],
+                death_causes_np=death_causes_all[b_idx],
+            )
+        )
+    return h2h_list, batch_wall_seconds
 
 
 def discover_round_robin_checkpoints(
@@ -1296,15 +2027,29 @@ def evaluate_round_robin(
     bootstrap_samples: int = DEFAULT_BOOTSTRAP_SAMPLES,
     bt_prior_wins: float = DEFAULT_BT_PRIOR_WINS,
     deterministic: bool = True,
+    batched: bool = True,
+    max_pairs_per_batch: int | None = None,
+    vram_budget_bytes: int | None = None,
     output_dir: Path | None = None,
     verified_pair_paths: Mapping[str, Path] | None = None,
     max_wall_seconds: float | None = None,
     should_stop: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
-    """Play every unordered pair of ``policies`` and compute Bradley-Terry Elo ratings."""
+    """Play every unordered pair of ``policies`` (batched in one simulator by default).
+
+    Ranks policies primarily by mean pairwise mass share (with synchronous paired world-bootstrap
+    95% CIs) and reports regularized Bradley-Terry Elo on per-world wins as a secondary column.
+    """
     m_cnt = len(policies)
     if m_cnt < 2:
         raise ValueError(f"Round-robin requires >= 2 policies, got {m_cnt}")
+    if int(num_envs) < 2 or int(num_envs) % 2 != 0:
+        raise ValueError(
+            f"num_envs ({num_envs}) must be a multiple of 2 in round-robin "
+            "so cyclic seat rotation (slot + world) % 2 cancels spawn-slot bias"
+        )
+    if max_pairs_per_batch is not None and int(max_pairs_per_batch) < 1:
+        raise ValueError(f"max_pairs_per_batch must be >= 1, got {max_pairs_per_batch}")
     game_cfg = validate_compatible_policies(policies)
     dev = next(policies[0].model.parameters()).device
     labels = [p.label for p in policies]
@@ -1314,75 +2059,177 @@ def evaluate_round_robin(
     if pairs_dir is not None:
         pairs_dir.mkdir(parents=True, exist_ok=True)
 
-    total_pairs = (m_cnt * (m_cnt - 1)) // 2
-    pair_results: list[dict[str, Any]] = []
+    all_pairs: list[tuple[int, int]] = [(i, j) for i in range(m_cnt) for j in range(i + 1, m_cnt)]
+    total_pairs = len(all_pairs)
     reused_pairs: list[str] = []
+    h2h_by_pair: dict[tuple[int, int], dict[str, Any]] = {}
+    pending_pairs: list[tuple[int, int]] = []
 
-    wins_mat = np.zeros((m_cnt, m_cnt), dtype=np.float64)
-    games_mat = np.zeros((m_cnt, m_cnt), dtype=np.float64)
-    mass_share_mat = np.full((m_cnt, m_cnt), np.nan, dtype=np.float64)
-    per_world_wins_dict: dict[tuple[int, int], np.ndarray] = {}
+    for i, j in all_pairs:
+        unit_id = f"pair_{i:02d}_{j:02d}"
+        expected_key = build_pair_reuse_key(
+            num_envs=int(num_envs),
+            burnin_ticks=int(burnin_ticks),
+            window_ticks=int(window_ticks),
+            greedy=bool(greedy),
+            seed=int(seed),
+            policy_a_sha256=policies[i].source_checkpoint_sha256,
+            policy_b_sha256=policies[j].source_checkpoint_sha256,
+        )
+        loaded_unit: dict[str, Any] | None = None
+        if verified_pair_paths and unit_id in verified_pair_paths:
+            vp = Path(verified_pair_paths[unit_id])
+            verify_completed_artifact(vp)
+            loaded_unit = json.loads(vp.read_text(encoding="utf-8"))
+        elif (
+            pairs_dir is not None
+            and (pairs_dir / f"{unit_id}.json").is_file()
+            and (pairs_dir / f"{unit_id}.json.complete").is_file()
+        ):
+            vp = pairs_dir / f"{unit_id}.json"
+            verify_completed_artifact(vp)
+            loaded_unit = json.loads(vp.read_text(encoding="utf-8"))
 
-    agg_steps = np.zeros((m_cnt,), dtype=np.int64)
-    agg_mass_sum = np.zeros((m_cnt,), dtype=np.float64)
-    agg_kills = np.zeros((m_cnt,), dtype=np.int64)
-    agg_deaths = np.zeros((m_cnt,), dtype=np.int64)
-    agg_net_kill_bal = np.zeros((m_cnt,), dtype=np.int64)
-    pair_shares_list: list[list[float]] = [[] for _ in range(m_cnt)]
+        if loaded_unit is not None:
+            validate_pair_unit_reuse(unit_id, loaded_unit, expected_key)
+            reused_pairs.append(unit_id)
+            h2h_by_pair[(i, j)] = loaded_unit["match"]
+        else:
+            pending_pairs.append((i, j))
 
-    pair_ordinal = 0
-    for i in range(m_cnt):
-        for j in range(i + 1, m_cnt):
-            pair_ordinal += 1
-            unit_id = f"pair_{i:02d}_{j:02d}"
+    def _coop_stop() -> bool:
+        if should_stop is not None and should_stop():
+            return True
+        if max_wall_seconds is not None:
+            return (time.perf_counter() - t_start) >= float(max_wall_seconds)
+        return False
 
-            if should_stop is not None and should_stop():
-                raise StopRequestedError(f"Stop requested before round-robin {unit_id}")
-            if max_wall_seconds is not None and (time.perf_counter() - t_start) >= max_wall_seconds:
-                raise StopRequestedError(
-                    f"Wall guard ({max_wall_seconds:.1f}s) reached before {unit_id} "
-                    f"({pair_ordinal - 1}/{total_pairs} pairs completed)"
-                )
+    def _export_pair_unit(i: int, j: int, h2h_payload: dict[str, Any]) -> None:
+        if pairs_dir is None:
+            return
+        unit_id = f"pair_{i:02d}_{j:02d}"
+        unit_file = pairs_dir / f"{unit_id}.json"
+        if not artifact_or_sidecar_exists(unit_file):
+            write_create_only_json(
+                unit_file,
+                {
+                    "schema": V3_ARENA_EVAL_PAIR_SCHEMA,
+                    "unit_id": unit_id,
+                    "pair_indices": [i, j],
+                    "seed": int(seed),
+                    "reuse_key": build_pair_reuse_key(
+                        num_envs=int(num_envs),
+                        burnin_ticks=int(burnin_ticks),
+                        window_ticks=int(window_ticks),
+                        greedy=bool(greedy),
+                        seed=int(seed),
+                        policy_a_sha256=policies[i].source_checkpoint_sha256,
+                        policy_b_sha256=policies[j].source_checkpoint_sha256,
+                    ),
+                    "policies": h2h_payload["policies"],
+                    "match": h2h_payload,
+                },
+            )
 
-            loaded_unit: dict[str, Any] | None = None
-            if verified_pair_paths and unit_id in verified_pair_paths:
-                vp = Path(verified_pair_paths[unit_id])
-                verify_completed_artifact(vp)
-                loaded_unit = json.loads(vp.read_text(encoding="utf-8"))
-                reused_pairs.append(unit_id)
-            elif (
-                pairs_dir is not None
-                and (pairs_dir / f"{unit_id}.json").is_file()
-                and (pairs_dir / f"{unit_id}.json.complete").is_file()
-            ):
-                vp = pairs_dir / f"{unit_id}.json"
-                verify_completed_artifact(vp)
-                loaded_unit = json.loads(vp.read_text(encoding="utf-8"))
-                reused_pairs.append(unit_id)
-
-            if loaded_unit is not None:
-                # Validate provenance matches current policies and seed
-                u_shas = [p["checkpoint_sha256"] for p in loaded_unit.get("policies", [])]
-                exp_shas = [
-                    policies[i].source_checkpoint_sha256,
-                    policies[j].source_checkpoint_sha256,
-                ]
-                if u_shas != exp_shas or int(loaded_unit.get("seed", -1)) != int(seed):
-                    raise ValueError(
-                        f"Staged/existing pair unit {unit_id} provenance mismatch: "
-                        f"shas={u_shas} vs {exp_shas}, seed={loaded_unit.get('seed')} vs {seed}"
-                    )
-                h2h = loaded_unit["match"]
+    net_sizes_all: list[NetSize] = [p.net_size for p in policies]
+    eff_amp = any(bool(p.model.cfg.use_bf16_autocast) for p in policies) and dev.type == "cuda"
+    if not batched:
+        eff_pairs_per_batch = 1
+    elif pending_pairs:
+        if vram_budget_bytes is not None or dev.type == "cuda":
+            if vram_budget_bytes is not None:
+                eff_budget = int(vram_budget_bytes)
             else:
+                total_vram = int(torch.cuda.get_device_properties(dev).total_memory)
+                eff_budget = int(total_vram * 0.92)
+            eff_pairs_per_batch, _ = select_pairs_per_batch(
+                game_cfg=game_cfg,
+                net_sizes=net_sizes_all,
+                num_envs_per_pair=int(num_envs),
+                total_pairs_to_run=len(pending_pairs),
+                vram_budget_bytes=eff_budget,
+                amp=eff_amp,
+                max_pairs_override=max_pairs_per_batch,
+                gpu_label=str(dev),
+            )
+        elif max_pairs_per_batch is not None:
+            eff_pairs_per_batch = min(len(pending_pairs), int(max_pairs_per_batch))
+        else:
+            eff_pairs_per_batch = len(pending_pairs)
+    else:
+        eff_pairs_per_batch = (
+            int(max_pairs_per_batch) if max_pairs_per_batch is not None else max(1, total_pairs)
+        )
+
+    batches_executed = 0
+    sim_compute_wall_sec = 0.0
+    if pending_pairs:
+        if batched:
+            total_batches = int(math.ceil(len(pending_pairs) / float(eff_pairs_per_batch)))
+            for b_ord, start_idx in enumerate(
+                range(0, len(pending_pairs), eff_pairs_per_batch), start=1
+            ):
+                batch_slice = pending_pairs[start_idx : start_idx + eff_pairs_per_batch]
+                first_uid = f"pair_{batch_slice[0][0]:02d}_{batch_slice[0][1]:02d}"
+                if should_stop is not None and should_stop():
+                    raise StopRequestedError(
+                        f"Stop requested before round-robin batch {b_ord}/{total_batches} ({first_uid})"
+                    )
+                if (
+                    max_wall_seconds is not None
+                    and (time.perf_counter() - t_start) >= max_wall_seconds
+                ):
+                    raise StopRequestedError(
+                        f"Wall guard ({max_wall_seconds:.1f}s) reached before batch {b_ord}/{total_batches} "
+                        f"({len(h2h_by_pair)}/{total_pairs} pairs completed)"
+                    )
+                phase_stamp(
+                    "arena_eval_round_robin",
+                    "BATCH_START",
+                    batch_ordinal=b_ord,
+                    total_batches=total_batches,
+                    pairs_in_batch=len(batch_slice),
+                    worlds_in_batch=len(batch_slice) * int(num_envs),
+                )
+                batch_h2h, batch_wall = _evaluate_pairs_batched(
+                    policies,
+                    batch_slice,
+                    num_envs=num_envs,
+                    burnin_ticks=burnin_ticks,
+                    window_ticks=window_ticks,
+                    mass_bin_ticks=mass_bin_ticks,
+                    greedy=greedy,
+                    seed=seed,
+                    bootstrap_samples=bootstrap_samples,
+                    deterministic=deterministic,
+                    should_stop=_coop_stop,
+                )
+                batches_executed += 1
+                sim_compute_wall_sec += batch_wall
+                for (i, j), h2h_item in zip(batch_slice, batch_h2h):
+                    h2h_by_pair[(i, j)] = h2h_item
+                    _export_pair_unit(i, j, h2h_item)
+        else:
+            for p_ord, (i, j) in enumerate(pending_pairs, start=1):
+                unit_id = f"pair_{i:02d}_{j:02d}"
+                if should_stop is not None and should_stop():
+                    raise StopRequestedError(f"Stop requested before round-robin {unit_id}")
+                if (
+                    max_wall_seconds is not None
+                    and (time.perf_counter() - t_start) >= max_wall_seconds
+                ):
+                    raise StopRequestedError(
+                        f"Wall guard ({max_wall_seconds:.1f}s) reached before {unit_id} "
+                        f"({len(h2h_by_pair)}/{total_pairs} pairs completed)"
+                    )
                 phase_stamp(
                     "arena_eval_round_robin",
                     "PAIR_START",
-                    pair_ordinal=pair_ordinal,
-                    total_pairs=total_pairs,
+                    pair_ordinal=p_ord,
+                    pending_pairs=len(pending_pairs),
                     pair=f"{labels[i]} vs {labels[j]}",
                 )
-                # Common paired world seeds across all pairs reduce tournament variance!
-                h2h = evaluate_head_to_head(
+                h2h_item = evaluate_head_to_head(
                     [policies[i], policies[j]],
                     num_envs=num_envs,
                     burnin_ticks=burnin_ticks,
@@ -1392,73 +2239,91 @@ def evaluate_round_robin(
                     seed=seed,
                     bootstrap_samples=bootstrap_samples,
                     deterministic=deterministic,
-                    should_stop=should_stop,
+                    should_stop=_coop_stop,
                 )
-                if pairs_dir is not None:
-                    unit_file = pairs_dir / f"{unit_id}.json"
-                    if not artifact_or_sidecar_exists(unit_file):
-                        write_create_only_json(
-                            unit_file,
-                            {
-                                "schema": V3_ARENA_EVAL_PAIR_SCHEMA,
-                                "unit_id": unit_id,
-                                "pair_indices": [i, j],
-                                "seed": int(seed),
-                                "policies": h2h["policies"],
-                                "match": h2h,
-                            },
-                        )
+                batches_executed += 1
+                sim_compute_wall_sec += float(h2h_item["throughput"]["wall_seconds"])
+                h2h_by_pair[(i, j)] = h2h_item
+                _export_pair_unit(i, j, h2h_item)
 
-            pw = h2h["pairwise"][0]
-            pair_results.append(
-                {
-                    "unit_id": unit_id,
-                    "i": i,
-                    "j": j,
-                    **pw,
-                    "wall_seconds": h2h["throughput"]["wall_seconds"],
-                }
-            )
+    pair_results: list[dict[str, Any]] = []
+    wins_mat = np.zeros((m_cnt, m_cnt), dtype=np.float64)
+    games_mat = np.zeros((m_cnt, m_cnt), dtype=np.float64)
+    mass_share_mat = np.full((m_cnt, m_cnt), np.nan, dtype=np.float64)
+    per_world_wins_dict: dict[tuple[int, int], np.ndarray] = {}
+    per_world_norm_mass_dict: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]] = {}
 
-            e_w = int(pw["num_worlds"])
-            w_ij = float(pw["world_mass_wins_a"])
-            wins_mat[i, j] = w_ij
-            wins_mat[j, i] = float(e_w) - w_ij
-            games_mat[i, j] = float(e_w)
-            games_mat[j, i] = float(e_w)
+    agg_steps = np.zeros((m_cnt,), dtype=np.int64)
+    agg_mass_sum = np.zeros((m_cnt,), dtype=np.float64)
+    agg_kills = np.zeros((m_cnt,), dtype=np.int64)
+    agg_deaths = np.zeros((m_cnt,), dtype=np.int64)
+    agg_net_kill_bal = np.zeros((m_cnt,), dtype=np.int64)
+    pair_shares_list: list[list[float]] = [[] for _ in range(m_cnt)]
 
-            sh_i = float(pw["mass_share_a"])
-            mass_share_mat[i, j] = sh_i
-            mass_share_mat[j, i] = 1.0 - sh_i
-            pair_shares_list[i].append(sh_i)
-            pair_shares_list[j].append(1.0 - sh_i)
+    for i, j in all_pairs:
+        unit_id = f"pair_{i:02d}_{j:02d}"
+        h2h = h2h_by_pair[(i, j)]
+        pw = dict(h2h["pairwise"][0])
+        if "mass_share_ci95_half_width" not in pw:
+            ci_s = pw["mass_share_a_ci95"]
+            hw = 0.5 * (float(ci_s[1]) - float(ci_s[0]))
+            pw["mass_share_ci95_half_width"] = round(hw, 6)
+            pw["mass_share_diff_ci95_half_width"] = round(2.0 * hw, 6)
+        pair_results.append(
+            {
+                "unit_id": unit_id,
+                "i": i,
+                "j": j,
+                **pw,
+                "wall_seconds": h2h["throughput"]["wall_seconds"],
+            }
+        )
 
-            ma = np.asarray(pw["per_world_norm_mass_a"], dtype=np.float64)
-            mb = np.asarray(pw["per_world_norm_mass_b"], dtype=np.float64)
-            per_world_wins_dict[(i, j)] = np.where(ma > mb, 1.0, np.where(ma == mb, 0.5, 0.0))
+        e_w = int(pw["num_worlds"])
+        w_ij = float(pw["world_mass_wins_a"])
+        wins_mat[i, j] = w_ij
+        wins_mat[j, i] = float(e_w) - w_ij
+        games_mat[i, j] = float(e_w)
+        games_mat[j, i] = float(e_w)
 
-            p0, p1 = h2h["per_policy"][0], h2h["per_policy"][1]
-            agg_steps[i] += int(p0["acted_steps"])
-            agg_steps[j] += int(p1["acted_steps"])
-            agg_mass_sum[i] += float(p0["time_averaged_length"]) * int(p0["acted_steps"])
-            agg_mass_sum[j] += float(p1["time_averaged_length"]) * int(p1["acted_steps"])
-            agg_kills[i] += int(p0["kills"])
-            agg_kills[j] += int(p1["kills"])
-            agg_deaths[i] += int(p0["deaths"])
-            agg_deaths[j] += int(p1["deaths"])
-            bal = int(pw["kill_balance_a_minus_b"])
-            agg_net_kill_bal[i] += bal
-            agg_net_kill_bal[j] -= bal
+        sh_i = float(pw["mass_share_a"])
+        mass_share_mat[i, j] = sh_i
+        mass_share_mat[j, i] = 1.0 - sh_i
+        pair_shares_list[i].append(sh_i)
+        pair_shares_list[j].append(1.0 - sh_i)
 
+        ma = np.asarray(pw["per_world_norm_mass_a"], dtype=np.float64)
+        mb = np.asarray(pw["per_world_norm_mass_b"], dtype=np.float64)
+        per_world_norm_mass_dict[(i, j)] = (ma, mb)
+        per_world_wins_dict[(i, j)] = np.where(ma > mb, 1.0, np.where(ma == mb, 0.5, 0.0))
+
+        p0, p1 = h2h["per_policy"][0], h2h["per_policy"][1]
+        agg_steps[i] += int(p0["acted_steps"])
+        agg_steps[j] += int(p1["acted_steps"])
+        agg_mass_sum[i] += float(p0["time_averaged_length"]) * int(p0["acted_steps"])
+        agg_mass_sum[j] += float(p1["time_averaged_length"]) * int(p1["acted_steps"])
+        agg_kills[i] += int(p0["kills"])
+        agg_kills[j] += int(p1["kills"])
+        agg_deaths[i] += int(p0["deaths"])
+        agg_deaths[j] += int(p1["deaths"])
+        bal = int(pw["kill_balance_a_minus_b"])
+        agg_net_kill_bal[i] += bal
+        agg_net_kill_bal[j] -= bal
+
+    mean_share_pt = np.array(
+        [float(np.mean(pair_shares_list[p_i])) for p_i in range(m_cnt)], dtype=np.float64
+    )
     elo_pt = fit_bradley_terry_elo(wins_mat, games_mat, prior_wins=bt_prior_wins)
 
-    # Synchronous world-bootstrap 95% CIs for Bradley-Terry Elo ratings
+    # Synchronous paired world-bootstrap 95% CIs for BOTH headline Mean Pairwise Mass Share and BT Elo
     e_worlds = int(num_envs)
     if e_worlds > 1 and int(bootstrap_samples) > 0:
         rng = np.random.Generator(
             np.random.PCG64((int(seed) ^ 0xA5A5_5A5A) & 0xFFFF_FFFF_FFFF_FFFF)
         )
+        bs_mean_shares = np.zeros((int(bootstrap_samples), m_cnt), dtype=np.float64)
         bs_elos = np.empty((int(bootstrap_samples), m_cnt), dtype=np.float64)
+        denom_opp = float(max(1, m_cnt - 1))
         for b_idx in range(int(bootstrap_samples)):
             w_sample = rng.integers(0, e_worlds, size=(e_worlds,))
             bs_w = np.zeros((m_cnt, m_cnt), dtype=np.float64)
@@ -1466,29 +2331,48 @@ def evaluate_round_robin(
                 s_ij = float(w_vec[w_sample].sum())
                 bs_w[i, j] = s_ij
                 bs_w[j, i] = float(e_worlds) - s_ij
+                ma, mb = per_world_norm_mass_dict[(i, j)]
+                sa = float(ma[w_sample].sum())
+                sb = float(mb[w_sample].sum())
+                sh_ij = sa / (sa + sb) if (sa + sb) > 0.0 else 0.5
+                bs_mean_shares[b_idx, i] += sh_ij
+                bs_mean_shares[b_idx, j] += 1.0 - sh_ij
+            bs_mean_shares[b_idx] /= denom_opp
             bs_elos[b_idx] = fit_bradley_terry_elo(bs_w, games_mat, prior_wins=bt_prior_wins)
+        share_lo = np.percentile(bs_mean_shares, 2.5, axis=0)
+        share_hi = np.percentile(bs_mean_shares, 97.5, axis=0)
         elo_lo = np.percentile(bs_elos, 2.5, axis=0)
         elo_hi = np.percentile(bs_elos, 97.5, axis=0)
     else:
+        share_lo = mean_share_pt.copy()
+        share_hi = mean_share_pt.copy()
         elo_lo = elo_pt.copy()
         elo_hi = elo_pt.copy()
 
-    order = np.argsort(-elo_pt)
+    # Headline ranking by Mean Pairwise Mass Share descending (tie-break by BT Elo, then policy_index)
+    order = sorted(
+        range(m_cnt),
+        key=lambda p_i: (-round(float(mean_share_pt[p_i]), 9), -float(elo_pt[p_i]), p_i),
+    )
     standings: list[dict[str, Any]] = []
-    for rank_idx, p_i in enumerate(order.tolist(), start=1):
+    for rank_idx, p_i in enumerate(order, start=1):
         tot_w = float(wins_mat[p_i].sum())
         tot_g = float(games_mat[p_i].sum())
         steps_i = int(agg_steps[p_i])
         d1k = max(1, steps_i) / 1000.0
+        sh_lo_i = round(float(share_lo[p_i]), 6)
+        sh_hi_i = round(float(share_hi[p_i]), 6)
         standings.append(
             {
                 "rank": rank_idx,
                 "policy_index": p_i,
                 "label": labels[p_i],
                 "net_size": policies[p_i].net_size,
+                "mean_pairwise_mass_share": round(float(mean_share_pt[p_i]), 6),
+                "mean_pairwise_mass_share_ci95": [sh_lo_i, sh_hi_i],
+                "mean_pairwise_mass_share_ci95_half_width": round(0.5 * (sh_hi_i - sh_lo_i), 6),
                 "elo": round(float(elo_pt[p_i]), 2),
                 "elo_ci95": [round(float(elo_lo[p_i]), 2), round(float(elo_hi[p_i]), 2)],
-                "mean_pairwise_mass_share": round(float(np.mean(pair_shares_list[p_i])), 6),
                 "world_wins": round(tot_w, 1),
                 "world_games": int(tot_g),
                 "world_win_rate": round(tot_w / max(1.0, tot_g), 6),
@@ -1500,9 +2384,9 @@ def evaluate_round_robin(
         )
 
     wall_total = time.perf_counter() - t_start
-    total_steps_all = int(
-        total_pairs * num_envs * game_cfg.num_snakes * (burnin_ticks + window_ticks)
-    )
+    ticks_per_pair = int(burnin_ticks) + int(window_ticks)
+    total_sim_ticks_executed = int(batches_executed * ticks_per_pair)
+    total_steps_all = int(total_pairs * num_envs * game_cfg.num_snakes * ticks_per_pair)
     pairwise_mass_grid = {
         labels[i]: {
             labels[j]: (None if i == j else round(float(mass_share_mat[i, j]), 6))
@@ -1518,10 +2402,12 @@ def evaluate_round_robin(
         "code_commit": resolve_code_commit(),
         "seed": int(seed),
         "greedy": bool(greedy),
+        "primary_ranking_metric": "mean_pairwise_mass_share",
         "rating_model": (
-            f"Bradley-Terry MLE on per-world normalized mass-share wins "
-            f"(1.0 win, 0.5 tie, 0.0 loss; Elo = 1500 + 400*log10(pi) centered at 1500; "
-            f"symmetric prior_wins={bt_prior_wins} per pair)"
+            "Headline ranking: mean pairwise mass share with synchronous paired world-bootstrap "
+            f"95% CIs. Secondary column: regularized Bradley-Terry Elo on per-world mass-share wins "
+            f"(prior_wins={bt_prior_wins}; secondary only because per-world win counts saturate "
+            "under sweeps when world-to-world mass-share spread is ~0.5%)."
         ),
         "eval_config": {
             "mode": "round-robin",
@@ -1536,6 +2422,8 @@ def evaluate_round_robin(
             "bootstrap_samples": int(bootstrap_samples),
             "bt_prior_wins": float(bt_prior_wins),
             "deterministic": bool(deterministic),
+            "batched_pairs": bool(batched),
+            "pairs_per_batch": int(eff_pairs_per_batch),
             "device": str(dev),
         },
         "policies": [pol.provenance_dict(policy_index=i) for i, pol in enumerate(policies)],
@@ -1545,9 +2433,17 @@ def evaluate_round_robin(
         "reused_pair_units": reused_pairs,
         "throughput": {
             "wall_seconds": round(wall_total, 4),
+            "sim_compute_wall_seconds": round(sim_compute_wall_sec, 4),
             "total_pairs": total_pairs,
             "reused_pairs": len(reused_pairs),
             "computed_pairs": total_pairs - len(reused_pairs),
+            "batches_executed": batches_executed,
+            "total_sim_ticks_executed": total_sim_ticks_executed,
+            "ms_per_sim_tick": (
+                round(1000.0 * sim_compute_wall_sec / float(total_sim_ticks_executed), 4)
+                if total_sim_ticks_executed > 0
+                else 0.0
+            ),
             "nominal_total_agent_steps": total_steps_all,
         },
     }
@@ -2091,6 +2987,38 @@ def evaluate_long_game(
     }
 
 
+def _format_measured_spread_bullet(pairs: Sequence[Mapping[str, Any]]) -> str | None:
+    """Summarize actually measured per-world mass-share spread and 95% CI half-width."""
+    if not pairs:
+        return None
+    sds = [float(pw.get("per_world_mass_share_std", 0.0)) for pw in pairs]
+    hws = [
+        float(
+            pw.get(
+                "mass_share_ci95_half_width",
+                0.5 * (float(pw["mass_share_a_ci95"][1]) - float(pw["mass_share_a_ci95"][0])),
+            )
+        )
+        for pw in pairs
+    ]
+    med_sd_pct = 100.0 * float(np.median(sds))
+    max_sd_pct = 100.0 * float(np.max(sds))
+    max_hw_pct = 100.0 * float(np.max(hws))
+    max_gap_pp = 2.0 * max_hw_pct
+    w_cnt = int(pairs[0].get("num_worlds", 0))
+    sep_clause = (
+        "separates a 5.00 pp (52.5% vs 47.5%) A-B mass-share gap at the measured spread"
+        if max_gap_pp <= 5.0
+        else f"separates A-B mass-share gaps >= {max_gap_pp:.2f} pp (does not separate a 5.00 pp gap at this measured spread)"
+    )
+    return (
+        f"- **Measured World-to-World Spread (`{w_cnt}` worlds):** "
+        f"per-world mass-share SD median `{med_sd_pct:.2f}%`, max `{max_sd_pct:.2f}%` -> "
+        f"worst-case 95% CI half-width `±{max_hw_pct:.2f}%` on mass share "
+        f"(`±{max_gap_pp:.2f} pp` on `A - B` gap; {sep_clause})"
+    )
+
+
 def format_eval_markdown(result: Mapping[str, Any]) -> str:
     """Format an ``arena_eval`` result dictionary into human-readable GitHub Markdown tables."""
     mode = str(result.get("mode", ""))
@@ -2110,6 +3038,9 @@ def format_eval_markdown(result: Mapping[str, Any]) -> str:
             f"(`{cfg.get('burnin_ticks')}` burn-in + `{cfg.get('window_ticks')}` window ticks), "
             f"`{cfg.get('num_snakes')}` seats rotated via `(slot + world) % P`"
         )
+        spread_line = _format_measured_spread_bullet(result.get("pairwise", []))
+        if spread_line is not None:
+            lines.append(spread_line)
         lines.extend(
             [
                 "",
@@ -2131,19 +3062,24 @@ def format_eval_markdown(result: Mapping[str, Any]) -> str:
         lines.extend(
             [
                 "",
-                "## Pairwise Comparisons (Bootstrap 95% CI over Worlds)",
+                "## Pairwise Comparisons (Bootstrap 95% CI & Measured World Spread)",
                 "",
-                "| Matchup (A vs B) | Worlds | A Mass Share [95% CI] | Mass Diff (A-B) [95% CI] | Kills (A on B / B on A) | Kill Balance/World [95% CI] |",
-                "| :--- | ---: | ---: | ---: | ---: | ---: |",
+                "| Matchup (A vs B) | Worlds | A Mass Share [95% CI] | World Spread SD | ±CI95 Half-Width | Mass Diff (A-B) [95% CI] | Kills (A on B / B on A) | Kill Balance/World [95% CI] |",
+                "| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
             ]
         )
         for pw in result["pairwise"]:
             ci_s = pw["mass_share_a_ci95"]
             ci_d = pw["mass_share_diff_ci95"]
             ci_k = pw["kill_balance_per_world_ci95"]
+            sd_pct = 100.0 * float(pw.get("per_world_mass_share_std", 0.0))
+            hw_pct = 100.0 * float(
+                pw.get("mass_share_ci95_half_width", 0.5 * (float(ci_s[1]) - float(ci_s[0])))
+            )
             lines.append(
                 f"| `{pw['pair']}` | {pw['num_worlds']} | "
                 f"{100.0 * pw['mass_share_a']:.2f}% [{100.0 * ci_s[0]:.2f}%, {100.0 * ci_s[1]:.2f}%] | "
+                f"{sd_pct:.2f}% | ±{hw_pct:.2f}% | "
                 f"{100.0 * pw['mass_share_diff_a_minus_b']:+.2f}% "
                 f"[{100.0 * ci_d[0]:+.2f}%, {100.0 * ci_d[1]:+.2f}%] | "
                 f"{pw['kills_a_on_b']} / {pw['kills_b_on_a']} ({pw['kill_balance_a_minus_b']:+d}) | "
@@ -2187,30 +3123,66 @@ def format_eval_markdown(result: Mapping[str, Any]) -> str:
             )
 
     elif mode == "round-robin":
+        exec_mode = (
+            f"batched (`<= {cfg.get('pairs_per_batch')}` pairs/batch)"
+            if cfg.get("batched_pairs", True)
+            else "sequential (`1` pair/sim)"
+        )
         lines.append(
-            f"- **Tournament:** `{cfg.get('num_policies')}` policies (`{cfg.get('num_pairs')}` pairs), "
+            f"- **Tournament:** `{cfg.get('num_policies')}` policies (`{cfg.get('num_pairs')}` pairs, {exec_mode}), "
             f"`{cfg.get('num_envs')}` worlds × (`{cfg.get('burnin_ticks')}` + `{cfg.get('window_ticks')}` ticks)"
         )
-        lines.append(f"- **Ratings:** {result.get('rating_model')}")
+        lines.append(f"- **Ranking & Ratings:** {result.get('rating_model')}")
+        spread_line = _format_measured_spread_bullet(result.get("pairs", []))
+        if spread_line is not None:
+            lines.append(spread_line)
         lines.extend(
             [
                 "",
-                "## Round-Robin Standings & Bradley-Terry Elo",
+                "## Round-Robin Standings (Ranked by Mean Pairwise Mass Share)",
                 "",
-                "| Rank | Policy | Net | BT Elo [95% CI] | Mean Mass Share | World Wins | Time-Avg Len | Kills / 1k | Deaths / 1k | Net Kills |",
+                "| Rank | Policy | Net | Mean Mass Share [95% CI] | World Wins | BT Elo [95% CI] (Secondary) | Time-Avg Len | Kills / 1k | Deaths / 1k | Net Kills |",
                 "| ---: | :--- | :---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
             ]
         )
         for s in result["standings"]:
             eci = s["elo_ci95"]
+            m_sh = float(s["mean_pairwise_mass_share"])
+            m_ci = s.get("mean_pairwise_mass_share_ci95", [m_sh, m_sh])
             lines.append(
                 f"| {s['rank']} | `{s['label']}` | {s['net_size']} | "
-                f"{s['elo']:.1f} [{eci[0]:.1f}, {eci[1]:.1f}] | "
-                f"{100.0 * s['mean_pairwise_mass_share']:.2f}% | "
+                f"{100.0 * m_sh:.2f}% [{100.0 * float(m_ci[0]):.2f}%, {100.0 * float(m_ci[1]):.2f}%] | "
                 f"{s['world_wins']:.1f}/{s['world_games']} ({100.0 * s['world_win_rate']:.1f}%) | "
+                f"{s['elo']:.1f} [{eci[0]:.1f}, {eci[1]:.1f}] | "
                 f"{s['time_averaged_length']:.2f} | {s['kills_per_1k_agent_steps']:.3f} | "
                 f"{s['deaths_per_1k_agent_steps']:.3f} | {s['net_kill_balance']:+d} |"
             )
+
+        if result.get("pairs"):
+            lines.extend(
+                [
+                    "",
+                    "## Pairwise Matchups (Bootstrap 95% CI & Measured World Spread)",
+                    "",
+                    "| Pair | Matchup (A vs B) | Worlds | A Mass Share [95% CI] | World Spread SD | ±CI95 Half-Width | Mass Diff (A-B) [95% CI] | Kills (A on B / B on A) |",
+                    "| :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: |",
+                ]
+            )
+            for pw in result["pairs"]:
+                ci_s = pw["mass_share_a_ci95"]
+                ci_d = pw["mass_share_diff_ci95"]
+                sd_pct = 100.0 * float(pw.get("per_world_mass_share_std", 0.0))
+                hw_pct = 100.0 * float(
+                    pw.get("mass_share_ci95_half_width", 0.5 * (float(ci_s[1]) - float(ci_s[0])))
+                )
+                lines.append(
+                    f"| `{pw['unit_id']}` | `{pw['pair']}` | {pw['num_worlds']} | "
+                    f"{100.0 * pw['mass_share_a']:.2f}% [{100.0 * ci_s[0]:.2f}%, {100.0 * ci_s[1]:.2f}%] | "
+                    f"{sd_pct:.2f}% | ±{hw_pct:.2f}% | "
+                    f"{100.0 * pw['mass_share_diff_a_minus_b']:+.2f}% "
+                    f"[{100.0 * ci_d[0]:+.2f}%, {100.0 * ci_d[1]:+.2f}%] | "
+                    f"{pw['kills_a_on_b']} / {pw['kills_b_on_a']} ({pw['kill_balance_a_minus_b']:+d}) |"
+                )
 
     elif mode == "long-game":
         pol0 = result["policies"][0]
@@ -2509,6 +3481,26 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=DEFAULT_BT_PRIOR_WINS,
         help=f"Symmetric pseudo-win prior per pair for Bradley-Terry Elo (default: {DEFAULT_BT_PRIOR_WINS}).",
     )
+    rr_batch_group = parser.add_mutually_exclusive_group()
+    rr_batch_group.add_argument(
+        "--batched-pairs",
+        dest="batched_pairs",
+        action="store_true",
+        default=True,
+        help="Run round-robin pairs side-by-side in one batched simulator (default).",
+    )
+    rr_batch_group.add_argument(
+        "--sequential-pairs",
+        dest="batched_pairs",
+        action="store_false",
+        help="Fallback: run round-robin pairs sequentially one pair at a time.",
+    )
+    parser.add_argument(
+        "--max-pairs-per-batch",
+        type=int,
+        default=None,
+        help="Optional upper bound on pairs per batched round-robin simulator run.",
+    )
     parser.add_argument(
         "--device",
         type=str,
@@ -2594,7 +3586,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.policies is not None:
             mode = "long-game" if len(args.policies) == 1 else "head-to-head"
         elif ledger_paths:
-            mode = "long-game" if len(ledger_paths) == 1 else "head-to-head"
+            if len(ledger_paths) == 1:
+                mode = "long-game"
+            elif len(ledger_paths) > 6 or bool(verified_pairs):
+                mode = "round-robin"
+            else:
+                mode = "head-to-head"
         else:
             parser.error(
                 "Specify --policies A.pt B.pt [...], --round-robin DIR_OR_LIST, or --long-game --policy A.pt"
@@ -2702,6 +3699,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 seed=int(args.seed),
                 bootstrap_samples=int(args.bootstrap_samples),
                 bt_prior_wins=float(args.bt_prior),
+                batched=bool(args.batched_pairs),
+                max_pairs_per_batch=args.max_pairs_per_batch,
                 output_dir=args.output_dir,
                 verified_pair_paths=verified_pairs,
                 max_wall_seconds=args.max_wall_seconds,

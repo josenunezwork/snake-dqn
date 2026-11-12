@@ -27,9 +27,11 @@ from research.v3_ppo.arena_eval import (
 )
 from research.v3_ppo.arena_eval import build_arg_parser as build_eval_arg_parser
 from research.v3_ppo.arena_eval import (
+    build_pair_reuse_key,
     build_rotated_seat_assignment,
     classify_step_deaths,
     discover_round_robin_checkpoints,
+    estimate_eval_memory,
     evaluate_head_to_head,
     evaluate_long_game,
     evaluate_round_robin,
@@ -39,6 +41,8 @@ from research.v3_ppo.arena_eval import (
 )
 from research.v3_ppo.arena_eval import main as arena_eval_main
 from research.v3_ppo.arena_eval import (
+    select_pairs_per_batch,
+    validate_pair_unit_reuse,
     write_weights_only_eval_bundle,
 )
 from research.v3_ppo.config import V3PPOConfig
@@ -604,6 +608,9 @@ def test_prepare_eval_packet_and_import_walker(tmp_path: Path) -> None:
         gpu="L4",
         eval_mode="round-robin",
         eval_policies=six_ckpts,
+        num_envs=2,
+        eval_burnin_ticks=4,
+        eval_window_ticks=12,
         eval_weights_only="true",
         output_dir=tmp_path / "out_canary_l4",
         allow_unmerged_commit=True,
@@ -620,6 +627,9 @@ def test_prepare_eval_packet_and_import_walker(tmp_path: Path) -> None:
         gpu="L4",
         eval_mode="round-robin",
         eval_policies=six_ckpts,
+        num_envs=2,
+        eval_burnin_ticks=4,
+        eval_window_ticks=12,
         eval_weights_only="true",
         canary_receipt=rcpt_l4,
         output_dir=out_rr,
@@ -631,6 +641,12 @@ def test_prepare_eval_packet_and_import_walker(tmp_path: Path) -> None:
     assert summary["timeout_minutes"] >= 2.0 * summary["est_minutes"]
     assert summary["eval_plan"]["num_policies"] == 6
     assert summary["eval_plan"]["total_pairs"] == 15
+    assert summary["eval_plan"]["batched_pairs"] is True
+    assert summary["eval_plan"]["pairs_per_batch"] == 15
+    assert summary["eval_plan"]["num_batches"] == 1
+    assert summary["eval_plan"]["batch_worlds"] == 30
+    assert summary["eval_plan"]["timing_source"] == "canary_measured"
+    assert summary["eval_plan"]["timing_safety_factor"] == pytest.approx(1.5)
 
     manifest = json.loads((pkt_rr / "dispatch-manifest.json").read_text(encoding="utf-8"))
     colab_schema.validate_manifest(manifest)
@@ -703,6 +719,8 @@ def test_prepare_eval_packet_and_import_walker(tmp_path: Path) -> None:
             "true",
             "--output-dir",
             str(out_h2h),
+            "--assume-ms-per-tick",
+            "45.0",
             "--allow-missing-canary-receipt",
             "--allow-unmerged-commit",
         ]
@@ -730,3 +748,511 @@ def test_prepare_eval_packet_and_import_walker(tmp_path: Path) -> None:
     res_obj = json.loads((out_h2h / "eval_result.json").read_text(encoding="utf-8"))
     assert res_obj["mode"] == "head-to-head"
     assert len(res_obj["policies"]) == 2
+
+
+def test_batched_round_robin_identical_to_standalone_h2h_and_sequential(tmp_path: Path) -> None:
+    """Batched 3-policy round-robin matches 3 standalone H2Hs, sequential fallback, and split batches."""
+    ckpt_0, _ = _make_tiny_light_checkpoint(
+        tmp_path, name="b_p0", net_size="S", seed=101, arena_radius=65.0, num_snakes=6
+    )
+    ckpt_1, _ = _make_tiny_light_checkpoint(
+        tmp_path, name="b_p1", net_size="M", seed=202, arena_radius=65.0, num_snakes=6
+    )
+    ckpt_2, _ = _make_tiny_light_checkpoint(
+        tmp_path, name="b_p2", net_size="S", seed=303, arena_radius=65.0, num_snakes=6
+    )
+    pols = [
+        load_eval_policy(ckpt_0, device="cpu", label="pol-s0"),
+        load_eval_policy(ckpt_1, device="cpu", label="pol-m1"),
+        load_eval_policy(ckpt_2, device="cpu", label="pol-s2"),
+    ]
+
+    for greedy_flag in (False, True):
+        out_b = tmp_path / f"rr_batched_{int(greedy_flag)}"
+        out_s = tmp_path / f"rr_seq_{int(greedy_flag)}"
+        out_sp = tmp_path / f"rr_split_{int(greedy_flag)}"
+        rr_batched = evaluate_round_robin(
+            pols,
+            num_envs=4,
+            burnin_ticks=6,
+            window_ticks=12,
+            mass_bin_ticks=4,
+            greedy=greedy_flag,
+            seed=20261112,
+            bootstrap_samples=150,
+            batched=True,
+            output_dir=out_b,
+        )
+        rr_seq = evaluate_round_robin(
+            pols,
+            num_envs=4,
+            burnin_ticks=6,
+            window_ticks=12,
+            mass_bin_ticks=4,
+            greedy=greedy_flag,
+            seed=20261112,
+            bootstrap_samples=150,
+            batched=False,
+            output_dir=out_s,
+        )
+        rr_split = evaluate_round_robin(
+            pols,
+            num_envs=4,
+            burnin_ticks=6,
+            window_ticks=12,
+            mass_bin_ticks=4,
+            greedy=greedy_flag,
+            seed=20261112,
+            bootstrap_samples=150,
+            batched=True,
+            max_pairs_per_batch=2,
+            output_dir=out_sp,
+        )
+
+        # Standalone head-to-head per pair with matching seed
+        standalone_pairs: dict[str, dict[str, Any]] = {}
+        for idx_a in range(3):
+            for idx_b in range(idx_a + 1, 3):
+                uid = f"pair_{idx_a:02d}_{idx_b:02d}"
+                h2h_ab = evaluate_head_to_head(
+                    [pols[idx_a], pols[idx_b]],
+                    num_envs=4,
+                    burnin_ticks=6,
+                    window_ticks=12,
+                    mass_bin_ticks=4,
+                    greedy=greedy_flag,
+                    seed=20261112,
+                    bootstrap_samples=150,
+                )
+                standalone_pairs[uid] = _strip_wall_times(h2h_ab)
+
+        assert len(rr_batched["pairs"]) == 3
+        assert _strip_wall_times(rr_batched["pairs"]) == _strip_wall_times(rr_seq["pairs"])
+        assert _strip_wall_times(rr_batched["pairs"]) == _strip_wall_times(rr_split["pairs"])
+        assert rr_batched["standings"] == rr_seq["standings"]
+        assert rr_batched["standings"] == rr_split["standings"]
+
+        for uid, standalone_h2h in standalone_pairs.items():
+            batched_match = _strip_wall_times(
+                json.loads((out_b / "pairs" / f"{uid}.json").read_text(encoding="utf-8"))["match"]
+            )
+            seq_match = _strip_wall_times(
+                json.loads((out_s / "pairs" / f"{uid}.json").read_text(encoding="utf-8"))["match"]
+            )
+            split_match = _strip_wall_times(
+                json.loads((out_sp / "pairs" / f"{uid}.json").read_text(encoding="utf-8"))["match"]
+            )
+            assert batched_match["per_policy"] == standalone_h2h["per_policy"]
+            assert batched_match["pairwise"] == standalone_h2h["pairwise"]
+            assert batched_match["kill_matrix"] == standalone_h2h["kill_matrix"]
+            assert batched_match["mass_share_over_time"] == standalone_h2h["mass_share_over_time"]
+            assert batched_match == standalone_h2h
+            assert batched_match == seq_match
+            assert batched_match == split_match
+
+
+def test_seat_rotation_divisibility_refused_in_eval_and_prepare(tmp_path: Path) -> None:
+    """Refuses world counts not divisible by the number of policies sharing a world."""
+    with pytest.raises(ValueError, match="multiple"):
+        build_rotated_seat_assignment(3, 24, 2, device="cpu")
+    with pytest.raises(ValueError, match="multiple"):
+        build_rotated_seat_assignment(4, 24, 3, device="cpu")
+    with pytest.raises(ValueError, match="multiple"):
+        build_rotated_seat_assignment(10, 24, 4, device="cpu")
+
+    c0, _ = _make_tiny_light_checkpoint(
+        tmp_path, name="div_p0", net_size="S", seed=1, arena_radius=60.0, num_snakes=6
+    )
+    c1, _ = _make_tiny_light_checkpoint(
+        tmp_path, name="div_p1", net_size="S", seed=2, arena_radius=60.0, num_snakes=6
+    )
+    c2, _ = _make_tiny_light_checkpoint(
+        tmp_path, name="div_p2", net_size="S", seed=3, arena_radius=60.0, num_snakes=6
+    )
+    p0 = load_eval_policy(c0, device="cpu", label="d0")
+    p1 = load_eval_policy(c1, device="cpu", label="d1")
+    p2 = load_eval_policy(c2, device="cpu", label="d2")
+
+    with pytest.raises(ValueError, match="multiple"):
+        evaluate_head_to_head([p0, p1], num_envs=3, burnin_ticks=2, window_ticks=6)
+    with pytest.raises(ValueError, match="multiple"):
+        evaluate_head_to_head([p0, p1, p2], num_envs=4, burnin_ticks=2, window_ticks=6)
+    with pytest.raises(ValueError, match="multiple"):
+        evaluate_round_robin([p0, p1, p2], num_envs=3, burnin_ticks=2, window_ticks=6)
+
+    with pytest.raises(ValueError, match="multiple"):
+        prepare_v3_ppo_packet(
+            tmp_path / "pkt_bad_div_h2h",
+            commit="HEAD",
+            mode="eval",
+            gpu="L4",
+            eval_policies=[c0, c1, c2],
+            num_envs=4,
+            assume_ms_per_tick=45.0,
+            allow_missing_canary_receipt=True,
+            allow_unmerged_commit=True,
+        )
+    with pytest.raises(ValueError, match="multiple"):
+        prepare_v3_ppo_packet(
+            tmp_path / "pkt_bad_div_rr",
+            commit="HEAD",
+            mode="eval",
+            gpu="L4",
+            eval_mode="round-robin",
+            eval_policies=[c0, c1, c2],
+            num_envs=5,
+            assume_ms_per_tick=45.0,
+            allow_missing_canary_receipt=True,
+            allow_unmerged_commit=True,
+        )
+
+
+def test_pair_continuation_partial_batching_and_complete_reuse_key(tmp_path: Path) -> None:
+    """Partial pair continuation skips completed pairs and refuses any reuse-key mismatch."""
+    c0, _ = _make_tiny_light_checkpoint(
+        tmp_path, name="rk_p0", net_size="S", seed=11, arena_radius=60.0, num_snakes=6
+    )
+    c1, _ = _make_tiny_light_checkpoint(
+        tmp_path, name="rk_p1", net_size="S", seed=12, arena_radius=60.0, num_snakes=6
+    )
+    c2, _ = _make_tiny_light_checkpoint(
+        tmp_path, name="rk_p2", net_size="S", seed=13, arena_radius=60.0, num_snakes=6
+    )
+    c_alt, _ = _make_tiny_light_checkpoint(
+        tmp_path, name="rk_alt", net_size="S", seed=99, arena_radius=60.0, num_snakes=6
+    )
+    pols = [load_eval_policy(c, device="cpu") for c in (c0, c1, c2)]
+
+    out_full = tmp_path / "rr_full"
+    rr_full = evaluate_round_robin(
+        pols,
+        num_envs=2,
+        burnin_ticks=4,
+        window_ticks=8,
+        greedy=False,
+        seed=5000,
+        bootstrap_samples=100,
+        output_dir=out_full,
+    )
+
+    # Simulate an interrupted session that exported only pair_00_01
+    partial_prior = tmp_path / "rr_partial_prior"
+    (partial_prior / "pairs").mkdir(parents=True)
+    for ext in ("", ".sha256", ".complete"):
+        shutil.copy2(
+            out_full / "pairs" / f"pair_00_01.json{ext}",
+            partial_prior / "pairs" / f"pair_00_01.json{ext}",
+        )
+
+    out_cont = tmp_path / "rr_cont"
+    rr_cont = evaluate_round_robin(
+        pols,
+        num_envs=2,
+        burnin_ticks=4,
+        window_ticks=8,
+        greedy=False,
+        seed=5000,
+        bootstrap_samples=100,
+        output_dir=out_cont,
+        verified_pair_paths={"pair_00_01": partial_prior / "pairs" / "pair_00_01.json"},
+    )
+    assert rr_cont["reused_pair_units"] == ["pair_00_01"]
+    assert rr_cont["standings"] == rr_full["standings"]
+    assert _strip_wall_times(rr_cont["pairs"]) == _strip_wall_times(rr_full["pairs"])
+
+    # Mutating any reuse-key parameter must be refused by both evaluate_round_robin and prepare
+    mismatch_kwargs_list: list[dict[str, Any]] = [
+        {"num_envs": 4},
+        {"burnin_ticks": 6},
+        {"window_ticks": 10},
+        {"greedy": True},
+        {"seed": 5001},
+    ]
+    for bad_kw in mismatch_kwargs_list:
+        eval_kw: dict[str, Any] = {
+            "num_envs": 2,
+            "burnin_ticks": 4,
+            "window_ticks": 8,
+            "greedy": False,
+            "seed": 5000,
+            **bad_kw,
+        }
+        with pytest.raises(ValueError, match="reuse-key mismatch"):
+            evaluate_round_robin(
+                pols,
+                **eval_kw,
+                verified_pair_paths={"pair_00_01": partial_prior / "pairs" / "pair_00_01.json"},
+            )
+
+    # Swapping checkpoint weights (different sha256) must also fail reuse-key validation
+    pols_swapped = [pols[0], load_eval_policy(c_alt, device="cpu"), pols[2]]
+    with pytest.raises(ValueError, match="reuse-key mismatch"):
+        evaluate_round_robin(
+            pols_swapped,
+            num_envs=2,
+            burnin_ticks=4,
+            window_ticks=8,
+            greedy=False,
+            seed=5000,
+            verified_pair_paths={"pair_00_01": partial_prior / "pairs" / "pair_00_01.json"},
+        )
+
+    # prepare --mode eval must validate prior pair reuse keys on Mac preflight
+    pkt_cont_ok = prepare_v3_ppo_packet(
+        tmp_path / "pkt_cont_ok",
+        commit="HEAD",
+        mode="eval",
+        gpu="L4",
+        eval_mode="round-robin",
+        eval_policies=[c0, c1, c2],
+        num_envs=2,
+        eval_burnin_ticks=4,
+        eval_window_ticks=8,
+        eval_seed=5000,
+        prior_output_dir=partial_prior,
+        assume_ms_per_tick=45.0,
+        allow_missing_canary_receipt=True,
+        allow_unmerged_commit=True,
+    )
+    assert pkt_cont_ok["eval_plan"]["reused_pairs"] == 1
+    assert pkt_cont_ok["eval_plan"]["remaining_pairs"] == 2
+
+    with pytest.raises(ValueError, match="reuse-key mismatch"):
+        prepare_v3_ppo_packet(
+            tmp_path / "pkt_cont_bad_window",
+            commit="HEAD",
+            mode="eval",
+            gpu="L4",
+            eval_mode="round-robin",
+            eval_policies=[c0, c1, c2],
+            num_envs=2,
+            eval_burnin_ticks=4,
+            eval_window_ticks=10,
+            eval_seed=5000,
+            prior_output_dir=partial_prior,
+            assume_ms_per_tick=45.0,
+            allow_missing_canary_receipt=True,
+            allow_unmerged_commit=True,
+        )
+
+
+def test_vram_sizing_batch_splitting_and_canary_timing_gate(tmp_path: Path) -> None:
+    """Checks 360-world L4/A100 VRAM sizing, automatic batch splitting, and 1.5x canary timing gate."""
+    default_game = GameV3Config()  # R=600, N=24, max_length=2048
+
+    # 6 policies (15 pairs x 24 worlds = 360 worlds) on L4 (22 GB) and A100 (40 GB)
+    ppb_l4_6m, mem_l4_6m = select_pairs_per_batch(
+        game_cfg=default_game,
+        net_sizes=["M"] * 6,
+        num_envs_per_pair=24,
+        total_pairs_to_run=15,
+        vram_budget_bytes=22_000_000_000,
+        gpu_label="L4",
+    )
+    assert ppb_l4_6m == 15
+    assert mem_l4_6m["total_worlds"] == 360
+    assert mem_l4_6m["estimated_peak_bytes"] < 22_000_000_000
+
+    ppb_a100_6m, mem_a100_6m = select_pairs_per_batch(
+        game_cfg=default_game,
+        net_sizes=["M"] * 6,
+        num_envs_per_pair=24,
+        total_pairs_to_run=15,
+        vram_budget_bytes=40_000_000_000,
+        gpu_label="A100",
+    )
+    assert ppb_a100_6m == 15
+    assert mem_a100_6m["estimated_peak_bytes"] < 40_000_000_000
+
+    # 10 M policies (45 pairs x 24 worlds = 1,080 worlds): splits into 2 batches on L4, 1 on A100
+    ppb_l4_10m, mem_l4_10m = select_pairs_per_batch(
+        game_cfg=default_game,
+        net_sizes=["M"] * 10,
+        num_envs_per_pair=24,
+        total_pairs_to_run=45,
+        vram_budget_bytes=22_000_000_000,
+        gpu_label="L4",
+    )
+    assert ppb_l4_10m == 23
+    assert mem_l4_10m["estimated_peak_bytes"] <= 22_000_000_000
+
+    ppb_a100_10m, mem_a100_10m = select_pairs_per_batch(
+        game_cfg=default_game,
+        net_sizes=["M"] * 10,
+        num_envs_per_pair=24,
+        total_pairs_to_run=45,
+        vram_budget_bytes=40_000_000_000,
+        gpu_label="A100",
+    )
+    assert ppb_a100_10m == 45
+    assert mem_a100_10m["estimated_peak_bytes"] <= 40_000_000_000
+
+    # Refuses single-pair world count exceeding L4 VRAM
+    with pytest.raises(ValueError, match="exceeding"):
+        select_pairs_per_batch(
+            game_cfg=default_game,
+            net_sizes=["M", "M"],
+            num_envs_per_pair=800,
+            total_pairs_to_run=1,
+            vram_budget_bytes=22_000_000_000,
+            gpu_label="L4",
+        )
+
+    c0, _ = _make_tiny_light_checkpoint(
+        tmp_path, name="gate_p0", net_size="S", seed=1, arena_radius=60.0, num_snakes=6
+    )
+    c1, _ = _make_tiny_light_checkpoint(
+        tmp_path, name="gate_p1", net_size="S", seed=2, arena_radius=60.0, num_snakes=6
+    )
+    c2, _ = _make_tiny_light_checkpoint(
+        tmp_path, name="gate_p2", net_size="S", seed=3, arena_radius=60.0, num_snakes=6
+    )
+
+    # Refuses --mode eval when no canary eval_canary_smoke measurement and no --assume-ms-per-tick
+    with pytest.raises(ValueError, match="assume-ms-per-tick"):
+        prepare_v3_ppo_packet(
+            tmp_path / "pkt_no_timing",
+            commit="HEAD",
+            mode="eval",
+            gpu="L4",
+            eval_mode="round-robin",
+            eval_policies=[c0, c1, c2],
+            allow_missing_canary_receipt=True,
+            allow_unmerged_commit=True,
+        )
+
+    # Batched 15-pair round robin (6 policies) at 180 ms/tick:
+    # 1 batch * 4500 ticks * 0.180 s * 1.5x = 1215.0 s (20.25 min) -> fits 60 min L4 session
+    six_pols = [c0, c1, c2, c0, c1, c2]
+    # Use distinct checkpoint files so labels/paths are clean
+    six_distinct = [c0, c1, c2]
+    for extra in range(3):
+        cx, _ = _make_tiny_light_checkpoint(
+            tmp_path,
+            name=f"gate_extra_{extra}",
+            net_size="S",
+            seed=10 + extra,
+            arena_radius=60.0,
+            num_snakes=6,
+        )
+        six_distinct.append(cx)
+    del six_pols
+
+    batched_ok = prepare_v3_ppo_packet(
+        tmp_path / "pkt_batched_180ms",
+        commit="HEAD",
+        mode="eval",
+        gpu="L4",
+        eval_mode="round-robin",
+        eval_policies=six_distinct,
+        num_envs=24,
+        eval_burnin_ticks=1500,
+        eval_window_ticks=3000,
+        assume_ms_per_tick=180.0,
+        allow_missing_canary_receipt=True,
+        allow_unmerged_commit=True,
+    )
+    assert batched_ok["eval_plan"]["num_batches"] == 1
+    assert batched_ok["eval_plan"]["total_sim_ticks"] == 4500
+    assert batched_ok["eval_plan"]["raw_compute_seconds"] == pytest.approx(810.0)
+    assert batched_ok["eval_plan"]["estimated_compute_seconds"] == pytest.approx(1215.0)
+    assert "1.50x margin" in batched_ok["eval_plan"]["sizing_arithmetic"]
+
+    # Sequential 15-pair round robin at 44 ms/tick:
+    # 15 batches * 4500 ticks = 67,500 ticks * 0.044 s * 1.5x = 4455.0 s (74.25 min) -> REFUSED on 60m session!
+    with pytest.raises(ValueError, match="exceeds 60.0 min session cap"):
+        prepare_v3_ppo_packet(
+            tmp_path / "pkt_seq_44ms_refused",
+            commit="HEAD",
+            mode="eval",
+            gpu="L4",
+            eval_mode="round-robin",
+            eval_policies=six_distinct,
+            num_envs=24,
+            eval_burnin_ticks=1500,
+            eval_window_ticks=3000,
+            eval_sequential_pairs=True,
+            assume_ms_per_tick=44.0,
+            allow_missing_canary_receipt=True,
+            allow_unmerged_commit=True,
+        )
+
+
+def test_standings_headline_mass_share_ranking_and_spread_reporting(tmp_path: Path) -> None:
+    """Standings rank by mean_pairwise_mass_share with 95% CIs; markdown prints spread & half-width."""
+    c0, _ = _make_tiny_light_checkpoint(
+        tmp_path, name="rank_p0", net_size="S", seed=41, arena_radius=60.0, num_snakes=6
+    )
+    c1, _ = _make_tiny_light_checkpoint(
+        tmp_path, name="rank_p1", net_size="S", seed=42, arena_radius=60.0, num_snakes=6
+    )
+    c2, _ = _make_tiny_light_checkpoint(
+        tmp_path, name="rank_p2", net_size="S", seed=43, arena_radius=60.0, num_snakes=6
+    )
+    pols = [load_eval_policy(c, device="cpu", label=f"rk-{i}") for i, c in enumerate((c0, c1, c2))]
+    rr = evaluate_round_robin(
+        pols,
+        num_envs=4,
+        burnin_ticks=4,
+        window_ticks=10,
+        bootstrap_samples=120,
+        seed=8080,
+    )
+    shares = [row["mean_pairwise_mass_share"] for row in rr["standings"]]
+    assert shares == sorted(shares, reverse=True)
+    for row in rr["standings"]:
+        lo, hi = row["mean_pairwise_mass_share_ci95"]
+        assert lo <= row["mean_pairwise_mass_share"] <= hi
+        assert row["mean_pairwise_mass_share_ci95_half_width"] >= 0.0
+
+    for pr in rr["pairs"]:
+        assert "per_world_mass_share_std" in pr
+        assert "mass_share_ci95_half_width" in pr
+        assert "mass_share_diff_ci95_half_width" in pr
+
+    md_rr = format_eval_markdown(rr)
+    assert "Mean Mass Share [95% CI]" in md_rr
+    assert "BT Elo [95% CI] (Secondary)" in md_rr
+    assert "saturate" in md_rr
+    assert "World Spread SD" in md_rr
+    assert "±CI95 Half-Width" in md_rr
+    assert "Measured World-to-World Spread" in md_rr
+
+    h2h_single = evaluate_head_to_head(
+        [pols[0], pols[1]],
+        num_envs=4,
+        burnin_ticks=4,
+        window_ticks=10,
+        bootstrap_samples=120,
+        seed=8080,
+    )
+    md_h2h = format_eval_markdown(h2h_single)
+    assert "World Spread SD" in md_h2h
+    assert "±CI95 Half-Width" in md_h2h
+    assert "Measured World-to-World Spread" in md_h2h
+
+
+@pytest.mark.skipif(not torch.backends.mps.is_available(), reason="MPS unavailable")
+def test_mps_batched_round_robin_smoke(tmp_path: Path) -> None:
+    """Verifies non-CPU tensor device placement in batched round-robin on Mac MPS."""
+    c0, _ = _make_tiny_light_checkpoint(
+        tmp_path, name="mps_p0", net_size="S", seed=61, arena_radius=60.0, num_snakes=6
+    )
+    c1, _ = _make_tiny_light_checkpoint(
+        tmp_path, name="mps_p1", net_size="M", seed=62, arena_radius=60.0, num_snakes=6
+    )
+    c2, _ = _make_tiny_light_checkpoint(
+        tmp_path, name="mps_p2", net_size="S", seed=63, arena_radius=60.0, num_snakes=6
+    )
+    pols = [load_eval_policy(c, device="mps", label=f"mps-{i}") for i, c in enumerate((c0, c1, c2))]
+    rr = evaluate_round_robin(
+        pols,
+        num_envs=2,
+        burnin_ticks=2,
+        window_ticks=6,
+        bootstrap_samples=40,
+        seed=9090,
+        batched=True,
+    )
+    assert len(rr["pairs"]) == 3
+    assert len(rr["standings"]) == 3

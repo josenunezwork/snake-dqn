@@ -73,6 +73,8 @@ DEFAULT_RULER_LEARNERS: tuple[int, ...] = (24, 8)
 DEFAULT_RULER_ROLLOUT_LEN: int = 32
 DEFAULT_RULER_WARMUP_UPDATES: int = 1
 DEFAULT_RULER_TIMED_UPDATES: int = 2
+DEFAULT_CANARY_EVAL_TIMED_TICKS: int = 200
+DEFAULT_CANARY_EVAL_WARMUP_TICKS: int = 10
 
 RULER_REQUIRED_EXPORTS: tuple[str, ...] = ("ruler_result.json",)
 TRAIN_REQUIRED_EXPORTS: tuple[str, ...] = (
@@ -1497,8 +1499,12 @@ def _canary_stage_eval_smoke(
     ledger_path: Path | None,
     resolved_dev: torch.device,
     seed: int,
+    max_wall_seconds: float | None = None,
+    wall_t0: float = 0.0,
+    canary_eval_cfg_override: V3PPOConfig | None = None,
+    canary_eval_env: Mapping[str, str] | None = None,
 ) -> dict[str, Any] | None:
-    """Optional Stage 5 of canary suite: verify staged eval policies and publish smoke exports."""
+    """Optional Stage 5 of canary suite: time real-world-count eval smoke and publish exports."""
     if input_dir is None or ledger_path is None or not Path(ledger_path).is_file():
         return None
     ledger_obj = json.loads(Path(ledger_path).read_text(encoding="utf-8"))
@@ -1506,45 +1512,358 @@ def _canary_stage_eval_smoke(
         return None
 
     from research.v3_ppo.arena_eval import (
+        DEFAULT_H2H_NUM_ENVS,
+        DEFAULT_LONG_GAME_NUM_ENVS,
         EVAL_REQUIRED_EXPORTS,
+        V3_ARENA_EVAL_PAIR_SCHEMA,
+        _evaluate_pairs_batched,
+        build_pair_reuse_key,
+        estimate_eval_memory,
         evaluate_head_to_head,
         evaluate_long_game,
+        evaluate_round_robin,
         format_eval_markdown,
         load_eval_policy,
         resolve_staged_ledger_inputs,
+        select_pairs_per_batch,
+        validate_compatible_policies,
     )
+
+    env_map: dict[str, str] = dict(os.environ)
+    if canary_eval_env is not None:
+        env_map.update({str(k): str(v) for k, v in canary_eval_env.items()})
 
     policy_paths, policy_labels, verified_pairs = resolve_staged_ledger_inputs(
         Path(input_dir), Path(ledger_path)
     )
+    raw_mode = env_map.get("V3_PPO_EVAL_MODE")
+    if raw_mode:
+        eval_mode = str(raw_mode)
+    elif len(policy_paths) == 1:
+        eval_mode = "long-game"
+    elif len(policy_paths) > 6 or bool(verified_pairs):
+        eval_mode = "round-robin"
+    else:
+        eval_mode = "head-to-head"
+
+    amp_override = parse_env_bool("V3_PPO_AMP", env_map.get("V3_PPO_AMP"))
+    cl_override = parse_env_bool("V3_PPO_CHANNELS_LAST", env_map.get("V3_PPO_CHANNELS_LAST"))
+    fast_override = parse_env_bool(
+        "V3_PPO_FAST_LEARNER_OPS", env_map.get("V3_PPO_FAST_LEARNER_OPS")
+    )
+    compile_eval = bool(parse_env_bool("V3_PPO_COMPILE", env_map.get("V3_PPO_COMPILE")) or False)
+    greedy = bool(parse_env_bool("V3_PPO_EVAL_GREEDY", env_map.get("V3_PPO_EVAL_GREEDY")) or False)
+    sequential_pairs = bool(
+        parse_env_bool("V3_PPO_EVAL_SEQUENTIAL_PAIRS", env_map.get("V3_PPO_EVAL_SEQUENTIAL_PAIRS"))
+        or False
+    )
+    max_pairs_per_batch = (
+        int(env_map["V3_PPO_EVAL_MAX_PAIRS_PER_BATCH"])
+        if env_map.get("V3_PPO_EVAL_MAX_PAIRS_PER_BATCH")
+        else None
+    )
+    default_envs = DEFAULT_LONG_GAME_NUM_ENVS if eval_mode == "long-game" else DEFAULT_H2H_NUM_ENVS
+    eff_envs = (
+        int(env_map["V3_PPO_EVAL_NUM_ENVS"])
+        if env_map.get("V3_PPO_EVAL_NUM_ENVS")
+        else int(default_envs)
+    )
+    learner_slots = (
+        int(env_map["V3_PPO_EVAL_LEARNER_SLOTS"])
+        if env_map.get("V3_PPO_EVAL_LEARNER_SLOTS")
+        else None
+    )
+    opponent_policy = str(env_map.get("V3_PPO_EVAL_OPPONENT_POLICY") or "food_seeking")
+
+    if (
+        canary_eval_cfg_override is not None
+        and resolved_dev.type == "cpu"
+        and not env_map.get("V3_PPO_CANARY_EVAL_TICKS_FORCE")
+    ):
+        timed_ticks = 8
+        warmup_window = 6
+    else:
+        timed_ticks = (
+            int(env_map["V3_PPO_CANARY_EVAL_TICKS"])
+            if env_map.get("V3_PPO_CANARY_EVAL_TICKS")
+            else int(DEFAULT_CANARY_EVAL_TIMED_TICKS)
+        )
+        if timed_ticks < 6:
+            raise ValueError(f"V3_PPO_CANARY_EVAL_TICKS must be >= 6, got {timed_ticks}")
+        warmup_window = max(6, min(DEFAULT_CANARY_EVAL_WARMUP_TICKS, timed_ticks // 10))
+
+    timed_window = max(6, timed_ticks - (timed_ticks // 4))
+    timed_burnin = max(0, timed_ticks - timed_window)
+    actual_timed_ticks = int(timed_burnin + timed_window)
+
+    _cleanup_device_memory(resolved_dev)
     loaded_policies = [
         load_eval_policy(
             p_path,
             device=resolved_dev,
             label=(policy_labels[idx] if policy_labels is not None else None),
-            compile_model=False,
+            amp=amp_override,
+            use_channels_last=cl_override,
+            fast_learner_ops=fast_override,
+            compile_model=compile_eval,
         )
         for idx, p_path in enumerate(policy_paths)
     ]
-    if len(loaded_policies) == 1:
-        eval_res = evaluate_long_game(
-            loaded_policies[0],
-            num_envs=2,
-            burnin_ticks=2,
-            window_ticks=6,
-            num_world_age_bins=6,
-            seed=seed,
-        )
-    else:
-        eval_res = evaluate_head_to_head(
-            loaded_policies[:2],
-            num_envs=2,
-            burnin_ticks=2,
-            window_ticks=6,
-            mass_bin_ticks=3,
-            bootstrap_samples=20,
-            seed=seed,
-        )
+    eval_game_cfg = validate_compatible_policies(loaded_policies)
+
+    with SignalStopFlag() as smoke_stop_flag:
+
+        def _smoke_should_stop() -> bool:
+            if bool(smoke_stop_flag.stopped):
+                return True
+            if max_wall_seconds is not None:
+                return (time.monotonic() - wall_t0) >= max(5.0, float(max_wall_seconds) - 5.0)
+            return False
+
+        batched_flag = False
+        pairs_in_timed_batch = 1
+        timed_worlds = int(eff_envs)
+
+        if eval_mode == "round-robin":
+            all_pairs = [
+                (i, j)
+                for i in range(len(loaded_policies))
+                for j in range(i + 1, len(loaded_policies))
+            ]
+            pending_pairs = [
+                (i, j) for (i, j) in all_pairs if f"pair_{i:02d}_{j:02d}" not in verified_pairs
+            ]
+            if not pending_pairs:
+                pending_pairs = all_pairs[:1]
+
+            if sequential_pairs:
+                i0, j0 = pending_pairs[0]
+                _ = evaluate_head_to_head(
+                    [loaded_policies[i0], loaded_policies[j0]],
+                    num_envs=eff_envs,
+                    burnin_ticks=0,
+                    window_ticks=warmup_window,
+                    mass_bin_ticks=max(1, warmup_window // 2),
+                    greedy=greedy,
+                    seed=seed,
+                    bootstrap_samples=10,
+                    should_stop=_smoke_should_stop,
+                )
+                synchronize_device(resolved_dev)
+                _reset_peak_memory(resolved_dev)
+                t0 = time.perf_counter()
+                eval_res = evaluate_head_to_head(
+                    [loaded_policies[i0], loaded_policies[j0]],
+                    num_envs=eff_envs,
+                    burnin_ticks=timed_burnin,
+                    window_ticks=timed_window,
+                    mass_bin_ticks=max(1, timed_window // 2),
+                    greedy=greedy,
+                    seed=seed,
+                    bootstrap_samples=20,
+                    should_stop=_smoke_should_stop,
+                )
+                synchronize_device(resolved_dev)
+                timed_wall_sec = max(1.0e-9, time.perf_counter() - t0)
+            else:
+                batched_flag = True
+                eff_amp_smoke = (
+                    bool(amp_override)
+                    if amp_override is not None
+                    else (resolved_dev.type == "cuda")
+                )
+                if max_pairs_per_batch is not None:
+                    eff_ppb = min(len(pending_pairs), max(1, int(max_pairs_per_batch)))
+                elif resolved_dev.type == "cuda":
+                    vram_total = int(torch.cuda.get_device_properties(resolved_dev).total_memory)
+                    vram_b = (
+                        80_000_000_000
+                        if vram_total >= 60_000_000_000
+                        else (40_000_000_000 if vram_total >= 32_000_000_000 else 22_000_000_000)
+                    )
+                    eff_ppb, _ = select_pairs_per_batch(
+                        game_cfg=eval_game_cfg,
+                        net_sizes=[p.net_size for p in loaded_policies],
+                        num_envs_per_pair=eff_envs,
+                        total_pairs_to_run=len(pending_pairs),
+                        vram_budget_bytes=vram_b,
+                        amp=eff_amp_smoke,
+                        gpu_label=str(resolved_dev),
+                    )
+                else:
+                    eff_ppb = len(pending_pairs)
+
+                timed_pairs = pending_pairs[:eff_ppb]
+                pairs_in_timed_batch = len(timed_pairs)
+                timed_worlds = int(pairs_in_timed_batch * eff_envs)
+
+                _ = _evaluate_pairs_batched(
+                    loaded_policies,
+                    timed_pairs,
+                    num_envs=eff_envs,
+                    burnin_ticks=0,
+                    window_ticks=warmup_window,
+                    mass_bin_ticks=max(1, warmup_window // 2),
+                    greedy=greedy,
+                    seed=seed,
+                    bootstrap_samples=10,
+                    deterministic=True,
+                    should_stop=_smoke_should_stop,
+                )
+                synchronize_device(resolved_dev)
+                _reset_peak_memory(resolved_dev)
+                t0 = time.perf_counter()
+                batch_h2h, _ = _evaluate_pairs_batched(
+                    loaded_policies,
+                    timed_pairs,
+                    num_envs=eff_envs,
+                    burnin_ticks=timed_burnin,
+                    window_ticks=timed_window,
+                    mass_bin_ticks=max(1, timed_window // 2),
+                    greedy=greedy,
+                    seed=seed,
+                    bootstrap_samples=20,
+                    deterministic=True,
+                    should_stop=_smoke_should_stop,
+                )
+                synchronize_device(resolved_dev)
+                timed_wall_sec = max(1.0e-9, time.perf_counter() - t0)
+
+                if len(timed_pairs) == len(all_pairs):
+                    tmp_rr_dir = Path(
+                        tempfile.mkdtemp(prefix=f".{out.name}_rr_smoke_", dir=str(out.parent))
+                    )
+                    try:
+                        smoke_vp: dict[str, Path] = {}
+                        for (idx_a, idx_b), h2h_item in zip(timed_pairs, batch_h2h):
+                            uid = f"pair_{idx_a:02d}_{idx_b:02d}"
+                            p_file = tmp_rr_dir / f"{uid}.json"
+                            write_create_only_json(
+                                p_file,
+                                {
+                                    "schema": V3_ARENA_EVAL_PAIR_SCHEMA,
+                                    "unit_id": uid,
+                                    "pair_indices": [idx_a, idx_b],
+                                    "seed": int(seed),
+                                    "reuse_key": build_pair_reuse_key(
+                                        num_envs=eff_envs,
+                                        burnin_ticks=timed_burnin,
+                                        window_ticks=timed_window,
+                                        greedy=greedy,
+                                        seed=int(seed),
+                                        policy_a_sha256=loaded_policies[
+                                            idx_a
+                                        ].source_checkpoint_sha256,
+                                        policy_b_sha256=loaded_policies[
+                                            idx_b
+                                        ].source_checkpoint_sha256,
+                                    ),
+                                    "policies": h2h_item["policies"],
+                                    "match": h2h_item,
+                                },
+                            )
+                            smoke_vp[uid] = p_file
+                        eval_res = evaluate_round_robin(
+                            loaded_policies,
+                            num_envs=eff_envs,
+                            burnin_ticks=timed_burnin,
+                            window_ticks=timed_window,
+                            mass_bin_ticks=max(1, timed_window // 2),
+                            greedy=greedy,
+                            seed=seed,
+                            bootstrap_samples=20,
+                            verified_pair_paths=smoke_vp,
+                        )
+                    finally:
+                        shutil.rmtree(tmp_rr_dir, ignore_errors=True)
+                else:
+                    eval_res = batch_h2h[0]
+        elif eval_mode == "long-game":
+            _ = evaluate_long_game(
+                loaded_policies[0],
+                num_envs=eff_envs,
+                burnin_ticks=0,
+                window_ticks=warmup_window,
+                learner_slots=learner_slots,
+                opponent_policy=opponent_policy,
+                num_world_age_bins=6,
+                greedy=greedy,
+                seed=seed,
+                should_stop=_smoke_should_stop,
+            )
+            synchronize_device(resolved_dev)
+            _reset_peak_memory(resolved_dev)
+            t0 = time.perf_counter()
+            eval_res = evaluate_long_game(
+                loaded_policies[0],
+                num_envs=eff_envs,
+                burnin_ticks=timed_burnin,
+                window_ticks=timed_window,
+                learner_slots=learner_slots,
+                opponent_policy=opponent_policy,
+                num_world_age_bins=6,
+                greedy=greedy,
+                seed=seed,
+                should_stop=_smoke_should_stop,
+            )
+            synchronize_device(resolved_dev)
+            timed_wall_sec = max(1.0e-9, time.perf_counter() - t0)
+            if bool(eval_res.get("aborted", False)):
+                raise RuntimeError("Canary long-game smoke aborted")
+        else:
+            _ = evaluate_head_to_head(
+                loaded_policies,
+                num_envs=eff_envs,
+                burnin_ticks=0,
+                window_ticks=warmup_window,
+                mass_bin_ticks=max(1, warmup_window // 2),
+                greedy=greedy,
+                seed=seed,
+                bootstrap_samples=10,
+                should_stop=_smoke_should_stop,
+            )
+            synchronize_device(resolved_dev)
+            _reset_peak_memory(resolved_dev)
+            t0 = time.perf_counter()
+            eval_res = evaluate_head_to_head(
+                loaded_policies,
+                num_envs=eff_envs,
+                burnin_ticks=timed_burnin,
+                window_ticks=timed_window,
+                mass_bin_ticks=max(1, timed_window // 2),
+                greedy=greedy,
+                seed=seed,
+                bootstrap_samples=20,
+                should_stop=_smoke_should_stop,
+            )
+            synchronize_device(resolved_dev)
+            timed_wall_sec = max(1.0e-9, time.perf_counter() - t0)
+            if bool(eval_res.get("aborted", False)):
+                raise RuntimeError("Canary head-to-head smoke aborted")
+
+    fallback_mem = int(
+        estimate_eval_memory(
+            game_cfg=eval_game_cfg,
+            net_sizes=[p.net_size for p in loaded_policies],
+            eval_mode=eval_mode,
+            num_envs_per_match=eff_envs,
+            pairs_per_batch=pairs_in_timed_batch,
+            learner_slots=learner_slots,
+            amp=bool(amp_override if amp_override is not None else (resolved_dev.type == "cuda")),
+        )["estimated_peak_bytes"]
+    )
+    smoke_peak_bytes = _read_peak_memory_bytes(resolved_dev, fallback_bytes=fallback_mem)
+    smoke_peak_mib = round(float(smoke_peak_bytes) / float(1024 * 1024), 2)
+    ms_per_tick = 1000.0 * float(timed_wall_sec) / float(actual_timed_ticks)
+
+    print(
+        f"V3_PPO_CANARY_EVAL_SMOKE mode={eval_mode} batched={int(batched_flag)} "
+        f"policies={len(policy_paths)} worlds={timed_worlds} "
+        f"ticks={actual_timed_ticks} wall_s={timed_wall_sec:.3f} "
+        f"ms_per_tick={ms_per_tick:.3f} peak_mib={smoke_peak_mib:.1f}",
+        flush=True,
+    )
+
     md_text = format_eval_markdown(eval_res)
     write_create_only_json(out / "eval_result.json", eval_res)
     write_create_only_artifact(out / "summary.md", md_text.encode("utf-8"))
@@ -1553,9 +1872,19 @@ def _canary_stage_eval_smoke(
     del loaded_policies
     _cleanup_device_memory(resolved_dev)
     return {
+        "smoke_mode": eval_mode,
+        "batched_pairs": bool(batched_flag),
         "num_staged_policies": len(policy_paths),
         "num_verified_pairs": len(verified_pairs),
-        "smoke_mode": str(eval_res["mode"]),
+        "num_envs_per_pair": int(eff_envs),
+        "pairs_in_timed_batch": int(pairs_in_timed_batch),
+        "timed_worlds": int(timed_worlds),
+        "warmup_ticks": int(warmup_window),
+        "timed_ticks": int(actual_timed_ticks),
+        "timed_wall_seconds": round(float(timed_wall_sec), 6),
+        "ms_per_tick": round(float(ms_per_tick), 4),
+        "peak_memory_bytes": int(smoke_peak_bytes),
+        "peak_memory_mib": smoke_peak_mib,
     }
 
 
@@ -1574,6 +1903,7 @@ def run_canary_suite(
     compile_model: bool = False,
     fast_learner_ops: bool = True,
     canary_eval_cfg_override: V3PPOConfig | None = None,
+    canary_eval_env: Mapping[str, str] | None = None,
     seed: int = 20261111,
 ) -> dict[str, Any]:
     """Run instrumented family canary exercising ruler, resume, & 1 default-config evaluation."""
@@ -1647,6 +1977,10 @@ def run_canary_suite(
         ledger_path=ledger_path,
         resolved_dev=resolved_dev,
         seed=seed,
+        max_wall_seconds=max_wall_seconds,
+        wall_t0=wall_t0,
+        canary_eval_cfg_override=canary_eval_cfg_override,
+        canary_eval_env=canary_eval_env,
     )
 
     canary_payload: dict[str, Any] = {

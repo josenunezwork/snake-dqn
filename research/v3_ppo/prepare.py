@@ -47,8 +47,12 @@ from research.v3_ppo.arena_eval import (
     EVAL_MODES,
     EVAL_REQUIRED_EXPORTS,
     _load_checkpoint_payload,
+    build_pair_reuse_key,
     discover_round_robin_checkpoints,
+    estimate_eval_memory,
     resolve_unique_labels,
+    select_pairs_per_batch,
+    validate_pair_unit_reuse,
     write_weights_only_eval_bundle,
 )
 from research.v3_ppo.config import (
@@ -89,6 +93,7 @@ from research.v3_ppo.job import resolve_effective_train_config
 from research.v3_ppo.resume import resolve_resume_checkpoint
 from research.v3_ppo.ruler import (
     CANARY_REQUIRED_EXPORTS,
+    DEFAULT_CANARY_EVAL_TIMED_TICKS,
     DEFAULT_RULER_ENVS,
     DEFAULT_RULER_LEARNERS,
     DEFAULT_RULER_NETS,
@@ -109,12 +114,8 @@ REQUIREMENTS_RELPATH = "research/v3_ppo/requirements.txt"
 PREPARE_MODES: tuple[str, ...] = ("canary", "ruler", "train", "eval")
 UNLIMITED_HOURS_TOTAL_UPDATES: int = 1_000_000_000
 EVAL_DEFAULT_SESSION_MINUTES: float = 60.0
+EVAL_TIMING_SAFETY_FACTOR: float = 1.5
 EVAL_RAW_UPLOAD_AUTO_STRIP_THRESHOLD_BYTES: int = 150 * 1024 * 1024
-EVAL_GPU_AGENT_STEPS_PER_SEC: dict[str, dict[str, float]] = {
-    "L4": {"S": 27_000.0, "M": 16_500.0},
-    "A100": {"S": 42_000.0, "M": 28_000.0},
-    "H100": {"S": 58_000.0, "M": 38_000.0},
-}
 
 
 @dataclass(frozen=True)
@@ -160,6 +161,9 @@ class PreparePacketOptions:
     eval_world_age_bins: int = DEFAULT_LONG_GAME_WORLD_AGE_BINS
     eval_seed: int = DEFAULT_EVAL_SEED
     eval_greedy: bool = False
+    eval_sequential_pairs: bool = False
+    eval_max_pairs_per_batch: int | None = None
+    assume_ms_per_tick: float | None = None
     eval_session_minutes: float = EVAL_DEFAULT_SESSION_MINUTES
     eval_weights_only: str = "auto"  # "auto" | "true" | "false"
     output_dir: Path | None = None
@@ -204,6 +208,7 @@ class _ValidatedPacketContext:
     prior: _PriorSpec
     canary_block: dict[str, Any] | None
     canary_eval_metrics: dict[str, Any] | None
+    canary_eval_smoke: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -633,6 +638,52 @@ def _extract_canary_eval_metrics(canary_receipt: Path | str) -> dict[str, Any] |
     return out_metrics
 
 
+def _extract_canary_eval_smoke_metrics(canary_receipt: Path | str) -> dict[str, Any] | None:
+    """Read hash-verified ``eval_canary_smoke`` timing/world metrics from a canary receipt."""
+    rcpt_path = Path(canary_receipt).expanduser().resolve()
+    if not rcpt_path.is_file():
+        return None
+    rcpt_obj = json.loads(rcpt_path.read_text(encoding="utf-8"))
+    if not isinstance(rcpt_obj, dict):
+        return None
+
+    expected_export_shas: dict[str, str] = {}
+    exports_list = rcpt_obj.get("exports")
+    if isinstance(exports_list, list):
+        for row in exports_list:
+            if isinstance(row, dict) and isinstance(row.get("path"), str) and row.get("sha256"):
+                expected_export_shas[row["path"]] = str(row["sha256"])
+
+    checks_obj: dict[str, Any] | None = None
+    for cand in (
+        rcpt_path.parent / "exports" / "canary_checks.json",
+        rcpt_path.parent / "canary_checks.json",
+    ):
+        if cand.is_file():
+            exp_sha = expected_export_shas.get("canary_checks.json")
+            if exp_sha is not None and sha256_file(cand) != exp_sha:
+                raise ValueError(f"Canary export hash mismatch for {cand}: expected {exp_sha}")
+            loaded = json.loads(cand.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                checks_obj = loaded
+                break
+
+    if not isinstance(checks_obj, dict):
+        return None
+    smoke = checks_obj.get("eval_canary_smoke")
+    if not isinstance(smoke, dict):
+        return None
+    raw_ms = smoke.get("ms_per_tick")
+    if (
+        isinstance(raw_ms, bool)
+        or not isinstance(raw_ms, (int, float))
+        or not math.isfinite(float(raw_ms))
+        or float(raw_ms) <= 0.0
+    ):
+        return None
+    return dict(smoke)
+
+
 def _stage_validate_options(opts: PreparePacketOptions) -> _ValidatedPacketContext:
     """Stage 1: Validate mode/GPU/commit/paths/canary-receipt and resolve prior artifacts."""
     if opts.mode not in PREPARE_MODES:
@@ -728,6 +779,7 @@ def _stage_validate_options(opts: PreparePacketOptions) -> _ValidatedPacketConte
 
     canary_block: dict[str, Any] | None = None
     canary_eval_metrics: dict[str, Any] | None = None
+    canary_eval_smoke: dict[str, Any] | None = None
     if opts.mode == "canary":
         canary_block = {
             "schema": "colab-family-canary/v1",
@@ -738,6 +790,8 @@ def _stage_validate_options(opts: PreparePacketOptions) -> _ValidatedPacketConte
         canary_block = _build_canary_receipt_binding(opts.canary_receipt, gpu_norm)
         if opts.mode == "train":
             canary_eval_metrics = _extract_canary_eval_metrics(opts.canary_receipt)
+        elif opts.mode == "eval":
+            canary_eval_smoke = _extract_canary_eval_smoke_metrics(opts.canary_receipt)
 
     return _ValidatedPacketContext(
         pkt_dir=pkt_dir,
@@ -749,6 +803,7 @@ def _stage_validate_options(opts: PreparePacketOptions) -> _ValidatedPacketConte
         prior=prior,
         canary_block=canary_block,
         canary_eval_metrics=canary_eval_metrics,
+        canary_eval_smoke=canary_eval_smoke,
     )
 
 
@@ -774,10 +829,35 @@ def _size_canary_mode(
 
     required_exports = list(CANARY_REQUIRED_EXPORTS)
     eval_policy_specs: tuple[dict[str, Any], ...] = ()
+    memory_estimate: dict[str, Any] | None = None
     if opts.eval_policies or opts.eval_round_robin:
-        _, policy_specs, _, _, use_weights_only = _resolve_eval_policy_specs(opts)
+        layout = _resolve_and_validate_eval_layout(opts, ctx)
+        policy_specs = layout["policy_specs"]
+        use_weights_only = bool(layout["use_weights_only"])
+        eff_eval_mode = str(layout["eff_eval_mode"])
+        eff_amp = True if opts.amp is None else bool(opts.amp)
+        eff_cl = True if opts.use_channels_last is None else bool(opts.use_channels_last)
+        extra_env["V3_PPO_EVAL_MODE"] = eff_eval_mode
+        extra_env["V3_PPO_EVAL_NUM_ENVS"] = str(int(layout["eff_envs"]))
+        extra_env["V3_PPO_CANARY_EVAL_TICKS"] = str(int(DEFAULT_CANARY_EVAL_TIMED_TICKS))
+        extra_env["V3_PPO_AMP"] = "1" if eff_amp else "0"
+        extra_env["V3_PPO_CHANNELS_LAST"] = "1" if eff_cl else "0"
+        if opts.learner_slots is not None:
+            extra_env["V3_PPO_EVAL_LEARNER_SLOTS"] = str(int(opts.learner_slots))
+        if opts.opponent_policy is not None:
+            extra_env["V3_PPO_EVAL_OPPONENT_POLICY"] = str(opts.opponent_policy)
+        if opts.eval_greedy:
+            extra_env["V3_PPO_EVAL_GREEDY"] = "1"
+        if eff_eval_mode == "round-robin":
+            if opts.eval_sequential_pairs:
+                extra_env["V3_PPO_EVAL_SEQUENTIAL_PAIRS"] = "1"
+            else:
+                extra_env["V3_PPO_EVAL_MAX_PAIRS_PER_BATCH"] = str(
+                    int(layout["eff_pairs_per_batch"])
+                )
         required_exports = [*CANARY_REQUIRED_EXPORTS, *EVAL_REQUIRED_EXPORTS]
         eval_policy_specs = tuple({**sp, "weights_only": use_weights_only} for sp in policy_specs)
+        memory_estimate = dict(layout["memory_estimate"])
 
     return _SizedModePlan(
         job_id=f"v3-ppo-canary-{ctx.gpu_slug}-{opts.attempt}",
@@ -798,6 +878,7 @@ def _size_canary_mode(
             }
         },
         canary_block=ctx.canary_block,
+        memory_estimate=memory_estimate,
         eval_policy_specs=eval_policy_specs,
     )
 
@@ -1248,11 +1329,11 @@ def _resolve_eval_policy_specs(
     return eff_eval_mode, policy_specs, eval_game_cfg, raw_total_bytes, use_weights_only
 
 
-def _size_eval_mode(
+def _resolve_and_validate_eval_layout(
     opts: PreparePacketOptions,
     ctx: _ValidatedPacketContext,
-) -> _SizedModePlan:
-    """Resolve and validate standalone policy evaluation packet (`head-to-head`, `round-robin`, `long-game`)."""
+) -> dict[str, Any]:
+    """Validate eval divisibility, prior pair reuse keys, VRAM budget, and batch layout."""
     (
         eff_eval_mode,
         policy_specs,
@@ -1293,6 +1374,175 @@ def _size_eval_mode(
         raise ValueError(f"eval burnin_ticks must be >= 0, got {eff_burnin}")
     if eff_window < 6:
         raise ValueError(f"eval window_ticks must be >= 6, got {eff_window}")
+
+    if eff_eval_mode == "head-to-head" and eff_envs % len(policy_specs) != 0:
+        raise ValueError(
+            f"head-to-head requires num_envs ({eff_envs}) to be a multiple of the number of "
+            f"policies sharing a world ({len(policy_specs)}) so rotated seats cancel slot bias."
+        )
+    if eff_eval_mode == "round-robin" and eff_envs % 2 != 0:
+        raise ValueError(
+            f"round-robin requires num_envs ({eff_envs}) per pair to be a multiple of 2 "
+            "policies sharing a world so rotated seats cancel slot bias."
+        )
+
+    if ctx.prior.kind == "eval_pairs":
+        if eff_eval_mode != "round-robin":
+            raise ValueError(
+                f"prior eval_pairs continuation is only supported in round-robin mode, "
+                f"got {eff_eval_mode!r}"
+            )
+        valid_pairs = {
+            f"pair_{i:02d}_{j:02d}": (i, j)
+            for i in range(len(policy_specs))
+            for j in range(i + 1, len(policy_specs))
+        }
+        for pair_json in ctx.prior.eval_pair_paths:
+            uid = pair_json.stem
+            if uid not in valid_pairs:
+                raise ValueError(
+                    f"Prior pair artifact {pair_json} ({uid!r}) does not belong to "
+                    f"{len(policy_specs)}-policy round-robin allocation"
+                )
+            idx_a, idx_b = valid_pairs[uid]
+            expected_rk = build_pair_reuse_key(
+                num_envs=eff_envs,
+                burnin_ticks=eff_burnin,
+                window_ticks=eff_window,
+                greedy=bool(opts.eval_greedy),
+                seed=int(opts.eval_seed),
+                policy_a_sha256=str(policy_specs[idx_a]["src_sha256"]),
+                policy_b_sha256=str(policy_specs[idx_b]["src_sha256"]),
+            )
+            parsed_pair = json.loads(pair_json.read_text(encoding="utf-8"))
+            validate_pair_unit_reuse(uid, parsed_pair, expected_rk)
+
+    budget_bytes = int(GPU_VRAM_BUDGET_BYTES[ctx.gpu_norm])
+    net_sizes: list[NetSize] = [sp["net_size"] for sp in policy_specs]
+    eff_amp = True if opts.amp is None else bool(opts.amp)
+    vram_max_ppb: int | None = None
+
+    if eff_eval_mode == "round-robin":
+        reused_pair_ids = {p.stem for p in ctx.prior.eval_pair_paths}
+        total_pairs = (len(policy_specs) * (len(policy_specs) - 1)) // 2
+        remaining_pairs = total_pairs - len(reused_pair_ids)
+        sizing_pairs = max(1, remaining_pairs)
+        if opts.eval_sequential_pairs:
+            eff_pairs_per_batch = 1
+            num_batches = remaining_pairs
+            batch_worlds = eff_envs
+            mem_est = estimate_eval_memory(
+                game_cfg=eval_game_cfg,
+                net_sizes=net_sizes,
+                eval_mode="round-robin",
+                num_envs_per_match=eff_envs,
+                pairs_per_batch=1,
+                amp=eff_amp,
+                gpu=ctx.gpu_norm,
+            )
+            if int(mem_est["estimated_peak_bytes"]) > budget_bytes:
+                raise ValueError(
+                    f"Refusing eval packet on {ctx.gpu_norm}: sequential single-pair peak VRAM "
+                    f"{int(mem_est['estimated_peak_bytes']) / 1e9:.2f} GB exceeds "
+                    f"{budget_bytes / 1e9:.2f} GB budget."
+                )
+        else:
+            vram_max_ppb, _ = select_pairs_per_batch(
+                game_cfg=eval_game_cfg,
+                net_sizes=net_sizes,
+                num_envs_per_pair=eff_envs,
+                total_pairs_to_run=sizing_pairs,
+                vram_budget_bytes=budget_bytes,
+                amp=eff_amp,
+                max_pairs_override=None,
+                gpu_label=ctx.gpu_norm,
+            )
+            eff_pairs_per_batch, mem_est = select_pairs_per_batch(
+                game_cfg=eval_game_cfg,
+                net_sizes=net_sizes,
+                num_envs_per_pair=eff_envs,
+                total_pairs_to_run=sizing_pairs,
+                vram_budget_bytes=budget_bytes,
+                amp=eff_amp,
+                max_pairs_override=opts.eval_max_pairs_per_batch,
+                gpu_label=ctx.gpu_norm,
+            )
+            num_batches = (
+                int(math.ceil(remaining_pairs / eff_pairs_per_batch)) if remaining_pairs > 0 else 0
+            )
+            batch_worlds = eff_pairs_per_batch * eff_envs
+    else:
+        total_pairs = 1
+        remaining_pairs = 1
+        eff_pairs_per_batch = 1
+        num_batches = 1
+        batch_worlds = eff_envs
+        mem_est = estimate_eval_memory(
+            game_cfg=eval_game_cfg,
+            net_sizes=net_sizes,
+            eval_mode=eff_eval_mode,
+            num_envs_per_match=eff_envs,
+            pairs_per_batch=1,
+            learner_slots=opts.learner_slots,
+            amp=eff_amp,
+            gpu=ctx.gpu_norm,
+        )
+        if int(mem_est["estimated_peak_bytes"]) > budget_bytes:
+            raise ValueError(
+                f"Refusing eval packet on {ctx.gpu_norm}: estimated peak VRAM "
+                f"{int(mem_est['estimated_peak_bytes']) / 1e9:.2f} GB exceeds "
+                f"{budget_bytes / 1e9:.2f} GB budget."
+            )
+
+    memory_estimate: dict[str, Any] = {
+        "gpu": ctx.gpu_norm,
+        "budget_bytes": budget_bytes,
+        "fits_vram_budget": True,
+        **mem_est,
+    }
+    if vram_max_ppb is not None:
+        memory_estimate["vram_max_pairs_per_batch"] = vram_max_ppb
+
+    return {
+        "eff_eval_mode": eff_eval_mode,
+        "policy_specs": policy_specs,
+        "eval_game_cfg": eval_game_cfg,
+        "n_snakes": n_snakes,
+        "raw_total_bytes": raw_total_bytes,
+        "use_weights_only": use_weights_only,
+        "eff_envs": eff_envs,
+        "eff_burnin": eff_burnin,
+        "eff_window": eff_window,
+        "total_pairs": total_pairs,
+        "remaining_pairs": remaining_pairs,
+        "eff_pairs_per_batch": eff_pairs_per_batch,
+        "num_batches": num_batches,
+        "batch_worlds": batch_worlds,
+        "memory_estimate": memory_estimate,
+    }
+
+
+def _size_eval_mode(
+    opts: PreparePacketOptions,
+    ctx: _ValidatedPacketContext,
+) -> _SizedModePlan:
+    """Resolve and validate standalone policy evaluation packet (`head-to-head`, `round-robin`, `long-game`)."""
+    layout = _resolve_and_validate_eval_layout(opts, ctx)
+    eff_eval_mode = str(layout["eff_eval_mode"])
+    policy_specs: list[dict[str, Any]] = layout["policy_specs"]
+    n_snakes = int(layout["n_snakes"])
+    raw_total_bytes = int(layout["raw_total_bytes"])
+    use_weights_only = bool(layout["use_weights_only"])
+    eff_envs = int(layout["eff_envs"])
+    eff_burnin = int(layout["eff_burnin"])
+    eff_window = int(layout["eff_window"])
+    total_pairs = int(layout["total_pairs"])
+    remaining_pairs = int(layout["remaining_pairs"])
+    eff_pairs_per_batch = int(layout["eff_pairs_per_batch"])
+    num_batches = int(layout["num_batches"])
+    batch_worlds = int(layout["batch_worlds"])
+    memory_estimate: dict[str, Any] = layout["memory_estimate"]
+
     est_staged_bytes = sum(
         (
             int(get_net_preset(sp["net_size"]).exact_param_count * 4 + 65536)
@@ -1302,62 +1552,57 @@ def _size_eval_mode(
         for sp in policy_specs
     )
 
-    # Validate GPU VRAM budget (sim + full obs batch + resident policy weights + forward workspace)
-    budget_bytes = GPU_VRAM_BUDGET_BYTES[ctx.gpu_norm]
-    sim_mem = estimate_sim_memory_bytes(eval_game_cfg, eff_envs)
-    obs_bytes = int(eff_envs) * n_snakes * int(OBS_BATCH_BYTES_PER_ROW)
-    weights_bytes = sum(
-        int(get_net_preset(sp["net_size"]).memory_model_param_count) * 4 for sp in policy_specs
-    )
-    fwd_act_bytes = max(
-        int(get_net_preset(sp["net_size"]).actor_fwd_act_bytes_per_row_bf16)
-        * min(
-            int(eff_envs) * n_snakes,
-            int(get_net_preset(sp["net_size"]).default_actor_chunk_learners),
-        )
-        for sp in policy_specs
-    )
-    cuda_overhead_bytes = 1_200_000_000
-    est_peak_bytes = int(
-        sim_mem["sim_peak_bytes"] + obs_bytes + weights_bytes + fwd_act_bytes + cuda_overhead_bytes
-    )
-    if est_peak_bytes > budget_bytes:
-        raise ValueError(
-            f"Refusing eval packet on {ctx.gpu_norm}: estimated peak VRAM "
-            f"{est_peak_bytes / 1e9:.2f} GB exceeds {budget_bytes / 1e9:.2f} GB budget."
-        )
-
-    # Estimate compute wall seconds on target GPU
-    gpu_rates = EVAL_GPU_AGENT_STEPS_PER_SEC[ctx.gpu_norm]
-    ticks_per_match = eff_burnin + eff_window
-    steps_per_match = int(eff_envs) * n_snakes * ticks_per_match
-
-    if eff_eval_mode == "round-robin":
-        reused_pair_ids = {p.stem for p in ctx.prior.eval_pair_paths}
-        total_pairs = (len(policy_specs) * (len(policy_specs) - 1)) // 2
-        est_compute_sec = 0.0
-        remaining_pairs = 0
-        for i in range(len(policy_specs)):
-            for j in range(i + 1, len(policy_specs)):
-                uid = f"pair_{i:02d}_{j:02d}"
-                if uid in reused_pair_ids:
-                    continue
-                remaining_pairs += 1
-                ri = gpu_rates[policy_specs[i]["net_size"]]
-                rj = gpu_rates[policy_specs[j]["net_size"]]
-                pair_rate = 2.0 / (1.0 / ri + 1.0 / rj)
-                est_compute_sec += float(steps_per_match) / pair_rate
+    if opts.assume_ms_per_tick is not None:
+        if (
+            not math.isfinite(float(opts.assume_ms_per_tick))
+            or float(opts.assume_ms_per_tick) <= 0.0
+        ):
+            raise ValueError(
+                f"--assume-ms-per-tick must be finite and > 0, got {opts.assume_ms_per_tick}"
+            )
+        base_ms_per_tick = float(opts.assume_ms_per_tick)
+        timing_source = "assumed_override"
+    elif ctx.canary_eval_smoke is not None:
+        smoke = ctx.canary_eval_smoke
+        smoke_mode = str(smoke.get("smoke_mode", ""))
+        if smoke_mode != eff_eval_mode:
+            raise ValueError(
+                f"Bound canary eval_canary_smoke mode={smoke_mode!r} does not match "
+                f"eval_mode={eff_eval_mode!r}; run an eval canary for this mode or pass "
+                "--assume-ms-per-tick."
+            )
+        if eff_eval_mode == "round-robin":
+            want_batched = not bool(opts.eval_sequential_pairs)
+            if bool(smoke.get("batched_pairs", False)) != want_batched:
+                raise ValueError(
+                    f"Bound canary eval_canary_smoke batched_pairs={smoke.get('batched_pairs')} "
+                    f"does not match batched_pairs={want_batched}; re-run eval canary or pass "
+                    "--assume-ms-per-tick."
+                )
+        smoke_worlds = int(smoke.get("timed_worlds", 0))
+        if remaining_pairs > 0 and smoke_worlds < batch_worlds:
+            raise ValueError(
+                f"Bound canary eval_canary_smoke timed_worlds={smoke_worlds} is smaller than "
+                f"packet batch_worlds={batch_worlds}; re-run eval canary at target world count "
+                "or pass --assume-ms-per-tick."
+            )
+        base_ms_per_tick = float(smoke["ms_per_tick"])
+        timing_source = "canary_measured"
     else:
-        total_pairs = 1
-        remaining_pairs = 1
-        inv_mean = sum(1.0 / gpu_rates[sp["net_size"]] for sp in policy_specs) / len(policy_specs)
-        eff_rate = 1.0 / inv_mean
-        est_compute_sec = float(steps_per_match) / eff_rate
-
-    if opts.expected_steps_per_sec is not None and float(opts.expected_steps_per_sec) > 0:
-        est_compute_sec = float(remaining_pairs * steps_per_match) / float(
-            opts.expected_steps_per_sec
+        raise ValueError(
+            "--mode eval requires a bound canary receipt containing eval_canary_smoke.ms_per_tick "
+            "(prepared with --mode canary and the target eval policies/world count), or explicit "
+            "--assume-ms-per-tick <MS>."
         )
+
+    ticks_per_match = int(eff_burnin + eff_window)
+    ticks_per_batch = ticks_per_match
+    steps_per_match = int(eff_envs) * n_snakes * ticks_per_match
+    total_sim_ticks = int(num_batches * ticks_per_batch)
+    safety_factor = float(EVAL_TIMING_SAFETY_FACTOR)
+    effective_ms_per_tick = base_ms_per_tick * safety_factor
+    raw_compute_sec = float(total_sim_ticks) * (base_ms_per_tick / 1000.0)
+    est_compute_sec = raw_compute_sec * safety_factor
 
     session_cap_min = float(opts.eval_session_minutes)
     if session_cap_min <= 0 or not math.isfinite(session_cap_min):
@@ -1369,10 +1614,18 @@ def _size_eval_mode(
     setup_and_export_sec = 210.0 + upload_allowance_sec
     max_session_sec = session_cap_min * 60.0
     available_compute_sec = max_session_sec - setup_and_export_sec
+    sizing_arithmetic = (
+        f"{num_batches} batch(es) * {ticks_per_batch} ticks/batch = {total_sim_ticks} sim ticks; "
+        f"{total_sim_ticks} ticks * {base_ms_per_tick:.3f} ms/tick ({timing_source}) * "
+        f"{safety_factor:.2f}x margin = {est_compute_sec:.2f} s ({est_compute_sec / 60.0:.2f} min) "
+        f"compute + {setup_and_export_sec:.2f} s ({setup_and_export_sec / 60.0:.2f} min) "
+        f"staging/teardown = {(est_compute_sec + setup_and_export_sec) / 60.0:.2f} min vs "
+        f"{session_cap_min:.2f} min session cap"
+    )
     if est_compute_sec > available_compute_sec:
         raise ValueError(
             f"Refusing eval packet ({eff_eval_mode}, {len(policy_specs)} policies, "
-            f"E={eff_envs}, ticks={ticks_per_match}): estimated {ctx.gpu_norm} compute "
+            f"batch_worlds={batch_worlds}, {sizing_arithmetic}): estimated {ctx.gpu_norm} compute "
             f"{est_compute_sec / 60.0:.1f} min + staging/teardown {setup_and_export_sec / 60.0:.1f} min "
             f"exceeds {session_cap_min:.1f} min session cap. Lower --num-envs / ticks, pass fewer "
             "policies, or raise --eval-session-minutes."
@@ -1388,6 +1641,7 @@ def _size_eval_mode(
     eff_amp = True if opts.amp is None else bool(opts.amp)
     eff_cl = True if opts.use_channels_last is None else bool(opts.use_channels_last)
     eff_fast = True if opts.fast_learner_ops is None else bool(opts.fast_learner_ops)
+    batched_pairs_flag = eff_eval_mode == "round-robin" and not bool(opts.eval_sequential_pairs)
 
     extra_env: dict[str, str] = {
         "V3_PPO_EVAL_MODE": eff_eval_mode,
@@ -1407,6 +1661,11 @@ def _size_eval_mode(
         extra_env["V3_PPO_EVAL_OPPONENT_POLICY"] = str(opts.opponent_policy)
     if opts.eval_greedy:
         extra_env["V3_PPO_EVAL_GREEDY"] = "1"
+    if eff_eval_mode == "round-robin":
+        if opts.eval_sequential_pairs:
+            extra_env["V3_PPO_EVAL_SEQUENTIAL_PAIRS"] = "1"
+        else:
+            extra_env["V3_PPO_EVAL_MAX_PAIRS_PER_BATCH"] = str(eff_pairs_per_batch)
     if opts.compile_model:
         extra_env["V3_PPO_COMPILE"] = "1"
     if not eff_fast:
@@ -1414,31 +1673,38 @@ def _size_eval_mode(
 
     eval_plan = {
         "eval_mode": eff_eval_mode,
+        "batched_pairs": batched_pairs_flag,
         "num_policies": len(policy_specs),
         "total_pairs": total_pairs,
+        "reused_pairs": total_pairs - remaining_pairs,
         "remaining_pairs": remaining_pairs,
         "num_envs": eff_envs,
+        "pairs_per_batch": eff_pairs_per_batch,
+        "batch_worlds": batch_worlds,
+        "num_batches": num_batches,
         "burnin_ticks": eff_burnin,
         "window_ticks": eff_window,
         "ticks_per_match": ticks_per_match,
+        "ticks_per_batch": ticks_per_batch,
+        "total_sim_ticks": total_sim_ticks,
         "agent_steps_per_match": steps_per_match,
         "total_agent_steps": remaining_pairs * steps_per_match,
+        "timing_source": timing_source,
+        "measured_or_assumed_ms_per_tick": round(base_ms_per_tick, 4),
+        "timing_safety_factor": safety_factor,
+        "effective_ms_per_tick": round(effective_ms_per_tick, 4),
+        "raw_compute_seconds": round(raw_compute_sec, 2),
         "estimated_compute_seconds": round(est_compute_sec, 2),
         "estimated_compute_minutes": round(est_compute_sec / 60.0, 2),
         "estimated_staging_and_teardown_seconds": round(setup_and_export_sec, 2),
+        "sizing_arithmetic": sizing_arithmetic,
         "raw_checkpoints_total_bytes": raw_total_bytes,
         "estimated_staged_inputs_bytes": est_staged_bytes,
         "weights_only_staged": use_weights_only,
         "session_cap_minutes": session_cap_min,
     }
-    memory_estimate = {
-        "gpu": ctx.gpu_norm,
-        "budget_bytes": budget_bytes,
-        "estimated_peak_bytes": est_peak_bytes,
-        "sim_persistent_bytes": int(sim_mem["sim_persistent_bytes"]),
-        "obs_batch_bytes": obs_bytes,
-        "policy_weights_bytes": weights_bytes,
-    }
+    if ctx.canary_eval_smoke is not None:
+        eval_plan["canary_eval_smoke"] = dict(ctx.canary_eval_smoke)
 
     return _SizedModePlan(
         job_id=f"v3-ppo-eval-{ctx.gpu_slug}-{opts.attempt}",
@@ -2002,6 +2268,9 @@ def prepare_v3_ppo_packet(
     eval_world_age_bins: int = DEFAULT_LONG_GAME_WORLD_AGE_BINS,
     eval_seed: int = DEFAULT_EVAL_SEED,
     eval_greedy: bool = False,
+    eval_sequential_pairs: bool = False,
+    eval_max_pairs_per_batch: int | None = None,
+    assume_ms_per_tick: float | None = None,
     eval_session_minutes: float = EVAL_DEFAULT_SESSION_MINUTES,
     eval_weights_only: str = "auto",
     output_dir: Path | str | None = None,
@@ -2067,6 +2336,9 @@ def prepare_v3_ppo_packet(
         eval_world_age_bins=eval_world_age_bins,
         eval_seed=eval_seed,
         eval_greedy=eval_greedy,
+        eval_sequential_pairs=eval_sequential_pairs,
+        eval_max_pairs_per_batch=eval_max_pairs_per_batch,
+        assume_ms_per_tick=assume_ms_per_tick,
         eval_session_minutes=eval_session_minutes,
         eval_weights_only=eval_weights_only,
         output_dir=Path(output_dir) if output_dir is not None else None,
@@ -2186,6 +2458,39 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--eval-seed", "--seed", dest="eval_seed", type=int, default=DEFAULT_EVAL_SEED
     )
     parser.add_argument("--eval-greedy", "--greedy", dest="eval_greedy", action="store_true")
+    eval_batch_group = parser.add_mutually_exclusive_group()
+    eval_batch_group.add_argument(
+        "--eval-batched-pairs",
+        "--batched-pairs",
+        dest="eval_sequential_pairs",
+        action="store_false",
+        default=False,
+        help="Run round-robin pairs side-by-side in one batched simulator (default).",
+    )
+    eval_batch_group.add_argument(
+        "--eval-sequential-pairs",
+        "--sequential-pairs",
+        dest="eval_sequential_pairs",
+        action="store_true",
+        help="Fallback: run round-robin pairs sequentially one pair at a time.",
+    )
+    parser.add_argument(
+        "--eval-max-pairs-per-batch",
+        "--max-pairs-per-batch",
+        dest="eval_max_pairs_per_batch",
+        type=int,
+        default=None,
+        help="Optional cap on pairs per batched simulator run for --mode eval round-robin.",
+    )
+    parser.add_argument(
+        "--assume-ms-per-tick",
+        type=float,
+        default=None,
+        help=(
+            "Explicit ms/tick assumption for --mode eval when no bound canary "
+            "eval_canary_smoke.ms_per_tick measurement is available."
+        ),
+    )
     parser.add_argument("--eval-session-minutes", type=float, default=EVAL_DEFAULT_SESSION_MINUTES)
     parser.add_argument(
         "--eval-weights-only",
@@ -2301,6 +2606,9 @@ def options_from_cli_args(
         eval_world_age_bins=args.eval_world_age_bins,
         eval_seed=args.eval_seed,
         eval_greedy=bool(args.eval_greedy),
+        eval_sequential_pairs=bool(args.eval_sequential_pairs),
+        eval_max_pairs_per_batch=args.eval_max_pairs_per_batch,
+        assume_ms_per_tick=args.assume_ms_per_tick,
         eval_session_minutes=args.eval_session_minutes,
         eval_weights_only=args.eval_weights_only,
         output_dir=args.output_dir,

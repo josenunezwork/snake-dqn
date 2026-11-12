@@ -115,6 +115,7 @@ def _build_synthetic_canary_receipt(
             canary_num_snakes=6,
             canary_rollout_len=4,
             canary_eval_cfg_override=fast_eval_override,
+            canary_eval_env=canary_mf.get("env"),
         )
         assert canary_res["default_eval_benchmark"]["aborted"] is False
         assert canary_res["default_eval_benchmark"]["wall_seconds"] > 0.0
