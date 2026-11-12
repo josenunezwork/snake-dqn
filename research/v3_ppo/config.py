@@ -9,9 +9,7 @@ from typing import Any, Literal
 from research.game_v3.config import NUM_ACTIONS, GameV3Config
 from research.game_v3.obs import NUM_RASTER_CHANNELS, NUM_SCALAR_FEATURES
 
-FINE_RASTER_SIZE: int = 64
-MID_RASTER_SIZE: int = 32
-WIDE_RASTER_SIZE: int = 32
+_DEFAULT_GAME_CONFIG: GameV3Config = GameV3Config()
 
 V3_PPO_SCHEMA = "v3-ppo-config/v1"
 V3_PPO_NAMESPACE = "v3-ppo-20261111"
@@ -108,20 +106,129 @@ VALID_OPPONENT_POLICIES: tuple[OpponentPolicy, ...] = (
     "cardinal6_safe",
 )
 
-# Exact per-learner-step byte layout in `Uint8RolloutBuffer`:
-# 3 uint8 rasters: 13*64*64 (53,248) + 13*32*32 (13,312) + 13*32*32 (13,312) = 79,872 bytes.
-RASTER_S1_BYTES: int = NUM_RASTER_CHANNELS * FINE_RASTER_SIZE * FINE_RASTER_SIZE  # 53,248
-RASTER_S4_BYTES: int = NUM_RASTER_CHANNELS * MID_RASTER_SIZE * MID_RASTER_SIZE  # 13,312
-RASTER_S16_BYTES: int = NUM_RASTER_CHANNELS * WIDE_RASTER_SIZE * WIDE_RASTER_SIZE  # 13,312
-OBS_RASTER_BYTES_PER_STEP: int = RASTER_S1_BYTES + RASTER_S4_BYTES + RASTER_S16_BYTES  # 79,872
-OBS_METADATA_BYTES_PER_STEP: int = NUM_SCALAR_FEATURES * 4 + NUM_ACTIONS * 1  # 32 + 10 = 42
-OBS_BATCH_BYTES_PER_ROW: int = OBS_RASTER_BYTES_PER_STEP + OBS_METADATA_BYTES_PER_STEP  # 79,914
-
 # Rollout targets/flags per learner-step:
 # actions (u8: 1) + log_probs, values, rewards, advantages, returns (5 * f32: 20)
 # + died, truncated, acted (3 * bool: 3) = 24 bytes.
 ROLLOUT_SCALAR_BYTES_PER_STEP: int = 1 + 5 * 4 + 3 * 1  # 24
-BYTES_PER_LEARNER_STEP: int = OBS_BATCH_BYTES_PER_ROW + ROLLOUT_SCALAR_BYTES_PER_STEP  # 79,938
+
+
+@dataclass(frozen=True)
+class ObsLayout:
+    """Single-sourced observation tensor layout derived from ``GameV3Config`` & ``game_v3.obs``."""
+
+    channels: int = NUM_RASTER_CHANNELS
+    fine_size: int = _DEFAULT_GAME_CONFIG.obs_fine_size
+    mid_size: int = _DEFAULT_GAME_CONFIG.obs_coarse_size
+    wide_size: int = _DEFAULT_GAME_CONFIG.obs_coarse_size
+    scales: tuple[int, int, int] = _DEFAULT_GAME_CONFIG.obs_scales
+    scalar_dim: int = NUM_SCALAR_FEATURES
+    num_actions: int = NUM_ACTIONS
+
+    @property
+    def raster_sizes(self) -> tuple[int, int, int]:
+        """Return ``(fine_size, mid_size, wide_size)`` spatial dimensions."""
+        return (int(self.fine_size), int(self.mid_size), int(self.wide_size))
+
+    @property
+    def raster_s1_bytes(self) -> int:
+        """Byte count of one ``raster_s1`` ``uint8`` slice."""
+        return int(self.channels) * int(self.fine_size) * int(self.fine_size)
+
+    @property
+    def raster_s4_bytes(self) -> int:
+        """Byte count of one ``raster_s4`` ``uint8`` slice."""
+        return int(self.channels) * int(self.mid_size) * int(self.mid_size)
+
+    @property
+    def raster_s16_bytes(self) -> int:
+        """Byte count of one ``raster_s16`` ``uint8`` slice."""
+        return int(self.channels) * int(self.wide_size) * int(self.wide_size)
+
+    @property
+    def raster_bytes_per_step(self) -> int:
+        """Total ``uint8`` raster bytes per learner step across all 3 scales."""
+        return self.raster_s1_bytes + self.raster_s4_bytes + self.raster_s16_bytes
+
+    @property
+    def metadata_bytes_per_step(self) -> int:
+        """Byte count of float32 scalars plus bool action mask per learner step."""
+        return int(self.scalar_dim) * 4 + int(self.num_actions) * 1
+
+    @property
+    def obs_batch_bytes_per_row(self) -> int:
+        """Byte count of one row in an ``ObservationBatch``."""
+        return self.raster_bytes_per_step + self.metadata_bytes_per_step
+
+    @property
+    def bytes_per_learner_step(self) -> int:
+        """Total bytes per learner step stored in ``Uint8RolloutBuffer``."""
+        return self.obs_batch_bytes_per_row + ROLLOUT_SCALAR_BYTES_PER_STEP
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize layout to a JSON-compatible dictionary."""
+        return {
+            "channels": int(self.channels),
+            "fine_size": int(self.fine_size),
+            "mid_size": int(self.mid_size),
+            "wide_size": int(self.wide_size),
+            "scales": [int(s) for s in self.scales],
+            "scalar_dim": int(self.scalar_dim),
+            "num_actions": int(self.num_actions),
+        }
+
+    @classmethod
+    def from_dict(cls, data: Any) -> ObsLayout:
+        """Deserialize layout from a dictionary (e.g. checkpoint metadata)."""
+        if not isinstance(data, dict):
+            raise ValueError(f"Expected obs_layout dict, got {type(data)!r}")
+        required = ("channels", "fine_size", "mid_size", "wide_size", "scalar_dim", "num_actions")
+        missing = [k for k in required if k not in data]
+        if missing:
+            raise ValueError(f"obs_layout missing required keys: {missing}")
+        raw_scales = data.get("scales", _DEFAULT_GAME_CONFIG.obs_scales)
+        if not isinstance(raw_scales, (list, tuple)) or len(raw_scales) != 3:
+            raise ValueError(f"Invalid obs_layout scales: {raw_scales!r}")
+        return cls(
+            channels=int(data["channels"]),
+            fine_size=int(data["fine_size"]),
+            mid_size=int(data["mid_size"]),
+            wide_size=int(data["wide_size"]),
+            scales=(int(raw_scales[0]), int(raw_scales[1]), int(raw_scales[2])),
+            scalar_dim=int(data["scalar_dim"]),
+            num_actions=int(data["num_actions"]),
+        )
+
+
+def obs_layout_from_game_config(game_cfg: GameV3Config = _DEFAULT_GAME_CONFIG) -> ObsLayout:
+    """Derive the observation layout produced by ``game_v3.obs`` for ``game_cfg``."""
+    if len(game_cfg.obs_scales) != 3:
+        raise ValueError(f"Expected 3 obs_scales in GameV3Config, got {game_cfg.obs_scales!r}")
+    return ObsLayout(
+        channels=NUM_RASTER_CHANNELS,
+        fine_size=int(game_cfg.obs_fine_size),
+        mid_size=int(game_cfg.obs_coarse_size),
+        wide_size=int(game_cfg.obs_coarse_size),
+        scales=(
+            int(game_cfg.obs_scales[0]),
+            int(game_cfg.obs_scales[1]),
+            int(game_cfg.obs_scales[2]),
+        ),
+        scalar_dim=NUM_SCALAR_FEATURES,
+        num_actions=int(game_cfg.num_actions),
+    )
+
+
+DEFAULT_OBS_LAYOUT: ObsLayout = obs_layout_from_game_config(_DEFAULT_GAME_CONFIG)
+FINE_RASTER_SIZE: int = DEFAULT_OBS_LAYOUT.fine_size
+MID_RASTER_SIZE: int = DEFAULT_OBS_LAYOUT.mid_size
+WIDE_RASTER_SIZE: int = DEFAULT_OBS_LAYOUT.wide_size
+RASTER_S1_BYTES: int = DEFAULT_OBS_LAYOUT.raster_s1_bytes
+RASTER_S4_BYTES: int = DEFAULT_OBS_LAYOUT.raster_s4_bytes
+RASTER_S16_BYTES: int = DEFAULT_OBS_LAYOUT.raster_s16_bytes
+OBS_RASTER_BYTES_PER_STEP: int = DEFAULT_OBS_LAYOUT.raster_bytes_per_step
+OBS_METADATA_BYTES_PER_STEP: int = DEFAULT_OBS_LAYOUT.metadata_bytes_per_step
+OBS_BATCH_BYTES_PER_ROW: int = DEFAULT_OBS_LAYOUT.obs_batch_bytes_per_row
+BYTES_PER_LEARNER_STEP: int = DEFAULT_OBS_LAYOUT.bytes_per_learner_step
 
 # Target GPU VRAM budgets (bytes) and default training world counts enforced at packet preparation.
 GPU_VRAM_BUDGET_BYTES: dict[str, int] = {
@@ -530,18 +637,20 @@ def estimate_rollout_buffer_bytes(
     num_envs: int,
     learner_slots: int,
     rollout_len: int,
+    game_cfg: GameV3Config = _DEFAULT_GAME_CONFIG,
 ) -> dict[str, int]:
     """Compute exact byte counts for ``Uint8RolloutBuffer`` and the 1-step bootstrap cache."""
+    layout = obs_layout_from_game_config(game_cfg)
     m = int(num_envs) * int(learner_slots)
     total_steps = m * int(rollout_len)
-    raster_bytes = total_steps * OBS_RASTER_BYTES_PER_STEP
-    rollout_buffer_bytes = total_steps * BYTES_PER_LEARNER_STEP
-    bootstrap_obs_bytes = m * OBS_BATCH_BYTES_PER_ROW
+    raster_bytes = total_steps * layout.raster_bytes_per_step
+    rollout_buffer_bytes = total_steps * layout.bytes_per_learner_step
+    bootstrap_obs_bytes = m * layout.obs_batch_bytes_per_row
     return {
         "total_learners": m,
         "learner_steps_per_rollout": total_steps,
-        "bytes_per_learner_step_rasters": OBS_RASTER_BYTES_PER_STEP,
-        "bytes_per_learner_step_total": BYTES_PER_LEARNER_STEP,
+        "bytes_per_learner_step_rasters": layout.raster_bytes_per_step,
+        "bytes_per_learner_step_total": layout.bytes_per_learner_step,
         "rollout_raster_bytes": raster_bytes,
         "rollout_buffer_bytes": rollout_buffer_bytes,
         "bootstrap_obs_bytes": bootstrap_obs_bytes,
@@ -572,12 +681,14 @@ def estimate_actor_chunk_temp_bytes(
     actor_chunk_rows: int,
     net_size: NetSize,
     amp: bool = True,
+    game_cfg: GameV3Config = _DEFAULT_GAME_CONFIG,
 ) -> int:
     """Estimate transient bf16/fp32 raster conversion + stem activations for 1 forward chunk."""
+    layout = obs_layout_from_game_config(game_cfg)
     preset = get_net_preset(net_size)
     rows = max(1, int(actor_chunk_rows))
     elem_bytes = 2 if amp else 4
-    raster_float_copy_bytes = rows * OBS_RASTER_BYTES_PER_STEP * elem_bytes
+    raster_float_copy_bytes = rows * layout.raster_bytes_per_step * elem_bytes
     fwd_act_per_row = preset.actor_fwd_act_bytes_per_row_bf16
     if not amp:
         fwd_act_per_row *= 2
@@ -589,9 +700,10 @@ def estimate_eval_overhead_bytes(cfg: V3PPOConfig) -> int:
     eval_enabled = (int(cfg.eval_every_updates) > 0) or (float(cfg.eval_every_minutes) > 0.0)
     if not eval_enabled:
         return 0
+    layout = obs_layout_from_game_config(cfg.game_config)
     eval_sim = estimate_sim_memory_bytes(cfg.game_config, cfg.eval_envs)
     eval_learners = int(cfg.eval_envs) * int(cfg.resolved_eval_learner_slots)
-    eval_obs_bytes = eval_learners * OBS_BATCH_BYTES_PER_ROW
+    eval_obs_bytes = eval_learners * layout.obs_batch_bytes_per_row
     return int(eval_sim["sim_peak_bytes"] + eval_obs_bytes)
 
 
@@ -602,6 +714,7 @@ def estimate_training_memory(cfg: V3PPOConfig, *, gpu: str | None = None) -> dic
         num_envs=cfg.num_envs,
         learner_slots=cfg.resolved_learner_slots,
         rollout_len=cfg.rollout_len,
+        game_cfg=cfg.game_config,
     )
     eff_mb = cfg.resolved_minibatch_size
     preset = get_net_preset(cfg.net_size)
@@ -621,6 +734,7 @@ def estimate_training_memory(cfg: V3PPOConfig, *, gpu: str | None = None) -> dic
         actor_chunk_rows=eff_actor_chunk,
         net_size=cfg.net_size,
         amp=bool(cfg.amp),
+        game_cfg=cfg.game_config,
     )
     eval_overhead_bytes = estimate_eval_overhead_bytes(cfg)
 
@@ -642,6 +756,7 @@ def estimate_training_memory(cfg: V3PPOConfig, *, gpu: str | None = None) -> dic
             actor_chunk_rows=eval_fwd_chunk,
             net_size=cfg.net_size,
             amp=bool(cfg.amp),
+            game_cfg=cfg.game_config,
         )
         eval_phase_peak_bytes = (
             sim_mem["sim_persistent_bytes"]

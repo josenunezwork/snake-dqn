@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -16,11 +17,14 @@ from research.game_v3.sim import GameV3Sim, StepInfo
 from research.v3_ppo.buffer import Uint8RolloutBuffer, compute_gae
 from research.v3_ppo.config import (
     BYTES_PER_LEARNER_STEP,
+    DEFAULT_OBS_LAYOUT,
     NET_PRESETS,
     OBS_RASTER_BYTES_PER_STEP,
     V3PPOConfig,
+    estimate_rollout_buffer_bytes,
     estimate_training_memory,
     get_net_preset,
+    obs_layout_from_game_config,
 )
 from research.v3_ppo.eval import compute_step_reward
 from research.v3_ppo.net import (
@@ -36,6 +40,12 @@ from research.v3_ppo.ppo import (
     _move_optimizer_state_to_device,
 )
 from research.v3_ppo.ppo import build_arg_parser as ppo_arg_parser
+from research.v3_ppo.ppo import (
+    verify_full_checkpoint_set,
+    verify_light_checkpoint,
+    write_create_only_artifact,
+    write_create_only_json,
+)
 from research.v3_ppo.prepare import build_arg_parser as prepare_arg_parser
 from research.v3_ppo.prepare import prepare_v3_ppo_packet
 from research.v3_ppo.ruler import _parse_nets_csv
@@ -739,3 +749,91 @@ def test_net_presets_registry_and_unknown_size_rejected(tmp_path: Path) -> None:
             allow_missing_canary_receipt=True,
             allow_unmerged_commit=True,
         )
+
+
+def test_obs_layout_single_sourced_trainer_agreement_and_checkpoint_field(
+    tmp_path: Path,
+) -> None:
+    """Verify raster sizes derive from GameV3Config, assert at trainer init, and save in ckpts."""
+    custom_game = GameV3Config(
+        arena_radius=120.0,
+        num_snakes=6,
+        obs_fine_size=32,
+        obs_coarse_size=16,
+    )
+    custom_layout = obs_layout_from_game_config(custom_game)
+    assert custom_layout.raster_sizes == (32, 16, 16)
+    assert custom_layout.raster_bytes_per_step == 13 * (32 * 32 + 16 * 16 + 16 * 16)
+
+    sim = GameV3Sim(custom_game, num_envs=2, device="cpu", seeds=[11, 22])
+    mask = torch.ones((2, 6), dtype=torch.bool)
+    idx = LearnerIndex(sim, mask)
+    buf = Uint8RolloutBuffer(
+        rollout_len=3,
+        learner_index=idx,
+        sim_shape=(2, 6),
+        device=torch.device("cpu"),
+        obs_layout=custom_layout,
+    )
+    assert buf.raster_s1.shape == (3, 12, 13, 32, 32)
+    assert buf.raster_s4.shape == (3, 12, 13, 16, 16)
+    assert buf.nbytes_total() == (
+        estimate_rollout_buffer_bytes(
+            num_envs=2,
+            learner_slots=6,
+            rollout_len=3,
+            game_cfg=custom_game,
+        )["rollout_buffer_bytes"]
+    )
+
+    bad_cfg = V3PPOConfig(game_config=custom_game, num_envs=2, rollout_len=2, minibatch_size=8)
+    with pytest.raises(ValueError, match="Observation raster sizes"):
+        V3PPOTrainer(bad_cfg, device="cpu")
+
+    ok_game = GameV3Config(arena_radius=120.0, num_snakes=6, max_length=64)
+    ok_cfg = V3PPOConfig(
+        game_config=ok_game,
+        num_envs=2,
+        learner_slots=2,
+        rollout_len=2,
+        minibatch_size=4,
+        ppo_epochs=1,
+        amp=False,
+        use_channels_last=False,
+    )
+    trainer = V3PPOTrainer(ok_cfg, device="cpu")
+    assert trainer.obs_layout == DEFAULT_OBS_LAYOUT
+    ckpt_dir = tmp_path / "ckpts"
+    ckpt_dir.mkdir()
+    full_idx = trainer.save_full_checkpoint(ckpt_dir, tag="u0000000")
+    light_path = ckpt_dir / "light_u0000000.pt"
+
+    light_meta = verify_light_checkpoint(light_path)
+    full_meta = verify_full_checkpoint_set(full_idx)
+    assert light_meta["obs_layout"] == DEFAULT_OBS_LAYOUT.to_dict()
+    assert full_meta["obs_layout"] == DEFAULT_OBS_LAYOUT.to_dict()
+
+    # Checkpoints lacking `obs_layout` (legacy e2865f93 schema) still verify and load cleanly.
+    legacy_payload = torch.load(light_path, map_location="cpu", weights_only=False)
+    assert "obs_layout" in legacy_payload
+    del legacy_payload["obs_layout"]
+    legacy_light = tmp_path / "legacy_light.pt"
+    write_create_only_artifact(legacy_light, lambda tmp: torch.save(legacy_payload, tmp))
+    assert verify_light_checkpoint(legacy_light)["obs_layout"] is None
+    restored = V3PPOTrainer(ok_cfg, device="cpu")
+    restored.load_checkpoint(legacy_light)
+
+    # Tampered `obs_layout` is rejected cleanly.
+    bad_payload = dict(legacy_payload)
+    bad_payload["obs_layout"] = {**DEFAULT_OBS_LAYOUT.to_dict(), "fine_size": 32}
+    bad_light = tmp_path / "bad_light.pt"
+    write_create_only_artifact(bad_light, lambda tmp: torch.save(bad_payload, tmp))
+    with pytest.raises(ValueError, match="obs_layout"):
+        verify_light_checkpoint(bad_light)
+
+    bad_idx_obj = json.loads(full_idx.read_text(encoding="utf-8"))
+    bad_idx_obj["obs_layout"] = {**DEFAULT_OBS_LAYOUT.to_dict(), "mid_size": 16}
+    bad_idx = ckpt_dir / "full_bad.index.json"
+    write_create_only_json(bad_idx, bad_idx_obj)
+    with pytest.raises(ValueError, match="obs_layout"):
+        verify_full_checkpoint_set(bad_idx)

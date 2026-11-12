@@ -31,7 +31,6 @@ from research.game_v3.scripted import food_seeking_actions
 from research.game_v3.sim import GameV3Sim
 from research.v3_ppo.config import (
     GPU_DEFAULT_TRAIN_ENVS,
-    OBS_BATCH_BYTES_PER_ROW,
     V3_PPO_NAMESPACE,
     VALID_NET_SIZES,
     NetSize,
@@ -40,6 +39,7 @@ from research.v3_ppo.config import (
     estimate_sim_memory_bytes,
     estimate_training_memory,
     get_net_preset,
+    obs_layout_from_game_config,
 )
 from research.v3_ppo.eval import derive_world_seeds, evaluate_policy
 from research.v3_ppo.net import build_ego_multiscale_net
@@ -267,9 +267,10 @@ def _measure_collection_only_cell(
     wall_sec = max(1.0e-9, time.perf_counter() - wall_t0)
 
     sim_est = estimate_sim_memory_bytes(game_cfg, num_envs)
+    obs_row_bytes = obs_layout_from_game_config(game_cfg).obs_batch_bytes_per_row
     fallback_mem = (
         sim_est["sim_persistent_bytes"]
-        + learner_idx.count * OBS_BATCH_BYTES_PER_ROW
+        + learner_idx.count * obs_row_bytes
         + raw_model.parameter_count() * 4
     )
     peak_bytes = _read_peak_memory_bytes(device, fallback_bytes=fallback_mem)
@@ -411,7 +412,7 @@ def _measure_integrated_cell(
     fallback_mem = (
         sim_est["sim_persistent_bytes"]
         + buf_bytes
-        + trainer.M * OBS_BATCH_BYTES_PER_ROW
+        + trainer.M * trainer.obs_layout.obs_batch_bytes_per_row
         + trainer.raw_model.parameter_count() * 16
     )
     peak_bytes = _read_peak_memory_bytes(device, fallback_bytes=fallback_mem)

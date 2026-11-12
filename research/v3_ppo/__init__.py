@@ -6,6 +6,7 @@ from research.v3_ppo.buffer import Uint8RolloutBuffer, compute_gae
 from research.v3_ppo.config import (
     BYTES_PER_LEARNER_STEP,
     DEFAULT_CHECKPOINT_SHARD_BYTES,
+    DEFAULT_OBS_LAYOUT,
     GPU_MAX_TOTAL_EXPORT_BYTES,
     GPU_VRAM_BUDGET_BYTES,
     NET_PRESETS,
@@ -16,6 +17,7 @@ from research.v3_ppo.config import (
     VALID_NET_SIZES,
     NetPreset,
     NetSize,
+    ObsLayout,
     OpponentPolicy,
     V3PPOConfig,
     estimate_checkpoint_export_caps,
@@ -23,6 +25,7 @@ from research.v3_ppo.config import (
     estimate_sim_memory_bytes,
     estimate_training_memory,
     get_net_preset,
+    obs_layout_from_game_config,
     validate_checkpoint_export_caps,
     validate_memory_budget,
 )
@@ -53,6 +56,7 @@ from research.v3_ppo.ppo import (
 __all__ = [
     "BYTES_PER_LEARNER_STEP",
     "DEFAULT_CHECKPOINT_SHARD_BYTES",
+    "DEFAULT_OBS_LAYOUT",
     "EgoMultiScaleNet",
     "EgoMultiScaleNetConfig",
     "GPU_MAX_TOTAL_EXPORT_BYTES",
@@ -62,6 +66,7 @@ __all__ = [
     "NetSize",
     "OBS_BATCH_BYTES_PER_ROW",
     "OBS_RASTER_BYTES_PER_STEP",
+    "ObsLayout",
     "OpponentPolicy",
     "Uint8RolloutBuffer",
     "V3PPOConfig",
@@ -79,6 +84,7 @@ __all__ = [
     "evaluate_policy",
     "evaluate_scripted_baseline",
     "get_net_preset",
+    "obs_layout_from_game_config",
     "pack_sim_state_dict",
     "prune_old_checkpoints",
     "resolve_resume_checkpoint",

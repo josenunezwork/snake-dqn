@@ -37,15 +37,17 @@ from research.arena_ppo.runtime import (
 from research.game_v3.config import GameV3Config
 from research.game_v3.obs import LearnerIndex, allocate_obs_batch, build_obs
 from research.game_v3.sim import GameV3Sim
-from research.v3_ppo.buffer import Uint8RolloutBuffer
+from research.v3_ppo.buffer import Uint8RolloutBuffer, assert_obs_batch_matches_layout
 from research.v3_ppo.config import (
     DEFAULT_CHECKPOINT_SHARD_BYTES,
     GPU_MAX_TOTAL_EXPORT_BYTES,
     V3_PPO_NAMESPACE,
     VALID_NET_SIZES,
+    ObsLayout,
     V3PPOConfig,
     estimate_training_memory,
     get_net_preset,
+    obs_layout_from_game_config,
 )
 from research.v3_ppo.eval import (
     compute_step_reward,
@@ -632,6 +634,19 @@ def verify_light_checkpoint(
     counters = ckpt.get("counters")
     if not isinstance(counters, dict) or "updates_completed" not in counters:
         raise ValueError(f"Corrupt counters in LIGHT checkpoint at {p}")
+    ckpt_obs_layout: dict[str, Any] | None = None
+    if ckpt.get("obs_layout") is not None:
+        parsed_layout = ObsLayout.from_dict(ckpt["obs_layout"])
+        if isinstance(ckpt.get("config"), dict):
+            cfg_layout = obs_layout_from_game_config(
+                V3PPOConfig.from_dict(ckpt["config"]).game_config
+            )
+            if parsed_layout != cfg_layout:
+                raise ValueError(
+                    f"LIGHT checkpoint obs_layout {parsed_layout.to_dict()} != "
+                    f"config obs_layout {cfg_layout.to_dict()} at {p}"
+                )
+        ckpt_obs_layout = parsed_layout.to_dict()
     st = p.stat()
     raw_ts = ckpt.get("created_unix_ts")
     created_ts = float(raw_ts) if isinstance(raw_ts, (int, float)) else float(st.st_mtime)
@@ -647,6 +662,7 @@ def verify_light_checkpoint(
         "created_unix_ts": created_ts,
         "restart_generation": int(ckpt.get("restart_generation", 0)),
         "config": ckpt.get("config"),
+        "obs_layout": ckpt_obs_layout,
     }
 
 
@@ -735,6 +751,27 @@ def verify_full_checkpoint_set(
             f"LIGHT restart_generation ({light_meta.get('restart_generation', 0)})"
         )
 
+    idx_obs_layout: dict[str, Any] | None = light_meta.get("obs_layout")
+    if idx_obj.get("obs_layout") is not None:
+        parsed_idx_layout = ObsLayout.from_dict(idx_obj["obs_layout"])
+        if light_meta.get("obs_layout") is not None:
+            parsed_light_layout = ObsLayout.from_dict(light_meta["obs_layout"])
+            if parsed_idx_layout != parsed_light_layout:
+                raise ValueError(
+                    f"FULL index obs_layout {parsed_idx_layout.to_dict()} != "
+                    f"LIGHT obs_layout {parsed_light_layout.to_dict()} at {idx_p}"
+                )
+        if isinstance(light_meta.get("config"), dict):
+            cfg_layout = obs_layout_from_game_config(
+                V3PPOConfig.from_dict(light_meta["config"]).game_config
+            )
+            if parsed_idx_layout != cfg_layout:
+                raise ValueError(
+                    f"FULL index obs_layout {parsed_idx_layout.to_dict()} != "
+                    f"config obs_layout {cfg_layout.to_dict()} at {idx_p}"
+                )
+        idx_obs_layout = parsed_idx_layout.to_dict()
+
     idx_st = idx_p.stat()
     raw_ts = idx_obj.get("created_unix_ts")
     created_ts = float(raw_ts) if isinstance(raw_ts, (int, float)) else float(idx_st.st_mtime)
@@ -756,6 +793,7 @@ def verify_full_checkpoint_set(
         "created_unix_ts": created_ts,
         "restart_generation": idx_rgen,
         "config": light_meta["config"],
+        "obs_layout": idx_obs_layout,
     }
 
 
@@ -1065,6 +1103,13 @@ class V3PPOTrainer:
         mature_sim_state: dict[str, Any] | None = None,
     ) -> None:
         self.cfg = cfg
+        self.obs_layout = obs_layout_from_game_config(cfg.game_config)
+        if self.obs_layout.raster_sizes != EgoMultiScaleNet.STEM_RASTER_SIZES:
+            raise ValueError(
+                f"Observation raster sizes {self.obs_layout.raster_sizes} from GameV3Config "
+                f"do not match EgoMultiScaleNet stem input sizes "
+                f"{EgoMultiScaleNet.STEM_RASTER_SIZES}"
+            )
         self.device = normalize_device(device)
         ensure_cuda_initialized(self.device)
         configure_determinism(cfg.deterministic)
@@ -1107,6 +1152,7 @@ class V3PPOTrainer:
             fast_preprocess=bool(cfg.fast_learner_ops),
         )
         self.raw_model = EgoMultiScaleNet(net_cfg).to(self.device)
+        self.raw_model.validate_obs_layout(self.obs_layout)
         if cfg.compile_model and hasattr(torch, "compile"):
             self.raw_model.compile_execution_paths()
         self.model: EgoMultiScaleNet = self.raw_model
@@ -1141,8 +1187,21 @@ class V3PPOTrainer:
             learner_index=self.learner_index,
             sim_shape=(self.sim.E, self.sim.N),
             device=self.device,
+            obs_layout=self.obs_layout,
         )
         self._bootstrap_obs = allocate_obs_batch(self.sim, self.learner_index)
+        assert_obs_batch_matches_layout(
+            self._bootstrap_obs,
+            self.obs_layout,
+            batch_rows=self.M,
+            context="allocate_obs_batch",
+        )
+        assert_obs_batch_matches_layout(
+            self.buffer.obs_view(0),
+            self.obs_layout,
+            batch_rows=self.M,
+            context="buffer.obs_view(0)",
+        )
         self._bootstrap_obs_valid = False
 
         # Persistent counters and episode return accumulators (serialized in checkpoints)
@@ -1666,6 +1725,7 @@ class V3PPOTrainer:
             "created_unix_ts": float(time.time()),
             "restart_generation": eff_gen,
             "config": self.cfg.to_dict(),
+            "obs_layout": self.obs_layout.to_dict(),
             "model_state_dict": _to_cpu_tree(self.raw_model.state_dict()),
             "optimizer_state_dict": _to_cpu_tree(self.optimizer.state_dict()),
             "grad_scaler_state_dict": (
@@ -1825,6 +1885,7 @@ class V3PPOTrainer:
             "world_steps_collected": int(self.world_steps_collected),
             "agent_steps_collected": int(self.agent_steps_collected),
             "num_envs": total_worlds,
+            "obs_layout": self.obs_layout.to_dict(),
             "max_shard_bytes": shard_cap,
             "sim_clean_step_streak": clean_streak,
             "light_checkpoint": {
@@ -1854,6 +1915,14 @@ class V3PPOTrainer:
                 raise ValueError(
                     f"Checkpoint config mismatch on {key!r}: "
                     f"ckpt={ckpt_dict.get(key)!r} vs current={curr_dict.get(key)!r}"
+                )
+
+        if ckpt.get("obs_layout") is not None:
+            saved_layout = ObsLayout.from_dict(ckpt["obs_layout"])
+            if saved_layout != self.obs_layout:
+                raise ValueError(
+                    f"Checkpoint obs_layout {saved_layout.to_dict()} does not match "
+                    f"trainer obs_layout {self.obs_layout.to_dict()}"
                 )
 
         saved_mask = ckpt.get("learner_mask")
