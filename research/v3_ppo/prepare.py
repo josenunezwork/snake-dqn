@@ -9,12 +9,14 @@ import shutil
 import subprocess
 import sys
 from collections.abc import Sequence
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
 import torch
 
+# Shared Colab packet/artifact helpers imported from `research.arena_ppo` (kept in one place
+# until a shared cross-package packet module is extracted in a subsequent refactor round).
 from research.arena_ppo.prepare import (
     CANARY_BASE_MINUTES,
     CANARY_TIMEOUT_MINUTES,
@@ -28,10 +30,7 @@ from research.arena_ppo.prepare import (
     _write_json_create_only,
     re_safe_attempt,
 )
-from research.arena_ppo.runtime import (
-    sha256_file,
-    verify_completed_artifact,
-)
+from research.arena_ppo.runtime import sha256_file, verify_completed_artifact
 from research.colab_cli import canary as colab_canary
 from research.game_v3.config import GameV3Config
 from research.v3_ppo.config import (
@@ -43,16 +42,15 @@ from research.v3_ppo.config import (
     NetSize,
     OpponentPolicy,
     V3PPOConfig,
+    assert_resume_config_compatible,
     default_train_envs_for_gpu,
     estimate_training_memory,
+    get_net_preset,
     validate_checkpoint_export_caps,
     validate_memory_budget,
 )
-from research.v3_ppo.ppo import (
-    _RESUME_MUTABLE_CONFIG_KEYS,
-    resolve_resume_checkpoint,
-    write_create_only_artifact,
-)
+from research.v3_ppo.exports import write_create_only_artifact
+from research.v3_ppo.resume import resolve_resume_checkpoint
 from research.v3_ppo.ruler import (
     CANARY_REQUIRED_EXPORTS,
     DEFAULT_RULER_ENVS,
@@ -76,6 +74,116 @@ PREPARE_MODES: tuple[str, ...] = ("canary", "ruler", "train")
 UNLIMITED_HOURS_TOTAL_UPDATES: int = 1_000_000_000
 
 
+@dataclass(frozen=True)
+class PreparePacketOptions:
+    """Single options specification driving all stages of ``prepare_v3_ppo_packet``."""
+
+    packet_dir: Path
+    commit: str = "HEAD"
+    mode: str = "canary"
+    gpu: str = "L4"
+    hours: float = 2.0
+    expected_steps_per_sec: float | None = None
+    net_size: NetSize | None = None
+    num_envs: int | None = None
+    num_snakes: int | None = None
+    arena_radius: float | None = None
+    learner_slots: int | None = None
+    opponent_policy: OpponentPolicy | None = None
+    rollout_len: int | None = None
+    ruler_envs: str | None = None
+    ruler_nets: str | None = None
+    ruler_learners: str | None = None
+    ruler_rollout_len: int = DEFAULT_RULER_ROLLOUT_LEN
+    ruler_warmup_updates: int = DEFAULT_RULER_WARMUP_UPDATES
+    ruler_timed_updates: int = DEFAULT_RULER_TIMED_UPDATES
+    ruler_base_minutes: float | None = None
+    amp: bool | None = None
+    use_channels_last: bool | None = None
+    fast_learner_ops: bool | None = None
+    include_fp32: bool = False
+    compile_model: bool = False
+    max_periodic_full_exports: int | None = None
+    light_resume_margin_minutes: float | None = None
+    eval_estimated_seconds: float | None = None
+    output_dir: Path | None = None
+    prior_output_dir: Path | None = None
+    prior_kind: str = "auto"
+    canary_receipt: Path | None = None
+    allow_missing_canary_receipt: bool = False
+    ppo_config: V3PPOConfig | None = None
+    explicit_total_updates: bool = False
+    explicit_eval_estimated_seconds: bool = False
+    measured_packed_bytes_per_world: int | None = None
+    measured_checkpoint_bytes: int | None = None
+    attempt: str = "attempt-01"
+    allow_unmerged_commit: bool = False
+
+
+@dataclass(frozen=True)
+class _PriorSpec:
+    """Resolved prior continuation artifact (checkpoint set or ruler cells) before staging."""
+
+    kind: str  # "none" | "checkpoint" | "ruler_cells"
+    prior_dir: Path | None = None
+    chosen_checkpoint: dict[str, Any] | None = None
+    staged_base_cfg: V3PPOConfig | None = None
+    ruler_cell_paths: tuple[Path, ...] = ()
+
+
+@dataclass(frozen=True)
+class _ValidatedPacketContext:
+    """Validated packet metadata produced by ``_stage_validate_options``."""
+
+    pkt_dir: Path
+    out_path: Path
+    gpu_norm: str
+    gpu_slug: str
+    resolved_commit: str
+    source_paths: list[str]
+    prior: _PriorSpec
+    canary_block: dict[str, Any] | None
+    canary_eval_metrics: dict[str, Any] | None
+
+
+@dataclass(frozen=True)
+class _SizedModePlan:
+    """Mode-specific configuration, timing, and validated VRAM budget."""
+
+    job_id: str
+    est_minutes: float
+    timeout_minutes: float
+    base_sec: float
+    eff_sec: float
+    max_wall_sec_int: int
+    extra_env: dict[str, str]
+    required_exports: list[str]
+    resume_fields: dict[str, Any]
+    canary_block: dict[str, Any] | None
+    train_cfg: V3PPOConfig | None = None
+    training_plan: dict[str, Any] | None = None
+    memory_estimate: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class _CappedModePlan:
+    """Mode plan augmented with validated per-file and session checkpoint export caps."""
+
+    sized: _SizedModePlan
+    extra_env: dict[str, str]
+    max_export_bytes: int
+    checkpoint_export_caps: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class _StagedInputs:
+    """Staged input files, ledger, and post-staging per-file export cap."""
+
+    inputs_list: list[dict[str, str]]
+    ledger: dict[str, Any]
+    max_export_bytes: int
+
+
 def runtime_source_paths(commit: str) -> list[str]:
     """Return minimal hash-bound source inventory shipped to the Colab CLI runtime.
 
@@ -97,14 +205,19 @@ def runtime_source_paths(commit: str) -> list[str]:
     }
     v3_ppo_names = {
         "__init__.py",
-        "config.py",
-        "net.py",
         "buffer.py",
+        "checkpoint_io.py",
+        "config.py",
         "eval.py",
-        "ppo.py",
-        "ruler.py",
+        "exports.py",
+        "job.py",
         "job.sh",
+        "net.py",
+        "ppo.py",
         "requirements.txt",
+        "resume.py",
+        "ruler.py",
+        "trainer.py",
     }
     tracked = sorted(
         set(
@@ -146,33 +259,6 @@ def runtime_source_paths(commit: str) -> list[str]:
             f"Pinned commit {commit} is missing required v3_ppo runtime files: {missing_core}"
         )
     return selected
-
-
-def estimate_max_export_bytes(
-    cfg: V3PPOConfig,
-    *,
-    gpu: str = "L4",
-    max_wall_seconds: float = 8.0 * 3600.0,
-    expected_updates: int | None = None,
-    measured_packed_bytes_per_world: int | None = None,
-    measured_checkpoint_bytes: int | None = None,
-) -> int:
-    """Validate checkpoint export caps for ``cfg`` and return per-file ``max_export_bytes``."""
-    eff_world_bytes = measured_packed_bytes_per_world
-    if eff_world_bytes is None and measured_checkpoint_bytes is not None:
-        if int(measured_checkpoint_bytes) < 1:
-            raise ValueError(
-                f"measured_checkpoint_bytes must be >= 1, got {measured_checkpoint_bytes}"
-            )
-        eff_world_bytes = max(1, int(math.ceil(int(measured_checkpoint_bytes) / cfg.num_envs)))
-    caps = validate_checkpoint_export_caps(
-        cfg,
-        gpu,
-        max_wall_seconds=max_wall_seconds,
-        expected_updates=expected_updates,
-        measured_packed_bytes_per_world=eff_world_bytes,
-    )
-    return int(caps["per_file_max_export_bytes"])
 
 
 def build_training_plan(
@@ -240,19 +326,6 @@ def _resolve_verified_prior_checkpoint(
     return None
 
 
-def _find_verified_prior_checkpoint(
-    prior_dir: Path,
-    *,
-    light_resume_margin_minutes: float = 45.0,
-) -> Path | None:
-    """Return primary path of newest verified checkpoint under ``prior_dir``."""
-    resolved = _resolve_verified_prior_checkpoint(
-        prior_dir,
-        light_resume_margin_minutes=light_resume_margin_minutes,
-    )
-    return Path(resolved["path"]) if resolved is not None else None
-
-
 def _find_verified_prior_cells(prior_dir: Path) -> list[Path]:
     """Locate verified ``cells/*.json`` ruler artifacts under ``prior_dir``."""
     search_roots = [prior_dir]
@@ -301,137 +374,67 @@ def _detect_prior_kind(prior_output_dir: Path) -> str:
     )
 
 
-def _stage_prior_checkpoint(
-    prior_output_dir: Path,
-    pkt_inputs_dir: Path,
-    inputs_list: list[dict[str, str]],
-    ledger: dict[str, Any],
-    *,
-    light_resume_margin_minutes: float = 45.0,
-) -> dict[str, Any]:
-    prior_dir = Path(prior_output_dir).resolve()
+def _resolve_prior_spec(opts: PreparePacketOptions) -> _PriorSpec:
+    """Resolve and verify ``prior_output_dir`` artifacts before staging or sizing."""
+    if opts.prior_output_dir is None:
+        return _PriorSpec(kind="none")
+
+    if opts.prior_kind not in ("auto", "checkpoint", "ruler_cells"):
+        raise ValueError(f"Unsupported prior_kind={opts.prior_kind!r}")
+    if opts.mode == "train" and opts.prior_kind == "ruler_cells":
+        raise ValueError("mode='train' requires prior_kind in {'auto', 'checkpoint'}")
+    if opts.mode == "ruler" and opts.prior_kind == "checkpoint":
+        raise ValueError("mode='ruler' requires prior_kind in {'auto', 'ruler_cells'}")
+
+    prior_dir = Path(opts.prior_output_dir).resolve()
     if not prior_dir.is_dir():
         raise FileNotFoundError(f"prior_output_dir does not exist: {prior_dir}")
+
+    eff_prior_kind = opts.prior_kind
+    if eff_prior_kind == "auto":
+        if opts.mode == "train":
+            eff_prior_kind = "checkpoint"
+        elif opts.mode == "ruler":
+            eff_prior_kind = "ruler_cells"
+        else:
+            eff_prior_kind = _detect_prior_kind(prior_dir)
+
+    if eff_prior_kind == "ruler_cells":
+        found_cells = _find_verified_prior_cells(prior_dir)
+        if not found_cells:
+            raise FileNotFoundError(
+                f"No verified V3 PPO ruler cells/*.json found under {prior_dir}"
+            )
+        return _PriorSpec(
+            kind="ruler_cells",
+            prior_dir=prior_dir,
+            ruler_cell_paths=tuple(found_cells),
+        )
+
+    eff_stage_margin = (
+        float(opts.light_resume_margin_minutes)
+        if opts.light_resume_margin_minutes is not None
+        else (
+            float(opts.ppo_config.light_resume_margin_minutes)
+            if opts.ppo_config is not None
+            else 45.0
+        )
+    )
     chosen = _resolve_verified_prior_checkpoint(
         prior_dir,
-        light_resume_margin_minutes=light_resume_margin_minutes,
+        light_resume_margin_minutes=eff_stage_margin,
     )
     if chosen is None:
         raise FileNotFoundError(f"No verified V3 PPO checkpoint found under {prior_dir}")
-
-    primary_src = Path(chosen["path"])
-    dst_primary = pkt_inputs_dir / primary_src.name
-    primary_sha = write_create_only_artifact(
-        dst_primary, lambda tmp, src=primary_src: shutil.copyfile(src, tmp)
+    staged_base_cfg = (
+        V3PPOConfig.from_dict(chosen["config"]) if isinstance(chosen.get("config"), dict) else None
     )
-    inputs_list.append(
-        {
-            "path": str(dst_primary),
-            "dest": primary_src.name,
-            "sha256": primary_sha,
-        }
+    return _PriorSpec(
+        kind="checkpoint",
+        prior_dir=prior_dir,
+        chosen_checkpoint=chosen,
+        staged_base_cfg=staged_base_cfg,
     )
-
-    companion_entries: list[dict[str, Any]] = []
-    for comp_src in chosen.get("files", [])[1:]:
-        c_src = Path(comp_src)
-        dst_comp = pkt_inputs_dir / c_src.name
-        c_sha = write_create_only_artifact(
-            dst_comp, lambda tmp, src=c_src: shutil.copyfile(src, tmp)
-        )
-        c_size = int(dst_comp.stat().st_size)
-        inputs_list.append(
-            {
-                "path": str(dst_comp),
-                "dest": c_src.name,
-                "sha256": c_sha,
-            }
-        )
-        comp_rec = {
-            "relpath": c_src.name,
-            "sha256": c_sha,
-            "size_bytes": c_size,
-        }
-        companion_entries.append(comp_rec)
-        ledger["verified_units"].append({"unit_id": f"staged:{c_src.stem}", **comp_rec})
-
-    entry: dict[str, Any] = {
-        "relpath": primary_src.name,
-        "checkpoint_kind": str(chosen["kind"]),
-        "sha256": primary_sha,
-        "size_bytes": int(dst_primary.stat().st_size),
-    }
-    if companion_entries:
-        entry["companion_files"] = companion_entries
-
-    ledger["resume_checkpoint"] = entry
-    ledger["verified_units"].append(
-        {
-            "unit_id": f"staged:{primary_src.stem}",
-            "relpath": primary_src.name,
-            "sha256": primary_sha,
-            "size_bytes": int(dst_primary.stat().st_size),
-        }
-    )
-    return entry
-
-
-def _stage_prior_ruler_cells(
-    prior_output_dir: Path,
-    pkt_inputs_dir: Path,
-    inputs_list: list[dict[str, str]],
-    ledger: dict[str, Any],
-) -> list[str]:
-    prior_dir = Path(prior_output_dir).resolve()
-    if not prior_dir.is_dir():
-        raise FileNotFoundError(f"prior_output_dir does not exist: {prior_dir}")
-    found_cells = _find_verified_prior_cells(prior_dir)
-    if not found_cells:
-        raise FileNotFoundError(f"No verified V3 PPO ruler cells/*.json found under {prior_dir}")
-    staged_ids: list[str] = []
-    for cell_json in found_cells:
-        rel_dest = f"cells/{cell_json.name}"
-        dst_file = pkt_inputs_dir / "cells" / cell_json.name
-        c_sha = write_create_only_artifact(
-            dst_file, lambda tmp, src=cell_json: shutil.copyfile(src, tmp)
-        )
-        inputs_list.append(
-            {
-                "path": str(dst_file),
-                "dest": rel_dest,
-                "sha256": c_sha,
-            }
-        )
-        ledger["verified_units"].append(
-            {
-                "unit_id": f"cell:{cell_json.stem}",
-                "relpath": rel_dest,
-                "sha256": c_sha,
-                "size_bytes": int(dst_file.stat().st_size),
-            }
-        )
-        staged_ids.append(cell_json.stem)
-    return staged_ids
-
-
-def _extract_staged_checkpoint_config(
-    pkt_inputs_dir: Path,
-    resume_entry: dict[str, Any],
-) -> V3PPOConfig | None:
-    staged_primary = pkt_inputs_dir / str(resume_entry["relpath"])
-    if staged_primary.name.endswith(".index.json"):
-        idx_obj = json.loads(staged_primary.read_text(encoding="utf-8"))
-        light_name = str(idx_obj["light_checkpoint"]["filename"])
-        light_payload = torch.load(
-            pkt_inputs_dir / light_name, map_location="cpu", weights_only=False
-        )
-        if isinstance(light_payload, dict) and isinstance(light_payload.get("config"), dict):
-            return V3PPOConfig.from_dict(light_payload["config"])
-        return None
-    ckpt_payload = torch.load(staged_primary, map_location="cpu", weights_only=False)
-    if isinstance(ckpt_payload, dict) and isinstance(ckpt_payload.get("config"), dict):
-        return V3PPOConfig.from_dict(ckpt_payload["config"])
-    return None
 
 
 def _extract_canary_eval_metrics(canary_receipt: Path | str) -> dict[str, Any] | None:
@@ -515,6 +518,738 @@ def _extract_canary_eval_metrics(canary_receipt: Path | str) -> dict[str, Any] |
     return out_metrics
 
 
+def _stage_validate_options(opts: PreparePacketOptions) -> _ValidatedPacketContext:
+    """Stage 1: Validate mode/GPU/commit/paths/canary-receipt and resolve prior artifacts."""
+    if opts.mode not in PREPARE_MODES:
+        raise ValueError(f"mode must be one of {PREPARE_MODES}, got {opts.mode!r}")
+    gpu_norm = str(opts.gpu).strip().upper()
+    if gpu_norm not in SUPPORTED_GPUS:
+        raise ValueError(f"gpu must be one of {SUPPORTED_GPUS} (T4 unsupported), got {opts.gpu!r}")
+    if not re_safe_attempt(opts.attempt):
+        raise ValueError(f"Invalid attempt slug {opts.attempt!r}")
+    if opts.net_size is not None:
+        get_net_preset(opts.net_size)
+    if opts.ruler_nets is not None:
+        _parse_nets_csv(opts.ruler_nets)
+    if opts.mode == "canary" and opts.canary_receipt is not None:
+        raise ValueError("canary mode produces a canary receipt and cannot bind --canary-receipt")
+    if (
+        opts.mode in ("ruler", "train")
+        and opts.canary_receipt is None
+        and not opts.allow_missing_canary_receipt
+    ):
+        raise ValueError(
+            f"--mode {opts.mode} requires canary_receipt <path/to/receipt.json> "
+            "(pass allow_missing_canary_receipt=True only for offline schema inspection)"
+        )
+
+    resolved_commit = subprocess.check_output(
+        ["git", "rev-parse", "--verify", f"{opts.commit}^{{commit}}"], cwd=ROOT, text=True
+    ).strip()
+    allowed_refs = ("HEAD", "origin/main") if opts.allow_unmerged_commit else ("origin/main",)
+    if not any(
+        subprocess.run(
+            ["git", "merge-base", "--is-ancestor", resolved_commit, ref],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        ).returncode
+        == 0
+        for ref in allowed_refs
+    ):
+        raise ValueError(
+            f"Refusing to prepare packet from unmerged commit {resolved_commit}: "
+            f"commit is not an ancestor of {' or '.join(allowed_refs)}"
+        )
+
+    source_paths = runtime_source_paths(resolved_commit)
+
+    gpu_slug = gpu_norm.lower()
+    raw_out_dir = opts.output_dir
+    if raw_out_dir is None:
+        raw_out_dir = (
+            ROOT.parent
+            / "snake-dqn-artifacts"
+            / "big-lever"
+            / "exp"
+            / "argon-20261026"
+            / f"v3-ppo-{opts.mode}-{gpu_slug}-{opts.attempt}"
+            / "output"
+        )
+    out_path = Path(raw_out_dir).resolve()
+    if out_path.exists():
+        raise FileExistsError(f"output_dir must be a fresh non-existent directory: {out_path}")
+
+    pkt_dir = Path(opts.packet_dir).resolve()
+    if pkt_dir.exists():
+        raise FileExistsError(f"packet_dir must be a fresh non-existent directory: {pkt_dir}")
+
+    prior = _resolve_prior_spec(opts)
+
+    canary_block: dict[str, Any] | None = None
+    canary_eval_metrics: dict[str, Any] | None = None
+    if opts.mode == "canary":
+        canary_block = {
+            "schema": "colab-family-canary/v1",
+            "mode": "probe",
+            "family": FAMILY_SCRIPT,
+        }
+    elif opts.canary_receipt is not None:
+        canary_block = _build_canary_receipt_binding(opts.canary_receipt, gpu_norm)
+        if opts.mode == "train":
+            canary_eval_metrics = _extract_canary_eval_metrics(opts.canary_receipt)
+
+    return _ValidatedPacketContext(
+        pkt_dir=pkt_dir,
+        out_path=out_path,
+        gpu_norm=gpu_norm,
+        gpu_slug=gpu_slug,
+        resolved_commit=resolved_commit,
+        source_paths=source_paths,
+        prior=prior,
+        canary_block=canary_block,
+        canary_eval_metrics=canary_eval_metrics,
+    )
+
+
+def _size_canary_mode(
+    opts: PreparePacketOptions,
+    ctx: _ValidatedPacketContext,
+) -> _SizedModePlan:
+    est_minutes = CANARY_BASE_MINUTES
+    timeout_minutes = CANARY_TIMEOUT_MINUTES
+    base_sec = est_minutes * 60.0
+    eff_sec = timeout_minutes * 60.0
+    max_wall_sec_int = int(CANARY_WALL_GUARD_SECONDS)
+    extra_env: dict[str, str] = {
+        "V3_PPO_MAX_WALL_SECONDS": str(max_wall_sec_int),
+        "V3_PPO_CANARY_TRAIN_ENVS": str(default_train_envs_for_gpu(ctx.gpu_norm)),
+        "SNAKE_COLAB_CANARY": "1",
+        "SNAKE_COLAB_CANARY_PACKAGE": FAMILY_PACKAGE,
+    }
+    if opts.compile_model:
+        extra_env["V3_PPO_COMPILE"] = "1"
+    if opts.fast_learner_ops is False:
+        extra_env["V3_PPO_FAST_LEARNER_OPS"] = "0"
+
+    return _SizedModePlan(
+        job_id=f"v3-ppo-canary-{ctx.gpu_slug}-{opts.attempt}",
+        est_minutes=est_minutes,
+        timeout_minutes=timeout_minutes,
+        base_sec=base_sec,
+        eff_sec=eff_sec,
+        max_wall_sec_int=max_wall_sec_int,
+        extra_env=extra_env,
+        required_exports=list(CANARY_REQUIRED_EXPORTS),
+        resume_fields={
+            "resume_exemption": {
+                "kind": "short-canary",
+                "reason": (
+                    f"Game V3.1 PPO {ctx.gpu_norm} family canary probe (15 min base / 30 min "
+                    "timeout): tiny S/M ruler + 2-update FULL-resume + 1 default eval"
+                ),
+            }
+        },
+        canary_block=ctx.canary_block,
+    )
+
+
+def _size_ruler_mode(
+    opts: PreparePacketOptions,
+    ctx: _ValidatedPacketContext,
+) -> _SizedModePlan:
+    if opts.ruler_base_minutes is not None:
+        if not math.isfinite(opts.ruler_base_minutes) or not (
+            3.0 <= float(opts.ruler_base_minutes) <= 30.0
+        ):
+            raise ValueError(
+                f"--ruler-base-minutes must be in [3.0, 30.0], got {opts.ruler_base_minutes}"
+            )
+        est_minutes = round(float(opts.ruler_base_minutes), 2)
+        timeout_minutes = round(2.0 * est_minutes, 2)
+        headroom_min = min(8.0, max(2.0, 0.2 * timeout_minutes))
+        wall_guard_sec = int(max(60.0, (timeout_minutes - headroom_min) * 60.0))
+    else:
+        est_minutes = RULER_BASE_MINUTES
+        timeout_minutes = RULER_TIMEOUT_MINUTES
+        wall_guard_sec = int(RULER_WALL_GUARD_SECONDS)
+
+    parsed_envs = (
+        list(DEFAULT_RULER_ENVS) if opts.ruler_envs is None else _parse_int_csv(opts.ruler_envs)
+    )
+    parsed_nets = (
+        list(DEFAULT_RULER_NETS) if opts.ruler_nets is None else _parse_nets_csv(opts.ruler_nets)
+    )
+    parsed_learners = (
+        list(DEFAULT_RULER_LEARNERS)
+        if opts.ruler_learners is None
+        else _parse_int_csv(opts.ruler_learners)
+    )
+    eff_r_snakes = 24 if opts.num_snakes is None else int(opts.num_snakes)
+    eff_r_radius = 600.0 if opts.arena_radius is None else float(opts.arena_radius)
+    eff_r_rollout = int(opts.ruler_rollout_len)
+    eff_r_warmup = int(opts.ruler_warmup_updates)
+    eff_r_timed = int(opts.ruler_timed_updates)
+    if eff_r_rollout < 1:
+        raise ValueError(f"--ruler-rollout-len must be >= 1, got {eff_r_rollout}")
+    if eff_r_warmup < 0:
+        raise ValueError(f"--ruler-warmup-updates must be >= 0, got {eff_r_warmup}")
+    if eff_r_timed < 1:
+        raise ValueError(f"--ruler-timed-updates must be >= 1, got {eff_r_timed}")
+
+    eff_r_amp = True if opts.amp is None else bool(opts.amp)
+    eff_r_cl = True if opts.use_channels_last is None else bool(opts.use_channels_last)
+    eff_r_fast = True if opts.fast_learner_ops is None else bool(opts.fast_learner_ops)
+
+    if any(k < 1 or k > eff_r_snakes for k in parsed_learners):
+        raise ValueError(f"ruler learners {parsed_learners} must be within [1, {eff_r_snakes}]")
+
+    ruler_game_cfg = GameV3Config(
+        arena_radius=eff_r_radius,
+        num_snakes=eff_r_snakes,
+        max_life_ticks=0,
+    )
+    budget_bytes = GPU_VRAM_BUDGET_BYTES[ctx.gpu_norm]
+    fitting_cells: list[str] = []
+    smallest_est_bytes: int | None = None
+    for e_val in parsed_envs:
+        for n_sz in parsed_nets:
+            for k_val in parsed_learners:
+                cell_cfg = V3PPOConfig(
+                    game_config=ruler_game_cfg,
+                    num_envs=int(e_val),
+                    learner_slots=int(k_val),
+                    net_size=n_sz,
+                    amp=eff_r_amp,
+                    use_channels_last=eff_r_cl,
+                    fast_learner_ops=eff_r_fast,
+                    rollout_len=eff_r_rollout,
+                    eval_every_minutes=0.0,
+                    eval_every_updates=0,
+                )
+                est = estimate_training_memory(cell_cfg)
+                tot_b = int(est["estimated_peak_bytes"])
+                if smallest_est_bytes is None or tot_b < smallest_est_bytes:
+                    smallest_est_bytes = tot_b
+                if tot_b <= budget_bytes:
+                    fitting_cells.append(f"E{e_val}_{n_sz}_L{k_val}")
+
+    if not fitting_cells:
+        raise ValueError(
+            f"Refusing ruler packet on {ctx.gpu_norm}: zero requested ruler cells fit within "
+            f"{budget_bytes / 1e9:.2f} GB budget (smallest cell estimated at "
+            f"{(smallest_est_bytes or 0) / 1e9:.2f} GB)."
+        )
+    memory_estimate = {
+        "gpu": ctx.gpu_norm,
+        "budget_bytes": budget_bytes,
+        "fitting_cells": fitting_cells,
+        "total_requested_cells": len(parsed_envs) * len(parsed_nets) * len(parsed_learners),
+    }
+
+    extra_env: dict[str, str] = {"V3_PPO_MAX_WALL_SECONDS": str(wall_guard_sec)}
+    if opts.ruler_envs is not None:
+        extra_env["V3_PPO_RULER_ENVS"] = ",".join(str(v) for v in parsed_envs)
+    if opts.ruler_nets is not None:
+        extra_env["V3_PPO_RULER_NETS"] = ",".join(parsed_nets)
+    if opts.ruler_learners is not None:
+        extra_env["V3_PPO_RULER_LEARNERS"] = ",".join(str(v) for v in parsed_learners)
+    if opts.arena_radius is not None:
+        extra_env["V3_PPO_ARENA_RADIUS"] = str(eff_r_radius)
+    if opts.num_snakes is not None:
+        extra_env["V3_PPO_NUM_SNAKES"] = str(eff_r_snakes)
+    if eff_r_rollout != DEFAULT_RULER_ROLLOUT_LEN:
+        extra_env["V3_PPO_RULER_ROLLOUT_LEN"] = str(eff_r_rollout)
+    if eff_r_warmup != DEFAULT_RULER_WARMUP_UPDATES:
+        extra_env["V3_PPO_RULER_WARMUP_UPDATES"] = str(eff_r_warmup)
+    if eff_r_timed != DEFAULT_RULER_TIMED_UPDATES:
+        extra_env["V3_PPO_RULER_TIMED_UPDATES"] = str(eff_r_timed)
+    extra_env["V3_PPO_AMP"] = "1" if eff_r_amp else "0"
+    extra_env["V3_PPO_CHANNELS_LAST"] = "1" if eff_r_cl else "0"
+    if opts.include_fp32:
+        extra_env["V3_PPO_INCLUDE_FP32"] = "1"
+    if opts.compile_model:
+        extra_env["V3_PPO_COMPILE"] = "1"
+    if not eff_r_fast:
+        extra_env["V3_PPO_FAST_LEARNER_OPS"] = "0"
+
+    return _SizedModePlan(
+        job_id=f"v3-ppo-ruler-{ctx.gpu_slug}-{opts.attempt}",
+        est_minutes=est_minutes,
+        timeout_minutes=timeout_minutes,
+        base_sec=est_minutes * 60.0,
+        eff_sec=timeout_minutes * 60.0,
+        max_wall_sec_int=wall_guard_sec,
+        extra_env=extra_env,
+        required_exports=list(RULER_REQUIRED_EXPORTS),
+        resume_fields={
+            "resume_exemption": {
+                "kind": "acceptance",
+                "reason": (
+                    f"Game V3.1 PPO {ctx.gpu_norm} throughput, stage-split & VRAM ruler "
+                    "(<=60m runaway guard; per-cell create-only JSONs + signal-safe result)"
+                ),
+            }
+        },
+        canary_block=ctx.canary_block,
+        memory_estimate=memory_estimate,
+    )
+
+
+def _size_train_mode(
+    opts: PreparePacketOptions,
+    ctx: _ValidatedPacketContext,
+) -> _SizedModePlan:
+    if not math.isfinite(opts.hours) or opts.hours <= 0:
+        raise ValueError(f"--hours must be finite and positive, got {opts.hours}")
+    timeout_minutes = round(float(opts.hours) * 60.0, 2)
+    if timeout_minutes < 6.0:
+        raise ValueError(f"--hours results in timeout_minutes={timeout_minutes} < 6.0 min")
+    est_minutes = round(timeout_minutes / 2.0, 2)
+    base_sec = est_minutes * 60.0
+    eff_sec = timeout_minutes * 60.0
+    headroom_sec = min(480.0, max(60.0, eff_sec * 0.08))
+    max_wall_sec_int = int(max(30.0, eff_sec - headroom_sec))
+
+    staged_base_cfg = ctx.prior.staged_base_cfg
+    base_cfg = opts.ppo_config or staged_base_cfg or V3PPOConfig()
+    cfg_dict = base_cfg.to_dict()
+    gc_dict = dict(cfg_dict["game_config"])
+    if opts.num_snakes is not None:
+        gc_dict["num_snakes"] = int(opts.num_snakes)
+    if opts.arena_radius is not None:
+        gc_dict["arena_radius"] = float(opts.arena_radius)
+    cfg_dict["game_config"] = gc_dict
+
+    if opts.net_size is not None:
+        if opts.net_size != base_cfg.net_size:
+            cfg_dict["minibatch_size"] = None
+            cfg_dict["actor_chunk_learners"] = None
+        cfg_dict["net_size"] = opts.net_size
+    if opts.num_envs is not None:
+        cfg_dict["num_envs"] = int(opts.num_envs)
+    if opts.learner_slots is not None:
+        cfg_dict["learner_slots"] = int(opts.learner_slots)
+    if opts.opponent_policy is not None:
+        cfg_dict["opponent_policy"] = opts.opponent_policy
+    if opts.rollout_len is not None:
+        cfg_dict["rollout_len"] = int(opts.rollout_len)
+    if opts.amp is not None:
+        cfg_dict["amp"] = bool(opts.amp)
+    if opts.use_channels_last is not None:
+        cfg_dict["use_channels_last"] = bool(opts.use_channels_last)
+    if opts.fast_learner_ops is not None:
+        cfg_dict["fast_learner_ops"] = bool(opts.fast_learner_ops)
+    if opts.compile_model:
+        cfg_dict["compile_model"] = True
+    if opts.max_periodic_full_exports is not None:
+        cfg_dict["max_periodic_full_exports"] = int(opts.max_periodic_full_exports)
+    if opts.light_resume_margin_minutes is not None:
+        cfg_dict["light_resume_margin_minutes"] = float(opts.light_resume_margin_minutes)
+
+    default_eval_est = float(V3PPOConfig().eval_estimated_seconds)
+    caller_overrode_eval_est = (
+        opts.eval_estimated_seconds is not None
+        or bool(opts.explicit_eval_estimated_seconds)
+        or (
+            opts.ppo_config is not None
+            and float(opts.ppo_config.eval_estimated_seconds) != default_eval_est
+        )
+    )
+    if opts.eval_estimated_seconds is not None:
+        cfg_dict["eval_estimated_seconds"] = float(opts.eval_estimated_seconds)
+    elif not caller_overrode_eval_est and ctx.canary_eval_metrics is not None:
+        cfg_dict["eval_estimated_seconds"] = float(ctx.canary_eval_metrics["wall_seconds"])
+
+    cfg_obj = V3PPOConfig.from_dict(cfg_dict)
+
+    if staged_base_cfg is not None:
+        assert_resume_config_compatible(
+            staged_base_cfg,
+            cfg_obj,
+            context="Continuation checkpoint config mismatch",
+            reference_label="ckpt",
+            candidate_label="requested",
+        )
+
+    training_plan: dict[str, Any] | None = None
+    if opts.expected_steps_per_sec is not None:
+        if (
+            not math.isfinite(opts.expected_steps_per_sec)
+            or float(opts.expected_steps_per_sec) <= 0.0
+        ):
+            raise ValueError(
+                "expected_steps_per_sec must be finite and > 0, "
+                f"got {opts.expected_steps_per_sec}"
+            )
+        steps_per_update = (
+            int(cfg_obj.rollout_len) * int(cfg_obj.num_envs) * int(cfg_obj.num_snakes)
+        )
+        expected_sec_per_update = float(steps_per_update) / float(opts.expected_steps_per_sec)
+        if expected_sec_per_update > 0.5 * eff_sec:
+            raise ValueError(
+                f"Refusing train packet whose single update "
+                f"({expected_sec_per_update:.1f} s at {opts.expected_steps_per_sec:.1f} "
+                f"steps/s) exceeds half the {opts.hours:g} h session ({0.5 * eff_sec:.1f} s)."
+            )
+        training_plan = build_training_plan(
+            cfg_obj,
+            hours=float(opts.hours),
+            expected_steps_per_sec=float(opts.expected_steps_per_sec),
+            max_wall_seconds=float(max_wall_sec_int),
+        )
+        print(
+            f"V3_PPO_PLAN {json.dumps(training_plan, sort_keys=True)}",
+            file=sys.stderr,
+            flush=True,
+        )
+
+    memory_estimate = validate_memory_budget(cfg_obj, ctx.gpu_norm)
+
+    return _SizedModePlan(
+        job_id=f"v3-ppo-train-{ctx.gpu_slug}-{opts.attempt}",
+        est_minutes=est_minutes,
+        timeout_minutes=timeout_minutes,
+        base_sec=base_sec,
+        eff_sec=eff_sec,
+        max_wall_sec_int=max_wall_sec_int,
+        extra_env={"V3_PPO_MAX_WALL_SECONDS": str(max_wall_sec_int)},
+        required_exports=list(TRAIN_REQUIRED_EXPORTS),
+        resume_fields={
+            "resume": {
+                "unit_kind": "checkpoint",
+                "ledger_path": "inputs/verified-ledger.json",
+                "skip_verified": True,
+                "max_outcome_blind_retries": 2,
+            }
+        },
+        canary_block=ctx.canary_block,
+        train_cfg=cfg_obj,
+        training_plan=training_plan,
+        memory_estimate=memory_estimate,
+    )
+
+
+def _stage_size_and_memory_checks(
+    opts: PreparePacketOptions,
+    ctx: _ValidatedPacketContext,
+) -> _SizedModePlan:
+    """Stage 2: Resolve mode configuration, forecasted horizon, and GPU VRAM budget."""
+    if opts.mode == "canary":
+        return _size_canary_mode(opts, ctx)
+    if opts.mode == "ruler":
+        return _size_ruler_mode(opts, ctx)
+    return _size_train_mode(opts, ctx)
+
+
+def _stage_export_caps(
+    opts: PreparePacketOptions,
+    ctx: _ValidatedPacketContext,
+    sized: _SizedModePlan,
+) -> _CappedModePlan:
+    """Stage 3: Validate per-file and total-session export byte caps."""
+    if opts.mode == "canary":
+        return _CappedModePlan(
+            sized=sized,
+            extra_env=dict(sized.extra_env),
+            max_export_bytes=320 * 1024 * 1024,
+        )
+    if opts.mode == "ruler":
+        return _CappedModePlan(
+            sized=sized,
+            extra_env=dict(sized.extra_env),
+            max_export_bytes=128 * 1024 * 1024,
+        )
+
+    assert sized.train_cfg is not None
+    cfg_obj = sized.train_cfg
+    eff_world_bytes = opts.measured_packed_bytes_per_world
+    if eff_world_bytes is None and opts.measured_checkpoint_bytes is not None:
+        if int(opts.measured_checkpoint_bytes) < 1:
+            raise ValueError(
+                f"measured_checkpoint_bytes must be >= 1, got {opts.measured_checkpoint_bytes}"
+            )
+        eff_world_bytes = max(
+            1, int(math.ceil(int(opts.measured_checkpoint_bytes) / cfg_obj.num_envs))
+        )
+
+    if opts.ppo_config is None or not opts.explicit_total_updates:
+        cfg_obj = replace(
+            cfg_obj,
+            total_updates=max(int(cfg_obj.total_updates), UNLIMITED_HOURS_TOTAL_UPDATES),
+        )
+
+    expected_updates_for_cap: int | None = None
+    if sized.training_plan is not None:
+        expected_updates_for_cap = int(sized.training_plan["expected_updates_in_session"])
+        if opts.explicit_total_updates and int(cfg_obj.total_updates) > 0:
+            expected_updates_for_cap = min(expected_updates_for_cap, int(cfg_obj.total_updates))
+    elif opts.explicit_total_updates and int(cfg_obj.total_updates) > 0:
+        expected_updates_for_cap = int(cfg_obj.total_updates)
+    elif (
+        int(cfg_obj.checkpoint_every_updates) > 0 or int(cfg_obj.full_checkpoint_every_updates) > 0
+    ):
+        steps_per_upd = int(cfg_obj.rollout_len) * int(cfg_obj.num_envs) * int(cfg_obj.num_snakes)
+        fast_sec_per_upd = max(1.0, float(steps_per_upd) / 50_000.0)
+        expected_updates_for_cap = max(
+            1, int(math.ceil(float(sized.max_wall_sec_int) / fast_sec_per_upd))
+        )
+
+    checkpoint_export_caps = validate_checkpoint_export_caps(
+        cfg_obj,
+        ctx.gpu_norm,
+        max_wall_seconds=sized.eff_sec,
+        expected_updates=expected_updates_for_cap,
+        measured_packed_bytes_per_world=eff_world_bytes,
+    )
+
+    extra_env = dict(sized.extra_env)
+    extra_env["V3_PPO_AMP"] = "1" if bool(cfg_obj.amp) else "0"
+    extra_env["V3_PPO_CHANNELS_LAST"] = "1" if bool(cfg_obj.use_channels_last) else "0"
+    if bool(cfg_obj.compile_model):
+        extra_env["V3_PPO_COMPILE"] = "1"
+    if not bool(cfg_obj.fast_learner_ops):
+        extra_env["V3_PPO_FAST_LEARNER_OPS"] = "0"
+    extra_env["V3_PPO_MAX_SESSION_EXPORT_BYTES"] = str(
+        int(checkpoint_export_caps["session_total_export_cap_bytes"])
+    )
+    extra_env["V3_PPO_CONFIG_JSON"] = json.dumps(cfg_obj.to_dict(), sort_keys=True)
+
+    return _CappedModePlan(
+        sized=replace(sized, train_cfg=cfg_obj),
+        extra_env=extra_env,
+        max_export_bytes=int(checkpoint_export_caps["per_file_max_export_bytes"]),
+        checkpoint_export_caps=checkpoint_export_caps,
+    )
+
+
+def _stage_inputs(
+    ctx: _ValidatedPacketContext,
+    capped: _CappedModePlan,
+    pkt_dir: Path,
+) -> _StagedInputs:
+    """Stage 4: Stage prior continuation artifacts, write verified ledger, and check input sizes."""
+    pkt_inputs_dir = pkt_dir / "inputs"
+    pkt_inputs_dir.mkdir(parents=True, exist_ok=True)
+    ledger: dict[str, Any] = {
+        "schema": "v3-ppo-verified-ledger/v1",
+        "namespace": V3_PPO_NAMESPACE,
+        "unit_kind": "checkpoint",
+        "skip_verified": True,
+        "verified_units": [],
+    }
+    inputs_list: list[dict[str, str]] = []
+
+    if ctx.prior.kind == "ruler_cells":
+        for cell_json in ctx.prior.ruler_cell_paths:
+            rel_dest = f"cells/{cell_json.name}"
+            dst_file = pkt_inputs_dir / "cells" / cell_json.name
+            c_sha = write_create_only_artifact(
+                dst_file, lambda tmp, src=cell_json: shutil.copyfile(src, tmp)
+            )
+            inputs_list.append({"path": str(dst_file), "dest": rel_dest, "sha256": c_sha})
+            ledger["verified_units"].append(
+                {
+                    "unit_id": f"cell:{cell_json.stem}",
+                    "relpath": rel_dest,
+                    "sha256": c_sha,
+                    "size_bytes": int(dst_file.stat().st_size),
+                }
+            )
+    elif ctx.prior.kind == "checkpoint":
+        assert ctx.prior.chosen_checkpoint is not None
+        chosen = ctx.prior.chosen_checkpoint
+        primary_src = Path(chosen["path"])
+        dst_primary = pkt_inputs_dir / primary_src.name
+        primary_sha = write_create_only_artifact(
+            dst_primary, lambda tmp, src=primary_src: shutil.copyfile(src, tmp)
+        )
+        inputs_list.append(
+            {"path": str(dst_primary), "dest": primary_src.name, "sha256": primary_sha}
+        )
+
+        companion_entries: list[dict[str, Any]] = []
+        for comp_src in chosen.get("files", [])[1:]:
+            c_src = Path(comp_src)
+            dst_comp = pkt_inputs_dir / c_src.name
+            c_sha = write_create_only_artifact(
+                dst_comp, lambda tmp, src=c_src: shutil.copyfile(src, tmp)
+            )
+            c_size = int(dst_comp.stat().st_size)
+            inputs_list.append({"path": str(dst_comp), "dest": c_src.name, "sha256": c_sha})
+            comp_rec = {"relpath": c_src.name, "sha256": c_sha, "size_bytes": c_size}
+            companion_entries.append(comp_rec)
+            ledger["verified_units"].append({"unit_id": f"staged:{c_src.stem}", **comp_rec})
+
+        entry: dict[str, Any] = {
+            "relpath": primary_src.name,
+            "checkpoint_kind": str(chosen["kind"]),
+            "sha256": primary_sha,
+            "size_bytes": int(dst_primary.stat().st_size),
+        }
+        if companion_entries:
+            entry["companion_files"] = companion_entries
+
+        ledger["resume_checkpoint"] = entry
+        ledger["verified_units"].append(
+            {
+                "unit_id": f"staged:{primary_src.stem}",
+                "relpath": primary_src.name,
+                "sha256": primary_sha,
+                "size_bytes": int(dst_primary.stat().st_size),
+            }
+        )
+
+    ledger_path = pkt_inputs_dir / "verified-ledger.json"
+    ledger_bytes = (json.dumps(ledger, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    ledger_sha = write_create_only_artifact(ledger_path, ledger_bytes)
+    _write_json_create_only(pkt_dir / "verified-ledger.json", ledger)
+    inputs_list.append(
+        {"path": str(ledger_path), "dest": "verified-ledger.json", "sha256": ledger_sha}
+    )
+
+    max_export_bytes = int(capped.max_export_bytes)
+    largest_input_bytes = max(
+        (int(Path(inp["path"]).stat().st_size) for inp in inputs_list),
+        default=0,
+    )
+    if largest_input_bytes > MAX_SUPERVISOR_EXPORT_BYTES:
+        raise ValueError(
+            f"Staged input file ({largest_input_bytes / 2**30:.2f} GiB) exceeds supervisor "
+            f"2.00 GiB per-file limit."
+        )
+    if largest_input_bytes > max_export_bytes:
+        max_export_bytes = min(
+            MAX_SUPERVISOR_EXPORT_BYTES, int(math.ceil(largest_input_bytes * 1.10))
+        )
+
+    return _StagedInputs(
+        inputs_list=inputs_list,
+        ledger=ledger,
+        max_export_bytes=max_export_bytes,
+    )
+
+
+def _stage_write_manifest(
+    opts: PreparePacketOptions,
+    ctx: _ValidatedPacketContext,
+    capped: _CappedModePlan,
+    staged: _StagedInputs,
+    pkt_dir: Path,
+) -> dict[str, Any]:
+    """Stage 5: Build technical envelope, validate canary rules, write manifest, and summarize."""
+    sized = capped.sized
+    rate_uph = GPU_FORECAST_RATES_UPH[ctx.gpu_norm]
+    unit_cap = math.ceil(((sized.timeout_minutes * rate_uph) / 60.0 - 1e-12) * 10000.0) / 10000.0
+    tech_envelope: dict[str, Any] = {
+        "base_seconds": sized.base_sec,
+        "effective_seconds": sized.eff_sec,
+        "forecast_unit_cap": unit_cap,
+        "mode": opts.mode,
+        "gpu": ctx.gpu_norm,
+    }
+    if capped.checkpoint_export_caps is not None:
+        tech_envelope["session_total_export_cap_bytes"] = int(
+            capped.checkpoint_export_caps["session_total_export_cap_bytes"]
+        )
+        tech_envelope["worst_case_session_export_bytes"] = int(
+            capped.checkpoint_export_caps["worst_case_session_export_bytes"]
+        )
+    if ctx.canary_eval_metrics is not None:
+        tech_envelope["canary_eval_wall_seconds"] = float(ctx.canary_eval_metrics["wall_seconds"])
+        if "peak_memory_bytes" in ctx.canary_eval_metrics:
+            tech_envelope["canary_eval_peak_memory_bytes"] = int(
+                ctx.canary_eval_metrics["peak_memory_bytes"]
+            )
+
+    manifest: dict[str, Any] = {
+        "job_id": sized.job_id[:64],
+        "commit": ctx.resolved_commit,
+        "script": FAMILY_SCRIPT,
+        "device": "cuda",
+        "source_paths": ctx.source_paths,
+        "requirements": {
+            "gpu": ctx.gpu_norm,
+            "allowed_gpus": [ctx.gpu_norm],
+            "min_vcpu": 2,
+            "est_minutes": sized.est_minutes,
+        },
+        "timeout_minutes": sized.timeout_minutes,
+        "output_dir": str(ctx.out_path),
+        "max_export_bytes": int(staged.max_export_bytes),
+        "inputs": staged.inputs_list,
+        "env": {
+            "COLAB_CLI_REQUIREMENTS": REQUIREMENTS_RELPATH,
+            "V3_PPO_SOURCE_COMMIT": ctx.resolved_commit,
+            "V3_PPO_MODE": opts.mode,
+            "SNAKE_DQN_DEVICE": "cuda",
+            "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+            "MAX_JOBS": "4",
+            **capped.extra_env,
+        },
+        "required_exports": sized.required_exports,
+        "budget": {
+            "rate_units_per_hour": rate_uph,
+            "unit_cap": unit_cap,
+            "reserve_units": 0,
+            "other_assignments": {},
+        },
+        **sized.resume_fields,
+        "requirements_file": REQUIREMENTS_RELPATH,
+        "technical_envelope": tech_envelope,
+    }
+    if opts.allow_unmerged_commit:
+        manifest["unmerged_dev_packet"] = True
+    if sized.canary_block is not None:
+        manifest["canary"] = sized.canary_block
+
+    if opts.mode == "canary" or opts.canary_receipt is not None:
+        colab_canary.check(manifest, ROOT)
+
+    manifest_path = pkt_dir / "dispatch-manifest.json"
+    _write_json_create_only(manifest_path, manifest)
+
+    summary: dict[str, Any] = {
+        "packet_dir": str(pkt_dir),
+        "manifest_path": str(manifest_path),
+        "manifest_sha256": sha256_file(manifest_path),
+        "mode": opts.mode,
+        "job_id": manifest["job_id"],
+        "commit": ctx.resolved_commit,
+        "gpu": ctx.gpu_norm,
+        "timeout_minutes": sized.timeout_minutes,
+        "est_minutes": sized.est_minutes,
+        "max_wall_seconds": int(capped.extra_env["V3_PPO_MAX_WALL_SECONDS"]),
+        "max_export_bytes": int(staged.max_export_bytes),
+        "unit_cap": unit_cap,
+    }
+    if sized.memory_estimate is not None:
+        summary["memory_estimate"] = sized.memory_estimate
+    if capped.checkpoint_export_caps is not None:
+        summary["checkpoint_export_caps"] = capped.checkpoint_export_caps
+    if sized.training_plan is not None:
+        summary["training_plan"] = sized.training_plan
+    if ctx.canary_eval_metrics is not None:
+        summary["canary_eval_metrics"] = ctx.canary_eval_metrics
+    return summary
+
+
+def prepare_packet_from_options(opts: PreparePacketOptions) -> dict[str, Any]:
+    """Execute all five packet preparation stages on a ``PreparePacketOptions`` instance."""
+    ctx = _stage_validate_options(opts)
+    sized = _stage_size_and_memory_checks(opts, ctx)
+    capped = _stage_export_caps(opts, ctx, sized)
+
+    pkt_dir = ctx.pkt_dir
+    pkt_dir.mkdir(parents=True, exist_ok=False)
+    try:
+        staged = _stage_inputs(ctx, capped, pkt_dir)
+        return _stage_write_manifest(opts, ctx, capped, staged, pkt_dir)
+    except BaseException:
+        shutil.rmtree(pkt_dir, ignore_errors=True)
+        raise
+
+
 def prepare_v3_ppo_packet(
     packet_dir: Path | str,
     *,
@@ -565,591 +1300,49 @@ def prepare_v3_ppo_packet(
     exceed calibrated shard (`256 MiB` default), supervisor (`2 GiB`/file), or session export caps
     (`12 GiB` L4, `24 GiB` A100, `40 GiB` H100).
     """
-    if mode not in PREPARE_MODES:
-        raise ValueError(f"mode must be one of {PREPARE_MODES}, got {mode!r}")
-    gpu_norm = str(gpu).strip().upper()
-    if gpu_norm not in SUPPORTED_GPUS:
-        raise ValueError(f"gpu must be one of {SUPPORTED_GPUS} (T4 unsupported), got {gpu!r}")
-    if not re_safe_attempt(attempt):
-        raise ValueError(f"Invalid attempt slug {attempt!r}")
-    if mode == "canary" and canary_receipt is not None:
-        raise ValueError("canary mode produces a canary receipt and cannot bind --canary-receipt")
-    if mode in ("ruler", "train") and canary_receipt is None and not allow_missing_canary_receipt:
-        raise ValueError(
-            f"--mode {mode} requires canary_receipt <path/to/receipt.json> "
-            "(pass allow_missing_canary_receipt=True only for offline schema inspection)"
-        )
-
-    resolved_commit = subprocess.check_output(
-        ["git", "rev-parse", "--verify", f"{commit}^{{commit}}"], cwd=ROOT, text=True
-    ).strip()
-    allowed_refs = ("HEAD", "origin/main") if allow_unmerged_commit else ("origin/main",)
-    if not any(
-        subprocess.run(
-            ["git", "merge-base", "--is-ancestor", resolved_commit, ref],
-            cwd=ROOT,
-            capture_output=True,
-            text=True,
-        ).returncode
-        == 0
-        for ref in allowed_refs
-    ):
-        raise ValueError(
-            f"Refusing to prepare packet from unmerged commit {resolved_commit}: "
-            f"commit is not an ancestor of {' or '.join(allowed_refs)}"
-        )
-
-    source_paths = runtime_source_paths(resolved_commit)
-
-    gpu_slug = gpu_norm.lower()
-    if output_dir is None:
-        output_dir = (
-            ROOT.parent
-            / "snake-dqn-artifacts"
-            / "big-lever"
-            / "exp"
-            / "argon-20261026"
-            / f"v3-ppo-{mode}-{gpu_slug}-{attempt}"
-            / "output"
-        )
-    out_path = Path(output_dir).resolve()
-    if out_path.exists():
-        raise FileExistsError(f"output_dir must be a fresh non-existent directory: {out_path}")
-
-    pkt = Path(packet_dir).resolve()
-    pkt.mkdir(parents=True, exist_ok=False)
-
-    try:
-        pkt_inputs_dir = pkt / "inputs"
-        pkt_inputs_dir.mkdir(parents=True, exist_ok=True)
-        ledger: dict[str, Any] = {
-            "schema": "v3-ppo-verified-ledger/v1",
-            "namespace": V3_PPO_NAMESPACE,
-            "unit_kind": "checkpoint",
-            "skip_verified": True,
-            "verified_units": [],
-        }
-        inputs_list: list[dict[str, str]] = []
-        if prior_output_dir is not None:
-            if prior_kind not in ("auto", "checkpoint", "ruler_cells"):
-                raise ValueError(f"Unsupported prior_kind={prior_kind!r}")
-            if mode == "train" and prior_kind == "ruler_cells":
-                raise ValueError("mode='train' requires prior_kind in {'auto', 'checkpoint'}")
-            if mode == "ruler" and prior_kind == "checkpoint":
-                raise ValueError("mode='ruler' requires prior_kind in {'auto', 'ruler_cells'}")
-
-            eff_prior_kind = prior_kind
-            if eff_prior_kind == "auto":
-                if mode == "train":
-                    eff_prior_kind = "checkpoint"
-                elif mode == "ruler":
-                    eff_prior_kind = "ruler_cells"
-                else:
-                    eff_prior_kind = _detect_prior_kind(Path(prior_output_dir))
-            if eff_prior_kind == "ruler_cells":
-                _stage_prior_ruler_cells(
-                    Path(prior_output_dir), pkt_inputs_dir, inputs_list, ledger
-                )
-            elif eff_prior_kind == "checkpoint":
-                eff_stage_margin = (
-                    float(light_resume_margin_minutes)
-                    if light_resume_margin_minutes is not None
-                    else (
-                        float(ppo_config.light_resume_margin_minutes)
-                        if ppo_config is not None
-                        else 45.0
-                    )
-                )
-                _stage_prior_checkpoint(
-                    Path(prior_output_dir),
-                    pkt_inputs_dir,
-                    inputs_list,
-                    ledger,
-                    light_resume_margin_minutes=eff_stage_margin,
-                )
-
-        ledger_path = pkt_inputs_dir / "verified-ledger.json"
-        ledger_bytes = (json.dumps(ledger, indent=2, sort_keys=True) + "\n").encode("utf-8")
-        ledger_sha = write_create_only_artifact(ledger_path, ledger_bytes)
-        _write_json_create_only(pkt / "verified-ledger.json", ledger)
-        inputs_list.append(
-            {
-                "path": str(ledger_path),
-                "dest": "verified-ledger.json",
-                "sha256": ledger_sha,
-            }
-        )
-
-        rate_uph = GPU_FORECAST_RATES_UPH[gpu_norm]
-        extra_env: dict[str, str] = {}
-        canary_block: dict[str, Any] | None = None
-        training_plan: dict[str, Any] | None = None
-        memory_estimate: dict[str, Any] | None = None
-        checkpoint_export_caps: dict[str, Any] | None = None
-
-        canary_eval_metrics: dict[str, Any] | None = None
-
-        if mode == "canary":
-            est_minutes = CANARY_BASE_MINUTES
-            timeout_minutes = CANARY_TIMEOUT_MINUTES
-            base_sec = est_minutes * 60.0
-            eff_sec = timeout_minutes * 60.0
-            extra_env["V3_PPO_MAX_WALL_SECONDS"] = str(int(CANARY_WALL_GUARD_SECONDS))
-            extra_env["V3_PPO_CANARY_TRAIN_ENVS"] = str(default_train_envs_for_gpu(gpu_norm))
-            extra_env["SNAKE_COLAB_CANARY"] = "1"
-            extra_env["SNAKE_COLAB_CANARY_PACKAGE"] = FAMILY_PACKAGE
-            if compile_model:
-                extra_env["V3_PPO_COMPILE"] = "1"
-            if fast_learner_ops is False:
-                extra_env["V3_PPO_FAST_LEARNER_OPS"] = "0"
-            job_id = f"v3-ppo-canary-{gpu_slug}-{attempt}"
-            required_exports = list(CANARY_REQUIRED_EXPORTS)
-            max_export_bytes = 320 * 1024 * 1024
-            resume_fields: dict[str, Any] = {
-                "resume_exemption": {
-                    "kind": "short-canary",
-                    "reason": (
-                        f"Game V3.1 PPO {gpu_norm} family canary probe (15 min base / 30 min "
-                        "timeout): tiny S/M ruler + 2-update FULL-resume + 1 default eval"
-                    ),
-                }
-            }
-            canary_block = {
-                "schema": "colab-family-canary/v1",
-                "mode": "probe",
-                "family": FAMILY_SCRIPT,
-            }
-        elif mode == "ruler":
-            if ruler_base_minutes is not None:
-                if not math.isfinite(ruler_base_minutes) or not (
-                    3.0 <= float(ruler_base_minutes) <= 30.0
-                ):
-                    raise ValueError(
-                        f"--ruler-base-minutes must be in [3.0, 30.0], got {ruler_base_minutes}"
-                    )
-                est_minutes = round(float(ruler_base_minutes), 2)
-                timeout_minutes = round(2.0 * est_minutes, 2)
-                headroom_min = min(8.0, max(2.0, 0.2 * timeout_minutes))
-                wall_guard_sec = int(max(60.0, (timeout_minutes - headroom_min) * 60.0))
-            else:
-                est_minutes = RULER_BASE_MINUTES
-                timeout_minutes = RULER_TIMEOUT_MINUTES
-                wall_guard_sec = int(RULER_WALL_GUARD_SECONDS)
-
-            parsed_envs = (
-                list(DEFAULT_RULER_ENVS) if ruler_envs is None else _parse_int_csv(ruler_envs)
-            )
-            parsed_nets = (
-                list(DEFAULT_RULER_NETS) if ruler_nets is None else _parse_nets_csv(ruler_nets)
-            )
-            parsed_learners = (
-                list(DEFAULT_RULER_LEARNERS)
-                if ruler_learners is None
-                else _parse_int_csv(ruler_learners)
-            )
-            eff_r_snakes = 24 if num_snakes is None else int(num_snakes)
-            eff_r_radius = 600.0 if arena_radius is None else float(arena_radius)
-            eff_r_rollout = int(ruler_rollout_len)
-            eff_r_warmup = int(ruler_warmup_updates)
-            eff_r_timed = int(ruler_timed_updates)
-            if eff_r_rollout < 1:
-                raise ValueError(f"--ruler-rollout-len must be >= 1, got {eff_r_rollout}")
-            if eff_r_warmup < 0:
-                raise ValueError(f"--ruler-warmup-updates must be >= 0, got {eff_r_warmup}")
-            if eff_r_timed < 1:
-                raise ValueError(f"--ruler-timed-updates must be >= 1, got {eff_r_timed}")
-
-            eff_r_amp = True if amp is None else bool(amp)
-            eff_r_cl = True if use_channels_last is None else bool(use_channels_last)
-            eff_r_fast = True if fast_learner_ops is None else bool(fast_learner_ops)
-
-            if any(k < 1 or k > eff_r_snakes for k in parsed_learners):
-                raise ValueError(
-                    f"ruler learners {parsed_learners} must be within [1, {eff_r_snakes}]"
-                )
-
-            ruler_game_cfg = GameV3Config(
-                arena_radius=eff_r_radius,
-                num_snakes=eff_r_snakes,
-                max_life_ticks=0,
-            )
-            budget_bytes = GPU_VRAM_BUDGET_BYTES[gpu_norm]
-            fitting_cells: list[str] = []
-            smallest_est_bytes: int | None = None
-            for e_val in parsed_envs:
-                for n_sz in parsed_nets:
-                    for k_val in parsed_learners:
-                        cell_cfg = V3PPOConfig(
-                            game_config=ruler_game_cfg,
-                            num_envs=int(e_val),
-                            learner_slots=int(k_val),
-                            net_size=n_sz,
-                            amp=eff_r_amp,
-                            use_channels_last=eff_r_cl,
-                            fast_learner_ops=eff_r_fast,
-                            rollout_len=eff_r_rollout,
-                            eval_every_minutes=0.0,
-                            eval_every_updates=0,
-                        )
-                        est = estimate_training_memory(cell_cfg)
-                        tot_b = int(est["estimated_peak_bytes"])
-                        if smallest_est_bytes is None or tot_b < smallest_est_bytes:
-                            smallest_est_bytes = tot_b
-                        if tot_b <= budget_bytes:
-                            fitting_cells.append(f"E{e_val}_{n_sz}_L{k_val}")
-
-            if not fitting_cells:
-                raise ValueError(
-                    f"Refusing ruler packet on {gpu_norm}: zero requested ruler cells fit within "
-                    f"{budget_bytes / 1e9:.2f} GB budget (smallest cell estimated at "
-                    f"{(smallest_est_bytes or 0) / 1e9:.2f} GB)."
-                )
-            memory_estimate = {
-                "gpu": gpu_norm,
-                "budget_bytes": budget_bytes,
-                "fitting_cells": fitting_cells,
-                "total_requested_cells": len(parsed_envs) * len(parsed_nets) * len(parsed_learners),
-            }
-
-            base_sec = est_minutes * 60.0
-            eff_sec = timeout_minutes * 60.0
-            extra_env["V3_PPO_MAX_WALL_SECONDS"] = str(wall_guard_sec)
-            if ruler_envs is not None:
-                extra_env["V3_PPO_RULER_ENVS"] = ",".join(str(v) for v in parsed_envs)
-            if ruler_nets is not None:
-                extra_env["V3_PPO_RULER_NETS"] = ",".join(parsed_nets)
-            if ruler_learners is not None:
-                extra_env["V3_PPO_RULER_LEARNERS"] = ",".join(str(v) for v in parsed_learners)
-            if arena_radius is not None:
-                extra_env["V3_PPO_ARENA_RADIUS"] = str(eff_r_radius)
-            if num_snakes is not None:
-                extra_env["V3_PPO_NUM_SNAKES"] = str(eff_r_snakes)
-            if eff_r_rollout != DEFAULT_RULER_ROLLOUT_LEN:
-                extra_env["V3_PPO_RULER_ROLLOUT_LEN"] = str(eff_r_rollout)
-            if eff_r_warmup != DEFAULT_RULER_WARMUP_UPDATES:
-                extra_env["V3_PPO_RULER_WARMUP_UPDATES"] = str(eff_r_warmup)
-            if eff_r_timed != DEFAULT_RULER_TIMED_UPDATES:
-                extra_env["V3_PPO_RULER_TIMED_UPDATES"] = str(eff_r_timed)
-            extra_env["V3_PPO_AMP"] = "1" if eff_r_amp else "0"
-            extra_env["V3_PPO_CHANNELS_LAST"] = "1" if eff_r_cl else "0"
-            if include_fp32:
-                extra_env["V3_PPO_INCLUDE_FP32"] = "1"
-            if compile_model:
-                extra_env["V3_PPO_COMPILE"] = "1"
-            if not eff_r_fast:
-                extra_env["V3_PPO_FAST_LEARNER_OPS"] = "0"
-
-            job_id = f"v3-ppo-ruler-{gpu_slug}-{attempt}"
-            required_exports = list(RULER_REQUIRED_EXPORTS)
-            max_export_bytes = 128 * 1024 * 1024
-            resume_fields = {
-                "resume_exemption": {
-                    "kind": "acceptance",
-                    "reason": (
-                        f"Game V3.1 PPO {gpu_norm} throughput, stage-split & VRAM ruler "
-                        "(<=60m runaway guard; per-cell create-only JSONs + signal-safe result)"
-                    ),
-                }
-            }
-            if canary_receipt is not None:
-                canary_block = _build_canary_receipt_binding(canary_receipt, gpu_norm)
-        else:
-            if not math.isfinite(hours) or hours <= 0:
-                raise ValueError(f"--hours must be finite and positive, got {hours}")
-            timeout_minutes = round(float(hours) * 60.0, 2)
-            if timeout_minutes < 6.0:
-                raise ValueError(f"--hours results in timeout_minutes={timeout_minutes} < 6.0 min")
-            est_minutes = round(timeout_minutes / 2.0, 2)
-            base_sec = est_minutes * 60.0
-            eff_sec = timeout_minutes * 60.0
-            headroom_sec = min(480.0, max(60.0, eff_sec * 0.08))
-            max_wall_sec_int = int(max(30.0, eff_sec - headroom_sec))
-            extra_env["V3_PPO_MAX_WALL_SECONDS"] = str(max_wall_sec_int)
-
-            staged_base_cfg: V3PPOConfig | None = None
-            if "resume_checkpoint" in ledger:
-                staged_base_cfg = _extract_staged_checkpoint_config(
-                    pkt_inputs_dir, ledger["resume_checkpoint"]
-                )
-
-            base_cfg = ppo_config or staged_base_cfg or V3PPOConfig()
-            cfg_dict = base_cfg.to_dict()
-            gc_dict = dict(cfg_dict["game_config"])
-            if num_snakes is not None:
-                gc_dict["num_snakes"] = int(num_snakes)
-            if arena_radius is not None:
-                gc_dict["arena_radius"] = float(arena_radius)
-            cfg_dict["game_config"] = gc_dict
-
-            if net_size is not None:
-                if net_size != base_cfg.net_size:
-                    cfg_dict["minibatch_size"] = None
-                    cfg_dict["actor_chunk_learners"] = None
-                cfg_dict["net_size"] = net_size
-            if num_envs is not None:
-                cfg_dict["num_envs"] = int(num_envs)
-            if learner_slots is not None:
-                cfg_dict["learner_slots"] = int(learner_slots)
-            if opponent_policy is not None:
-                cfg_dict["opponent_policy"] = opponent_policy
-            if rollout_len is not None:
-                cfg_dict["rollout_len"] = int(rollout_len)
-            if amp is not None:
-                cfg_dict["amp"] = bool(amp)
-            if use_channels_last is not None:
-                cfg_dict["use_channels_last"] = bool(use_channels_last)
-            if fast_learner_ops is not None:
-                cfg_dict["fast_learner_ops"] = bool(fast_learner_ops)
-            if compile_model:
-                cfg_dict["compile_model"] = True
-            if max_periodic_full_exports is not None:
-                cfg_dict["max_periodic_full_exports"] = int(max_periodic_full_exports)
-            if light_resume_margin_minutes is not None:
-                cfg_dict["light_resume_margin_minutes"] = float(light_resume_margin_minutes)
-
-            if canary_receipt is not None:
-                canary_block = _build_canary_receipt_binding(canary_receipt, gpu_norm)
-                canary_eval_metrics = _extract_canary_eval_metrics(canary_receipt)
-
-            default_eval_est = float(V3PPOConfig().eval_estimated_seconds)
-            caller_overrode_eval_est = (
-                eval_estimated_seconds is not None
-                or bool(explicit_eval_estimated_seconds)
-                or (
-                    ppo_config is not None
-                    and float(ppo_config.eval_estimated_seconds) != default_eval_est
-                )
-            )
-            if eval_estimated_seconds is not None:
-                cfg_dict["eval_estimated_seconds"] = float(eval_estimated_seconds)
-            elif not caller_overrode_eval_est and canary_eval_metrics is not None:
-                cfg_dict["eval_estimated_seconds"] = float(canary_eval_metrics["wall_seconds"])
-
-            cfg_obj = V3PPOConfig.from_dict(cfg_dict)
-
-            if staged_base_cfg is not None:
-                staged_dict = staged_base_cfg.to_dict()
-                curr_dict = cfg_obj.to_dict()
-                for key in sorted(set(staged_dict) | set(curr_dict)):
-                    if key in _RESUME_MUTABLE_CONFIG_KEYS or key == "schema":
-                        continue
-                    if staged_dict.get(key) != curr_dict.get(key):
-                        raise ValueError(
-                            f"Continuation checkpoint config mismatch on {key!r}: "
-                            f"ckpt={staged_dict.get(key)!r} vs requested={curr_dict.get(key)!r}"
-                        )
-
-            if expected_steps_per_sec is not None:
-                if (
-                    not math.isfinite(expected_steps_per_sec)
-                    or float(expected_steps_per_sec) <= 0.0
-                ):
-                    raise ValueError(
-                        "expected_steps_per_sec must be finite and > 0, "
-                        f"got {expected_steps_per_sec}"
-                    )
-                steps_per_update = (
-                    int(cfg_obj.rollout_len) * int(cfg_obj.num_envs) * int(cfg_obj.num_snakes)
-                )
-                expected_sec_per_update = float(steps_per_update) / float(expected_steps_per_sec)
-                if expected_sec_per_update > 0.5 * eff_sec:
-                    raise ValueError(
-                        f"Refusing train packet whose single update "
-                        f"({expected_sec_per_update:.1f} s at {expected_steps_per_sec:.1f} "
-                        f"steps/s) exceeds half the {hours:g} h session ({0.5 * eff_sec:.1f} s)."
-                    )
-                training_plan = build_training_plan(
-                    cfg_obj,
-                    hours=float(hours),
-                    expected_steps_per_sec=float(expected_steps_per_sec),
-                    max_wall_seconds=float(max_wall_sec_int),
-                )
-                print(
-                    f"V3_PPO_PLAN {json.dumps(training_plan, sort_keys=True)}",
-                    file=sys.stderr,
-                    flush=True,
-                )
-
-            # Enforce GPU VRAM budget AND calibrated single-file + session checkpoint export caps!
-            memory_estimate = validate_memory_budget(cfg_obj, gpu_norm)
-
-            eff_world_bytes = measured_packed_bytes_per_world
-            if eff_world_bytes is None and measured_checkpoint_bytes is not None:
-                if int(measured_checkpoint_bytes) < 1:
-                    raise ValueError(
-                        f"measured_checkpoint_bytes must be >= 1, got {measured_checkpoint_bytes}"
-                    )
-                eff_world_bytes = max(
-                    1, int(math.ceil(int(measured_checkpoint_bytes) / cfg_obj.num_envs))
-                )
-
-            if ppo_config is None or not explicit_total_updates:
-                cfg_obj = replace(
-                    cfg_obj,
-                    total_updates=max(int(cfg_obj.total_updates), UNLIMITED_HOURS_TOTAL_UPDATES),
-                )
-
-            expected_updates_for_cap: int | None = None
-            if training_plan is not None:
-                expected_updates_for_cap = int(training_plan["expected_updates_in_session"])
-                if explicit_total_updates and int(cfg_obj.total_updates) > 0:
-                    expected_updates_for_cap = min(
-                        expected_updates_for_cap, int(cfg_obj.total_updates)
-                    )
-            elif explicit_total_updates and int(cfg_obj.total_updates) > 0:
-                expected_updates_for_cap = int(cfg_obj.total_updates)
-            elif (
-                int(cfg_obj.checkpoint_every_updates) > 0
-                or int(cfg_obj.full_checkpoint_every_updates) > 0
-            ):
-                steps_per_upd = (
-                    int(cfg_obj.rollout_len) * int(cfg_obj.num_envs) * int(cfg_obj.num_snakes)
-                )
-                fast_sec_per_upd = max(1.0, float(steps_per_upd) / 50_000.0)
-                expected_updates_for_cap = max(
-                    1, int(math.ceil(float(max_wall_sec_int) / fast_sec_per_upd))
-                )
-
-            checkpoint_export_caps = validate_checkpoint_export_caps(
-                cfg_obj,
-                gpu_norm,
-                max_wall_seconds=eff_sec,
-                expected_updates=expected_updates_for_cap,
-                measured_packed_bytes_per_world=eff_world_bytes,
-            )
-
-            extra_env["V3_PPO_AMP"] = "1" if bool(cfg_obj.amp) else "0"
-            extra_env["V3_PPO_CHANNELS_LAST"] = "1" if bool(cfg_obj.use_channels_last) else "0"
-            if bool(cfg_obj.compile_model):
-                extra_env["V3_PPO_COMPILE"] = "1"
-            if not bool(cfg_obj.fast_learner_ops):
-                extra_env["V3_PPO_FAST_LEARNER_OPS"] = "0"
-            extra_env["V3_PPO_MAX_SESSION_EXPORT_BYTES"] = str(
-                int(checkpoint_export_caps["session_total_export_cap_bytes"])
-            )
-            extra_env["V3_PPO_CONFIG_JSON"] = json.dumps(cfg_obj.to_dict(), sort_keys=True)
-            job_id = f"v3-ppo-train-{gpu_slug}-{attempt}"
-            required_exports = list(TRAIN_REQUIRED_EXPORTS)
-            max_export_bytes = int(checkpoint_export_caps["per_file_max_export_bytes"])
-            resume_fields = {
-                "resume": {
-                    "unit_kind": "checkpoint",
-                    "ledger_path": "inputs/verified-ledger.json",
-                    "skip_verified": True,
-                    "max_outcome_blind_retries": 2,
-                }
-            }
-
-        # Ensure any staged input file also satisfies supervisor per-file `max_export_bytes` check
-        largest_input_bytes = max(
-            (int(Path(inp["path"]).stat().st_size) for inp in inputs_list),
-            default=0,
-        )
-        if largest_input_bytes > MAX_SUPERVISOR_EXPORT_BYTES:
-            raise ValueError(
-                f"Staged input file ({largest_input_bytes / 2**30:.2f} GiB) exceeds supervisor "
-                f"2.00 GiB per-file limit."
-            )
-        if largest_input_bytes > max_export_bytes:
-            max_export_bytes = min(
-                MAX_SUPERVISOR_EXPORT_BYTES, int(math.ceil(largest_input_bytes * 1.10))
-            )
-
-        unit_cap = math.ceil(((timeout_minutes * rate_uph) / 60.0 - 1e-12) * 10000.0) / 10000.0
-        tech_envelope: dict[str, Any] = {
-            "base_seconds": base_sec,
-            "effective_seconds": eff_sec,
-            "forecast_unit_cap": unit_cap,
-            "mode": mode,
-            "gpu": gpu_norm,
-        }
-        if checkpoint_export_caps is not None:
-            tech_envelope["session_total_export_cap_bytes"] = int(
-                checkpoint_export_caps["session_total_export_cap_bytes"]
-            )
-            tech_envelope["worst_case_session_export_bytes"] = int(
-                checkpoint_export_caps["worst_case_session_export_bytes"]
-            )
-        if canary_eval_metrics is not None:
-            tech_envelope["canary_eval_wall_seconds"] = float(canary_eval_metrics["wall_seconds"])
-            if "peak_memory_bytes" in canary_eval_metrics:
-                tech_envelope["canary_eval_peak_memory_bytes"] = int(
-                    canary_eval_metrics["peak_memory_bytes"]
-                )
-
-        manifest: dict[str, Any] = {
-            "job_id": job_id[:64],
-            "commit": resolved_commit,
-            "script": FAMILY_SCRIPT,
-            "device": "cuda",
-            "source_paths": source_paths,
-            "requirements": {
-                "gpu": gpu_norm,
-                "allowed_gpus": [gpu_norm],
-                "min_vcpu": 2,
-                "est_minutes": est_minutes,
-            },
-            "timeout_minutes": timeout_minutes,
-            "output_dir": str(out_path),
-            "max_export_bytes": int(max_export_bytes),
-            "inputs": inputs_list,
-            "env": {
-                "COLAB_CLI_REQUIREMENTS": REQUIREMENTS_RELPATH,
-                "V3_PPO_SOURCE_COMMIT": resolved_commit,
-                "V3_PPO_MODE": mode,
-                "SNAKE_DQN_DEVICE": "cuda",
-                "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
-                "MAX_JOBS": "4",
-                **extra_env,
-            },
-            "required_exports": required_exports,
-            "budget": {
-                "rate_units_per_hour": rate_uph,
-                "unit_cap": unit_cap,
-                "reserve_units": 0,
-                "other_assignments": {},
-            },
-            **resume_fields,
-            "requirements_file": REQUIREMENTS_RELPATH,
-            "technical_envelope": tech_envelope,
-        }
-        if allow_unmerged_commit:
-            manifest["unmerged_dev_packet"] = True
-        if canary_block is not None:
-            manifest["canary"] = canary_block
-
-        if mode == "canary" or canary_receipt is not None:
-            colab_canary.check(manifest, ROOT)
-
-        manifest_path = pkt / "dispatch-manifest.json"
-        _write_json_create_only(manifest_path, manifest)
-    except BaseException:
-        shutil.rmtree(pkt, ignore_errors=True)
-        raise
-
-    summary: dict[str, Any] = {
-        "packet_dir": str(pkt),
-        "manifest_path": str(manifest_path),
-        "manifest_sha256": sha256_file(manifest_path),
-        "mode": mode,
-        "job_id": manifest["job_id"],
-        "commit": resolved_commit,
-        "gpu": gpu_norm,
-        "timeout_minutes": timeout_minutes,
-        "est_minutes": est_minutes,
-        "max_wall_seconds": int(extra_env["V3_PPO_MAX_WALL_SECONDS"]),
-        "max_export_bytes": int(max_export_bytes),
-        "unit_cap": unit_cap,
-    }
-    if memory_estimate is not None:
-        summary["memory_estimate"] = memory_estimate
-    if checkpoint_export_caps is not None:
-        summary["checkpoint_export_caps"] = checkpoint_export_caps
-    if training_plan is not None:
-        summary["training_plan"] = training_plan
-    if canary_eval_metrics is not None:
-        summary["canary_eval_metrics"] = canary_eval_metrics
-    return summary
+    opts = PreparePacketOptions(
+        packet_dir=Path(packet_dir),
+        commit=commit,
+        mode=mode,
+        gpu=gpu,
+        hours=hours,
+        expected_steps_per_sec=expected_steps_per_sec,
+        net_size=net_size,
+        num_envs=num_envs,
+        num_snakes=num_snakes,
+        arena_radius=arena_radius,
+        learner_slots=learner_slots,
+        opponent_policy=opponent_policy,
+        rollout_len=rollout_len,
+        ruler_envs=ruler_envs,
+        ruler_nets=ruler_nets,
+        ruler_learners=ruler_learners,
+        ruler_rollout_len=ruler_rollout_len,
+        ruler_warmup_updates=ruler_warmup_updates,
+        ruler_timed_updates=ruler_timed_updates,
+        ruler_base_minutes=ruler_base_minutes,
+        amp=amp,
+        use_channels_last=use_channels_last,
+        fast_learner_ops=fast_learner_ops,
+        include_fp32=include_fp32,
+        compile_model=compile_model,
+        max_periodic_full_exports=max_periodic_full_exports,
+        light_resume_margin_minutes=light_resume_margin_minutes,
+        eval_estimated_seconds=eval_estimated_seconds,
+        output_dir=Path(output_dir) if output_dir is not None else None,
+        prior_output_dir=Path(prior_output_dir) if prior_output_dir is not None else None,
+        prior_kind=prior_kind,
+        canary_receipt=Path(canary_receipt) if canary_receipt is not None else None,
+        allow_missing_canary_receipt=allow_missing_canary_receipt,
+        ppo_config=ppo_config,
+        explicit_total_updates=explicit_total_updates,
+        explicit_eval_estimated_seconds=explicit_eval_estimated_seconds,
+        measured_packed_bytes_per_world=measured_packed_bytes_per_world,
+        measured_checkpoint_bytes=measured_checkpoint_bytes,
+        attempt=attempt,
+        allow_unmerged_commit=allow_unmerged_commit,
+    )
+    return prepare_packet_from_options(opts)
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -1225,17 +1418,20 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    """CLI entrypoint for ``python -m research.v3_ppo.prepare``."""
-    parser = build_arg_parser()
-    args = parser.parse_args(argv)
-
+def options_from_cli_args(
+    args: argparse.Namespace,
+    parser: argparse.ArgumentParser | None = None,
+) -> PreparePacketOptions:
+    """Construct ``PreparePacketOptions`` from parsed CLI ``args``."""
     if args.mode in ("ruler", "train") and args.canary_receipt is None:
         if not args.allow_missing_canary_receipt:
-            parser.error(
+            msg = (
                 f"--mode {args.mode} requires --canary-receipt <path/to/receipt.json> "
                 "(pass --allow-missing-canary-receipt only for offline schema inspection)"
             )
+            if parser is not None:
+                parser.error(msg)
+            raise ValueError(msg)
 
     ppo_cfg: V3PPOConfig | None = None
     explicit_total_updates = False
@@ -1252,8 +1448,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         explicit_eval_estimated_seconds = "eval_estimated_seconds" in raw_dict
         ppo_cfg = V3PPOConfig.from_dict(raw_dict)
 
-    info = prepare_v3_ppo_packet(
-        args.packet,
+    return PreparePacketOptions(
+        packet_dir=Path(args.packet),
         commit=args.commit,
         mode=args.mode,
         gpu=args.gpu,
@@ -1294,6 +1490,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         attempt=args.attempt,
         allow_unmerged_commit=bool(args.allow_unmerged_commit),
     )
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """CLI entrypoint for ``python -m research.v3_ppo.prepare``."""
+    parser = build_arg_parser()
+    args = parser.parse_args(argv)
+    opts = options_from_cli_args(args, parser)
+    info = prepare_packet_from_options(opts)
     print(json.dumps(info, indent=2, sort_keys=True))
     return 0
 

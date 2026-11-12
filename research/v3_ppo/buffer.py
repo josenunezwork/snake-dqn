@@ -6,36 +6,69 @@ from dataclasses import dataclass
 
 import torch
 
-from research.game_v3.config import NUM_ACTIONS
-from research.game_v3.obs import (
-    NUM_RASTER_CHANNELS,
-    NUM_SCALAR_FEATURES,
-    LearnerIndex,
-    ObservationBatch,
-)
-from research.v3_ppo.config import (
-    BYTES_PER_LEARNER_STEP,
-    FINE_RASTER_SIZE,
-    MID_RASTER_SIZE,
-    OBS_RASTER_BYTES_PER_STEP,
-    WIDE_RASTER_SIZE,
-)
+from research.game_v3.obs import LearnerIndex, ObservationBatch
+from research.v3_ppo.config import DEFAULT_OBS_LAYOUT, ObsLayout
 
 
 @dataclass
 class RolloutMinibatch:
     """Gathered learner minibatch slice from ``Uint8RolloutBuffer`` (`uint8` rasters preserved)."""
 
-    raster_s1: torch.Tensor  # (B, 13, 64, 64) uint8
-    raster_s4: torch.Tensor  # (B, 13, 32, 32) uint8
-    raster_s16: torch.Tensor  # (B, 13, 32, 32) uint8
-    scalars: torch.Tensor  # (B, 8) float32
-    action_mask: torch.Tensor  # (B, 10) bool
+    raster_s1: torch.Tensor  # (B, C, fine_size, fine_size) uint8
+    raster_s4: torch.Tensor  # (B, C, mid_size, mid_size) uint8
+    raster_s16: torch.Tensor  # (B, C, wide_size, wide_size) uint8
+    scalars: torch.Tensor  # (B, scalar_dim) float32
+    action_mask: torch.Tensor  # (B, num_actions) bool
     actions: torch.Tensor  # (B,) int64
     old_log_probs: torch.Tensor  # (B,) float32
     old_values: torch.Tensor  # (B,) float32
     advantages: torch.Tensor  # (B,) float32
     returns: torch.Tensor  # (B,) float32
+
+
+def assert_obs_batch_matches_layout(
+    obs: ObservationBatch,
+    layout: ObsLayout,
+    *,
+    batch_rows: int,
+    context: str = "ObservationBatch",
+) -> None:
+    """Assert that ``obs`` tensor shapes and dtypes match ``layout`` and ``batch_rows``."""
+    expected_rasters = (
+        (
+            "raster_s1",
+            obs.raster_s1,
+            (batch_rows, layout.channels, layout.fine_size, layout.fine_size),
+        ),
+        (
+            "raster_s4",
+            obs.raster_s4,
+            (batch_rows, layout.channels, layout.mid_size, layout.mid_size),
+        ),
+        (
+            "raster_s16",
+            obs.raster_s16,
+            (batch_rows, layout.channels, layout.wide_size, layout.wide_size),
+        ),
+    )
+    for field_name, tensor, exp_shape in expected_rasters:
+        if tuple(tensor.shape) != exp_shape or tensor.dtype != torch.uint8:
+            raise ValueError(
+                f"{context}.{field_name} shape/dtype mismatch: expected uint8 {exp_shape}, "
+                f"got {tensor.dtype} {tuple(tensor.shape)}"
+            )
+    exp_scalars = (batch_rows, layout.scalar_dim)
+    if tuple(obs.scalars.shape) != exp_scalars or obs.scalars.dtype != torch.float32:
+        raise ValueError(
+            f"{context}.scalars shape/dtype mismatch: expected float32 {exp_scalars}, "
+            f"got {obs.scalars.dtype} {tuple(obs.scalars.shape)}"
+        )
+    exp_mask = (batch_rows, layout.num_actions)
+    if tuple(obs.action_mask.shape) != exp_mask or obs.action_mask.dtype != torch.bool:
+        raise ValueError(
+            f"{context}.action_mask shape/dtype mismatch: expected bool {exp_mask}, "
+            f"got {obs.action_mask.dtype} {tuple(obs.action_mask.shape)}"
+        )
 
 
 def compute_gae(
@@ -146,6 +179,7 @@ class Uint8RolloutBuffer:
         learner_index: LearnerIndex,
         sim_shape: tuple[int, int],
         device: torch.device,
+        obs_layout: ObsLayout = DEFAULT_OBS_LAYOUT,
     ) -> None:
         if int(rollout_len) < 1:
             raise ValueError(f"rollout_len must be >= 1, got {rollout_len}")
@@ -156,29 +190,35 @@ class Uint8RolloutBuffer:
         self.learner_index = learner_index
         self.sim_shape = (int(sim_shape[0]), int(sim_shape[1]))
         self.device = device
+        self.obs_layout = obs_layout
+
+        c = self.obs_layout.channels
+        s1_hw = self.obs_layout.fine_size
+        s4_hw = self.obs_layout.mid_size
+        s16_hw = self.obs_layout.wide_size
 
         self.raster_s1 = torch.empty(
-            (self.T, self.M, NUM_RASTER_CHANNELS, FINE_RASTER_SIZE, FINE_RASTER_SIZE),
+            (self.T, self.M, c, s1_hw, s1_hw),
             dtype=torch.uint8,
             device=device,
         )
         self.raster_s4 = torch.empty(
-            (self.T, self.M, NUM_RASTER_CHANNELS, MID_RASTER_SIZE, MID_RASTER_SIZE),
+            (self.T, self.M, c, s4_hw, s4_hw),
             dtype=torch.uint8,
             device=device,
         )
         self.raster_s16 = torch.empty(
-            (self.T, self.M, NUM_RASTER_CHANNELS, WIDE_RASTER_SIZE, WIDE_RASTER_SIZE),
+            (self.T, self.M, c, s16_hw, s16_hw),
             dtype=torch.uint8,
             device=device,
         )
         self.scalars = torch.empty(
-            (self.T, self.M, NUM_SCALAR_FEATURES),
+            (self.T, self.M, self.obs_layout.scalar_dim),
             dtype=torch.float32,
             device=device,
         )
         self.action_mask = torch.empty(
-            (self.T, self.M, NUM_ACTIONS),
+            (self.T, self.M, self.obs_layout.num_actions),
             dtype=torch.bool,
             device=device,
         )
@@ -225,7 +265,7 @@ class Uint8RolloutBuffer:
     def raster_nbytes(self) -> int:
         """Return total bytes allocated for the 3 ``uint8`` raster tensors."""
         total = int(self.raster_s1.nbytes + self.raster_s4.nbytes + self.raster_s16.nbytes)
-        assert total == self.T * self.M * OBS_RASTER_BYTES_PER_STEP
+        assert total == self.T * self.M * self.obs_layout.raster_bytes_per_step
         return total
 
     def nbytes_total(self) -> int:
@@ -247,7 +287,7 @@ class Uint8RolloutBuffer:
             self.acted,
         )
         total = sum(int(t.nbytes) for t in tensors)
-        assert total == self.T * self.M * BYTES_PER_LEARNER_STEP
+        assert total == self.T * self.M * self.obs_layout.bytes_per_learner_step
         return total
 
     def compute_gae(
@@ -296,18 +336,20 @@ class Uint8RolloutBuffer:
             if include_old_values
             else self.values.new_empty((0,))
         )
+        c = self.obs_layout.channels
+        s1_hw = self.obs_layout.fine_size
+        s4_hw = self.obs_layout.mid_size
+        s16_hw = self.obs_layout.wide_size
         return RolloutMinibatch(
-            raster_s1=self.raster_s1.reshape(
-                tm, NUM_RASTER_CHANNELS, FINE_RASTER_SIZE, FINE_RASTER_SIZE
-            ).index_select(0, flat_indices),
-            raster_s4=self.raster_s4.reshape(
-                tm, NUM_RASTER_CHANNELS, MID_RASTER_SIZE, MID_RASTER_SIZE
-            ).index_select(0, flat_indices),
-            raster_s16=self.raster_s16.reshape(
-                tm, NUM_RASTER_CHANNELS, WIDE_RASTER_SIZE, WIDE_RASTER_SIZE
-            ).index_select(0, flat_indices),
-            scalars=self.scalars.reshape(tm, NUM_SCALAR_FEATURES).index_select(0, flat_indices),
-            action_mask=self.action_mask.reshape(tm, NUM_ACTIONS).index_select(0, flat_indices),
+            raster_s1=self.raster_s1.reshape(tm, c, s1_hw, s1_hw).index_select(0, flat_indices),
+            raster_s4=self.raster_s4.reshape(tm, c, s4_hw, s4_hw).index_select(0, flat_indices),
+            raster_s16=self.raster_s16.reshape(tm, c, s16_hw, s16_hw).index_select(0, flat_indices),
+            scalars=self.scalars.reshape(tm, self.obs_layout.scalar_dim).index_select(
+                0, flat_indices
+            ),
+            action_mask=self.action_mask.reshape(tm, self.obs_layout.num_actions).index_select(
+                0, flat_indices
+            ),
             actions=self.actions.reshape(tm).index_select(0, flat_indices).to(torch.long),
             old_log_probs=self.log_probs.reshape(tm).index_select(0, flat_indices),
             old_values=old_vals,

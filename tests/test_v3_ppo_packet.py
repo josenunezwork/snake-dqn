@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import ast
 import json
+import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +20,12 @@ from research.colab_cli import schema as colab_schema
 from research.colab_cli import source as colab_source
 from research.colab_cli import supervisor as colab_supervisor
 from research.game_v3.config import GameV3Config
-from research.v3_ppo.config import V3PPOConfig, estimate_training_memory
+from research.v3_ppo.config import (
+    V3PPOConfig,
+    estimate_training_memory,
+)
+from research.v3_ppo.job import build_arg_parser as build_train_arg_parser
+from research.v3_ppo.job import resolve_effective_train_config
 from research.v3_ppo.ppo import (
     V3PPOTrainer,
 )
@@ -32,6 +40,7 @@ from research.v3_ppo.prepare import (
 from research.v3_ppo.prepare import main as prepare_main
 from research.v3_ppo.prepare import (
     prepare_v3_ppo_packet,
+    runtime_source_paths,
 )
 from research.v3_ppo.ruler import (
     CANARY_REQUIRED_EXPORTS,
@@ -41,8 +50,10 @@ from research.v3_ppo.ruler import (
     RULER_REQUIRED_EXPORTS,
     TRAIN_REQUIRED_EXPORTS,
 )
+from research.v3_ppo.ruler import build_arg_parser as build_ruler_arg_parser
 from research.v3_ppo.ruler import main as ruler_main
 from research.v3_ppo.ruler import (
+    resolve_effective_ruler_config,
     run_canary_suite,
     run_ruler,
 )
@@ -403,7 +414,7 @@ def test_prepare_refuses_checkpoint_shard_and_session_export_cap_violations(
             allow_unmerged_commit=True,
         )
 
-    #    (3b) Minor 4: Update-based checkpoint setting (`checkpoint_every_updates=1`) exceeding cap
+    #    (3b) Update-based checkpoint setting (`checkpoint_every_updates=1`) exceeding cap
     bloated_upd_cfg = V3PPOConfig(num_envs=128, checkpoint_every_updates=1)
     with pytest.raises(ValueError, match="exceeds L4 session export cap"):
         prepare_v3_ppo_packet(
@@ -459,11 +470,11 @@ def test_prepare_refuses_checkpoint_shard_and_session_export_cap_violations(
                 )
 
 
-def test_ruler_defaults_warmup_timed_split_precheck_and_single_slot_cache(
+def test_ruler_unsynced_headline_vram_precheck_and_single_slot_mature_state_cache(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Verify ruler default T=32, warmup>=1, timed>=2, collect/learn split, & VRAM precheck."""
+    """Ruler uses T=32 defaults, unsynced headline steps, VRAM precheck, and 1-slot state cache."""
     assert DEFAULT_RULER_ROLLOUT_LEN == 32
     assert DEFAULT_RULER_WARMUP_UPDATES == 1
     assert DEFAULT_RULER_TIMED_UPDATES == 2
@@ -590,12 +601,22 @@ def test_ruler_defaults_warmup_timed_split_precheck_and_single_slot_cache(
     assert ok_cell["collection_only"]["headline_stage_timing_syncs"] is False
     assert ok_cell["collect_seconds"] == integ["collect_seconds"]
     assert ok_cell["learn_seconds"] == integ["learn_seconds"]
-    # Minor 6: ALL warmup + timed `train_step` calls ran with `stage_timing=False` (2 * 3 = 6),
-    # and each succeeded cell ran 1 separate `collect_rollout(..., stage_timing=True)` pass (= 2)!
+    # All warmup + timed `train_step` calls ran with `stage_timing=False` (2 * 3 = 6),
+    # and each succeeded cell ran 1 separate `collect_rollout(..., stage_timing=True)` pass (= 2).
     assert train_step_stage_timings == [False] * 6
     assert len(synced_rollout_calls) == 2
 
-    # M2-r2: Verify `run_canary_suite` without override invokes `evaluate_policy` at DEFAULT config
+    oom_cell = by_id["E4_L2_S"]
+    assert oom_cell["oom"] is True
+    assert oom_cell["precheck_oom"] is True
+    assert oom_cell["integrated"] is None
+
+
+def test_canary_suite_default_eval_uses_full_production_eval_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`run_canary_suite` without override invokes `evaluate_policy` at full production defaults."""
     seen_canary_eval_cfgs: list[V3PPOConfig] = []
 
     def _fake_default_eval(_net: Any, eval_cfg: V3PPOConfig, **_kw: Any) -> dict[str, Any]:
@@ -633,11 +654,6 @@ def test_ruler_defaults_warmup_timed_split_precheck_and_single_slot_cache(
     assert def_cfg.num_snakes == 24
     assert canary_def["default_eval_benchmark"]["wall_seconds"] == 1.234
     assert canary_def["default_eval_benchmark"]["vs_random_safe_completed_lives"] == 350
-
-    oom_cell = by_id["E4_L2_S"]
-    assert oom_cell["oom"] is True
-    assert oom_cell["precheck_oom"] is True
-    assert oom_cell["integrated"] is None
 
 
 def test_prepare_refuses_bad_configs_and_oom_vram_budgets(tmp_path: Path) -> None:
@@ -847,7 +863,7 @@ def test_canary_completed_exports_never_mutate_for_supervisor_and_have_st_nlink_
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """B1-r3: Poll `colab_cli.runtime._exports` on publish + after cleanup (`st_nlink == 1`)."""
+    """Completed canary exports never mutate under supervisor polling and keep st_nlink == 1."""
     import research.arena_ppo.runtime as arena_rt
     from research.colab_cli.runtime import _exports as scan_supervisor_exports
 
@@ -910,7 +926,7 @@ def test_canary_eval_resident_train_sim_combined_peak_and_prepare_eval_estimate_
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """m3-r3 & m5-r3: Canary default eval holds GPU-default train sim resident & propagates wall."""
+    """Canary default eval holds GPU-default training sim resident and propagates wall estimate."""
     # 1. Verify `prepare --mode canary` sets GPU-default training world count (`128`/`256`/`512`)
     expected_gpu_envs = {"L4": "128", "A100": "256", "H100": "512"}
     canary_manifests: dict[str, dict[str, Any]] = {}
@@ -1031,3 +1047,640 @@ def test_canary_eval_resident_train_sim_combined_peak_and_prepare_eval_estimate_
     override_mf = json.loads(Path(train_override_pkt["manifest_path"]).read_text(encoding="utf-8"))
     override_cfg = json.loads(override_mf["env"]["V3_PPO_CONFIG_JSON"])
     assert override_cfg["eval_estimated_seconds"] == pytest.approx(110.0)
+
+
+def test_prepare_and_job_sh_effective_configs_match_e2865f93_baseline(tmp_path: Path) -> None:
+    """Prove canary/ruler/train packets produce identical effective runtime configs vs e2865f93."""
+    import os
+    import sys
+
+    baseline_root = tmp_path / "baseline_e2865f93"
+    baseline_root.mkdir(parents=True)
+    # Symlink shared read-only packages and extract e2865f93's `research/v3_ppo/`
+    (baseline_root / "src").symlink_to(ROOT / "src")
+    (baseline_root / "tools").symlink_to(ROOT / "tools")
+    (baseline_root / "research").mkdir()
+    for src_p in (ROOT / "research").iterdir():
+        if src_p.name != "v3_ppo":
+            (baseline_root / "research" / src_p.name).symlink_to(src_p)
+    archive = subprocess.run(
+        ["git", "-C", str(ROOT), "archive", "e2865f93", "research/v3_ppo"],
+        capture_output=True,
+        check=True,
+    )
+    subprocess.run(
+        ["tar", "-xf", "-", "-C", str(baseline_root)],
+        input=archive.stdout,
+        check=True,
+    )
+
+    probe_script = tmp_path / "probe_effective_packets.py"
+    probe_script.write_text(
+        """from __future__ import annotations
+import json, os, shutil, subprocess, sys
+from pathlib import Path
+
+repo_root = Path(sys.argv[1]).resolve()
+work_root = Path(sys.argv[2]).resolve()
+out_json = Path(sys.argv[3]).resolve()
+git_repo = Path(sys.argv[4]).resolve()
+sys.path.insert(0, str(repo_root))
+
+import torch
+import research.v3_ppo.ppo as ppo_mod
+import research.v3_ppo.prepare as prep_mod
+import research.v3_ppo.ruler as ruler_mod
+from research.v3_ppo.config import V3PPOConfig
+
+prep_mod.ROOT = git_repo
+
+def run_job_sh_and_capture(manifest_path: Path, pkt_dir: Path, run_dir: Path) -> dict:
+    mf = json.loads(manifest_path.read_text(encoding="utf-8"))
+    bin_dir = run_dir / "bin"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    cap_path = run_dir / "cap.json"
+    stub_py = bin_dir / "python"
+    stub_py.write_text(
+        "#!/usr/bin/env bash\\n"
+        f"{sys.executable} -c 'import json, os, sys; "
+        f"open({json.dumps(str(cap_path))}, \\"w\\").write(json.dumps({{"
+        "\\"argv\\": sys.argv[1:], "
+        "\\"env\\": {k: v for k, v in os.environ.items() "
+        "if k.startswith((\\"V3_PPO_\\", \\"SNAKE_\\"))}"
+        "}))' \\"$@\\"\\n",
+        encoding="utf-8",
+    )
+    stub_py.chmod(0o755)
+    cli_root = run_dir / "cli_root"
+    (cli_root / "output").mkdir(parents=True, exist_ok=True)
+    (cli_root / "work").mkdir(parents=True, exist_ok=True)
+    env = {
+        "PATH": f"{bin_dir}:{os.environ.get('PATH', '/usr/bin:/bin')}",
+        "HOME": os.environ.get("HOME", "/tmp"),
+        "COLAB_CLI_ROOT": str(cli_root),
+        "COLAB_INPUT_DIR": str(pkt_dir / "inputs"),
+    }
+    env.update({k: str(v) for k, v in mf["env"].items()})
+    subprocess.run(
+        ["bash", str(git_repo / "research" / "v3_ppo" / "job.sh")],
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    cap = json.loads(cap_path.read_text(encoding="utf-8"))
+    argv = cap["argv"]
+    saved_env = os.environ.copy()
+    captured_call: dict = {}
+    try:
+        for k in list(os.environ):
+            if k.startswith(("V3_PPO_", "SNAKE_")):
+                del os.environ[k]
+        os.environ.update(cap["env"])
+        if argv[:2] == ["-m", "research.v3_ppo.ppo"]:
+            orig_fn = ppo_mod.run_training_job
+            def _spy_train(**kw):
+                captured_call["entry"] = "run_training_job"
+                captured_call["cfg"] = kw["cfg"].to_dict()
+                captured_call["device"] = str(kw["device"])
+                captured_call["max_wall_seconds"] = kw["max_wall_seconds"]
+                captured_call["max_session_export_bytes"] = kw["max_session_export_bytes"]
+                return {"status": "PASS"}
+            ppo_mod.run_training_job = _spy_train
+            try:
+                assert ppo_mod.main(argv[2:]) == 0
+            finally:
+                ppo_mod.run_training_job = orig_fn
+        elif argv[:2] == ["-m", "research.v3_ppo.ruler"]:
+            orig_canary = ruler_mod.run_canary_suite
+            orig_ruler = ruler_mod.run_ruler
+            def _spy_canary(**kw):
+                captured_call["entry"] = "run_canary_suite"
+                captured_call["kwargs"] = {
+                    k: v for k, v in kw.items()
+                    if k not in {"output_dir", "input_dir", "ledger_path"}
+                }
+                return {"status": "PASS"}
+            def _spy_ruler(**kw):
+                captured_call["entry"] = "run_ruler"
+                captured_call["kwargs"] = {
+                    k: v for k, v in kw.items()
+                    if k not in {"output_dir", "input_dir"}
+                }
+                return {"status": "PASS"}
+            ruler_mod.run_canary_suite = _spy_canary
+            ruler_mod.run_ruler = _spy_ruler
+            try:
+                assert ruler_mod.main(argv[2:]) == 0
+            finally:
+                ruler_mod.run_canary_suite = orig_canary
+                ruler_mod.run_ruler = orig_ruler
+        else:
+            raise AssertionError(f"Unexpected argv: {argv}")
+    finally:
+        os.environ.clear()
+        os.environ.update(saved_env)
+    return captured_call
+
+results = {}
+s_canary = prep_mod.prepare_v3_ppo_packet(
+    work_root / "pkt_canary", mode="canary", gpu="L4",
+    output_dir=work_root / "out_canary", allow_unmerged_commit=True,
+)
+results["canary_l4"] = run_job_sh_and_capture(
+    Path(s_canary["manifest_path"]), Path(s_canary["packet_dir"]), work_root / "r_canary"
+)
+
+s_ruler = prep_mod.prepare_v3_ppo_packet(
+    work_root / "pkt_ruler", mode="ruler", gpu="A100",
+    ruler_nets="S,M", ruler_envs="512,1024", amp=False, use_channels_last=False,
+    compile_model=True, fast_learner_ops=False,
+    output_dir=work_root / "out_ruler",
+    allow_missing_canary_receipt=True, allow_unmerged_commit=True,
+)
+results["ruler_a100_custom"] = run_job_sh_and_capture(
+    Path(s_ruler["manifest_path"]), Path(s_ruler["packet_dir"]), work_root / "r_ruler"
+)
+
+s_train_s = prep_mod.prepare_v3_ppo_packet(
+    work_root / "pkt_train_s", mode="train", gpu="L4", net_size="S",
+    output_dir=work_root / "out_train_s",
+    allow_missing_canary_receipt=True, allow_unmerged_commit=True,
+)
+results["train_s_default"] = run_job_sh_and_capture(
+    Path(s_train_s["manifest_path"]), Path(s_train_s["packet_dir"]), work_root / "r_train_s"
+)
+
+s_train_m = prep_mod.prepare_v3_ppo_packet(
+    work_root / "pkt_train_m", mode="train", gpu="A100", net_size="M", num_envs=128,
+    compile_model=True, amp=False, use_channels_last=False, fast_learner_ops=False,
+    output_dir=work_root / "out_train_m",
+    allow_missing_canary_receipt=True, allow_unmerged_commit=True,
+)
+results["train_m_custom"] = run_job_sh_and_capture(
+    Path(s_train_m["manifest_path"]), Path(s_train_m["packet_dir"]), work_root / "r_train_m"
+)
+
+out_json.write_text(json.dumps(results, sort_keys=True), encoding="utf-8")
+""",
+        encoding="utf-8",
+    )
+
+    sub_env = {
+        **os.environ,
+        "OMP_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+    }
+    before_json = tmp_path / "before.json"
+    after_json = tmp_path / "after.json"
+    subprocess.run(
+        [
+            sys.executable,
+            str(probe_script),
+            str(baseline_root),
+            str(tmp_path / "w_before"),
+            str(before_json),
+            str(ROOT),
+        ],
+        env={**sub_env, "PYTHONPATH": str(baseline_root)},
+        check=True,
+    )
+    subprocess.run(
+        [
+            sys.executable,
+            str(probe_script),
+            str(ROOT),
+            str(tmp_path / "w_after"),
+            str(after_json),
+            str(ROOT),
+        ],
+        env={**sub_env, "PYTHONPATH": str(ROOT)},
+        check=True,
+    )
+    before = json.loads(before_json.read_text(encoding="utf-8"))
+    after = json.loads(after_json.read_text(encoding="utf-8"))
+    assert after == before
+
+
+def _resolve_project_module_relpaths(dotted: str) -> list[str]:
+    """Resolve a ``research.*`` or ``src.*`` module name to tracked repository relpaths."""
+    if not (dotted in {"research", "src"} or dotted.startswith(("research.", "src."))):
+        return []
+    parts = dotted.split(".")
+    relpaths: list[str] = []
+    for depth in range(1, len(parts)):
+        pkg_init = ROOT / Path(*parts[:depth]) / "__init__.py"
+        if pkg_init.is_file():
+            relpaths.append(pkg_init.relative_to(ROOT).as_posix())
+    mod_file = (ROOT / Path(*parts)).with_suffix(".py")
+    pkg_dir = ROOT / Path(*parts)
+    pkg_file = pkg_dir / "__init__.py"
+    if mod_file.is_file():
+        relpaths.append(mod_file.relative_to(ROOT).as_posix())
+    elif pkg_file.is_file():
+        relpaths.append(pkg_file.relative_to(ROOT).as_posix())
+    elif pkg_dir.is_dir():
+        # PEP 420 namespace package directory (e.g., `research/`): require at least one `.py` child
+        # when imported directly without a submodule, otherwise resolve via submodule imports.
+        pass
+    else:
+        raise AssertionError(f"Unresolvable project import {dotted!r}")
+    return relpaths
+
+
+def _collect_imports_from_nodes(
+    nodes: list[ast.AST],
+    cur_pkg_parts: list[str],
+    referenced_symbols: dict[str, set[str]],
+    module_aliases: dict[str, str],
+) -> list[str]:
+    """Extract imported project module names and symbol references from ``nodes``."""
+    candidate_modules: list[str] = []
+    for root_node in nodes:
+        for node in ast.walk(root_node):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    candidate_modules.append(alias.name)
+                    if alias.name.startswith(("research.", "src.")):
+                        bound = alias.asname or alias.name.split(".")[0]
+                        module_aliases[bound] = alias.name
+            elif isinstance(node, ast.ImportFrom):
+                if node.level > 0:
+                    ascend = node.level - 1
+                    base_parts = (
+                        cur_pkg_parts[: len(cur_pkg_parts) - ascend]
+                        if ascend > 0
+                        else cur_pkg_parts
+                    )
+                    base_mod = ".".join(
+                        base_parts + (node.module.split(".") if node.module else [])
+                    )
+                else:
+                    base_mod = node.module or ""
+                if base_mod:
+                    candidate_modules.append(base_mod)
+                    for alias in node.names:
+                        if alias.name == "*":
+                            referenced_symbols.setdefault(base_mod, set()).add("*")
+                        else:
+                            sub_cand = f"{base_mod}.{alias.name}"
+                            sub_parts = sub_cand.split(".")
+                            if (ROOT / Path(*sub_parts)).with_suffix(".py").is_file() or (
+                                ROOT / Path(*sub_parts) / "__init__.py"
+                            ).is_file():
+                                candidate_modules.append(sub_cand)
+                                module_aliases[alias.asname or alias.name] = sub_cand
+                            else:
+                                referenced_symbols.setdefault(base_mod, set()).add(alias.name)
+            elif isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+                target_mod = module_aliases.get(node.value.id)
+                if target_mod is not None:
+                    referenced_symbols.setdefault(target_mod, set()).add(node.attr)
+    return candidate_modules
+
+
+def _reachable_nodes_in_shared_module(tree: ast.Module, wanted_symbols: set[str]) -> list[ast.AST]:
+    """Return top-level non-def statements plus defs reachable from ``wanted_symbols``."""
+    if "*" in wanted_symbols:
+        return list(tree.body)
+    defs: dict[str, ast.AST] = {}
+    always_nodes: list[ast.AST] = []
+    for stmt in tree.body:
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            defs[stmt.name] = stmt
+        else:
+            always_nodes.append(stmt)
+
+    seen_syms: set[str] = set()
+    sym_queue = [s for s in wanted_symbols if s in defs]
+    reachable_defs: list[ast.AST] = []
+    while sym_queue:
+        sym = sym_queue.pop()
+        if sym in seen_syms:
+            continue
+        seen_syms.add(sym)
+        def_node = defs[sym]
+        reachable_defs.append(def_node)
+        for sub in ast.walk(def_node):
+            if isinstance(sub, ast.Name) and sub.id in defs and sub.id not in seen_syms:
+                sym_queue.append(sub.id)
+    return always_nodes + reachable_defs
+
+
+def _walk_transitive_project_imports(entry_relpaths: list[str]) -> set[str]:
+    """Walk transitive project imports of ``entry_relpaths`` across ``research.*`` and ``src.*``."""
+    owned_prefixes = ("research/v3_ppo/", "research/game_v3/")
+    discovered: set[str] = set()
+    referenced_symbols: dict[str, set[str]] = {}
+    processed_shared_syms: dict[str, set[str]] = {}
+    queue: list[str] = []
+
+    def _enqueue(rel: str) -> None:
+        parts = Path(rel).with_suffix("").parts
+        for depth in range(1, len(parts)):
+            pkg_init = ROOT / Path(*parts[:depth]) / "__init__.py"
+            if pkg_init.is_file():
+                init_rel = pkg_init.relative_to(ROOT).as_posix()
+                if init_rel not in discovered:
+                    discovered.add(init_rel)
+                    queue.append(init_rel)
+        if rel not in discovered:
+            discovered.add(rel)
+            queue.append(rel)
+
+    for entry in entry_relpaths:
+        _enqueue(entry)
+
+    while queue:
+        rel = queue.pop()
+        file_path = ROOT / rel
+        tree = ast.parse(file_path.read_text(encoding="utf-8"), filename=rel)
+        cur_pkg_parts = list(Path(rel).parent.parts)
+        mod_dotted = ".".join(Path(rel).with_suffix("").parts)
+        if mod_dotted.endswith(".__init__"):
+            mod_dotted = mod_dotted[: -len(".__init__")]
+
+        if rel.startswith(owned_prefixes):
+            nodes_to_scan: list[ast.AST] = list(tree.body)
+        else:
+            wanted = set(referenced_symbols.get(mod_dotted, set()))
+            processed_shared_syms[rel] = set(wanted)
+            nodes_to_scan = _reachable_nodes_in_shared_module(tree, wanted)
+
+        aliases: dict[str, str] = {}
+        prev_sym_snapshot = {k: set(v) for k, v in referenced_symbols.items()}
+        candidate_modules = _collect_imports_from_nodes(
+            nodes_to_scan, cur_pkg_parts, referenced_symbols, aliases
+        )
+
+        for mod_name in candidate_modules:
+            for resolved_rel in _resolve_project_module_relpaths(mod_name):
+                if resolved_rel not in discovered:
+                    discovered.add(resolved_rel)
+                    if resolved_rel.endswith(".py"):
+                        queue.append(resolved_rel)
+                elif not resolved_rel.startswith(owned_prefixes):
+                    target_dotted = ".".join(Path(resolved_rel).with_suffix("").parts)
+                    if target_dotted.endswith(".__init__"):
+                        target_dotted = target_dotted[: -len(".__init__")]
+                    cur_syms = referenced_symbols.get(target_dotted, set())
+                    if not cur_syms.issubset(processed_shared_syms.get(resolved_rel, set())):
+                        queue.append(resolved_rel)
+
+        # Re-queue any already-discovered shared module that gained newly referenced symbols
+        for mod_key, sym_set in referenced_symbols.items():
+            if sym_set != prev_sym_snapshot.get(mod_key, set()):
+                for resolved_rel in _resolve_project_module_relpaths(mod_key):
+                    if (
+                        resolved_rel in discovered
+                        and not resolved_rel.startswith(owned_prefixes)
+                        and not sym_set.issubset(processed_shared_syms.get(resolved_rel, set()))
+                    ):
+                        queue.append(resolved_rel)
+
+    return discovered
+
+
+def test_runtime_source_paths_covers_all_entrypoint_imports(tmp_path: Path) -> None:
+    """Every transitive project import of `ppo` and `ruler` is shipped in `runtime_source_paths`."""
+    shipped = set(runtime_source_paths("HEAD"))
+    imported = _walk_transitive_project_imports(
+        ["research/v3_ppo/ppo.py", "research/v3_ppo/ruler.py"]
+    )
+    missing = sorted(imported - shipped)
+    assert not missing, f"Entrypoint imports missing from runtime_source_paths: {missing}"
+
+    # Stage ONLY the shipped source list into an isolated directory and execute entrypoints from it.
+    isolated = tmp_path / "isolated_colab_tree"
+    for rel in sorted(shipped):
+        dst = isolated / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / rel, dst)
+
+    iso_probe = (
+        "import pathlib, sys\n"
+        f"repo_root = pathlib.Path({str(ROOT)!r}).resolve()\n"
+        f"iso_root = pathlib.Path({str(isolated)!r}).resolve()\n"
+        "sys.path[:] = [\n"
+        "    str(iso_root),\n"
+        "    *(\n"
+        "        p for p in sys.path\n"
+        "        if p and pathlib.Path(p).resolve() != repo_root\n"
+        "    ),\n"
+        "]\n"
+        "import research.v3_ppo.ppo as ppo_m\n"
+        "import research.v3_ppo.ruler as ruler_m\n"
+        "from research.game_v3.config import GameV3Config\n"
+        "from research.v3_ppo.config import V3PPOConfig\n"
+        "assert pathlib.Path(ppo_m.__file__).resolve().is_relative_to(iso_root)\n"
+        "assert pathlib.Path(ruler_m.__file__).resolve().is_relative_to(iso_root)\n"
+        "ppo_m.build_arg_parser()\n"
+        "ruler_m.build_arg_parser()\n"
+        "cfg = V3PPOConfig(\n"
+        "    game_config=GameV3Config(arena_radius=60.0, num_snakes=6),\n"
+        "    num_envs=2, learner_slots=4, rollout_len=2, ppo_epochs=1, minibatch_size=4,\n"
+        "    amp=False, use_channels_last=False, eval_every_minutes=0.0, eval_every_updates=0,\n"
+        ")\n"
+        "tr = ppo_m.V3PPOTrainer(cfg, device='cpu')\n"
+        "tr.train_step()\n"
+    )
+    sub_env = {
+        **os.environ,
+        "OMP_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "PYTHONPATH": str(isolated),
+    }
+    subprocess.run(
+        [sys.executable, "-c", iso_probe],
+        cwd=str(isolated),
+        env=sub_env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    # Deleting a shipped module from the isolated tree MUST fail with ModuleNotFoundError.
+    (isolated / "research" / "v3_ppo" / "exports.py").unlink()
+    failed = subprocess.run(
+        [sys.executable, "-c", iso_probe],
+        cwd=str(isolated),
+        env=sub_env,
+        capture_output=True,
+        text=True,
+    )
+    assert failed.returncode != 0
+    assert "ModuleNotFoundError" in failed.stderr
+
+
+def test_job_sh_env_mapping_matches_prepare_across_all_modes(tmp_path: Path) -> None:
+    """Every env var emitted by `prepare` is mapped by `job.sh` into matching CLI args."""
+    job_sh_path = ROOT / "research" / "v3_ppo" / "job.sh"
+    job_sh_text = job_sh_path.read_text(encoding="utf-8")
+    supervisor_only_env_keys = {
+        "COLAB_CLI_REQUIREMENTS",
+        "SNAKE_COLAB_CANARY",
+        "SNAKE_COLAB_CANARY_PACKAGE",
+    }
+
+    def _capture_job_sh_invocation(
+        manifest_path: Path, pkt_dir: Path, run_dir: Path
+    ) -> dict[str, Any]:
+        mf = json.loads(manifest_path.read_text(encoding="utf-8"))
+        for key in mf["env"]:
+            if key not in supervisor_only_env_keys:
+                assert key in job_sh_text, f"{key} emitted by prepare is missing from job.sh"
+
+        bin_dir = run_dir / "bin"
+        bin_dir.mkdir(parents=True, exist_ok=True)
+        cap_path = run_dir / "cap.json"
+        stub_py = bin_dir / "python"
+        stub_py.write_text(
+            "#!/usr/bin/env bash\n"
+            f"{sys.executable} -c 'import json, os, sys; "
+            f'open({json.dumps(str(cap_path))}, "w").write(json.dumps({{'
+            '"argv": sys.argv[1:], '
+            '"env": {k: v for k, v in os.environ.items() '
+            'if k.startswith(("V3_PPO_", "SNAKE_"))}'
+            '}))\' "$@"\n',
+            encoding="utf-8",
+        )
+        stub_py.chmod(0o755)
+        cli_root = run_dir / "cli_root"
+        (cli_root / "output").mkdir(parents=True, exist_ok=True)
+        (cli_root / "work").mkdir(parents=True, exist_ok=True)
+        env = {
+            "PATH": f"{bin_dir}:{os.environ.get('PATH', '/usr/bin:/bin')}",
+            "HOME": os.environ.get("HOME", "/tmp"),
+            "COLAB_CLI_ROOT": str(cli_root),
+            "COLAB_INPUT_DIR": str(pkt_dir / "inputs"),
+            **{k: str(v) for k, v in mf["env"].items()},
+        }
+        subprocess.run(
+            ["bash", str(job_sh_path)],
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return json.loads(cap_path.read_text(encoding="utf-8"))
+
+    # 1. Canary packet with non-default compile + fast-learner flags on A100
+    canary_info = prepare_v3_ppo_packet(
+        tmp_path / "pkt_canary_map",
+        commit="HEAD",
+        mode="canary",
+        gpu="A100",
+        compile_model=True,
+        fast_learner_ops=False,
+        output_dir=tmp_path / "out_canary_map",
+        allow_unmerged_commit=True,
+    )
+    canary_cap = _capture_job_sh_invocation(
+        Path(canary_info["manifest_path"]),
+        Path(canary_info["packet_dir"]),
+        tmp_path / "run_canary_map",
+    )
+    assert canary_cap["argv"][:2] == ["-m", "research.v3_ppo.ruler"]
+    canary_eff = resolve_effective_ruler_config(
+        build_ruler_arg_parser().parse_args(canary_cap["argv"][2:]),
+        environ=canary_cap["env"],
+    )
+    assert canary_eff["mode"] == "canary"
+    assert canary_eff["canary_train_envs"] == 256
+    assert canary_eff["compile_model"] is True
+    assert canary_eff["fast_learner_ops"] is False
+
+    # 2. Ruler packet exercising every ruler env override
+    ruler_info = prepare_v3_ppo_packet(
+        tmp_path / "pkt_ruler_map",
+        commit="HEAD",
+        mode="ruler",
+        gpu="A100",
+        ruler_envs="128,256",
+        ruler_nets="S,M",
+        ruler_learners="12,24",
+        arena_radius=450.0,
+        num_snakes=24,
+        ruler_rollout_len=16,
+        ruler_warmup_updates=2,
+        ruler_timed_updates=3,
+        amp=False,
+        use_channels_last=False,
+        include_fp32=True,
+        compile_model=True,
+        fast_learner_ops=False,
+        allow_missing_canary_receipt=True,
+        output_dir=tmp_path / "out_ruler_map",
+        allow_unmerged_commit=True,
+    )
+    ruler_cap = _capture_job_sh_invocation(
+        Path(ruler_info["manifest_path"]),
+        Path(ruler_info["packet_dir"]),
+        tmp_path / "run_ruler_map",
+    )
+    assert ruler_cap["argv"][:2] == ["-m", "research.v3_ppo.ruler"]
+    ruler_eff = resolve_effective_ruler_config(
+        build_ruler_arg_parser().parse_args(ruler_cap["argv"][2:]),
+        environ=ruler_cap["env"],
+    )
+    assert ruler_eff["mode"] == "ruler"
+    assert ruler_eff["envs_list"] == [128, 256]
+    assert ruler_eff["net_sizes"] == ["S", "M"]
+    assert ruler_eff["learners_list"] == [12, 24]
+    assert ruler_eff["arena_radius"] == 450.0
+    assert ruler_eff["num_snakes"] == 24
+    assert ruler_eff["rollout_len"] == 16
+    assert ruler_eff["warmup_updates"] == 2
+    assert ruler_eff["timed_updates"] == 3
+    assert ruler_eff["amp"] is False
+    assert ruler_eff["use_channels_last"] is False
+    assert ruler_eff["include_fp32"] is True
+    assert ruler_eff["compile_model"] is True
+    assert ruler_eff["fast_learner_ops"] is False
+
+    # 3. Train packet exercising train env overrides + config JSON
+    train_info = prepare_v3_ppo_packet(
+        tmp_path / "pkt_train_map",
+        commit="HEAD",
+        mode="train",
+        gpu="A100",
+        hours=4.0,
+        net_size="M",
+        num_envs=128,
+        learner_slots=18,
+        arena_radius=500.0,
+        num_snakes=20,
+        rollout_len=16,
+        amp=False,
+        use_channels_last=False,
+        compile_model=True,
+        fast_learner_ops=False,
+        allow_missing_canary_receipt=True,
+        output_dir=tmp_path / "out_train_map",
+        allow_unmerged_commit=True,
+    )
+    train_cap = _capture_job_sh_invocation(
+        Path(train_info["manifest_path"]),
+        Path(train_info["packet_dir"]),
+        tmp_path / "run_train_map",
+    )
+    assert train_cap["argv"][:2] == ["-m", "research.v3_ppo.ppo"]
+    train_eff = resolve_effective_train_config(
+        build_train_arg_parser().parse_args(train_cap["argv"][2:]),
+        environ=train_cap["env"],
+    )
+    assert train_eff.cfg.net_size == "M"
+    assert train_eff.cfg.num_envs == 128
+    assert train_eff.cfg.learner_slots == 18
+    assert train_eff.cfg.game_config.arena_radius == 500.0
+    assert train_eff.cfg.num_snakes == 20
+    assert train_eff.cfg.rollout_len == 16
+    assert train_eff.cfg.amp is False
+    assert train_eff.cfg.use_channels_last is False
+    assert train_eff.cfg.compile_model is True
+    assert train_eff.cfg.fast_learner_ops is False
+    assert train_eff.max_session_export_bytes == int(
+        train_info["checkpoint_export_caps"]["session_total_export_cap_bytes"]
+    )

@@ -9,8 +9,8 @@ From-scratch PPO self-play trainer, throughput/VRAM ruler, deterministic M-of-N 
    - Post-rollout `s_T` bootstrap observations are cached and copied into `t = 0` of the next rollout (`1` `build_obs` call per simulation tick in steady state; zero observation rebuilds during PPO epochs).
    - `uint8 -> float / 255.0` conversion happens inside `EgoMultiScaleNet` under `bf16` autocast.
 2. **Ego Multi-Scale Actor-Critic & Host-Sync-Free Learner (`EgoMultiScaleNet`, `V3PPOTrainer`):**
-   - Three scale-specific residual Conv+GroupNorm+SiLU stems (`s1` `64->4`, `s4` `32->4`, `s16` `32->4`) fused with an `8`-scalar MLP embedding, `apply_recurrent_core` seam (feed-forward in round 1), `10`-action masked categorical policy head, and `255`-bin symlog two-hot value head.
-   - Calibrated presets: `S` (`1,008,657` params) and `M` (`4,927,841` params).
+   - Three scale-specific residual Conv+GroupNorm+SiLU stems (`s1` `64->4`, `s4` `32->4`, `s16` `32->4`) fused with an `8`-scalar MLP embedding, `apply_recurrent_core` seam (feed-forward by default), `10`-action masked categorical policy head, and `255`-bin symlog two-hot value head.
+   - Calibrated presets in `NET_PRESETS` (`research/v3_ppo/config.py`): `S` (`1,008,657` params) and `M` (`4,927,841` params). Unknown preset names fail immediately at `prepare` / config construction time and never fall through to another size.
    - `channels_last`, `bf16` autocast, `fast_learner_ops` (float32 rounding-level equivalent to dense reference ops, `~1e-7..1e-6` weight diff over multi-update trajectories, not bit-for-bit identical), and `fused=True` `AdamW` are ON by default on CUDA (`--no-channels-last`, `--no-amp` / `--fp32`, `--no-fast-learner-ops` to disable; `--compile` opt-in across `ppo`, `ruler`, `prepare`, and `job.sh`, compiling the shared multi-scale trunk executed by `forward`, rollout `act`, and learner `evaluate_actions`).
    - `net.py` performs zero host synchronizations; `ppo_update` enforces uniform minibatch shapes (dropping partial remainders when `n_valid >= minibatch_size`, or masking padded rows when `n_valid < minibatch_size`) so `cudnn.benchmark` never re-autotunes, and synchronizes scalar diagnostics once per update.
 3. **Learners, Episodes & Simultaneous Kill-Credit Rule:**
@@ -73,3 +73,24 @@ From-scratch PPO self-play trainer, throughput/VRAM ruler, deterministic M-of-N 
   --canary-receipt /path/to/a100-or-l4-canary/output/receipt.json \
   --packet /tmp/v3_ppo_a100_train_pkt
 ```
+
+## Configuration Precedence (`ppo` & `ruler`)
+
+`resolve_effective_train_config` (`python -m research.v3_ppo.ppo`) and `resolve_effective_ruler_config` (`python -m research.v3_ppo.ruler`) resolve configuration in strict highest-to-lowest order:
+
+1. **Explicit individual CLI flags** (`--num-envs`, `--lr`, `--amp`/`--no-amp`, `--compile`/`--no-compile`, `--channels-last`/`--no-channels-last`, `--fast-learner-ops`/`--no-fast-learner-ops`, etc.).
+2. **Explicit `--config-json` CLI argument** (keys present in the JSON object; `ppo` only).
+3. **Environment variables** (`V3_PPO_CONFIG_JSON`, overlaid by scalar `V3_PPO_*` and `SNAKE_DQN_DEVICE`).
+4. **Dataclass defaults** (`V3PPOConfig()` / `GameV3Config()`).
+
+## Adding a Network Size Preset (e.g., `L`)
+
+All network size parameters live in the single `NET_PRESETS` registry (`NetPreset` in `research/v3_ppo/config.py`), which drives `EgoMultiScaleNetConfig.from_size`, CLI choices, memory estimation, checkpoint export caps, and ruler ordering. Adding an `"L"` preset is a single-entry addition in `NET_PRESETS` (plus widening the `NetSize = Literal["S", "M", "L"]` type alias) with:
+
+1. **Architecture dimensions & sweep order:** `s1_c1`, `s1_c2`, `s32_c1`, `stage8_ch`, `stem_out_ch`, `scalar_embed_dim`, `trunk_dim`, `trunk_blocks`, `head_dim`, and `ruler_order` (`2`, so cheaper presets run first in `run_ruler`). Note `GroupNorm` in stems uses up to `8` groups, so conv channel widths should be multiples of `8`.
+2. **Parameter counts:** `exact_param_count` (exact `EgoMultiScaleNet.parameter_count()` on default `13`-channel / `8`-scalar / `10`-action inputs) and `memory_model_param_count` (rounded parameter figure within `±10%` of `exact_param_count`, enforced by unit test; multiplied by `16` bytes/param for `fp32` weights + grads + `AdamW` moments).
+3. **Measured CUDA memory figures (`bf16` + `channels_last`):**
+   - `learner_act_bytes_per_row_bf16`: peak backward-saved activation + raster float-copy bytes per minibatch row during `ppo_update`, measured on CUDA via `torch.cuda.reset_peak_memory_stats()` / `torch.cuda.max_memory_allocated()` across two minibatch sizes (`(peak_B2 - peak_B1) / (B2 - B1)`, with a ~10–15% safety margin; the estimator scales this by `1.8x` when `amp=False`).
+   - `actor_fwd_act_bytes_per_row_bf16`: transient `torch.no_grad()` stem/trunk activation bytes per learner row during `act` beyond the `OBS_RASTER_BYTES_PER_STEP * 2` `bf16` raster copy, measured on CUDA across two `actor_chunk_learners` sizes (scaled by `2x` when `amp=False`).
+4. **Default batching:** `default_minibatch_size` (dividing typical `rollout_len * num_envs * learner_slots` without blowing learner VRAM) and `default_actor_chunk_learners`.
+5. **Measured `LIGHT` checkpoint export budget:** `est_light_checkpoint_bytes` (`>=` measured `save_light_checkpoint` file size after one `AdamW` step so optimizer moments are populated, plus ~25% headroom for `estimate_checkpoint_export_caps` and session stop-reserve sizing).

@@ -9,15 +9,95 @@ from typing import Any, Literal
 from research.game_v3.config import NUM_ACTIONS, GameV3Config
 from research.game_v3.obs import NUM_RASTER_CHANNELS, NUM_SCALAR_FEATURES
 
-FINE_RASTER_SIZE: int = 64
-MID_RASTER_SIZE: int = 32
-WIDE_RASTER_SIZE: int = 32
+_DEFAULT_GAME_CONFIG: GameV3Config = GameV3Config()
 
 V3_PPO_SCHEMA = "v3-ppo-config/v1"
 V3_PPO_NAMESPACE = "v3-ppo-20261111"
 
 NetSize = Literal["S", "M"]
-VALID_NET_SIZES: tuple[NetSize, ...] = ("S", "M")
+
+
+@dataclass(frozen=True)
+class NetPreset:
+    """Single-sourced architecture, memory-model, and batching parameters for a network size."""
+
+    name: NetSize
+    ruler_order: int
+    # Architecture hyperparameters consumed by `EgoMultiScaleNetConfig.from_size`
+    s1_c1: int
+    s1_c2: int
+    s32_c1: int
+    stage8_ch: int
+    stem_out_ch: int
+    scalar_embed_dim: int
+    trunk_dim: int
+    trunk_blocks: int
+    head_dim: int
+    # Exact parameter count and rounded parameter estimate used by the memory model
+    exact_param_count: int
+    memory_model_param_count: int
+    # Measured bf16 activation bytes per row on CUDA
+    learner_act_bytes_per_row_bf16: int
+    actor_fwd_act_bytes_per_row_bf16: int
+    # Default batching and LIGHT checkpoint export byte budget
+    default_minibatch_size: int
+    default_actor_chunk_learners: int
+    est_light_checkpoint_bytes: int
+
+
+NET_PRESETS: dict[str, NetPreset] = {
+    "S": NetPreset(
+        name="S",
+        ruler_order=0,
+        s1_c1=32,
+        s1_c2=48,
+        s32_c1=32,
+        stage8_ch=64,
+        stem_out_ch=48,
+        scalar_embed_dim=64,
+        trunk_dim=168,
+        trunk_blocks=1,
+        head_dim=128,
+        exact_param_count=1_008_657,
+        memory_model_param_count=1_050_000,
+        learner_act_bytes_per_row_bf16=280 * 1024,
+        actor_fwd_act_bytes_per_row_bf16=64 * 1024,
+        default_minibatch_size=2048,
+        default_actor_chunk_learners=6144,
+        est_light_checkpoint_bytes=16 * 1024 * 1024,
+    ),
+    "M": NetPreset(
+        name="M",
+        ruler_order=1,
+        s1_c1=64,
+        s1_c2=96,
+        s32_c1=64,
+        stage8_ch=144,
+        stem_out_ch=96,
+        scalar_embed_dim=128,
+        trunk_dim=392,
+        trunk_blocks=2,
+        head_dim=256,
+        exact_param_count=4_927_841,
+        memory_model_param_count=5_200_000,
+        learner_act_bytes_per_row_bf16=560 * 1024,
+        actor_fwd_act_bytes_per_row_bf16=128 * 1024,
+        default_minibatch_size=1024,
+        default_actor_chunk_learners=3072,
+        est_light_checkpoint_bytes=68 * 1024 * 1024,
+    ),
+}
+
+VALID_NET_SIZES: tuple[NetSize, ...] = tuple(p.name for p in NET_PRESETS.values())
+
+
+def get_net_preset(size: str) -> NetPreset:
+    """Return the registered :class:`NetPreset` for ``size`` or raise ``ValueError``."""
+    preset = NET_PRESETS.get(size) if isinstance(size, str) else None
+    if preset is None:
+        raise ValueError(f"Unknown net_size {size!r}; expected one of {VALID_NET_SIZES}")
+    return preset
+
 
 OpponentPolicy = Literal["food_seeking", "random_safe", "cardinal6_safe"]
 VALID_OPPONENT_POLICIES: tuple[OpponentPolicy, ...] = (
@@ -26,20 +106,129 @@ VALID_OPPONENT_POLICIES: tuple[OpponentPolicy, ...] = (
     "cardinal6_safe",
 )
 
-# Exact per-learner-step byte layout in `Uint8RolloutBuffer`:
-# 3 uint8 rasters: 13*64*64 (53,248) + 13*32*32 (13,312) + 13*32*32 (13,312) = 79,872 bytes.
-RASTER_S1_BYTES: int = NUM_RASTER_CHANNELS * FINE_RASTER_SIZE * FINE_RASTER_SIZE  # 53,248
-RASTER_S4_BYTES: int = NUM_RASTER_CHANNELS * MID_RASTER_SIZE * MID_RASTER_SIZE  # 13,312
-RASTER_S16_BYTES: int = NUM_RASTER_CHANNELS * WIDE_RASTER_SIZE * WIDE_RASTER_SIZE  # 13,312
-OBS_RASTER_BYTES_PER_STEP: int = RASTER_S1_BYTES + RASTER_S4_BYTES + RASTER_S16_BYTES  # 79,872
-OBS_METADATA_BYTES_PER_STEP: int = NUM_SCALAR_FEATURES * 4 + NUM_ACTIONS * 1  # 32 + 10 = 42
-OBS_BATCH_BYTES_PER_ROW: int = OBS_RASTER_BYTES_PER_STEP + OBS_METADATA_BYTES_PER_STEP  # 79,914
-
 # Rollout targets/flags per learner-step:
 # actions (u8: 1) + log_probs, values, rewards, advantages, returns (5 * f32: 20)
 # + died, truncated, acted (3 * bool: 3) = 24 bytes.
 ROLLOUT_SCALAR_BYTES_PER_STEP: int = 1 + 5 * 4 + 3 * 1  # 24
-BYTES_PER_LEARNER_STEP: int = OBS_BATCH_BYTES_PER_ROW + ROLLOUT_SCALAR_BYTES_PER_STEP  # 79,938
+
+
+@dataclass(frozen=True)
+class ObsLayout:
+    """Single-sourced observation tensor layout derived from ``GameV3Config`` & ``game_v3.obs``."""
+
+    channels: int = NUM_RASTER_CHANNELS
+    fine_size: int = _DEFAULT_GAME_CONFIG.obs_fine_size
+    mid_size: int = _DEFAULT_GAME_CONFIG.obs_coarse_size
+    wide_size: int = _DEFAULT_GAME_CONFIG.obs_coarse_size
+    scales: tuple[int, int, int] = _DEFAULT_GAME_CONFIG.obs_scales
+    scalar_dim: int = NUM_SCALAR_FEATURES
+    num_actions: int = NUM_ACTIONS
+
+    @property
+    def raster_sizes(self) -> tuple[int, int, int]:
+        """Return ``(fine_size, mid_size, wide_size)`` spatial dimensions."""
+        return (int(self.fine_size), int(self.mid_size), int(self.wide_size))
+
+    @property
+    def raster_s1_bytes(self) -> int:
+        """Byte count of one ``raster_s1`` ``uint8`` slice."""
+        return int(self.channels) * int(self.fine_size) * int(self.fine_size)
+
+    @property
+    def raster_s4_bytes(self) -> int:
+        """Byte count of one ``raster_s4`` ``uint8`` slice."""
+        return int(self.channels) * int(self.mid_size) * int(self.mid_size)
+
+    @property
+    def raster_s16_bytes(self) -> int:
+        """Byte count of one ``raster_s16`` ``uint8`` slice."""
+        return int(self.channels) * int(self.wide_size) * int(self.wide_size)
+
+    @property
+    def raster_bytes_per_step(self) -> int:
+        """Total ``uint8`` raster bytes per learner step across all 3 scales."""
+        return self.raster_s1_bytes + self.raster_s4_bytes + self.raster_s16_bytes
+
+    @property
+    def metadata_bytes_per_step(self) -> int:
+        """Byte count of float32 scalars plus bool action mask per learner step."""
+        return int(self.scalar_dim) * 4 + int(self.num_actions) * 1
+
+    @property
+    def obs_batch_bytes_per_row(self) -> int:
+        """Byte count of one row in an ``ObservationBatch``."""
+        return self.raster_bytes_per_step + self.metadata_bytes_per_step
+
+    @property
+    def bytes_per_learner_step(self) -> int:
+        """Total bytes per learner step stored in ``Uint8RolloutBuffer``."""
+        return self.obs_batch_bytes_per_row + ROLLOUT_SCALAR_BYTES_PER_STEP
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize layout to a JSON-compatible dictionary."""
+        return {
+            "channels": int(self.channels),
+            "fine_size": int(self.fine_size),
+            "mid_size": int(self.mid_size),
+            "wide_size": int(self.wide_size),
+            "scales": [int(s) for s in self.scales],
+            "scalar_dim": int(self.scalar_dim),
+            "num_actions": int(self.num_actions),
+        }
+
+    @classmethod
+    def from_dict(cls, data: Any) -> ObsLayout:
+        """Deserialize layout from a dictionary (e.g. checkpoint metadata)."""
+        if not isinstance(data, dict):
+            raise ValueError(f"Expected obs_layout dict, got {type(data)!r}")
+        required = ("channels", "fine_size", "mid_size", "wide_size", "scalar_dim", "num_actions")
+        missing = [k for k in required if k not in data]
+        if missing:
+            raise ValueError(f"obs_layout missing required keys: {missing}")
+        raw_scales = data.get("scales", _DEFAULT_GAME_CONFIG.obs_scales)
+        if not isinstance(raw_scales, (list, tuple)) or len(raw_scales) != 3:
+            raise ValueError(f"Invalid obs_layout scales: {raw_scales!r}")
+        return cls(
+            channels=int(data["channels"]),
+            fine_size=int(data["fine_size"]),
+            mid_size=int(data["mid_size"]),
+            wide_size=int(data["wide_size"]),
+            scales=(int(raw_scales[0]), int(raw_scales[1]), int(raw_scales[2])),
+            scalar_dim=int(data["scalar_dim"]),
+            num_actions=int(data["num_actions"]),
+        )
+
+
+def obs_layout_from_game_config(game_cfg: GameV3Config = _DEFAULT_GAME_CONFIG) -> ObsLayout:
+    """Derive the observation layout produced by ``game_v3.obs`` for ``game_cfg``."""
+    if len(game_cfg.obs_scales) != 3:
+        raise ValueError(f"Expected 3 obs_scales in GameV3Config, got {game_cfg.obs_scales!r}")
+    return ObsLayout(
+        channels=NUM_RASTER_CHANNELS,
+        fine_size=int(game_cfg.obs_fine_size),
+        mid_size=int(game_cfg.obs_coarse_size),
+        wide_size=int(game_cfg.obs_coarse_size),
+        scales=(
+            int(game_cfg.obs_scales[0]),
+            int(game_cfg.obs_scales[1]),
+            int(game_cfg.obs_scales[2]),
+        ),
+        scalar_dim=NUM_SCALAR_FEATURES,
+        num_actions=int(game_cfg.num_actions),
+    )
+
+
+DEFAULT_OBS_LAYOUT: ObsLayout = obs_layout_from_game_config(_DEFAULT_GAME_CONFIG)
+FINE_RASTER_SIZE: int = DEFAULT_OBS_LAYOUT.fine_size
+MID_RASTER_SIZE: int = DEFAULT_OBS_LAYOUT.mid_size
+WIDE_RASTER_SIZE: int = DEFAULT_OBS_LAYOUT.wide_size
+RASTER_S1_BYTES: int = DEFAULT_OBS_LAYOUT.raster_s1_bytes
+RASTER_S4_BYTES: int = DEFAULT_OBS_LAYOUT.raster_s4_bytes
+RASTER_S16_BYTES: int = DEFAULT_OBS_LAYOUT.raster_s16_bytes
+OBS_RASTER_BYTES_PER_STEP: int = DEFAULT_OBS_LAYOUT.raster_bytes_per_step
+OBS_METADATA_BYTES_PER_STEP: int = DEFAULT_OBS_LAYOUT.metadata_bytes_per_step
+OBS_BATCH_BYTES_PER_ROW: int = DEFAULT_OBS_LAYOUT.obs_batch_bytes_per_row
+BYTES_PER_LEARNER_STEP: int = DEFAULT_OBS_LAYOUT.bytes_per_learner_step
 
 # Target GPU VRAM budgets (bytes) and default training world counts enforced at packet preparation.
 GPU_VRAM_BUDGET_BYTES: dict[str, int] = {
@@ -57,8 +246,8 @@ GPU_DEFAULT_TRAIN_ENVS: dict[str, int] = {
 # `tensor_min_bytes = 4096`) at default `(R = 600, N = 24, max_length = 2048)`:
 #   - raw persistent world grids + rings = 28,779,936 B (27.45 MiB/world);
 #   - measured packed size at 3,000 ticks = 1,493,096 B (~1.424 MiB/world; 1,107,618 B/4 = 0.264 MiB
-#     at tick 200, 2,838,114 B/4 = 0.677 MiB at tick 1,000, 8,063,394 B/4 = 1.922 MiB at tick 5,000;
-#     was 5.23 MiB/world at E=2 in r1 before uint8-chunk + 4 KiB threshold fix);
+#     at tick 200, 2,838,114 B/4 = 0.677 MiB at tick 1,000, 8,063,394 B/4 = 1.922 MiB at tick
+#     5,000);
 #   - measured packed size at 15,000 ticks = 3,512,730 B (~3.35 MiB/world) as lazy-timestamp
 #     occupancy cells accumulate across visited arena cells;
 #   - synthetic 100%-visited arena circle + full 2,048-slot rings = ~15.7 MiB/world.
@@ -94,16 +283,12 @@ _OBS_BUILD_TEMP_BYTES = 256 * 1024 * 1024  # chunked `build_obs` scratch headroo
 
 def default_minibatch_size(net_size: NetSize) -> int:
     """Return default PPO learner minibatch row count for ``net_size``."""
-    if net_size not in VALID_NET_SIZES:
-        raise ValueError(f"net_size must be one of {VALID_NET_SIZES}, got {net_size!r}")
-    return 2048 if net_size == "S" else 1024
+    return get_net_preset(net_size).default_minibatch_size
 
 
 def default_actor_chunk_learners(net_size: NetSize) -> int:
     """Return default per-tick forward chunk size (in learner rows) for ``net_size``."""
-    if net_size not in VALID_NET_SIZES:
-        raise ValueError(f"net_size must be one of {VALID_NET_SIZES}, got {net_size!r}")
-    return 6144 if net_size == "S" else 3072
+    return get_net_preset(net_size).default_actor_chunk_learners
 
 
 def default_eval_learner_slots(num_snakes: int) -> int:
@@ -219,8 +404,7 @@ class V3PPOConfig:
                 f"opponent_policy must be one of {VALID_OPPONENT_POLICIES}, "
                 f"got {self.opponent_policy!r}"
             )
-        if self.net_size not in VALID_NET_SIZES:
-            raise ValueError(f"net_size must be one of {VALID_NET_SIZES}, got {self.net_size!r}")
+        get_net_preset(self.net_size)
         if int(self.rollout_len) < 1:
             raise ValueError(f"rollout_len must be >= 1, got {self.rollout_len}")
         if not (0.0 <= float(self.gamma) <= 1.0):
@@ -399,16 +583,9 @@ class V3PPOConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> V3PPOConfig:
-        """Deserialize config produced by :meth:`to_dict` (with r1 key compatibility)."""
+        """Deserialize config produced by :meth:`to_dict`."""
         raw = dict(data)
         raw.pop("schema", None)
-        raw.pop("output_publish_interval_sec", None)
-        legacy_ckpt_sec = raw.pop("checkpoint_interval_sec", None)
-        if legacy_ckpt_sec is not None and "light_checkpoint_interval_sec" not in raw:
-            raw["light_checkpoint_interval_sec"] = legacy_ckpt_sec
-        legacy_keep = raw.pop("keep_periodic_checkpoints", None)
-        if legacy_keep is not None and "keep_full_checkpoints" not in raw:
-            raw["keep_full_checkpoints"] = legacy_keep
         gc_raw = raw.pop("game_config", None)
         game_cfg = (
             gc_raw
@@ -416,6 +593,84 @@ class V3PPOConfig:
             else (GameV3Config.from_dict(gc_raw) if isinstance(gc_raw, dict) else GameV3Config())
         )
         return cls(game_config=game_cfg, **raw)
+
+
+RESUME_MUTABLE_CONFIG_KEYS: frozenset[str] = frozenset(
+    {
+        "total_updates",
+        "light_checkpoint_interval_sec",
+        "full_checkpoint_interval_sec",
+        "max_periodic_full_exports",
+        "light_resume_margin_minutes",
+        "checkpoint_shard_bytes",
+        "checkpoint_every_updates",
+        "full_checkpoint_every_updates",
+        "keep_full_checkpoints",
+        "keep_light_checkpoints",
+        "max_in_session_restarts",
+        "max_update_seconds",
+        "eval_every_minutes",
+        "eval_every_updates",
+        "eval_envs",
+        "eval_burnin_ticks",
+        "eval_ticks",
+        "eval_estimated_seconds",
+        "eval_learner_slots",
+        "eval_seed",
+        "eval_greedy",
+        "actor_chunk_learners",
+        "compile_model",
+        "fast_learner_ops",
+    }
+)
+
+
+def immutable_config_diff(
+    reference: V3PPOConfig,
+    candidate: V3PPOConfig,
+) -> dict[str, tuple[Any, Any]]:
+    """Return ``{key: (reference_val, candidate_val)}`` for mismatched resume-immutable keys."""
+    ref_dict = reference.to_dict()
+    cand_dict = candidate.to_dict()
+    diffs: dict[str, tuple[Any, Any]] = {}
+    for key in sorted(set(ref_dict) | set(cand_dict)):
+        if key in RESUME_MUTABLE_CONFIG_KEYS or key == "schema":
+            continue
+        if ref_dict.get(key) != cand_dict.get(key):
+            diffs[key] = (ref_dict.get(key), cand_dict.get(key))
+    return diffs
+
+
+def assert_resume_config_compatible(
+    reference: V3PPOConfig,
+    candidate: V3PPOConfig,
+    *,
+    context: str = "Checkpoint config mismatch",
+    reference_label: str = "ckpt",
+    candidate_label: str = "current",
+) -> None:
+    """Raise ``ValueError`` if ``candidate`` differs from ``reference`` on any immutable key."""
+    diffs = immutable_config_diff(reference, candidate)
+    if diffs:
+        key, (ref_val, cand_val) = next(iter(diffs.items()))
+        raise ValueError(
+            f"{context} on {key!r}: {reference_label}={ref_val!r} vs "
+            f"{candidate_label}={cand_val!r}"
+        )
+
+
+def parse_env_bool(env_name: str, raw: str | None) -> bool | None:
+    """Parse an optional boolean environment variable (`0/1/false/true`) or return ``None``."""
+    if raw is None or raw.strip() == "":
+        return None
+    norm = raw.strip().lower()
+    if norm in {"1", "true", "yes", "on"}:
+        return True
+    if norm in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(
+        f"Invalid boolean environment variable {env_name}={raw!r}; expected '0' or '1'"
+    )
 
 
 def estimate_sim_memory_bytes(game_cfg: GameV3Config, num_envs: int) -> dict[str, int]:
@@ -460,18 +715,20 @@ def estimate_rollout_buffer_bytes(
     num_envs: int,
     learner_slots: int,
     rollout_len: int,
+    game_cfg: GameV3Config = _DEFAULT_GAME_CONFIG,
 ) -> dict[str, int]:
     """Compute exact byte counts for ``Uint8RolloutBuffer`` and the 1-step bootstrap cache."""
+    layout = obs_layout_from_game_config(game_cfg)
     m = int(num_envs) * int(learner_slots)
     total_steps = m * int(rollout_len)
-    raster_bytes = total_steps * OBS_RASTER_BYTES_PER_STEP
-    rollout_buffer_bytes = total_steps * BYTES_PER_LEARNER_STEP
-    bootstrap_obs_bytes = m * OBS_BATCH_BYTES_PER_ROW
+    raster_bytes = total_steps * layout.raster_bytes_per_step
+    rollout_buffer_bytes = total_steps * layout.bytes_per_learner_step
+    bootstrap_obs_bytes = m * layout.obs_batch_bytes_per_row
     return {
         "total_learners": m,
         "learner_steps_per_rollout": total_steps,
-        "bytes_per_learner_step_rasters": OBS_RASTER_BYTES_PER_STEP,
-        "bytes_per_learner_step_total": BYTES_PER_LEARNER_STEP,
+        "bytes_per_learner_step_rasters": layout.raster_bytes_per_step,
+        "bytes_per_learner_step_total": layout.bytes_per_learner_step,
         "rollout_raster_bytes": raster_bytes,
         "rollout_buffer_bytes": rollout_buffer_bytes,
         "bootstrap_obs_bytes": bootstrap_obs_bytes,
@@ -486,12 +743,11 @@ def estimate_learner_overhead_bytes(
     amp: bool = True,
 ) -> int:
     """Estimate model parameters, Adam moments, and minibatch activation peak on CUDA."""
-    param_count = 1_050_000 if net_size == "S" else 5_200_000
+    preset = get_net_preset(net_size)
     # fp32 weights + fp32 grads + Adam m/v = 16 bytes/param
-    model_and_opt_bytes = param_count * 16
-    # Conv stem + fusion activations + float raster copy per minibatch row
-    # (~280 KiB S / ~560 KiB M in bf16; 1.8x fp32)
-    act_per_row = 280 * 1024 if net_size == "S" else 560 * 1024
+    model_and_opt_bytes = preset.memory_model_param_count * 16
+    # Conv stem + fusion activations + float raster copy per minibatch row (1.8x in fp32)
+    act_per_row = preset.learner_act_bytes_per_row_bf16
     if not amp:
         act_per_row = int(act_per_row * 1.8)
     activation_bytes = int(minibatch_size) * act_per_row
@@ -503,12 +759,15 @@ def estimate_actor_chunk_temp_bytes(
     actor_chunk_rows: int,
     net_size: NetSize,
     amp: bool = True,
+    game_cfg: GameV3Config = _DEFAULT_GAME_CONFIG,
 ) -> int:
     """Estimate transient bf16/fp32 raster conversion + stem activations for 1 forward chunk."""
+    layout = obs_layout_from_game_config(game_cfg)
+    preset = get_net_preset(net_size)
     rows = max(1, int(actor_chunk_rows))
     elem_bytes = 2 if amp else 4
-    raster_float_copy_bytes = rows * OBS_RASTER_BYTES_PER_STEP * elem_bytes
-    fwd_act_per_row = (64 if net_size == "S" else 128) * 1024
+    raster_float_copy_bytes = rows * layout.raster_bytes_per_step * elem_bytes
+    fwd_act_per_row = preset.actor_fwd_act_bytes_per_row_bf16
     if not amp:
         fwd_act_per_row *= 2
     return int(raster_float_copy_bytes + rows * fwd_act_per_row)
@@ -519,9 +778,10 @@ def estimate_eval_overhead_bytes(cfg: V3PPOConfig) -> int:
     eval_enabled = (int(cfg.eval_every_updates) > 0) or (float(cfg.eval_every_minutes) > 0.0)
     if not eval_enabled:
         return 0
+    layout = obs_layout_from_game_config(cfg.game_config)
     eval_sim = estimate_sim_memory_bytes(cfg.game_config, cfg.eval_envs)
     eval_learners = int(cfg.eval_envs) * int(cfg.resolved_eval_learner_slots)
-    eval_obs_bytes = eval_learners * OBS_BATCH_BYTES_PER_ROW
+    eval_obs_bytes = eval_learners * layout.obs_batch_bytes_per_row
     return int(eval_sim["sim_peak_bytes"] + eval_obs_bytes)
 
 
@@ -532,10 +792,11 @@ def estimate_training_memory(cfg: V3PPOConfig, *, gpu: str | None = None) -> dic
         num_envs=cfg.num_envs,
         learner_slots=cfg.resolved_learner_slots,
         rollout_len=cfg.rollout_len,
+        game_cfg=cfg.game_config,
     )
     eff_mb = cfg.resolved_minibatch_size
-    param_count = 1_050_000 if cfg.net_size == "S" else 5_200_000
-    model_and_opt_bytes = param_count * 16
+    preset = get_net_preset(cfg.net_size)
+    model_and_opt_bytes = preset.memory_model_param_count * 16
     learner_bytes = estimate_learner_overhead_bytes(
         net_size=cfg.net_size,
         minibatch_size=eff_mb,
@@ -551,6 +812,7 @@ def estimate_training_memory(cfg: V3PPOConfig, *, gpu: str | None = None) -> dic
         actor_chunk_rows=eff_actor_chunk,
         net_size=cfg.net_size,
         amp=bool(cfg.amp),
+        game_cfg=cfg.game_config,
     )
     eval_overhead_bytes = estimate_eval_overhead_bytes(cfg)
 
@@ -572,6 +834,7 @@ def estimate_training_memory(cfg: V3PPOConfig, *, gpu: str | None = None) -> dic
             actor_chunk_rows=eval_fwd_chunk,
             net_size=cfg.net_size,
             amp=bool(cfg.amp),
+            game_cfg=cfg.game_config,
         )
         eval_phase_peak_bytes = (
             sim_mem["sim_persistent_bytes"]
@@ -661,7 +924,7 @@ def estimate_checkpoint_export_caps(
 ) -> dict[str, Any]:
     """Size single-file and total-session checkpoint export caps from wall horizon & bytes/world.
 
-    Session export arithmetic (M1-r2):
+    Session export arithmetic:
       - Every LIGHT checkpoint is exported at its real ``light_checkpoint_interval_sec`` (`30` min
         default) with no count cap and no interval stretching:
         ``n_light_time = ceil(max_wall_seconds / light_checkpoint_interval_sec) + 1``
@@ -705,7 +968,7 @@ def estimate_checkpoint_export_caps(
     shard_cap_bytes = int(cfg.checkpoint_shard_bytes)
 
     # LIGHT checkpoint = fp32 weights + Adam m/v (12 bytes/param) + RNG/counters/pickle framing.
-    est_light_bytes = (16 if cfg.net_size == "S" else 68) * 1024 * 1024
+    est_light_bytes = get_net_preset(cfg.net_size).est_light_checkpoint_bytes
 
     est_full_sim_bytes = int(cfg.num_envs) * budgeted_world_bytes
     est_shards_per_full = max(1, int(math.ceil(float(est_full_sim_bytes) / float(shard_cap_bytes))))

@@ -14,13 +14,7 @@ from torch import nn
 
 from research.game_v3.config import NUM_ACTIONS, NUM_TURN_LEVELS
 from research.game_v3.obs import NUM_RASTER_CHANNELS, NUM_SCALAR_FEATURES
-from research.v3_ppo.config import (
-    FINE_RASTER_SIZE,
-    MID_RASTER_SIZE,
-    VALID_NET_SIZES,
-    WIDE_RASTER_SIZE,
-    NetSize,
-)
+from research.v3_ppo.config import NetSize, ObsLayout, get_net_preset
 
 MASK_FILL_VALUE: float = -1.0e9
 
@@ -144,7 +138,9 @@ class ResidualMLPBlock(nn.Module):
 
 
 class _ScaleStem64(nn.Module):
-    """Downsampling residual conv stem for fine ``13 x 64 x 64`` ego raster -> ``(c_out, 4, 4)``."""
+    """Downsampling residual conv stem for ``C x 64 x 64`` fine ego raster -> ``(c_out, 4, 4)``."""
+
+    EXPECTED_HW: int = 64
 
     def __init__(self, in_ch: int, c1: int, c2: int, c3: int, c_out: int) -> None:
         super().__init__()
@@ -170,7 +166,9 @@ class _ScaleStem64(nn.Module):
 
 
 class _ScaleStem32(nn.Module):
-    """Downsampling residual conv stem for ``13 x 32 x 32`` ego rasters -> ``(c_out, 4, 4)``."""
+    """Downsampling residual conv stem for ``C x 32 x 32`` ego rasters -> ``(c_out, 4, 4)``."""
+
+    EXPECTED_HW: int = 32
 
     def __init__(self, in_ch: int, c1: int, c3: int, c_out: int) -> None:
         super().__init__()
@@ -225,36 +223,19 @@ class EgoMultiScaleNetConfig:
         use_bf16_autocast: bool = True,
         fast_preprocess: bool = True,
     ) -> EgoMultiScaleNetConfig:
-        """Construct calibrated `S` (~1.0M) or `M` (~5.0M) preset."""
-        if size not in VALID_NET_SIZES:
-            raise ValueError(f"Unsupported net size {size!r}; expected one of {VALID_NET_SIZES}")
-        if size == "S":
-            return cls(
-                size="S",
-                s1_c1=32,
-                s1_c2=48,
-                s32_c1=32,
-                stage8_ch=64,
-                stem_out_ch=48,
-                scalar_embed_dim=64,
-                trunk_dim=168,
-                trunk_blocks=1,
-                head_dim=128,
-                use_channels_last=use_channels_last,
-                use_bf16_autocast=use_bf16_autocast,
-                fast_preprocess=fast_preprocess,
-            )
+        """Construct calibrated preset from :data:`research.v3_ppo.config.NET_PRESETS`."""
+        preset = get_net_preset(size)
         return cls(
-            size="M",
-            s1_c1=64,
-            s1_c2=96,
-            s32_c1=64,
-            stage8_ch=144,
-            stem_out_ch=96,
-            scalar_embed_dim=128,
-            trunk_dim=392,
-            trunk_blocks=2,
-            head_dim=256,
+            size=preset.name,
+            s1_c1=preset.s1_c1,
+            s1_c2=preset.s1_c2,
+            s32_c1=preset.s32_c1,
+            stage8_ch=preset.stage8_ch,
+            stem_out_ch=preset.stem_out_ch,
+            scalar_embed_dim=preset.scalar_embed_dim,
+            trunk_dim=preset.trunk_dim,
+            trunk_blocks=preset.trunk_blocks,
+            head_dim=preset.head_dim,
             use_channels_last=use_channels_last,
             use_bf16_autocast=use_bf16_autocast,
             fast_preprocess=fast_preprocess,
@@ -296,18 +277,22 @@ class EvalActionsOutput:
 
 
 class EgoMultiScaleNet(nn.Module):
-    """Three-scale ego raster + scalar actor-critic for Game V3.1 (`10` actions).
+    """Three-scale ego raster + scalar actor-critic for Game V3.1.
 
     Accepts ``uint8`` rasters directly from ``Uint8RolloutBuffer`` and converts them to
     floating-point ``[0, 1]`` inside ``forward`` under the active autocast context so the
-    rollout buffer stays compact (`79,872` raster bytes/step) and no second ``build_obs``
-    is ever needed during PPO epochs.
+    rollout buffer stays compact and no second ``build_obs`` is ever needed during PPO epochs.
 
-    Round-1 policies are feed-forward (`recurrent_core = None`, since observations carry
-    ``t-1`` enemy heads); ``apply_recurrent_core`` provides a clean drop-in seam between
-    feature fusion and policy/value heads for future recurrent cores (GRU/LSTM).
+    Policies default to feed-forward (`recurrent_core = None`, since observations carry
+    ``t-1`` enemy heads); ``apply_recurrent_core`` provides a drop-in seam between feature
+    fusion and policy/value heads for recurrent cores (GRU/LSTM).
     """
 
+    STEM_RASTER_SIZES: tuple[int, int, int] = (
+        _ScaleStem64.EXPECTED_HW,
+        _ScaleStem32.EXPECTED_HW,
+        _ScaleStem32.EXPECTED_HW,
+    )
     bin_centers: torch.Tensor
 
     def __init__(self, cfg: EgoMultiScaleNetConfig) -> None:
@@ -351,7 +336,7 @@ class EgoMultiScaleNet(nn.Module):
             fusion_layers.append(ResidualMLPBlock(cfg.trunk_dim))
         self.fusion = nn.Sequential(*fusion_layers)
 
-        # Clean round-2 recurrence seam: replace `self.recurrent_core` with a module taking
+        # Optional recurrence seam: replace `self.recurrent_core` with a module taking
         # `(features, hidden_state, episode_starts) -> (features, next_hidden_state)`.
         self.recurrent_core: nn.Module | None = None
 
@@ -482,7 +467,7 @@ class EgoMultiScaleNet(nn.Module):
         hidden_state: torch.Tensor | None = None,
         episode_starts: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor | None]:
-        """Pass fused features through optional recurrent core (identity in round 1)."""
+        """Pass fused features through optional recurrent core (identity when unset)."""
         if self.recurrent_core is None:
             return features, hidden_state
         return self.recurrent_core(features, hidden_state, episode_starts)
@@ -514,6 +499,29 @@ class EgoMultiScaleNet(nn.Module):
         safe_mask = torch.where(has_any, mask_bool, fallback)
         return logits_f32.masked_fill(~safe_mask, MASK_FILL_VALUE), safe_mask
 
+    def validate_obs_layout(self, layout: ObsLayout) -> None:
+        """Raise ``ValueError`` if ``layout`` does not match this network's input stems/heads."""
+        if layout.raster_sizes != self.STEM_RASTER_SIZES:
+            raise ValueError(
+                f"Observation raster sizes {layout.raster_sizes} from GameV3Config do not match "
+                f"EgoMultiScaleNet stem input sizes {self.STEM_RASTER_SIZES}"
+            )
+        if layout.channels != self.cfg.in_channels:
+            raise ValueError(
+                f"Observation channel count {layout.channels} != "
+                f"EgoMultiScaleNet in_channels {self.cfg.in_channels}"
+            )
+        if layout.scalar_dim != self.cfg.scalar_dim:
+            raise ValueError(
+                f"Observation scalar_dim {layout.scalar_dim} != "
+                f"EgoMultiScaleNet scalar_dim {self.cfg.scalar_dim}"
+            )
+        if layout.num_actions != self.cfg.num_actions:
+            raise ValueError(
+                f"Observation num_actions {layout.num_actions} != "
+                f"EgoMultiScaleNet num_actions {self.cfg.num_actions}"
+            )
+
     def _encode_trunk_eager(
         self,
         raster_s1: torch.Tensor,
@@ -525,9 +533,10 @@ class EgoMultiScaleNet(nn.Module):
         episode_starts: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor | None]:
         """Eager implementation of multi-scale raster + scalar trunk encoding."""
-        s1 = self._prepare_raster(raster_s1, expected_hw=FINE_RASTER_SIZE)
-        s4 = self._prepare_raster(raster_s4, expected_hw=MID_RASTER_SIZE)
-        s16 = self._prepare_raster(raster_s16, expected_hw=WIDE_RASTER_SIZE)
+        s1_hw, s4_hw, s16_hw = self.STEM_RASTER_SIZES
+        s1 = self._prepare_raster(raster_s1, expected_hw=s1_hw)
+        s4 = self._prepare_raster(raster_s4, expected_hw=s4_hw)
+        s16 = self._prepare_raster(raster_s16, expected_hw=s16_hw)
 
         f1 = self.stem_s1(s1).contiguous().flatten(1)
         f4 = self.stem_s4(s4).contiguous().flatten(1)

@@ -2,24 +2,41 @@
 
 from __future__ import annotations
 
+import json
 import sys
+from pathlib import Path
 
 import pytest
 import torch
 from torch import nn
 
-import research.v3_ppo.ppo as ppo_mod
+import research.v3_ppo.trainer as trainer_mod
 from research.game_v3.config import GameV3Config
 from research.game_v3.obs import LearnerIndex, build_obs
 from research.game_v3.sim import GameV3Sim, StepInfo
 from research.v3_ppo.buffer import Uint8RolloutBuffer, compute_gae
 from research.v3_ppo.config import (
     BYTES_PER_LEARNER_STEP,
+    DEFAULT_OBS_LAYOUT,
+    NET_PRESETS,
     OBS_RASTER_BYTES_PER_STEP,
+    RESUME_MUTABLE_CONFIG_KEYS,
+    NetPreset,
     V3PPOConfig,
+    assert_resume_config_compatible,
+    estimate_rollout_buffer_bytes,
     estimate_training_memory,
+    get_net_preset,
+    immutable_config_diff,
+    obs_layout_from_game_config,
 )
 from research.v3_ppo.eval import compute_step_reward
+from research.v3_ppo.job import (
+    check_eval_wall_budget,
+    check_periodic_export_budget,
+    decide_checkpoint_actions,
+    decide_eval_action,
+)
 from research.v3_ppo.net import (
     MASK_FILL_VALUE,
     EgoMultiScaleNet,
@@ -33,8 +50,18 @@ from research.v3_ppo.ppo import (
     _move_optimizer_state_to_device,
 )
 from research.v3_ppo.ppo import build_arg_parser as ppo_arg_parser
+from research.v3_ppo.ppo import (
+    resolve_effective_train_config,
+    verify_full_checkpoint_set,
+    verify_light_checkpoint,
+    write_create_only_artifact,
+    write_create_only_json,
+)
 from research.v3_ppo.prepare import build_arg_parser as prepare_arg_parser
+from research.v3_ppo.prepare import prepare_v3_ppo_packet
+from research.v3_ppo.ruler import _parse_nets_csv
 from research.v3_ppo.ruler import build_arg_parser as ruler_arg_parser
+from research.v3_ppo.ruler import resolve_effective_ruler_config
 
 
 def test_network_sizes_flags_and_recurrent_seam() -> None:
@@ -182,10 +209,8 @@ def test_action_masking_never_samples_masked_boost() -> None:
     assert torch.isfinite(safe_act.log_probs).all()
 
 
-def test_uint8_rollout_buffer_indexing_and_single_obs_per_tick(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Verify zero-copy uint8 slice views, scattered LearnerIndex, and 1 build_obs/tick."""
+def test_uint8_rollout_buffer_zero_copy_views_and_scattered_minibatch_gather() -> None:
+    """Verify zero-copy uint8 slice views and scattered LearnerIndex minibatch gathering."""
     gcfg = GameV3Config(arena_radius=60.0, num_snakes=8, ambient_food_density=0.02)
     sim = GameV3Sim(gcfg, num_envs=3, device="cpu", seeds=[11, 22, 33])
 
@@ -246,15 +271,20 @@ def test_uint8_rollout_buffer_indexing_and_single_obs_per_tick(
         assert pytest.approx(float(mb.advantages[idx_i].item())) == 0.75 * (idx_i + 1)
         assert pytest.approx(float(mb.returns[idx_i].item())) == 2.0 * (idx_i + 1)
 
-    # Spy on `build_obs` inside `ppo` to prove strictly 1 `build_obs` per tick in steady state
-    real_build_obs = ppo_mod.build_obs
+
+def test_trainer_builds_at_most_one_obs_per_simulation_tick(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify bootstrap caching keeps steady-state rollout collection at 1 build_obs per tick."""
+    gcfg = GameV3Config(arena_radius=60.0, num_snakes=8, ambient_food_density=0.02)
+    real_build_obs = trainer_mod.build_obs
     call_counter = {"count": 0}
 
     def _counted_build_obs(*args, **kwargs):  # type: ignore[no-untyped-def]
         call_counter["count"] += 1
         return real_build_obs(*args, **kwargs)
 
-    monkeypatch.setattr(ppo_mod, "build_obs", _counted_build_obs)
+    monkeypatch.setattr(trainer_mod, "build_obs", _counted_build_obs)
 
     cfg = V3PPOConfig(
         game_config=gcfg,
@@ -277,10 +307,10 @@ def test_uint8_rollout_buffer_indexing_and_single_obs_per_tick(
     assert trainer.obs_builds_executed == call_counter["count"]
 
 
-def test_ppo_update_single_sync_uniform_minibatch_and_fused_adamw_helper(
+def test_ppo_update_enforces_uniform_minibatch_size_without_host_syncs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Verify uniform minibatch sizing (drop/pad), <=1 host sync in `ppo_update`, & AdamW helper."""
+    """Verify uniform minibatch sizing (drop/pad) and zero per-batch host syncs in `ppo_update`."""
     gcfg = GameV3Config(arena_radius=60.0, num_snakes=6, ambient_food_density=0.02)
     cfg = V3PPOConfig(
         game_config=gcfg,
@@ -349,7 +379,9 @@ def test_ppo_update_single_sync_uniform_minibatch_and_fused_adamw_helper(
     assert learn_sec_pad >= 0.0
     assert v3_ppo_syncs == []
 
-    # Verify AdamW builder & state transfer helper
+
+def test_adamw_optimizer_builder_and_state_device_transfer() -> None:
+    """Verify AdamW builder and fused step-tensor device/dtype transfer helper."""
     lin = nn.Linear(4, 2)
     opt = _build_adamw_optimizer(
         lin.parameters(), lr=3e-4, eps=1e-5, weight_decay=1e-4, device=torch.device("cpu")
@@ -542,8 +574,8 @@ def test_step_reward_coefficients_and_simultaneous_kill_death_rule() -> None:
     assert pytest.approx(float(rew[0, 4].item()), abs=1e-6) == -1.5
 
 
-def test_fast_learner_ops_rounding_equivalence_and_compile_execution() -> None:
-    """Verify `fast_learner_ops` float32 rounding equivalence & `--compile` trunk execution."""
+def test_fast_learner_ops_match_reference_within_float32_rounding() -> None:
+    """Verify `fast_learner_ops` matches dense reference preprocessing, loss, and step updates."""
     torch.manual_seed(20261111)
     net_fast = build_ego_multiscale_net(
         "S", use_channels_last=True, use_bf16_autocast=False, fast_preprocess=True
@@ -636,9 +668,24 @@ def test_fast_learner_ops_rounding_equivalence_and_compile_execution() -> None:
     assert max_weight_diff <= 2e-6
     assert torch.equal(tr_fast.sim.length, tr_slow.sim.length)
 
-    # 5. `--compile` (`compile_model=True`) compiles the shared trunk and invokes the compiled
-    #    callable on BOTH rollout (`collect_rollout` -> `act` + bootstrap `forward`, no_grad)
-    #    AND PPO learner updates (`ppo_update` -> `evaluate_actions`, grad enabled).
+
+def test_compiled_trunk_executes_during_rollout_and_learner_update() -> None:
+    """Verify `compile_model=True` invokes the compiled trunk in both rollout and learner steps."""
+    gcfg = GameV3Config(arena_radius=60.0, num_snakes=6, ambient_food_density=0.02)
+    base_kw = dict(
+        game_config=gcfg,
+        num_envs=2,
+        learner_slots=4,
+        rollout_len=4,
+        ppo_epochs=2,
+        minibatch_size=8,
+        amp=False,
+        use_channels_last=False,
+        eval_every_minutes=0.0,
+        eval_every_updates=0,
+        seed=5150,
+    )
+    tr_uncompiled = V3PPOTrainer(V3PPOConfig(**base_kw, compile_model=False), device="cpu")
     tr_compiled = V3PPOTrainer(
         V3PPOConfig(**base_kw, compile_model=True, fast_learner_ops=True),
         device="cpu",
@@ -646,7 +693,9 @@ def test_fast_learner_ops_rounding_equivalence_and_compile_execution() -> None:
     assert tr_compiled.raw_model.is_compiled is True
     orig_compiled_fn = tr_compiled.raw_model._compiled_encode_trunk
     assert orig_compiled_fn is not None and callable(orig_compiled_fn)
-    assert set(tr_compiled.raw_model.state_dict().keys()) == set(tr_fast.raw_model.state_dict())
+    assert set(tr_compiled.raw_model.state_dict().keys()) == set(
+        tr_uncompiled.raw_model.state_dict()
+    )
 
     grad_flags_seen: list[bool] = []
 
@@ -670,7 +719,9 @@ def test_fast_learner_ops_rounding_equivalence_and_compile_execution() -> None:
     assert upd_stats["grad_norm"] > 0.0
     assert learn_sec >= 0.0
 
-    # 6. `--compile` and `--no-fast-learner-ops` parse cleanly on all 3 CLIs
+
+def test_compile_and_fast_learner_flags_parse_across_all_clis() -> None:
+    """Verify `--compile` and `--no-fast-learner-ops` parse identically on ppo, ruler, & prepare."""
     ppo_args = ppo_arg_parser().parse_args(
         ["--output-dir", "/tmp/o", "--compile", "--no-fast-learner-ops"]
     )
@@ -688,3 +739,408 @@ def test_fast_learner_ops_rounding_equivalence_and_compile_execution() -> None:
     )
     assert prep_args.compile is True
     assert prep_args.fast_learner_ops is False
+
+
+def test_net_presets_registry_and_unknown_size_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify every registered preset matches built parameter count and unknown sizes fail fast."""
+    assert tuple(NET_PRESETS.keys()) == ("S", "M")
+    for name, preset in NET_PRESETS.items():
+        assert preset.name == name
+        net = build_ego_multiscale_net(preset.name)
+        actual_params = net.parameter_count()
+        assert actual_params == preset.exact_param_count
+        rel_err = abs(actual_params - preset.memory_model_param_count) / float(actual_params)
+        assert rel_err <= 0.10
+
+    for bad_size in ("L", "XL", "s", ""):
+        with pytest.raises(ValueError, match="Unknown net_size"):
+            get_net_preset(bad_size)
+        with pytest.raises(ValueError, match="Unknown net_size"):
+            EgoMultiScaleNetConfig.from_size(bad_size)  # type: ignore[arg-type]
+        with pytest.raises(ValueError, match="Unknown net_size"):
+            V3PPOConfig(net_size=bad_size)  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="Unknown net_size"):
+        _parse_nets_csv("S,L")
+
+    for mode in ("canary", "ruler", "train"):
+        with pytest.raises(ValueError, match="Unknown net_size"):
+            prepare_v3_ppo_packet(
+                tmp_path / f"pkt_{mode}",
+                mode=mode,
+                gpu="L4",
+                net_size="L",  # type: ignore[arg-type]
+                output_dir=tmp_path / f"out_{mode}",
+                allow_missing_canary_receipt=True,
+                allow_unmerged_commit=True,
+            )
+
+    with pytest.raises(ValueError, match="Unknown net_size"):
+        prepare_v3_ppo_packet(
+            tmp_path / "pkt_ruler_nets",
+            mode="ruler",
+            gpu="L4",
+            ruler_nets="S,XL",
+            output_dir=tmp_path / "out_ruler_nets",
+            allow_missing_canary_receipt=True,
+            allow_unmerged_commit=True,
+        )
+
+    # Prove adding a preset is a single-entry registry addition in `NET_PRESETS`
+    xs_preset = NetPreset(
+        name="XS",  # type: ignore[arg-type]
+        ruler_order=-1,
+        s1_c1=8,
+        s1_c2=16,
+        s32_c1=8,
+        stage8_ch=24,
+        stem_out_ch=32,
+        scalar_embed_dim=16,
+        trunk_dim=64,
+        trunk_blocks=1,
+        head_dim=32,
+        exact_param_count=0,
+        memory_model_param_count=150_000,
+        learner_act_bytes_per_row_bf16=256_000,
+        actor_fwd_act_bytes_per_row_bf16=64_000,
+        default_minibatch_size=2048,
+        default_actor_chunk_learners=4096,
+        est_light_checkpoint_bytes=4 * 1024 * 1024,
+    )
+    monkeypatch.setitem(NET_PRESETS, "XS", xs_preset)
+    xs_net = build_ego_multiscale_net("XS")  # type: ignore[arg-type]
+    xs_cfg = V3PPOConfig(net_size="XS", num_envs=8, rollout_len=4)  # type: ignore[arg-type]
+    assert xs_cfg.resolved_minibatch_size == 2048
+    assert estimate_training_memory(xs_cfg)["estimated_peak_bytes"] > 0
+    assert xs_net.parameter_count() > 0
+
+
+def test_obs_layout_single_sourced_trainer_agreement_and_checkpoint_field(
+    tmp_path: Path,
+) -> None:
+    """Verify raster sizes derive from GameV3Config, assert at trainer init, and save in ckpts."""
+    custom_game = GameV3Config(
+        arena_radius=120.0,
+        num_snakes=6,
+        obs_fine_size=32,
+        obs_coarse_size=16,
+    )
+    custom_layout = obs_layout_from_game_config(custom_game)
+    assert custom_layout.raster_sizes == (32, 16, 16)
+    assert custom_layout.raster_bytes_per_step == 13 * (32 * 32 + 16 * 16 + 16 * 16)
+
+    sim = GameV3Sim(custom_game, num_envs=2, device="cpu", seeds=[11, 22])
+    mask = torch.ones((2, 6), dtype=torch.bool)
+    idx = LearnerIndex(sim, mask)
+    buf = Uint8RolloutBuffer(
+        rollout_len=3,
+        learner_index=idx,
+        sim_shape=(2, 6),
+        device=torch.device("cpu"),
+        obs_layout=custom_layout,
+    )
+    assert buf.raster_s1.shape == (3, 12, 13, 32, 32)
+    assert buf.raster_s4.shape == (3, 12, 13, 16, 16)
+    assert buf.nbytes_total() == (
+        estimate_rollout_buffer_bytes(
+            num_envs=2,
+            learner_slots=6,
+            rollout_len=3,
+            game_cfg=custom_game,
+        )["rollout_buffer_bytes"]
+    )
+
+    bad_cfg = V3PPOConfig(game_config=custom_game, num_envs=2, rollout_len=2, minibatch_size=8)
+    with pytest.raises(ValueError, match="Observation raster sizes"):
+        V3PPOTrainer(bad_cfg, device="cpu")
+
+    ok_game = GameV3Config(arena_radius=120.0, num_snakes=6, max_length=64)
+    ok_cfg = V3PPOConfig(
+        game_config=ok_game,
+        num_envs=2,
+        learner_slots=2,
+        rollout_len=2,
+        minibatch_size=4,
+        ppo_epochs=1,
+        amp=False,
+        use_channels_last=False,
+    )
+    trainer = V3PPOTrainer(ok_cfg, device="cpu")
+    assert trainer.obs_layout == DEFAULT_OBS_LAYOUT
+    ckpt_dir = tmp_path / "ckpts"
+    ckpt_dir.mkdir()
+    full_idx = trainer.save_full_checkpoint(ckpt_dir, tag="u0000000")
+    light_path = ckpt_dir / "light_u0000000.pt"
+
+    light_meta = verify_light_checkpoint(light_path)
+    full_meta = verify_full_checkpoint_set(full_idx)
+    assert light_meta["obs_layout"] == DEFAULT_OBS_LAYOUT.to_dict()
+    assert full_meta["obs_layout"] == DEFAULT_OBS_LAYOUT.to_dict()
+
+    # Checkpoints lacking `obs_layout` (legacy e2865f93 schema) still verify and load cleanly.
+    legacy_payload = torch.load(light_path, map_location="cpu", weights_only=False)
+    assert "obs_layout" in legacy_payload
+    del legacy_payload["obs_layout"]
+    legacy_light = tmp_path / "legacy_light.pt"
+    write_create_only_artifact(legacy_light, lambda tmp: torch.save(legacy_payload, tmp))
+    assert verify_light_checkpoint(legacy_light)["obs_layout"] is None
+    restored = V3PPOTrainer(ok_cfg, device="cpu")
+    restored.load_checkpoint(legacy_light)
+
+    # Tampered `obs_layout` is rejected cleanly.
+    bad_payload = dict(legacy_payload)
+    bad_payload["obs_layout"] = {**DEFAULT_OBS_LAYOUT.to_dict(), "fine_size": 32}
+    bad_light = tmp_path / "bad_light.pt"
+    write_create_only_artifact(bad_light, lambda tmp: torch.save(bad_payload, tmp))
+    with pytest.raises(ValueError, match="obs_layout"):
+        verify_light_checkpoint(bad_light)
+
+    bad_idx_obj = json.loads(full_idx.read_text(encoding="utf-8"))
+    bad_idx_obj["obs_layout"] = {**DEFAULT_OBS_LAYOUT.to_dict(), "mid_size": 16}
+    bad_idx = ckpt_dir / "full_bad.index.json"
+    write_create_only_json(bad_idx, bad_idx_obj)
+    with pytest.raises(ValueError, match="obs_layout"):
+        verify_full_checkpoint_set(bad_idx)
+
+
+def test_train_and_ruler_cli_config_json_and_env_precedence() -> None:
+    """Verify CLI > --config-json > env > defaults precedence across ppo and ruler entrypoints."""
+    parser = ppo_arg_parser()
+
+    # 1. Pure defaults when neither CLI overrides, --config-json, nor env vars are given
+    eff_default = resolve_effective_train_config(
+        parser.parse_args(["--output-dir", "/tmp/out"]),
+        environ={},
+    )
+    assert eff_default.cfg == V3PPOConfig()
+    assert eff_default.device == "cpu"
+    assert eff_default.max_wall_seconds is None
+    assert eff_default.max_session_export_bytes is None
+
+    # 2. Full 4-layer precedence: CLI flag > --config-json > env > defaults
+    env_vars = {
+        "SNAKE_DQN_DEVICE": "cuda:0",
+        "V3_PPO_CONFIG_JSON": json.dumps(
+            {"num_envs": 32, "lr": 1.0e-4, "rollout_len": 16, "amp": True}
+        ),
+        "V3_PPO_AMP": "0",
+        "V3_PPO_COMPILE": "1",
+        "V3_PPO_MAX_WALL_SECONDS": "1200",
+        "V3_PPO_MAX_SESSION_EXPORT_BYTES": "999999",
+    }
+    cli_json = json.dumps({"lr": 2.0e-4, "ppo_epochs": 4, "compile_model": False})
+    parsed = parser.parse_args(
+        [
+            "--output-dir",
+            "/tmp/out",
+            "--config-json",
+            cli_json,
+            "--ppo-epochs",
+            "6",
+            "--total-updates",
+            "42",
+            "--compile",
+            "--net-size",
+            "M",
+        ]
+    )
+    eff = resolve_effective_train_config(parsed, environ=env_vars)
+    assert eff.cfg.num_envs == 32  # from env V3_PPO_CONFIG_JSON
+    assert eff.cfg.rollout_len == 16  # from env V3_PPO_CONFIG_JSON
+    assert eff.cfg.amp is False  # env V3_PPO_AMP=0 overrode env JSON amp=True
+    assert eff.cfg.lr == pytest.approx(2.0e-4)  # --config-json overrode env JSON lr=1e-4
+    assert eff.cfg.ppo_epochs == 6  # CLI --ppo-epochs=6 overrode --config-json ppo_epochs=4
+    assert eff.cfg.total_updates == 42  # CLI --total-updates=42 overrode default 100
+    assert eff.cfg.compile_model is True  # CLI --compile overrode --config-json compile_model=False
+    assert eff.cfg.net_size == "M"  # CLI --net-size=M overrode default S
+    assert eff.cfg.resolved_minibatch_size == NET_PRESETS["M"].default_minibatch_size
+    assert eff.device == "cuda:0"
+    assert eff.max_wall_seconds == pytest.approx(1200.0)
+    assert eff.max_session_export_bytes == 999999
+
+    # 3. Unknown JSON keys and invalid boolean env vars fail loudly
+    with pytest.raises(ValueError, match="Unknown keys in --config-json"):
+        resolve_effective_train_config(
+            parser.parse_args(["--output-dir", "/tmp/o", "--config-json", '{"bogus_key": 1}']),
+            environ={},
+        )
+    with pytest.raises(ValueError, match="Invalid boolean environment variable V3_PPO_AMP"):
+        resolve_effective_train_config(
+            parser.parse_args(["--output-dir", "/tmp/o"]),
+            environ={"V3_PPO_AMP": "maybe"},
+        )
+
+    # 4. Ruler CLI > env > defaults
+    r_eff = resolve_effective_ruler_config(
+        ruler_arg_parser().parse_args(["--output-dir", "/tmp/r", "--envs", "64,128", "--no-amp"]),
+        environ={
+            "V3_PPO_RULER_ENVS": "256",
+            "V3_PPO_AMP": "1",
+            "V3_PPO_RULER_NETS": "M",
+            "SNAKE_DQN_DEVICE": "cpu",
+        },
+    )
+    assert r_eff["envs_list"] == [64, 128]
+    assert r_eff["amp"] is False
+    assert r_eff["net_sizes"] == ["M"]
+    assert r_eff["device"] == "cpu"
+
+
+def test_resume_config_diff_allows_mutable_keys_and_rejects_immutable_changes() -> None:
+    """Single-sourced resume diff permits runtime/schedule keys and rejects arch/MDP changes."""
+    base = V3PPOConfig()
+    mutated = V3PPOConfig(
+        total_updates=500,
+        eval_every_minutes=15.0,
+        compile_model=True,
+        fast_learner_ops=False,
+    )
+    assert set(["total_updates", "eval_every_minutes", "compile_model", "fast_learner_ops"]) <= (
+        RESUME_MUTABLE_CONFIG_KEYS
+    )
+    assert immutable_config_diff(base, mutated) == {}
+    assert_resume_config_compatible(base, mutated)
+
+    incompat = V3PPOConfig(num_envs=64, lr=1.0e-3)
+    diffs = immutable_config_diff(base, incompat)
+    assert set(diffs.keys()) == {"lr", "num_envs"}
+    with pytest.raises(ValueError, match="Continuation checkpoint config mismatch on 'lr'"):
+        assert_resume_config_compatible(
+            base,
+            incompat,
+            context="Continuation checkpoint config mismatch",
+            reference_label="ckpt",
+            candidate_label="requested",
+        )
+
+
+def test_pure_checkpoint_and_eval_schedulers() -> None:
+    """Verify pure checkpoint and evaluation scheduling functions across edge cases."""
+    # 1. Idle step: nothing due
+    idle = decide_checkpoint_actions(
+        updates_completed=5,
+        checkpoint_every_updates=0,
+        full_checkpoint_every_updates=0,
+        light_checkpoint_interval_sec=1800.0,
+        full_checkpoint_interval_sec=7200.0,
+        now_mono=1100.0,
+        last_light_work_mono=1000.0,
+        last_light_export_mono=1000.0,
+        last_full_work_mono=1000.0,
+        published_periodic_fulls=0,
+        max_periodic_full_exports=3,
+    )
+    assert not idle.save_work_light
+    assert not idle.save_work_full
+    assert not idle.want_periodic_full_export
+    assert not idle.want_periodic_light_export
+
+    # 2. Capped periodic FULL: saves FULL in work/, blocks FULL export, preserves LIGHT interval
+    capped_full = decide_checkpoint_actions(
+        updates_completed=16,
+        checkpoint_every_updates=0,
+        full_checkpoint_every_updates=0,
+        light_checkpoint_interval_sec=30.0,
+        full_checkpoint_interval_sec=75.0,
+        now_mono=1160.0,
+        last_light_work_mono=1140.0,
+        last_light_export_mono=1140.0,
+        last_full_work_mono=1080.0,
+        published_periodic_fulls=1,
+        max_periodic_full_exports=1,
+    )
+    assert capped_full.save_work_light is True
+    assert capped_full.save_work_full is True
+    assert capped_full.want_periodic_full_export is False
+    assert capped_full.want_periodic_light_export is False
+
+    # Next step (`now_mono=1170.0`): `last_light_work_mono` advanced to 1160, but
+    # `last_light_export_mono` stayed 1140 -> LIGHT export triggers right on time (+30s)!
+    next_light = decide_checkpoint_actions(
+        updates_completed=17,
+        checkpoint_every_updates=0,
+        full_checkpoint_every_updates=0,
+        light_checkpoint_interval_sec=30.0,
+        full_checkpoint_interval_sec=75.0,
+        now_mono=1170.0,
+        last_light_work_mono=1160.0,
+        last_light_export_mono=1140.0,
+        last_full_work_mono=1160.0,
+        published_periodic_fulls=1,
+        max_periodic_full_exports=1,
+    )
+    assert next_light.due_light_work_time is False
+    assert next_light.due_light_export_time is True
+    assert next_light.save_work_light is True
+    assert next_light.want_periodic_light_export is True
+
+    # 3. Export byte-budget reserve calculation
+    ok_b, proj_b = check_periodic_export_budget(
+        current_exported_bytes=200,
+        new_files_bytes=100,
+        max_session_export_bytes=500,
+        last_measured_full_bytes=150,
+        est_light_bytes=50,
+        num_envs=4,
+    )
+    assert ok_b is True and proj_b == 450
+    no_b, proj_over = check_periodic_export_budget(
+        current_exported_bytes=260,
+        new_files_bytes=100,
+        max_session_export_bytes=500,
+        last_measured_full_bytes=150,
+        est_light_bytes=50,
+        num_envs=4,
+    )
+    assert no_b is False and proj_over == 510
+
+    # 4. Evaluation scheduling: update/minute triggers and 2x wall-clock budget guard
+    ev_run = decide_eval_action(
+        updates_completed=10,
+        total_updates=100,
+        eval_every_updates=5,
+        eval_every_minutes=0.0,
+        now_mono=1050.0,
+        last_eval_mono=1000.0,
+        wall_t0=1000.0,
+        max_wall_seconds=300.0,
+        checkpoint_reserve_seconds=20.0,
+        eval_estimated_seconds=45.0,
+        last_eval_wall_seconds=None,
+    )
+    assert ev_run.due_by_updates is True
+    assert ev_run.should_run is True
+    assert ev_run.should_skip_for_wall is False
+    assert ev_run.required_wall_seconds == pytest.approx(90.0)
+    assert ev_run.remaining_wall_seconds == pytest.approx(230.0)
+
+    ev_skip = decide_eval_action(
+        updates_completed=11,
+        total_updates=100,
+        eval_every_updates=0,
+        eval_every_minutes=2.0,
+        now_mono=1250.0,
+        last_eval_mono=1100.0,
+        wall_t0=1000.0,
+        max_wall_seconds=300.0,
+        checkpoint_reserve_seconds=20.0,
+        eval_estimated_seconds=45.0,
+        last_eval_wall_seconds=20.0,
+    )
+    # Measured `last_eval_wall_seconds=20.0` -> requires 40.0s, only 30.0s remain!
+    assert ev_skip.due_by_minutes is True
+    assert ev_skip.should_run is False
+    assert ev_skip.should_skip_for_wall is True
+    assert ev_skip.required_wall_seconds == pytest.approx(40.0)
+    assert ev_skip.remaining_wall_seconds == pytest.approx(30.0)
+
+    can_unl, rem_unl, req_unl = check_eval_wall_budget(
+        elapsed_wall_seconds=9999.0,
+        max_wall_seconds=None,
+        checkpoint_reserve_seconds=0.0,
+        eval_estimated_seconds=30.0,
+        last_eval_wall_seconds=None,
+    )
+    assert can_unl is True and rem_unl == float("inf") and req_unl == pytest.approx(60.0)
