@@ -9,7 +9,6 @@ segments and post-move points every tick, rather than incremental sequence grids
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 
 import numpy as np
@@ -17,17 +16,28 @@ import numpy as np
 from research.game_v3.config import (
     BOOST_ACCUM_ONE,
     BOOST_ACCUM_SHIFT,
+    CORPSE_GRID_MAX,
     FALLBACK_RING_SIZE,
+    FALLBACK_SNAKE_STRIDE,
+    FALLBACK_TICK_STRIDE,
     FP_HALF,
     FP_SHIFT,
+    INIT_FOOD_BATCH_SIZE,
+    INIT_SNAKE_CANDIDATES,
     NUM_ACTIONS,
     NUM_TURN_LEVELS,
     TRIG_HALF,
     TRIG_SHIFT,
     GameV3Config,
+    build_clear_offsets_np,
+    build_disc_offsets_np,
+    build_eat_offsets_np,
     build_fallback_spawns_np,
     build_length_tables_np,
     build_trig_tables_np,
+    food_wall_sq_fp,
+    init_food_num_batches,
+    spawn_wall_sq_fp,
 )
 from research.game_v3.rng import (
     PURPOSE_AMBIENT_FOOD,
@@ -38,8 +48,6 @@ from research.game_v3.rng import (
     rng_angle_idx_np,
     rng_int_np,
 )
-
-_CORPSE_GRID_MAX: int = 32767
 
 
 @dataclass
@@ -82,51 +90,13 @@ class ReferenceWorld:
         self.tables = build_length_tables_np(self.cfg)
         self.fallback_spawns = build_fallback_spawns_np(self.cfg)
 
-        c = self.cfg.cell_size
-        max_r = int(math.floor(self.cfg.max_body_radius / c + 1e-12))
-        offsets: list[tuple[int, int, int]] = []
-        for dy in range(-max_r, max_r + 1):
-            for dx in range(-max_r, max_r + 1):
-                d2 = dx * dx + dy * dy
-                if d2 <= max_r * max_r:
-                    offsets.append((d2, dy, dx))
-        offsets.sort()
-        self._disc_d2 = np.array([o[0] for o in offsets], dtype=np.int32)
-        self._disc_dy = np.array([o[1] for o in offsets], dtype=np.int32)
-        self._disc_dx = np.array([o[2] for o in offsets], dtype=np.int32)
-
-        max_eat_r = int(math.ceil((self.cfg.food_pickup_mult * self.cfg.max_body_radius) / c)) + 1
-        eat_pts = [
-            (dx * dx + dy * dy, dy, dx)
-            for dy in range(-max_eat_r, max_eat_r + 1)
-            for dx in range(-max_eat_r, max_eat_r + 1)
-            if dx * dx + dy * dy <= max_eat_r * max_eat_r
-        ]
-        eat_pts.sort()
-        self._eat_dy = np.array([p[1] for p in eat_pts], dtype=np.int32)
-        self._eat_dx = np.array([p[2] for p in eat_pts], dtype=np.int32)
-
-        self._r_clear = max(
-            int(math.ceil(self.cfg.body_radius_f64(self.cfg.start_length) / c)) + 2,
-            self.cfg.respawn_clearance_cells,
-        )
-        clear_pts = [
-            (dx, dy)
-            for dy in range(-self._r_clear, self._r_clear + 1)
-            for dx in range(-self._r_clear, self._r_clear + 1)
-            if dx * dx + dy * dy <= self._r_clear * self._r_clear
-        ]
-        self._clear_dx = np.array([p[0] for p in clear_pts], dtype=np.int32)
-        self._clear_dy = np.array([p[1] for p in clear_pts], dtype=np.int32)
+        _, self._disc_d2, self._disc_dy, self._disc_dx = build_disc_offsets_np(self.cfg)
+        _, self._eat_dy, self._eat_dx = build_eat_offsets_np(self.cfg)
+        self._r_clear, self._clear_dx, self._clear_dy = build_clear_offsets_np(self.cfg)
 
         start_r_fp = int(self.tables["radius_fp"][self.cfg.start_length])
-        spawn_margin_fp = int(round((self.cfg.spawn_wall_margin / c) * (1 << FP_SHIFT)))
-        spawn_lim_fp = max(1 << FP_SHIFT, self.cfg.arena_radius_fp - start_r_fp - spawn_margin_fp)
-        self._spawn_wall_sq_fp = int(spawn_lim_fp) * int(spawn_lim_fp)
-
-        food_margin_fp = int(round((self.cfg.food_wall_margin / c) * (1 << FP_SHIFT)))
-        food_lim_fp = max(1 << FP_SHIFT, self.cfg.arena_radius_fp - food_margin_fp)
-        self._food_wall_sq_fp = int(food_lim_fp) * int(food_lim_fp)
+        self._spawn_wall_sq_fp = spawn_wall_sq_fp(self.cfg, start_r_fp)
+        self._food_wall_sq_fp = food_wall_sq_fp(self.cfg)
 
         # Mutable fixed-point single-world state arrays.
         max_len = self.cfg.max_length
@@ -277,7 +247,7 @@ class ReferenceWorld:
         self.life_age.fill(0)
         self.truncated_pending.fill(False)
 
-        k_init = 32
+        k_init = INIT_SNAKE_CANDIDATES
         min_sep_sq = (2 * self._r_clear) * (2 * self._r_clear)
         placed_cells: list[tuple[int, int]] = []
         init_r_sq = int(self.tables["r_sq_cells"][self.cfg.start_length])
@@ -289,9 +259,9 @@ class ReferenceWorld:
             rng_th = rng_angle_idx_np(
                 self.seed, 0, PURPOSE_INIT_SNAKE, slots * 3 + 2, self.cfg.angle_steps
             )
-            fb_idxs = (i * 7 + np.arange(FALLBACK_RING_SIZE, dtype=np.int32)) & (
-                FALLBACK_RING_SIZE - 1
-            )
+            fb_idxs = (
+                i * FALLBACK_SNAKE_STRIDE + np.arange(FALLBACK_RING_SIZE, dtype=np.int32)
+            ) & (FALLBACK_RING_SIZE - 1)
             cand_gx = np.concatenate((rng_gx, self.fallback_spawns[fb_idxs, 0]))
             cand_gy = np.concatenate((rng_gy, self.fallback_spawns[fb_idxs, 1]))
             cand_th = np.concatenate((rng_th, self.fallback_spawns[fb_idxs, 2]))
@@ -336,10 +306,11 @@ class ReferenceWorld:
         self.prev_theta[:] = self.theta
         self.prev_length[:] = self.length
 
-        init_batch = 128
-        num_batches = max(1, int(math.ceil(self.cfg.target_ambient_pellets * 2.0 / init_batch)) + 2)
+        num_batches = init_food_num_batches(self.cfg)
         for b in range(num_batches):
-            self._spawn_ambient_batch(PURPOSE_INIT_FOOD, 0, b * init_batch, init_batch)
+            self._spawn_ambient_batch(
+                PURPOSE_INIT_FOOD, 0, b * INIT_FOOD_BATCH_SIZE, INIT_FOOD_BATCH_SIZE
+            )
 
     def step(
         self, actions: np.ndarray, *, truncate: bool | np.ndarray = False
@@ -589,7 +560,7 @@ class ReferenceWorld:
                 tx = min(max(int(old_tail_cells[i, 0]), 0), self.G - 1)
                 ty = min(max(int(old_tail_cells[i, 1]), 0), self.G - 1)
                 self.corpse_grid[ty, tx] = np.int16(
-                    min(_CORPSE_GRID_MAX, int(self.corpse_grid[ty, tx]) + int(boost_drop_int[i]))
+                    min(CORPSE_GRID_MAX, int(self.corpse_grid[ty, tx]) + int(boost_drop_int[i]))
                 )
 
         # Drop corpses AFTER deaths and eating (saturated to int16 max).
@@ -614,7 +585,7 @@ class ReferenceWorld:
                 cy = min(max(int(self.ring_cell[i, r_idx, 1]), 0), self.G - 1)
                 orb_add = base_val + (1 if k < rem_val else 0)
                 self.corpse_grid[cy, cx] = np.int16(
-                    min(_CORPSE_GRID_MAX, int(self.corpse_grid[cy, cx]) + orb_add)
+                    min(CORPSE_GRID_MAX, int(self.corpse_grid[cy, cx]) + orb_add)
                 )
 
         self._spawn_ambient_batch(
@@ -649,9 +620,11 @@ class ReferenceWorld:
             rth = rng_angle_idx_np(
                 self.seed, self.tick, PURPOSE_RESPAWN, slots * 3 + 2, self.cfg.angle_steps
             )
-            fb_idxs = (i * 7 + self.tick * 13 + np.arange(f_resp, dtype=np.int32) * fb_step) & (
-                FALLBACK_RING_SIZE - 1
-            )
+            fb_idxs = (
+                i * FALLBACK_SNAKE_STRIDE
+                + self.tick * FALLBACK_TICK_STRIDE
+                + np.arange(f_resp, dtype=np.int32) * fb_step
+            ) & (FALLBACK_RING_SIZE - 1)
             all_gx = np.concatenate((rgx, self.fallback_spawns[fb_idxs, 0]))
             all_gy = np.concatenate((rgy, self.fallback_spawns[fb_idxs, 1]))
             all_th = np.concatenate((rth, self.fallback_spawns[fb_idxs, 2]))

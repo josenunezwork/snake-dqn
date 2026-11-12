@@ -39,13 +39,16 @@ import numpy as np
 import torch
 
 from research.game_v3.config import (
+    FOOD_LUT_MAX,
     FP_ONE,
     FP_SHIFT,
+    INV_FP_ONE_F32,
     NUM_ACTIONS,
     NUM_TURN_LEVELS,
     TRIG_ONE,
     TRIG_SHIFT,
     GameV3Config,
+    build_food_luts_np,
     decode_occ_owner_hi,
     decode_occ_owner_lo,
     occ_entry_active,
@@ -83,19 +86,13 @@ SCALAR_BOUNDARY_DY: int = 7
 NUM_RASTER_CHANNELS: int = 13
 NUM_SCALAR_FEATURES: int = 8
 OBS_LEARNER_CHUNK: int = 1536
-_FOOD_LUT_MAX: int = 2048
-_INV_1024_F32: float = float(np.float32(1.0 / 1024.0))
 
 
 def _build_obs_luts_np(
     sin_table: np.ndarray, cos_table: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Build exact uint8 lookup tables for food density and relative head orientation."""
-    amb_lut = np.empty(_FOOD_LUT_MAX + 1, dtype=np.uint8)
-    cor_lut = np.empty(_FOOD_LUT_MAX + 1, dtype=np.uint8)
-    for m in range(_FOOD_LUT_MAX + 1):
-        amb_lut[m] = min(255, int(round(255.0 * m / (1.0 + m))))
-        cor_lut[m] = min(255, int(round(255.0 * m / (4.0 + m))))
+    amb_lut, cor_lut = build_food_luts_np()
 
     # Relative angle idx = (obs_theta - enemy_theta) & (angle_steps - 1):
     # ego_dx = sin(obs_theta - enemy_theta), ego_dy = cos(obs_theta - enemy_theta).
@@ -562,13 +559,13 @@ def _fill_scale_raster_learners_torch(
                 amb_1x_sub.index_select(0, g_idx)
                 .to(torch.int64)
                 .view(mc, sz, sz)
-                .clamp(0, _FOOD_LUT_MAX)
+                .clamp(0, FOOD_LUT_MAX)
             )
             cor_m = (
                 cor_1x_sub.index_select(0, g_idx)
                 .to(torch.int64)
                 .view(mc, sz, sz)
-                .clamp(0, _FOOD_LUT_MAX)
+                .clamp(0, FOOD_LUT_MAX)
             )
             del g_idx
         elif scale_idx == 1:
@@ -594,8 +591,8 @@ def _fill_scale_raster_learners_torch(
 
             amb_4x_sub = sim.ambient_grid_4x[e0:e1].view(-1)
             cor_4x_sub = sim.corpse_grid_4x[e0:e1].view(-1)
-            amb_m = amb_4x_sub.index_select(0, g_idx4).view(mc, sz, sz).clamp(0, _FOOD_LUT_MAX)
-            cor_m = cor_4x_sub.index_select(0, g_idx4).view(mc, sz, sz).clamp(0, _FOOD_LUT_MAX)
+            amb_m = amb_4x_sub.index_select(0, g_idx4).view(mc, sz, sz).clamp(0, FOOD_LUT_MAX)
+            cor_m = cor_4x_sub.index_select(0, g_idx4).view(mc, sz, sz).clamp(0, FOOD_LUT_MAX)
             del g_idx4
         else:
             gx16 = (gx >> 4).clamp(0, sim.G16 - 1).to(torch.int64)
@@ -622,8 +619,8 @@ def _fill_scale_raster_learners_torch(
 
             amb_16x_sub = sim.ambient_grid_16x[e0:e1].view(-1)
             cor_16x_sub = sim.corpse_grid_16x[e0:e1].view(-1)
-            amb_m = amb_16x_sub.index_select(0, g_idx16).view(mc, sz, sz).clamp(0, _FOOD_LUT_MAX)
-            cor_m = cor_16x_sub.index_select(0, g_idx16).view(mc, sz, sz).clamp(0, _FOOD_LUT_MAX)
+            amb_m = amb_16x_sub.index_select(0, g_idx16).view(mc, sz, sz).clamp(0, FOOD_LUT_MAX)
+            cor_m = cor_16x_sub.index_select(0, g_idx16).view(mc, sz, sz).clamp(0, FOOD_LUT_MAX)
             del g_idx16
 
         ch_amb = torch.where(in_grid, cache.amb_lut[amb_m.to(torch.int64)], z_u8)
@@ -827,10 +824,10 @@ def build_obs(
     sc_flat[:, SCALAR_OWN_BOOST] = (l_alive & l_boost).to(torch.float32)
     sc_flat[:, SCALAR_TURN_RATE] = sim._turn_norm_f32_table[l_len_i64] * alive_f
     sc_flat[:, SCALAR_BOUNDARY_DIST] = (
-        torch.where(l_alive, wall_dist_q10, z_i64).to(torch.float32) * _INV_1024_F32
+        torch.where(l_alive, wall_dist_q10, z_i64).to(torch.float32) * INV_FP_ONE_F32
     )
-    sc_flat[:, SCALAR_BOUNDARY_DX] = dx_q10.to(torch.float32) * _INV_1024_F32
-    sc_flat[:, SCALAR_BOUNDARY_DY] = dy_q10.to(torch.float32) * _INV_1024_F32
+    sc_flat[:, SCALAR_BOUNDARY_DX] = dx_q10.to(torch.float32) * INV_FP_ONE_F32
+    sc_flat[:, SCALAR_BOUNDARY_DY] = dy_q10.to(torch.float32) * INV_FP_ONE_F32
 
     am_flat[:, :NUM_TURN_LEVELS] = True
     am_flat[:, NUM_TURN_LEVELS:] = boost_ok[:, None]
@@ -1008,20 +1005,20 @@ def build_obs_reference(
                 gx_c = np.clip(gx, 0, g_sz - 1)
                 gy_c = np.clip(gy, 0, g_sz - 1)
                 m_grid = ref.occ_mask[gy_c, gx_c]
-                af = np.clip(amb_i32[gy_c, gx_c], 0, _FOOD_LUT_MAX)
-                cf = np.clip(cor_i32[gy_c, gx_c], 0, _FOOD_LUT_MAX)
+                af = np.clip(amb_i32[gy_c, gx_c], 0, FOOD_LUT_MAX)
+                cf = np.clip(cor_i32[gy_c, gx_c], 0, FOOD_LUT_MAX)
             elif scale_idx == 1:
                 gx4 = np.clip(gx >> 2, 0, (g_sz // 4) - 1)
                 gy4 = np.clip(gy >> 2, 0, (g_sz // 4) - 1)
                 m_grid = occ_4x[gy4, gx4]
-                af = np.clip(amb_4x[gy4, gx4], 0, _FOOD_LUT_MAX)
-                cf = np.clip(cor_4x[gy4, gx4], 0, _FOOD_LUT_MAX)
+                af = np.clip(amb_4x[gy4, gx4], 0, FOOD_LUT_MAX)
+                cf = np.clip(cor_4x[gy4, gx4], 0, FOOD_LUT_MAX)
             else:
                 gx16 = np.clip(gx >> 4, 0, (g_sz // 16) - 1)
                 gy16 = np.clip(gy >> 4, 0, (g_sz // 16) - 1)
                 m_grid = occ_16x[gy16, gx16]
-                af = np.clip(amb_16x[gy16, gx16], 0, _FOOD_LUT_MAX)
-                cf = np.clip(cor_16x[gy16, gx16], 0, _FOOD_LUT_MAX)
+                af = np.clip(amb_16x[gy16, gx16], 0, FOOD_LUT_MAX)
+                cf = np.clip(cor_16x[gy16, gx16], 0, FOOD_LUT_MAX)
 
             ras[out_row, CH_OWN_BODY] = np.where(
                 in_g & ((m_grid & self_bit) != 0), np.uint8(255), np.uint8(0)
@@ -1077,7 +1074,7 @@ def build_obs_reference(
     action_mask[:, :NUM_TURN_LEVELS] = True
 
     arena_r_fp = int(cfg.arena_radius_fp)
-    inv_1024 = np.float32(_INV_1024_F32)
+    inv_1024 = np.float32(INV_FP_ONE_F32)
 
     for out_row, i in enumerate(learner_slots):
         li = min(max(int(ref.length[i]), 0), max_len)

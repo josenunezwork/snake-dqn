@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -14,9 +13,15 @@ import torch
 from research.game_v3.config import (
     BOOST_ACCUM_ONE,
     BOOST_ACCUM_SHIFT,
+    CORPSE_GRID_MAX,
     FALLBACK_RING_SIZE,
+    FALLBACK_SNAKE_STRIDE,
+    FALLBACK_TICK_STRIDE,
+    FOOD_PICKUP_CLAMP_FP,
     FP_HALF,
     FP_SHIFT,
+    INIT_FOOD_BATCH_SIZE,
+    INIT_SNAKE_CANDIDATES,
     MAX_OCC_SUBTICK,
     MAX_SNAKES,
     NUM_ACTIONS,
@@ -27,14 +32,20 @@ from research.game_v3.config import (
     TRIG_HALF,
     TRIG_SHIFT,
     GameV3Config,
+    build_clear_offsets_np,
+    build_disc_offsets_np,
+    build_eat_offsets_np,
     build_fallback_spawns_np,
     build_length_tables_np,
     build_trig_tables_np,
     decode_occ_owner_hi,
     decode_occ_owner_lo,
+    food_wall_sq_fp,
+    init_food_num_batches,
     occ_entry_active,
     pack_occ_hi,
     pack_occ_lo,
+    spawn_wall_sq_fp,
 )
 from research.game_v3.rng import (
     PURPOSE_AMBIENT_FOOD,
@@ -46,12 +57,9 @@ from research.game_v3.rng import (
     rng_int_torch,
 )
 
-_INIT_SNAKE_CANDIDATES: int = 32
-_INIT_FOOD_BATCH_SIZE: int = 128
 _REBASE_ENV_CHUNK: int = 8
 
 AUTO_REBASE_SUBTICK_THRESHOLD: int = 1 << (OCC_SUBTICK_BITS - 1)  # 16,777,216
-CORPSE_GRID_MAX: int = 32767
 
 
 @dataclass
@@ -231,23 +239,12 @@ def step_delta_fp_torch(dist_fp: torch.Tensor, trig_q14: torch.Tensor) -> torch.
 
 def _build_static_tables(cfg: GameV3Config, device: torch.device) -> dict[str, Any]:
     """Precompute shared integer trig, length, disc-overlap, pickup, and spawn tables."""
-    c = cfg.cell_size
     sin_np, cos_np = build_trig_tables_np(cfg.angle_steps)
     lt_np = build_length_tables_np(cfg)
     fb_np = build_fallback_spawns_np(cfg)
 
     r_sq_np = lt_np["r_sq_cells"]
-    max_r_cells = int(math.floor(cfg.max_body_radius / c + 1e-12))
-    offsets: list[tuple[int, int, int]] = []
-    for dy in range(-max_r_cells, max_r_cells + 1):
-        for dx in range(-max_r_cells, max_r_cells + 1):
-            d2 = dx * dx + dy * dy
-            if d2 <= max_r_cells * max_r_cells:
-                offsets.append((d2, dy, dx))
-    offsets.sort()
-    disc_dist_sq_np = np.array([o[0] for o in offsets], dtype=np.int32)
-    disc_dy_np = np.array([o[1] for o in offsets], dtype=np.int32)
-    disc_dx_np = np.array([o[2] for o in offsets], dtype=np.int32)
+    max_r_cells, disc_dist_sq_np, disc_dy_np, disc_dx_np = build_disc_offsets_np(cfg)
 
     # Compact radius-tier LUT for exact cell-disc intersection between post-move points.
     unique_r_sq = sorted({int(x) for x in r_sq_np.tolist()})
@@ -314,38 +311,12 @@ def _build_static_tables(cfg: GameV3Config, device: torch.device) -> dict[str, A
                     k16 = d16_idx_map[((ry + dy) >> 4, (rx + dx) >> 4)]
                     disc_16x_mask_np[ti, ry, rx, k16] = True
 
-    # Candidate cell stencil for exact integer squared-distance food pickup.
-    max_eat_r_cells = int(math.ceil((cfg.food_pickup_mult * cfg.max_body_radius) / c)) + 1
-    eat_offsets: list[tuple[int, int, int]] = []
-    for dy in range(-max_eat_r_cells, max_eat_r_cells + 1):
-        for dx in range(-max_eat_r_cells, max_eat_r_cells + 1):
-            d2 = dx * dx + dy * dy
-            if d2 <= max_eat_r_cells * max_eat_r_cells:
-                eat_offsets.append((d2, dy, dx))
-    eat_offsets.sort()
-    eat_dy_np = np.array([o[1] for o in eat_offsets], dtype=np.int32)
-    eat_dx_np = np.array([o[2] for o in eat_offsets], dtype=np.int32)
-
-    r_clear = max(
-        int(math.ceil(cfg.body_radius_f64(cfg.start_length) / c)) + 2,
-        cfg.respawn_clearance_cells,
-    )
-    clear_offsets: list[tuple[int, int]] = []
-    for dy in range(-r_clear, r_clear + 1):
-        for dx in range(-r_clear, r_clear + 1):
-            if dx * dx + dy * dy <= r_clear * r_clear:
-                clear_offsets.append((dx, dy))
-    clear_dx_np = np.array([o[0] for o in clear_offsets], dtype=np.int32)
-    clear_dy_np = np.array([o[1] for o in clear_offsets], dtype=np.int32)
+    max_eat_r_cells, eat_dy_np, eat_dx_np = build_eat_offsets_np(cfg)
+    r_clear, clear_dx_np, clear_dy_np = build_clear_offsets_np(cfg)
 
     start_r_fp = int(lt_np["radius_fp"][cfg.start_length])
-    spawn_margin_fp = int(round((cfg.spawn_wall_margin / c) * (1 << FP_SHIFT)))
-    spawn_lim_fp = max(1 << FP_SHIFT, cfg.arena_radius_fp - start_r_fp - spawn_margin_fp)
-    spawn_wall_sq_fp = int(spawn_lim_fp) * int(spawn_lim_fp)
-
-    food_margin_fp = int(round((cfg.food_wall_margin / c) * (1 << FP_SHIFT)))
-    food_lim_fp = max(1 << FP_SHIFT, cfg.arena_radius_fp - food_margin_fp)
-    food_wall_sq_fp = int(food_lim_fp) * int(food_lim_fp)
+    spawn_wall_sq = spawn_wall_sq_fp(cfg, start_r_fp)
+    food_wall_sq = food_wall_sq_fp(cfg)
 
     out: dict[str, Any] = {
         "sin_table": torch.as_tensor(sin_np, device=device),
@@ -370,8 +341,8 @@ def _build_static_tables(cfg: GameV3Config, device: torch.device) -> dict[str, A
         "max_diam": max_diam,
         "max_eat_r_cells": max_eat_r_cells,
         "r_clear": r_clear,
-        "spawn_wall_sq_fp": spawn_wall_sq_fp,
-        "food_wall_sq_fp": food_wall_sq_fp,
+        "spawn_wall_sq_fp": spawn_wall_sq,
+        "food_wall_sq_fp": food_wall_sq,
     }
     for k, arr in lt_np.items():
         out[k] = torch.as_tensor(arr, device=device)
@@ -1371,7 +1342,7 @@ class GameV3Sim:
         if m_envs == 0:
             return
 
-        k_init = _INIT_SNAKE_CANDIDATES
+        k_init = INIT_SNAKE_CANDIDATES
         slots = (
             torch.arange(self.N, dtype=torch.int64, device=self.device)[:, None] * k_init
             + torch.arange(k_init, dtype=torch.int64, device=self.device)[None, :]
@@ -1385,7 +1356,8 @@ class GameV3Sim:
         )
 
         fb_idx = (
-            torch.arange(self.N, dtype=torch.int64, device=self.device)[:, None] * 7
+            torch.arange(self.N, dtype=torch.int64, device=self.device)[:, None]
+            * FALLBACK_SNAKE_STRIDE
             + torch.arange(FALLBACK_RING_SIZE, dtype=torch.int64, device=self.device)[None, :]
         ) & (FALLBACK_RING_SIZE - 1)
         fb_sel = self._fallback_spawns[fb_idx][None, :, :, :].expand(
@@ -1533,16 +1505,13 @@ class GameV3Sim:
             self.prev_theta.index_copy_(0, env_ids, placed_th)
             self.prev_length.index_copy_(0, env_ids, len_init)
 
-        num_batches = max(
-            1,
-            int(math.ceil(self.cfg.target_ambient_pellets * 2.0 / _INIT_FOOD_BATCH_SIZE)) + 2,
-        )
+        num_batches = init_food_num_batches(self.cfg)
         for b in range(num_batches):
             self._spawn_ambient_batch(
                 PURPOSE_INIT_FOOD,
                 0,
-                b * _INIT_FOOD_BATCH_SIZE,
-                _INIT_FOOD_BATCH_SIZE,
+                b * INIT_FOOD_BATCH_SIZE,
+                INIT_FOOD_BATCH_SIZE,
                 env_ids=env_ids,
             )
 
@@ -2074,8 +2043,12 @@ class GameV3Sim:
 
         cx_fp = ((ex_k - self.half_grid) << FP_SHIFT) + FP_HALF
         cy_fp = ((ey_k - self.half_grid) << FP_SHIFT) + FP_HALF
-        dx_eat = (cx_fp - self.head_pos[:, :, 0, None]).clamp(-32000, 32000)
-        dy_eat = (cy_fp - self.head_pos[:, :, 1, None]).clamp(-32000, 32000)
+        dx_eat = (cx_fp - self.head_pos[:, :, 0, None]).clamp(
+            -FOOD_PICKUP_CLAMP_FP, FOOD_PICKUP_CLAMP_FP
+        )
+        dy_eat = (cy_fp - self.head_pos[:, :, 1, None]).clamp(
+            -FOOD_PICKUP_CLAMP_FP, FOOD_PICKUP_CLAMP_FP
+        )
         pickup_r_sq = self._pickup_r_sq_fp_table[len_idx]
         can_eat_k = (
             survives[:, :, None]
@@ -2300,7 +2273,9 @@ class GameV3Sim:
             )
 
             fb_ring_idx = (
-                ready_i[:, None] * 7 + r_ticks * 13 + self._fb_f_offsets.reshape(1, -1)
+                ready_i[:, None] * FALLBACK_SNAKE_STRIDE
+                + r_ticks * FALLBACK_TICK_STRIDE
+                + self._fb_f_offsets.reshape(1, -1)
             ) & (FALLBACK_RING_SIZE - 1)
             fb_cands = self._fallback_spawns[fb_ring_idx]
             all_gx = torch.cat((rgx, fb_cands[..., 0]), dim=1)
