@@ -351,7 +351,7 @@ class EgoMultiScaleNet(nn.Module):
             fusion_layers.append(ResidualMLPBlock(cfg.trunk_dim))
         self.fusion = nn.Sequential(*fusion_layers)
 
-        # Clean round-2 recurrence seam: replace `self.recurrent_core` with a module taking
+        # Optional recurrence seam: replace `self.recurrent_core` with a module taking
         # `(features, hidden_state, episode_starts) -> (features, next_hidden_state)`.
         self.recurrent_core: nn.Module | None = None
 
@@ -482,7 +482,7 @@ class EgoMultiScaleNet(nn.Module):
         hidden_state: torch.Tensor | None = None,
         episode_starts: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor | None]:
-        """Pass fused features through optional recurrent core (identity in round 1)."""
+        """Pass fused features through optional recurrent core (identity when unset)."""
         if self.recurrent_core is None:
             return features, hidden_state
         return self.recurrent_core(features, hidden_state, episode_starts)

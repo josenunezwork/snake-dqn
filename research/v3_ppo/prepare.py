@@ -148,33 +148,6 @@ def runtime_source_paths(commit: str) -> list[str]:
     return selected
 
 
-def estimate_max_export_bytes(
-    cfg: V3PPOConfig,
-    *,
-    gpu: str = "L4",
-    max_wall_seconds: float = 8.0 * 3600.0,
-    expected_updates: int | None = None,
-    measured_packed_bytes_per_world: int | None = None,
-    measured_checkpoint_bytes: int | None = None,
-) -> int:
-    """Validate checkpoint export caps for ``cfg`` and return per-file ``max_export_bytes``."""
-    eff_world_bytes = measured_packed_bytes_per_world
-    if eff_world_bytes is None and measured_checkpoint_bytes is not None:
-        if int(measured_checkpoint_bytes) < 1:
-            raise ValueError(
-                f"measured_checkpoint_bytes must be >= 1, got {measured_checkpoint_bytes}"
-            )
-        eff_world_bytes = max(1, int(math.ceil(int(measured_checkpoint_bytes) / cfg.num_envs)))
-    caps = validate_checkpoint_export_caps(
-        cfg,
-        gpu,
-        max_wall_seconds=max_wall_seconds,
-        expected_updates=expected_updates,
-        measured_packed_bytes_per_world=eff_world_bytes,
-    )
-    return int(caps["per_file_max_export_bytes"])
-
-
 def build_training_plan(
     cfg: V3PPOConfig,
     *,
@@ -238,19 +211,6 @@ def _resolve_verified_prior_checkpoint(
         if resolved is not None:
             return resolved
     return None
-
-
-def _find_verified_prior_checkpoint(
-    prior_dir: Path,
-    *,
-    light_resume_margin_minutes: float = 45.0,
-) -> Path | None:
-    """Return primary path of newest verified checkpoint under ``prior_dir``."""
-    resolved = _resolve_verified_prior_checkpoint(
-        prior_dir,
-        light_resume_margin_minutes=light_resume_margin_minutes,
-    )
-    return Path(resolved["path"]) if resolved is not None else None
 
 
 def _find_verified_prior_cells(prior_dir: Path) -> list[Path]:

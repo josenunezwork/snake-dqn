@@ -56,12 +56,10 @@ from research.v3_ppo.net import (
     symlog_two_hot_loss,
 )
 
-V3_PPO_CHECKPOINT_SCHEMA = "v3-ppo-checkpoint/v1"
 V3_PPO_LIGHT_CHECKPOINT_SCHEMA = "v3-ppo-light-checkpoint/v2"
 V3_PPO_FULL_INDEX_SCHEMA = "v3-ppo-full-checkpoint-index/v2"
 V3_PPO_SIM_SHARD_SCHEMA = "v3-ppo-sim-shard/v2"
 V3_PPO_TRAIN_RESULT_SCHEMA = "v3-ppo-train-result/v1"
-UNLIMITED_HOURS_TOTAL_UPDATES = 1_000_000_000
 
 _INIT_ANCHOR_LIGHT_NAME = "light_u0000000_init.pt"
 
@@ -91,10 +89,6 @@ _RESUME_MUTABLE_CONFIG_KEYS: frozenset[str] = frozenset(
         "actor_chunk_learners",
         "compile_model",
         "fast_learner_ops",
-        # Legacy r1 keys accepted via V3PPOConfig.from_dict
-        "checkpoint_interval_sec",
-        "output_publish_interval_sec",
-        "keep_periodic_checkpoints",
     }
 )
 
@@ -801,42 +795,6 @@ def _collect_valid_checkpoints_in_dir(
             )
             continue
 
-    # Legacy r1 single-file fallback (`final.pt` / `ckpt_u*.pt`) if present.
-    legacy_cands = [ckpt_dir / "final.pt", *reversed(sorted(ckpt_dir.glob("ckpt_u*.pt")))]
-    for leg in legacy_cands:
-        if not leg.is_file():
-            continue
-        if require_markers and not (
-            Path(f"{leg}.complete").is_file() and Path(f"{leg}.sha256").is_file()
-        ):
-            continue
-        try:
-            sha = verify_completed_artifact(leg) if require_markers else sha256_file(leg)
-            obj = torch.load(leg, map_location="cpu", weights_only=False)
-            if (
-                isinstance(obj, dict)
-                and obj.get("schema") == V3_PPO_CHECKPOINT_SCHEMA
-                and obj.get("namespace") == V3_PPO_NAMESPACE
-            ):
-                cnt = obj.get("counters") or {}
-                leg_st = leg.stat()
-                leg_meta = {
-                    "kind": "legacy_full",
-                    "path": leg,
-                    "files": [leg],
-                    "sha256": sha,
-                    "size_bytes": int(leg_st.st_size),
-                    "updates_completed": int(cnt.get("updates_completed", 0)),
-                    "world_steps_collected": int(cnt.get("world_steps_collected", 0)),
-                    "agent_steps_collected": int(cnt.get("agent_steps_collected", 0)),
-                    "created_unix_ts": float(leg_st.st_mtime),
-                    "restart_generation": 0,
-                    "config": obj.get("config"),
-                }
-                valid_full.append((int(leg_meta["updates_completed"]), 0, leg.name, leg_meta))
-        except Exception:
-            continue
-
     best_full: dict[str, Any] | None = None
     if valid_full:
         valid_full.sort(key=lambda t: (t[0], t[1], t[2]))
@@ -957,20 +915,6 @@ def resolve_resume_checkpoint(
     if include_init_anchor and init_anchor is not None:
         return init_anchor
     return None
-
-
-def find_newest_verified_checkpoint(
-    checkpoints_dir: Path,
-    *,
-    light_resume_margin_minutes: float = 45.0,
-) -> Path | None:
-    """Return path to best verified resume checkpoint (`.index.json` or `.pt`)."""
-    resolved = resolve_resume_checkpoint(
-        checkpoints_dir,
-        require_markers=True,
-        light_resume_margin_minutes=light_resume_margin_minutes,
-    )
-    return Path(resolved["path"]) if resolved is not None else None
 
 
 def _is_unshared_file(path: Path) -> bool:
@@ -1104,11 +1048,6 @@ def prune_old_checkpoints(
             removed.append(old_lp.name)
 
     return removed
-
-
-def prune_old_periodic_checkpoints(checkpoints_dir: Path, *, keep: int) -> list[str]:
-    """Backward-compatible wrapper around :func:`prune_old_checkpoints`."""
-    return prune_old_checkpoints(checkpoints_dir, keep_full=int(keep), keep_light=max(4, int(keep)))
 
 
 class V3PPOTrainer:
@@ -1896,29 +1835,6 @@ class V3PPOTrainer:
         write_create_only_json(index_path, index_payload)
         return index_path
 
-    def checkpoint_dict(self, *, compress_large_grids: bool = True) -> dict[str, Any]:
-        """Build single-dict CPU snapshot (retained for direct unit-test inspection)."""
-        raw_sim_sd = self.sim.state_dict()
-        sim_sd = pack_sim_state_dict(raw_sim_sd) if compress_large_grids else raw_sim_sd
-        base = self.light_checkpoint_dict()
-        base["schema"] = V3_PPO_CHECKPOINT_SCHEMA
-        base["checkpoint_kind"] = "legacy_full"
-        base["sim_state_dict"] = sim_sd
-        base["sim_clean_step_streak"] = int(self.sim._clean_step_streak)
-        return base
-
-    def save_checkpoint(self, path: Path) -> str:
-        """Write a checkpoint: FULL `.index.json` if `path` ends with `.json`, else `.pt`."""
-        target = Path(path)
-        if target.name.endswith(".index.json"):
-            tag = target.name.removeprefix("full_").removesuffix(".index.json")
-            idx_p = self.save_full_checkpoint(target.parent, tag=tag)
-            return sha256_file(idx_p)
-        if target.name.startswith("light_"):
-            return self.save_light_checkpoint(target)
-        payload = self.checkpoint_dict()
-        return write_create_only_artifact(target, lambda tmp: torch.save(payload, tmp))
-
     def _validate_and_apply_light_dict(
         self,
         ckpt: dict[str, Any],
@@ -1985,7 +1901,7 @@ class V3PPOTrainer:
         verify_markers: bool = True,
         restore_rng: bool = True,
     ) -> dict[str, Any]:
-        """Restore trainer from a FULL `.index.json`, LIGHT `.pt`, or legacy r1 `.pt`."""
+        """Restore trainer from a FULL `.index.json` or LIGHT `.pt` checkpoint."""
         ckpt_path = Path(path)
 
         # Case 1: Sharded FULL checkpoint set (`full_*.index.json`)
@@ -2015,7 +1931,7 @@ class V3PPOTrainer:
                 "updates_completed": int(self.updates_completed),
             }
 
-        # Case 2: LIGHT checkpoint or legacy r1 `.pt`
+        # Case 2: LIGHT checkpoint (`.pt`)
         if verify_markers:
             verify_completed_artifact(ckpt_path)
         ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
@@ -2064,21 +1980,6 @@ class V3PPOTrainer:
                 "updates_completed": int(self.updates_completed),
             }
 
-        if schema == V3_PPO_CHECKPOINT_SCHEMA:
-            self._validate_and_apply_light_dict(ckpt, restore_rng=restore_rng)
-            self.sim.load_state_dict(unpack_sim_state_dict(ckpt["sim_state_dict"]))
-            self.sim._clean_step_streak = int(ckpt.get("sim_clean_step_streak", 0))
-            self.episode_return_acc.copy_(
-                ckpt["episode_return_acc"].to(device=self.device, dtype=torch.float32)
-            )
-            self._bootstrap_obs_valid = False
-            return {
-                "checkpoint_kind": "legacy_full",
-                "num_shards": 1,
-                "worlds_reinitialized": False,
-                "updates_completed": int(self.updates_completed),
-            }
-
         raise ValueError(f"Invalid checkpoint schema at {ckpt_path}: {schema!r}")
 
 
@@ -2088,7 +1989,7 @@ def verify_staged_checkpoint(
     device: str | torch.device = "cpu",
     verify_markers: bool = True,
 ) -> dict[str, Any]:
-    """Validate FULL `.index.json`, LIGHT `.pt`, or legacy `.pt` by restoring a trainer."""
+    """Validate FULL `.index.json` or LIGHT `.pt` by restoring a trainer."""
     ckpt_path = Path(path)
     if ckpt_path.name.endswith(".index.json"):
         full_meta = verify_full_checkpoint_set(ckpt_path, require_markers=verify_markers)
@@ -2108,10 +2009,7 @@ def verify_staged_checkpoint(
     if verify_markers:
         verify_completed_artifact(ckpt_path)
     raw = torch.load(ckpt_path, map_location="cpu", weights_only=False)
-    if not isinstance(raw, dict) or raw.get("schema") not in {
-        V3_PPO_LIGHT_CHECKPOINT_SCHEMA,
-        V3_PPO_CHECKPOINT_SCHEMA,
-    }:
+    if not isinstance(raw, dict) or raw.get("schema") != V3_PPO_LIGHT_CHECKPOINT_SCHEMA:
         raise ValueError(f"Invalid v3_ppo checkpoint at {ckpt_path}")
     cfg = V3PPOConfig.from_dict(raw["config"])
     trainer = V3PPOTrainer(cfg, device=device)
@@ -2246,43 +2144,6 @@ def write_latest_checkpoint_manifest(
     return manifest_path
 
 
-def _publish_checkpoint_manifest(
-    work_ckpt_path: Path,
-    out_checkpoints_dir: Path,
-    *,
-    export_names: list[str] | None = None,
-    reason: str,
-    counters: dict[str, Any],
-    write_latest_manifest: bool = False,
-) -> list[str]:
-    """Compatibility helper publishing ``work_ckpt_path`` (and optional aliases) to ``out``."""
-    published = publish_checkpoint_to_output(
-        work_ckpt_path,
-        out_checkpoints_dir,
-        reason=reason,
-        counters=counters,
-    )
-    if export_names and not work_ckpt_path.name.endswith(".index.json"):
-        extra_targets = [
-            out_checkpoints_dir / name
-            for name in dict.fromkeys(export_names)
-            if name != work_ckpt_path.name
-            and not _artifact_or_sidecar_exists(out_checkpoints_dir / name)
-        ]
-        if extra_targets:
-            publish_hardlinked_artifacts(
-                work_ckpt_path, extra_targets, staging_dir=work_ckpt_path.parent
-            )
-            published.extend(t.name for t in extra_targets)
-    if write_latest_manifest:
-        write_latest_checkpoint_manifest(
-            out_checkpoints_dir,
-            reason=reason,
-            counters=counters,
-        )
-    return published
-
-
 def _validate_staged_ledger_resume(
     *,
     input_dir: Path | None,
@@ -2327,27 +2188,8 @@ def _validate_staged_ledger_resume(
 
     if staged_primary.name.endswith(".index.json"):
         meta = verify_full_checkpoint_set(staged_primary, require_markers=False)
-    elif (
-        torch.load(staged_primary, map_location="cpu", weights_only=False).get("schema")
-        == V3_PPO_LIGHT_CHECKPOINT_SCHEMA
-    ):
-        meta = verify_light_checkpoint(staged_primary, require_markers=False)
     else:
-        obj = torch.load(staged_primary, map_location="cpu", weights_only=False)
-        cnt = obj.get("counters") or {}
-        st_leg = staged_primary.stat()
-        meta = {
-            "kind": "legacy_full",
-            "path": staged_primary,
-            "files": [staged_primary],
-            "sha256": actual_sha,
-            "size_bytes": int(st_leg.st_size),
-            "updates_completed": int(cnt.get("updates_completed", 0)),
-            "world_steps_collected": int(cnt.get("world_steps_collected", 0)),
-            "agent_steps_collected": int(cnt.get("agent_steps_collected", 0)),
-            "created_unix_ts": float(st_leg.st_mtime),
-            "restart_generation": 0,
-        }
+        meta = verify_light_checkpoint(staged_primary, require_markers=False)
     meta["source"] = "staged_ledger"
     meta["require_markers"] = False
     meta["relpath"] = primary_rel
@@ -2392,7 +2234,7 @@ def _select_best_resume_candidate(
                 target_list.append(cand)
 
     if staged_meta is not None:
-        if staged_meta["kind"] in {"full", "legacy_full"}:
+        if staged_meta["kind"] == "full":
             full_cands.append(staged_meta)
         elif str(staged_meta.get("relpath")) == _INIT_ANCHOR_LIGHT_NAME:
             init_cands.append(staged_meta)

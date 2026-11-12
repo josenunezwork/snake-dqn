@@ -57,8 +57,8 @@ GPU_DEFAULT_TRAIN_ENVS: dict[str, int] = {
 # `tensor_min_bytes = 4096`) at default `(R = 600, N = 24, max_length = 2048)`:
 #   - raw persistent world grids + rings = 28,779,936 B (27.45 MiB/world);
 #   - measured packed size at 3,000 ticks = 1,493,096 B (~1.424 MiB/world; 1,107,618 B/4 = 0.264 MiB
-#     at tick 200, 2,838,114 B/4 = 0.677 MiB at tick 1,000, 8,063,394 B/4 = 1.922 MiB at tick 5,000;
-#     was 5.23 MiB/world at E=2 in r1 before uint8-chunk + 4 KiB threshold fix);
+#     at tick 200, 2,838,114 B/4 = 0.677 MiB at tick 1,000, 8,063,394 B/4 = 1.922 MiB at tick
+#     5,000);
 #   - measured packed size at 15,000 ticks = 3,512,730 B (~3.35 MiB/world) as lazy-timestamp
 #     occupancy cells accumulate across visited arena cells;
 #   - synthetic 100%-visited arena circle + full 2,048-slot rings = ~15.7 MiB/world.
@@ -399,16 +399,9 @@ class V3PPOConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> V3PPOConfig:
-        """Deserialize config produced by :meth:`to_dict` (with r1 key compatibility)."""
+        """Deserialize config produced by :meth:`to_dict`."""
         raw = dict(data)
         raw.pop("schema", None)
-        raw.pop("output_publish_interval_sec", None)
-        legacy_ckpt_sec = raw.pop("checkpoint_interval_sec", None)
-        if legacy_ckpt_sec is not None and "light_checkpoint_interval_sec" not in raw:
-            raw["light_checkpoint_interval_sec"] = legacy_ckpt_sec
-        legacy_keep = raw.pop("keep_periodic_checkpoints", None)
-        if legacy_keep is not None and "keep_full_checkpoints" not in raw:
-            raw["keep_full_checkpoints"] = legacy_keep
         gc_raw = raw.pop("game_config", None)
         game_cfg = (
             gc_raw
@@ -661,7 +654,7 @@ def estimate_checkpoint_export_caps(
 ) -> dict[str, Any]:
     """Size single-file and total-session checkpoint export caps from wall horizon & bytes/world.
 
-    Session export arithmetic (M1-r2):
+    Session export arithmetic:
       - Every LIGHT checkpoint is exported at its real ``light_checkpoint_interval_sec`` (`30` min
         default) with no count cap and no interval stretching:
         ``n_light_time = ceil(max_wall_seconds / light_checkpoint_interval_sec) + 1``
