@@ -17,6 +17,14 @@ from research.game_v3.sim import STATE_FIELDS, GameV3Sim, StepInfo
 _SNAKE_STATE_FIELDS: tuple[str, ...] = tuple(
     field.name for field in STATE_FIELDS if field.in_reference_snake
 )
+_MASS_LEDGER_FIELDS: tuple[str, ...] = (
+    "total_spawned_snake_mass",
+    "total_spawned_ambient_mass",
+    "total_corpse_decay_sink",
+    "total_boost_decay_sink",
+    "total_length_cap_sink",
+    "total_truncation_sink",
+)
 
 
 def assert_step_info_parity(
@@ -83,6 +91,33 @@ def assert_full_state_and_obs_parity(
                 f"[{label}] sim.{grid_attr} diverged at tick={tick}, idx={tuple(diff)}: "
                 f"got={got_g[tuple(diff)]}, exp={exp_g[tuple(diff)]}"
             )
+
+    for ledger_attr in _MASS_LEDGER_FIELDS:
+        got_l = getattr(sim, ledger_attr).detach().cpu().numpy()
+        exp_l = np.array([getattr(r, ledger_attr) for r in refs], dtype=np.int64)
+        if not np.array_equal(got_l, exp_l):
+            diff = np.argwhere(got_l != exp_l)[0]
+            raise AssertionError(
+                f"[{label}] sim.{ledger_attr} diverged at tick={tick}, idx={tuple(diff)}: "
+                f"got={got_l[tuple(diff)]}, exp={exp_l[tuple(diff)]}"
+            )
+
+    for e, ref in enumerate(refs):
+        ref_snake_mass = int(np.sum(np.where(ref.alive, ref.length, 0), dtype=np.int64))
+        ref_amb_mass = int(np.sum(ref.ambient_grid, dtype=np.int64))
+        ref_cor_mass = int(np.sum(ref.corpse_grid, dtype=np.int64))
+        lhs = ref_snake_mass + ref_amb_mass + ref_cor_mass
+        rhs = (
+            ref.total_spawned_snake_mass
+            + ref.total_spawned_ambient_mass
+            - ref.total_corpse_decay_sink
+            - ref.total_boost_decay_sink
+            - ref.total_length_cap_sink
+            - ref.total_truncation_sink
+        )
+        assert (
+            lhs == rhs
+        ), f"[{label}] ref[{e}] mass conservation failed at tick={tick}: {lhs} != {rhs}"
 
     if check_rings:
         max_len = sim.cfg.max_length
@@ -343,6 +378,7 @@ def test_parity_large_snakes_all_body_radius_tiers() -> None:
                 sim.total_spawned_snake_mass[e] += delta
                 refs[e].length[i] = target_l
                 refs[e].prev_length[i] = target_l
+                refs[e].total_spawned_snake_mass += delta
                 if sim_mps is not None:
                     sim_mps.length[e, i] = target_l
                     sim_mps.prev_length[e, i] = target_l
