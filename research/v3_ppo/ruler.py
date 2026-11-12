@@ -1490,6 +1490,75 @@ def _canary_stage_default_eval_benchmark(
     )
 
 
+def _canary_stage_eval_smoke(
+    *,
+    out: Path,
+    input_dir: Path | None,
+    ledger_path: Path | None,
+    resolved_dev: torch.device,
+    seed: int,
+) -> dict[str, Any] | None:
+    """Optional Stage 5 of canary suite: verify staged eval policies and publish smoke exports."""
+    if input_dir is None or ledger_path is None or not Path(ledger_path).is_file():
+        return None
+    ledger_obj = json.loads(Path(ledger_path).read_text(encoding="utf-8"))
+    if not isinstance(ledger_obj, dict) or not ledger_obj.get("eval_policies"):
+        return None
+
+    from research.v3_ppo.arena_eval import (
+        EVAL_REQUIRED_EXPORTS,
+        evaluate_head_to_head,
+        evaluate_long_game,
+        format_eval_markdown,
+        load_eval_policy,
+        resolve_staged_ledger_inputs,
+    )
+
+    policy_paths, policy_labels, verified_pairs = resolve_staged_ledger_inputs(
+        Path(input_dir), Path(ledger_path)
+    )
+    loaded_policies = [
+        load_eval_policy(
+            p_path,
+            device=resolved_dev,
+            label=(policy_labels[idx] if policy_labels is not None else None),
+            compile_model=False,
+        )
+        for idx, p_path in enumerate(policy_paths)
+    ]
+    if len(loaded_policies) == 1:
+        eval_res = evaluate_long_game(
+            loaded_policies[0],
+            num_envs=2,
+            burnin_ticks=2,
+            window_ticks=6,
+            num_world_age_bins=6,
+            seed=seed,
+        )
+    else:
+        eval_res = evaluate_head_to_head(
+            loaded_policies[:2],
+            num_envs=2,
+            burnin_ticks=2,
+            window_ticks=6,
+            mass_bin_ticks=3,
+            bootstrap_samples=20,
+            seed=seed,
+        )
+    md_text = format_eval_markdown(eval_res)
+    write_create_only_json(out / "eval_result.json", eval_res)
+    write_create_only_artifact(out / "summary.md", md_text.encode("utf-8"))
+    for rel in EVAL_REQUIRED_EXPORTS:
+        verify_completed_artifact(out / rel)
+    del loaded_policies
+    _cleanup_device_memory(resolved_dev)
+    return {
+        "num_staged_policies": len(policy_paths),
+        "num_verified_pairs": len(verified_pairs),
+        "smoke_mode": str(eval_res["mode"]),
+    }
+
+
 def run_canary_suite(
     *,
     output_dir: Path,
@@ -1572,7 +1641,15 @@ def run_canary_suite(
         seed=seed,
     )
 
-    canary_payload = {
+    eval_canary_smoke = _canary_stage_eval_smoke(
+        out=out,
+        input_dir=input_dir,
+        ledger_path=ledger_path,
+        resolved_dev=resolved_dev,
+        seed=seed,
+    )
+
+    canary_payload: dict[str, Any] = {
         "schema": V3_PPO_CANARY_SCHEMA,
         "namespace": V3_PPO_NAMESPACE,
         "status": "PASS",
@@ -1589,6 +1666,8 @@ def run_canary_suite(
         "default_eval_resident_train_envs": int(eff_resident_train_envs),
         "wall_seconds": round(time.monotonic() - wall_t0, 4),
     }
+    if eval_canary_smoke is not None:
+        canary_payload["eval_canary_smoke"] = eval_canary_smoke
     write_create_only_json(out / "canary_checks.json", canary_payload)
     for rel in CANARY_REQUIRED_EXPORTS:
         verify_completed_artifact(out / rel)

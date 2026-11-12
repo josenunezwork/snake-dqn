@@ -135,6 +135,64 @@ elif [ "$MODE" = "train" ]; then
     --output-dir "$COLAB_CLI_ROOT/output" \
     --device "$SNAKE_DQN_DEVICE" \
     "${TRAIN_ARGS[@]}"
+elif [ "$MODE" = "eval" ]; then
+  EVAL_ARGS=(
+    --input-dir "$COLAB_INPUT_DIR"
+    --ledger "$LEDGER_FILE"
+  )
+  if [ -n "${V3_PPO_EVAL_MODE:-}" ]; then
+    EVAL_ARGS+=(--mode "$V3_PPO_EVAL_MODE")
+  fi
+  if [ -n "${V3_PPO_EVAL_NUM_ENVS:-}" ]; then
+    EVAL_ARGS+=(--num-envs "$V3_PPO_EVAL_NUM_ENVS")
+  fi
+  if [ -n "${V3_PPO_EVAL_BURNIN_TICKS:-}" ]; then
+    EVAL_ARGS+=(--burnin-ticks "$V3_PPO_EVAL_BURNIN_TICKS")
+  fi
+  if [ -n "${V3_PPO_EVAL_WINDOW_TICKS:-}" ]; then
+    EVAL_ARGS+=(--window-ticks "$V3_PPO_EVAL_WINDOW_TICKS")
+  fi
+  if [ -n "${V3_PPO_EVAL_MASS_BIN_TICKS:-}" ]; then
+    EVAL_ARGS+=(--mass-bin-ticks "$V3_PPO_EVAL_MASS_BIN_TICKS")
+  fi
+  if [ -n "${V3_PPO_EVAL_LEARNER_SLOTS:-}" ]; then
+    EVAL_ARGS+=(--learner-slots "$V3_PPO_EVAL_LEARNER_SLOTS")
+  fi
+  if [ -n "${V3_PPO_EVAL_OPPONENT_POLICY:-}" ]; then
+    EVAL_ARGS+=(--opponent-policy "$V3_PPO_EVAL_OPPONENT_POLICY")
+  fi
+  if [ -n "${V3_PPO_EVAL_WORLD_AGE_BINS:-}" ]; then
+    EVAL_ARGS+=(--num-world-age-bins "$V3_PPO_EVAL_WORLD_AGE_BINS")
+  fi
+  if [ -n "${V3_PPO_EVAL_SEED:-}" ]; then
+    EVAL_ARGS+=(--seed "$V3_PPO_EVAL_SEED")
+  fi
+  if [ "${V3_PPO_EVAL_GREEDY:-0}" = "1" ]; then
+    EVAL_ARGS+=(--greedy)
+  fi
+  if [ "${V3_PPO_COMPILE:-0}" = "1" ]; then
+    EVAL_ARGS+=(--compile)
+  fi
+  if [ "${V3_PPO_FAST_LEARNER_OPS:-1}" = "0" ]; then
+    EVAL_ARGS+=(--no-fast-learner-ops)
+  fi
+  if [ "${V3_PPO_AMP:-}" = "0" ]; then
+    EVAL_ARGS+=(--no-amp)
+  elif [ "${V3_PPO_AMP:-}" = "1" ]; then
+    EVAL_ARGS+=(--amp)
+  fi
+  if [ "${V3_PPO_CHANNELS_LAST:-}" = "0" ]; then
+    EVAL_ARGS+=(--no-channels-last)
+  elif [ "${V3_PPO_CHANNELS_LAST:-}" = "1" ]; then
+    EVAL_ARGS+=(--channels-last)
+  fi
+  if [ -n "${V3_PPO_MAX_WALL_SECONDS:-}" ]; then
+    EVAL_ARGS+=(--max-wall-seconds "$V3_PPO_MAX_WALL_SECONDS")
+  fi
+  exec nice -n 15 python -m research.v3_ppo.arena_eval \
+    --output-dir "$COLAB_CLI_ROOT/output" \
+    --device "$SNAKE_DQN_DEVICE" \
+    "${EVAL_ARGS[@]}"
 else
   echo "Unsupported V3_PPO_MODE: $MODE" >&2
   exit 2

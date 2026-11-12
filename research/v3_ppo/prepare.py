@@ -1,10 +1,11 @@
-"""Prepare Game V3.1 PPO Colab CLI packets (`canary`, `ruler`, and `train` modes)."""
+"""Prepare Game V3.1 PPO Colab CLI packets (`canary`, `ruler`, `train`, and `eval` modes)."""
 
 from __future__ import annotations
 
 import argparse
 import json
 import math
+import re
 import shutil
 import subprocess
 import sys
@@ -33,9 +34,28 @@ from research.arena_ppo.prepare import (
 from research.arena_ppo.runtime import sha256_file, verify_completed_artifact
 from research.colab_cli import canary as colab_canary
 from research.game_v3.config import GameV3Config
+from research.v3_ppo.arena_eval import (
+    DEFAULT_EVAL_SEED,
+    DEFAULT_H2H_BURNIN_TICKS,
+    DEFAULT_H2H_MASS_BIN_TICKS,
+    DEFAULT_H2H_NUM_ENVS,
+    DEFAULT_H2H_WINDOW_TICKS,
+    DEFAULT_LONG_GAME_BURNIN_TICKS,
+    DEFAULT_LONG_GAME_NUM_ENVS,
+    DEFAULT_LONG_GAME_WINDOW_TICKS,
+    DEFAULT_LONG_GAME_WORLD_AGE_BINS,
+    EVAL_MODES,
+    EVAL_REQUIRED_EXPORTS,
+    _load_checkpoint_payload,
+    discover_round_robin_checkpoints,
+    resolve_unique_labels,
+    write_weights_only_eval_bundle,
+)
 from research.v3_ppo.config import (
+    ASSUMED_STAGED_INPUT_UPLOAD_RATE_BYTES_PER_SEC,
     GPU_VRAM_BUDGET_BYTES,
     MAX_SUPERVISOR_EXPORT_BYTES,
+    OBS_BATCH_BYTES_PER_ROW,
     RECIPE_OVERRIDE_KEYS,
     V3_PPO_NAMESPACE,
     VALID_FULL_EXPORT_MODES,
@@ -49,6 +69,7 @@ from research.v3_ppo.config import (
     build_recipe_change_record,
     check_minibatch_divisibility,
     default_train_envs_for_gpu,
+    estimate_sim_memory_bytes,
     estimate_train_wall_headroom,
     estimate_train_wall_headroom_by_mode,
     estimate_training_memory,
@@ -56,6 +77,7 @@ from research.v3_ppo.config import (
     format_recipe_overrides,
     get_net_preset,
     merge_and_append_recipe_history,
+    obs_layout_from_game_config,
     parse_recipe_overrides,
     resolve_full_export_settings,
     validate_checkpoint_export_caps,
@@ -84,8 +106,15 @@ FAMILY_SCRIPT = "research/v3_ppo/job.sh"
 FAMILY_PACKAGE = "research/v3_ppo"
 REQUIREMENTS_RELPATH = "research/v3_ppo/requirements.txt"
 
-PREPARE_MODES: tuple[str, ...] = ("canary", "ruler", "train")
+PREPARE_MODES: tuple[str, ...] = ("canary", "ruler", "train", "eval")
 UNLIMITED_HOURS_TOTAL_UPDATES: int = 1_000_000_000
+EVAL_DEFAULT_SESSION_MINUTES: float = 60.0
+EVAL_RAW_UPLOAD_AUTO_STRIP_THRESHOLD_BYTES: int = 150 * 1024 * 1024
+EVAL_GPU_AGENT_STEPS_PER_SEC: dict[str, dict[str, float]] = {
+    "L4": {"S": 27_000.0, "M": 16_500.0},
+    "A100": {"S": 42_000.0, "M": 28_000.0},
+    "H100": {"S": 58_000.0, "M": 38_000.0},
+}
 
 
 @dataclass(frozen=True)
@@ -121,6 +150,18 @@ class PreparePacketOptions:
     max_periodic_full_exports: int | None = None
     light_resume_margin_minutes: float | None = None
     eval_estimated_seconds: float | None = None
+    eval_mode: str | None = None
+    eval_policies: tuple[Path, ...] = ()
+    eval_round_robin: tuple[Path, ...] = ()
+    eval_labels: tuple[str, ...] | None = None
+    eval_burnin_ticks: int | None = None
+    eval_window_ticks: int | None = None
+    eval_mass_bin_ticks: int = DEFAULT_H2H_MASS_BIN_TICKS
+    eval_world_age_bins: int = DEFAULT_LONG_GAME_WORLD_AGE_BINS
+    eval_seed: int = DEFAULT_EVAL_SEED
+    eval_greedy: bool = False
+    eval_session_minutes: float = EVAL_DEFAULT_SESSION_MINUTES
+    eval_weights_only: str = "auto"  # "auto" | "true" | "false"
     output_dir: Path | None = None
     prior_output_dir: Path | None = None
     prior_kind: str = "auto"
@@ -140,13 +181,14 @@ class PreparePacketOptions:
 
 @dataclass(frozen=True)
 class _PriorSpec:
-    """Resolved prior continuation artifact (checkpoint set or ruler cells) before staging."""
+    """Resolved prior continuation artifact (checkpoint set, ruler cells, or eval pairs)."""
 
-    kind: str  # "none" | "checkpoint" | "ruler_cells"
+    kind: str  # "none" | "checkpoint" | "ruler_cells" | "eval_pairs"
     prior_dir: Path | None = None
     chosen_checkpoint: dict[str, Any] | None = None
     staged_base_cfg: V3PPOConfig | None = None
     ruler_cell_paths: tuple[Path, ...] = ()
+    eval_pair_paths: tuple[Path, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -186,6 +228,8 @@ class _SizedModePlan:
     recipe_overrides: dict[str, Any] | None = None
     recipe_change: dict[str, Any] | None = None
     minibatch_remainder: dict[str, Any] | None = None
+    eval_plan: dict[str, Any] | None = None
+    eval_policy_specs: tuple[dict[str, Any], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -228,6 +272,7 @@ def runtime_source_paths(commit: str) -> list[str]:
     }
     v3_ppo_names = {
         "__init__.py",
+        "arena_eval.py",
         "buffer.py",
         "checkpoint_io.py",
         "config.py",
@@ -270,11 +315,12 @@ def runtime_source_paths(commit: str) -> list[str]:
             )
         )
     ]
+    core_v3_ppo_names = v3_ppo_names - {"arena_eval.py"}
     required_relpaths = (
         "research/arena_ppo/__init__.py",
         "research/arena_ppo/runtime.py",
         *(f"research/game_v3/{req}" for req in sorted(game_v3_names)),
-        *(f"research/v3_ppo/{req}" for req in sorted(v3_ppo_names)),
+        *(f"research/v3_ppo/{req}" for req in sorted(core_v3_ppo_names)),
     )
     missing_core = sorted(req for req in required_relpaths if req not in selected)
     if missing_core:
@@ -377,23 +423,55 @@ def _find_verified_prior_cells(prior_dir: Path) -> list[Path]:
     return []
 
 
+def _find_verified_prior_eval_pairs(prior_dir: Path) -> list[Path]:
+    """Locate verified ``pairs/pair_*.json`` artifacts under ``prior_dir``."""
+    search_roots = [prior_dir]
+    if (prior_dir / "exports").is_dir():
+        search_roots.append(prior_dir / "exports")
+
+    for root_cand in search_roots:
+        pairs_sub = root_cand / "pairs"
+        if not pairs_sub.is_dir():
+            continue
+        found: list[Path] = []
+        for pair_json in sorted(pairs_sub.glob("pair_*.json")):
+            if not (
+                Path(f"{pair_json}.complete").is_file() and Path(f"{pair_json}.sha256").is_file()
+            ):
+                continue
+            verify_completed_artifact(pair_json)
+            parsed = json.loads(pair_json.read_text(encoding="utf-8"))
+            match_ns = (
+                parsed.get("match", {}).get("namespace") if isinstance(parsed, dict) else None
+            )
+            if match_ns not in (None, V3_PPO_NAMESPACE):
+                raise ValueError(f"Foreign eval pair namespace at {pair_json}")
+            found.append(pair_json)
+        if found:
+            return found
+    return []
+
+
 def _detect_prior_kind(prior_output_dir: Path) -> str:
     prior_dir = Path(prior_output_dir).resolve()
     if not prior_dir.is_dir():
         raise FileNotFoundError(f"prior_output_dir does not exist: {prior_dir}")
     has_ckpt = _resolve_verified_prior_checkpoint(prior_dir) is not None
     has_cells = bool(_find_verified_prior_cells(prior_dir))
-    if has_ckpt and has_cells:
+    has_pairs = bool(_find_verified_prior_eval_pairs(prior_dir))
+    if sum(bool(x) for x in (has_ckpt, has_cells, has_pairs)) > 1:
         raise ValueError(
-            f"Ambiguous prior_output_dir {prior_dir} contains both verified checkpoints and "
-            "ruler cells; pass explicit --prior-kind checkpoint or --prior-kind ruler_cells."
+            f"Ambiguous prior_output_dir {prior_dir} contains multiple artifact kinds; "
+            "pass explicit --prior-kind checkpoint, ruler_cells, or eval_pairs."
         )
     if has_ckpt:
         return "checkpoint"
     if has_cells:
         return "ruler_cells"
+    if has_pairs:
+        return "eval_pairs"
     raise FileNotFoundError(
-        f"No verified V3 PPO checkpoints or ruler cells/*.json found under {prior_dir}"
+        f"No verified V3 PPO checkpoints, ruler cells/*.json, or eval pairs/*.json found under {prior_dir}"
     )
 
 
@@ -402,12 +480,14 @@ def _resolve_prior_spec(opts: PreparePacketOptions) -> _PriorSpec:
     if opts.prior_output_dir is None:
         return _PriorSpec(kind="none")
 
-    if opts.prior_kind not in ("auto", "checkpoint", "ruler_cells"):
+    if opts.prior_kind not in ("auto", "checkpoint", "ruler_cells", "eval_pairs"):
         raise ValueError(f"Unsupported prior_kind={opts.prior_kind!r}")
-    if opts.mode == "train" and opts.prior_kind == "ruler_cells":
+    if opts.mode == "train" and opts.prior_kind not in ("auto", "checkpoint"):
         raise ValueError("mode='train' requires prior_kind in {'auto', 'checkpoint'}")
-    if opts.mode == "ruler" and opts.prior_kind == "checkpoint":
+    if opts.mode == "ruler" and opts.prior_kind not in ("auto", "ruler_cells"):
         raise ValueError("mode='ruler' requires prior_kind in {'auto', 'ruler_cells'}")
+    if opts.mode == "eval" and opts.prior_kind not in ("auto", "eval_pairs"):
+        raise ValueError("mode='eval' requires prior_kind in {'auto', 'eval_pairs'}")
 
     prior_dir = Path(opts.prior_output_dir).resolve()
     if not prior_dir.is_dir():
@@ -419,8 +499,20 @@ def _resolve_prior_spec(opts: PreparePacketOptions) -> _PriorSpec:
             eff_prior_kind = "checkpoint"
         elif opts.mode == "ruler":
             eff_prior_kind = "ruler_cells"
+        elif opts.mode == "eval":
+            eff_prior_kind = "eval_pairs"
         else:
             eff_prior_kind = _detect_prior_kind(prior_dir)
+
+    if eff_prior_kind == "eval_pairs":
+        found_pairs = _find_verified_prior_eval_pairs(prior_dir)
+        if not found_pairs:
+            raise FileNotFoundError(f"No verified V3 PPO eval pairs/*.json found under {prior_dir}")
+        return _PriorSpec(
+            kind="eval_pairs",
+            prior_dir=prior_dir,
+            eval_pair_paths=tuple(found_pairs),
+        )
 
     if eff_prior_kind == "ruler_cells":
         found_cells = _find_verified_prior_cells(prior_dir)
@@ -569,7 +661,7 @@ def _stage_validate_options(opts: PreparePacketOptions) -> _ValidatedPacketConte
     if opts.mode == "canary" and opts.canary_receipt is not None:
         raise ValueError("canary mode produces a canary receipt and cannot bind --canary-receipt")
     if (
-        opts.mode in ("ruler", "train")
+        opts.mode in ("ruler", "train", "eval")
         and opts.canary_receipt is None
         and not opts.allow_missing_canary_receipt
     ):
@@ -598,6 +690,14 @@ def _stage_validate_options(opts: PreparePacketOptions) -> _ValidatedPacketConte
         )
 
     source_paths = runtime_source_paths(resolved_commit)
+    has_eval_inputs = bool(opts.eval_policies or opts.eval_round_robin)
+    if (
+        opts.mode == "eval" or (opts.mode == "canary" and has_eval_inputs)
+    ) and "research/v3_ppo/arena_eval.py" not in source_paths:
+        raise ValueError(
+            f"Pinned commit {resolved_commit} is missing research/v3_ppo/arena_eval.py "
+            "required for --mode eval"
+        )
 
     gpu_slug = gpu_norm.lower()
     raw_out_dir = opts.output_dir
@@ -672,6 +772,13 @@ def _size_canary_mode(
     if opts.fast_learner_ops is False:
         extra_env["V3_PPO_FAST_LEARNER_OPS"] = "0"
 
+    required_exports = list(CANARY_REQUIRED_EXPORTS)
+    eval_policy_specs: tuple[dict[str, Any], ...] = ()
+    if opts.eval_policies or opts.eval_round_robin:
+        _, policy_specs, _, _, use_weights_only = _resolve_eval_policy_specs(opts)
+        required_exports = [*CANARY_REQUIRED_EXPORTS, *EVAL_REQUIRED_EXPORTS]
+        eval_policy_specs = tuple({**sp, "weights_only": use_weights_only} for sp in policy_specs)
+
     return _SizedModePlan(
         job_id=f"v3-ppo-canary-{ctx.gpu_slug}-{opts.attempt}",
         est_minutes=est_minutes,
@@ -680,7 +787,7 @@ def _size_canary_mode(
         eff_sec=eff_sec,
         max_wall_sec_int=max_wall_sec_int,
         extra_env=extra_env,
-        required_exports=list(CANARY_REQUIRED_EXPORTS),
+        required_exports=required_exports,
         resume_fields={
             "resume_exemption": {
                 "kind": "short-canary",
@@ -691,6 +798,7 @@ def _size_canary_mode(
             }
         },
         canary_block=ctx.canary_block,
+        eval_policy_specs=eval_policy_specs,
     )
 
 
@@ -1044,6 +1152,318 @@ def _size_train_mode(
     )
 
 
+def _resolve_eval_policy_specs(
+    opts: PreparePacketOptions,
+) -> tuple[str, list[dict[str, Any]], GameV3Config, int, bool]:
+    """Validate and resolve eval mode, checkpoint metadata, game_config, and weights-only flag."""
+    if opts.eval_weights_only not in ("auto", "true", "false"):
+        raise ValueError(
+            f"eval_weights_only must be 'auto', 'true', or 'false', got {opts.eval_weights_only!r}"
+        )
+
+    eff_eval_mode = opts.eval_mode
+    if eff_eval_mode is not None and eff_eval_mode not in EVAL_MODES:
+        raise ValueError(f"eval_mode must be one of {EVAL_MODES}, got {eff_eval_mode!r}")
+
+    if eff_eval_mode is None:
+        if opts.eval_round_robin:
+            eff_eval_mode = "round-robin"
+        elif len(opts.eval_policies) == 1:
+            eff_eval_mode = "long-game"
+        elif len(opts.eval_policies) >= 2:
+            eff_eval_mode = "head-to-head"
+        else:
+            raise ValueError(
+                "--mode eval requires --eval-policies (1 for long-game, 2..6 for head-to-head) "
+                "or --eval-round-robin DIR_OR_LIST"
+            )
+
+    if eff_eval_mode == "round-robin":
+        sources = opts.eval_round_robin if opts.eval_round_robin else opts.eval_policies
+        if not sources:
+            raise ValueError(
+                "--eval-mode round-robin requires --eval-round-robin or --eval-policies"
+            )
+        ckpt_paths = discover_round_robin_checkpoints(sources)
+    elif eff_eval_mode == "long-game":
+        if len(opts.eval_policies) != 1:
+            raise ValueError(
+                f"--eval-mode long-game requires exactly 1 checkpoint via --eval-policies, "
+                f"got {len(opts.eval_policies)}"
+            )
+        ckpt_paths = [Path(opts.eval_policies[0]).resolve()]
+    else:
+        if not (2 <= len(opts.eval_policies) <= 6):
+            raise ValueError(
+                f"--eval-mode head-to-head requires 2 to 6 checkpoints via --eval-policies, "
+                f"got {len(opts.eval_policies)}"
+            )
+        ckpt_paths = [Path(p).resolve() for p in opts.eval_policies]
+
+    labels = resolve_unique_labels(ckpt_paths, opts.eval_labels)
+
+    # Structurally verify every checkpoint on Mac before staging and check game_config compatibility
+    policy_specs: list[dict[str, Any]] = []
+    ref_game_dict: dict[str, Any] | None = None
+    ref_layout_dict: dict[str, Any] | None = None
+    raw_total_bytes = 0
+    for idx, (c_path, lbl) in enumerate(zip(ckpt_paths, labels)):
+        payload, c_sha, c_size = _load_checkpoint_payload(c_path)
+        c_cfg = V3PPOConfig.from_dict(payload["config"])
+        c_layout = obs_layout_from_game_config(c_cfg.game_config).to_dict()
+        if payload.get("obs_layout") is not None and payload["obs_layout"] != c_layout:
+            raise ValueError(f"Checkpoint {c_path} obs_layout does not match its game_config")
+        g_dict = c_cfg.game_config.to_dict()
+        if ref_game_dict is None:
+            ref_game_dict = g_dict
+            ref_layout_dict = c_layout
+        elif g_dict != ref_game_dict or c_layout != ref_layout_dict:
+            raise ValueError(f"Incompatible game_config/obs_layout in {c_path} vs {ckpt_paths[0]}")
+        raw_total_bytes += int(c_size)
+        safe_slug = re.sub(r"[^A-Za-z0-9._-]+", "_", lbl).strip("_") or f"p{idx:02d}"
+        policy_specs.append(
+            {
+                "index": idx,
+                "label": lbl,
+                "safe_slug": safe_slug[:40],
+                "src_path": str(c_path),
+                "src_sha256": c_sha,
+                "raw_size_bytes": int(c_size),
+                "net_size": c_cfg.net_size,
+                "game_config": g_dict,
+            }
+        )
+
+    assert ref_game_dict is not None
+    eval_game_cfg = GameV3Config.from_dict({**ref_game_dict, "max_life_ticks": 0})
+    use_weights_only = (
+        True
+        if opts.eval_weights_only == "true"
+        else (
+            False
+            if opts.eval_weights_only == "false"
+            else (raw_total_bytes > EVAL_RAW_UPLOAD_AUTO_STRIP_THRESHOLD_BYTES)
+        )
+    )
+    return eff_eval_mode, policy_specs, eval_game_cfg, raw_total_bytes, use_weights_only
+
+
+def _size_eval_mode(
+    opts: PreparePacketOptions,
+    ctx: _ValidatedPacketContext,
+) -> _SizedModePlan:
+    """Resolve and validate standalone policy evaluation packet (`head-to-head`, `round-robin`, `long-game`)."""
+    (
+        eff_eval_mode,
+        policy_specs,
+        eval_game_cfg,
+        raw_total_bytes,
+        use_weights_only,
+    ) = _resolve_eval_policy_specs(opts)
+    n_snakes = int(eval_game_cfg.num_snakes)
+
+    if eff_eval_mode == "long-game":
+        eff_envs = DEFAULT_LONG_GAME_NUM_ENVS if opts.num_envs is None else int(opts.num_envs)
+        eff_burnin = (
+            DEFAULT_LONG_GAME_BURNIN_TICKS
+            if opts.eval_burnin_ticks is None
+            else int(opts.eval_burnin_ticks)
+        )
+        eff_window = (
+            DEFAULT_LONG_GAME_WINDOW_TICKS
+            if opts.eval_window_ticks is None
+            else int(opts.eval_window_ticks)
+        )
+    else:
+        eff_envs = DEFAULT_H2H_NUM_ENVS if opts.num_envs is None else int(opts.num_envs)
+        eff_burnin = (
+            DEFAULT_H2H_BURNIN_TICKS
+            if opts.eval_burnin_ticks is None
+            else int(opts.eval_burnin_ticks)
+        )
+        eff_window = (
+            DEFAULT_H2H_WINDOW_TICKS
+            if opts.eval_window_ticks is None
+            else int(opts.eval_window_ticks)
+        )
+
+    if eff_envs < 1:
+        raise ValueError(f"eval num_envs must be >= 1, got {eff_envs}")
+    if eff_burnin < 0:
+        raise ValueError(f"eval burnin_ticks must be >= 0, got {eff_burnin}")
+    if eff_window < 6:
+        raise ValueError(f"eval window_ticks must be >= 6, got {eff_window}")
+    est_staged_bytes = sum(
+        (
+            int(get_net_preset(sp["net_size"]).exact_param_count * 4 + 65536)
+            if use_weights_only
+            else int(sp["raw_size_bytes"])
+        )
+        for sp in policy_specs
+    )
+
+    # Validate GPU VRAM budget (sim + full obs batch + resident policy weights + forward workspace)
+    budget_bytes = GPU_VRAM_BUDGET_BYTES[ctx.gpu_norm]
+    sim_mem = estimate_sim_memory_bytes(eval_game_cfg, eff_envs)
+    obs_bytes = int(eff_envs) * n_snakes * int(OBS_BATCH_BYTES_PER_ROW)
+    weights_bytes = sum(
+        int(get_net_preset(sp["net_size"]).memory_model_param_count) * 4 for sp in policy_specs
+    )
+    fwd_act_bytes = max(
+        int(get_net_preset(sp["net_size"]).actor_fwd_act_bytes_per_row_bf16)
+        * min(
+            int(eff_envs) * n_snakes,
+            int(get_net_preset(sp["net_size"]).default_actor_chunk_learners),
+        )
+        for sp in policy_specs
+    )
+    cuda_overhead_bytes = 1_200_000_000
+    est_peak_bytes = int(
+        sim_mem["sim_peak_bytes"] + obs_bytes + weights_bytes + fwd_act_bytes + cuda_overhead_bytes
+    )
+    if est_peak_bytes > budget_bytes:
+        raise ValueError(
+            f"Refusing eval packet on {ctx.gpu_norm}: estimated peak VRAM "
+            f"{est_peak_bytes / 1e9:.2f} GB exceeds {budget_bytes / 1e9:.2f} GB budget."
+        )
+
+    # Estimate compute wall seconds on target GPU
+    gpu_rates = EVAL_GPU_AGENT_STEPS_PER_SEC[ctx.gpu_norm]
+    ticks_per_match = eff_burnin + eff_window
+    steps_per_match = int(eff_envs) * n_snakes * ticks_per_match
+
+    if eff_eval_mode == "round-robin":
+        reused_pair_ids = {p.stem for p in ctx.prior.eval_pair_paths}
+        total_pairs = (len(policy_specs) * (len(policy_specs) - 1)) // 2
+        est_compute_sec = 0.0
+        remaining_pairs = 0
+        for i in range(len(policy_specs)):
+            for j in range(i + 1, len(policy_specs)):
+                uid = f"pair_{i:02d}_{j:02d}"
+                if uid in reused_pair_ids:
+                    continue
+                remaining_pairs += 1
+                ri = gpu_rates[policy_specs[i]["net_size"]]
+                rj = gpu_rates[policy_specs[j]["net_size"]]
+                pair_rate = 2.0 / (1.0 / ri + 1.0 / rj)
+                est_compute_sec += float(steps_per_match) / pair_rate
+    else:
+        total_pairs = 1
+        remaining_pairs = 1
+        inv_mean = sum(1.0 / gpu_rates[sp["net_size"]] for sp in policy_specs) / len(policy_specs)
+        eff_rate = 1.0 / inv_mean
+        est_compute_sec = float(steps_per_match) / eff_rate
+
+    if opts.expected_steps_per_sec is not None and float(opts.expected_steps_per_sec) > 0:
+        est_compute_sec = float(remaining_pairs * steps_per_match) / float(
+            opts.expected_steps_per_sec
+        )
+
+    session_cap_min = float(opts.eval_session_minutes)
+    if session_cap_min <= 0 or not math.isfinite(session_cap_min):
+        raise ValueError(f"eval_session_minutes must be finite and > 0, got {session_cap_min}")
+
+    upload_allowance_sec = float(est_staged_bytes) / float(
+        ASSUMED_STAGED_INPUT_UPLOAD_RATE_BYTES_PER_SEC
+    )
+    setup_and_export_sec = 210.0 + upload_allowance_sec
+    max_session_sec = session_cap_min * 60.0
+    available_compute_sec = max_session_sec - setup_and_export_sec
+    if est_compute_sec > available_compute_sec:
+        raise ValueError(
+            f"Refusing eval packet ({eff_eval_mode}, {len(policy_specs)} policies, "
+            f"E={eff_envs}, ticks={ticks_per_match}): estimated {ctx.gpu_norm} compute "
+            f"{est_compute_sec / 60.0:.1f} min + staging/teardown {setup_and_export_sec / 60.0:.1f} min "
+            f"exceeds {session_cap_min:.1f} min session cap. Lower --num-envs / ticks, pass fewer "
+            "policies, or raise --eval-session-minutes."
+        )
+
+    base_total_min = max(4.0, (est_compute_sec + setup_and_export_sec) / 60.0)
+    est_minutes = round(base_total_min, 2)
+    # supervisor.validate() enforces timeout_minutes >= 2 * est_minutes (Owner's 2x rule)
+    timeout_minutes = round(max(15.0, 2.0 * est_minutes), 2)
+    headroom_sec = min(360.0, max(120.0, setup_and_export_sec))
+    wall_guard_sec = int(max(60.0, timeout_minutes * 60.0 - headroom_sec))
+
+    eff_amp = True if opts.amp is None else bool(opts.amp)
+    eff_cl = True if opts.use_channels_last is None else bool(opts.use_channels_last)
+    eff_fast = True if opts.fast_learner_ops is None else bool(opts.fast_learner_ops)
+
+    extra_env: dict[str, str] = {
+        "V3_PPO_EVAL_MODE": eff_eval_mode,
+        "V3_PPO_EVAL_NUM_ENVS": str(eff_envs),
+        "V3_PPO_EVAL_BURNIN_TICKS": str(eff_burnin),
+        "V3_PPO_EVAL_WINDOW_TICKS": str(eff_window),
+        "V3_PPO_EVAL_MASS_BIN_TICKS": str(int(opts.eval_mass_bin_ticks)),
+        "V3_PPO_EVAL_WORLD_AGE_BINS": str(int(opts.eval_world_age_bins)),
+        "V3_PPO_EVAL_SEED": str(int(opts.eval_seed)),
+        "V3_PPO_AMP": "1" if eff_amp else "0",
+        "V3_PPO_CHANNELS_LAST": "1" if eff_cl else "0",
+        "V3_PPO_MAX_WALL_SECONDS": str(wall_guard_sec),
+    }
+    if opts.learner_slots is not None:
+        extra_env["V3_PPO_EVAL_LEARNER_SLOTS"] = str(int(opts.learner_slots))
+    if opts.opponent_policy is not None:
+        extra_env["V3_PPO_EVAL_OPPONENT_POLICY"] = str(opts.opponent_policy)
+    if opts.eval_greedy:
+        extra_env["V3_PPO_EVAL_GREEDY"] = "1"
+    if opts.compile_model:
+        extra_env["V3_PPO_COMPILE"] = "1"
+    if not eff_fast:
+        extra_env["V3_PPO_FAST_LEARNER_OPS"] = "0"
+
+    eval_plan = {
+        "eval_mode": eff_eval_mode,
+        "num_policies": len(policy_specs),
+        "total_pairs": total_pairs,
+        "remaining_pairs": remaining_pairs,
+        "num_envs": eff_envs,
+        "burnin_ticks": eff_burnin,
+        "window_ticks": eff_window,
+        "ticks_per_match": ticks_per_match,
+        "agent_steps_per_match": steps_per_match,
+        "total_agent_steps": remaining_pairs * steps_per_match,
+        "estimated_compute_seconds": round(est_compute_sec, 2),
+        "estimated_compute_minutes": round(est_compute_sec / 60.0, 2),
+        "estimated_staging_and_teardown_seconds": round(setup_and_export_sec, 2),
+        "raw_checkpoints_total_bytes": raw_total_bytes,
+        "estimated_staged_inputs_bytes": est_staged_bytes,
+        "weights_only_staged": use_weights_only,
+        "session_cap_minutes": session_cap_min,
+    }
+    memory_estimate = {
+        "gpu": ctx.gpu_norm,
+        "budget_bytes": budget_bytes,
+        "estimated_peak_bytes": est_peak_bytes,
+        "sim_persistent_bytes": int(sim_mem["sim_persistent_bytes"]),
+        "obs_batch_bytes": obs_bytes,
+        "policy_weights_bytes": weights_bytes,
+    }
+
+    return _SizedModePlan(
+        job_id=f"v3-ppo-eval-{ctx.gpu_slug}-{opts.attempt}",
+        est_minutes=est_minutes,
+        timeout_minutes=timeout_minutes,
+        base_sec=est_minutes * 60.0,
+        eff_sec=timeout_minutes * 60.0,
+        max_wall_sec_int=wall_guard_sec,
+        extra_env=extra_env,
+        required_exports=list(EVAL_REQUIRED_EXPORTS),
+        resume_fields={
+            "resume": {
+                "unit_kind": "eval_unit",
+                "ledger_path": "inputs/verified-ledger.json",
+                "skip_verified": True,
+                "max_outcome_blind_retries": 2,
+            }
+        },
+        canary_block=ctx.canary_block,
+        memory_estimate=memory_estimate,
+        eval_plan=eval_plan,
+        eval_policy_specs=tuple({**sp, "weights_only": use_weights_only} for sp in policy_specs),
+    )
+
+
 def _stage_size_and_memory_checks(
     opts: PreparePacketOptions,
     ctx: _ValidatedPacketContext,
@@ -1053,6 +1473,8 @@ def _stage_size_and_memory_checks(
         return _size_canary_mode(opts, ctx)
     if opts.mode == "ruler":
         return _size_ruler_mode(opts, ctx)
+    if opts.mode == "eval":
+        return _size_eval_mode(opts, ctx)
     return _size_train_mode(opts, ctx)
 
 
@@ -1069,6 +1491,12 @@ def _stage_export_caps(
             max_export_bytes=320 * 1024 * 1024,
         )
     if opts.mode == "ruler":
+        return _CappedModePlan(
+            sized=sized,
+            extra_env=dict(sized.extra_env),
+            max_export_bytes=128 * 1024 * 1024,
+        )
+    if opts.mode == "eval":
         return _CappedModePlan(
             sized=sized,
             extra_env=dict(sized.extra_env),
@@ -1226,16 +1654,80 @@ def _stage_inputs(
     """Stage 4: Stage prior continuation artifacts, write verified ledger, and check input sizes."""
     pkt_inputs_dir = pkt_dir / "inputs"
     pkt_inputs_dir.mkdir(parents=True, exist_ok=True)
+    unit_kind = (
+        "eval_unit"
+        if capped.sized.eval_policy_specs
+        else (
+            str(capped.sized.resume_fields["resume"]["unit_kind"])
+            if "resume" in capped.sized.resume_fields
+            else "checkpoint"
+        )
+    )
     ledger: dict[str, Any] = {
         "schema": "v3-ppo-verified-ledger/v1",
         "namespace": V3_PPO_NAMESPACE,
-        "unit_kind": "checkpoint",
+        "unit_kind": unit_kind,
         "skip_verified": True,
         "verified_units": [],
     }
     inputs_list: list[dict[str, str]] = []
 
-    if ctx.prior.kind == "ruler_cells":
+    if capped.sized.eval_policy_specs:
+        eval_entries: list[dict[str, Any]] = []
+        for sp in capped.sized.eval_policy_specs:
+            src_p = Path(sp["src_path"])
+            ext = ".eval.pt" if sp["weights_only"] else ".pt"
+            fname = f"policy_{int(sp['index']):02d}_{sp['safe_slug']}{ext}"
+            rel_dest = f"policies/{fname}"
+            dst_file = pkt_inputs_dir / "policies" / fname
+            if sp["weights_only"]:
+                p_sha = write_weights_only_eval_bundle(src_p, dst_file)
+            else:
+                p_sha = write_create_only_artifact(
+                    dst_file, lambda tmp, src=src_p: shutil.copyfile(src, tmp)
+                )
+            p_size = int(dst_file.stat().st_size)
+            inputs_list.append({"path": str(dst_file), "dest": rel_dest, "sha256": p_sha})
+            eval_entries.append(
+                {
+                    "index": int(sp["index"]),
+                    "label": str(sp["label"]),
+                    "relpath": rel_dest,
+                    "sha256": p_sha,
+                    "size_bytes": p_size,
+                    "source_checkpoint_path": str(src_p),
+                    "source_checkpoint_sha256": str(sp["src_sha256"]),
+                    "raw_checkpoint_size_bytes": int(sp["raw_size_bytes"]),
+                    "weights_only": bool(sp["weights_only"]),
+                }
+            )
+            ledger["verified_units"].append(
+                {
+                    "unit_id": f"policy:{int(sp['index']):02d}",
+                    "relpath": rel_dest,
+                    "sha256": p_sha,
+                    "size_bytes": p_size,
+                }
+            )
+        ledger["eval_policies"] = eval_entries
+
+    if ctx.prior.kind == "eval_pairs":
+        for pair_json in ctx.prior.eval_pair_paths:
+            rel_dest = f"pairs/{pair_json.name}"
+            dst_file = pkt_inputs_dir / "pairs" / pair_json.name
+            p_sha = write_create_only_artifact(
+                dst_file, lambda tmp, src=pair_json: shutil.copyfile(src, tmp)
+            )
+            inputs_list.append({"path": str(dst_file), "dest": rel_dest, "sha256": p_sha})
+            ledger["verified_units"].append(
+                {
+                    "unit_id": f"pair:{pair_json.stem}",
+                    "relpath": rel_dest,
+                    "sha256": p_sha,
+                    "size_bytes": int(dst_file.stat().st_size),
+                }
+            )
+    elif ctx.prior.kind == "ruler_cells":
         for cell_json in ctx.prior.ruler_cell_paths:
             rel_dest = f"cells/{cell_json.name}"
             dst_file = pkt_inputs_dir / "cells" / cell_json.name
@@ -1439,6 +1931,17 @@ def _stage_write_manifest(
     if opts.allow_recipe_change:
         summary["allow_recipe_change"] = True
         summary["recipe_change"] = sized.recipe_change
+    if sized.eval_plan is not None:
+        staged_policy_bytes = sum(
+            int(e["size_bytes"]) for e in staged.ledger.get("eval_policies", [])
+        )
+        summary["eval_plan"] = {
+            **sized.eval_plan,
+            "staged_inputs_total_bytes": sum(
+                int(Path(inp["path"]).stat().st_size) for inp in staged.inputs_list
+            ),
+            "staged_policies_bytes": staged_policy_bytes,
+        }
     return summary
 
 
@@ -1489,6 +1992,18 @@ def prepare_v3_ppo_packet(
     max_periodic_full_exports: int | None = None,
     light_resume_margin_minutes: float | None = None,
     eval_estimated_seconds: float | None = None,
+    eval_mode: str | None = None,
+    eval_policies: Sequence[Path | str] = (),
+    eval_round_robin: Sequence[Path | str] = (),
+    eval_labels: Sequence[str] | None = None,
+    eval_burnin_ticks: int | None = None,
+    eval_window_ticks: int | None = None,
+    eval_mass_bin_ticks: int = DEFAULT_H2H_MASS_BIN_TICKS,
+    eval_world_age_bins: int = DEFAULT_LONG_GAME_WORLD_AGE_BINS,
+    eval_seed: int = DEFAULT_EVAL_SEED,
+    eval_greedy: bool = False,
+    eval_session_minutes: float = EVAL_DEFAULT_SESSION_MINUTES,
+    eval_weights_only: str = "auto",
     output_dir: Path | str | None = None,
     prior_output_dir: Path | str | None = None,
     prior_kind: str = "auto",
@@ -1542,6 +2057,18 @@ def prepare_v3_ppo_packet(
         max_periodic_full_exports=max_periodic_full_exports,
         light_resume_margin_minutes=light_resume_margin_minutes,
         eval_estimated_seconds=eval_estimated_seconds,
+        eval_mode=eval_mode,
+        eval_policies=tuple(Path(p) for p in eval_policies),
+        eval_round_robin=tuple(Path(p) for p in eval_round_robin),
+        eval_labels=tuple(eval_labels) if eval_labels is not None else None,
+        eval_burnin_ticks=eval_burnin_ticks,
+        eval_window_ticks=eval_window_ticks,
+        eval_mass_bin_ticks=eval_mass_bin_ticks,
+        eval_world_age_bins=eval_world_age_bins,
+        eval_seed=eval_seed,
+        eval_greedy=eval_greedy,
+        eval_session_minutes=eval_session_minutes,
+        eval_weights_only=eval_weights_only,
         output_dir=Path(output_dir) if output_dir is not None else None,
         prior_output_dir=Path(prior_output_dir) if prior_output_dir is not None else None,
         prior_kind=prior_kind,
@@ -1625,10 +2152,51 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-periodic-full-exports", type=int, default=None)
     parser.add_argument("--light-resume-margin-minutes", type=float, default=None)
     parser.add_argument("--eval-estimated-seconds", type=float, default=None)
+    parser.add_argument("--eval-mode", choices=EVAL_MODES, default=None)
+    parser.add_argument(
+        "--eval-policies",
+        "--policies",
+        dest="eval_policies",
+        nargs="+",
+        type=Path,
+        default=None,
+        help="Checkpoints to stage for --mode eval (1 for long-game, 2..6 for head-to-head).",
+    )
+    parser.add_argument(
+        "--eval-round-robin",
+        "--round-robin",
+        dest="eval_round_robin",
+        nargs="+",
+        type=Path,
+        default=None,
+        help="Directory, .txt/.json list, or checkpoints for --mode eval round-robin.",
+    )
+    parser.add_argument(
+        "--eval-labels", "--labels", dest="eval_labels", nargs="+", type=str, default=None
+    )
+    parser.add_argument(
+        "--eval-burnin-ticks", "--burnin-ticks", dest="eval_burnin_ticks", type=int, default=None
+    )
+    parser.add_argument(
+        "--eval-window-ticks", "--window-ticks", dest="eval_window_ticks", type=int, default=None
+    )
+    parser.add_argument("--eval-mass-bin-ticks", type=int, default=DEFAULT_H2H_MASS_BIN_TICKS)
+    parser.add_argument("--eval-world-age-bins", type=int, default=DEFAULT_LONG_GAME_WORLD_AGE_BINS)
+    parser.add_argument(
+        "--eval-seed", "--seed", dest="eval_seed", type=int, default=DEFAULT_EVAL_SEED
+    )
+    parser.add_argument("--eval-greedy", "--greedy", dest="eval_greedy", action="store_true")
+    parser.add_argument("--eval-session-minutes", type=float, default=EVAL_DEFAULT_SESSION_MINUTES)
+    parser.add_argument(
+        "--eval-weights-only",
+        choices=("auto", "true", "false"),
+        default="auto",
+        help="Strip optimizer state into weights-only eval inputs: auto (>150 MiB), true, or false.",
+    )
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--prior-output-dir", type=Path, default=None)
     parser.add_argument(
-        "--prior-kind", choices=("auto", "checkpoint", "ruler_cells"), default="auto"
+        "--prior-kind", choices=("auto", "checkpoint", "ruler_cells", "eval_pairs"), default="auto"
     )
     parser.add_argument("--canary-receipt", type=Path, default=None)
     parser.add_argument("--allow-missing-canary-receipt", action="store_true")
@@ -1662,7 +2230,7 @@ def options_from_cli_args(
     parser: argparse.ArgumentParser | None = None,
 ) -> PreparePacketOptions:
     """Construct ``PreparePacketOptions`` from parsed CLI ``args``."""
-    if args.mode in ("ruler", "train") and args.canary_receipt is None:
+    if args.mode in ("ruler", "train", "eval") and args.canary_receipt is None:
         if not args.allow_missing_canary_receipt:
             msg = (
                 f"--mode {args.mode} requires --canary-receipt <path/to/receipt.json> "
@@ -1723,6 +2291,18 @@ def options_from_cli_args(
         max_periodic_full_exports=args.max_periodic_full_exports,
         light_resume_margin_minutes=args.light_resume_margin_minutes,
         eval_estimated_seconds=args.eval_estimated_seconds,
+        eval_mode=args.eval_mode,
+        eval_policies=tuple(args.eval_policies or ()),
+        eval_round_robin=tuple(args.eval_round_robin or ()),
+        eval_labels=tuple(args.eval_labels) if args.eval_labels is not None else None,
+        eval_burnin_ticks=args.eval_burnin_ticks,
+        eval_window_ticks=args.eval_window_ticks,
+        eval_mass_bin_ticks=args.eval_mass_bin_ticks,
+        eval_world_age_bins=args.eval_world_age_bins,
+        eval_seed=args.eval_seed,
+        eval_greedy=bool(args.eval_greedy),
+        eval_session_minutes=args.eval_session_minutes,
+        eval_weights_only=args.eval_weights_only,
         output_dir=args.output_dir,
         prior_output_dir=args.prior_output_dir,
         prior_kind=args.prior_kind,
