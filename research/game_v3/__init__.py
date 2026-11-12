@@ -1,6 +1,13 @@
 """Game V3.1: GPU-first deterministic fixed-point slither-like simulator."""
 
-from research.game_v3.config import NUM_ACTIONS, NUM_TURN_LEVELS, GameV3Config
+from research.game_v3.config import (
+    MAX_SNAKES,
+    NUM_ACTIONS,
+    NUM_TURN_LEVELS,
+    OCC_OWNER_BITS,
+    OCC_OWNER_MASK,
+    GameV3Config,
+)
 from research.game_v3.obs import (
     NUM_RASTER_CHANNELS,
     NUM_SCALAR_FEATURES,
@@ -19,10 +26,13 @@ __all__ = [
     "GameV3Config",
     "GameV3Sim",
     "LearnerIndex",
+    "MAX_SNAKES",
     "NUM_ACTIONS",
     "NUM_RASTER_CHANNELS",
     "NUM_SCALAR_FEATURES",
     "NUM_TURN_LEVELS",
+    "OCC_OWNER_BITS",
+    "OCC_OWNER_MASK",
     "ObservationBatch",
     "ReferenceObservation",
     "ReferenceStepInfo",

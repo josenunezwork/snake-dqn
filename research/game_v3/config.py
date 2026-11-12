@@ -26,6 +26,47 @@ BOOST_ACCUM_ONE: int = 1 << BOOST_ACCUM_SHIFT  # 1024
 NUM_TURN_LEVELS: int = 5
 NUM_ACTIONS: int = 10  # 5 turn levels {-1, -0.5, 0, +0.5, +1} x {normal, boost}
 
+# 1x occupancy bit layout (signed int32):
+# - Empty sentinel is -1.
+# - Non-empty cells pack ``(subtick << OCC_OWNER_BITS) | owner_code`` where ``occ_hi``
+#   stores ``owner_code = slot_id`` and ``occ_lo`` stores ``OCC_OWNER_MASK - slot_id``.
+# - Non-negative signed int32 requires ``0 <= subtick <= MAX_OCC_SUBTICK``.
+OCC_OWNER_BITS: int = 6
+MAX_SNAKES: int = 1 << OCC_OWNER_BITS  # 64
+OCC_OWNER_MASK: int = MAX_SNAKES - 1  # 63
+OCC_SUBTICK_BITS: int = 31 - OCC_OWNER_BITS  # 25
+MAX_OCC_SUBTICK: int = (1 << OCC_SUBTICK_BITS) - 1  # 33,554,431
+
+
+def pack_occ_hi(subtick: Any, slot_id: Any) -> Any:
+    """Pack ``(subtick, slot_id)`` into signed ``int32`` ``occ_hi`` format."""
+    return (subtick << OCC_OWNER_BITS) | slot_id
+
+
+def pack_occ_lo(subtick: Any, slot_id: Any) -> Any:
+    """Pack ``(subtick, slot_id)`` into signed ``int32`` ``occ_lo`` format."""
+    return (subtick << OCC_OWNER_BITS) | (OCC_OWNER_MASK - slot_id)
+
+
+def decode_occ_owner_hi(packed: Any) -> Any:
+    """Decode ``slot_id`` from a non-negative ``occ_hi`` entry."""
+    return packed & OCC_OWNER_MASK
+
+
+def decode_occ_owner_lo(packed: Any) -> Any:
+    """Decode ``slot_id`` from a non-negative ``occ_lo`` entry."""
+    return OCC_OWNER_MASK - (packed & OCC_OWNER_MASK)
+
+
+def decode_occ_subtick(packed: Any) -> Any:
+    """Extract the packed subtick from a non-negative ``occ_hi`` or ``occ_lo`` entry."""
+    return packed >> OCC_OWNER_BITS
+
+
+def occ_entry_active(packed: Any, min_active_subtick: Any) -> Any:
+    """Return boolean mask where ``packed`` is non-empty and its subtick >= ``min_active_subtick``."""
+    return (packed >= 0) & ((packed >> OCC_OWNER_BITS) >= min_active_subtick)
+
 
 @dataclass(frozen=True)
 class GameV3Config:
@@ -87,8 +128,11 @@ class GameV3Config:
 
         if not (0.0 < self.arena_radius <= 2000.0):
             raise ValueError(f"arena_radius must be in (0, 2000], got {self.arena_radius}")
-        if not (6 <= self.num_snakes <= 64):
-            raise ValueError(f"num_snakes must be in [6, 64], got {self.num_snakes}")
+        if not (6 <= self.num_snakes <= MAX_SNAKES):
+            raise ValueError(
+                f"num_snakes must be in [6, {MAX_SNAKES}] (derived from {OCC_OWNER_BITS}-bit "
+                f"occupancy owner layout), got {self.num_snakes}"
+            )
         if self.cell_size <= 0.0:
             raise ValueError(f"cell_size must be positive, got {self.cell_size}")
         if self.start_length < 2:

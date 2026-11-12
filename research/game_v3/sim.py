@@ -17,14 +17,24 @@ from research.game_v3.config import (
     FALLBACK_RING_SIZE,
     FP_HALF,
     FP_SHIFT,
+    MAX_OCC_SUBTICK,
+    MAX_SNAKES,
     NUM_ACTIONS,
     NUM_TURN_LEVELS,
+    OCC_OWNER_BITS,
+    OCC_OWNER_MASK,
+    OCC_SUBTICK_BITS,
     TRIG_HALF,
     TRIG_SHIFT,
     GameV3Config,
     build_fallback_spawns_np,
     build_length_tables_np,
     build_trig_tables_np,
+    decode_occ_owner_hi,
+    decode_occ_owner_lo,
+    occ_entry_active,
+    pack_occ_hi,
+    pack_occ_lo,
 )
 from research.game_v3.rng import (
     PURPOSE_AMBIENT_FOOD,
@@ -40,10 +50,7 @@ _INIT_SNAKE_CANDIDATES: int = 32
 _INIT_FOOD_BATCH_SIZE: int = 128
 _REBASE_ENV_CHUNK: int = 8
 
-# Packed 1x occupancy grids store ``(subtick << 6) | slot_code`` in signed int32,
-# so non-negative packed values require ``0 <= subtick <= (1 << 25) - 1``.
-MAX_OCC_SUBTICK: int = (1 << 25) - 1  # 33,554,431
-AUTO_REBASE_SUBTICK_THRESHOLD: int = 1 << 24  # 16,777,216
+AUTO_REBASE_SUBTICK_THRESHOLD: int = 1 << (OCC_SUBTICK_BITS - 1)  # 16,777,216
 CORPSE_GRID_MAX: int = 32767
 
 
@@ -652,6 +659,19 @@ class GameV3Sim:
         flipped = (th_m + (int(self.cfg.angle_steps) >> 1)) & angle_mask
         return torch.where(outward_dot > 0, flipped, th_m)
 
+    def _decode_pair_active(
+        self,
+        val_hi: torch.Tensor,
+        val_lo: torch.Tensor,
+        old_src: torch.Tensor,
+    ) -> torch.Tensor:
+        """Return boolean mask true where either ``occ_hi`` or ``occ_lo`` has an active owner."""
+        ow_hi = decode_occ_owner_hi(val_hi).clamp(0, self.N - 1).to(torch.int64)
+        act_hi = occ_entry_active(val_hi, old_src.gather(1, ow_hi))
+        ow_lo = decode_occ_owner_lo(val_lo).clamp(0, self.N - 1).to(torch.int64)
+        act_lo = occ_entry_active(val_lo, old_src.gather(1, ow_lo))
+        return act_hi | act_lo
+
     def _is_cell_occupied(
         self, flat_idx: torch.Tensor, oldest_subtick: torch.Tensor
     ) -> torch.Tensor:
@@ -664,13 +684,8 @@ class GameV3Sim:
             lo_src = self.occ_lo if e_cnt == self.E else self.occ_lo[:e_cnt]
             old_src = oldest_subtick if e_cnt == self.E else oldest_subtick[:e_cnt]
             val_hi = hi_src.view(e_cnt, -1).gather(1, flat_2d)
-            ow_hi = (val_hi & 63).clamp(0, self.N - 1).to(torch.int64)
-            act_hi = (val_hi >= 0) & ((val_hi >> 6) >= old_src.gather(1, ow_hi))
-
             val_lo = lo_src.view(e_cnt, -1).gather(1, flat_2d)
-            ow_lo = (63 - (val_lo & 63)).clamp(0, self.N - 1).to(torch.int64)
-            act_lo = (val_lo >= 0) & ((val_lo >> 6) >= old_src.gather(1, ow_lo))
-            return (act_hi | act_lo).view_as(flat_idx)
+            return self._decode_pair_active(val_hi, val_lo, old_src).view_as(flat_idx)
 
         out_2d = torch.empty_like(flat_2d, dtype=torch.bool)
         for e0 in range(0, e_cnt, eb_1x):
@@ -679,13 +694,8 @@ class GameV3Sim:
             f_sub = flat_2d[e0:e1]
             old_sub = oldest_subtick[e0:e1]
             val_hi = self.occ_hi[e0:e1].view(eb, -1).gather(1, f_sub)
-            ow_hi = (val_hi & 63).clamp(0, self.N - 1).to(torch.int64)
-            act_hi = (val_hi >= 0) & ((val_hi >> 6) >= old_sub.gather(1, ow_hi))
-
             val_lo = self.occ_lo[e0:e1].view(eb, -1).gather(1, f_sub)
-            ow_lo = (63 - (val_lo & 63)).clamp(0, self.N - 1).to(torch.int64)
-            act_lo = (val_lo >= 0) & ((val_lo >> 6) >= old_sub.gather(1, ow_lo))
-            out_2d[e0:e1] = act_hi | act_lo
+            out_2d[e0:e1] = self._decode_pair_active(val_hi, val_lo, old_sub)
         return out_2d.view_as(flat_idx)
 
     def _is_cell_occupied_rows(
@@ -705,13 +715,8 @@ class GameV3Sim:
             g_idx = (row_envs[:, None] * g2 + flat_2d).reshape(-1)
             old_sub = oldest_subtick.index_select(0, row_envs)
             v_hi = self.occ_hi.view(-1).index_select(0, g_idx).view_as(flat_2d)
-            ow_hi = (v_hi & 63).clamp(0, self.N - 1).to(torch.int64)
-            act_hi = (v_hi >= 0) & ((v_hi >> 6) >= old_sub.gather(1, ow_hi))
-
             v_lo = self.occ_lo.view(-1).index_select(0, g_idx).view_as(flat_2d)
-            ow_lo = (63 - (v_lo & 63)).clamp(0, self.N - 1).to(torch.int64)
-            act_lo = (v_lo >= 0) & ((v_lo >> 6) >= old_sub.gather(1, ow_lo))
-            return (act_hi | act_lo).view_as(flat_idx)
+            return self._decode_pair_active(v_hi, v_lo, old_sub).view_as(flat_idx)
 
         out_2d = torch.zeros_like(flat_2d, dtype=torch.bool)
         for e0 in range(0, self.E, eb_1x):
@@ -724,16 +729,9 @@ class GameV3Sim:
             f_sub = flat_2d.index_select(0, rows)
             g_idx = (local_e[:, None] * g2 + f_sub).reshape(-1)
             old_sub = oldest_subtick.index_select(0, row_envs.index_select(0, rows))
-
             v_hi = self.occ_hi[e0:e1].view(-1).index_select(0, g_idx).view_as(f_sub)
-            ow_hi = (v_hi & 63).clamp(0, self.N - 1).to(torch.int64)
-            act_hi = (v_hi >= 0) & ((v_hi >> 6) >= old_sub.gather(1, ow_hi))
-
             v_lo = self.occ_lo[e0:e1].view(-1).index_select(0, g_idx).view_as(f_sub)
-            ow_lo = (63 - (v_lo & 63)).clamp(0, self.N - 1).to(torch.int64)
-            act_lo = (v_lo >= 0) & ((v_lo >> 6) >= old_sub.gather(1, ow_lo))
-
-            out_2d.index_copy_(0, rows, act_hi | act_lo)
+            out_2d.index_copy_(0, rows, self._decode_pair_active(v_hi, v_lo, old_sub))
         return out_2d.view_as(flat_idx)
 
     def _gather_1x_grid_chunked(self, grid: torch.Tensor, flat_idx: torch.Tensor) -> torch.Tensor:
@@ -879,9 +877,8 @@ class GameV3Sim:
             sy_c = sy.clamp(0, self.G - 1).to(torch.int64)
             idx_1x = (le[:, None] * (self.G * self.G) + sy_c * self.G + sx_c).reshape(-1)
 
-            st_shift = subtick_val << 6
-            cand_hi = ((st_shift | sids)[:, None].expand_as(sx)).reshape(-1)
-            cand_lo = ((st_shift | (63 - sids))[:, None].expand_as(sx)).reshape(-1)
+            cand_hi = (pack_occ_hi(subtick_val, sids)[:, None].expand_as(sx)).reshape(-1)
+            cand_lo = (pack_occ_lo(subtick_val, sids)[:, None].expand_as(sx)).reshape(-1)
 
             occ_hi_1d = self.occ_hi.view(-1)
             cur_hi = occ_hi_1d.index_select(0, idx_1x)
@@ -985,9 +982,8 @@ class GameV3Sim:
             sy_c = sy.clamp(0, self.G - 1).to(torch.int64)
             idx_1x = (le[:, None] * (self.G * self.G) + sy_c * self.G + sx_c).reshape(-1)
 
-            st_shift = subtick_val << 6
-            cand_hi = ((st_shift | sids)[:, None].expand_as(sx)).reshape(-1)
-            cand_lo = ((st_shift | (63 - sids))[:, None].expand_as(sx)).reshape(-1)
+            cand_hi = (pack_occ_hi(subtick_val, sids)[:, None].expand_as(sx)).reshape(-1)
+            cand_lo = (pack_occ_lo(subtick_val, sids)[:, None].expand_as(sx)).reshape(-1)
 
             occ_hi_1d = self.occ_hi[e0:e1].view(-1)
             cur_hi = occ_hi_1d.index_select(0, idx_1x)
@@ -1091,10 +1087,9 @@ class GameV3Sim:
         idx_1x = (env_local * (self.G * self.G) + sy_c * self.G + sx_c).reshape(-1)
         valid_1x_flat = valid_1x.reshape(-1)
 
-        st_shift = (st_p << 6)[..., None]
         sid_3d = slot_ids[..., None]
-        cand_hi = (st_shift | sid_3d).expand_as(sx).reshape(-1)
-        cand_lo = (st_shift | (63 - sid_3d)).expand_as(sx).reshape(-1)
+        cand_hi = pack_occ_hi(st_p, slot_ids)[..., None].expand_as(sx).reshape(-1)
+        cand_lo = pack_occ_lo(st_p, slot_ids)[..., None].expand_as(sx).reshape(-1)
 
         occ_hi_1d = self.occ_hi[e0:e1].view(-1)
         cur_hi = occ_hi_1d.index_select(0, idx_1x)
@@ -1285,18 +1280,19 @@ class GameV3Sim:
         self.oldest_active_subtick.masked_fill_(dead, new_sentinel)
         del dead
 
-        # 1x grids pack ``(st << 6) | code`` (0 <= code <= 63) or -1 in signed int32.
-        # For 1 <= shift_val < 2^25, ``shift_6 = shift_val << 6`` and ``exp_max_1x = shift_6 | 63``
-        # both fit in signed int32 (<= 2,147,483,647), and ``(g >= 0) & ((g >> 6) > shift_val)``
-        # holds iff ``g > exp_max_1x``. Filling expired cells (``g <= exp_max_1x``) with
-        # ``shift_6 - 1`` before ``sub_(shift_6)`` maps expired cells to -1 and active cells to
-        # ``((st - shift_val) << 6) | code`` with a single bool mask and zero int32 overflow.
-        if shift_val >= (1 << 25):
+        # 1x grids pack ``(st << OCC_OWNER_BITS) | code`` (0 <= code <= OCC_OWNER_MASK) or -1 in
+        # signed int32. For 1 <= shift_val < 2^OCC_SUBTICK_BITS, ``shift_6 = shift_val << OCC_OWNER_BITS``
+        # and ``exp_max_1x = shift_6 | OCC_OWNER_MASK`` both fit in signed int32, and
+        # ``(g >= 0) & ((g >> OCC_OWNER_BITS) > shift_val)`` holds iff ``g > exp_max_1x``.
+        # Filling expired cells (``g <= exp_max_1x``) with ``shift_6 - 1`` before ``sub_(shift_6)``
+        # maps expired cells to -1 and active cells to ``((st - shift_val) << OCC_OWNER_BITS) | code``
+        # with a single bool mask and zero int32 overflow.
+        if shift_val >= (1 << OCC_SUBTICK_BITS):
             self.occ_hi.fill_(-1)
             self.occ_lo.fill_(-1)
         else:
-            shift_6 = shift_val << 6
-            exp_max_1x = shift_6 | 63
+            shift_6 = shift_val << OCC_OWNER_BITS
+            exp_max_1x = shift_6 | OCC_OWNER_MASK
             pre_fill_1x = shift_6 - 1
             for e0 in range(0, self.E, _REBASE_ENV_CHUNK):
                 e1 = min(self.E, e0 + _REBASE_ENV_CHUNK)
@@ -2035,25 +2031,23 @@ class GameV3Sim:
         ).view(self.E, -1)
 
         occ_hi_k = self._gather_1x_grid_chunked(self.occ_hi, flat_k).view_as(hx_k)
-        ow_hi_k = occ_hi_k & 63
+        ow_hi_k = decode_occ_owner_hi(occ_hi_k)
         ow_hi_i64 = ow_hi_k.clamp(0, self.N - 1).to(torch.int64)
         st_tail_hi = pre_death_oldest_st.gather(1, ow_hi_i64.view(self.E, -1)).view_as(hx_k)
         hit_hi = (
             valid_k
-            & (occ_hi_k >= 0)
+            & occ_entry_active(occ_hi_k, st_tail_hi)
             & (ow_hi_k != self._snake_ids[:, :, None, None])
-            & ((occ_hi_k >> 6) >= st_tail_hi)
         )
 
         occ_lo_k = self._gather_1x_grid_chunked(self.occ_lo, flat_k).view_as(hx_k)
-        ow_lo_k = 63 - (occ_lo_k & 63)
+        ow_lo_k = decode_occ_owner_lo(occ_lo_k)
         ow_lo_i64 = ow_lo_k.clamp(0, self.N - 1).to(torch.int64)
         st_tail_lo = pre_death_oldest_st.gather(1, ow_lo_i64.view(self.E, -1)).view_as(hx_k)
         hit_lo = (
             valid_k
-            & (occ_lo_k >= 0)
+            & occ_entry_active(occ_lo_k, st_tail_lo)
             & (ow_lo_k != self._snake_ids[:, :, None, None])
-            & ((occ_lo_k >> 6) >= st_tail_lo)
         )
 
         en_cnt = self.E * self.N
@@ -2230,25 +2224,27 @@ class GameV3Sim:
         can_eat_food_k = can_eat_k & ((raw_amb > 0) | (raw_cor > 0)).view_as(can_eat_k)
 
         # O(E * N * K_eat * log(N * K_eat)) lowest-slot tie-break: all active keys
-        # ``(cell_flat << 6) | slot_id`` in a world are strictly distinct, so sorting
-        # places lowest slot first for every contested food cell with zero host syncs.
-        if self.G * self.G < (1 << 25):
+        # ``(cell_flat << OCC_OWNER_BITS) | slot_id`` in a world are strictly distinct, so
+        # sorting places lowest slot first for every contested food cell with zero host syncs.
+        if self.G * self.G < (1 << OCC_SUBTICK_BITS):
             sentinel_key = 0x7FFFFFFF
             eat_key = torch.where(
                 can_eat_food_k,
-                (flat_eat_3d.to(torch.int32) << 6) | self._snake_ids[:, :, None],
+                (flat_eat_3d.to(torch.int32) << OCC_OWNER_BITS) | self._snake_ids[:, :, None],
                 sentinel_key,
             ).view(self.E, -1)
         else:
             sentinel_key = 0x7FFFFFFFFFFFFFFF
             eat_key = torch.where(
                 can_eat_food_k,
-                (flat_eat_3d << 6) | self._snake_ids_i64[:, :, None],
+                (flat_eat_3d << OCC_OWNER_BITS) | self._snake_ids_i64[:, :, None],
                 sentinel_key,
             ).view(self.E, -1)
         sk, eat_perm = torch.sort(eat_key, dim=1)
         won_sorted = sk != sentinel_key
-        won_sorted[:, 1:] = won_sorted[:, 1:] & ((sk[:, 1:] >> 6) != (sk[:, :-1] >> 6))
+        won_sorted[:, 1:] = won_sorted[:, 1:] & (
+            (sk[:, 1:] >> OCC_OWNER_BITS) != (sk[:, :-1] >> OCC_OWNER_BITS)
+        )
         won_flat = torch.zeros_like(won_sorted)
         won_flat.scatter_(1, eat_perm, won_sorted)
 
@@ -2619,15 +2615,15 @@ class GameV3Sim:
             hi_sub = self.occ_hi[e0:e1]
             old_sub = self.oldest_active_subtick[e0:e1]
 
-            ow_lo = 63 - (lo_sub & 63)
+            ow_lo = decode_occ_owner_lo(lo_sub)
             ow_lo_i64 = ow_lo.clamp(0, self.N - 1).to(torch.int64)
             st_lo = old_sub.gather(1, ow_lo_i64.view(eb, -1)).view_as(lo_sub)
-            act_lo = (lo_sub >= 0) & ((lo_sub >> 6) >= st_lo)
+            act_lo = occ_entry_active(lo_sub, st_lo)
 
-            ow_hi = hi_sub & 63
+            ow_hi = decode_occ_owner_hi(hi_sub)
             ow_hi_i64 = ow_hi.clamp(0, self.N - 1).to(torch.int64)
             st_hi = old_sub.gather(1, ow_hi_i64.view(eb, -1)).view_as(hi_sub)
-            act_hi = (hi_sub >= 0) & ((hi_sub >> 6) >= st_hi)
+            act_hi = occ_entry_active(hi_sub, st_hi)
 
             full_n = torch.full_like(ow_lo, self.N)
             lowest = torch.minimum(

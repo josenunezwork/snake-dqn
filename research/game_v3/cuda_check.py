@@ -23,7 +23,7 @@ from research.game_v3.bench import (
     _tensor_bytes_of_sim_and_obs,
     benchmark_single_grid,
 )
-from research.game_v3.config import NUM_ACTIONS, GameV3Config
+from research.game_v3.config import NUM_ACTIONS, OCC_OWNER_BITS, GameV3Config
 from research.game_v3.obs import (
     NUM_RASTER_CHANNELS,
     NUM_SCALAR_FEATURES,
@@ -656,7 +656,7 @@ def _advance_subticks_chunked_for_rebase(sim: GameV3Sim, delta: int = 4096) -> N
     """Advance stored positive subticks in-place over 8-world chunks so rebase shift > 0."""
     chunk = 8
     d_int = int(delta)
-    shift_6 = d_int << 6
+    shift_6 = d_int << OCC_OWNER_BITS
     sim.tick += d_int
     sim.oldest_active_subtick.add_(d_int)
     for e0 in range(0, sim.E, chunk):

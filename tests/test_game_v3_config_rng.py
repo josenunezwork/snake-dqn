@@ -11,11 +11,21 @@ import torch
 
 from research.game_v3.config import (
     FP_ONE,
+    MAX_OCC_SUBTICK,
+    MAX_SNAKES,
     NUM_ACTIONS,
+    OCC_OWNER_BITS,
+    OCC_OWNER_MASK,
     TRIG_ONE,
     GameV3Config,
     build_length_tables_np,
     build_trig_tables_np,
+    decode_occ_owner_hi,
+    decode_occ_owner_lo,
+    decode_occ_subtick,
+    occ_entry_active,
+    pack_occ_hi,
+    pack_occ_lo,
 )
 from research.game_v3.rng import (
     PURPOSE_AMBIENT_FOOD,
@@ -105,6 +115,34 @@ def test_config_validation_bounds() -> None:
         GameV3Config(ambient_pellet_value=256)  # ambient_grid is uint8 [0, 255].
     with pytest.raises(ValueError):
         GameV3Config(angle_steps=4000)  # Must be power of 2.
+
+
+def test_occupancy_bit_layout_pack_decode_and_derived_snake_cap() -> None:
+    """Occupancy pack/decode helpers round-trip all 64 slots and derive MAX_SNAKES."""
+    assert MAX_SNAKES == (1 << OCC_OWNER_BITS) == 64
+    assert OCC_OWNER_MASK == MAX_SNAKES - 1 == 63
+    assert GameV3Config(num_snakes=MAX_SNAKES).num_snakes == MAX_SNAKES
+    with pytest.raises(ValueError, match=str(MAX_SNAKES)):
+        GameV3Config(num_snakes=MAX_SNAKES + 1)
+
+    slots = torch.arange(MAX_SNAKES, dtype=torch.int32)
+    for st in (0, 1, 42, MAX_OCC_SUBTICK):
+        hi = pack_occ_hi(st, slots)
+        lo = pack_occ_lo(st, slots)
+        assert hi.dtype == torch.int32 and lo.dtype == torch.int32
+        assert bool((hi >= 0).all()) and bool((lo >= 0).all())
+        assert torch.equal(decode_occ_owner_hi(hi), slots)
+        assert torch.equal(decode_occ_owner_lo(lo), slots)
+        assert torch.equal(decode_occ_subtick(hi), torch.full_like(slots, st))
+        assert torch.equal(decode_occ_subtick(lo), torch.full_like(slots, st))
+        assert bool(occ_entry_active(hi, st).all())
+        assert bool(occ_entry_active(lo, st).all())
+        if st < MAX_OCC_SUBTICK:
+            assert not bool(occ_entry_active(hi, st + 1).any())
+            assert not bool(occ_entry_active(lo, st + 1).any())
+
+    empty = torch.full((MAX_SNAKES,), -1, dtype=torch.int32)
+    assert not bool(occ_entry_active(empty, 0).any())
 
 
 def test_body_radius_turn_slowdown_and_integer_tables() -> None:

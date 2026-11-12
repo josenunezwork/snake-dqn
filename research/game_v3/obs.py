@@ -46,6 +46,9 @@ from research.game_v3.config import (
     TRIG_ONE,
     TRIG_SHIFT,
     GameV3Config,
+    decode_occ_owner_hi,
+    decode_occ_owner_lo,
+    occ_entry_active,
 )
 from research.game_v3.reference import ReferenceWorld
 from research.game_v3.sim import GameV3Sim
@@ -534,15 +537,15 @@ def _fill_scale_raster_learners_torch(
 
             occ_hi_sub = sim.occ_hi[e0:e1].view(-1)
             v_hi = occ_hi_sub.index_select(0, g_idx).view(mc, num_pix)
-            ow_hi = v_hi & 63
+            ow_hi = decode_occ_owner_hi(v_hi)
             ow_hi_i64 = ow_hi.clamp(0, sim.N - 1).to(torch.int64)
-            act_hi = in_flat & (v_hi >= 0) & ((v_hi >> 6) >= oldest_e.gather(1, ow_hi_i64))
+            act_hi = in_flat & occ_entry_active(v_hi, oldest_e.gather(1, ow_hi_i64))
 
             occ_lo_sub = sim.occ_lo[e0:e1].view(-1)
             v_lo = occ_lo_sub.index_select(0, g_idx).view(mc, num_pix)
-            ow_lo = 63 - (v_lo & 63)
+            ow_lo = decode_occ_owner_lo(v_lo)
             ow_lo_i64 = ow_lo.clamp(0, sim.N - 1).to(torch.int64)
-            act_lo = in_flat & (v_lo >= 0) & ((v_lo >> 6) >= oldest_e.gather(1, ow_lo_i64))
+            act_lo = in_flat & occ_entry_active(v_lo, oldest_e.gather(1, ow_lo_i64))
 
             self_col = ln_i32[:, None]
             is_own = (act_hi & (ow_hi == self_col)) | (act_lo & (ow_lo == self_col))
