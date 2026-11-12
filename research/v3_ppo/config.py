@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import math
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass, field, fields
+from dataclasses import asdict, dataclass, field, fields, replace
 from pathlib import Path
 from typing import Any, Literal
 
@@ -484,6 +484,7 @@ class V3PPOConfig:
 
     seed: int = 20261111
     deterministic: bool = False
+    recipe_change_history: tuple[dict[str, Any], ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.game_config, GameV3Config):
@@ -521,6 +522,42 @@ class V3PPOConfig:
             sv = getattr(self, str_name)
             if not isinstance(sv, str):
                 raise ConfigTypeError(f"{str_name} must be a str, got {sv!r}")
+        if not isinstance(self.recipe_change_history, (list, tuple)):
+            raise ConfigTypeError(
+                "recipe_change_history must be a list or tuple, "
+                f"got {type(self.recipe_change_history)!r}"
+            )
+        norm_history: list[dict[str, Any]] = []
+        allowed_recipe_set = set(RECIPE_OVERRIDE_KEYS)
+        for idx_h, entry in enumerate(self.recipe_change_history):
+            if not isinstance(entry, Mapping):
+                raise ConfigTypeError(
+                    f"recipe_change_history[{idx_h}] must be a mapping, got {type(entry)!r}"
+                )
+            upd = entry.get("update")
+            if isinstance(upd, bool) or not isinstance(upd, int) or upd < 0:
+                raise ValueError(
+                    f"recipe_change_history[{idx_h}].update must be an int >= 0, got {upd!r}"
+                )
+            ch_fields = entry.get("changed_fields")
+            if not isinstance(ch_fields, Mapping) or not ch_fields:
+                raise ValueError(
+                    f"recipe_change_history[{idx_h}].changed_fields must be a non-empty mapping"
+                )
+            norm_ch: dict[str, dict[str, Any]] = {}
+            for ch_k, ch_v in sorted(ch_fields.items()):
+                if ch_k not in allowed_recipe_set:
+                    raise ValueError(
+                        f"Unsupported key {ch_k!r} in recipe_change_history[{idx_h}].changed_fields"
+                    )
+                if not isinstance(ch_v, Mapping) or "old" not in ch_v or "new" not in ch_v:
+                    raise ValueError(
+                        f"recipe_change_history[{idx_h}].changed_fields[{ch_k!r}] must map to "
+                        "{'old': ..., 'new': ...}"
+                    )
+                norm_ch[str(ch_k)] = {"old": ch_v["old"], "new": ch_v["new"]}
+            norm_history.append({"update": int(upd), "changed_fields": norm_ch})
+        object.__setattr__(self, "recipe_change_history", tuple(norm_history))
 
         if int(self.game_config.max_life_ticks) != 0:
             raise ValueError(
@@ -739,6 +776,10 @@ class V3PPOConfig:
         out = asdict(self)
         out["schema"] = V3_PPO_SCHEMA
         out["game_config"] = self.game_config.to_dict()
+        if self.recipe_change_history:
+            out["recipe_change_history"] = [dict(entry) for entry in self.recipe_change_history]
+        else:
+            out.pop("recipe_change_history", None)
         return out
 
     @classmethod
@@ -943,20 +984,90 @@ RESUME_MUTABLE_CONFIG_KEYS: frozenset[str] = frozenset(
         "actor_chunk_learners",
         "compile_model",
         "fast_learner_ops",
+        "recipe_change_history",
     }
 )
+
+
+def recipe_config_diff(
+    reference: V3PPOConfig,
+    candidate: V3PPOConfig,
+) -> dict[str, tuple[Any, Any]]:
+    """Return ``{key: (reference_val, candidate_val)}`` for changed allow-listed recipe keys."""
+    diffs: dict[str, tuple[Any, Any]] = {}
+    for key in RECIPE_OVERRIDE_KEYS:
+        ref_val = getattr(reference, key)
+        cand_val = getattr(candidate, key)
+        if ref_val != cand_val:
+            diffs[key] = (ref_val, cand_val)
+    return diffs
+
+
+def build_recipe_change_record(
+    *,
+    update: int,
+    reference: V3PPOConfig,
+    candidate: V3PPOConfig,
+) -> dict[str, Any] | None:
+    """Build ``{'update': update, 'changed_fields': {k: {'old': o, 'new': n}}}`` or ``None``."""
+    diffs = recipe_config_diff(reference, candidate)
+    if not diffs:
+        return None
+    return {
+        "update": int(update),
+        "changed_fields": {
+            key: {"old": old_val, "new": new_val}
+            for key, (old_val, new_val) in sorted(diffs.items())
+        },
+    }
+
+
+def merge_and_append_recipe_history(
+    *,
+    prior_history: tuple[dict[str, Any], ...],
+    current_cfg: V3PPOConfig,
+    new_record: Mapping[str, Any] | None,
+) -> V3PPOConfig:
+    """Preserve ``prior_history`` prefix on ``current_cfg`` and append ``new_record`` once."""
+    merged: list[dict[str, Any]] = []
+    for item in (*prior_history, *current_cfg.recipe_change_history):
+        norm_item = {
+            "update": int(item["update"]),
+            "changed_fields": {
+                k: {"old": v["old"], "new": v["new"]}
+                for k, v in sorted(item["changed_fields"].items())
+            },
+        }
+        if norm_item not in merged:
+            merged.append(norm_item)
+    if new_record is not None:
+        norm_new = {
+            "update": int(new_record["update"]),
+            "changed_fields": {
+                k: {"old": v["old"], "new": v["new"]}
+                for k, v in sorted(new_record["changed_fields"].items())
+            },
+        }
+        if not merged or merged[-1] != norm_new:
+            merged.append(norm_new)
+    if tuple(merged) == current_cfg.recipe_change_history:
+        return current_cfg
+    return replace(current_cfg, recipe_change_history=tuple(merged))
 
 
 def immutable_config_diff(
     reference: V3PPOConfig,
     candidate: V3PPOConfig,
+    *,
+    allow_recipe_change: bool = False,
 ) -> dict[str, tuple[Any, Any]]:
     """Return ``{key: (reference_val, candidate_val)}`` for mismatched resume-immutable keys."""
     ref_dict = reference.to_dict()
     cand_dict = candidate.to_dict()
+    allowed_recipe = set(RECIPE_OVERRIDE_KEYS) if allow_recipe_change else set()
     diffs: dict[str, tuple[Any, Any]] = {}
     for key in sorted(set(ref_dict) | set(cand_dict)):
-        if key in RESUME_MUTABLE_CONFIG_KEYS or key == "schema":
+        if key in RESUME_MUTABLE_CONFIG_KEYS or key == "schema" or key in allowed_recipe:
             continue
         if ref_dict.get(key) != cand_dict.get(key):
             diffs[key] = (ref_dict.get(key), cand_dict.get(key))
@@ -967,17 +1078,27 @@ def assert_resume_config_compatible(
     reference: V3PPOConfig,
     candidate: V3PPOConfig,
     *,
+    allow_recipe_change: bool = False,
     context: str = "Checkpoint config mismatch",
     reference_label: str = "ckpt",
     candidate_label: str = "current",
 ) -> None:
     """Raise ``ValueError`` if ``candidate`` differs from ``reference`` on any immutable key."""
-    diffs = immutable_config_diff(reference, candidate)
+    diffs = immutable_config_diff(
+        reference,
+        candidate,
+        allow_recipe_change=allow_recipe_change,
+    )
     if diffs:
         key, (ref_val, cand_val) = next(iter(diffs.items()))
+        hint = (
+            " (pass --allow-recipe-change to change allow-listed recipe fields on a continuation)"
+            if (not allow_recipe_change and key in RECIPE_OVERRIDE_KEYS)
+            else ""
+        )
         raise ValueError(
             f"{context} on {key!r}: {reference_label}={ref_val!r} vs "
-            f"{candidate_label}={cand_val!r}"
+            f"{candidate_label}={cand_val!r}{hint}"
         )
 
 

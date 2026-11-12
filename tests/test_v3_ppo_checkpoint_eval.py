@@ -47,7 +47,7 @@ from research.v3_ppo.ppo import (
     verify_light_checkpoint,
     verify_staged_checkpoint,
 )
-from research.v3_ppo.prepare import ROOT
+from research.v3_ppo.prepare import ROOT, prepare_v3_ppo_packet
 
 
 def _tiny_cfg(
@@ -1801,3 +1801,252 @@ def test_full_exports_modes_none_final_periodic_exported_filenames_and_work_rest
             *u4_shards,
         ]
     )
+
+
+def test_continuation_recipe_change_refusal_allowed_history_and_optimizer_state(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Test continuation refusal by default, `--allow-recipe-change`, history, and AdamW state."""
+    base_cfg = V3PPOConfig.from_dict(
+        {
+            **_tiny_cfg(
+                num_envs=4, learner_slots=4, total_updates=2, eval_every_updates=0
+            ).to_dict(),
+            "checkpoint_every_updates": 2,
+            "full_checkpoint_every_updates": 0,
+            "light_checkpoint_interval_sec": 3600.0,
+        }
+    )
+    out1 = tmp_path / "run1_out"
+    res1 = run_training_job(
+        cfg=base_cfg,
+        output_dir=out1,
+        work_dir=tmp_path / "run1_work",
+        device="cpu",
+    )
+    assert res1["status"] == "PASS"
+    assert res1["updates_completed"] == 2
+    ckpt1_path = out1 / "checkpoints" / "light_u0000002.pt"
+    ckpt1_raw = torch.load(ckpt1_path, map_location="cpu", weights_only=False)
+    step_u2 = int(next(iter(ckpt1_raw["optimizer_state_dict"]["state"].values()))["step"])
+    assert step_u2 > 16  # > max possible steps in 2 updates at rollout_len=4 (<= 16)
+
+    # 1. Default continuation refuses recipe changes in both `prepare` and `run_training_job`.
+    base_cfg_u4 = V3PPOConfig.from_dict({**base_cfg.to_dict(), "total_updates": 4})
+    with pytest.raises(ValueError, match="Continuation checkpoint config mismatch on 'gamma'"):
+        prepare_v3_ppo_packet(
+            tmp_path / "pkt_refused_default",
+            mode="train",
+            gpu="L4",
+            output_dir=tmp_path / "remote_refused_default",
+            prior_output_dir=out1,
+            allow_missing_canary_receipt=True,
+            allow_unmerged_commit=True,
+            ppo_config=base_cfg_u4,
+            explicit_total_updates=True,
+            recipe_json='{"gamma": 0.995, "reward_alive_length_coef": 0.0}',
+            commit="HEAD",
+        )
+
+    changed_cfg = V3PPOConfig.from_dict(
+        {
+            **base_cfg_u4.to_dict(),
+            "reward_alive_length_coef": 0.0,
+            "reward_death_penalty": 2.0,
+            "gamma": 0.995,
+            "lr": 1.0e-4,
+            "rollout_len": 4,
+        }
+    )
+    probe_tr = V3PPOTrainer(changed_cfg, device="cpu")
+    with pytest.raises(ValueError, match="Checkpoint config mismatch on 'gamma'"):
+        probe_tr.load_checkpoint(ckpt1_path, allow_recipe_change=False)
+
+    # 2. Even with `--allow-recipe-change`, non-allow-listed fields (`num_envs`, `value_coef`) fail.
+    with pytest.raises(ValueError, match="Continuation checkpoint config mismatch on 'num_envs'"):
+        prepare_v3_ppo_packet(
+            tmp_path / "pkt_refused_num_envs",
+            mode="train",
+            gpu="L4",
+            output_dir=tmp_path / "remote_refused_num_envs",
+            prior_output_dir=out1,
+            allow_missing_canary_receipt=True,
+            allow_unmerged_commit=True,
+            num_envs=6,
+            ppo_config=base_cfg_u4,
+            explicit_total_updates=True,
+            allow_recipe_change=True,
+            commit="HEAD",
+        )
+    bad_non_recipe_cfg = V3PPOConfig.from_dict({**base_cfg_u4.to_dict(), "value_coef": 0.25})
+    with pytest.raises(ValueError, match="Continuation checkpoint config mismatch on 'value_coef'"):
+        prepare_v3_ppo_packet(
+            tmp_path / "pkt_refused_value_coef",
+            mode="train",
+            gpu="L4",
+            output_dir=tmp_path / "remote_refused_value_coef",
+            prior_output_dir=out1,
+            allow_missing_canary_receipt=True,
+            allow_unmerged_commit=True,
+            ppo_config=bad_non_recipe_cfg,
+            explicit_total_updates=True,
+            allow_recipe_change=True,
+            commit="HEAD",
+        )
+
+    # 3. Direct `load_checkpoint(..., allow_recipe_change=True)` keeps AdamW moments and updates lr.
+    loaded_meta = probe_tr.load_checkpoint(ckpt1_path, allow_recipe_change=True)
+    assert loaded_meta["recipe_change"] == {
+        "update": 2,
+        "changed_fields": {
+            "gamma": {"old": 0.99, "new": 0.995},
+            "lr": {"old": 3.0e-4, "new": 1.0e-4},
+            "reward_alive_length_coef": {"old": 0.001, "new": 0.0},
+            "reward_death_penalty": {"old": 1.0, "new": 2.0},
+            "rollout_len": {"old": 6, "new": 4},
+        },
+    }
+    assert probe_tr.optimizer.param_groups[0]["lr"] == pytest.approx(1.0e-4)
+    first_state = next(iter(probe_tr.optimizer.state.values()))
+    assert int(first_state["step"]) == step_u2
+    assert float(first_state["exp_avg"].abs().sum().item()) > 0.0
+    assert float(first_state["exp_avg_sq"].abs().sum().item()) > 0.0
+
+    # 4. End-to-end `prepare --allow-recipe-change` + tiny CPU continuation run 2 (`u=2..4`).
+    pkt2_dir = tmp_path / "pkt_allowed_hop2"
+    summary2 = prepare_v3_ppo_packet(
+        pkt2_dir,
+        mode="train",
+        gpu="L4",
+        output_dir=tmp_path / "remote_allowed_hop2",
+        prior_output_dir=out1,
+        allow_missing_canary_receipt=True,
+        allow_unmerged_commit=True,
+        ppo_config=base_cfg_u4,
+        explicit_total_updates=True,
+        recipe_json=(
+            '{"reward_alive_length_coef": 0.0, "reward_death_penalty": 2.0, '
+            '"gamma": 0.995, "lr": 0.0001, "rollout_len": 4}'
+        ),
+        allow_recipe_change=True,
+        commit="HEAD",
+    )
+    assert summary2["allow_recipe_change"] is True
+    assert summary2["recipe_change"] == loaded_meta["recipe_change"]
+    manifest2 = json.loads(Path(summary2["manifest_path"]).read_text(encoding="utf-8"))
+    assert manifest2["env"]["V3_PPO_ALLOW_RECIPE_CHANGE"] == "1"
+    staged_cfg2 = V3PPOConfig.from_dict(json.loads(manifest2["env"]["V3_PPO_CONFIG_JSON"]))
+    assert list(staged_cfg2.recipe_change_history) == [loaded_meta["recipe_change"]]
+
+    capsys.readouterr()
+    out2 = tmp_path / "run2_out"
+    res2 = run_training_job(
+        cfg=staged_cfg2,
+        output_dir=out2,
+        work_dir=tmp_path / "run2_work",
+        device="cpu",
+        input_dir=pkt2_dir / "inputs",
+        ledger_path=pkt2_dir / "inputs" / "verified-ledger.json",
+        allow_recipe_change=True,
+    )
+    stdout2 = capsys.readouterr().out
+    assert res2["status"] == "PASS"
+    assert res2["updates_completed"] == 4
+    assert "V3_PPO_RECIPE_CHANGE old=" in stdout2
+    assert " update=2" in stdout2
+
+    expected_hist2 = [loaded_meta["recipe_change"]]
+    out2_cfg_json = json.loads((out2 / "config.json").read_text(encoding="utf-8"))
+    assert out2_cfg_json["recipe_change_history"] == expected_hist2
+    assert res2["config"]["recipe_change_history"] == expected_hist2
+
+    ckpt2_path = out2 / "checkpoints" / "light_u0000004.pt"
+    ckpt2_raw = torch.load(ckpt2_path, map_location="cpu", weights_only=False)
+    assert ckpt2_raw["recipe_change_history"] == expected_hist2
+    assert ckpt2_raw["config"]["recipe_change_history"] == expected_hist2
+    assert ckpt2_raw["optimizer_state_dict"]["param_groups"][0]["lr"] == pytest.approx(1.0e-4)
+    step_u4 = int(next(iter(ckpt2_raw["optimizer_state_dict"]["state"].values()))["step"])
+    # Run 2 alone can take at most (4*4*4 / 16) * 2 * 2 == 16 optimizer steps; step_u4 > step_u2 > 16
+    # proves AdamW step/moment buffers from run 1 were preserved across the recipe change!
+    assert step_u4 > step_u2
+
+    # 5. Multi-hop: from `out2`, a new recipe change WITHOUT `--allow-recipe-change` is still refused,
+    #    same-recipe continuation preserves history, and a second `--allow-recipe-change` appends!
+    staged_cfg2_u6 = V3PPOConfig.from_dict({**staged_cfg2.to_dict(), "total_updates": 6})
+    with pytest.raises(
+        ValueError, match="Continuation checkpoint config mismatch on 'entropy_coef'"
+    ):
+        prepare_v3_ppo_packet(
+            tmp_path / "pkt_hop3_refused",
+            mode="train",
+            gpu="L4",
+            output_dir=tmp_path / "remote_hop3_refused",
+            prior_output_dir=out2,
+            allow_missing_canary_receipt=True,
+            allow_unmerged_commit=True,
+            ppo_config=staged_cfg2_u6,
+            explicit_total_updates=True,
+            recipe_json='{"entropy_coef": 0.002}',
+            allow_recipe_change=False,
+            commit="HEAD",
+        )
+
+    pkt3_same = tmp_path / "pkt_hop3_same"
+    summary3_same = prepare_v3_ppo_packet(
+        pkt3_same,
+        mode="train",
+        gpu="L4",
+        output_dir=tmp_path / "remote_hop3_same",
+        prior_output_dir=out2,
+        allow_missing_canary_receipt=True,
+        allow_unmerged_commit=True,
+        ppo_config=staged_cfg2_u6,
+        explicit_total_updates=True,
+        allow_recipe_change=False,
+        commit="HEAD",
+    )
+    manifest3_same = json.loads(Path(summary3_same["manifest_path"]).read_text(encoding="utf-8"))
+    assert "V3_PPO_ALLOW_RECIPE_CHANGE" not in manifest3_same["env"]
+    assert (
+        json.loads(manifest3_same["env"]["V3_PPO_CONFIG_JSON"])["recipe_change_history"]
+        == expected_hist2
+    )
+
+    pkt3_chg = tmp_path / "pkt_hop3_chg"
+    summary3_chg = prepare_v3_ppo_packet(
+        pkt3_chg,
+        mode="train",
+        gpu="L4",
+        output_dir=tmp_path / "remote_hop3_chg",
+        prior_output_dir=out2,
+        allow_missing_canary_receipt=True,
+        allow_unmerged_commit=True,
+        ppo_config=staged_cfg2_u6,
+        explicit_total_updates=True,
+        recipe_json='{"entropy_coef": 0.002}',
+        allow_recipe_change=True,
+        commit="HEAD",
+    )
+    manifest3_chg = json.loads(Path(summary3_chg["manifest_path"]).read_text(encoding="utf-8"))
+    staged_cfg3 = V3PPOConfig.from_dict(json.loads(manifest3_chg["env"]["V3_PPO_CONFIG_JSON"]))
+    out3 = tmp_path / "run3_out"
+    res3 = run_training_job(
+        cfg=staged_cfg3,
+        output_dir=out3,
+        work_dir=tmp_path / "run3_work",
+        device="cpu",
+        input_dir=pkt3_chg / "inputs",
+        ledger_path=pkt3_chg / "inputs" / "verified-ledger.json",
+        allow_recipe_change=True,
+    )
+    assert res3["status"] == "PASS"
+    assert res3["config"]["recipe_change_history"] == [
+        loaded_meta["recipe_change"],
+        {
+            "update": 4,
+            "changed_fields": {
+                "entropy_coef": {"old": 0.01, "new": 0.002},
+            },
+        },
+    ]

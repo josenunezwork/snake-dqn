@@ -106,6 +106,9 @@ elif [ "$MODE" = "train" ]; then
   if [ -n "${V3_PPO_CONFIG_JSON:-}" ]; then
     TRAIN_ARGS+=(--config-json "$V3_PPO_CONFIG_JSON")
   fi
+  if [ "${V3_PPO_ALLOW_RECIPE_CHANGE:-0}" = "1" ]; then
+    TRAIN_ARGS+=(--allow-recipe-change)
+  fi
   if [ "${V3_PPO_COMPILE:-0}" = "1" ]; then
     TRAIN_ARGS+=(--compile)
   fi

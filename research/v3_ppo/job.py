@@ -355,6 +355,7 @@ class _JobRunState:
     published_periodic_lights: int = 0
     published_periodic_fulls: int = 0
     last_measured_full_bytes: int | None = None
+    allow_recipe_change: bool = False
 
     def wall_expired(self) -> bool:
         if self.max_wall_seconds is None:
@@ -370,8 +371,9 @@ def _stage_init_job_dirs_and_config(
     output_dir: Path,
     work_dir: Path | None,
     max_session_export_bytes: int | None,
+    allow_recipe_change: bool = False,
 ) -> tuple[Path, Path, Path, Path, int]:
-    """Create output/work checkpoint directories, resolve byte cap, and write ``config.json``."""
+    """Create output/work checkpoint directories, resolve byte cap, and precheck ``config.json``."""
     out = Path(output_dir).resolve()
     out.mkdir(parents=True, exist_ok=True)
     wrk = Path(work_dir).resolve() if work_dir is not None else (out.parent / f".{out.name}_work")
@@ -397,12 +399,11 @@ def _stage_init_job_dirs_and_config(
         assert_resume_config_compatible(
             existing_cfg,
             cfg,
+            allow_recipe_change=allow_recipe_change,
             context="Existing config.json mismatch on immutable key",
             reference_label="existing",
             candidate_label="current",
         )
-    else:
-        write_create_only_json(cfg_json_path, cfg.to_dict())
 
     return out, wrk, work_ckpts, out_ckpts, eff_max_export_bytes
 
@@ -415,6 +416,7 @@ def _stage_init_trainer_and_resume(
     ledger_path: Path | None,
     work_ckpts: Path,
     out_ckpts: Path,
+    allow_recipe_change: bool = False,
 ) -> tuple[V3PPOTrainer, dict[str, Any] | None, dict[str, Any] | None]:
     """Construct trainer, load best resume checkpoint if present, or write ``u0000000`` anchor."""
     staged_meta = validate_staged_ledger_resume(input_dir=input_dir, ledger_path=ledger_path)
@@ -435,7 +437,17 @@ def _stage_init_trainer_and_resume(
             Path(initial_cand["path"]),
             verify_markers=bool(initial_cand["require_markers"]),
             restore_rng=True,
+            allow_recipe_change=allow_recipe_change,
         )
+        rc_rec = load_info.get("recipe_change")
+        if rc_rec is not None:
+            old_fields = {k: v["old"] for k, v in sorted(rc_rec["changed_fields"].items())}
+            new_fields = {k: v["new"] for k, v in sorted(rc_rec["changed_fields"].items())}
+            print(
+                f"V3_PPO_RECIPE_CHANGE old={json.dumps(old_fields, sort_keys=True)} "
+                f"new={json.dumps(new_fields, sort_keys=True)} update={rc_rec['update']}",
+                flush=True,
+            )
         resumed_from = {
             "relpath": str(initial_cand["relpath"]),
             "source": str(initial_cand["source"]),
@@ -444,6 +456,8 @@ def _stage_init_trainer_and_resume(
             "sha256": str(initial_cand["sha256"]),
             "updates_completed_at_resume": int(trainer.updates_completed),
         }
+        if rc_rec is not None:
+            resumed_from["recipe_change"] = rc_rec
         phase_stamp(
             "train_resume",
             "OK",
@@ -509,6 +523,7 @@ def _stage_recover_trainer_in_session(state: _JobRunState, exc: RuntimeError) ->
             Path(rec_cand["path"]),
             verify_markers=bool(rec_cand["require_markers"]),
             restore_rng=True,
+            allow_recipe_change=state.allow_recipe_change,
         )
     prune_work_checkpoints_after_rewind(
         state.work_ckpts,
@@ -916,6 +931,7 @@ def _stage_finalize_training_job(
                         fb_path,
                         verify_markers=bool(clean_fallback.get("require_markers", False)),
                         restore_rng=False,
+                        allow_recipe_change=state.allow_recipe_change,
                     )
                     final_summary = _snapshot_clean_state(state.trainer)
                 except Exception as load_exc:
@@ -1019,6 +1035,7 @@ def run_training_job(
     ledger_path: Path | None = None,
     max_wall_seconds: float | None = None,
     max_session_export_bytes: int | None = None,
+    allow_recipe_change: bool = False,
     step_hook: Callable[[V3PPOTrainer, int], None] | None = None,
 ) -> dict[str, Any]:
     """Execute training loop with wall-clock eval, LIGHT/FULL checkpoints, and crash recovery.
@@ -1035,11 +1052,13 @@ def run_training_job(
         with protected ``finally`` fallbacks guaranteeing ``latest_manifest.json`` and
         ``train_result.json`` even if the device context is dead.
     """
+    eff_allow_recipe_change = bool(allow_recipe_change)
     out, wrk, work_ckpts, out_ckpts, eff_max_export_bytes = _stage_init_job_dirs_and_config(
         cfg=cfg,
         output_dir=output_dir,
         work_dir=work_dir,
         max_session_export_bytes=max_session_export_bytes,
+        allow_recipe_change=eff_allow_recipe_change,
     )
     wall_t0 = time.monotonic()
     trainer, staged_meta, resumed_from = _stage_init_trainer_and_resume(
@@ -1049,7 +1068,12 @@ def run_training_job(
         ledger_path=ledger_path,
         work_ckpts=work_ckpts,
         out_ckpts=out_ckpts,
+        allow_recipe_change=eff_allow_recipe_change,
     )
+    cfg = trainer.cfg
+    cfg_json_path = out / "config.json"
+    if not artifact_or_sidecar_exists(cfg_json_path):
+        write_create_only_json(cfg_json_path, cfg.to_dict())
     now_init = time.monotonic()
     checkpoint_reserve_sec = (
         min(90.0, max(5.0, float(max_wall_seconds) * 0.08)) if max_wall_seconds is not None else 0.0
@@ -1075,6 +1099,7 @@ def run_training_job(
         last_full_work_mono=now_init,
         last_eval_mono=now_init,
         est_light_bytes=get_net_preset(cfg.net_size).est_light_checkpoint_bytes,
+        allow_recipe_change=eff_allow_recipe_change,
     )
 
     with SignalStopFlag() as stop_flag:
@@ -1212,6 +1237,7 @@ class EffectiveTrainJobConfig:
     max_wall_seconds: float | None
     max_session_export_bytes: int | None
     recipe_overrides: dict[str, Any] = field(default_factory=dict)
+    allow_recipe_change: bool = False
 
 
 def _merge_config_json_overlay(
@@ -1277,6 +1303,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
         type=str,
         default=None,
         help="Inline JSON object or path to JSON file overriding allow-listed recipe fields.",
+    )
+    parser.add_argument(
+        "--allow-recipe-change",
+        dest="allow_recipe_change",
+        action="store_true",
+        default=None,
+        help="Permit allow-listed recipe field changes when resuming from a checkpoint.",
     )
 
     parser.add_argument("--num-envs", type=int, default=None)
@@ -1508,6 +1541,16 @@ def resolve_effective_train_config(
         )
     )
 
+    env_allow_recipe = parse_env_bool(
+        "V3_PPO_ALLOW_RECIPE_CHANGE", env.get("V3_PPO_ALLOW_RECIPE_CHANGE")
+    )
+    cli_allow_recipe = getattr(args, "allow_recipe_change", None)
+    eff_allow_recipe_change = (
+        bool(cli_allow_recipe)
+        if cli_allow_recipe is not None
+        else bool(env_allow_recipe if env_allow_recipe is not None else False)
+    )
+
     resolved_cfg = V3PPOConfig.from_dict(cfg_dict)
     resolved_recipe_overrides = {
         key: getattr(resolved_cfg, key) for key in RECIPE_OVERRIDE_KEYS if key in merged_recipe
@@ -1523,6 +1566,7 @@ def resolve_effective_train_config(
         max_wall_seconds=eff_max_wall_seconds,
         max_session_export_bytes=eff_max_export_bytes,
         recipe_overrides=resolved_recipe_overrides,
+        allow_recipe_change=eff_allow_recipe_change,
     )
 
 
@@ -1539,6 +1583,7 @@ def main(argv: list[str] | None = None) -> int:
         ledger_path=eff.ledger_path,
         max_wall_seconds=eff.max_wall_seconds,
         max_session_export_bytes=eff.max_session_export_bytes,
+        allow_recipe_change=eff.allow_recipe_change,
     )
     if res.get("status") != "PASS":
         return 1

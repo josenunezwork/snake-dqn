@@ -46,12 +46,14 @@ from research.v3_ppo.config import (
     OpponentPolicy,
     V3PPOConfig,
     assert_resume_config_compatible,
+    build_recipe_change_record,
     default_train_envs_for_gpu,
     estimate_train_wall_headroom,
     estimate_train_wall_headroom_by_mode,
     estimate_training_memory,
     format_recipe_overrides,
     get_net_preset,
+    merge_and_append_recipe_history,
     parse_recipe_overrides,
     resolve_full_export_settings,
     validate_checkpoint_export_caps,
@@ -125,6 +127,7 @@ class PreparePacketOptions:
     ppo_config: V3PPOConfig | None = None
     recipe_json: str | Path | None = None
     recipe_overrides: Mapping[str, Any] | None = None
+    allow_recipe_change: bool = False
     explicit_total_updates: bool = False
     explicit_eval_estimated_seconds: bool = False
     measured_packed_bytes_per_world: int | None = None
@@ -179,6 +182,7 @@ class _SizedModePlan:
     wall_headroom: dict[str, Any] | None = None
     wall_headroom_by_mode: dict[FullExportMode, dict[str, Any]] | None = None
     recipe_overrides: dict[str, Any] | None = None
+    recipe_change: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -551,6 +555,10 @@ def _stage_validate_options(opts: PreparePacketOptions) -> _ValidatedPacketConte
         resolve_full_export_settings(opts.full_exports, opts.max_periodic_full_exports)
     if (opts.recipe_json is not None or opts.recipe_overrides is not None) and opts.mode != "train":
         raise ValueError(f"--recipe-json is only supported in --mode train, got --mode {opts.mode}")
+    if opts.allow_recipe_change and opts.mode != "train":
+        raise ValueError(
+            f"--allow-recipe-change is only supported in --mode train, got --mode {opts.mode}"
+        )
     if opts.recipe_overrides is not None:
         parse_recipe_overrides(opts.recipe_overrides, source_label="recipe_overrides")
     if opts.recipe_json is not None:
@@ -609,6 +617,11 @@ def _stage_validate_options(opts: PreparePacketOptions) -> _ValidatedPacketConte
         raise FileExistsError(f"packet_dir must be a fresh non-existent directory: {pkt_dir}")
 
     prior = _resolve_prior_spec(opts)
+    if opts.allow_recipe_change and prior.kind != "checkpoint":
+        raise ValueError(
+            "--allow-recipe-change requires a prior checkpoint continuation "
+            "(--prior-output-dir containing a verified checkpoint)"
+        )
 
     canary_block: dict[str, Any] | None = None
     canary_eval_metrics: dict[str, Any] | None = None
@@ -921,14 +934,32 @@ def _size_train_mode(
     )
     cfg_obj = eff_train.cfg
 
+    recipe_change_rec: dict[str, Any] | None = None
     if staged_base_cfg is not None:
         assert_resume_config_compatible(
             staged_base_cfg,
             cfg_obj,
+            allow_recipe_change=bool(opts.allow_recipe_change),
             context="Continuation checkpoint config mismatch",
             reference_label="ckpt",
             candidate_label="requested",
         )
+        chosen_u = int((ctx.prior.chosen_checkpoint or {}).get("updates_completed", 0))
+        recipe_change_rec = (
+            build_recipe_change_record(
+                update=chosen_u,
+                reference=staged_base_cfg,
+                candidate=cfg_obj,
+            )
+            if opts.allow_recipe_change
+            else None
+        )
+        if staged_base_cfg.recipe_change_history or recipe_change_rec is not None:
+            cfg_obj = merge_and_append_recipe_history(
+                prior_history=staged_base_cfg.recipe_change_history,
+                current_cfg=cfg_obj,
+                new_record=recipe_change_rec,
+            )
 
     memory_estimate = validate_memory_budget(cfg_obj, ctx.gpu_norm)
 
@@ -997,6 +1028,7 @@ def _size_train_mode(
         memory_estimate=memory_estimate,
         wall_headroom=wall_headroom,
         recipe_overrides=eff_train.recipe_overrides,
+        recipe_change=recipe_change_rec,
     )
 
 
@@ -1138,6 +1170,8 @@ def _stage_export_caps(
         extra_env["V3_PPO_COMPILE"] = "1"
     if not bool(cfg_obj.fast_learner_ops):
         extra_env["V3_PPO_FAST_LEARNER_OPS"] = "0"
+    if bool(opts.allow_recipe_change):
+        extra_env["V3_PPO_ALLOW_RECIPE_CHANGE"] = "1"
     extra_env["V3_PPO_MAX_SESSION_EXPORT_BYTES"] = str(
         int(checkpoint_export_caps["session_total_export_cap_bytes"])
     )
@@ -1372,6 +1406,9 @@ def _stage_write_manifest(
         summary["canary_eval_metrics"] = ctx.canary_eval_metrics
     if sized.recipe_overrides:
         summary["recipe_overrides"] = dict(sized.recipe_overrides)
+    if opts.allow_recipe_change:
+        summary["allow_recipe_change"] = True
+        summary["recipe_change"] = sized.recipe_change
     return summary
 
 
@@ -1430,6 +1467,7 @@ def prepare_v3_ppo_packet(
     ppo_config: V3PPOConfig | None = None,
     recipe_json: str | Path | None = None,
     recipe_overrides: Mapping[str, Any] | None = None,
+    allow_recipe_change: bool = False,
     explicit_total_updates: bool = False,
     explicit_eval_estimated_seconds: bool = False,
     measured_packed_bytes_per_world: int | None = None,
@@ -1482,6 +1520,7 @@ def prepare_v3_ppo_packet(
         ppo_config=ppo_config,
         recipe_json=recipe_json,
         recipe_overrides=recipe_overrides,
+        allow_recipe_change=allow_recipe_change,
         explicit_total_updates=explicit_total_updates,
         explicit_eval_estimated_seconds=explicit_eval_estimated_seconds,
         measured_packed_bytes_per_world=measured_packed_bytes_per_world,
@@ -1573,6 +1612,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
             f"({', '.join(RECIPE_OVERRIDE_KEYS)}) for --mode train."
         ),
     )
+    parser.add_argument(
+        "--allow-recipe-change",
+        action="store_true",
+        help=(
+            "Permit changing ONLY allow-listed recipe fields on a checkpoint continuation, "
+            "logging V3_PPO_RECIPE_CHANGE at resume and recording recipe_change_history."
+        ),
+    )
     parser.add_argument("--measured-packed-bytes-per-world", type=int, default=None)
     parser.add_argument("--measured-checkpoint-bytes", type=int, default=None)
     parser.add_argument("--attempt", type=str, default="attempt-01")
@@ -1650,6 +1697,7 @@ def options_from_cli_args(
         allow_missing_canary_receipt=bool(args.allow_missing_canary_receipt),
         ppo_config=ppo_cfg,
         recipe_json=args.recipe_json,
+        allow_recipe_change=bool(args.allow_recipe_change),
         explicit_total_updates=explicit_total_updates,
         explicit_eval_estimated_seconds=explicit_eval_estimated_seconds,
         measured_packed_bytes_per_world=args.measured_packed_bytes_per_world,
