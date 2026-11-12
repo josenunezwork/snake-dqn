@@ -1,4 +1,4 @@
-"""Multi-seed CPU PPO self-play learning proof for `research/v3_ppo` on redesigned M1 eval."""
+"""Multi-seed CPU PPO self-play learning proof for `research/v3_ppo`."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ TRAIN_SEEDS = (1001, 2002)
 
 @pytest.mark.slow
 def test_selfplay_improves_reproducibly_over_untrained_across_two_seeds() -> None:
-    """Prove reproducible multi-seed self-play improvement over untrained on M1 evaluation.
+    """Prove reproducible multi-seed self-play improvement over an untrained policy.
 
     Uses a non-tiny rollout batch (`E=6, N=6, T=32` => `1,152` agent-steps/update, `mb=192`)
     with default PPO optimization hyperparameters (`lr=3e-4, gamma=0.99, entropy_coef=0.01`),
@@ -63,7 +63,7 @@ def test_selfplay_improves_reproducibly_over_untrained_across_two_seeds() -> Non
     rs_comb = evaluate_scripted_baseline("random_safe", ref_cfg, device="cpu")["combined"]
     fs_comb = evaluate_scripted_baseline("food_seeking", ref_cfg, device="cpu")["combined"]
     print(
-        f"\n[M2 Eval Seed={FRESH_EVAL_SEED}] " f"random_safe={rs_comb} | food_seeking={fs_comb}",
+        f"\n[Eval Seed={FRESH_EVAL_SEED}] random_safe={rs_comb} | food_seeking={fs_comb}",
         flush=True,
     )
     # Confirm the evaluation window is long enough that most `random_safe` lives complete inside it.
@@ -80,7 +80,7 @@ def test_selfplay_improves_reproducibly_over_untrained_across_two_seeds() -> Non
         assert trainer.updates_completed == cfg.total_updates
         tr_comb = trainer.run_evaluation()["combined"]
         print(
-            f"[M2 Seed={train_seed}] init={init_comb} -> trained_u{cfg.total_updates}={tr_comb}",
+            f"[Seed={train_seed}] init={init_comb} -> trained_u{cfg.total_updates}={tr_comb}",
             flush=True,
         )
 

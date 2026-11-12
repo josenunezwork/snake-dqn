@@ -21,6 +21,7 @@ from research.v3_ppo.config import (
     NET_PRESETS,
     OBS_RASTER_BYTES_PER_STEP,
     RESUME_MUTABLE_CONFIG_KEYS,
+    NetPreset,
     V3PPOConfig,
     assert_resume_config_compatible,
     estimate_rollout_buffer_bytes,
@@ -208,10 +209,8 @@ def test_action_masking_never_samples_masked_boost() -> None:
     assert torch.isfinite(safe_act.log_probs).all()
 
 
-def test_uint8_rollout_buffer_indexing_and_single_obs_per_tick(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Verify zero-copy uint8 slice views, scattered LearnerIndex, and 1 build_obs/tick."""
+def test_uint8_rollout_buffer_zero_copy_views_and_scattered_minibatch_gather() -> None:
+    """Verify zero-copy uint8 slice views and scattered LearnerIndex minibatch gathering."""
     gcfg = GameV3Config(arena_radius=60.0, num_snakes=8, ambient_food_density=0.02)
     sim = GameV3Sim(gcfg, num_envs=3, device="cpu", seeds=[11, 22, 33])
 
@@ -272,7 +271,12 @@ def test_uint8_rollout_buffer_indexing_and_single_obs_per_tick(
         assert pytest.approx(float(mb.advantages[idx_i].item())) == 0.75 * (idx_i + 1)
         assert pytest.approx(float(mb.returns[idx_i].item())) == 2.0 * (idx_i + 1)
 
-    # Spy on `build_obs` inside `trainer` to prove strictly 1 `build_obs` per tick in steady state
+
+def test_trainer_builds_at_most_one_obs_per_simulation_tick(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify bootstrap caching keeps steady-state rollout collection at 1 build_obs per tick."""
+    gcfg = GameV3Config(arena_radius=60.0, num_snakes=8, ambient_food_density=0.02)
     real_build_obs = trainer_mod.build_obs
     call_counter = {"count": 0}
 
@@ -303,10 +307,10 @@ def test_uint8_rollout_buffer_indexing_and_single_obs_per_tick(
     assert trainer.obs_builds_executed == call_counter["count"]
 
 
-def test_ppo_update_single_sync_uniform_minibatch_and_fused_adamw_helper(
+def test_ppo_update_enforces_uniform_minibatch_size_without_host_syncs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Verify uniform minibatch sizing (drop/pad), <=1 host sync in `ppo_update`, & AdamW helper."""
+    """Verify uniform minibatch sizing (drop/pad) and zero per-batch host syncs in `ppo_update`."""
     gcfg = GameV3Config(arena_radius=60.0, num_snakes=6, ambient_food_density=0.02)
     cfg = V3PPOConfig(
         game_config=gcfg,
@@ -375,7 +379,9 @@ def test_ppo_update_single_sync_uniform_minibatch_and_fused_adamw_helper(
     assert learn_sec_pad >= 0.0
     assert v3_ppo_syncs == []
 
-    # Verify AdamW builder & state transfer helper
+
+def test_adamw_optimizer_builder_and_state_device_transfer() -> None:
+    """Verify AdamW builder and fused step-tensor device/dtype transfer helper."""
     lin = nn.Linear(4, 2)
     opt = _build_adamw_optimizer(
         lin.parameters(), lr=3e-4, eps=1e-5, weight_decay=1e-4, device=torch.device("cpu")
@@ -568,8 +574,8 @@ def test_step_reward_coefficients_and_simultaneous_kill_death_rule() -> None:
     assert pytest.approx(float(rew[0, 4].item()), abs=1e-6) == -1.5
 
 
-def test_fast_learner_ops_rounding_equivalence_and_compile_execution() -> None:
-    """Verify `fast_learner_ops` float32 rounding equivalence & `--compile` trunk execution."""
+def test_fast_learner_ops_match_reference_within_float32_rounding() -> None:
+    """Verify `fast_learner_ops` matches dense reference preprocessing, loss, and step updates."""
     torch.manual_seed(20261111)
     net_fast = build_ego_multiscale_net(
         "S", use_channels_last=True, use_bf16_autocast=False, fast_preprocess=True
@@ -662,9 +668,24 @@ def test_fast_learner_ops_rounding_equivalence_and_compile_execution() -> None:
     assert max_weight_diff <= 2e-6
     assert torch.equal(tr_fast.sim.length, tr_slow.sim.length)
 
-    # 5. `--compile` (`compile_model=True`) compiles the shared trunk and invokes the compiled
-    #    callable on BOTH rollout (`collect_rollout` -> `act` + bootstrap `forward`, no_grad)
-    #    AND PPO learner updates (`ppo_update` -> `evaluate_actions`, grad enabled).
+
+def test_compiled_trunk_executes_during_rollout_and_learner_update() -> None:
+    """Verify `compile_model=True` invokes the compiled trunk in both rollout and learner steps."""
+    gcfg = GameV3Config(arena_radius=60.0, num_snakes=6, ambient_food_density=0.02)
+    base_kw = dict(
+        game_config=gcfg,
+        num_envs=2,
+        learner_slots=4,
+        rollout_len=4,
+        ppo_epochs=2,
+        minibatch_size=8,
+        amp=False,
+        use_channels_last=False,
+        eval_every_minutes=0.0,
+        eval_every_updates=0,
+        seed=5150,
+    )
+    tr_uncompiled = V3PPOTrainer(V3PPOConfig(**base_kw, compile_model=False), device="cpu")
     tr_compiled = V3PPOTrainer(
         V3PPOConfig(**base_kw, compile_model=True, fast_learner_ops=True),
         device="cpu",
@@ -672,7 +693,9 @@ def test_fast_learner_ops_rounding_equivalence_and_compile_execution() -> None:
     assert tr_compiled.raw_model.is_compiled is True
     orig_compiled_fn = tr_compiled.raw_model._compiled_encode_trunk
     assert orig_compiled_fn is not None and callable(orig_compiled_fn)
-    assert set(tr_compiled.raw_model.state_dict().keys()) == set(tr_fast.raw_model.state_dict())
+    assert set(tr_compiled.raw_model.state_dict().keys()) == set(
+        tr_uncompiled.raw_model.state_dict()
+    )
 
     grad_flags_seen: list[bool] = []
 
@@ -696,7 +719,9 @@ def test_fast_learner_ops_rounding_equivalence_and_compile_execution() -> None:
     assert upd_stats["grad_norm"] > 0.0
     assert learn_sec >= 0.0
 
-    # 6. `--compile` and `--no-fast-learner-ops` parse cleanly on all 3 CLIs
+
+def test_compile_and_fast_learner_flags_parse_across_all_clis() -> None:
+    """Verify `--compile` and `--no-fast-learner-ops` parse identically on ppo, ruler, & prepare."""
     ppo_args = ppo_arg_parser().parse_args(
         ["--output-dir", "/tmp/o", "--compile", "--no-fast-learner-ops"]
     )
@@ -716,7 +741,9 @@ def test_fast_learner_ops_rounding_equivalence_and_compile_execution() -> None:
     assert prep_args.fast_learner_ops is False
 
 
-def test_net_presets_registry_and_unknown_size_rejected(tmp_path: Path) -> None:
+def test_net_presets_registry_and_unknown_size_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Verify every registered preset matches built parameter count and unknown sizes fail fast."""
     assert tuple(NET_PRESETS.keys()) == ("S", "M")
     for name, preset in NET_PRESETS.items():
@@ -760,6 +787,34 @@ def test_net_presets_registry_and_unknown_size_rejected(tmp_path: Path) -> None:
             allow_missing_canary_receipt=True,
             allow_unmerged_commit=True,
         )
+
+    # Prove adding a preset is a single-entry registry addition in `NET_PRESETS`
+    xs_preset = NetPreset(
+        name="XS",  # type: ignore[arg-type]
+        ruler_order=-1,
+        s1_c1=8,
+        s1_c2=16,
+        s32_c1=8,
+        stage8_ch=24,
+        stem_out_ch=32,
+        scalar_embed_dim=16,
+        trunk_dim=64,
+        trunk_blocks=1,
+        head_dim=32,
+        exact_param_count=0,
+        memory_model_param_count=150_000,
+        learner_act_bytes_per_row_bf16=256_000,
+        actor_fwd_act_bytes_per_row_bf16=64_000,
+        default_minibatch_size=2048,
+        default_actor_chunk_learners=4096,
+        est_light_checkpoint_bytes=4 * 1024 * 1024,
+    )
+    monkeypatch.setitem(NET_PRESETS, "XS", xs_preset)
+    xs_net = build_ego_multiscale_net("XS")  # type: ignore[arg-type]
+    xs_cfg = V3PPOConfig(net_size="XS", num_envs=8, rollout_len=4)  # type: ignore[arg-type]
+    assert xs_cfg.resolved_minibatch_size == 2048
+    assert estimate_training_memory(xs_cfg)["estimated_peak_bytes"] > 0
+    assert xs_net.parameter_count() > 0
 
 
 def test_obs_layout_single_sourced_trainer_agreement_and_checkpoint_field(
@@ -850,8 +905,8 @@ def test_obs_layout_single_sourced_trainer_agreement_and_checkpoint_field(
         verify_full_checkpoint_set(bad_idx)
 
 
-def test_config_precedence_and_resume_diff_helper() -> None:
-    """Verify CLI > --config-json > env > defaults precedence and single-sourced resume diff."""
+def test_train_and_ruler_cli_config_json_and_env_precedence() -> None:
+    """Verify CLI > --config-json > env > defaults precedence across ppo and ruler entrypoints."""
     parser = ppo_arg_parser()
 
     # 1. Pure defaults when neither CLI overrides, --config-json, nor env vars are given
@@ -932,7 +987,9 @@ def test_config_precedence_and_resume_diff_helper() -> None:
     assert r_eff["net_sizes"] == ["M"]
     assert r_eff["device"] == "cpu"
 
-    # 5. Single-sourced resume config diff
+
+def test_resume_config_diff_allows_mutable_keys_and_rejects_immutable_changes() -> None:
+    """Single-sourced resume diff permits runtime/schedule keys and rejects arch/MDP changes."""
     base = V3PPOConfig()
     mutated = V3PPOConfig(
         total_updates=500,

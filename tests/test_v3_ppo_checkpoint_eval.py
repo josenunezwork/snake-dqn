@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import random
 import shutil
+import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -42,6 +46,7 @@ from research.v3_ppo.ppo import (
     verify_light_checkpoint,
     verify_staged_checkpoint,
 )
+from research.v3_ppo.prepare import ROOT
 
 
 def _tiny_cfg(
@@ -153,7 +158,7 @@ def test_sharded_full_checkpoint_multi_shard_reload_and_guards(tmp_path: Path) -
         other_trainer.load_checkpoint(idx_path)
 
 
-def test_corrupted_or_missing_shard_falls_back_safely_and_prunes(
+def test_corrupted_or_missing_shard_falls_back_to_older_full_or_light(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -217,7 +222,13 @@ def test_corrupted_or_missing_shard_falls_back_safely_and_prunes(
     assert fresh_trainer.updates_completed == 3
     assert float(fresh_trainer.episode_return_acc.abs().sum().item()) == 0.0
 
-    # 4. Verify retention pruning (`keep_full=2, keep_light=4`) protects FULL-referenced LIGHTs
+
+def test_prune_old_checkpoints_protects_lights_referenced_by_retained_fulls(
+    tmp_path: Path,
+) -> None:
+    """Retention pruning (`keep_full=2, keep_light=4`) keeps LIGHTs needed by retained FULLs."""
+    cfg = _tiny_cfg(num_envs=2, total_updates=6, eval_every_updates=0)
+    trainer = V3PPOTrainer(cfg, device="cpu")
     prune_dir = tmp_path / "prune_ckpts"
     for u in range(1, 7):
         t_tag = f"u{u:07d}"
@@ -245,7 +256,7 @@ def test_bit_identical_cpu_resume_on_multishard_full_with_clean_step_streak(tmp_
         if trainer_a.updates_completed % cfg.eval_every_updates == 0:
             trainer_a.run_evaluation()
 
-    # Explicitly set non-zero `_clean_step_streak` to prove Minor 10 preservation across resume!
+    # Explicitly set non-zero `_clean_step_streak` to verify preservation across FULL resume!
     trainer_a.sim._clean_step_streak = 1234
 
     probe_idx = trainer_a.save_full_checkpoint(tmp_path / "probe", tag="u0000003")
@@ -337,8 +348,10 @@ def test_bit_identical_cpu_resume_on_multishard_full_with_clean_step_streak(tmp_
             assert ea["matchups"][m_key] == eb["matchups"][m_key]
 
 
-def test_redesigned_evaluation_censored_separation_exact_combine_and_rng(tmp_path: Path) -> None:
-    """Verify burn-in + survivorship-free metrics, censored separation, exact combine, & RNG."""
+def test_evaluate_policy_preserves_caller_rng_and_is_deterministic_after_load(
+    tmp_path: Path,
+) -> None:
+    """Verify `evaluate_policy` leaves caller RNG untouched and matches after checkpoint reload."""
     cfg = _tiny_cfg(total_updates=1, eval_every_updates=1)
     trainer = V3PPOTrainer(cfg, device="cpu")
     trainer.train_step()
@@ -393,7 +406,9 @@ def test_redesigned_evaluation_censored_separation_exact_combine_and_rng(tmp_pat
         ):
             assert req_metric in row
 
-    # Prove censored lives are NEVER mixed into `mean_death_length`:
+
+def test_evaluate_scripted_baseline_separates_censored_lives_from_deaths() -> None:
+    """Verify window-censored survivors are never mixed into `mean_death_length`."""
     # In a huge R=600 arena with 6 snakes over 2 ticks, 0 deaths occur -> all lives are censored.
     censor_cfg = V3PPOConfig(
         game_config=GameV3Config(arena_radius=600.0, num_snakes=6),
@@ -411,7 +426,9 @@ def test_redesigned_evaluation_censored_separation_exact_combine_and_rng(tmp_pat
     assert rs_censor["mean_censored_length"] >= 10.0
     assert rs_censor["time_averaged_length"] >= 10.0
 
-    # Minor 9: `_combine_matchups` sums exact float64 `alive_len_sum` without 4-decimal drift
+
+def test_combine_matchups_computes_exact_float64_time_averaged_length() -> None:
+    """Verify `_combine_matchups` sums exact float64 `alive_len_sum` without rounding drift."""
     m_a = _EvalMatchupRaw(
         summary={"time_averaged_length": 13.3333},
         death_lengths=[13.0],
@@ -444,12 +461,11 @@ def test_redesigned_evaluation_censored_separation_exact_combine_and_rng(tmp_pat
     assert comb["time_averaged_length"] == 13.5
 
 
-def test_cooperative_stop_mid_update_discards_dirty_weights_and_in_session_restart(
+def test_cooperative_stop_mid_update_discards_dirty_weights(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Mid-update stop discards half-stepped weights; recoverable error restarts inside session."""
-    # --- Part A: Cooperative stop mid-update (Minor 6) ---
+    """Cooperative stop mid-PPO-epoch rewinds half-stepped weights to last clean checkpoint."""
     cfg_stop = _tiny_cfg(num_envs=2, total_updates=3, eval_every_updates=0)
     cfg_stop = V3PPOConfig.from_dict(
         {**cfg_stop.to_dict(), "full_checkpoint_every_updates": 1, "ppo_epochs": 2}
@@ -501,7 +517,11 @@ def test_cooperative_stop_mid_update_discards_dirty_weights_and_in_session_resta
             check_tr.raw_model.state_dict()[k], clean_t
         ), f"Mid-update mutated parameter {k} leaked into exported checkpoint!"
 
-    # --- Part B: In-session recoverable-error restart + idempotent config.json (Minor 7) ---
+
+def test_in_session_restart_recovers_from_checkpoint_and_stages_continuation(
+    tmp_path: Path,
+) -> None:
+    """In-session restart recovers from clean checkpoint, and staged FULL set resumes cleanly."""
     cfg_rec = V3PPOConfig.from_dict(
         {
             **_tiny_cfg(num_envs=2, total_updates=4, eval_every_updates=0).to_dict(),
@@ -539,7 +559,7 @@ def test_cooperative_stop_mid_update_discards_dirty_weights_and_in_session_resta
     verify_completed_artifact(out_rec / "train_result.json")
     verify_completed_artifact(out_rec / "checkpoints" / "latest_manifest.json")
 
-    # --- Part C: Stage sharded FULL set via ledger `companion_files` and resume to update 6 ---
+    # Stage sharded FULL set via ledger `companion_files` and resume to update 6
     resolved_u4 = resolve_resume_checkpoint(out_rec / "checkpoints")
     assert resolved_u4 is not None
     assert resolved_u4["kind"] == "full"
@@ -600,8 +620,7 @@ def test_cooperative_stop_mid_update_discards_dirty_weights_and_in_session_resta
     assert res_u6["resumed_from"]["worlds_reinitialized"] is False
     assert res_u6["resumed_from"]["updates_completed_at_resume"] == 4
 
-    # Verify `ppo_mod` module import & optional MPS smoke
-    assert hasattr(ppo_mod, "save_full_checkpoint") or hasattr(V3PPOTrainer, "save_full_checkpoint")
+    assert hasattr(ppo_mod, "V3PPOTrainer") and hasattr(V3PPOTrainer, "save_full_checkpoint")
     if torch.backends.mps.is_available():
         mps_cfg = _tiny_cfg(num_envs=2, total_updates=1, eval_every_updates=1)
         mps_trainer = V3PPOTrainer(mps_cfg, device="mps")
@@ -614,7 +633,7 @@ def test_cooperative_stop_mid_update_discards_dirty_weights_and_in_session_resta
 
 
 def test_unthrottled_light_exports_bounded_full_and_immutable_sha256(tmp_path: Path) -> None:
-    """M1-r2: every LIGHT interval exports, FULL count obeys bound, & sha256 never mutates."""
+    """Every LIGHT interval exports, periodic FULL count obeys bound, & sha256 never mutates."""
     cfg = V3PPOConfig.from_dict(
         {
             **_tiny_cfg(num_envs=2, total_updates=6, eval_every_updates=0).to_dict(),
@@ -625,8 +644,8 @@ def test_unthrottled_light_exports_bounded_full_and_immutable_sha256(tmp_path: P
             "keep_light_checkpoints": 2,
         }
     )
-    out_dir = tmp_path / "m1_out"
-    work_dir = tmp_path / "m1_work"
+    out_dir = tmp_path / "cadence_out"
+    work_dir = tmp_path / "cadence_work"
     first_seen_sha256: dict[str, str] = {}
     first_seen_stat: dict[str, tuple[int, int, int, int]] = {}
 
@@ -701,14 +720,11 @@ def test_unthrottled_light_exports_bounded_full_and_immutable_sha256(tmp_path: P
         ]
 
 
-def test_restart_generation_light_margin_protected_finally_and_update_cap(
+def test_in_session_restart_tags_generation_and_refuses_stale_light_on_full_save(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Cover Minors 1, 2, 3, and 4: restart FULL/LIGHT safety, 45m margin, finally, & update cap."""
-    # Minor 1: In-session restart rewinding from u=3 to FULL u=2 never reuses stale u=3 LIGHT.
-    cfg_m1 = V3PPOConfig.from_dict(
+    """In-session restart rewinds to FULL u=2 and tags post-restart checkpoints (`_r01`)."""
+    cfg_gen = V3PPOConfig.from_dict(
         {
             **_tiny_cfg(num_envs=2, total_updates=4, eval_every_updates=0).to_dict(),
             "checkpoint_every_updates": 1,
@@ -717,18 +733,18 @@ def test_restart_generation_light_margin_protected_finally_and_update_cap(
             "max_in_session_restarts": 1,
         }
     )
-    out_m1 = tmp_path / "m1_restart_out"
-    work_m1 = tmp_path / "m1_restart_work"
+    out_gen = tmp_path / "gen_restart_out"
+    work_gen = tmp_path / "gen_restart_work"
     fault_state = {"injected": False}
     stale_u3_weights: dict[str, torch.Tensor] = {}
     perturbed_post_restart = {"done": False}
 
     def _post_restart_hook(tr: V3PPOTrainer, next_update: int) -> None:
         if not fault_state["injected"] and next_update == 4:
-            # Pre-restart u=3 LIGHT is already saved & published to `out_m1/checkpoints/`;
+            # Pre-restart u=3 LIGHT is already saved & published to `out_gen/checkpoints/`;
             # transient fault on update 4 rewinds to FULL u=2 (since LIGHT u=3 is <45m newer).
             fault_state["injected"] = True
-            assert (out_m1 / "checkpoints" / "light_u0000003.pt").is_file()
+            assert (out_gen / "checkpoints" / "light_u0000003.pt").is_file()
             for k, v in tr.raw_model.state_dict().items():
                 stale_u3_weights[k] = v.detach().cpu().clone()
             with torch.no_grad():
@@ -738,30 +754,30 @@ def test_restart_generation_light_margin_protected_finally_and_update_cap(
         if fault_state["injected"] and not perturbed_post_restart["done"] and next_update == 3:
             perturbed_post_restart["done"] = True
             # Request a FULL checkpoint at post-restart u=3 while pre-restart `light_u0000003.pt`
-            # still sits in `out_m1/checkpoints/`.
-            object.__setattr__(cfg_m1, "full_checkpoint_every_updates", 3)
+            # still sits in `out_gen/checkpoints/`.
+            object.__setattr__(cfg_gen, "full_checkpoint_every_updates", 3)
             with torch.no_grad():
                 next(iter(tr.raw_model.parameters())).view(-1)[0].add_(0.125)
 
-    res_m1 = run_training_job(
-        cfg=cfg_m1,
-        output_dir=out_m1,
-        work_dir=work_m1,
+    res_gen = run_training_job(
+        cfg=cfg_gen,
+        output_dir=out_gen,
+        work_dir=work_gen,
         device="cpu",
         step_hook=_post_restart_hook,
     )
 
-    assert res_m1["status"] == "PASS"
-    assert res_m1["in_session_restarts"] == 1
+    assert res_gen["status"] == "PASS"
+    assert res_gen["in_session_restarts"] == 1
     assert perturbed_post_restart["done"] is True
-    assert (out_m1 / "checkpoints" / "light_u0000003.pt").is_file()
+    assert (out_gen / "checkpoints" / "light_u0000003.pt").is_file()
     # Post-restart FULL at u=3 MUST point to `light_u0000003_r01.pt`, never `light_u0000003.pt`.
-    r01_idx = out_m1 / "checkpoints" / "full_u0000003_r01.index.json"
+    r01_idx = out_gen / "checkpoints" / "full_u0000003_r01.index.json"
     assert r01_idx.is_file()
     r01_meta = verify_full_checkpoint_set(r01_idx)
     assert r01_meta["light_path"].name == "light_u0000003_r01.pt"
     assert r01_meta["restart_generation"] == 1
-    check_r01 = V3PPOTrainer(cfg_m1, device="cpu")
+    check_r01 = V3PPOTrainer(cfg_gen, device="cpu")
     check_r01.load_checkpoint(r01_idx)
     first_param_key = next(iter(stale_u3_weights))
     assert not torch.equal(
@@ -770,7 +786,7 @@ def test_restart_generation_light_margin_protected_finally_and_update_cap(
 
     # Explicit guard test: `save_full_checkpoint` refuses a `light_path` with mismatched generation
     stale_dir = tmp_path / "stale_guard"
-    guard_tr = V3PPOTrainer(cfg_m1, device="cpu")
+    guard_tr = V3PPOTrainer(cfg_gen, device="cpu")
     guard_tr.train_step()
     guard_tr.restart_generation = 0
     stale_lp = stale_dir / "light_u0000001.pt"
@@ -779,19 +795,25 @@ def test_restart_generation_light_margin_protected_finally_and_update_cap(
     with pytest.raises(ValueError, match="Refusing to build FULL checkpoint"):
         guard_tr.save_full_checkpoint(stale_dir, tag="u0000001_r01", light_path=stale_lp)
 
-    # Minor 2: Resume prefers LIGHT over FULL only when newer by > `light_resume_margin_minutes`.
+
+def test_resume_prefers_full_until_light_exceeds_margin_minutes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Resume prefers newest FULL unless LIGHT is newer by `> light_resume_margin_minutes`."""
     margin_dir = tmp_path / "margin_ckpts"
-    m2_tr = V3PPOTrainer(_tiny_cfg(num_envs=2, total_updates=4, eval_every_updates=0), device="cpu")
-    m2_tr.train_step()
-    m2_tr.train_step()
+    tr = V3PPOTrainer(_tiny_cfg(num_envs=2, total_updates=4, eval_every_updates=0), device="cpu")
+    tr.train_step()
+    tr.train_step()
     base_ts = 1_700_000_000.0
     monkeypatch.setattr(trainer_mod.time, "time", lambda: base_ts)
-    m2_tr.save_full_checkpoint(margin_dir, tag="u0000002")
-    m2_tr.train_step()
-    m2_tr.train_step()
+    tr.save_full_checkpoint(margin_dir, tag="u0000002")
+    tr.train_step()
+    tr.train_step()
     # 20 minutes newer (< default 45 min margin) -> chooses FULL u=2!
     monkeypatch.setattr(trainer_mod.time, "time", lambda: base_ts + 20.0 * 60.0)
-    m2_tr.save_light_checkpoint(margin_dir / "light_u0000004.pt")
+    tr.save_light_checkpoint(margin_dir / "light_u0000004.pt")
     capsys.readouterr()
 
     chosen_within = resolve_resume_checkpoint(
@@ -815,16 +837,22 @@ def test_restart_generation_light_margin_protected_finally_and_update_cap(
     assert "V3_PPO_RESUME_CHOICE context=resolve_dir chosen_kind=light" in out_exceeds
     assert "reason=light_newer_beyond_margin" in out_exceeds
 
-    # --- Minor 3: Protected rollback in `finally` still writes manifest & `train_result.json` ---
-    cfg_m3 = V3PPOConfig.from_dict(
+
+def test_finally_rollback_failure_still_writes_manifest_and_train_result(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Protected rollback in `finally` writes `latest_manifest.json` & `train_result.json`."""
+    cfg_fin = V3PPOConfig.from_dict(
         {
             **_tiny_cfg(num_envs=2, total_updates=3, eval_every_updates=0).to_dict(),
             "checkpoint_every_updates": 1,
             "max_in_session_restarts": 0,
         }
     )
-    out_m3 = tmp_path / "m3_finally_out"
-    work_m3 = tmp_path / "m3_finally_work"
+    out_fin = tmp_path / "finally_out"
+    work_fin = tmp_path / "finally_work"
     orig_load_ckpt = V3PPOTrainer.load_checkpoint
 
     def _dead_cuda_load_ckpt(self: V3PPOTrainer, *args, **kwargs):  # type: ignore[no-untyped-def]
@@ -837,23 +865,35 @@ def test_restart_generation_light_margin_protected_finally_and_update_cap(
 
     with pytest.raises(RuntimeError, match="Unrecoverable fault on update 2"):
         run_training_job(
-            cfg=cfg_m3,
-            output_dir=out_m3,
-            work_dir=work_m3,
+            cfg=cfg_fin,
+            output_dir=out_fin,
+            work_dir=work_fin,
             device="cpu",
             step_hook=_boom_on_u2,
         )
     monkeypatch.setattr(V3PPOTrainer, "load_checkpoint", orig_load_ckpt)
-    out_m3_log = capsys.readouterr().out
-    assert "V3_PPO_FINALLY_WARN stage=rollback_load_checkpoint" in out_m3_log
-    verify_completed_artifact(out_m3 / "checkpoints" / "latest_manifest.json")
-    verify_completed_artifact(out_m3 / "train_result.json")
-    res_m3 = json.loads((out_m3 / "train_result.json").read_text(encoding="utf-8"))
-    assert res_m3["status"] == "FAIL"
+    out_log = capsys.readouterr().out
+    assert "V3_PPO_FINALLY_WARN stage=rollback_load_checkpoint" in out_log
+    verify_completed_artifact(out_fin / "checkpoints" / "latest_manifest.json")
+    verify_completed_artifact(out_fin / "train_result.json")
+    res_fin = json.loads((out_fin / "train_result.json").read_text(encoding="utf-8"))
+    assert res_fin["status"] == "FAIL"
 
-    # --- Minor 4: Update-based checkpoint settings obey `max_session_export_bytes` ---
-    probe_light_bytes = (margin_dir / "light_u0000004.pt").stat().st_size
-    cfg_m4 = V3PPOConfig.from_dict(
+
+def test_update_based_periodic_checkpoints_obey_session_export_byte_cap(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Update-based periodic checkpoints (`checkpoint_every_updates`) respect export byte cap."""
+    probe_tr = V3PPOTrainer(
+        _tiny_cfg(num_envs=2, total_updates=1, eval_every_updates=0), device="cpu"
+    )
+    probe_tr.train_step()
+    probe_lp = tmp_path / "probe_light.pt"
+    probe_tr.save_light_checkpoint(probe_lp)
+    probe_light_bytes = probe_lp.stat().st_size
+
+    cfg_cap = V3PPOConfig.from_dict(
         {
             **_tiny_cfg(num_envs=2, total_updates=5, eval_every_updates=0).to_dict(),
             "checkpoint_every_updates": 1,
@@ -861,27 +901,26 @@ def test_restart_generation_light_margin_protected_finally_and_update_cap(
             "full_checkpoint_interval_sec": 7200.0,
         }
     )
-    out_m4 = tmp_path / "m4_cap_out"
-    res_m4 = run_training_job(
-        cfg=cfg_m4,
-        output_dir=out_m4,
-        work_dir=tmp_path / "m4_cap_work",
+    out_cap = tmp_path / "cap_out"
+    res_cap = run_training_job(
+        cfg=cfg_cap,
+        output_dir=out_cap,
+        work_dir=tmp_path / "cap_work",
         device="cpu",
         max_session_export_bytes=int(probe_light_bytes * 3.2),  # 2 LIGHTs + 25% stop_reserve!
     )
-    out_m4_log = capsys.readouterr().out
-    assert res_m4["status"] == "PASS"
-    assert res_m4["periodic_light_exports_published"] == 2
-    assert "V3_PPO_EXPORT_BUDGET_REACHED" in out_m4_log
+    out_log = capsys.readouterr().out
+    assert res_cap["status"] == "PASS"
+    assert res_cap["periodic_light_exports_published"] == 2
+    assert "V3_PPO_EXPORT_BUDGET_REACHED" in out_log
 
 
-def test_single_pass_eval_bit_identical_training_stop_abort_and_wall_skip(
+def test_periodic_evaluation_runs_single_sim_pass_and_leaves_training_bit_identical(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """M2-r2: 1-pass dual-matchup eval, bit-identical train, clean stop abort, & <2x wall skip."""
-    # 1. Single simulator pass per evaluation + bit-identical training with vs without eval
+    """Periodic evaluation constructs 1 simulator per eval and leaves training bit-identical."""
     sim_creations: list[int] = []
     real_eval_sim = eval_mod.GameV3Sim
 
@@ -949,7 +988,16 @@ def test_single_pass_eval_bit_identical_training_stop_abort_and_wall_skip(
             sa, tr_b.sim.state_dict()["tensors"][t_name]
         ), f"Eval perturbed {t_name}!"
 
-    # 2. Stop flag polled during evaluation aborts cleanly (`aborted=True`, never logged as data)
+
+def test_evaluation_stop_signal_aborts_cleanly_without_logging_partial_metrics(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Stop signal polled during evaluation aborts cleanly and omits partial `eval/*.jsonl` rows."""
+    base_cfg = _tiny_cfg(num_envs=2, total_updates=2, eval_every_updates=2, seed=90210)
+    tr = V3PPOTrainer(base_cfg, device="cpu")
+
     poll_calls = {"n": 0}
 
     def _stop_after_2_polls() -> bool:
@@ -957,9 +1005,14 @@ def test_single_pass_eval_bit_identical_training_stop_abort_and_wall_skip(
         return poll_calls["n"] >= 2
 
     aborted_ev = evaluate_policy(
-        tr_b.raw_model,
+        tr.raw_model,
         V3PPOConfig.from_dict(
-            {**cfg_with_ev.to_dict(), "eval_burnin_ticks": 40, "eval_ticks": 200}
+            {
+                **base_cfg.to_dict(),
+                "eval_envs": 4,
+                "eval_burnin_ticks": 40,
+                "eval_ticks": 200,
+            }
         ),
         device="cpu",
         should_stop=_stop_after_2_polls,
@@ -977,7 +1030,14 @@ def test_single_pass_eval_bit_identical_training_stop_abort_and_wall_skip(
     monkeypatch.setattr(trainer_mod, "evaluate_policy", _aborting_eval_pol)
     out_abort = tmp_path / "abort_ev_out"
     res_abort = run_training_job(
-        cfg=V3PPOConfig.from_dict({**cfg_with_ev.to_dict(), "total_updates": 2}),
+        cfg=V3PPOConfig.from_dict(
+            {
+                **base_cfg.to_dict(),
+                "eval_envs": 4,
+                "eval_burnin_ticks": 4,
+                "eval_ticks": 12,
+            }
+        ),
         output_dir=out_abort,
         work_dir=tmp_path / "abort_ev_work",
         device="cpu",
@@ -994,12 +1054,18 @@ def test_single_pass_eval_bit_identical_training_stop_abort_and_wall_skip(
         for jf in eval_dir.glob("*.jsonl"):
             assert jf.read_text(encoding="utf-8").strip() == ""
 
-    # 3. Remaining wall `< 2x` eval estimate skips starting evaluation (`V3_PPO_EVAL_SKIPPED`)
+
+def test_evaluation_skips_when_remaining_wall_below_twice_estimated_duration(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Remaining wall `< 2x` eval estimate skips starting evaluation (`V3_PPO_EVAL_SKIPPED`)."""
     cfg_skip = V3PPOConfig.from_dict(
         {
-            **cfg_with_ev.to_dict(),
-            "total_updates": 2,
-            "eval_every_updates": 1,
+            **_tiny_cfg(num_envs=2, total_updates=2, eval_every_updates=1, seed=90210).to_dict(),
+            "eval_envs": 4,
+            "eval_burnin_ticks": 4,
+            "eval_ticks": 12,
             "eval_estimated_seconds": 60.0,  # 2x = 120s > remaining wall (~90s)
         }
     )
@@ -1021,13 +1087,13 @@ def test_light_exports_maintain_real_interval_after_periodic_full_cap_reached(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """m1-r3: Capped `work/` FULL saves must never stretch periodic LIGHT export intervals."""
+    """Capped `work/` FULL saves never reset or stretch periodic LIGHT export intervals."""
     import research.arena_ppo.runtime as arena_rt
     from research.colab_cli.runtime import _exports as scan_supervisor_exports
 
     light_interval = 30.0
     full_interval = 75.0
-    cfg_m1 = V3PPOConfig.from_dict(
+    cfg_cap = V3PPOConfig.from_dict(
         {
             **_tiny_cfg(num_envs=2, total_updates=20, eval_every_updates=0, seed=7331).to_dict(),
             "light_checkpoint_interval_sec": light_interval,
@@ -1036,7 +1102,7 @@ def test_light_exports_maintain_real_interval_after_periodic_full_cap_reached(
         }
     )
 
-    cli_root = tmp_path / "m1_cli_root"
+    cli_root = tmp_path / "cli_root"
     out_dir = cli_root / "output"
     work_dir = cli_root / "work" / "v3_ppo"
 
@@ -1055,9 +1121,7 @@ def test_light_exports_maintain_real_interval_after_periodic_full_cap_reached(
     # - u=8 (80s >= 75s): 1st periodic FULL (hits `max_periodic_full_exports=1`)
     # - u=11 (110s), u=14 (140s): periodic LIGHT
     # - u=16 (160s, 160-80=80 >= 75s): `due_full_t` saves FULL in `work/`, cap blocks export;
-    #   previously reset the LIGHT timer to 160s and delayed the next LIGHT to u=19 (190s, 50s =
-    #   1.67x gap). With `last_light_export_mono`, u=17 (170s, 170-140=30s) and u=20 (200s) export
-    #   LIGHT right at 1.00x interval!
+    #   `last_light_export_mono` stays at 140s so u=17 (170s) and u=20 (200s) export LIGHT on time!
     fake_clock = {"t": 1000.0}
     monkeypatch.setattr(job_mod.time, "monotonic", lambda: fake_clock["t"])
 
@@ -1091,7 +1155,7 @@ def test_light_exports_maintain_real_interval_after_periodic_full_cap_reached(
         fake_clock["t"] += 10.0
 
     res = run_training_job(
-        cfg=cfg_m1,
+        cfg=cfg_cap,
         output_dir=out_dir,
         work_dir=work_dir,
         device="cpu",
@@ -1194,3 +1258,179 @@ def test_restart_and_final_failure_record_exception_class_and_traceback(
     assert "fatal_missing_key_u2" in res_fail["error"]
     assert "Traceback (most recent call last):" in res_fail["error_traceback"]
     assert "_always_fail_u2" in res_fail["error_traceback"]
+
+
+def _tensor_sha256_hex(t: torch.Tensor) -> str:
+    arr = np.ascontiguousarray(t.detach().cpu().numpy())
+    h = hashlib.sha256()
+    h.update(f"{arr.dtype}:{arr.shape}:".encode("utf-8"))
+    h.update(arr.tobytes())
+    return h.hexdigest()
+
+
+def _snapshot_trainer_hashes(trainer: V3PPOTrainer) -> dict[str, object]:
+    net_hashes = {
+        k: _tensor_sha256_hex(v) for k, v in sorted(trainer.raw_model.state_dict().items())
+    }
+    sim_sd = trainer.sim.state_dict()
+    sim_hashes = {k: _tensor_sha256_hex(v) for k, v in sorted(sim_sd["tensors"].items())}
+    return {
+        "updates_completed": int(trainer.updates_completed),
+        "world_steps_collected": int(trainer.world_steps_collected),
+        "agent_steps_collected": int(trainer.agent_steps_collected),
+        "sim_tick": int(sim_sd["tick"]),
+        "sim_subtick_offset": int(sim_sd.get("subtick_offset", 0)),
+        "sim_clean_step_streak": int(getattr(trainer.sim, "_clean_step_streak", 0)),
+        "net_state_sha256": net_hashes,
+        "sim_state_sha256": sim_hashes,
+    }
+
+
+def test_e2865f93_checkpoints_resume_bit_identically_on_cpu(tmp_path: Path) -> None:
+    """Checkpoints written by commit `e2865f93` load and resume bit-identically on CPU."""
+    baseline_root = tmp_path / "e2865f93_root"
+    baseline_root.mkdir(parents=True)
+    (baseline_root / "src").symlink_to(ROOT / "src")
+    (baseline_root / "research").mkdir()
+    for sibling in (ROOT / "research").iterdir():
+        if sibling.name != "v3_ppo":
+            (baseline_root / "research" / sibling.name).symlink_to(sibling)
+
+    archive = subprocess.run(
+        ["git", "-C", str(ROOT), "archive", "e2865f93", "research/v3_ppo"],
+        capture_output=True,
+        check=True,
+    )
+    subprocess.run(
+        ["tar", "-xf", "-", "-C", str(baseline_root)],
+        input=archive.stdout,
+        check=True,
+    )
+
+    ckpt_dir = tmp_path / "e2865f93_ckpts"
+    golden_json = tmp_path / "golden_e2865f93.json"
+    gen_script = tmp_path / "gen_e2865f93.py"
+    gen_script.write_text(
+        """from __future__ import annotations
+import hashlib, json, sys
+from pathlib import Path
+import numpy as np
+import torch
+
+sys.path.insert(0, sys.argv[1])
+from research.game_v3.config import GameV3Config
+from research.v3_ppo.config import V3PPOConfig
+from research.v3_ppo.ppo import V3PPOTrainer, verify_full_checkpoint_set
+
+def tensor_sha(t: torch.Tensor) -> str:
+    arr = np.ascontiguousarray(t.detach().cpu().numpy())
+    h = hashlib.sha256()
+    h.update(f"{arr.dtype}:{arr.shape}:".encode("utf-8"))
+    h.update(arr.tobytes())
+    return h.hexdigest()
+
+def snap(tr: V3PPOTrainer) -> dict:
+    sim_sd = tr.sim.state_dict()
+    return {
+        "updates_completed": int(tr.updates_completed),
+        "world_steps_collected": int(tr.world_steps_collected),
+        "agent_steps_collected": int(tr.agent_steps_collected),
+        "sim_tick": int(sim_sd["tick"]),
+        "sim_subtick_offset": int(sim_sd.get("subtick_offset", 0)),
+        "sim_clean_step_streak": int(getattr(tr.sim, "_clean_step_streak", 0)),
+        "net_state_sha256": {
+            k: tensor_sha(v) for k, v in sorted(tr.raw_model.state_dict().items())
+        },
+        "sim_state_sha256": {k: tensor_sha(v) for k, v in sorted(sim_sd["tensors"].items())},
+    }
+
+def make_cfg() -> V3PPOConfig:
+    gcfg = GameV3Config(arena_radius=60.0, num_snakes=6, ambient_food_density=0.02, respawn_delay=8)
+    return V3PPOConfig(
+        game_config=gcfg, num_envs=3, learner_slots=4, opponent_policy="food_seeking",
+        net_size="S", amp=False, use_channels_last=False, rollout_len=4, ppo_epochs=2,
+        minibatch_size=16, total_updates=5, eval_every_minutes=0.0, eval_every_updates=0,
+        seed=20261111,
+    )
+
+ckpt_dir = Path(sys.argv[2])
+probe_dir = ckpt_dir.parent / "probe"
+cfg = make_cfg()
+tr = V3PPOTrainer(cfg, device=torch.device("cpu"))
+tr.train_step()
+tr.train_step()
+tr.sim._clean_step_streak = 77
+
+probe_idx = tr.save_full_checkpoint(probe_dir, tag="u0000002")
+one_size = verify_full_checkpoint_set(probe_idx)["shard_paths"][0].stat().st_size
+ckpt_dir.mkdir(parents=True, exist_ok=True)
+full_idx = tr.save_full_checkpoint(ckpt_dir, tag="u0000002", max_shard_bytes=one_size - 1024)
+assert verify_full_checkpoint_set(full_idx)["num_shards"] >= 2
+
+k_updates = 3
+tr_l = V3PPOTrainer(cfg, device=torch.device("cpu"))
+tr_l.load_checkpoint(ckpt_dir / "light_u0000002.pt")
+for _ in range(k_updates):
+    tr_l.train_step()
+
+tr_f = V3PPOTrainer(cfg, device=torch.device("cpu"))
+tr_f.load_checkpoint(full_idx)
+for _ in range(k_updates):
+    tr_f.train_step()
+
+Path(sys.argv[3]).write_text(
+    json.dumps({"k_updates": k_updates, "light": snap(tr_l), "full": snap(tr_f)}, sort_keys=True),
+    encoding="utf-8",
+)
+""",
+        encoding="utf-8",
+    )
+
+    sub_env = {
+        **os.environ,
+        "PYTHONPATH": str(baseline_root),
+        "OMP_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+    }
+    subprocess.run(
+        [sys.executable, str(gen_script), str(baseline_root), str(ckpt_dir), str(golden_json)],
+        env=sub_env,
+        check=True,
+    )
+    golden = json.loads(golden_json.read_text(encoding="utf-8"))
+    k_updates = int(golden["k_updates"])
+
+    cfg = V3PPOConfig(
+        game_config=GameV3Config(
+            arena_radius=60.0, num_snakes=6, ambient_food_density=0.02, respawn_delay=8
+        ),
+        num_envs=3,
+        learner_slots=4,
+        opponent_policy="food_seeking",
+        net_size="S",
+        amp=False,
+        use_channels_last=False,
+        rollout_len=4,
+        ppo_epochs=2,
+        minibatch_size=16,
+        total_updates=5,
+        eval_every_minutes=0.0,
+        eval_every_updates=0,
+        seed=20261111,
+    )
+
+    new_light = V3PPOTrainer(cfg, device=torch.device("cpu"))
+    meta_light = new_light.load_checkpoint(ckpt_dir / "light_u0000002.pt")
+    assert meta_light["checkpoint_kind"] == "light"
+    for _ in range(k_updates):
+        new_light.train_step()
+    assert _snapshot_trainer_hashes(new_light) == golden["light"]
+
+    new_full = V3PPOTrainer(cfg, device=torch.device("cpu"))
+    meta_full = new_full.load_checkpoint(ckpt_dir / "full_u0000002.index.json")
+    assert meta_full["checkpoint_kind"] == "full"
+    assert meta_full["num_shards"] == 2
+    for _ in range(k_updates):
+        new_full.train_step()
+    assert _snapshot_trainer_hashes(new_full) == golden["full"]
