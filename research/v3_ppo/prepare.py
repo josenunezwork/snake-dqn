@@ -865,9 +865,10 @@ def _size_train_mode(
 
     staged_base_cfg = ctx.prior.staged_base_cfg
     base_cfg = opts.ppo_config or staged_base_cfg or V3PPOConfig()
-    default_full_mode: FullExportMode = (
-        opts.ppo_config.full_exports if opts.ppo_config is not None else "none"
-    )
+    # Only an explicit `--full-exports` or `--max-periodic-full-exports` flag selects a non-`none`
+    # export mode; config dumps (`--ppo-config-json` / prior checkpoint config) never silently
+    # opt into `periodic` or `final`.
+    default_full_mode: FullExportMode = "none"
 
     default_eval_est = float(V3PPOConfig().eval_estimated_seconds)
     caller_overrode_eval_est = (
@@ -969,12 +970,18 @@ def _size_train_mode(
         if ctx.canary_eval_metrics is not None
         else None
     )
+    staged_input_bytes = (
+        int(ctx.prior.chosen_checkpoint["size_bytes"])
+        if ctx.prior.kind == "checkpoint" and ctx.prior.chosen_checkpoint is not None
+        else 0
+    )
     wall_headroom = estimate_train_wall_headroom(
         cfg_obj,
         gpu=ctx.gpu_norm,
         session_seconds=eff_sec,
         canary_eval_wall_seconds=canary_eval_wall_sec,
         measured_packed_bytes_per_world=eff_world_bytes,
+        staged_input_bytes=staged_input_bytes,
     )
     max_wall_sec_int = max(1, int(wall_headroom["max_wall_seconds"]))
 
@@ -1102,12 +1109,18 @@ def _stage_export_caps(
         if ctx.canary_eval_metrics is not None
         else None
     )
+    staged_input_bytes = (
+        int(ctx.prior.chosen_checkpoint["size_bytes"])
+        if ctx.prior.kind == "checkpoint" and ctx.prior.chosen_checkpoint is not None
+        else 0
+    )
     wall_headroom = validate_train_wall_headroom(
         cfg_obj,
         ctx.gpu_norm,
         session_seconds=sized.eff_sec,
         canary_eval_wall_seconds=canary_eval_wall_sec,
         measured_packed_bytes_per_world=eff_world_bytes,
+        staged_input_bytes=staged_input_bytes,
     )
     wall_headroom_by_mode = estimate_train_wall_headroom_by_mode(
         cfg_obj,
@@ -1115,6 +1128,7 @@ def _stage_export_caps(
         session_seconds=sized.eff_sec,
         canary_eval_wall_seconds=canary_eval_wall_sec,
         measured_packed_bytes_per_world=eff_world_bytes,
+        staged_input_bytes=staged_input_bytes,
     )
 
     if cfg_obj.full_exports == "periodic":
@@ -1175,7 +1189,10 @@ def _stage_export_caps(
     extra_env["V3_PPO_MAX_SESSION_EXPORT_BYTES"] = str(
         int(checkpoint_export_caps["session_total_export_cap_bytes"])
     )
-    extra_env["V3_PPO_CONFIG_JSON"] = json.dumps(cfg_obj.to_dict(), sort_keys=True)
+    staged_cfg_dict = cfg_obj.to_dict()
+    if cfg_obj.full_exports == "none":
+        staged_cfg_dict.pop("max_periodic_full_exports", None)
+    extra_env["V3_PPO_CONFIG_JSON"] = json.dumps(staged_cfg_dict, sort_keys=True)
 
     return _CappedModePlan(
         sized=replace(
@@ -1655,9 +1672,6 @@ def options_from_cli_args(
             raise ValueError("--ppo-config-json root must be a JSON object")
         explicit_total_updates = "total_updates" in raw_dict
         explicit_eval_estimated_seconds = "eval_estimated_seconds" in raw_dict
-        if "max_periodic_full_exports" in raw_dict and "full_exports" not in raw_dict:
-            mp_raw = int(raw_dict["max_periodic_full_exports"])
-            raw_dict = {**raw_dict, "full_exports": "final" if mp_raw == 0 else "periodic"}
         ppo_cfg = V3PPOConfig.from_dict(raw_dict)
 
     return PreparePacketOptions(

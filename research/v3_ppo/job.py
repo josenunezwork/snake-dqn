@@ -29,6 +29,7 @@ from research.v3_ppo.config import (
     GPU_MAX_TOTAL_EXPORT_BYTES,
     NONE_MODE_MAX_TOTAL_EXPORT_BYTES,
     RECIPE_OVERRIDE_KEYS,
+    TRAINER_CHECKPOINT_RESERVE_SECONDS,
     V3_PPO_NAMESPACE,
     VALID_FULL_EXPORT_MODES,
     VALID_NET_SIZES,
@@ -1075,8 +1076,15 @@ def run_training_job(
     if not artifact_or_sidecar_exists(cfg_json_path):
         write_create_only_json(cfg_json_path, cfg.to_dict())
     now_init = time.monotonic()
+    # Reserve `TRAINER_CHECKPOINT_RESERVE_SECONDS` (90 s; clamped to 8% on tiny sessions >= 5 s)
+    # inside `max_wall_seconds` so an in-progress update completes before final eval/export starts.
     checkpoint_reserve_sec = (
-        min(90.0, max(5.0, float(max_wall_seconds) * 0.08)) if max_wall_seconds is not None else 0.0
+        min(
+            float(TRAINER_CHECKPOINT_RESERVE_SECONDS),
+            max(5.0, float(max_wall_seconds) * 0.08),
+        )
+        if max_wall_seconds is not None
+        else 0.0
     )
     state = _JobRunState(
         cfg=cfg,
@@ -1128,74 +1136,83 @@ def run_training_job(
                 start_update=state.trainer.updates_completed,
                 target_updates=cfg.total_updates,
             )
-            while state.trainer.updates_completed < int(cfg.total_updates):
-                if stop_flag.stopped:
-                    state.stopped_reason = f"signal:{stop_flag.signal_name or 'STOP'}"
-                    break
-                if state.wall_expired():
-                    state.stopped_reason = "wall_clock_guard"
-                    break
+            if stop_flag.stopped:
+                state.stopped_reason = f"signal:{stop_flag.signal_name or 'STOP'}"
+            elif state.wall_expired():
+                state.stopped_reason = "wall_clock_guard"
+            else:
+                while state.trainer.updates_completed < int(cfg.total_updates):
+                    try:
+                        state.trainer_state_clean = False
+                        u_t0 = time.monotonic()
+                        if step_hook is not None:
+                            step_hook(state.trainer, int(state.trainer.updates_completed) + 1)
+                        step_metrics = state.trainer.train_step(should_stop=_should_stop)
+                        u_elapsed = time.monotonic() - u_t0
+                        state.trainer_state_clean = True
+                        state.updates_this_session += 1
+                        state.session_agent_steps += int(step_metrics["agent_steps"])
+                        state.train_wall_seconds_total += u_elapsed
+                        state.clean_summary = _snapshot_clean_state(state.trainer)
 
-                try:
-                    state.trainer_state_clean = False
-                    u_t0 = time.monotonic()
-                    if step_hook is not None:
-                        step_hook(state.trainer, int(state.trainer.updates_completed) + 1)
-                    step_metrics = state.trainer.train_step(should_stop=_should_stop)
-                    u_elapsed = time.monotonic() - u_t0
-                    state.trainer_state_clean = True
-                    state.updates_this_session += 1
-                    state.session_agent_steps += int(step_metrics["agent_steps"])
-                    state.train_wall_seconds_total += u_elapsed
-                    state.clean_summary = _snapshot_clean_state(state.trainer)
+                        if cfg.max_update_seconds is not None and u_elapsed > float(
+                            cfg.max_update_seconds
+                        ):
+                            raise RuntimeError(
+                                f"Update {state.trainer.updates_completed} took {u_elapsed:.2f}s > "
+                                f"max_update_seconds={cfg.max_update_seconds:.2f}s"
+                            )
+                    except StopRequestedError:
+                        state.aborted_mid_update = True
+                        state.stopped_reason = f"signal:{stop_flag.signal_name or 'STOP'}"
+                        break
+                    except RuntimeError as exc:
+                        if (
+                            state.in_session_restarts >= int(cfg.max_in_session_restarts)
+                            or stop_flag.stopped
+                            or state.wall_expired()
+                        ):
+                            raise
+                        _stage_recover_trainer_in_session(state, exc)
+                        continue
 
-                    if cfg.max_update_seconds is not None and u_elapsed > float(
-                        cfg.max_update_seconds
-                    ):
-                        raise RuntimeError(
-                            f"Update {state.trainer.updates_completed} took {u_elapsed:.2f}s > "
-                            f"max_update_seconds={cfg.max_update_seconds:.2f}s"
-                        )
-                except StopRequestedError:
-                    state.aborted_mid_update = True
-                    state.stopped_reason = f"signal:{stop_flag.signal_name or 'STOP'}"
-                    break
-                except RuntimeError as exc:
-                    if (
-                        state.in_session_restarts >= int(cfg.max_in_session_restarts)
-                        or stop_flag.stopped
-                        or state.wall_expired()
-                    ):
-                        raise
-                    _stage_recover_trainer_in_session(state, exc)
-                    continue
+                    eval_res = _stage_maybe_run_periodic_eval(
+                        state,
+                        now_mono=time.monotonic(),
+                        eval_should_stop=_eval_should_stop,
+                    )
+                    state.metrics_writer.append(step_metrics)
+                    now_mono = time.monotonic()
+                    print(
+                        _format_progress_line(
+                            step_metrics,
+                            total_updates=int(cfg.total_updates),
+                            wall_elapsed=now_mono - state.wall_t0,
+                            eval_wall_total=state.eval_wall_seconds_total,
+                            eval_metrics=eval_res,
+                        ),
+                        flush=True,
+                    )
+                    # Compute boundary stop decision ONCE per update and reuse it for both
+                    # `final_boundary` and loop exit so a due periodic FULL can never publish
+                    # before the final LIGHT if `wall_expired()` trips during checkpointing.
+                    if stop_flag.stopped:
+                        post_stop_reason: str | None = f"signal:{stop_flag.signal_name or 'STOP'}"
+                    elif state.wall_expired():
+                        post_stop_reason = "wall_clock_guard"
+                    elif state.trainer.updates_completed >= int(cfg.total_updates):
+                        post_stop_reason = "completed"
+                    else:
+                        post_stop_reason = None
 
-                eval_res = _stage_maybe_run_periodic_eval(
-                    state,
-                    now_mono=time.monotonic(),
-                    eval_should_stop=_eval_should_stop,
-                )
-                state.metrics_writer.append(step_metrics)
-                now_mono = time.monotonic()
-                print(
-                    _format_progress_line(
-                        step_metrics,
-                        total_updates=int(cfg.total_updates),
-                        wall_elapsed=now_mono - state.wall_t0,
-                        eval_wall_total=state.eval_wall_seconds_total,
-                        eval_metrics=eval_res,
-                    ),
-                    flush=True,
-                )
-                _stage_save_and_publish_checkpoints(
-                    state,
-                    now_mono=now_mono,
-                    final_boundary=bool(
-                        stop_flag.stopped
-                        or state.wall_expired()
-                        or state.trainer.updates_completed >= int(cfg.total_updates)
-                    ),
-                )
+                    _stage_save_and_publish_checkpoints(
+                        state,
+                        now_mono=now_mono,
+                        final_boundary=(post_stop_reason is not None),
+                    )
+                    if post_stop_reason is not None:
+                        state.stopped_reason = post_stop_reason
+                        break
 
         except Exception as exc:
             state.error_class = type(exc).__name__
@@ -1278,9 +1295,6 @@ def _merge_config_json_overlay(
             cfg_dict["minibatch_size"] = None
         if "actor_chunk_learners" not in parsed:
             cfg_dict["actor_chunk_learners"] = None
-    if "max_periodic_full_exports" in parsed and "full_exports" not in parsed:
-        mp_json = int(parsed["max_periodic_full_exports"])
-        cfg_dict["full_exports"] = "final" if mp_json == 0 else "periodic"
     return set(parsed.keys())
 
 

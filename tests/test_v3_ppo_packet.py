@@ -23,12 +23,15 @@ from research.game_v3.config import GameV3Config
 from research.v3_ppo.config import (
     ASSUMED_FINAL_EXPORT_DOWNLOAD_RATE_BYTES_PER_SEC,
     ASSUMED_FINAL_EXPORT_DOWNLOAD_RATE_MBPS,
+    ASSUMED_STAGED_INPUT_UPLOAD_RATE_BYTES_PER_SEC,
+    ASSUMED_STAGED_INPUT_UPLOAD_RATE_MBPS,
     MAX_TRAIN_HEADROOM_SESSION_FRACTION,
     NONE_MODE_MAX_TOTAL_EXPORT_BYTES,
     TRAIN_FINAL_EVAL_AND_SAVE_ALLOWANCE_SECONDS,
     TRAIN_FINAL_SAVE_AFTER_EVAL_ALLOWANCE_SECONDS,
     TRAIN_FINAL_TELEMETRY_EXPORT_BYTES,
     TRAIN_SETUP_ALLOWANCE_SECONDS,
+    TRAINER_CHECKPOINT_RESERVE_SECONDS,
     V3PPOConfig,
     estimate_checkpoint_export_caps,
     estimate_train_wall_headroom,
@@ -1653,7 +1656,11 @@ out_json.write_text(json.dumps(snapshots, sort_keys=True), encoding="utf-8")
         }
         cfg_b = json.loads(mf_b["env"]["V3_PPO_CONFIG_JSON"])
         cfg_a = json.loads(mf_a["env"]["V3_PPO_CONFIG_JSON"])
-        assert cfg_a == {**cfg_b, "full_exports": "none"}
+        assert "max_periodic_full_exports" not in cfg_a
+        assert cfg_a == {
+            **{k: v for k, v in cfg_b.items() if k != "max_periodic_full_exports"},
+            "full_exports": "none",
+        }
         assert (
             int(mf_a["env"]["V3_PPO_MAX_SESSION_EXPORT_BYTES"]) == NONE_MODE_MAX_TOTAL_EXPORT_BYTES
         )
@@ -1689,28 +1696,31 @@ def test_train_wall_headroom_arithmetic_gpu_defaults_summary_and_40pct_refusal(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Verify headroom arithmetic per mode (`none`/`final`/`periodic`), warnings, & >40% refusal."""
-    assert TRAIN_SETUP_ALLOWANCE_SECONDS == 120.0
+    assert TRAIN_SETUP_ALLOWANCE_SECONDS == 330.0
+    assert TRAINER_CHECKPOINT_RESERVE_SECONDS == 90.0
     assert TRAIN_FINAL_EVAL_AND_SAVE_ALLOWANCE_SECONDS == 300.0
     assert TRAIN_FINAL_SAVE_AFTER_EVAL_ALLOWANCE_SECONDS == 150.0
     assert TRAIN_FINAL_TELEMETRY_EXPORT_BYTES == 4 * 1024 * 1024
+    assert ASSUMED_STAGED_INPUT_UPLOAD_RATE_MBPS == 1.0
+    assert ASSUMED_STAGED_INPUT_UPLOAD_RATE_BYTES_PER_SEC == 1_000_000.0
     assert ASSUMED_FINAL_EXPORT_DOWNLOAD_RATE_MBPS == 1.0
     assert ASSUMED_FINAL_EXPORT_DOWNLOAD_RATE_BYTES_PER_SEC == 1_000_000.0
     assert MAX_TRAIN_HEADROOM_SESSION_FRACTION == 0.40
 
     expected_cases = [
         # (gpu, envs, net, hours, none_bytes, none_wall, full_bytes, full_wall, full_fits_40)
-        ("L4", 128, "S", 4.0, 20_971_520, 13_959, 2_164_785_152, 11_815, True),
-        ("L4", 128, "S", 8.0, 20_971_520, 28_359, 2_164_785_152, 26_215, True),
-        ("L4", 128, "M", 4.0, 75_497_472, 13_904, 2_219_311_104, 11_760, True),
-        ("L4", 128, "M", 8.0, 75_497_472, 28_304, 2_219_311_104, 26_160, True),
-        ("A100", 256, "S", 4.0, 20_971_520, 13_959, 4_312_793_088, 9_667, True),
-        ("A100", 256, "S", 8.0, 20_971_520, 28_359, 4_312_793_088, 24_067, True),
-        ("A100", 256, "M", 4.0, 75_497_472, 13_904, 4_367_319_040, 9_612, True),
-        ("A100", 256, "M", 8.0, 75_497_472, 28_304, 4_367_319_040, 24_012, True),
-        ("H100", 512, "S", 4.0, 20_971_520, 13_959, 8_608_808_960, 5_371, False),
-        ("H100", 512, "S", 8.0, 20_971_520, 28_359, 8_608_808_960, 19_771, True),
-        ("H100", 512, "M", 4.0, 75_497_472, 13_904, 8_663_334_912, 5_316, False),
-        ("H100", 512, "M", 8.0, 75_497_472, 28_304, 8_663_334_912, 19_716, True),
+        ("L4", 128, "S", 4.0, 20_971_520, 13_749, 2_164_785_152, 11_605, True),
+        ("L4", 128, "S", 8.0, 20_971_520, 28_149, 2_164_785_152, 26_005, True),
+        ("L4", 128, "M", 4.0, 75_497_472, 13_694, 2_219_311_104, 11_550, True),
+        ("L4", 128, "M", 8.0, 75_497_472, 28_094, 2_219_311_104, 25_950, True),
+        ("A100", 256, "S", 4.0, 20_971_520, 13_749, 4_312_793_088, 9_457, True),
+        ("A100", 256, "S", 8.0, 20_971_520, 28_149, 4_312_793_088, 23_857, True),
+        ("A100", 256, "M", 4.0, 75_497_472, 13_694, 4_367_319_040, 9_402, True),
+        ("A100", 256, "M", 8.0, 75_497_472, 28_094, 4_367_319_040, 23_802, True),
+        ("H100", 512, "S", 4.0, 20_971_520, 13_749, 8_608_808_960, 5_161, False),
+        ("H100", 512, "S", 8.0, 20_971_520, 28_149, 8_608_808_960, 19_561, True),
+        ("H100", 512, "M", 4.0, 75_497_472, 13_694, 8_663_334_912, 5_106, False),
+        ("H100", 512, "M", 8.0, 75_497_472, 28_094, 8_663_334_912, 19_506, True),
     ]
 
     for (
@@ -1755,10 +1765,13 @@ def test_train_wall_headroom_arithmetic_gpu_defaults_summary_and_40pct_refusal(
                 assert est["final_full_bytes"] == int(caps["est_full_sim_bytes"])
                 assert est["final_telemetry_bytes"] == 0
             assert est["final_export_bytes"] == exp_bytes
-            assert est["setup_allowance_seconds"] == 120.0
+            assert est["setup_allowance_seconds"] == 330.0
+            assert est["staged_input_bytes"] == 0
+            assert est["staged_input_upload_seconds"] == 0.0
+            assert est["trainer_checkpoint_reserve_seconds"] == 90.0
             assert est["final_eval_and_save_allowance_seconds"] == 300.0
             assert est["final_export_download_seconds"] == pytest.approx(exp_bytes / 1_000_000.0)
-            assert est["headroom_seconds"] == pytest.approx(120.0 + 300.0 + exp_bytes / 1_000_000.0)
+            assert est["headroom_seconds"] == pytest.approx(330.0 + 300.0 + exp_bytes / 1_000_000.0)
             assert est["max_wall_seconds"] == exp_wall
             assert est["fits_max_headroom_fraction"] is exp_fits
 
@@ -1795,6 +1808,11 @@ def test_train_wall_headroom_arithmetic_gpu_defaults_summary_and_40pct_refusal(
                 assert mf["timeout_minutes"] == pytest.approx(h_val * 60.0)
                 assert int(mf["env"]["V3_PPO_MAX_WALL_SECONDS"]) == exp_wall
                 assert mf["technical_envelope"]["wall_headroom"] == wh
+                staged_cfg_json = json.loads(mf["env"]["V3_PPO_CONFIG_JSON"])
+                if fe_mode == "none":
+                    assert "max_periodic_full_exports" not in staged_cfg_json
+                else:
+                    assert "max_periodic_full_exports" in staged_cfg_json
             else:
                 with pytest.raises(
                     ValueError,
@@ -1895,13 +1913,13 @@ def test_train_wall_headroom_arithmetic_gpu_defaults_summary_and_40pct_refusal(
     cli_wh_none = cli_summary_none["wall_headroom"]
     assert cli_wh_none["full_exports"] == "none"
     assert cli_wh_none["final_eval_and_save_source"] == "canary_receipt_eval_plus_150s"
-    assert cli_wh_none["setup_allowance_seconds"] == 120.0
+    assert cli_wh_none["setup_allowance_seconds"] == 330.0
     assert cli_wh_none["final_eval_and_save_allowance_seconds"] == pytest.approx(
         measured_eval_s + 150.0
     )
     assert cli_wh_none["final_export_download_seconds"] == pytest.approx(20_971_520 / 1_000_000.0)
     assert cli_wh_none["headroom_seconds"] == pytest.approx(
-        120.0 + (measured_eval_s + 150.0) + 20_971_520 / 1_000_000.0
+        330.0 + (measured_eval_s + 150.0) + 20_971_520 / 1_000_000.0
     )
     assert set(cli_summary_none["wall_headroom_by_mode"].keys()) == {"none", "final", "periodic"}
     assert "V3_PPO_HEADROOM " in captured_none.err
@@ -2023,6 +2041,16 @@ def test_light_only_prior_output_continuation_prepare_canary_and_train_without_e
     assert "ERROR" not in prep_t_io.out and "ERROR" not in prep_t_io.err
 
     mf_t_cont = json.loads(Path(train_cont["manifest_path"]).read_text(encoding="utf-8"))
+    prior_light_bytes = int((prior_exports / "checkpoints" / "light_u0000002.pt").stat().st_size)
+    cont_wh = train_cont["wall_headroom"]
+    assert cont_wh["staged_input_bytes"] == prior_light_bytes
+    assert cont_wh["staged_input_upload_seconds"] == pytest.approx(prior_light_bytes / 1_000_000.0)
+    assert cont_wh["headroom_seconds"] == pytest.approx(
+        330.0
+        + prior_light_bytes / 1_000_000.0
+        + cont_wh["final_eval_and_save_allowance_seconds"]
+        + cont_wh["final_export_download_seconds"]
+    )
     staged_in = _stage_manifest_inputs(mf_t_cont, tmp_path / "staged_train_light_in")
     cont_cfg = V3PPOConfig.from_dict(
         {**json.loads(mf_t_cont["env"]["V3_PPO_CONFIG_JSON"]), "total_updates": 4}
@@ -2773,10 +2801,76 @@ out_json.write_text(json.dumps(snapshots, sort_keys=True), encoding="utf-8")
     snap_before = json.loads(before_json.read_text(encoding="utf-8"))
     snap_after = json.loads(after_json.read_text(encoding="utf-8"))
     assert snap_after.keys() == snap_before.keys()
-    for case_name in snap_before:
+    # Canary and ruler packets remain 100% byte-for-byte identical vs d11d603d!
+    for unchanged_case in ("canary_l4", "ruler_a100"):
         assert (
-            snap_after[case_name]["files_b64"] == snap_before[case_name]["files_b64"]
-        ), f"Packet file bytes changed vs d11d603d for {case_name}"
+            snap_after[unchanged_case]["files_b64"] == snap_before[unchanged_case]["files_b64"]
+        ), f"Packet file bytes changed vs d11d603d for {unchanged_case}"
         assert (
-            snap_after[case_name]["summary_json"] == snap_before[case_name]["summary_json"]
-        ), f"Summary JSON changed vs d11d603d for {case_name}"
+            snap_after[unchanged_case]["summary_json"]
+            == snap_before[unchanged_case]["summary_json"]
+        ), f"Summary JSON changed vs d11d603d for {unchanged_case}"
+
+    # Train packets vs d11d603d: every non-manifest file is byte-identical, and manifest differs
+    # ONLY in Item 4's raised 330 s setup allowance (-210 s max_wall_seconds + staged_input/reserve
+    # metadata) and dropping inert `max_periodic_full_exports` from `none`-mode V3_PPO_CONFIG_JSON.
+    import base64 as _b64
+
+    for train_case in ("train_l4_none", "train_a100_final", "train_l4_periodic"):
+        b_files = snap_before[train_case]["files_b64"]
+        a_files = snap_after[train_case]["files_b64"]
+        assert set(a_files.keys()) == set(b_files.keys())
+        for rel_p in sorted(set(a_files.keys()) - {"dispatch-manifest.json"}):
+            assert a_files[rel_p] == b_files[rel_p]
+        mf_b = json.loads(_b64.b64decode(b_files["dispatch-manifest.json"]).decode("utf-8"))
+        mf_a = json.loads(_b64.b64decode(a_files["dispatch-manifest.json"]).decode("utf-8"))
+        assert {k: v for k, v in mf_a.items() if k not in {"env", "technical_envelope"}} == {
+            k: v for k, v in mf_b.items() if k not in {"env", "technical_envelope"}
+        }
+        assert int(mf_a["env"]["V3_PPO_MAX_WALL_SECONDS"]) == (
+            int(mf_b["env"]["V3_PPO_MAX_WALL_SECONDS"]) - 210
+        )
+        cfg_b = json.loads(mf_b["env"]["V3_PPO_CONFIG_JSON"])
+        cfg_a = json.loads(mf_a["env"]["V3_PPO_CONFIG_JSON"])
+        if train_case == "train_l4_none":
+            assert cfg_a == {k: v for k, v in cfg_b.items() if k != "max_periodic_full_exports"}
+        else:
+            assert cfg_a == cfg_b
+
+    # And on HEAD, omitting `--recipe-json` vs passing `--recipe-json "{}"` is 100% byte-identical!
+    pkt_no_r = tmp_path / "shared_recipe_eq" / "pkt"
+    out_no_r = tmp_path / "shared_recipe_eq" / "out"
+    s_no_r = prepare_v3_ppo_packet(
+        pkt_no_r,
+        commit="HEAD",
+        mode="train",
+        gpu="L4",
+        hours=4.0,
+        allow_missing_canary_receipt=True,
+        output_dir=out_no_r,
+        allow_unmerged_commit=True,
+    )
+    bytes_no_r = {
+        p.relative_to(pkt_no_r).as_posix(): p.read_bytes()
+        for p in sorted(pkt_no_r.rglob("*"))
+        if p.is_file()
+    }
+    shutil.rmtree(pkt_no_r.parent)
+    s_empty_r = prepare_v3_ppo_packet(
+        pkt_no_r,
+        commit="HEAD",
+        mode="train",
+        gpu="L4",
+        hours=4.0,
+        recipe_json="{}",
+        allow_missing_canary_receipt=True,
+        output_dir=out_no_r,
+        allow_unmerged_commit=True,
+    )
+    bytes_empty_r = {
+        p.relative_to(pkt_no_r).as_posix(): p.read_bytes()
+        for p in sorted(pkt_no_r.rglob("*"))
+        if p.is_file()
+    }
+    assert bytes_empty_r == bytes_no_r
+    assert s_empty_r == s_no_r

@@ -1238,6 +1238,52 @@ def test_full_exports_flag_precedence_legacy_mapping_and_conflict_refusals(
     )
     assert eff_override.cfg.full_exports == "none"
 
+    # A `--config-json` / `--ppo-config-json` dump that merely carries `max_periodic_full_exports`
+    # (or even `full_exports: "periodic"` in `prepare --ppo-config-json`) MUST NOT silently select
+    # `periodic`: only an explicit `--full-exports` or `--max-periodic-full-exports` CLI flag does!
+    old_dump_json = json.dumps({"num_envs": 128, "max_periodic_full_exports": 3})
+    eff_old_dump = resolve_effective_train_config(
+        parser.parse_args(["--output-dir", "/tmp/o", "--config-json", old_dump_json]),
+        environ={},
+    )
+    assert eff_old_dump.cfg.full_exports == "none"
+
+    from research.v3_ppo.prepare import build_arg_parser as prep_arg_parser
+    from research.v3_ppo.prepare import options_from_cli_args, prepare_packet_from_options
+
+    for idx_dump, dump_payload in enumerate(
+        (
+            {"num_envs": 128, "max_periodic_full_exports": 3},
+            {"num_envs": 128, "max_periodic_full_exports": 0},
+            {"num_envs": 128, "full_exports": "periodic", "max_periodic_full_exports": 2},
+        )
+    ):
+        p_parser = prep_arg_parser()
+        p_args = p_parser.parse_args(
+            [
+                "--mode",
+                "train",
+                "--gpu",
+                "L4",
+                "--hours",
+                "4.0",
+                "--ppo-config-json",
+                json.dumps(dump_payload),
+                "--allow-missing-canary-receipt",
+                "--allow-unmerged-commit",
+                "--output-dir",
+                str(tmp_path / f"out_dump_none_{idx_dump}"),
+                "--packet",
+                str(tmp_path / f"pkt_dump_none_{idx_dump}"),
+            ]
+        )
+        s_dump = prepare_packet_from_options(options_from_cli_args(p_args, p_parser))
+        assert s_dump["wall_headroom"]["full_exports"] == "none"
+        mf_dump = json.loads(Path(s_dump["manifest_path"]).read_text(encoding="utf-8"))
+        cfg_dump = json.loads(mf_dump["env"]["V3_PPO_CONFIG_JSON"])
+        assert cfg_dump["full_exports"] == "none"
+        assert "max_periodic_full_exports" not in cfg_dump
+
     # Conflicting `--full-exports` + `--max-periodic-full-exports` refused on `ppo` and `prepare`
     conflict_pairs: list[tuple[str, int]] = [
         ("none", 0),

@@ -2125,3 +2125,81 @@ def test_evaluation_metrics_invariant_across_reward_recipes_except_episode_retur
         eval_a["combined"]["mean_completed_episode_return"]
         != eval_b["combined"]["mean_completed_episode_return"]
     )
+
+
+def test_periodic_mode_wall_guard_race_during_checkpoint_never_publishes_full_before_final_light(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reusing one stop decision per update prevents a due FULL from racing ahead of final LIGHT."""
+    fake_clock = {"t": 1000.0}
+    monkeypatch.setattr(job_mod.time, "monotonic", lambda: fake_clock["t"])
+
+    real_save_light = V3PPOTrainer.save_light_checkpoint
+    real_save_full = V3PPOTrainer.save_full_checkpoint
+    out_dir = tmp_path / "race_out"
+    out_ckpts = out_dir / "checkpoints"
+    full_tags_built: list[str] = []
+
+    def _spy_save_light(
+        self_tr: V3PPOTrainer,
+        path: Path,
+        **kwargs: object,
+    ) -> str:
+        digest = real_save_light(self_tr, path, **kwargs)  # type: ignore[arg-type]
+        # On u=1 (`t=1010 < 1015` before checkpointing), advance clock past `max_wall - reserve`
+        # (`1020 >= 1015`) DURING checkpoint save! Because `post_stop_reason` was evaluated once
+        # (`None`), the loop MUST NOT exit before u=2, so u=2 becomes the clean `final_boundary`.
+        if self_tr.updates_completed == 1 and path.parent.parent.name != out_dir.name:
+            fake_clock["t"] += 10.0
+        return digest
+
+    def _spy_save_full(
+        self_tr: V3PPOTrainer,
+        checkpoints_dir: Path,
+        *,
+        tag: str | None = None,
+        **kwargs: object,
+    ) -> Path:
+        eff_tag = tag if tag is not None else f"u{self_tr.updates_completed:07d}"
+        full_tags_built.append(eff_tag)
+        if eff_tag == "u0000002":
+            final_light = out_ckpts / "light_u0000002.pt"
+            assert final_light.is_file()
+            assert Path(f"{final_light}.complete").is_file()
+            verify_light_checkpoint(final_light, require_markers=True)
+        return real_save_full(self_tr, checkpoints_dir, tag=tag, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(V3PPOTrainer, "save_light_checkpoint", _spy_save_light)
+    monkeypatch.setattr(V3PPOTrainer, "save_full_checkpoint", _spy_save_full)
+
+    def _step_hook(_tr: V3PPOTrainer, next_u: int) -> None:
+        if next_u == 1:
+            fake_clock["t"] += 10.0  # t=1010 < 1015 (not expired yet at u=1 decision)
+        else:
+            fake_clock["t"] += 1.0  # t=1021 >= 1015 (expired at u=2 decision!)
+
+    cfg_race = V3PPOConfig.from_dict(
+        {
+            **_tiny_cfg(num_envs=2, total_updates=4, eval_every_updates=0).to_dict(),
+            "full_exports": "periodic",
+            "max_periodic_full_exports": 2,
+            "checkpoint_every_updates": 0,
+            "full_checkpoint_every_updates": 1,
+            "light_checkpoint_interval_sec": 3600.0,
+            "full_checkpoint_interval_sec": 7200.0,
+        }
+    )
+    res = run_training_job(
+        cfg=cfg_race,
+        output_dir=out_dir,
+        work_dir=tmp_path / "race_work",
+        device="cpu",
+        max_wall_seconds=20.0,
+        step_hook=_step_hook,
+    )
+    assert res["status"] == "PASS"
+    assert res["stopped_reason"] == "wall_clock_guard"
+    assert res["updates_completed"] == 2
+    assert res["periodic_full_exports_published"] == 1
+    assert full_tags_built == ["u0000001", "u0000002"]
