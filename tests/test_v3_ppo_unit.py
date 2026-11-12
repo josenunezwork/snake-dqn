@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 import pytest
 import torch
@@ -15,9 +16,11 @@ from research.game_v3.sim import GameV3Sim, StepInfo
 from research.v3_ppo.buffer import Uint8RolloutBuffer, compute_gae
 from research.v3_ppo.config import (
     BYTES_PER_LEARNER_STEP,
+    NET_PRESETS,
     OBS_RASTER_BYTES_PER_STEP,
     V3PPOConfig,
     estimate_training_memory,
+    get_net_preset,
 )
 from research.v3_ppo.eval import compute_step_reward
 from research.v3_ppo.net import (
@@ -34,6 +37,8 @@ from research.v3_ppo.ppo import (
 )
 from research.v3_ppo.ppo import build_arg_parser as ppo_arg_parser
 from research.v3_ppo.prepare import build_arg_parser as prepare_arg_parser
+from research.v3_ppo.prepare import prepare_v3_ppo_packet
+from research.v3_ppo.ruler import _parse_nets_csv
 from research.v3_ppo.ruler import build_arg_parser as ruler_arg_parser
 
 
@@ -688,3 +693,49 @@ def test_fast_learner_ops_rounding_equivalence_and_compile_execution() -> None:
     )
     assert prep_args.compile is True
     assert prep_args.fast_learner_ops is False
+
+
+def test_net_presets_registry_and_unknown_size_rejected(tmp_path: Path) -> None:
+    """Verify every registered preset matches built parameter count and unknown sizes fail fast."""
+    assert tuple(NET_PRESETS.keys()) == ("S", "M")
+    for name, preset in NET_PRESETS.items():
+        assert preset.name == name
+        net = build_ego_multiscale_net(preset.name)
+        actual_params = net.parameter_count()
+        assert actual_params == preset.exact_param_count
+        rel_err = abs(actual_params - preset.memory_model_param_count) / float(actual_params)
+        assert rel_err <= 0.10
+
+    for bad_size in ("L", "XL", "s", ""):
+        with pytest.raises(ValueError, match="Unknown net_size"):
+            get_net_preset(bad_size)
+        with pytest.raises(ValueError, match="Unknown net_size"):
+            EgoMultiScaleNetConfig.from_size(bad_size)  # type: ignore[arg-type]
+        with pytest.raises(ValueError, match="Unknown net_size"):
+            V3PPOConfig(net_size=bad_size)  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="Unknown net_size"):
+        _parse_nets_csv("S,L")
+
+    for mode in ("canary", "ruler", "train"):
+        with pytest.raises(ValueError, match="Unknown net_size"):
+            prepare_v3_ppo_packet(
+                tmp_path / f"pkt_{mode}",
+                mode=mode,
+                gpu="L4",
+                net_size="L",  # type: ignore[arg-type]
+                output_dir=tmp_path / f"out_{mode}",
+                allow_missing_canary_receipt=True,
+                allow_unmerged_commit=True,
+            )
+
+    with pytest.raises(ValueError, match="Unknown net_size"):
+        prepare_v3_ppo_packet(
+            tmp_path / "pkt_ruler_nets",
+            mode="ruler",
+            gpu="L4",
+            ruler_nets="S,XL",
+            output_dir=tmp_path / "out_ruler_nets",
+            allow_missing_canary_receipt=True,
+            allow_unmerged_commit=True,
+        )

@@ -17,9 +17,9 @@ from research.game_v3.obs import NUM_RASTER_CHANNELS, NUM_SCALAR_FEATURES
 from research.v3_ppo.config import (
     FINE_RASTER_SIZE,
     MID_RASTER_SIZE,
-    VALID_NET_SIZES,
     WIDE_RASTER_SIZE,
     NetSize,
+    get_net_preset,
 )
 
 MASK_FILL_VALUE: float = -1.0e9
@@ -225,36 +225,19 @@ class EgoMultiScaleNetConfig:
         use_bf16_autocast: bool = True,
         fast_preprocess: bool = True,
     ) -> EgoMultiScaleNetConfig:
-        """Construct calibrated `S` (~1.0M) or `M` (~5.0M) preset."""
-        if size not in VALID_NET_SIZES:
-            raise ValueError(f"Unsupported net size {size!r}; expected one of {VALID_NET_SIZES}")
-        if size == "S":
-            return cls(
-                size="S",
-                s1_c1=32,
-                s1_c2=48,
-                s32_c1=32,
-                stage8_ch=64,
-                stem_out_ch=48,
-                scalar_embed_dim=64,
-                trunk_dim=168,
-                trunk_blocks=1,
-                head_dim=128,
-                use_channels_last=use_channels_last,
-                use_bf16_autocast=use_bf16_autocast,
-                fast_preprocess=fast_preprocess,
-            )
+        """Construct calibrated preset from :data:`research.v3_ppo.config.NET_PRESETS`."""
+        preset = get_net_preset(size)
         return cls(
-            size="M",
-            s1_c1=64,
-            s1_c2=96,
-            s32_c1=64,
-            stage8_ch=144,
-            stem_out_ch=96,
-            scalar_embed_dim=128,
-            trunk_dim=392,
-            trunk_blocks=2,
-            head_dim=256,
+            size=preset.name,
+            s1_c1=preset.s1_c1,
+            s1_c2=preset.s1_c2,
+            s32_c1=preset.s32_c1,
+            stage8_ch=preset.stage8_ch,
+            stem_out_ch=preset.stem_out_ch,
+            scalar_embed_dim=preset.scalar_embed_dim,
+            trunk_dim=preset.trunk_dim,
+            trunk_blocks=preset.trunk_blocks,
+            head_dim=preset.head_dim,
             use_channels_last=use_channels_last,
             use_bf16_autocast=use_bf16_autocast,
             fast_preprocess=fast_preprocess,

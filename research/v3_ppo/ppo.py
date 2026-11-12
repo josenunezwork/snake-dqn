@@ -41,8 +41,10 @@ from research.v3_ppo.config import (
     DEFAULT_CHECKPOINT_SHARD_BYTES,
     GPU_MAX_TOTAL_EXPORT_BYTES,
     V3_PPO_NAMESPACE,
+    VALID_NET_SIZES,
     V3PPOConfig,
     estimate_training_memory,
+    get_net_preset,
 )
 from research.v3_ppo.eval import (
     compute_step_reward,
@@ -2484,7 +2486,7 @@ def run_training_job(
     published_periodic_lights = 0
     published_periodic_fulls = 0
     last_measured_full_bytes: int | None = None
-    est_light_bytes = (16 if cfg.net_size == "S" else 68) * 1024 * 1024
+    est_light_bytes = get_net_preset(cfg.net_size).est_light_checkpoint_bytes
 
     checkpoint_reserve_sec = (
         min(90.0, max(5.0, float(max_wall_seconds) * 0.08)) if max_wall_seconds is not None else 0.0
@@ -3126,7 +3128,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default="food_seeking",
         choices=("food_seeking", "random_safe", "cardinal6_safe"),
     )
-    parser.add_argument("--net-size", type=str, default="S", choices=("S", "M"))
+    parser.add_argument("--net-size", type=str, default="S", choices=VALID_NET_SIZES)
     parser.add_argument("--rollout-len", type=int, default=32)
     parser.add_argument("--total-updates", type=int, default=100)
     parser.add_argument("--ppo-epochs", type=int, default=2)

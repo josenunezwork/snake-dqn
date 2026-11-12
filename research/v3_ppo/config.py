@@ -17,7 +17,89 @@ V3_PPO_SCHEMA = "v3-ppo-config/v1"
 V3_PPO_NAMESPACE = "v3-ppo-20261111"
 
 NetSize = Literal["S", "M"]
-VALID_NET_SIZES: tuple[NetSize, ...] = ("S", "M")
+
+
+@dataclass(frozen=True)
+class NetPreset:
+    """Single-sourced architecture, memory-model, and batching parameters for a network size."""
+
+    name: NetSize
+    ruler_order: int
+    # Architecture hyperparameters consumed by `EgoMultiScaleNetConfig.from_size`
+    s1_c1: int
+    s1_c2: int
+    s32_c1: int
+    stage8_ch: int
+    stem_out_ch: int
+    scalar_embed_dim: int
+    trunk_dim: int
+    trunk_blocks: int
+    head_dim: int
+    # Exact parameter count and rounded parameter estimate used by the memory model
+    exact_param_count: int
+    memory_model_param_count: int
+    # Measured bf16 activation bytes per row on CUDA
+    learner_act_bytes_per_row_bf16: int
+    actor_fwd_act_bytes_per_row_bf16: int
+    # Default batching and LIGHT checkpoint export byte budget
+    default_minibatch_size: int
+    default_actor_chunk_learners: int
+    est_light_checkpoint_bytes: int
+
+
+NET_PRESETS: dict[str, NetPreset] = {
+    "S": NetPreset(
+        name="S",
+        ruler_order=0,
+        s1_c1=32,
+        s1_c2=48,
+        s32_c1=32,
+        stage8_ch=64,
+        stem_out_ch=48,
+        scalar_embed_dim=64,
+        trunk_dim=168,
+        trunk_blocks=1,
+        head_dim=128,
+        exact_param_count=1_008_657,
+        memory_model_param_count=1_050_000,
+        learner_act_bytes_per_row_bf16=280 * 1024,
+        actor_fwd_act_bytes_per_row_bf16=64 * 1024,
+        default_minibatch_size=2048,
+        default_actor_chunk_learners=6144,
+        est_light_checkpoint_bytes=16 * 1024 * 1024,
+    ),
+    "M": NetPreset(
+        name="M",
+        ruler_order=1,
+        s1_c1=64,
+        s1_c2=96,
+        s32_c1=64,
+        stage8_ch=144,
+        stem_out_ch=96,
+        scalar_embed_dim=128,
+        trunk_dim=392,
+        trunk_blocks=2,
+        head_dim=256,
+        exact_param_count=4_927_841,
+        memory_model_param_count=5_200_000,
+        learner_act_bytes_per_row_bf16=560 * 1024,
+        actor_fwd_act_bytes_per_row_bf16=128 * 1024,
+        default_minibatch_size=1024,
+        default_actor_chunk_learners=3072,
+        est_light_checkpoint_bytes=68 * 1024 * 1024,
+    ),
+}
+
+VALID_NET_SIZES: tuple[NetSize, ...] = tuple(p.name for p in NET_PRESETS.values())
+
+
+def get_net_preset(size: str) -> NetPreset:
+    """Return the registered :class:`NetPreset` for ``size`` or raise ``ValueError``."""
+    preset = NET_PRESETS.get(size) if isinstance(size, str) else None
+    if preset is None:
+        raise ValueError(f"Unknown net_size {size!r}; expected one of {VALID_NET_SIZES}")
+    return preset
+
 
 OpponentPolicy = Literal["food_seeking", "random_safe", "cardinal6_safe"]
 VALID_OPPONENT_POLICIES: tuple[OpponentPolicy, ...] = (
@@ -94,16 +176,12 @@ _OBS_BUILD_TEMP_BYTES = 256 * 1024 * 1024  # chunked `build_obs` scratch headroo
 
 def default_minibatch_size(net_size: NetSize) -> int:
     """Return default PPO learner minibatch row count for ``net_size``."""
-    if net_size not in VALID_NET_SIZES:
-        raise ValueError(f"net_size must be one of {VALID_NET_SIZES}, got {net_size!r}")
-    return 2048 if net_size == "S" else 1024
+    return get_net_preset(net_size).default_minibatch_size
 
 
 def default_actor_chunk_learners(net_size: NetSize) -> int:
     """Return default per-tick forward chunk size (in learner rows) for ``net_size``."""
-    if net_size not in VALID_NET_SIZES:
-        raise ValueError(f"net_size must be one of {VALID_NET_SIZES}, got {net_size!r}")
-    return 6144 if net_size == "S" else 3072
+    return get_net_preset(net_size).default_actor_chunk_learners
 
 
 def default_eval_learner_slots(num_snakes: int) -> int:
@@ -219,8 +297,7 @@ class V3PPOConfig:
                 f"opponent_policy must be one of {VALID_OPPONENT_POLICIES}, "
                 f"got {self.opponent_policy!r}"
             )
-        if self.net_size not in VALID_NET_SIZES:
-            raise ValueError(f"net_size must be one of {VALID_NET_SIZES}, got {self.net_size!r}")
+        get_net_preset(self.net_size)
         if int(self.rollout_len) < 1:
             raise ValueError(f"rollout_len must be >= 1, got {self.rollout_len}")
         if not (0.0 <= float(self.gamma) <= 1.0):
@@ -479,12 +556,11 @@ def estimate_learner_overhead_bytes(
     amp: bool = True,
 ) -> int:
     """Estimate model parameters, Adam moments, and minibatch activation peak on CUDA."""
-    param_count = 1_050_000 if net_size == "S" else 5_200_000
+    preset = get_net_preset(net_size)
     # fp32 weights + fp32 grads + Adam m/v = 16 bytes/param
-    model_and_opt_bytes = param_count * 16
-    # Conv stem + fusion activations + float raster copy per minibatch row
-    # (~280 KiB S / ~560 KiB M in bf16; 1.8x fp32)
-    act_per_row = 280 * 1024 if net_size == "S" else 560 * 1024
+    model_and_opt_bytes = preset.memory_model_param_count * 16
+    # Conv stem + fusion activations + float raster copy per minibatch row (1.8x in fp32)
+    act_per_row = preset.learner_act_bytes_per_row_bf16
     if not amp:
         act_per_row = int(act_per_row * 1.8)
     activation_bytes = int(minibatch_size) * act_per_row
@@ -498,10 +574,11 @@ def estimate_actor_chunk_temp_bytes(
     amp: bool = True,
 ) -> int:
     """Estimate transient bf16/fp32 raster conversion + stem activations for 1 forward chunk."""
+    preset = get_net_preset(net_size)
     rows = max(1, int(actor_chunk_rows))
     elem_bytes = 2 if amp else 4
     raster_float_copy_bytes = rows * OBS_RASTER_BYTES_PER_STEP * elem_bytes
-    fwd_act_per_row = (64 if net_size == "S" else 128) * 1024
+    fwd_act_per_row = preset.actor_fwd_act_bytes_per_row_bf16
     if not amp:
         fwd_act_per_row *= 2
     return int(raster_float_copy_bytes + rows * fwd_act_per_row)
@@ -527,8 +604,8 @@ def estimate_training_memory(cfg: V3PPOConfig, *, gpu: str | None = None) -> dic
         rollout_len=cfg.rollout_len,
     )
     eff_mb = cfg.resolved_minibatch_size
-    param_count = 1_050_000 if cfg.net_size == "S" else 5_200_000
-    model_and_opt_bytes = param_count * 16
+    preset = get_net_preset(cfg.net_size)
+    model_and_opt_bytes = preset.memory_model_param_count * 16
     learner_bytes = estimate_learner_overhead_bytes(
         net_size=cfg.net_size,
         minibatch_size=eff_mb,
@@ -698,7 +775,7 @@ def estimate_checkpoint_export_caps(
     shard_cap_bytes = int(cfg.checkpoint_shard_bytes)
 
     # LIGHT checkpoint = fp32 weights + Adam m/v (12 bytes/param) + RNG/counters/pickle framing.
-    est_light_bytes = (16 if cfg.net_size == "S" else 68) * 1024 * 1024
+    est_light_bytes = get_net_preset(cfg.net_size).est_light_checkpoint_bytes
 
     est_full_sim_bytes = int(cfg.num_envs) * budgeted_world_bytes
     est_shards_per_full = max(1, int(math.ceil(float(est_full_sim_bytes) / float(shard_cap_bytes))))

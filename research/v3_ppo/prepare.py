@@ -45,6 +45,7 @@ from research.v3_ppo.config import (
     V3PPOConfig,
     default_train_envs_for_gpu,
     estimate_training_memory,
+    get_net_preset,
     validate_checkpoint_export_caps,
     validate_memory_budget,
 )
@@ -532,6 +533,10 @@ def prepare_v3_ppo_packet(
         raise ValueError(f"gpu must be one of {SUPPORTED_GPUS} (T4 unsupported), got {gpu!r}")
     if not re_safe_attempt(attempt):
         raise ValueError(f"Invalid attempt slug {attempt!r}")
+    if net_size is not None:
+        get_net_preset(net_size)
+    if ruler_nets is not None:
+        _parse_nets_csv(ruler_nets)
     if mode == "canary" and canary_receipt is not None:
         raise ValueError("canary mode produces a canary receipt and cannot bind --canary-receipt")
     if mode in ("ruler", "train") and canary_receipt is None and not allow_missing_canary_receipt:

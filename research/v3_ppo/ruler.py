@@ -39,6 +39,7 @@ from research.v3_ppo.config import (
     default_actor_chunk_learners,
     estimate_sim_memory_bytes,
     estimate_training_memory,
+    get_net_preset,
 )
 from research.v3_ppo.eval import derive_world_seeds, evaluate_policy
 from research.v3_ppo.net import build_ego_multiscale_net
@@ -63,7 +64,7 @@ V3_PPO_RULER_SCHEMA = "v3-ppo-ruler-result/v1"
 V3_PPO_CANARY_SCHEMA = "v3-ppo-canary-checks/v1"
 
 DEFAULT_RULER_ENVS: tuple[int, ...] = (128, 256, 512)
-DEFAULT_RULER_NETS: tuple[NetSize, ...] = ("S", "M")
+DEFAULT_RULER_NETS: tuple[NetSize, ...] = VALID_NET_SIZES
 DEFAULT_RULER_LEARNERS: tuple[int, ...] = (24, 8)
 DEFAULT_RULER_ROLLOUT_LEN: int = 32
 DEFAULT_RULER_WARMUP_UPDATES: int = 1
@@ -556,12 +557,13 @@ def run_ruler(
         if k_clamped not in eff_learners:
             eff_learners.append(k_clamped)
 
-    # Order cheapest cells first: (num_envs, learner_slots, is_M) so all cells sharing `num_envs`
-    # execute back-to-back and share a single compressed mature sim snapshot.
+    # Order cheapest cells first: (num_envs, learner_slots, ruler_order) so all cells sharing
+    # `num_envs` execute back-to-back and share a single compressed mature sim snapshot.
+    ordered_nets = sorted(net_sizes, key=lambda s: get_net_preset(s).ruler_order)
     ordered_grid: list[tuple[int, int, NetSize, bool, bool]] = []
     for e in sorted(int(x) for x in envs_list):
         for k_slots in sorted(eff_learners):
-            for n_sz in sorted(net_sizes, key=lambda s: 0 if s == "S" else 1):
+            for n_sz in ordered_nets:
                 ordered_grid.append((e, k_slots, n_sz, bool(amp), False))
                 if include_fp32 and resolved_dev.type == "cuda" and bool(amp):
                     ordered_grid.append((e, k_slots, n_sz, False, True))
@@ -976,7 +978,7 @@ def run_canary_suite(
         device=resolved_dev,
         input_dir=None,
         envs_list=[max(2, int(canary_envs))],
-        net_sizes=["S", "M"],
+        net_sizes=list(VALID_NET_SIZES),
         learners_list=[n_snakes, subset_learners],
         arena_radius=float(canary_arena_radius),
         num_snakes=n_snakes,
@@ -1342,9 +1344,7 @@ def _parse_nets_csv(raw: str) -> list[NetSize]:
         t = tok.strip().upper()
         if not t:
             continue
-        if t not in VALID_NET_SIZES:
-            raise ValueError(f"Invalid net size {t!r}; expected one of {VALID_NET_SIZES}")
-        sz: NetSize = "S" if t == "S" else "M"
+        sz = get_net_preset(t).name
         if sz not in out:
             out.append(sz)
     if not out:
