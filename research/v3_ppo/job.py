@@ -9,13 +9,14 @@ import os
 import time
 import traceback
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
 import torch
 
 from research.arena_ppo.runtime import SignalStopFlag, phase_stamp, verify_completed_artifact
+from research.game_v3.config import GameV3Config
 from research.v3_ppo.checkpoint_io import (
     INIT_ANCHOR_LIGHT_NAME,
     ckpt_tag,
@@ -28,6 +29,8 @@ from research.v3_ppo.config import (
     DEFAULT_CHECKPOINT_SHARD_BYTES,
     GPU_MAX_TOTAL_EXPORT_BYTES,
     NONE_MODE_MAX_TOTAL_EXPORT_BYTES,
+    RECIPE_OVERRIDE_KEYS,
+    TRAINER_CHECKPOINT_RESERVE_SECONDS,
     V3_PPO_NAMESPACE,
     VALID_FULL_EXPORT_MODES,
     VALID_NET_SIZES,
@@ -36,8 +39,12 @@ from research.v3_ppo.config import (
     V3PPOConfig,
     assert_resume_config_compatible,
     estimate_training_memory,
+    extract_recipe_dict,
+    format_recipe_overrides,
     get_net_preset,
     parse_env_bool,
+    parse_recipe_overrides,
+    recipe_overrides_from_default,
     resolve_full_export_settings,
 )
 from research.v3_ppo.exports import (
@@ -254,6 +261,13 @@ def _format_progress_line(
     eval_wall_total: float = 0.0,
     eval_metrics: dict[str, Any] | None = None,
 ) -> str:
+    """Format one ``V3_PPO_PROGRESS`` telemetry line for a completed training update.
+
+    Note: ``ep_ret`` (``step_metrics['mean_ep_return']``, also recorded in ``metrics/updates_*.jsonl``
+    and as ``last_rollout_mean_ep_return`` in ``train_result.json`` / checkpoints) is
+    **recipe-dependent** because it sums ``cfg``'s ``reward_*`` terms over completed learner lives;
+    compare policies across recipes using the recipe-invariant ``eval_*`` fields instead.
+    """
     eval_share_pct = 100.0 * float(eval_wall_total) / max(1.0e-9, float(wall_elapsed))
     line = (
         f"V3_PPO_PROGRESS "
@@ -350,6 +364,7 @@ class _JobRunState:
     published_periodic_lights: int = 0
     published_periodic_fulls: int = 0
     last_measured_full_bytes: int | None = None
+    allow_recipe_change: bool = False
 
     def wall_expired(self) -> bool:
         if self.max_wall_seconds is None:
@@ -365,8 +380,9 @@ def _stage_init_job_dirs_and_config(
     output_dir: Path,
     work_dir: Path | None,
     max_session_export_bytes: int | None,
+    allow_recipe_change: bool = False,
 ) -> tuple[Path, Path, Path, Path, int]:
-    """Create output/work checkpoint directories, resolve byte cap, and write ``config.json``."""
+    """Create output/work checkpoint directories, resolve byte cap, and precheck ``config.json``."""
     out = Path(output_dir).resolve()
     out.mkdir(parents=True, exist_ok=True)
     wrk = Path(work_dir).resolve() if work_dir is not None else (out.parent / f".{out.name}_work")
@@ -392,12 +408,11 @@ def _stage_init_job_dirs_and_config(
         assert_resume_config_compatible(
             existing_cfg,
             cfg,
+            allow_recipe_change=allow_recipe_change,
             context="Existing config.json mismatch on immutable key",
             reference_label="existing",
             candidate_label="current",
         )
-    else:
-        write_create_only_json(cfg_json_path, cfg.to_dict())
 
     return out, wrk, work_ckpts, out_ckpts, eff_max_export_bytes
 
@@ -410,6 +425,7 @@ def _stage_init_trainer_and_resume(
     ledger_path: Path | None,
     work_ckpts: Path,
     out_ckpts: Path,
+    allow_recipe_change: bool = False,
 ) -> tuple[V3PPOTrainer, dict[str, Any] | None, dict[str, Any] | None]:
     """Construct trainer, load best resume checkpoint if present, or write ``u0000000`` anchor."""
     staged_meta = validate_staged_ledger_resume(input_dir=input_dir, ledger_path=ledger_path)
@@ -430,7 +446,17 @@ def _stage_init_trainer_and_resume(
             Path(initial_cand["path"]),
             verify_markers=bool(initial_cand["require_markers"]),
             restore_rng=True,
+            allow_recipe_change=allow_recipe_change,
         )
+        rc_rec = load_info.get("recipe_change")
+        if rc_rec is not None:
+            old_fields = {k: v["old"] for k, v in sorted(rc_rec["changed_fields"].items())}
+            new_fields = {k: v["new"] for k, v in sorted(rc_rec["changed_fields"].items())}
+            print(
+                f"V3_PPO_RECIPE_CHANGE old={json.dumps(old_fields, sort_keys=True)} "
+                f"new={json.dumps(new_fields, sort_keys=True)} update={rc_rec['update']}",
+                flush=True,
+            )
         resumed_from = {
             "relpath": str(initial_cand["relpath"]),
             "source": str(initial_cand["source"]),
@@ -439,6 +465,8 @@ def _stage_init_trainer_and_resume(
             "sha256": str(initial_cand["sha256"]),
             "updates_completed_at_resume": int(trainer.updates_completed),
         }
+        if rc_rec is not None:
+            resumed_from["recipe_change"] = rc_rec
         phase_stamp(
             "train_resume",
             "OK",
@@ -504,6 +532,7 @@ def _stage_recover_trainer_in_session(state: _JobRunState, exc: RuntimeError) ->
             Path(rec_cand["path"]),
             verify_markers=bool(rec_cand["require_markers"]),
             restore_rng=True,
+            allow_recipe_change=state.allow_recipe_change,
         )
     prune_work_checkpoints_after_rewind(
         state.work_ckpts,
@@ -609,6 +638,7 @@ def _stage_save_and_publish_checkpoints(
     *,
     now_mono: float,
     final_boundary: bool = False,
+    is_stopping: Callable[[], bool] | None = None,
 ) -> None:
     """Save due ``work/`` checkpoints, prune ``work/``, and publish periodic ``output/`` exports.
 
@@ -642,9 +672,10 @@ def _stage_save_and_publish_checkpoints(
             )
         state.last_light_work_mono = now_mono
 
+    eff_final_boundary = bool(final_boundary or (is_stopping is not None and is_stopping()))
     full_work_index: Path | None = None
     full_work_meta: dict[str, Any] | None = None
-    if sched.save_work_full and not final_boundary:
+    if sched.save_work_full and not eff_final_boundary:
         cand_idx = state.work_ckpts / f"full_{tag}.index.json"
         if not artifact_or_sidecar_exists(cand_idx):
             work_shard_cap = (
@@ -911,6 +942,7 @@ def _stage_finalize_training_job(
                         fb_path,
                         verify_markers=bool(clean_fallback.get("require_markers", False)),
                         restore_rng=False,
+                        allow_recipe_change=state.allow_recipe_change,
                     )
                     final_summary = _snapshot_clean_state(state.trainer)
                 except Exception as load_exc:
@@ -1014,6 +1046,7 @@ def run_training_job(
     ledger_path: Path | None = None,
     max_wall_seconds: float | None = None,
     max_session_export_bytes: int | None = None,
+    allow_recipe_change: bool = False,
     step_hook: Callable[[V3PPOTrainer, int], None] | None = None,
 ) -> dict[str, Any]:
     """Execute training loop with wall-clock eval, LIGHT/FULL checkpoints, and crash recovery.
@@ -1030,11 +1063,13 @@ def run_training_job(
         with protected ``finally`` fallbacks guaranteeing ``latest_manifest.json`` and
         ``train_result.json`` even if the device context is dead.
     """
+    eff_allow_recipe_change = bool(allow_recipe_change)
     out, wrk, work_ckpts, out_ckpts, eff_max_export_bytes = _stage_init_job_dirs_and_config(
         cfg=cfg,
         output_dir=output_dir,
         work_dir=work_dir,
         max_session_export_bytes=max_session_export_bytes,
+        allow_recipe_change=eff_allow_recipe_change,
     )
     wall_t0 = time.monotonic()
     trainer, staged_meta, resumed_from = _stage_init_trainer_and_resume(
@@ -1044,10 +1079,22 @@ def run_training_job(
         ledger_path=ledger_path,
         work_ckpts=work_ckpts,
         out_ckpts=out_ckpts,
+        allow_recipe_change=eff_allow_recipe_change,
     )
+    cfg = trainer.cfg
+    cfg_json_path = out / "config.json"
+    if not artifact_or_sidecar_exists(cfg_json_path):
+        write_create_only_json(cfg_json_path, cfg.to_dict())
     now_init = time.monotonic()
+    # Reserve `TRAINER_CHECKPOINT_RESERVE_SECONDS` (90 s; clamped to 8% on tiny sessions >= 5 s)
+    # inside `max_wall_seconds` so an in-progress update completes before final eval/export starts.
     checkpoint_reserve_sec = (
-        min(90.0, max(5.0, float(max_wall_seconds) * 0.08)) if max_wall_seconds is not None else 0.0
+        min(
+            float(TRAINER_CHECKPOINT_RESERVE_SECONDS),
+            max(5.0, float(max_wall_seconds) * 0.08),
+        )
+        if max_wall_seconds is not None
+        else 0.0
     )
     state = _JobRunState(
         cfg=cfg,
@@ -1070,6 +1117,7 @@ def run_training_job(
         last_full_work_mono=now_init,
         last_eval_mono=now_init,
         est_light_bytes=get_net_preset(cfg.net_size).est_light_checkpoint_bytes,
+        allow_recipe_change=eff_allow_recipe_change,
     )
 
     with SignalStopFlag() as stop_flag:
@@ -1081,6 +1129,13 @@ def run_training_job(
             return bool(stop_flag.stopped or state.wall_expired())
 
         try:
+            active_recipe = extract_recipe_dict(cfg)
+            recipe_ov_str = format_recipe_overrides(recipe_overrides_from_default(cfg))
+            print(
+                f"V3_PPO_RECIPE overrides={json.dumps(recipe_ov_str)} "
+                f"recipe={json.dumps(active_recipe, sort_keys=True)}",
+                flush=True,
+            )
             phase_stamp(
                 "train_loop",
                 "START",
@@ -1091,74 +1146,91 @@ def run_training_job(
                 start_update=state.trainer.updates_completed,
                 target_updates=cfg.total_updates,
             )
-            while state.trainer.updates_completed < int(cfg.total_updates):
-                if stop_flag.stopped:
-                    state.stopped_reason = f"signal:{stop_flag.signal_name or 'STOP'}"
-                    break
-                if state.wall_expired():
-                    state.stopped_reason = "wall_clock_guard"
-                    break
+            if stop_flag.stopped:
+                state.stopped_reason = f"signal:{stop_flag.signal_name or 'STOP'}"
+            elif state.wall_expired():
+                state.stopped_reason = "wall_clock_guard"
+            else:
+                while state.trainer.updates_completed < int(cfg.total_updates):
+                    if stop_flag.stopped:
+                        state.stopped_reason = f"signal:{stop_flag.signal_name or 'STOP'}"
+                        break
+                    if state.wall_expired():
+                        state.stopped_reason = "wall_clock_guard"
+                        break
 
-                try:
-                    state.trainer_state_clean = False
-                    u_t0 = time.monotonic()
-                    if step_hook is not None:
-                        step_hook(state.trainer, int(state.trainer.updates_completed) + 1)
-                    step_metrics = state.trainer.train_step(should_stop=_should_stop)
-                    u_elapsed = time.monotonic() - u_t0
-                    state.trainer_state_clean = True
-                    state.updates_this_session += 1
-                    state.session_agent_steps += int(step_metrics["agent_steps"])
-                    state.train_wall_seconds_total += u_elapsed
-                    state.clean_summary = _snapshot_clean_state(state.trainer)
+                    try:
+                        state.trainer_state_clean = False
+                        u_t0 = time.monotonic()
+                        if step_hook is not None:
+                            step_hook(state.trainer, int(state.trainer.updates_completed) + 1)
+                        step_metrics = state.trainer.train_step(should_stop=_should_stop)
+                        u_elapsed = time.monotonic() - u_t0
+                        state.trainer_state_clean = True
+                        state.updates_this_session += 1
+                        state.session_agent_steps += int(step_metrics["agent_steps"])
+                        state.train_wall_seconds_total += u_elapsed
+                        state.clean_summary = _snapshot_clean_state(state.trainer)
 
-                    if cfg.max_update_seconds is not None and u_elapsed > float(
-                        cfg.max_update_seconds
-                    ):
-                        raise RuntimeError(
-                            f"Update {state.trainer.updates_completed} took {u_elapsed:.2f}s > "
-                            f"max_update_seconds={cfg.max_update_seconds:.2f}s"
-                        )
-                except StopRequestedError:
-                    state.aborted_mid_update = True
-                    state.stopped_reason = f"signal:{stop_flag.signal_name or 'STOP'}"
-                    break
-                except RuntimeError as exc:
-                    if (
-                        state.in_session_restarts >= int(cfg.max_in_session_restarts)
-                        or stop_flag.stopped
-                        or state.wall_expired()
-                    ):
-                        raise
-                    _stage_recover_trainer_in_session(state, exc)
-                    continue
+                        if cfg.max_update_seconds is not None and u_elapsed > float(
+                            cfg.max_update_seconds
+                        ):
+                            raise RuntimeError(
+                                f"Update {state.trainer.updates_completed} took {u_elapsed:.2f}s > "
+                                f"max_update_seconds={cfg.max_update_seconds:.2f}s"
+                            )
+                    except StopRequestedError:
+                        state.aborted_mid_update = True
+                        state.stopped_reason = f"signal:{stop_flag.signal_name or 'STOP'}"
+                        break
+                    except RuntimeError as exc:
+                        if (
+                            state.in_session_restarts >= int(cfg.max_in_session_restarts)
+                            or stop_flag.stopped
+                            or state.wall_expired()
+                        ):
+                            raise
+                        _stage_recover_trainer_in_session(state, exc)
+                        continue
 
-                eval_res = _stage_maybe_run_periodic_eval(
-                    state,
-                    now_mono=time.monotonic(),
-                    eval_should_stop=_eval_should_stop,
-                )
-                state.metrics_writer.append(step_metrics)
-                now_mono = time.monotonic()
-                print(
-                    _format_progress_line(
-                        step_metrics,
-                        total_updates=int(cfg.total_updates),
-                        wall_elapsed=now_mono - state.wall_t0,
-                        eval_wall_total=state.eval_wall_seconds_total,
-                        eval_metrics=eval_res,
-                    ),
-                    flush=True,
-                )
-                _stage_save_and_publish_checkpoints(
-                    state,
-                    now_mono=now_mono,
-                    final_boundary=bool(
-                        stop_flag.stopped
-                        or state.wall_expired()
-                        or state.trainer.updates_completed >= int(cfg.total_updates)
-                    ),
-                )
+                    eval_res = _stage_maybe_run_periodic_eval(
+                        state,
+                        now_mono=time.monotonic(),
+                        eval_should_stop=_eval_should_stop,
+                    )
+                    state.metrics_writer.append(step_metrics)
+                    now_mono = time.monotonic()
+                    print(
+                        _format_progress_line(
+                            step_metrics,
+                            total_updates=int(cfg.total_updates),
+                            wall_elapsed=now_mono - state.wall_t0,
+                            eval_wall_total=state.eval_wall_seconds_total,
+                            eval_metrics=eval_res,
+                        ),
+                        flush=True,
+                    )
+                    # Compute boundary stop decision ONCE per update and reuse it for both
+                    # `final_boundary` and loop exit so a due periodic FULL can never publish
+                    # before the final LIGHT if `wall_expired()` trips during checkpointing.
+                    if stop_flag.stopped:
+                        post_stop_reason: str | None = f"signal:{stop_flag.signal_name or 'STOP'}"
+                    elif state.wall_expired():
+                        post_stop_reason = "wall_clock_guard"
+                    elif state.trainer.updates_completed >= int(cfg.total_updates):
+                        post_stop_reason = "completed"
+                    else:
+                        post_stop_reason = None
+
+                    _stage_save_and_publish_checkpoints(
+                        state,
+                        now_mono=now_mono,
+                        final_boundary=(post_stop_reason is not None),
+                        is_stopping=lambda: bool(stop_flag.stopped or state.wall_expired()),
+                    )
+                    if post_stop_reason is not None:
+                        state.stopped_reason = post_stop_reason
+                        break
 
         except Exception as exc:
             state.error_class = type(exc).__name__
@@ -1199,6 +1271,8 @@ class EffectiveTrainJobConfig:
     ledger_path: Path | None
     max_wall_seconds: float | None
     max_session_export_bytes: int | None
+    recipe_overrides: dict[str, Any] = field(default_factory=dict)
+    allow_recipe_change: bool = False
 
 
 def _merge_config_json_overlay(
@@ -1211,12 +1285,13 @@ def _merge_config_json_overlay(
     parsed = json.loads(raw_json_str)
     if not isinstance(parsed, dict):
         raise ValueError(f"{source_label} must decode to a JSON object, got {type(parsed)!r}")
-    valid_top_keys = set(cfg_dict.keys()) | {"schema"}
+    valid_top_keys = {f.name for f in fields(V3PPOConfig)} | {"schema"}
     unknown_top = sorted(set(parsed.keys()) - valid_top_keys)
     if unknown_top:
         raise ValueError(f"Unknown keys in {source_label}: {unknown_top}")
 
     prev_net_size = cfg_dict["net_size"]
+    valid_gc_keys = {f.name for f in fields(GameV3Config)}
     for key, val in parsed.items():
         if key == "schema":
             continue
@@ -1225,7 +1300,6 @@ def _merge_config_json_overlay(
                 raise ValueError(
                     f"{source_label}.game_config must be a JSON object, got {type(val)!r}"
                 )
-            valid_gc_keys = set(cfg_dict["game_config"].keys())
             unknown_gc = sorted(set(val.keys()) - valid_gc_keys)
             if unknown_gc:
                 raise ValueError(f"Unknown keys in {source_label}.game_config: {unknown_gc}")
@@ -1239,9 +1313,6 @@ def _merge_config_json_overlay(
             cfg_dict["minibatch_size"] = None
         if "actor_chunk_learners" not in parsed:
             cfg_dict["actor_chunk_learners"] = None
-    if "max_periodic_full_exports" in parsed and "full_exports" not in parsed:
-        mp_json = int(parsed["max_periodic_full_exports"])
-        cfg_dict["full_exports"] = "final" if mp_json == 0 else "periodic"
     return set(parsed.keys())
 
 
@@ -1259,6 +1330,19 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--input-dir", type=Path, default=None)
     parser.add_argument("--ledger", type=Path, default=None)
     parser.add_argument("--config-json", type=str, default=None)
+    parser.add_argument(
+        "--recipe-json",
+        type=str,
+        default=None,
+        help="Inline JSON object or path to JSON file overriding allow-listed recipe fields.",
+    )
+    parser.add_argument(
+        "--allow-recipe-change",
+        dest="allow_recipe_change",
+        action="store_true",
+        default=None,
+        help="Permit allow-listed recipe field changes when resuming from a checkpoint.",
+    )
 
     parser.add_argument("--num-envs", type=int, default=None)
     parser.add_argument("--num-snakes", type=int, default=None)
@@ -1333,20 +1417,36 @@ def resolve_effective_train_config(
     args: argparse.Namespace,
     *,
     environ: Mapping[str, str] | None = None,
+    base_cfg: V3PPOConfig | None = None,
+    recipe_overrides: Mapping[str, Any] | None = None,
+    default_full_exports: FullExportMode | None = None,
+    forbid_recipe_scalar_conflict: bool = False,
 ) -> EffectiveTrainJobConfig:
-    """Resolve effective training configuration from CLI args, ``--config-json``, and env vars.
+    """Resolve effective training configuration from CLI args, ``--recipe-json``, JSON, and env.
 
+    Single effective-config builder shared by ``prepare --mode train`` and ``ppo``.
     Precedence (highest to lowest):
       1. Explicit individual CLI flags (``--num-envs``, ``--lr``, ``--amp``/``--no-amp``, etc.)
-      2. Explicit ``--config-json`` CLI flag (keys present in the JSON object)
-      3. Environment variables (``V3_PPO_CONFIG_JSON``, overlaid by scalar ``V3_PPO_*`` and
+      2. Explicit ``--recipe-json`` / ``recipe_overrides`` (allow-listed ``RECIPE_OVERRIDE_KEYS``)
+      3. Explicit ``--config-json`` CLI flag (keys present in the JSON object)
+      4. Environment variables (``V3_PPO_CONFIG_JSON``, overlaid by scalar ``V3_PPO_*`` and
          ``SNAKE_DQN_DEVICE``)
-      4. :class:`V3PPOConfig` / :class:`GameV3Config` dataclass defaults.
+      5. ``base_cfg`` (when provided) or :class:`V3PPOConfig` / :class:`GameV3Config` defaults.
     """
     env = os.environ if environ is None else environ
 
-    cfg_dict = V3PPOConfig().to_dict()
+    seed_cfg = base_cfg if base_cfg is not None else V3PPOConfig()
+    cfg_dict = seed_cfg.to_dict()
     cfg_dict.pop("schema", None)
+    if default_full_exports is not None:
+        def_mode, def_mp = resolve_full_export_settings(
+            default_full_exports,
+            None,
+            default_full_exports=default_full_exports,
+            default_max_periodic=int(seed_cfg.max_periodic_full_exports),
+        )
+        cfg_dict["full_exports"] = def_mode
+        cfg_dict["max_periodic_full_exports"] = def_mp
 
     env_cfg_json = env.get("V3_PPO_CONFIG_JSON")
     if env_cfg_json:
@@ -1390,6 +1490,17 @@ def resolve_effective_train_config(
             cfg_dict["actor_chunk_learners"] = None
         cfg_dict["net_size"] = args.net_size
 
+    merged_recipe: dict[str, Any] = {}
+    if recipe_overrides is not None:
+        merged_recipe.update(
+            parse_recipe_overrides(recipe_overrides, source_label="recipe_overrides")
+        )
+    arg_recipe_json = getattr(args, "recipe_json", None)
+    if arg_recipe_json is not None:
+        merged_recipe.update(parse_recipe_overrides(arg_recipe_json, source_label="--recipe-json"))
+    if merged_recipe:
+        cfg_dict.update(merged_recipe)
+
     cli_scalar_overrides: tuple[tuple[str, str, Callable[[Any], Any]], ...] = (
         ("num_envs", "num_envs", int),
         ("learner_slots", "learner_slots", int),
@@ -1420,7 +1531,17 @@ def resolve_effective_train_config(
     for arg_attr, cfg_key, caster in cli_scalar_overrides:
         val = getattr(args, arg_attr, None)
         if val is not None:
-            cfg_dict[cfg_key] = caster(val)
+            cast_val = caster(val)
+            if (
+                forbid_recipe_scalar_conflict
+                and cfg_key in merged_recipe
+                and merged_recipe[cfg_key] != cast_val
+            ):
+                raise ValueError(
+                    f"Conflicting explicit override for {cfg_key!r}: CLI flag={cast_val!r} vs "
+                    f"recipe override={merged_recipe[cfg_key]!r}"
+                )
+            cfg_dict[cfg_key] = cast_val
 
     cli_full_exports = getattr(args, "full_exports", None)
     cli_max_periodic = getattr(args, "max_periodic_full_exports", None)
@@ -1452,8 +1573,21 @@ def resolve_effective_train_config(
         )
     )
 
+    env_allow_recipe = parse_env_bool(
+        "V3_PPO_ALLOW_RECIPE_CHANGE", env.get("V3_PPO_ALLOW_RECIPE_CHANGE")
+    )
+    cli_allow_recipe = getattr(args, "allow_recipe_change", None)
+    eff_allow_recipe_change = (
+        bool(cli_allow_recipe)
+        if cli_allow_recipe is not None
+        else bool(env_allow_recipe if env_allow_recipe is not None else False)
+    )
+
+    resolved_cfg = V3PPOConfig.from_dict(cfg_dict)
+    resolved_recipe_overrides = recipe_overrides_from_default(resolved_cfg)
+
     return EffectiveTrainJobConfig(
-        cfg=V3PPOConfig.from_dict(cfg_dict),
+        cfg=resolved_cfg,
         output_dir=Path(args.output_dir),
         work_dir=Path(args.work_dir) if args.work_dir is not None else None,
         device=eff_device,
@@ -1461,6 +1595,8 @@ def resolve_effective_train_config(
         ledger_path=Path(args.ledger) if args.ledger is not None else None,
         max_wall_seconds=eff_max_wall_seconds,
         max_session_export_bytes=eff_max_export_bytes,
+        recipe_overrides=resolved_recipe_overrides,
+        allow_recipe_change=eff_allow_recipe_change,
     )
 
 
@@ -1477,6 +1613,7 @@ def main(argv: list[str] | None = None) -> int:
         ledger_path=eff.ledger_path,
         max_wall_seconds=eff.max_wall_seconds,
         max_session_export_bytes=eff.max_session_export_bytes,
+        allow_recipe_change=eff.allow_recipe_change,
     )
     if res.get("status") != "PASS":
         return 1

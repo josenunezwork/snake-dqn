@@ -41,6 +41,8 @@ from research.v3_ppo.config import (
     ObsLayout,
     V3PPOConfig,
     assert_resume_config_compatible,
+    build_recipe_change_record,
+    merge_and_append_recipe_history,
     obs_layout_from_game_config,
 )
 from research.v3_ppo.eval import (
@@ -694,7 +696,11 @@ class V3PPOTrainer:
         should_stop: Callable[[], bool] | None = None,
         stage_timing: bool = False,
     ) -> dict[str, Any]:
-        """Run one complete rollout + PPO update and return metrics + timing."""
+        """Run one complete rollout + PPO update and return metrics + timing.
+
+        Note: ``mean_ep_return`` (from ``self.last_rollout_mean_ep_return``) is **recipe-dependent**
+        because rollout returns sum ``self.cfg``'s ``reward_*`` terms over completed learner lives.
+        """
         coll = self.collect_rollout(should_stop=should_stop, stage_timing=stage_timing)
         ppo_stats, learn_sec = self.ppo_update(should_stop=should_stop)
         collect_sec = float(coll["collect_seconds"])
@@ -744,7 +750,7 @@ class V3PPOTrainer:
         eff_gen = (
             int(self.restart_generation) if restart_generation is None else int(restart_generation)
         )
-        return {
+        out: dict[str, Any] = {
             "schema": V3_PPO_LIGHT_CHECKPOINT_SCHEMA,
             "namespace": V3_PPO_NAMESPACE,
             "checkpoint_kind": "light",
@@ -781,6 +787,9 @@ class V3PPOTrainer:
                 "perm_gen": self.perm_gen.get_state().clone(),
             },
         }
+        if self.cfg.recipe_change_history:
+            out["recipe_change_history"] = [dict(r) for r in self.cfg.recipe_change_history]
+        return out
 
     def save_light_checkpoint(self, path: Path, *, restart_generation: int | None = None) -> str:
         """Atomically write a LIGHT checkpoint (`no sim state`) with `.sha256` & `.complete`."""
@@ -840,7 +849,7 @@ class V3PPOTrainer:
             light_sha = str(light_meta["sha256"])
 
         raw_sim_sd = self.sim.state_dict()
-        clean_streak = int(self.sim._clean_step_streak)
+        clean_streak = int(self.sim.clean_step_streak)
         total_worlds = int(self.sim.E)
 
         serialized_shards: list[tuple[int, int, bytes]] = []
@@ -930,11 +939,13 @@ class V3PPOTrainer:
         ckpt: dict[str, Any],
         *,
         restore_rng: bool,
-    ) -> None:
+        allow_recipe_change: bool = False,
+    ) -> dict[str, Any] | None:
         ckpt_cfg = V3PPOConfig.from_dict(ckpt["config"])
         assert_resume_config_compatible(
             ckpt_cfg,
             self.cfg,
+            allow_recipe_change=allow_recipe_change,
             context="Checkpoint config mismatch",
             reference_label="ckpt",
             candidate_label="current",
@@ -960,6 +971,10 @@ class V3PPOTrainer:
         self.raw_model.load_state_dict(ckpt["model_state_dict"])
         self.optimizer.load_state_dict(ckpt["optimizer_state_dict"])
         _move_optimizer_state_to_device(self.optimizer, self.device)
+        for group in self.optimizer.param_groups:
+            group["lr"] = float(self.cfg.lr)
+            group["eps"] = float(self.cfg.adam_eps)
+            group["weight_decay"] = float(self.cfg.weight_decay)
 
         scaler_state = ckpt.get("grad_scaler_state_dict")
         if self.scaler.is_enabled() and isinstance(scaler_state, dict):
@@ -989,12 +1004,26 @@ class V3PPOTrainer:
             if isinstance(rng.get("perm_gen"), torch.Tensor):
                 self.perm_gen.set_state(rng["perm_gen"])
 
+        recipe_change = build_recipe_change_record(
+            update=int(self.updates_completed),
+            reference=ckpt_cfg,
+            candidate=self.cfg,
+        )
+        if ckpt_cfg.recipe_change_history or recipe_change is not None:
+            self.cfg = merge_and_append_recipe_history(
+                prior_history=ckpt_cfg.recipe_change_history,
+                current_cfg=self.cfg,
+                new_record=recipe_change,
+            )
+        return recipe_change
+
     def load_checkpoint(
         self,
         path: Path,
         *,
         verify_markers: bool = True,
         restore_rng: bool = True,
+        allow_recipe_change: bool = False,
     ) -> dict[str, Any]:
         """Restore trainer from a FULL `.index.json` or LIGHT `.pt` checkpoint."""
         ckpt_path = Path(path)
@@ -1002,7 +1031,11 @@ class V3PPOTrainer:
         if ckpt_path.name.endswith(".index.json"):
             full_meta = verify_full_checkpoint_set(ckpt_path, require_markers=verify_markers)
             light_ckpt = torch.load(full_meta["light_path"], map_location="cpu", weights_only=False)
-            self._validate_and_apply_light_dict(light_ckpt, restore_rng=restore_rng)
+            recipe_change = self._validate_and_apply_light_dict(
+                light_ckpt,
+                restore_rng=restore_rng,
+                allow_recipe_change=allow_recipe_change,
+            )
 
             shard_objs = [
                 torch.load(sp, map_location="cpu", weights_only=False)
@@ -1013,17 +1046,20 @@ class V3PPOTrainer:
                 expected_num_envs=self.sim.E,
             )
             self.sim.load_state_dict(merged_sim_sd)
-            self.sim._clean_step_streak = int(clean_streak)
+            self.sim.clean_step_streak = int(clean_streak)
             self.episode_return_acc.copy_(
                 light_ckpt["episode_return_acc"].to(device=self.device, dtype=torch.float32)
             )
             self._bootstrap_obs_valid = False
-            return {
+            info_full: dict[str, Any] = {
                 "checkpoint_kind": "full",
                 "num_shards": int(full_meta["num_shards"]),
                 "worlds_reinitialized": False,
                 "updates_completed": int(self.updates_completed),
             }
+            if recipe_change is not None:
+                info_full["recipe_change"] = recipe_change
+            return info_full
 
         if verify_markers:
             verify_completed_artifact(ckpt_path)
@@ -1037,7 +1073,11 @@ class V3PPOTrainer:
 
         schema = ckpt.get("schema")
         if schema == V3_PPO_LIGHT_CHECKPOINT_SCHEMA:
-            self._validate_and_apply_light_dict(ckpt, restore_rng=restore_rng)
+            recipe_change = self._validate_and_apply_light_dict(
+                ckpt,
+                restore_rng=restore_rng,
+                allow_recipe_change=allow_recipe_change,
+            )
             fresh_seeds = derive_world_seeds(
                 self.cfg.seed,
                 self.cfg.num_envs,
@@ -1065,11 +1105,14 @@ class V3PPOTrainer:
                 checkpoint=ckpt_path.name,
                 updates_completed=self.updates_completed,
             )
-            return {
+            info_light: dict[str, Any] = {
                 "checkpoint_kind": "light",
                 "num_shards": 0,
                 "worlds_reinitialized": True,
                 "updates_completed": int(self.updates_completed),
             }
+            if recipe_change is not None:
+                info_light["recipe_change"] = recipe_change
+            return info_light
 
         raise ValueError(f"Invalid checkpoint schema at {ckpt_path}: {schema!r}")

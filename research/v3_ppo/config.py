@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import math
-from dataclasses import asdict, dataclass, field
+from collections.abc import Mapping
+from dataclasses import asdict, dataclass, field, fields, replace
+from pathlib import Path
 from typing import Any, Literal
 
 from research.game_v3.config import NUM_ACTIONS, GameV3Config
@@ -279,11 +282,22 @@ GPU_MAX_TOTAL_EXPORT_BYTES: dict[str, int] = {
 }
 
 # Train-mode wall-guard headroom constants (`prepare --mode train` only; canary & ruler untouched):
-#   headroom = setup_allowance + final_eval_and_save_allowance + final_export_bytes / download_rate
-TRAIN_SETUP_ALLOWANCE_SECONDS: float = 120.0
+#   headroom = setup_allowance (330 s, measured 240-325 s session-start-to-wall_t0)
+#            + staged_input_bytes / upload_rate (0 s on fresh runs; prior LIGHT/FULL upload on continuations)
+#            + final_eval_and_save_allowance
+#            + final_export_bytes / download_rate
+# Inside `V3_PPO_MAX_WALL_SECONDS = floor(timeout_s - headroom)`, `run_training_job` additionally
+# holds `checkpoint_reserve_sec = min(TRAINER_CHECKPOINT_RESERVE_SECONDS, max(5 s, 0.08 * max_wall))`
+# (`90 s` on sessions >= 18.75 min) so the active rollout/PPO update finishes before wrap-up starts.
+TRAIN_SETUP_ALLOWANCE_SECONDS: float = 330.0
+TRAINER_CHECKPOINT_RESERVE_SECONDS: float = 90.0
 TRAIN_FINAL_EVAL_AND_SAVE_ALLOWANCE_SECONDS: float = 300.0
 TRAIN_FINAL_SAVE_AFTER_EVAL_ALLOWANCE_SECONDS: float = 150.0
 TRAIN_FINAL_TELEMETRY_EXPORT_BYTES: int = 4 * 1024 * 1024  # 4 MiB final metrics/eval/result JSONLs
+ASSUMED_STAGED_INPUT_UPLOAD_RATE_MBPS: float = 1.0  # 1.0 MB/s (1,000,000 B/s)
+ASSUMED_STAGED_INPUT_UPLOAD_RATE_BYTES_PER_SEC: float = (
+    ASSUMED_STAGED_INPUT_UPLOAD_RATE_MBPS * 1_000_000.0
+)
 ASSUMED_FINAL_EXPORT_DOWNLOAD_RATE_MBPS: float = 1.0  # 1.0 MB/s (1,000,000 B/s)
 ASSUMED_FINAL_EXPORT_DOWNLOAD_RATE_BYTES_PER_SEC: float = (
     ASSUMED_FINAL_EXPORT_DOWNLOAD_RATE_MBPS * 1_000_000.0
@@ -322,6 +336,86 @@ def default_train_envs_for_gpu(gpu: str) -> int:
     if gpu_norm not in GPU_DEFAULT_TRAIN_ENVS:
         raise ValueError(f"gpu must be one of {tuple(GPU_DEFAULT_TRAIN_ENVS)}, got {gpu!r}")
     return int(GPU_DEFAULT_TRAIN_ENVS[gpu_norm])
+
+
+class ConfigTypeError(TypeError, ValueError):
+    """Raised when a ``V3PPOConfig`` field receives a value of the wrong type."""
+
+
+RECIPE_OVERRIDE_KEYS: tuple[str, ...] = (
+    "reward_alive_length_coef",
+    "reward_alive_const",
+    "reward_length_delta_coef",
+    "reward_kill_coef",
+    "reward_death_penalty",
+    "gamma",
+    "gae_lambda",
+    "entropy_coef",
+    "lr",
+    "ppo_epochs",
+    "minibatch_size",
+    "rollout_len",
+    "clip_ratio",
+)
+
+_V3_PPO_INT_FIELDS: tuple[str, ...] = (
+    "num_envs",
+    "rollout_len",
+    "ppo_epochs",
+    "total_updates",
+    "max_periodic_full_exports",
+    "checkpoint_shard_bytes",
+    "checkpoint_every_updates",
+    "full_checkpoint_every_updates",
+    "keep_full_checkpoints",
+    "keep_light_checkpoints",
+    "max_in_session_restarts",
+    "eval_every_updates",
+    "eval_envs",
+    "eval_burnin_ticks",
+    "eval_ticks",
+    "eval_seed",
+    "seed",
+)
+
+_V3_PPO_OPTIONAL_INT_FIELDS: tuple[str, ...] = (
+    "learner_slots",
+    "minibatch_size",
+    "actor_chunk_learners",
+    "eval_learner_slots",
+)
+
+_V3_PPO_FLOAT_FIELDS: tuple[str, ...] = (
+    "gamma",
+    "gae_lambda",
+    "lr",
+    "adam_eps",
+    "weight_decay",
+    "clip_ratio",
+    "entropy_coef",
+    "value_coef",
+    "max_grad_norm",
+    "reward_alive_length_coef",
+    "reward_alive_const",
+    "reward_length_delta_coef",
+    "reward_kill_coef",
+    "reward_death_penalty",
+    "light_checkpoint_interval_sec",
+    "full_checkpoint_interval_sec",
+    "light_resume_margin_minutes",
+    "eval_every_minutes",
+    "eval_estimated_seconds",
+)
+
+_V3_PPO_BOOL_FIELDS: tuple[str, ...] = (
+    "amp",
+    "use_channels_last",
+    "compile_model",
+    "fast_learner_ops",
+    "normalize_advantages",
+    "eval_greedy",
+    "deterministic",
+)
 
 
 @dataclass(frozen=True)
@@ -401,10 +495,105 @@ class V3PPOConfig:
 
     seed: int = 20261111
     deterministic: bool = False
+    recipe_change_history: tuple[dict[str, Any], ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.game_config, GameV3Config):
-            raise TypeError(f"game_config must be a GameV3Config, got {type(self.game_config)!r}")
+            raise ConfigTypeError(
+                f"game_config must be a GameV3Config, got {type(self.game_config)!r}"
+            )
+        for int_name in _V3_PPO_INT_FIELDS:
+            iv = getattr(self, int_name)
+            if isinstance(iv, bool) or not isinstance(iv, int):
+                raise ConfigTypeError(f"{int_name} must be an int, got {iv!r}")
+        for opt_int_name in _V3_PPO_OPTIONAL_INT_FIELDS:
+            oiv = getattr(self, opt_int_name)
+            if oiv is not None and (isinstance(oiv, bool) or not isinstance(oiv, int)):
+                raise ConfigTypeError(f"{opt_int_name} must be an int or None, got {oiv!r}")
+        for float_name in _V3_PPO_FLOAT_FIELDS:
+            fv = getattr(self, float_name)
+            if isinstance(fv, bool) or not isinstance(fv, (int, float)):
+                raise ConfigTypeError(f"{float_name} must be a float, got {fv!r}")
+            if isinstance(fv, int):
+                object.__setattr__(self, float_name, float(fv))
+        if self.max_update_seconds is not None:
+            if isinstance(self.max_update_seconds, bool) or not isinstance(
+                self.max_update_seconds, (int, float)
+            ):
+                raise ConfigTypeError(
+                    f"max_update_seconds must be a float or None, got {self.max_update_seconds!r}"
+                )
+            if isinstance(self.max_update_seconds, int):
+                object.__setattr__(self, "max_update_seconds", float(self.max_update_seconds))
+        for bool_name in _V3_PPO_BOOL_FIELDS:
+            bv = getattr(self, bool_name)
+            if not isinstance(bv, bool):
+                raise ConfigTypeError(f"{bool_name} must be a bool, got {bv!r}")
+        for str_name in ("opponent_policy", "net_size", "full_exports"):
+            sv = getattr(self, str_name)
+            if not isinstance(sv, str):
+                raise ConfigTypeError(f"{str_name} must be a str, got {sv!r}")
+        if not isinstance(self.recipe_change_history, (list, tuple)):
+            raise ConfigTypeError(
+                "recipe_change_history must be a list or tuple, "
+                f"got {type(self.recipe_change_history)!r}"
+            )
+        norm_history: list[dict[str, Any]] = []
+        allowed_recipe_set = set(RECIPE_OVERRIDE_KEYS)
+        for idx_h, entry in enumerate(self.recipe_change_history):
+            if not isinstance(entry, Mapping):
+                raise ConfigTypeError(
+                    f"recipe_change_history[{idx_h}] must be a mapping, got {type(entry)!r}"
+                )
+            extra_entry_keys = sorted(
+                str(k) for k in entry.keys() if k not in {"update", "changed_fields"}
+            )
+            if extra_entry_keys:
+                raise ValueError(
+                    f"Unsupported keys in recipe_change_history[{idx_h}]: {extra_entry_keys}"
+                )
+            upd = entry.get("update")
+            if isinstance(upd, bool) or not isinstance(upd, int) or upd < 0:
+                raise ValueError(
+                    f"recipe_change_history[{idx_h}].update must be an int >= 0, got {upd!r}"
+                )
+            ch_fields = entry.get("changed_fields")
+            if not isinstance(ch_fields, Mapping) or not ch_fields:
+                raise ValueError(
+                    f"recipe_change_history[{idx_h}].changed_fields must be a non-empty mapping"
+                )
+            norm_ch: dict[str, dict[str, Any]] = {}
+            for ch_k, ch_v in sorted(ch_fields.items()):
+                if ch_k not in allowed_recipe_set:
+                    raise ValueError(
+                        f"Unsupported key {ch_k!r} in recipe_change_history[{idx_h}].changed_fields"
+                    )
+                if not isinstance(ch_v, Mapping) or set(ch_v.keys()) != {"old", "new"}:
+                    raise ValueError(
+                        f"recipe_change_history[{idx_h}].changed_fields[{ch_k!r}] must map to "
+                        "exactly {'old': ..., 'new': ...}"
+                    )
+                old_val = ch_v["old"]
+                new_val = ch_v["new"]
+                _validate_recipe_field_value(
+                    str(ch_k),
+                    old_val,
+                    context=f"recipe_change_history[{idx_h}].changed_fields[{ch_k!r}].old",
+                )
+                _validate_recipe_field_value(
+                    str(ch_k),
+                    new_val,
+                    context=f"recipe_change_history[{idx_h}].changed_fields[{ch_k!r}].new",
+                )
+                if old_val == new_val and type(old_val) is type(new_val):
+                    raise ValueError(
+                        f"recipe_change_history[{idx_h}].changed_fields[{ch_k!r}] has identical "
+                        f"old and new values ({old_val!r})"
+                    )
+                norm_ch[str(ch_k)] = {"old": old_val, "new": new_val}
+            norm_history.append({"update": int(upd), "changed_fields": norm_ch})
+        object.__setattr__(self, "recipe_change_history", tuple(norm_history))
+
         if int(self.game_config.max_life_ticks) != 0:
             raise ValueError(
                 "V3PPOConfig requires game_config.max_life_ticks == 0 so surviving snakes stay "
@@ -460,6 +649,8 @@ class V3PPOConfig:
             val = float(getattr(self, coef_name))
             if not math.isfinite(val):
                 raise ValueError(f"{coef_name} must be finite, got {val}")
+        if float(self.entropy_coef) < 0.0:
+            raise ValueError(f"entropy_coef must be >= 0, got {self.entropy_coef}")
         if float(self.reward_death_penalty) < 0.0:
             raise ValueError(
                 "reward_death_penalty must be >= 0 (subtracted as -reward_death_penalty on death); "
@@ -620,20 +811,186 @@ class V3PPOConfig:
         out = asdict(self)
         out["schema"] = V3_PPO_SCHEMA
         out["game_config"] = self.game_config.to_dict()
+        if self.recipe_change_history:
+            out["recipe_change_history"] = [dict(entry) for entry in self.recipe_change_history]
+        else:
+            out.pop("recipe_change_history", None)
         return out
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> V3PPOConfig:
+    def from_dict(cls, data: Mapping[str, Any]) -> V3PPOConfig:
         """Deserialize config produced by :meth:`to_dict`."""
+        if not isinstance(data, Mapping):
+            raise ConfigTypeError(f"V3PPOConfig.from_dict expects a mapping, got {type(data)!r}")
         raw = dict(data)
         raw.pop("schema", None)
         gc_raw = raw.pop("game_config", None)
-        game_cfg = (
-            gc_raw
-            if isinstance(gc_raw, GameV3Config)
-            else (GameV3Config.from_dict(gc_raw) if isinstance(gc_raw, dict) else GameV3Config())
-        )
+        if gc_raw is None:
+            game_cfg = GameV3Config()
+        elif isinstance(gc_raw, GameV3Config):
+            game_cfg = gc_raw
+        elif isinstance(gc_raw, dict):
+            game_cfg = GameV3Config.from_dict(gc_raw)
+        else:
+            raise ConfigTypeError(
+                f"game_config must be a mapping or GameV3Config, got {type(gc_raw)!r}"
+            )
+        valid_fields = {f.name for f in fields(cls)} - {"game_config"}
+        unknown = sorted(str(k) for k in raw.keys() if k not in valid_fields)
+        if unknown:
+            raise ConfigTypeError(f"Unknown V3PPOConfig keys: {unknown}")
         return cls(game_config=game_cfg, **raw)
+
+
+def parse_recipe_overrides(
+    source: str | Path | Mapping[str, Any] | None,
+    *,
+    source_label: str = "--recipe-json",
+) -> dict[str, Any]:
+    """Parse and allow-list validate recipe overrides from JSON text, a file path, or a mapping."""
+    if source is None:
+        return {}
+    if isinstance(source, Mapping):
+        parsed = dict(source)
+    elif isinstance(source, Path):
+        if not source.is_file():
+            raise ValueError(f"{source_label} file does not exist: {source}")
+        parsed = json.loads(source.read_text(encoding="utf-8"))
+    elif isinstance(source, str):
+        stripped = source.lstrip()
+        if stripped.startswith("{"):
+            parsed = json.loads(source)
+        else:
+            cand_path = Path(source)
+            if cand_path.is_file():
+                parsed = json.loads(cand_path.read_text(encoding="utf-8"))
+            else:
+                try:
+                    parsed = json.loads(source)
+                except Exception as exc:
+                    raise ValueError(
+                        f"{source_label} must be a JSON object string or an existing JSON file "
+                        f"path, got {source!r}"
+                    ) from exc
+    else:
+        raise ConfigTypeError(
+            f"{source_label} must be a JSON string, Path, or mapping, got {type(source)!r}"
+        )
+
+    if not isinstance(parsed, dict):
+        raise ValueError(
+            f"{source_label} must decode to a JSON object, got {type(parsed).__name__}"
+        )
+
+    allowed = set(RECIPE_OVERRIDE_KEYS)
+    unknown = sorted(str(k) for k in parsed.keys() if k not in allowed)
+    if unknown:
+        raise ValueError(
+            f"Unsupported recipe override keys in {source_label}: {unknown}; "
+            f"allowed keys are {list(RECIPE_OVERRIDE_KEYS)}"
+        )
+
+    return {key: parsed[key] for key in RECIPE_OVERRIDE_KEYS if key in parsed}
+
+
+def _validate_recipe_field_value(field_name: str, value: Any, *, context: str) -> None:
+    """Validate a single allow-listed recipe field value against ``V3PPOConfig`` invariants."""
+    try:
+        V3PPOConfig(**{field_name: value})
+    except ConfigTypeError as exc:
+        raise ConfigTypeError(f"Invalid {context}: {exc}") from exc
+    except ValueError as exc:
+        raise ValueError(f"Invalid {context}: {exc}") from exc
+
+
+def extract_recipe_dict(cfg: V3PPOConfig) -> dict[str, Any]:
+    """Return all allow-listed recipe fields of ``cfg`` in canonical ``RECIPE_OVERRIDE_KEYS`` order."""
+    return {key: getattr(cfg, key) for key in RECIPE_OVERRIDE_KEYS}
+
+
+def recipe_overrides_from_default(
+    cfg: V3PPOConfig,
+    *,
+    reference: V3PPOConfig | None = None,
+) -> dict[str, Any]:
+    """Return allow-listed recipe fields whose effective value on ``cfg`` differs from defaults."""
+    ref = reference if reference is not None else V3PPOConfig(net_size=cfg.net_size)
+    out: dict[str, Any] = {}
+    for key in RECIPE_OVERRIDE_KEYS:
+        if key == "minibatch_size":
+            if int(cfg.resolved_minibatch_size) != int(ref.resolved_minibatch_size):
+                out[key] = int(cfg.resolved_minibatch_size)
+        else:
+            if getattr(cfg, key) != getattr(ref, key):
+                out[key] = getattr(cfg, key)
+    return out
+
+
+def format_recipe_overrides(overrides: Mapping[str, Any] | None) -> str:
+    """Format recipe overrides for summary/log output (`'none'` when empty)."""
+    if not overrides:
+        return "none"
+    return ", ".join(f"{key}={json.dumps(overrides[key])}" for key in sorted(overrides.keys()))
+
+
+MAX_DROPPED_MINIBATCH_ROW_FRACTION: float = 0.25
+
+
+def check_minibatch_divisibility(cfg: V3PPOConfig) -> dict[str, Any] | None:
+    """Check ``rows_per_update`` divisibility by ``resolved_minibatch_size``.
+
+    Returns ``None`` when ``rows_per_update`` is an exact multiple of ``minibatch_size``.
+    Otherwise returns a summary dictionary describing the dropped (or zero-loss-padded) rows per
+    PPO epoch, and raises ``ValueError`` when strictly more than ``25%`` of ``rows_per_update``
+    would be dropped per epoch.
+    """
+    rows_per_update = int(cfg.rollout_len) * int(cfg.total_learners)
+    mb_size = int(cfg.resolved_minibatch_size)
+    if rows_per_update % mb_size == 0:
+        return None
+    if rows_per_update < mb_size:
+        dropped_rows = 0
+        padded_rows = mb_size - rows_per_update
+    else:
+        dropped_rows = rows_per_update % mb_size
+        padded_rows = 0
+
+    dropped_fraction = float(dropped_rows) / float(rows_per_update)
+    dropped_pct = 100.0 * dropped_fraction
+    if dropped_rows * 4 > rows_per_update:
+        raise ValueError(
+            f"Refusing train packet: rows_per_update={rows_per_update} "
+            f"(rollout_len={cfg.rollout_len} * total_learners={cfg.total_learners}) is not "
+            f"divisible by minibatch_size={mb_size} and would drop {dropped_rows}/{rows_per_update} "
+            f"rows ({dropped_pct:.2f}%) per PPO epoch, exceeding the 25% cap."
+        )
+    return {
+        "rows_per_update": rows_per_update,
+        "minibatch_size": mb_size,
+        "dropped_rows_per_epoch": dropped_rows,
+        "dropped_fraction": round(dropped_fraction, 6),
+        "dropped_percent": round(dropped_pct, 2),
+        "padded_rows_per_epoch": padded_rows,
+    }
+
+
+def format_minibatch_remainder_warning(info: Mapping[str, Any]) -> str:
+    """Format a single-line warning message for non-divisible ``rows_per_update``."""
+    rows = int(info["rows_per_update"])
+    mb = int(info["minibatch_size"])
+    dropped = int(info["dropped_rows_per_epoch"])
+    pct = float(info["dropped_percent"])
+    padded = int(info.get("padded_rows_per_epoch", 0))
+    if padded > 0:
+        return (
+            f"WARNING [V3_PPO_MINIBATCH_REMAINDER]: rows_per_update={rows} is not divisible by "
+            f"minibatch_size={mb}; {dropped}/{rows} rows ({pct:.2f}%) dropped per PPO epoch "
+            f"(batch padded with {padded} zero-masked rows to {mb})."
+        )
+    return (
+        f"WARNING [V3_PPO_MINIBATCH_REMAINDER]: rows_per_update={rows} is not divisible by "
+        f"minibatch_size={mb}; dropping {dropped}/{rows} rows ({pct:.2f}%) per PPO epoch."
+    )
 
 
 def resolve_full_export_settings(
@@ -736,20 +1093,90 @@ RESUME_MUTABLE_CONFIG_KEYS: frozenset[str] = frozenset(
         "actor_chunk_learners",
         "compile_model",
         "fast_learner_ops",
+        "recipe_change_history",
     }
 )
+
+
+def recipe_config_diff(
+    reference: V3PPOConfig,
+    candidate: V3PPOConfig,
+) -> dict[str, tuple[Any, Any]]:
+    """Return ``{key: (reference_val, candidate_val)}`` for changed allow-listed recipe keys."""
+    diffs: dict[str, tuple[Any, Any]] = {}
+    for key in RECIPE_OVERRIDE_KEYS:
+        ref_val = getattr(reference, key)
+        cand_val = getattr(candidate, key)
+        if ref_val != cand_val:
+            diffs[key] = (ref_val, cand_val)
+    return diffs
+
+
+def build_recipe_change_record(
+    *,
+    update: int,
+    reference: V3PPOConfig,
+    candidate: V3PPOConfig,
+) -> dict[str, Any] | None:
+    """Build ``{'update': update, 'changed_fields': {k: {'old': o, 'new': n}}}`` or ``None``."""
+    diffs = recipe_config_diff(reference, candidate)
+    if not diffs:
+        return None
+    return {
+        "update": int(update),
+        "changed_fields": {
+            key: {"old": old_val, "new": new_val}
+            for key, (old_val, new_val) in sorted(diffs.items())
+        },
+    }
+
+
+def merge_and_append_recipe_history(
+    *,
+    prior_history: tuple[dict[str, Any], ...],
+    current_cfg: V3PPOConfig,
+    new_record: Mapping[str, Any] | None,
+) -> V3PPOConfig:
+    """Preserve ``prior_history`` prefix on ``current_cfg`` and append ``new_record`` once."""
+    merged: list[dict[str, Any]] = []
+    for item in (*prior_history, *current_cfg.recipe_change_history):
+        norm_item = {
+            "update": int(item["update"]),
+            "changed_fields": {
+                k: {"old": v["old"], "new": v["new"]}
+                for k, v in sorted(item["changed_fields"].items())
+            },
+        }
+        if norm_item not in merged:
+            merged.append(norm_item)
+    if new_record is not None:
+        norm_new = {
+            "update": int(new_record["update"]),
+            "changed_fields": {
+                k: {"old": v["old"], "new": v["new"]}
+                for k, v in sorted(new_record["changed_fields"].items())
+            },
+        }
+        if not merged or merged[-1] != norm_new:
+            merged.append(norm_new)
+    if tuple(merged) == current_cfg.recipe_change_history:
+        return current_cfg
+    return replace(current_cfg, recipe_change_history=tuple(merged))
 
 
 def immutable_config_diff(
     reference: V3PPOConfig,
     candidate: V3PPOConfig,
+    *,
+    allow_recipe_change: bool = False,
 ) -> dict[str, tuple[Any, Any]]:
     """Return ``{key: (reference_val, candidate_val)}`` for mismatched resume-immutable keys."""
     ref_dict = reference.to_dict()
     cand_dict = candidate.to_dict()
+    allowed_recipe = set(RECIPE_OVERRIDE_KEYS) if allow_recipe_change else set()
     diffs: dict[str, tuple[Any, Any]] = {}
     for key in sorted(set(ref_dict) | set(cand_dict)):
-        if key in RESUME_MUTABLE_CONFIG_KEYS or key == "schema":
+        if key in RESUME_MUTABLE_CONFIG_KEYS or key == "schema" or key in allowed_recipe:
             continue
         if ref_dict.get(key) != cand_dict.get(key):
             diffs[key] = (ref_dict.get(key), cand_dict.get(key))
@@ -760,17 +1187,27 @@ def assert_resume_config_compatible(
     reference: V3PPOConfig,
     candidate: V3PPOConfig,
     *,
+    allow_recipe_change: bool = False,
     context: str = "Checkpoint config mismatch",
     reference_label: str = "ckpt",
     candidate_label: str = "current",
 ) -> None:
     """Raise ``ValueError`` if ``candidate`` differs from ``reference`` on any immutable key."""
-    diffs = immutable_config_diff(reference, candidate)
+    diffs = immutable_config_diff(
+        reference,
+        candidate,
+        allow_recipe_change=allow_recipe_change,
+    )
     if diffs:
         key, (ref_val, cand_val) = next(iter(diffs.items()))
+        hint = (
+            " (pass --allow-recipe-change to change allow-listed recipe fields on a continuation)"
+            if (not allow_recipe_change and key in RECIPE_OVERRIDE_KEYS)
+            else ""
+        )
         raise ValueError(
             f"{context} on {key!r}: {reference_label}={ref_val!r} vs "
-            f"{candidate_label}={cand_val!r}"
+            f"{candidate_label}={cand_val!r}{hint}"
         )
 
 
@@ -1225,23 +1662,37 @@ def estimate_train_wall_headroom(
     session_seconds: float = 4.0 * 3600.0,
     canary_eval_wall_seconds: float | None = None,
     measured_packed_bytes_per_world: int | None = None,
+    staged_input_bytes: int = 0,
+    assumed_upload_rate_mbps: float = ASSUMED_STAGED_INPUT_UPLOAD_RATE_MBPS,
     assumed_download_rate_mbps: float = ASSUMED_FINAL_EXPORT_DOWNLOAD_RATE_MBPS,
 ) -> dict[str, Any]:
     """Size ``prepare --mode train`` headroom between ``V3_PPO_MAX_WALL_SECONDS`` and timeout.
 
-    Sizes headroom as the sum of three terms:
-      1. ``setup_allowance_seconds`` (`120.0` s),
-      2. ``final_eval_and_save_allowance_seconds`` (`300.0` s default, or
+    Sizes headroom as the sum of four terms:
+      1. ``setup_allowance_seconds`` (`330.0` s, measured `240–325` s session-start-to-``wall_t0``),
+      2. ``staged_input_upload_seconds`` (`0.0` s for fresh runs; ``staged_input_bytes`` divided by
+         ``assumed_upload_rate_mbps`` [`1.0 MB/s` = `1,000,000 B/s`] on continuations),
+      3. ``final_eval_and_save_allowance_seconds`` (`300.0` s default, or
          ``canary_eval_wall_seconds + 150.0`` s when provided by the bound canary receipt),
-      3. ``final_export_download_seconds``:
+      4. ``final_export_download_seconds``:
          - for ``full_exports == "none"`` (default): ``(final_light_bytes + final_telemetry_bytes)``
            divided by ``assumed_download_rate_mbps`` (`1.0 MB/s` = `1,000,000 B/s`);
          - for ``full_exports in {"final", "periodic"}``: ``(final_full_bytes + final_light_bytes)``
            from :func:`estimate_checkpoint_export_caps`'s per-world size model divided by
            ``assumed_download_rate_mbps`` (`1.0 MB/s` = `1,000,000 B/s`).
+
+    Inside ``max_wall_seconds = floor(session_seconds - headroom)``, ``run_training_job`` holds
+    ``trainer_checkpoint_reserve_seconds = min(90.0, max(5.0, 0.08 * max_wall_seconds))`` so an
+    in-progress rollout/PPO update completes before final evaluation and checkpoint export begin.
     """
     if not math.isfinite(session_seconds) or float(session_seconds) <= 0.0:
         raise ValueError(f"session_seconds must be finite and > 0, got {session_seconds}")
+    if isinstance(staged_input_bytes, bool) or int(staged_input_bytes) < 0:
+        raise ValueError(f"staged_input_bytes must be an int >= 0, got {staged_input_bytes!r}")
+    if not math.isfinite(assumed_upload_rate_mbps) or float(assumed_upload_rate_mbps) <= 0.0:
+        raise ValueError(
+            f"assumed_upload_rate_mbps must be finite and > 0, got {assumed_upload_rate_mbps}"
+        )
     if not math.isfinite(assumed_download_rate_mbps) or float(assumed_download_rate_mbps) <= 0.0:
         raise ValueError(
             f"assumed_download_rate_mbps must be finite and > 0, got {assumed_download_rate_mbps}"
@@ -1260,6 +1711,10 @@ def estimate_train_wall_headroom(
         measured_packed_bytes_per_world=measured_packed_bytes_per_world,
     )
     setup_sec = float(TRAIN_SETUP_ALLOWANCE_SECONDS)
+    staged_in_bytes = int(staged_input_bytes)
+    upload_rate_bps = float(assumed_upload_rate_mbps) * 1_000_000.0
+    upload_sec = float(staged_in_bytes) / upload_rate_bps
+
     if canary_eval_wall_seconds is not None:
         eval_save_sec = float(canary_eval_wall_seconds) + float(
             TRAIN_FINAL_SAVE_AFTER_EVAL_ALLOWANCE_SECONDS
@@ -1280,13 +1735,18 @@ def estimate_train_wall_headroom(
 
     download_rate_bps = float(assumed_download_rate_mbps) * 1_000_000.0
     download_sec = float(final_export_bytes) / download_rate_bps
-    headroom_sec = setup_sec + eval_save_sec + download_sec
+    headroom_sec = setup_sec + upload_sec + eval_save_sec + download_sec
 
     sess_sec = float(session_seconds)
     max_allowed_sec = float(MAX_TRAIN_HEADROOM_SESSION_FRACTION) * sess_sec
     headroom_fraction = headroom_sec / sess_sec
     fits_fraction = bool(headroom_sec <= max_allowed_sec)
     max_wall_seconds = int(math.floor(sess_sec - headroom_sec))
+    eff_max_wall_pos = max(1, max_wall_seconds)
+    trainer_reserve_sec = min(
+        float(TRAINER_CHECKPOINT_RESERVE_SECONDS),
+        max(5.0, float(eff_max_wall_pos) * 0.08),
+    )
 
     return {
         "gpu": str(caps["gpu"]),
@@ -1295,6 +1755,10 @@ def estimate_train_wall_headroom(
         "net_size": cfg.net_size,
         "session_seconds": sess_sec,
         "setup_allowance_seconds": setup_sec,
+        "staged_input_bytes": staged_in_bytes,
+        "assumed_upload_rate_mbps": float(assumed_upload_rate_mbps),
+        "assumed_upload_rate_bytes_per_sec": upload_rate_bps,
+        "staged_input_upload_seconds": upload_sec,
         "final_eval_and_save_allowance_seconds": eval_save_sec,
         "final_eval_and_save_source": eval_save_source,
         "canary_eval_wall_seconds": (
@@ -1315,6 +1779,7 @@ def estimate_train_wall_headroom(
         "max_allowed_headroom_seconds": max_allowed_sec,
         "fits_max_headroom_fraction": fits_fraction,
         "max_wall_seconds": max_wall_seconds,
+        "trainer_checkpoint_reserve_seconds": round(trainer_reserve_sec, 4),
     }
 
 
@@ -1325,6 +1790,8 @@ def estimate_train_wall_headroom_by_mode(
     session_seconds: float = 4.0 * 3600.0,
     canary_eval_wall_seconds: float | None = None,
     measured_packed_bytes_per_world: int | None = None,
+    staged_input_bytes: int = 0,
+    assumed_upload_rate_mbps: float = ASSUMED_STAGED_INPUT_UPLOAD_RATE_MBPS,
     assumed_download_rate_mbps: float = ASSUMED_FINAL_EXPORT_DOWNLOAD_RATE_MBPS,
 ) -> dict[FullExportMode, dict[str, Any]]:
     """Compute train wall-guard headroom side by side across ``none``, ``final``, & ``periodic``."""
@@ -1342,6 +1809,8 @@ def estimate_train_wall_headroom_by_mode(
             session_seconds=session_seconds,
             canary_eval_wall_seconds=canary_eval_wall_seconds,
             measured_packed_bytes_per_world=measured_packed_bytes_per_world,
+            staged_input_bytes=staged_input_bytes,
+            assumed_upload_rate_mbps=assumed_upload_rate_mbps,
             assumed_download_rate_mbps=assumed_download_rate_mbps,
         )
     return out
@@ -1354,6 +1823,8 @@ def validate_train_wall_headroom(
     session_seconds: float,
     canary_eval_wall_seconds: float | None = None,
     measured_packed_bytes_per_world: int | None = None,
+    staged_input_bytes: int = 0,
+    assumed_upload_rate_mbps: float = ASSUMED_STAGED_INPUT_UPLOAD_RATE_MBPS,
     assumed_download_rate_mbps: float = ASSUMED_FINAL_EXPORT_DOWNLOAD_RATE_MBPS,
 ) -> dict[str, Any]:
     """Validate ``train`` wall-guard headroom fits ``<= 40%`` of ``session_seconds``."""
@@ -1363,17 +1834,25 @@ def validate_train_wall_headroom(
         session_seconds=session_seconds,
         canary_eval_wall_seconds=canary_eval_wall_seconds,
         measured_packed_bytes_per_world=measured_packed_bytes_per_world,
+        staged_input_bytes=staged_input_bytes,
+        assumed_upload_rate_mbps=assumed_upload_rate_mbps,
         assumed_download_rate_mbps=assumed_download_rate_mbps,
     )
     if not est["fits_max_headroom_fraction"]:
         sess_hours = float(session_seconds) / 3600.0
         pct = 100.0 * float(est["headroom_seconds"]) / float(session_seconds)
         max_pct = 100.0 * float(est["max_headroom_fraction"])
+        upload_clause = (
+            f"staged_input_upload={est['staged_input_upload_seconds']:.1f} s + "
+            if int(est["staged_input_bytes"]) > 0
+            else ""
+        )
         raise ValueError(
             f"Refusing train packet whose wall-guard headroom "
             f"({est['headroom_seconds']:.1f} s = {est['headroom_seconds'] / 60.0:.1f} min, "
             f"{pct:.1f}% of session in full_exports={cfg.full_exports!r}: "
             f"setup={est['setup_allowance_seconds']:.1f} s + "
+            f"{upload_clause}"
             f"final_eval_and_save={est['final_eval_and_save_allowance_seconds']:.1f} s + "
             f"final_export_download={est['final_export_download_seconds']:.1f} s for "
             f"{est['final_export_bytes'] / 1e6:.1f} MB at "

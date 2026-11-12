@@ -23,12 +23,15 @@ from research.game_v3.config import GameV3Config
 from research.v3_ppo.config import (
     ASSUMED_FINAL_EXPORT_DOWNLOAD_RATE_BYTES_PER_SEC,
     ASSUMED_FINAL_EXPORT_DOWNLOAD_RATE_MBPS,
+    ASSUMED_STAGED_INPUT_UPLOAD_RATE_BYTES_PER_SEC,
+    ASSUMED_STAGED_INPUT_UPLOAD_RATE_MBPS,
     MAX_TRAIN_HEADROOM_SESSION_FRACTION,
     NONE_MODE_MAX_TOTAL_EXPORT_BYTES,
     TRAIN_FINAL_EVAL_AND_SAVE_ALLOWANCE_SECONDS,
     TRAIN_FINAL_SAVE_AFTER_EVAL_ALLOWANCE_SECONDS,
     TRAIN_FINAL_TELEMETRY_EXPORT_BYTES,
     TRAIN_SETUP_ALLOWANCE_SECONDS,
+    TRAINER_CHECKPOINT_RESERVE_SECONDS,
     V3PPOConfig,
     estimate_checkpoint_export_caps,
     estimate_train_wall_headroom,
@@ -1653,7 +1656,11 @@ out_json.write_text(json.dumps(snapshots, sort_keys=True), encoding="utf-8")
         }
         cfg_b = json.loads(mf_b["env"]["V3_PPO_CONFIG_JSON"])
         cfg_a = json.loads(mf_a["env"]["V3_PPO_CONFIG_JSON"])
-        assert cfg_a == {**cfg_b, "full_exports": "none"}
+        assert "max_periodic_full_exports" not in cfg_a
+        assert cfg_a == {
+            **{k: v for k, v in cfg_b.items() if k != "max_periodic_full_exports"},
+            "full_exports": "none",
+        }
         assert (
             int(mf_a["env"]["V3_PPO_MAX_SESSION_EXPORT_BYTES"]) == NONE_MODE_MAX_TOTAL_EXPORT_BYTES
         )
@@ -1689,28 +1696,31 @@ def test_train_wall_headroom_arithmetic_gpu_defaults_summary_and_40pct_refusal(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Verify headroom arithmetic per mode (`none`/`final`/`periodic`), warnings, & >40% refusal."""
-    assert TRAIN_SETUP_ALLOWANCE_SECONDS == 120.0
+    assert TRAIN_SETUP_ALLOWANCE_SECONDS == 330.0
+    assert TRAINER_CHECKPOINT_RESERVE_SECONDS == 90.0
     assert TRAIN_FINAL_EVAL_AND_SAVE_ALLOWANCE_SECONDS == 300.0
     assert TRAIN_FINAL_SAVE_AFTER_EVAL_ALLOWANCE_SECONDS == 150.0
     assert TRAIN_FINAL_TELEMETRY_EXPORT_BYTES == 4 * 1024 * 1024
+    assert ASSUMED_STAGED_INPUT_UPLOAD_RATE_MBPS == 1.0
+    assert ASSUMED_STAGED_INPUT_UPLOAD_RATE_BYTES_PER_SEC == 1_000_000.0
     assert ASSUMED_FINAL_EXPORT_DOWNLOAD_RATE_MBPS == 1.0
     assert ASSUMED_FINAL_EXPORT_DOWNLOAD_RATE_BYTES_PER_SEC == 1_000_000.0
     assert MAX_TRAIN_HEADROOM_SESSION_FRACTION == 0.40
 
     expected_cases = [
         # (gpu, envs, net, hours, none_bytes, none_wall, full_bytes, full_wall, full_fits_40)
-        ("L4", 128, "S", 4.0, 20_971_520, 13_959, 2_164_785_152, 11_815, True),
-        ("L4", 128, "S", 8.0, 20_971_520, 28_359, 2_164_785_152, 26_215, True),
-        ("L4", 128, "M", 4.0, 75_497_472, 13_904, 2_219_311_104, 11_760, True),
-        ("L4", 128, "M", 8.0, 75_497_472, 28_304, 2_219_311_104, 26_160, True),
-        ("A100", 256, "S", 4.0, 20_971_520, 13_959, 4_312_793_088, 9_667, True),
-        ("A100", 256, "S", 8.0, 20_971_520, 28_359, 4_312_793_088, 24_067, True),
-        ("A100", 256, "M", 4.0, 75_497_472, 13_904, 4_367_319_040, 9_612, True),
-        ("A100", 256, "M", 8.0, 75_497_472, 28_304, 4_367_319_040, 24_012, True),
-        ("H100", 512, "S", 4.0, 20_971_520, 13_959, 8_608_808_960, 5_371, False),
-        ("H100", 512, "S", 8.0, 20_971_520, 28_359, 8_608_808_960, 19_771, True),
-        ("H100", 512, "M", 4.0, 75_497_472, 13_904, 8_663_334_912, 5_316, False),
-        ("H100", 512, "M", 8.0, 75_497_472, 28_304, 8_663_334_912, 19_716, True),
+        ("L4", 128, "S", 4.0, 20_971_520, 13_749, 2_164_785_152, 11_605, True),
+        ("L4", 128, "S", 8.0, 20_971_520, 28_149, 2_164_785_152, 26_005, True),
+        ("L4", 128, "M", 4.0, 75_497_472, 13_694, 2_219_311_104, 11_550, True),
+        ("L4", 128, "M", 8.0, 75_497_472, 28_094, 2_219_311_104, 25_950, True),
+        ("A100", 256, "S", 4.0, 20_971_520, 13_749, 4_312_793_088, 9_457, True),
+        ("A100", 256, "S", 8.0, 20_971_520, 28_149, 4_312_793_088, 23_857, True),
+        ("A100", 256, "M", 4.0, 75_497_472, 13_694, 4_367_319_040, 9_402, True),
+        ("A100", 256, "M", 8.0, 75_497_472, 28_094, 4_367_319_040, 23_802, True),
+        ("H100", 512, "S", 4.0, 20_971_520, 13_749, 8_608_808_960, 5_161, False),
+        ("H100", 512, "S", 8.0, 20_971_520, 28_149, 8_608_808_960, 19_561, True),
+        ("H100", 512, "M", 4.0, 75_497_472, 13_694, 8_663_334_912, 5_106, False),
+        ("H100", 512, "M", 8.0, 75_497_472, 28_094, 8_663_334_912, 19_506, True),
     ]
 
     for (
@@ -1755,10 +1765,13 @@ def test_train_wall_headroom_arithmetic_gpu_defaults_summary_and_40pct_refusal(
                 assert est["final_full_bytes"] == int(caps["est_full_sim_bytes"])
                 assert est["final_telemetry_bytes"] == 0
             assert est["final_export_bytes"] == exp_bytes
-            assert est["setup_allowance_seconds"] == 120.0
+            assert est["setup_allowance_seconds"] == 330.0
+            assert est["staged_input_bytes"] == 0
+            assert est["staged_input_upload_seconds"] == 0.0
+            assert est["trainer_checkpoint_reserve_seconds"] == 90.0
             assert est["final_eval_and_save_allowance_seconds"] == 300.0
             assert est["final_export_download_seconds"] == pytest.approx(exp_bytes / 1_000_000.0)
-            assert est["headroom_seconds"] == pytest.approx(120.0 + 300.0 + exp_bytes / 1_000_000.0)
+            assert est["headroom_seconds"] == pytest.approx(330.0 + 300.0 + exp_bytes / 1_000_000.0)
             assert est["max_wall_seconds"] == exp_wall
             assert est["fits_max_headroom_fraction"] is exp_fits
 
@@ -1795,6 +1808,11 @@ def test_train_wall_headroom_arithmetic_gpu_defaults_summary_and_40pct_refusal(
                 assert mf["timeout_minutes"] == pytest.approx(h_val * 60.0)
                 assert int(mf["env"]["V3_PPO_MAX_WALL_SECONDS"]) == exp_wall
                 assert mf["technical_envelope"]["wall_headroom"] == wh
+                staged_cfg_json = json.loads(mf["env"]["V3_PPO_CONFIG_JSON"])
+                if fe_mode == "none":
+                    assert "max_periodic_full_exports" not in staged_cfg_json
+                else:
+                    assert "max_periodic_full_exports" in staged_cfg_json
             else:
                 with pytest.raises(
                     ValueError,
@@ -1895,13 +1913,13 @@ def test_train_wall_headroom_arithmetic_gpu_defaults_summary_and_40pct_refusal(
     cli_wh_none = cli_summary_none["wall_headroom"]
     assert cli_wh_none["full_exports"] == "none"
     assert cli_wh_none["final_eval_and_save_source"] == "canary_receipt_eval_plus_150s"
-    assert cli_wh_none["setup_allowance_seconds"] == 120.0
+    assert cli_wh_none["setup_allowance_seconds"] == 330.0
     assert cli_wh_none["final_eval_and_save_allowance_seconds"] == pytest.approx(
         measured_eval_s + 150.0
     )
     assert cli_wh_none["final_export_download_seconds"] == pytest.approx(20_971_520 / 1_000_000.0)
     assert cli_wh_none["headroom_seconds"] == pytest.approx(
-        120.0 + (measured_eval_s + 150.0) + 20_971_520 / 1_000_000.0
+        330.0 + (measured_eval_s + 150.0) + 20_971_520 / 1_000_000.0
     )
     assert set(cli_summary_none["wall_headroom_by_mode"].keys()) == {"none", "final", "periodic"}
     assert "V3_PPO_HEADROOM " in captured_none.err
@@ -2023,6 +2041,16 @@ def test_light_only_prior_output_continuation_prepare_canary_and_train_without_e
     assert "ERROR" not in prep_t_io.out and "ERROR" not in prep_t_io.err
 
     mf_t_cont = json.loads(Path(train_cont["manifest_path"]).read_text(encoding="utf-8"))
+    prior_light_bytes = int((prior_exports / "checkpoints" / "light_u0000002.pt").stat().st_size)
+    cont_wh = train_cont["wall_headroom"]
+    assert cont_wh["staged_input_bytes"] == prior_light_bytes
+    assert cont_wh["staged_input_upload_seconds"] == pytest.approx(prior_light_bytes / 1_000_000.0)
+    assert cont_wh["headroom_seconds"] == pytest.approx(
+        330.0
+        + prior_light_bytes / 1_000_000.0
+        + cont_wh["final_eval_and_save_allowance_seconds"]
+        + cont_wh["final_export_download_seconds"]
+    )
     staged_in = _stage_manifest_inputs(mf_t_cont, tmp_path / "staged_train_light_in")
     cont_cfg = V3PPOConfig.from_dict(
         {**json.loads(mf_t_cont["env"]["V3_PPO_CONFIG_JSON"]), "total_updates": 4}
@@ -2469,3 +2497,545 @@ def test_job_sh_env_mapping_matches_prepare_across_all_modes(tmp_path: Path) -> 
     assert train_eff.max_session_export_bytes == int(
         train_info["checkpoint_export_caps"]["session_total_export_cap_bytes"]
     )
+
+
+def test_prepare_recipe_json_overrides_summary_vram_guard_and_runtime_recording(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify `--recipe-json` CLI/file overrides, summary output, VRAM checks, and runtime logs."""
+    # 1. Default train packet prints `recipe overrides: none` and omits `recipe_overrides` key
+    capsys.readouterr()
+    rc_none = prepare_main(
+        [
+            "--packet",
+            str(tmp_path / "pkt_recipe_none"),
+            "--commit",
+            "HEAD",
+            "--mode",
+            "train",
+            "--gpu",
+            "L4",
+            "--hours",
+            "4.0",
+            "--allow-missing-canary-receipt",
+            "--output-dir",
+            str(tmp_path / "out_recipe_none"),
+            "--allow-unmerged-commit",
+        ]
+    )
+    io_none = capsys.readouterr()
+    assert rc_none == 0
+    assert "recipe overrides: none" in io_none.err
+    summary_none = json.loads(io_none.out)
+    assert "recipe_overrides" not in summary_none
+
+    # 2. Inline JSON & file path `--recipe-json` flow into staged config, summary, and VRAM/plan
+    recipe_obj = {
+        "reward_alive_length_coef": 0.0,
+        "reward_death_penalty": 2.0,
+        "gamma": 0.995,
+        "entropy_coef": 0.005,
+        "lr": 1.5e-4,
+        "ppo_epochs": 3,
+        "minibatch_size": 512,
+        "rollout_len": 64,
+        "clip_ratio": 0.15,
+    }
+    recipe_path = tmp_path / "custom_recipe.json"
+    recipe_path.write_text(json.dumps(recipe_obj), encoding="utf-8")
+
+    capsys.readouterr()
+    rc_ov = prepare_main(
+        [
+            "--packet",
+            str(tmp_path / "pkt_recipe_ov"),
+            "--commit",
+            "HEAD",
+            "--mode",
+            "train",
+            "--gpu",
+            "A100",
+            "--hours",
+            "4.0",
+            "--net-size",
+            "M",
+            "--expected-steps-per-sec",
+            "20000",
+            "--recipe-json",
+            str(recipe_path),
+            "--allow-missing-canary-receipt",
+            "--output-dir",
+            str(tmp_path / "out_recipe_ov"),
+            "--allow-unmerged-commit",
+        ]
+    )
+    io_ov = capsys.readouterr()
+    assert rc_ov == 0
+    assert (
+        "recipe overrides: clip_ratio=0.15, entropy_coef=0.005, gamma=0.995, lr=0.00015, "
+        "minibatch_size=512, ppo_epochs=3, reward_alive_length_coef=0.0, "
+        "reward_death_penalty=2.0, rollout_len=64"
+    ) in io_ov.err
+    summary_ov = json.loads(io_ov.out)
+    assert summary_ov["recipe_overrides"] == recipe_obj
+    # Overridden rollout_len=64 doubles agent_steps_per_update (64 * 128 * 24 = 196,608)
+    assert summary_ov["training_plan"]["agent_steps_per_update"] == 64 * 128 * 24
+
+    mf_ov = json.loads(
+        (tmp_path / "pkt_recipe_ov" / "dispatch-manifest.json").read_text(encoding="utf-8")
+    )
+    eff_ov = resolve_effective_train_config(
+        build_train_arg_parser().parse_args(["--output-dir", str(tmp_path / "eff_ov_out")]),
+        environ=mf_ov["env"],
+    )
+    staged_cfg_ov = eff_ov.cfg
+    for key, val in recipe_obj.items():
+        assert getattr(staged_cfg_ov, key) == val
+    assert staged_cfg_ov.net_size == "M"
+    assert staged_cfg_ov.resolved_minibatch_size == 512
+    assert eff_ov.recipe_overrides == recipe_obj
+
+    # 2b. Setting `--recipe-json` to code-default values produces `recipe overrides: none` in both
+    #     `prepare` and `resolve_effective_train_config` / `V3_PPO_RECIPE`, while `--rollout-len 64`
+    #     (without `--recipe-json`) reports `rollout_len=64` in both!
+    capsys.readouterr()
+    summary_def_eq = prepare_v3_ppo_packet(
+        tmp_path / "pkt_recipe_def_eq",
+        commit="HEAD",
+        mode="train",
+        gpu="L4",
+        hours=4.0,
+        recipe_json=json.dumps({"gamma": 0.99, "minibatch_size": 2048, "rollout_len": 32}),
+        allow_missing_canary_receipt=True,
+        output_dir=tmp_path / "out_recipe_def_eq",
+        allow_unmerged_commit=True,
+    )
+    err_def_eq = capsys.readouterr().err
+    assert "recipe overrides: none" in err_def_eq
+    assert "recipe_overrides" not in summary_def_eq
+    mf_def_eq = json.loads(Path(summary_def_eq["manifest_path"]).read_text(encoding="utf-8"))
+    eff_def_eq = resolve_effective_train_config(
+        build_train_arg_parser().parse_args(["--output-dir", str(tmp_path / "eff_def_eq_out")]),
+        environ=mf_def_eq["env"],
+    )
+    assert eff_def_eq.recipe_overrides == {}
+
+    capsys.readouterr()
+    summary_rl64 = prepare_v3_ppo_packet(
+        tmp_path / "pkt_recipe_rl64",
+        commit="HEAD",
+        mode="train",
+        gpu="A100",
+        hours=4.0,
+        rollout_len=64,
+        allow_missing_canary_receipt=True,
+        output_dir=tmp_path / "out_recipe_rl64",
+        allow_unmerged_commit=True,
+    )
+    err_rl64 = capsys.readouterr().err
+    assert "recipe overrides: rollout_len=64" in err_rl64
+    assert summary_rl64["recipe_overrides"] == {"rollout_len": 64}
+    mf_rl64 = json.loads(Path(summary_rl64["manifest_path"]).read_text(encoding="utf-8"))
+    eff_rl64 = resolve_effective_train_config(
+        build_train_arg_parser().parse_args(["--output-dir", str(tmp_path / "eff_rl64_out")]),
+        environ=mf_rl64["env"],
+    )
+    assert eff_rl64.recipe_overrides == {"rollout_len": 64}
+
+    # 3. Memory budget check uses overridden rollout_len and minibatch_size!
+    with pytest.raises(ValueError, match="exceeds L4 memory budget"):
+        prepare_v3_ppo_packet(
+            tmp_path / "pkt_vram_rollout",
+            commit="HEAD",
+            mode="train",
+            gpu="L4",
+            num_envs=128,
+            recipe_json=json.dumps({"rollout_len": 512}),
+            allow_missing_canary_receipt=True,
+            output_dir=tmp_path / "out_vram_rollout",
+            allow_unmerged_commit=True,
+        )
+    with pytest.raises(ValueError, match="exceeds L4 memory budget"):
+        prepare_v3_ppo_packet(
+            tmp_path / "pkt_vram_mb",
+            commit="HEAD",
+            mode="train",
+            gpu="L4",
+            num_envs=128,
+            net_size="M",
+            recipe_json=json.dumps({"minibatch_size": 65536}),
+            allow_missing_canary_receipt=True,
+            output_dir=tmp_path / "out_vram_mb",
+            allow_unmerged_commit=True,
+        )
+
+    # 4. Non-train modes and invalid recipe JSONs are refused at prepare time
+    for non_train_mode in ("canary", "ruler"):
+        with pytest.raises(ValueError, match="only supported in --mode train"):
+            prepare_v3_ppo_packet(
+                tmp_path / f"pkt_bad_mode_{non_train_mode}",
+                commit="HEAD",
+                mode=non_train_mode,
+                gpu="L4",
+                recipe_json=json.dumps({"gamma": 0.99}),
+                allow_missing_canary_receipt=(non_train_mode != "canary"),
+                output_dir=tmp_path / f"out_bad_mode_{non_train_mode}",
+                allow_unmerged_commit=True,
+            )
+    for idx_bad, bad_json in enumerate(
+        (
+            json.dumps({"value_coef": 0.5}),
+            json.dumps({"ppo_epochs": True}),
+            json.dumps({"rollout_len": "32"}),
+            json.dumps({"gamma": 1.5}),
+            json.dumps({"reward_death_penalty": -0.1}),
+        )
+    ):
+        with pytest.raises(ValueError):
+            prepare_v3_ppo_packet(
+                tmp_path / f"pkt_bad_recipe_{idx_bad}",
+                commit="HEAD",
+                mode="train",
+                gpu="L4",
+                recipe_json=bad_json,
+                allow_missing_canary_receipt=True,
+                output_dir=tmp_path / f"out_bad_recipe_{idx_bad}",
+                allow_unmerged_commit=True,
+            )
+
+    # 5. Prepare a tiny CPU packet, resolve its manifest env via `resolve_effective_train_config`,
+    #    and verify `prepare` and `V3_PPO_RECIPE` report the exact same overrides and record them
+    #    in checkpoints and `train_result.json`
+    tiny_base_cfg = V3PPOConfig(
+        game_config=GameV3Config(arena_radius=300.0, num_snakes=6),
+        num_envs=2,
+        learner_slots=4,
+        net_size="S",
+        amp=False,
+        use_channels_last=False,
+        rollout_len=4,
+        ppo_epochs=1,
+        minibatch_size=4,
+        total_updates=2,
+        checkpoint_every_updates=1,
+        eval_every_minutes=0.0,
+        eval_every_updates=0,
+    )
+    capsys.readouterr()
+    tiny_pkt_summary = prepare_v3_ppo_packet(
+        tmp_path / "pkt_tiny_recipe_job",
+        commit="HEAD",
+        mode="train",
+        gpu="L4",
+        ppo_config=tiny_base_cfg,
+        explicit_total_updates=True,
+        recipe_json=json.dumps(
+            {
+                "reward_alive_length_coef": 0.0,
+                "reward_death_penalty": 2.5,
+                "gamma": 0.995,
+            }
+        ),
+        allow_missing_canary_receipt=True,
+        output_dir=tmp_path / "remote_tiny_recipe_job",
+        allow_unmerged_commit=True,
+    )
+    prep_tiny_err = capsys.readouterr().err
+    expected_tiny_ov_str = (
+        "gamma=0.995, minibatch_size=4, ppo_epochs=1, reward_alive_length_coef=0.0, "
+        "reward_death_penalty=2.5, rollout_len=4"
+    )
+    assert f"recipe overrides: {expected_tiny_ov_str}" in prep_tiny_err
+
+    mf_tiny = json.loads(Path(tiny_pkt_summary["manifest_path"]).read_text(encoding="utf-8"))
+    run_out = tmp_path / "tiny_recipe_job_out"
+    eff_tiny = resolve_effective_train_config(
+        build_train_arg_parser().parse_args(
+            [
+                "--output-dir",
+                str(run_out),
+                "--work-dir",
+                str(tmp_path / "tiny_recipe_job_work"),
+                "--input-dir",
+                str(tmp_path / "pkt_tiny_recipe_job" / "inputs"),
+                "--ledger",
+                str(tmp_path / "pkt_tiny_recipe_job" / "inputs" / "verified-ledger.json"),
+            ]
+        ),
+        environ={**mf_tiny["env"], "SNAKE_DQN_DEVICE": "cpu"},
+    )
+    assert eff_tiny.recipe_overrides == tiny_pkt_summary["recipe_overrides"]
+
+    capsys.readouterr()
+    res_tiny = run_training_job(
+        cfg=eff_tiny.cfg,
+        output_dir=eff_tiny.output_dir,
+        work_dir=eff_tiny.work_dir,
+        device=eff_tiny.device,
+        input_dir=eff_tiny.input_dir,
+        ledger_path=eff_tiny.ledger_path,
+        allow_recipe_change=eff_tiny.allow_recipe_change,
+    )
+    job_stdout = capsys.readouterr().out
+    recipe_log_lines = [ln for ln in job_stdout.splitlines() if ln.startswith("V3_PPO_RECIPE ")]
+    assert len(recipe_log_lines) == 1
+    assert f'overrides="{expected_tiny_ov_str}"' in recipe_log_lines[0]
+    assert res_tiny["status"] == "PASS"
+    assert res_tiny["config"]["reward_alive_length_coef"] == 0.0
+    assert res_tiny["config"]["reward_death_penalty"] == 2.5
+    assert res_tiny["config"]["gamma"] == 0.995
+
+    import torch as _torch
+
+    saved_light = _torch.load(
+        run_out / "checkpoints" / "light_u0000002.pt",
+        map_location="cpu",
+        weights_only=False,
+    )
+    assert saved_light["config"]["reward_alive_length_coef"] == 0.0
+    assert saved_light["config"]["reward_death_penalty"] == 2.5
+    assert saved_light["config"]["gamma"] == 0.995
+
+
+def test_no_recipe_json_packets_byte_for_byte_identical_vs_d11d603d(tmp_path: Path) -> None:
+    """Prove omitting `--recipe-json` produces byte-for-byte identical packets vs `d11d603d`."""
+    baseline_root = _materialize_baseline_root(tmp_path, "d11d603d")
+    byte_script = tmp_path / "byte_check_d11d603d.py"
+    byte_script.write_text(
+        """from __future__ import annotations
+import base64, json, shutil, sys
+from pathlib import Path
+
+repo_root = Path(sys.argv[1]).resolve()
+shared_pkt_root = Path(sys.argv[2]).resolve()
+out_json = Path(sys.argv[3]).resolve()
+git_repo = Path(sys.argv[4]).resolve()
+sys.path.insert(0, str(repo_root))
+
+import research.v3_ppo.prepare as prep_mod
+prep_mod.ROOT = git_repo
+
+if shared_pkt_root.exists():
+    shutil.rmtree(shared_pkt_root)
+shared_pkt_root.mkdir(parents=True)
+
+cases = {
+    "canary_l4": dict(mode="canary", gpu="L4"),
+    "ruler_a100": dict(mode="ruler", gpu="A100", allow_missing_canary_receipt=True),
+    "train_l4_none": dict(mode="train", gpu="L4", hours=4.0, allow_missing_canary_receipt=True),
+    "train_a100_final": dict(
+        mode="train", gpu="A100", num_envs=256, net_size="M", hours=8.0,
+        full_exports="final", allow_missing_canary_receipt=True,
+    ),
+    "train_l4_periodic": dict(
+        mode="train", gpu="L4", hours=4.0, full_exports="periodic",
+        allow_missing_canary_receipt=True,
+    ),
+}
+
+snapshots = {}
+for name, kw in cases.items():
+    pkt_dir = shared_pkt_root / f"pkt_{name}"
+    out_dir = shared_pkt_root / f"out_{name}"
+    summary = prep_mod.prepare_v3_ppo_packet(
+        pkt_dir,
+        commit="d11d603d",
+        output_dir=out_dir,
+        allow_unmerged_commit=True,
+        **kw,
+    )
+    files_b64 = {}
+    for p in sorted(pkt_dir.rglob("*")):
+        if p.is_file():
+            files_b64[p.relative_to(pkt_dir).as_posix()] = base64.b64encode(
+                p.read_bytes()
+            ).decode("ascii")
+    snapshots[name] = {
+        "summary_json": json.dumps(summary, indent=2, sort_keys=True),
+        "files_b64": files_b64,
+    }
+
+out_json.write_text(json.dumps(snapshots, sort_keys=True), encoding="utf-8")
+""",
+        encoding="utf-8",
+    )
+
+    sub_env = {
+        **os.environ,
+        "OMP_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+    }
+    shared_root = tmp_path / "shared_d11d603d_pkts"
+    before_json = tmp_path / "snap_d11d603d.json"
+    after_json = tmp_path / "snap_head_d11d603d.json"
+    subprocess.run(
+        [
+            sys.executable,
+            str(byte_script),
+            str(baseline_root),
+            str(shared_root),
+            str(before_json),
+            str(ROOT),
+        ],
+        env={**sub_env, "PYTHONPATH": str(baseline_root)},
+        check=True,
+    )
+    subprocess.run(
+        [
+            sys.executable,
+            str(byte_script),
+            str(ROOT),
+            str(shared_root),
+            str(after_json),
+            str(ROOT),
+        ],
+        env={**sub_env, "PYTHONPATH": str(ROOT)},
+        check=True,
+    )
+    snap_before = json.loads(before_json.read_text(encoding="utf-8"))
+    snap_after = json.loads(after_json.read_text(encoding="utf-8"))
+    assert snap_after.keys() == snap_before.keys()
+    # Canary and ruler packets remain 100% byte-for-byte identical vs d11d603d!
+    for unchanged_case in ("canary_l4", "ruler_a100"):
+        assert (
+            snap_after[unchanged_case]["files_b64"] == snap_before[unchanged_case]["files_b64"]
+        ), f"Packet file bytes changed vs d11d603d for {unchanged_case}"
+        assert (
+            snap_after[unchanged_case]["summary_json"]
+            == snap_before[unchanged_case]["summary_json"]
+        ), f"Summary JSON changed vs d11d603d for {unchanged_case}"
+
+    # Train packets vs d11d603d: every non-manifest file is byte-identical, and manifest differs
+    # ONLY in Item 4's raised 330 s setup allowance (-210 s max_wall_seconds + staged_input/reserve
+    # metadata) and dropping inert `max_periodic_full_exports` from `none`-mode V3_PPO_CONFIG_JSON.
+    import base64 as _b64
+
+    for train_case in ("train_l4_none", "train_a100_final", "train_l4_periodic"):
+        b_files = snap_before[train_case]["files_b64"]
+        a_files = snap_after[train_case]["files_b64"]
+        assert set(a_files.keys()) == set(b_files.keys())
+        for rel_p in sorted(set(a_files.keys()) - {"dispatch-manifest.json"}):
+            assert a_files[rel_p] == b_files[rel_p]
+        mf_b = json.loads(_b64.b64decode(b_files["dispatch-manifest.json"]).decode("utf-8"))
+        mf_a = json.loads(_b64.b64decode(a_files["dispatch-manifest.json"]).decode("utf-8"))
+        assert {k: v for k, v in mf_a.items() if k not in {"env", "technical_envelope"}} == {
+            k: v for k, v in mf_b.items() if k not in {"env", "technical_envelope"}
+        }
+        assert int(mf_a["env"]["V3_PPO_MAX_WALL_SECONDS"]) == (
+            int(mf_b["env"]["V3_PPO_MAX_WALL_SECONDS"]) - 210
+        )
+        cfg_b = json.loads(mf_b["env"]["V3_PPO_CONFIG_JSON"])
+        cfg_a = json.loads(mf_a["env"]["V3_PPO_CONFIG_JSON"])
+        if train_case == "train_l4_none":
+            assert cfg_a == {k: v for k, v in cfg_b.items() if k != "max_periodic_full_exports"}
+        else:
+            assert cfg_a == cfg_b
+
+    # And on HEAD, omitting `--recipe-json` vs passing `--recipe-json "{}"` is 100% byte-identical!
+    pkt_no_r = tmp_path / "shared_recipe_eq" / "pkt"
+    out_no_r = tmp_path / "shared_recipe_eq" / "out"
+    s_no_r = prepare_v3_ppo_packet(
+        pkt_no_r,
+        commit="HEAD",
+        mode="train",
+        gpu="L4",
+        hours=4.0,
+        allow_missing_canary_receipt=True,
+        output_dir=out_no_r,
+        allow_unmerged_commit=True,
+    )
+    bytes_no_r = {
+        p.relative_to(pkt_no_r).as_posix(): p.read_bytes()
+        for p in sorted(pkt_no_r.rglob("*"))
+        if p.is_file()
+    }
+    shutil.rmtree(pkt_no_r.parent)
+    s_empty_r = prepare_v3_ppo_packet(
+        pkt_no_r,
+        commit="HEAD",
+        mode="train",
+        gpu="L4",
+        hours=4.0,
+        recipe_json="{}",
+        allow_missing_canary_receipt=True,
+        output_dir=out_no_r,
+        allow_unmerged_commit=True,
+    )
+    bytes_empty_r = {
+        p.relative_to(pkt_no_r).as_posix(): p.read_bytes()
+        for p in sorted(pkt_no_r.rglob("*"))
+        if p.is_file()
+    }
+    assert bytes_empty_r == bytes_no_r
+    assert s_empty_r == s_no_r
+
+
+def test_prepare_minibatch_remainder_warning_and_25pct_drop_refusal(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`prepare` warns (1 stderr line + summary) on mb remainder <= 25% and refuses > 25%."""
+    # 1. Exact divisibility (98,304 % 2048 == 0): no warning and no summary key
+    capsys.readouterr()
+    s_div = prepare_v3_ppo_packet(
+        tmp_path / "pkt_mb_div",
+        commit="HEAD",
+        mode="train",
+        gpu="L4",
+        hours=4.0,
+        allow_missing_canary_receipt=True,
+        output_dir=tmp_path / "out_mb_div",
+        allow_unmerged_commit=True,
+    )
+    err_div = capsys.readouterr().err
+    assert "V3_PPO_MINIBATCH_REMAINDER" not in err_div
+    assert "minibatch_remainder" not in s_div
+
+    # 2. Non-divisible with <= 25% dropped (98,304 % 20,000 == 18,304 -> 18.62% dropped)
+    capsys.readouterr()
+    s_warn = prepare_v3_ppo_packet(
+        tmp_path / "pkt_mb_warn",
+        commit="HEAD",
+        mode="train",
+        gpu="A100",
+        num_envs=128,
+        hours=4.0,
+        recipe_json=json.dumps({"minibatch_size": 20000}),
+        allow_missing_canary_receipt=True,
+        output_dir=tmp_path / "out_mb_warn",
+        allow_unmerged_commit=True,
+    )
+    err_warn = capsys.readouterr().err
+    warn_lines = [ln for ln in err_warn.splitlines() if "V3_PPO_MINIBATCH_REMAINDER" in ln]
+    assert len(warn_lines) == 1
+    assert "dropping 18304/98304 rows (18.62%) per PPO epoch" in warn_lines[0]
+    assert s_warn["minibatch_remainder"] == {
+        "rows_per_update": 98304,
+        "minibatch_size": 20000,
+        "dropped_rows_per_epoch": 18304,
+        "dropped_fraction": round(18304 / 98304, 6),
+        "dropped_percent": 18.62,
+        "padded_rows_per_epoch": 0,
+    }
+
+    # 3. Non-divisible with > 25% dropped (98,304 % 32,769 == 32,766 -> 33.33% > 25%): refused!
+    refused_pkt = tmp_path / "pkt_mb_refused"
+    with pytest.raises(
+        ValueError,
+        match=r"32766/98304 rows \(33\.33%\) per PPO epoch, exceeding the 25% cap",
+    ):
+        prepare_v3_ppo_packet(
+            refused_pkt,
+            commit="HEAD",
+            mode="train",
+            gpu="A100",
+            num_envs=128,
+            hours=4.0,
+            recipe_json=json.dumps({"minibatch_size": 32769}),
+            allow_missing_canary_receipt=True,
+            output_dir=tmp_path / "out_mb_refused",
+            allow_unmerged_commit=True,
+        )
+    assert not refused_pkt.exists()

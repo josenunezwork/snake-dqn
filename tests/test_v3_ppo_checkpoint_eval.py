@@ -47,7 +47,7 @@ from research.v3_ppo.ppo import (
     verify_light_checkpoint,
     verify_staged_checkpoint,
 )
-from research.v3_ppo.prepare import ROOT
+from research.v3_ppo.prepare import ROOT, prepare_v3_ppo_packet
 
 
 def _tiny_cfg(
@@ -254,7 +254,7 @@ def test_prune_old_checkpoints_protects_lights_referenced_by_retained_fulls(
 
 
 def test_bit_identical_cpu_resume_on_multishard_full_with_clean_step_streak(tmp_path: Path) -> None:
-    """Train k=3, save >1-shard FULL (non-zero _clean_step_streak), resume k=3: bit-identical!"""
+    """Train k=3, save >1-shard FULL (non-zero clean_step_streak), resume k=3: bit-identical!"""
     cfg = _tiny_cfg(num_envs=4, total_updates=6, eval_every_updates=2, learner_slots=4, seed=314159)
 
     trainer_a = V3PPOTrainer(cfg, device="cpu")
@@ -263,8 +263,8 @@ def test_bit_identical_cpu_resume_on_multishard_full_with_clean_step_streak(tmp_
         if trainer_a.updates_completed % cfg.eval_every_updates == 0:
             trainer_a.run_evaluation()
 
-    # Explicitly set non-zero `_clean_step_streak` to verify preservation across FULL resume!
-    trainer_a.sim._clean_step_streak = 1234
+    # Explicitly set non-zero `clean_step_streak` to verify preservation across FULL resume!
+    trainer_a.sim.clean_step_streak = 1234
 
     probe_idx = trainer_a.save_full_checkpoint(tmp_path / "probe", tag="u0000003")
     shard_cap = verify_full_checkpoint_set(probe_idx)["shard_paths"][0].stat().st_size - 1024
@@ -295,7 +295,7 @@ def test_bit_identical_cpu_resume_on_multishard_full_with_clean_step_streak(tmp_
     load_res = trainer_b.load_checkpoint(full_idx_path)
     assert load_res["checkpoint_kind"] == "full"
     assert load_res["num_shards"] >= 2
-    assert trainer_b.sim._clean_step_streak == 1234
+    assert trainer_b.sim.clean_step_streak == 1234
 
     metrics_b = []
     evals_b = []
@@ -341,8 +341,9 @@ def test_bit_identical_cpu_resume_on_multishard_full_with_clean_step_streak(tmp_
     sim_b = trainer_b.sim.state_dict()
     assert sim_a["tick"] == sim_b["tick"]
     assert sim_a["subtick_offset"] == sim_b["subtick_offset"]
-    assert trainer_a.sim._clean_step_streak == trainer_b.sim._clean_step_streak
-    assert trainer_b.sim._clean_step_streak == 1234 + 3 * cfg.rollout_len
+    assert sim_a["clean_step_streak"] == sim_b["clean_step_streak"]
+    assert trainer_a.sim.clean_step_streak == trainer_b.sim.clean_step_streak
+    assert trainer_b.sim.clean_step_streak == 1234 + 3 * cfg.rollout_len
     for t_name in sim_a["tensors"]:
         assert torch.equal(
             sim_a["tensors"][t_name], sim_b["tensors"][t_name]
@@ -1296,7 +1297,7 @@ def _snapshot_trainer_hashes(trainer: V3PPOTrainer) -> dict[str, object]:
         "agent_steps_collected": int(trainer.agent_steps_collected),
         "sim_tick": int(sim_sd["tick"]),
         "sim_subtick_offset": int(sim_sd.get("subtick_offset", 0)),
-        "sim_clean_step_streak": int(getattr(trainer.sim, "_clean_step_streak", 0)),
+        "sim_clean_step_streak": int(trainer.sim.clean_step_streak),
         "net_state_sha256": net_hashes,
         "sim_state_sha256": sim_hashes,
     }
@@ -1353,7 +1354,7 @@ def snap(tr: V3PPOTrainer) -> dict:
         "agent_steps_collected": int(tr.agent_steps_collected),
         "sim_tick": int(sim_sd["tick"]),
         "sim_subtick_offset": int(sim_sd.get("subtick_offset", 0)),
-        "sim_clean_step_streak": int(getattr(tr.sim, "_clean_step_streak", 0)),
+        "sim_clean_step_streak": int(tr.sim.clean_step_streak),
         "net_state_sha256": {
             k: tensor_sha(v) for k, v in sorted(tr.raw_model.state_dict().items())
         },
@@ -1375,7 +1376,7 @@ cfg = make_cfg()
 tr = V3PPOTrainer(cfg, device=torch.device("cpu"))
 tr.train_step()
 tr.train_step()
-tr.sim._clean_step_streak = 77
+tr.sim.clean_step_streak = 77
 
 probe_idx = tr.save_full_checkpoint(probe_dir, tag="u0000002")
 one_size = verify_full_checkpoint_set(probe_idx)["shard_paths"][0].stat().st_size
@@ -1801,3 +1802,748 @@ def test_full_exports_modes_none_final_periodic_exported_filenames_and_work_rest
             *u4_shards,
         ]
     )
+
+
+def test_continuation_recipe_change_refusal_allowed_history_and_optimizer_state(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Test continuation refusal by default, `--allow-recipe-change`, history, and AdamW state."""
+    base_cfg = V3PPOConfig.from_dict(
+        {
+            **_tiny_cfg(
+                num_envs=4, learner_slots=4, total_updates=2, eval_every_updates=0
+            ).to_dict(),
+            "checkpoint_every_updates": 2,
+            "full_checkpoint_every_updates": 0,
+            "light_checkpoint_interval_sec": 3600.0,
+        }
+    )
+    out1 = tmp_path / "run1_out"
+    res1 = run_training_job(
+        cfg=base_cfg,
+        output_dir=out1,
+        work_dir=tmp_path / "run1_work",
+        device="cpu",
+    )
+    assert res1["status"] == "PASS"
+    assert res1["updates_completed"] == 2
+    ckpt1_path = out1 / "checkpoints" / "light_u0000002.pt"
+    ckpt1_raw = torch.load(ckpt1_path, map_location="cpu", weights_only=False)
+    step_u2 = int(next(iter(ckpt1_raw["optimizer_state_dict"]["state"].values()))["step"])
+    assert step_u2 > 16  # > max possible steps in 2 updates at rollout_len=4 (<= 16)
+
+    # 1. Default continuation refuses recipe changes in both `prepare` and `run_training_job`.
+    base_cfg_u4 = V3PPOConfig.from_dict({**base_cfg.to_dict(), "total_updates": 4})
+    with pytest.raises(ValueError, match="Continuation checkpoint config mismatch on 'gamma'"):
+        prepare_v3_ppo_packet(
+            tmp_path / "pkt_refused_default",
+            mode="train",
+            gpu="L4",
+            output_dir=tmp_path / "remote_refused_default",
+            prior_output_dir=out1,
+            allow_missing_canary_receipt=True,
+            allow_unmerged_commit=True,
+            ppo_config=base_cfg_u4,
+            explicit_total_updates=True,
+            recipe_json='{"gamma": 0.995, "reward_alive_length_coef": 0.0}',
+            commit="HEAD",
+        )
+
+    changed_cfg = V3PPOConfig.from_dict(
+        {
+            **base_cfg_u4.to_dict(),
+            "reward_alive_length_coef": 0.0,
+            "reward_death_penalty": 2.0,
+            "gamma": 0.995,
+            "lr": 1.0e-4,
+            "rollout_len": 4,
+        }
+    )
+    probe_tr = V3PPOTrainer(changed_cfg, device="cpu")
+    with pytest.raises(ValueError, match="Checkpoint config mismatch on 'gamma'"):
+        probe_tr.load_checkpoint(ckpt1_path, allow_recipe_change=False)
+
+    # 2. Even with `--allow-recipe-change`, non-allow-listed fields (`num_envs`, `value_coef`) fail.
+    with pytest.raises(ValueError, match="Continuation checkpoint config mismatch on 'num_envs'"):
+        prepare_v3_ppo_packet(
+            tmp_path / "pkt_refused_num_envs",
+            mode="train",
+            gpu="L4",
+            output_dir=tmp_path / "remote_refused_num_envs",
+            prior_output_dir=out1,
+            allow_missing_canary_receipt=True,
+            allow_unmerged_commit=True,
+            num_envs=6,
+            ppo_config=base_cfg_u4,
+            explicit_total_updates=True,
+            allow_recipe_change=True,
+            commit="HEAD",
+        )
+    bad_non_recipe_cfg = V3PPOConfig.from_dict({**base_cfg_u4.to_dict(), "value_coef": 0.25})
+    with pytest.raises(ValueError, match="Continuation checkpoint config mismatch on 'value_coef'"):
+        prepare_v3_ppo_packet(
+            tmp_path / "pkt_refused_value_coef",
+            mode="train",
+            gpu="L4",
+            output_dir=tmp_path / "remote_refused_value_coef",
+            prior_output_dir=out1,
+            allow_missing_canary_receipt=True,
+            allow_unmerged_commit=True,
+            ppo_config=bad_non_recipe_cfg,
+            explicit_total_updates=True,
+            allow_recipe_change=True,
+            commit="HEAD",
+        )
+
+    # 3. Direct `load_checkpoint(..., allow_recipe_change=True)` keeps AdamW moments and updates lr.
+    loaded_meta = probe_tr.load_checkpoint(ckpt1_path, allow_recipe_change=True)
+    assert loaded_meta["recipe_change"] == {
+        "update": 2,
+        "changed_fields": {
+            "gamma": {"old": 0.99, "new": 0.995},
+            "lr": {"old": 3.0e-4, "new": 1.0e-4},
+            "reward_alive_length_coef": {"old": 0.001, "new": 0.0},
+            "reward_death_penalty": {"old": 1.0, "new": 2.0},
+            "rollout_len": {"old": 6, "new": 4},
+        },
+    }
+    assert probe_tr.optimizer.param_groups[0]["lr"] == pytest.approx(1.0e-4)
+    first_state = next(iter(probe_tr.optimizer.state.values()))
+    assert int(first_state["step"]) == step_u2
+    assert float(first_state["exp_avg"].abs().sum().item()) > 0.0
+    assert float(first_state["exp_avg_sq"].abs().sum().item()) > 0.0
+
+    # 4. End-to-end `prepare --allow-recipe-change` + tiny CPU continuation run 2 (`u=2..4`).
+    pkt2_dir = tmp_path / "pkt_allowed_hop2"
+    summary2 = prepare_v3_ppo_packet(
+        pkt2_dir,
+        mode="train",
+        gpu="L4",
+        output_dir=tmp_path / "remote_allowed_hop2",
+        prior_output_dir=out1,
+        allow_missing_canary_receipt=True,
+        allow_unmerged_commit=True,
+        ppo_config=base_cfg_u4,
+        explicit_total_updates=True,
+        recipe_json=(
+            '{"reward_alive_length_coef": 0.0, "reward_death_penalty": 2.0, '
+            '"gamma": 0.995, "lr": 0.0001, "rollout_len": 4}'
+        ),
+        allow_recipe_change=True,
+        commit="HEAD",
+    )
+    assert summary2["allow_recipe_change"] is True
+    assert summary2["recipe_change"] == loaded_meta["recipe_change"]
+    manifest2 = json.loads(Path(summary2["manifest_path"]).read_text(encoding="utf-8"))
+    assert manifest2["env"]["V3_PPO_ALLOW_RECIPE_CHANGE"] == "1"
+    out2 = tmp_path / "run2_out"
+    eff2 = ppo_mod.resolve_effective_train_config(
+        ppo_mod.build_arg_parser().parse_args(
+            [
+                "--output-dir",
+                str(out2),
+                "--work-dir",
+                str(tmp_path / "run2_work"),
+                "--input-dir",
+                str(pkt2_dir / "inputs"),
+                "--ledger",
+                str(pkt2_dir / "inputs" / "verified-ledger.json"),
+            ]
+        ),
+        environ={**manifest2["env"], "SNAKE_DQN_DEVICE": "cpu"},
+    )
+    staged_cfg2 = eff2.cfg
+    assert eff2.allow_recipe_change is True
+    assert list(staged_cfg2.recipe_change_history) == [loaded_meta["recipe_change"]]
+
+    capsys.readouterr()
+    res2 = run_training_job(
+        cfg=eff2.cfg,
+        output_dir=eff2.output_dir,
+        work_dir=eff2.work_dir,
+        device=eff2.device,
+        input_dir=eff2.input_dir,
+        ledger_path=eff2.ledger_path,
+        allow_recipe_change=eff2.allow_recipe_change,
+    )
+    stdout2 = capsys.readouterr().out
+    assert res2["status"] == "PASS"
+    assert res2["updates_completed"] == 4
+    assert "V3_PPO_RECIPE_CHANGE old=" in stdout2
+    assert " update=2" in stdout2
+
+    expected_hist2 = [loaded_meta["recipe_change"]]
+    out2_cfg_json = json.loads((out2 / "config.json").read_text(encoding="utf-8"))
+    assert out2_cfg_json["recipe_change_history"] == expected_hist2
+    assert res2["config"]["recipe_change_history"] == expected_hist2
+
+    ckpt2_path = out2 / "checkpoints" / "light_u0000004.pt"
+    ckpt2_raw = torch.load(ckpt2_path, map_location="cpu", weights_only=False)
+    assert ckpt2_raw["recipe_change_history"] == expected_hist2
+    assert ckpt2_raw["config"]["recipe_change_history"] == expected_hist2
+    assert ckpt2_raw["optimizer_state_dict"]["param_groups"][0]["lr"] == pytest.approx(1.0e-4)
+    step_u4 = int(next(iter(ckpt2_raw["optimizer_state_dict"]["state"].values()))["step"])
+    # Run 2 alone can take at most (4*4*4 / 16) * 2 * 2 == 16 optimizer steps; step_u4 > step_u2 > 16
+    # proves AdamW step/moment buffers from run 1 were preserved across the recipe change!
+    assert step_u4 > step_u2
+
+    # 5. Multi-hop: from `out2`, a new recipe change WITHOUT `--allow-recipe-change` is still refused,
+    #    same-recipe continuation preserves history, and a second `--allow-recipe-change` appends!
+    staged_cfg2_u6 = V3PPOConfig.from_dict({**staged_cfg2.to_dict(), "total_updates": 6})
+    with pytest.raises(
+        ValueError, match="Continuation checkpoint config mismatch on 'entropy_coef'"
+    ):
+        prepare_v3_ppo_packet(
+            tmp_path / "pkt_hop3_refused",
+            mode="train",
+            gpu="L4",
+            output_dir=tmp_path / "remote_hop3_refused",
+            prior_output_dir=out2,
+            allow_missing_canary_receipt=True,
+            allow_unmerged_commit=True,
+            ppo_config=staged_cfg2_u6,
+            explicit_total_updates=True,
+            recipe_json='{"entropy_coef": 0.002}',
+            allow_recipe_change=False,
+            commit="HEAD",
+        )
+
+    pkt3_same = tmp_path / "pkt_hop3_same"
+    summary3_same = prepare_v3_ppo_packet(
+        pkt3_same,
+        mode="train",
+        gpu="L4",
+        output_dir=tmp_path / "remote_hop3_same",
+        prior_output_dir=out2,
+        allow_missing_canary_receipt=True,
+        allow_unmerged_commit=True,
+        ppo_config=staged_cfg2_u6,
+        explicit_total_updates=True,
+        allow_recipe_change=False,
+        commit="HEAD",
+    )
+    manifest3_same = json.loads(Path(summary3_same["manifest_path"]).read_text(encoding="utf-8"))
+    assert "V3_PPO_ALLOW_RECIPE_CHANGE" not in manifest3_same["env"]
+    eff3_same = ppo_mod.resolve_effective_train_config(
+        ppo_mod.build_arg_parser().parse_args(
+            [
+                "--output-dir",
+                str(tmp_path / "run3_same_out"),
+                "--work-dir",
+                str(tmp_path / "run3_same_work"),
+                "--input-dir",
+                str(pkt3_same / "inputs"),
+                "--ledger",
+                str(pkt3_same / "inputs" / "verified-ledger.json"),
+            ]
+        ),
+        environ={**manifest3_same["env"], "SNAKE_DQN_DEVICE": "cpu"},
+    )
+    assert eff3_same.allow_recipe_change is False
+    assert list(eff3_same.cfg.recipe_change_history) == expected_hist2
+
+    pkt3_chg = tmp_path / "pkt_hop3_chg"
+    summary3_chg = prepare_v3_ppo_packet(
+        pkt3_chg,
+        mode="train",
+        gpu="L4",
+        output_dir=tmp_path / "remote_hop3_chg",
+        prior_output_dir=out2,
+        allow_missing_canary_receipt=True,
+        allow_unmerged_commit=True,
+        ppo_config=staged_cfg2_u6,
+        explicit_total_updates=True,
+        recipe_json='{"entropy_coef": 0.002}',
+        allow_recipe_change=True,
+        commit="HEAD",
+    )
+    manifest3_chg = json.loads(Path(summary3_chg["manifest_path"]).read_text(encoding="utf-8"))
+    out3 = tmp_path / "run3_out"
+    eff3_chg = ppo_mod.resolve_effective_train_config(
+        ppo_mod.build_arg_parser().parse_args(
+            [
+                "--output-dir",
+                str(out3),
+                "--work-dir",
+                str(tmp_path / "run3_work"),
+                "--input-dir",
+                str(pkt3_chg / "inputs"),
+                "--ledger",
+                str(pkt3_chg / "inputs" / "verified-ledger.json"),
+            ]
+        ),
+        environ={**manifest3_chg["env"], "SNAKE_DQN_DEVICE": "cpu"},
+    )
+    res3 = run_training_job(
+        cfg=eff3_chg.cfg,
+        output_dir=eff3_chg.output_dir,
+        work_dir=eff3_chg.work_dir,
+        device=eff3_chg.device,
+        input_dir=eff3_chg.input_dir,
+        ledger_path=eff3_chg.ledger_path,
+        allow_recipe_change=eff3_chg.allow_recipe_change,
+    )
+    assert res3["status"] == "PASS"
+    assert res3["config"]["recipe_change_history"] == [
+        loaded_meta["recipe_change"],
+        {
+            "update": 4,
+            "changed_fields": {
+                "entropy_coef": {"old": 0.01, "new": 0.002},
+            },
+        },
+    ]
+
+
+def test_evaluation_metrics_invariant_across_reward_recipes_except_episode_return() -> None:
+    """Confirm built-in eval length/death/kill/growth metrics do not depend on reward recipe."""
+    gcfg = GameV3Config(
+        arena_radius=55.0,
+        num_snakes=8,
+        ambient_food_density=0.03,
+        respawn_delay=6,
+    )
+    cfg_recipe_a = V3PPOConfig(
+        game_config=gcfg,
+        num_envs=4,
+        learner_slots=4,
+        net_size="S",
+        amp=False,
+        use_channels_last=False,
+        eval_envs=8,
+        eval_burnin_ticks=20,
+        eval_ticks=80,
+        eval_learner_slots=4,
+        eval_seed=424242,
+        reward_alive_length_coef=0.001,
+        reward_alive_const=0.0,
+        reward_length_delta_coef=0.1,
+        reward_kill_coef=0.5,
+        reward_death_penalty=1.0,
+        gamma=0.99,
+    )
+    cfg_recipe_b = V3PPOConfig(
+        game_config=gcfg,
+        num_envs=4,
+        learner_slots=4,
+        net_size="S",
+        amp=False,
+        use_channels_last=False,
+        eval_envs=8,
+        eval_burnin_ticks=20,
+        eval_ticks=80,
+        eval_learner_slots=4,
+        eval_seed=424242,
+        reward_alive_length_coef=0.0,
+        reward_alive_const=0.25,
+        reward_length_delta_coef=0.5,
+        reward_kill_coef=2.5,
+        reward_death_penalty=4.0,
+        gamma=0.997,
+        gae_lambda=0.98,
+        entropy_coef=0.002,
+    )
+
+    tr = V3PPOTrainer(cfg_recipe_a, device="cpu")
+    eval_a = evaluate_policy(tr.raw_model, cfg_recipe_a, device="cpu")
+    eval_b = evaluate_policy(tr.raw_model, cfg_recipe_b, device="cpu")
+
+    assert eval_a["aborted"] is False
+    assert eval_b["aborted"] is False
+    assert eval_a["combined"]["total_deaths"] > 0
+    assert eval_a["combined"]["mass_gained"] > 0
+
+    def _strip_recipe_dependent(block: dict[str, object]) -> dict[str, object]:
+        return {k: v for k, v in block.items() if k != "mean_completed_episode_return"}
+
+    assert _strip_recipe_dependent(eval_a["combined"]) == _strip_recipe_dependent(
+        eval_b["combined"]
+    )
+    for suite_key in ("vs_food_seeking", "vs_random_safe"):
+        assert _strip_recipe_dependent(eval_a["matchups"][suite_key]) == _strip_recipe_dependent(
+            eval_b["matchups"][suite_key]
+        )
+
+    assert (
+        eval_a["combined"]["mean_completed_episode_return"]
+        != eval_b["combined"]["mean_completed_episode_return"]
+    )
+
+
+def test_periodic_mode_wall_guard_race_during_checkpoint_never_publishes_full_before_final_light(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When wall guard trips during `work/` LIGHT save, no extra update starts and LIGHT precedes FULL."""
+    fake_clock = {"t": 1000.0}
+    monkeypatch.setattr(job_mod.time, "monotonic", lambda: fake_clock["t"])
+
+    real_save_light = V3PPOTrainer.save_light_checkpoint
+    real_save_full = V3PPOTrainer.save_full_checkpoint
+    out_dir = tmp_path / "race_out"
+    out_ckpts = out_dir / "checkpoints"
+    full_tags_built: list[str] = []
+
+    def _spy_save_light(
+        self_tr: V3PPOTrainer,
+        path: Path,
+        **kwargs: object,
+    ) -> str:
+        digest = real_save_light(self_tr, path, **kwargs)  # type: ignore[arg-type]
+        # On u=1 (`t=1010 < 1015` before checkpointing), advance clock past `max_wall - reserve`
+        # (`1020 >= 1015`) DURING checkpoint save! Update 2 MUST NOT start after the wall guard
+        # tripped, AND `u0000001` FULL build is deferred until after `out/light_u0000001.pt`
+        # is `.complete`.
+        if self_tr.updates_completed == 1 and path.parent.parent.name != out_dir.name:
+            fake_clock["t"] += 10.0
+        return digest
+
+    def _spy_save_full(
+        self_tr: V3PPOTrainer,
+        checkpoints_dir: Path,
+        *,
+        tag: str | None = None,
+        **kwargs: object,
+    ) -> Path:
+        eff_tag = tag if tag is not None else f"u{self_tr.updates_completed:07d}"
+        full_tags_built.append(eff_tag)
+        if eff_tag == "u0000001":
+            final_light = out_ckpts / "light_u0000001.pt"
+            assert final_light.is_file()
+            assert Path(f"{final_light}.complete").is_file()
+            verify_light_checkpoint(final_light, require_markers=True)
+        return real_save_full(self_tr, checkpoints_dir, tag=tag, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(V3PPOTrainer, "save_light_checkpoint", _spy_save_light)
+    monkeypatch.setattr(V3PPOTrainer, "save_full_checkpoint", _spy_save_full)
+
+    started_updates: list[int] = []
+
+    def _step_hook(_tr: V3PPOTrainer, next_u: int) -> None:
+        started_updates.append(next_u)
+        if next_u == 1:
+            fake_clock["t"] += 10.0  # t=1010 < 1015 (not expired yet before checkpointing)
+
+    cfg_race = V3PPOConfig.from_dict(
+        {
+            **_tiny_cfg(num_envs=2, total_updates=4, eval_every_updates=0).to_dict(),
+            "full_exports": "periodic",
+            "max_periodic_full_exports": 2,
+            "checkpoint_every_updates": 0,
+            "full_checkpoint_every_updates": 1,
+            "light_checkpoint_interval_sec": 3600.0,
+            "full_checkpoint_interval_sec": 7200.0,
+        }
+    )
+    res = run_training_job(
+        cfg=cfg_race,
+        output_dir=out_dir,
+        work_dir=tmp_path / "race_work",
+        device="cpu",
+        max_wall_seconds=20.0,
+        step_hook=_step_hook,
+    )
+    assert res["status"] == "PASS"
+    assert res["stopped_reason"] == "wall_clock_guard"
+    assert started_updates == [1]
+    assert res["updates_completed"] == 1
+    assert res["periodic_full_exports_published"] == 0
+    assert full_tags_built == ["u0000001"]
+
+
+def test_wall_guard_or_signal_during_in_session_recovery_does_not_start_another_update(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If wall guard or stop signal trips during in-session recovery, no further update starts."""
+    fake_clock = {"t": 1000.0}
+    monkeypatch.setattr(job_mod.time, "monotonic", lambda: fake_clock["t"])
+
+    real_recover = job_mod._stage_recover_trainer_in_session
+    started_wall: list[int] = []
+    fault_injected = {"done": False}
+
+    def _recover_trip_wall(state_obj: job_mod._JobRunState, exc: RuntimeError) -> None:
+        real_recover(state_obj, exc)
+        fake_clock[
+            "t"
+        ] += 15.0  # Push elapsed past `max_wall - reserve` (20 - 5 = 15s) during recovery
+
+    monkeypatch.setattr(job_mod, "_stage_recover_trainer_in_session", _recover_trip_wall)
+
+    def _hook_wall(_tr: V3PPOTrainer, next_u: int) -> None:
+        started_wall.append(next_u)
+        if next_u == 2 and not fault_injected["done"]:
+            fault_injected["done"] = True
+            raise RuntimeError("injected transient fault at u=2")
+
+    cfg_rec = V3PPOConfig.from_dict(
+        {
+            **_tiny_cfg(num_envs=2, total_updates=4, eval_every_updates=0).to_dict(),
+            "checkpoint_every_updates": 1,
+            "full_checkpoint_every_updates": 0,
+            "light_checkpoint_interval_sec": 3600.0,
+            "full_checkpoint_interval_sec": 7200.0,
+        }
+    )
+    res_wall = run_training_job(
+        cfg=cfg_rec,
+        output_dir=tmp_path / "rec_wall_out",
+        work_dir=tmp_path / "rec_wall_work",
+        device="cpu",
+        max_wall_seconds=20.0,
+        step_hook=_hook_wall,
+    )
+    assert res_wall["status"] == "PASS"
+    assert res_wall["stopped_reason"] == "wall_clock_guard"
+    assert res_wall["in_session_restarts"] == 1
+    assert res_wall["updates_completed"] == 1
+    assert started_wall == [1, 2]
+
+    # Signal arriving during recovery exits cleanly at the boundary instead of starting u=2 again
+    import signal
+
+    started_sig: list[int] = []
+    fault_sig = {"done": False}
+
+    def _recover_trip_sig(state_obj: job_mod._JobRunState, exc: RuntimeError) -> None:
+        real_recover(state_obj, exc)
+        os.kill(os.getpid(), signal.SIGUSR1)
+
+    monkeypatch.setattr(job_mod, "_stage_recover_trainer_in_session", _recover_trip_sig)
+
+    def _hook_sig(_tr: V3PPOTrainer, next_u: int) -> None:
+        started_sig.append(next_u)
+        if next_u == 2 and not fault_sig["done"]:
+            fault_sig["done"] = True
+            raise RuntimeError("injected transient fault before signal")
+
+    res_sig = run_training_job(
+        cfg=cfg_rec,
+        output_dir=tmp_path / "rec_sig_out",
+        work_dir=tmp_path / "rec_sig_work",
+        device="cpu",
+        step_hook=_hook_sig,
+    )
+    assert res_sig["status"] == "FAIL"
+    assert res_sig["stopped_reason"] == "signal:SIGUSR1"
+    assert res_sig["aborted_mid_update"] is False
+    assert res_sig["updates_completed"] == 1
+    assert started_sig == [1, 2]
+
+
+def test_recipe_change_continuation_and_second_continuation_execute_through_real_job_sh(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Execute a `prepare --allow-recipe-change` packet and a 2nd no-flag continuation via `job.sh`."""
+    from research.v3_ppo.prepare import main as prepare_cli_main
+
+    job_sh_path = ROOT / "research" / "v3_ppo" / "job.sh"
+    py_bin_dir = str(Path(sys.executable).resolve().parent)
+
+    def _exec_real_job_sh(pkt_dir: Path, run_dir: Path) -> subprocess.CompletedProcess[str]:
+        mf = json.loads((pkt_dir / "dispatch-manifest.json").read_text(encoding="utf-8"))
+        cli_root = run_dir / "cli_root"
+        (cli_root / "output").mkdir(parents=True, exist_ok=True)
+        (cli_root / "work").mkdir(parents=True, exist_ok=True)
+        env = {
+            "PATH": f"{py_bin_dir}:{os.environ.get('PATH', '/usr/bin:/bin')}",
+            "HOME": os.environ.get("HOME", "/tmp"),
+            "PYTHONPATH": str(ROOT),
+            "COLAB_CLI_ROOT": str(cli_root),
+            "COLAB_INPUT_DIR": str(pkt_dir / "inputs"),
+            "OMP_NUM_THREADS": "1",
+            "MKL_NUM_THREADS": "1",
+            "OPENBLAS_NUM_THREADS": "1",
+            "VECLIB_MAXIMUM_THREADS": "1",
+            "NUMBA_NUM_THREADS": "1",
+            "OMP_THREAD_LIMIT": "1",
+            "TORCHINDUCTOR_COMPILE_THREADS": "1",
+            **{k: str(v) for k, v in mf["env"].items()},
+            "SNAKE_DQN_DEVICE": "cpu",
+        }
+        return subprocess.run(
+            ["bash", str(job_sh_path)],
+            cwd=str(ROOT),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=180,
+            check=False,
+        )
+
+    # Hop 1 (`u=0..2`): tiny baseline run on CPU producing a verified LIGHT checkpoint
+    hop1_cfg = V3PPOConfig(
+        game_config=GameV3Config(
+            arena_radius=60.0,
+            num_snakes=6,
+            spawn_wall_margin=10.0,
+            ambient_food_density=0.02,
+            respawn_delay=6,
+        ),
+        num_envs=2,
+        learner_slots=4,
+        net_size="S",
+        amp=False,
+        use_channels_last=False,
+        rollout_len=4,
+        ppo_epochs=1,
+        minibatch_size=8,
+        total_updates=2,
+        checkpoint_every_updates=2,
+        full_checkpoint_every_updates=0,
+        light_checkpoint_interval_sec=3600.0,
+        eval_every_minutes=0.0,
+        eval_every_updates=0,
+    )
+    out1 = tmp_path / "hop1_out"
+    res1 = run_training_job(
+        cfg=hop1_cfg,
+        output_dir=out1,
+        work_dir=tmp_path / "hop1_work",
+        device="cpu",
+    )
+    assert res1["status"] == "PASS"
+    assert res1["updates_completed"] == 2
+
+    # Hop 2 (`u=2..4`): build continuation packet via `prepare` CLI WITH `--allow-recipe-change`,
+    # then execute the real `job.sh` on CPU!
+    hop2_cfg_json = tmp_path / "hop2_base_cfg.json"
+    hop2_base_dict = hop1_cfg.to_dict()
+    hop2_base_dict.pop("full_exports", None)
+    hop2_base_dict["total_updates"] = 4
+    hop2_cfg_json.write_text(json.dumps(hop2_base_dict), encoding="utf-8")
+
+    pkt2_dir = tmp_path / "pkt_real_hop2"
+    capsys.readouterr()
+    rc_prep2 = prepare_cli_main(
+        [
+            "--packet",
+            str(pkt2_dir),
+            "--commit",
+            "HEAD",
+            "--mode",
+            "train",
+            "--gpu",
+            "L4",
+            "--hours",
+            "2.0",
+            "--prior-output-dir",
+            str(out1),
+            "--ppo-config-json",
+            str(hop2_cfg_json),
+            "--recipe-json",
+            json.dumps(
+                {
+                    "gamma": 0.995,
+                    "lr": 1.0e-4,
+                    "reward_death_penalty": 2.0,
+                }
+            ),
+            "--allow-recipe-change",
+            "--allow-missing-canary-receipt",
+            "--allow-unmerged-commit",
+            "--output-dir",
+            str(tmp_path / "remote_real_hop2"),
+        ]
+    )
+    prep2_io = capsys.readouterr()
+    assert rc_prep2 == 0
+    expected_ov_str = (
+        "gamma=0.995, lr=0.0001, minibatch_size=8, ppo_epochs=1, "
+        "reward_death_penalty=2.0, rollout_len=4"
+    )
+    assert f"recipe overrides: {expected_ov_str}" in prep2_io.err
+
+    run2_dir = tmp_path / "exec_hop2"
+    proc2 = _exec_real_job_sh(pkt2_dir, run2_dir)
+    assert (
+        proc2.returncode == 0
+    ), f"Hop 2 job.sh failed:\nSTDOUT:\n{proc2.stdout}\nSTDERR:\n{proc2.stderr}"
+    assert "V3_PPO_RECIPE_CHANGE old=" in proc2.stdout
+    assert f'V3_PPO_RECIPE overrides="{expected_ov_str}"' in proc2.stdout
+
+    out2 = run2_dir / "cli_root" / "output"
+    tr_res2 = json.loads((out2 / "train_result.json").read_text(encoding="utf-8"))
+    cfg_out2 = json.loads((out2 / "config.json").read_text(encoding="utf-8"))
+    assert tr_res2["status"] == "PASS"
+    assert tr_res2["updates_completed"] == 4
+    expected_hist = [
+        {
+            "update": 2,
+            "changed_fields": {
+                "gamma": {"old": 0.99, "new": 0.995},
+                "lr": {"old": 3.0e-4, "new": 1.0e-4},
+                "reward_death_penalty": {"old": 1.0, "new": 2.0},
+            },
+        }
+    ]
+    assert cfg_out2["recipe_change_history"] == expected_hist
+    assert tr_res2["config"]["recipe_change_history"] == expected_hist
+    ckpt2 = torch.load(
+        out2 / "checkpoints" / "light_u0000004.pt", map_location="cpu", weights_only=False
+    )
+    assert ckpt2["recipe_change_history"] == expected_hist
+    assert ckpt2["config"]["recipe_change_history"] == expected_hist
+
+    # Hop 3 (`u=4..6`): build SECOND continuation packet from Hop 2's output WITHOUT
+    # `--allow-recipe-change` (and without `--recipe-json`), then execute `job.sh` on CPU!
+    hop3_cfg_json = tmp_path / "hop3_base_cfg.json"
+    hop3_base_dict = dict(cfg_out2)
+    hop3_base_dict.pop("full_exports", None)
+    hop3_base_dict["total_updates"] = 6
+    hop3_cfg_json.write_text(json.dumps(hop3_base_dict), encoding="utf-8")
+
+    pkt3_dir = tmp_path / "pkt_real_hop3"
+    capsys.readouterr()
+    rc_prep3 = prepare_cli_main(
+        [
+            "--packet",
+            str(pkt3_dir),
+            "--commit",
+            "HEAD",
+            "--mode",
+            "train",
+            "--gpu",
+            "L4",
+            "--hours",
+            "2.0",
+            "--prior-output-dir",
+            str(out2),
+            "--ppo-config-json",
+            str(hop3_cfg_json),
+            "--allow-missing-canary-receipt",
+            "--allow-unmerged-commit",
+            "--output-dir",
+            str(tmp_path / "remote_real_hop3"),
+        ]
+    )
+    prep3_io = capsys.readouterr()
+    assert rc_prep3 == 0
+    # Both `prepare` and `V3_PPO_RECIPE` report the exact same overrides vs code defaults!
+    assert f"recipe overrides: {expected_ov_str}" in prep3_io.err
+    mf3 = json.loads((pkt3_dir / "dispatch-manifest.json").read_text(encoding="utf-8"))
+    assert "V3_PPO_ALLOW_RECIPE_CHANGE" not in mf3["env"]
+
+    run3_dir = tmp_path / "exec_hop3"
+    proc3 = _exec_real_job_sh(pkt3_dir, run3_dir)
+    assert (
+        proc3.returncode == 0
+    ), f"Hop 3 job.sh failed:\nSTDOUT:\n{proc3.stdout}\nSTDERR:\n{proc3.stderr}"
+    assert "V3_PPO_RECIPE_CHANGE" not in proc3.stdout
+    assert f'V3_PPO_RECIPE overrides="{expected_ov_str}"' in proc3.stdout
+
+    out3 = run3_dir / "cli_root" / "output"
+    tr_res3 = json.loads((out3 / "train_result.json").read_text(encoding="utf-8"))
+    cfg_out3 = json.loads((out3 / "config.json").read_text(encoding="utf-8"))
+    assert tr_res3["status"] == "PASS"
+    assert tr_res3["updates_completed"] == 6
+    assert cfg_out3["recipe_change_history"] == expected_hist
+    assert tr_res3["config"]["recipe_change_history"] == expected_hist
+    ckpt3 = torch.load(
+        out3 / "checkpoints" / "light_u0000006.pt", map_location="cpu", weights_only=False
+    )
+    assert ckpt3["recipe_change_history"] == expected_hist
+    assert ckpt3["config"]["recipe_change_history"] == expected_hist

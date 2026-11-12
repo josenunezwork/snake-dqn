@@ -147,13 +147,16 @@ def slice_sim_state_dict(
         raise ValueError(f"Invalid world slice [{w0}, {w1}) for num_envs={total_e}")
     tensors = sim_sd["tensors"]
     sliced_tensors = {name: val[w0:w1].detach().cpu().contiguous() for name, val in tensors.items()}
-    return {
+    out: dict[str, Any] = {
         "config": sim_sd["config"],
         "num_envs": w1 - w0,
         "tick": int(sim_sd["tick"]),
         "subtick_offset": int(sim_sd.get("subtick_offset", 0)),
         "tensors": sliced_tensors,
     }
+    if "clean_step_streak" in sim_sd:
+        out["clean_step_streak"] = int(sim_sd["clean_step_streak"])
+    return out
 
 
 def concat_sim_state_shards(
@@ -193,16 +196,22 @@ def concat_sim_state_shards(
             raise ValueError(
                 f"Shard [{w0}, {w1}) internal num_envs={unpacked['num_envs']} != {w1 - w0}"
             )
+        shard_streak = int(
+            unpacked["clean_step_streak"]
+            if "clean_step_streak" in unpacked
+            else item.get("sim_clean_step_streak", 0)
+        )
         if ref_cfg is None:
             ref_cfg = unpacked["config"]
             ref_tick = int(unpacked["tick"])
             ref_subtick = int(unpacked.get("subtick_offset", 0))
-            ref_streak = int(item.get("sim_clean_step_streak", 0))
+            ref_streak = shard_streak
         else:
             if (
                 unpacked["config"] != ref_cfg
                 or int(unpacked["tick"]) != ref_tick
                 or int(unpacked.get("subtick_offset", 0)) != ref_subtick
+                or shard_streak != ref_streak
             ):
                 raise ValueError("Inconsistent simulator metadata across FULL checkpoint shards")
         unpacked_list.append(unpacked)
@@ -214,6 +223,7 @@ def concat_sim_state_shards(
         )
 
     assert ref_cfg is not None and ref_tick is not None and ref_subtick is not None
+    streak_val = int(ref_streak or 0)
     tensor_names = tuple(unpacked_list[0]["tensors"].keys())
     if len(unpacked_list) == 1:
         merged_tensors = dict(unpacked_list[0]["tensors"])
@@ -227,9 +237,10 @@ def concat_sim_state_shards(
         "num_envs": int(expected_num_envs),
         "tick": ref_tick,
         "subtick_offset": ref_subtick,
+        "clean_step_streak": streak_val,
         "tensors": merged_tensors,
     }
-    return merged_sd, int(ref_streak or 0)
+    return merged_sd, streak_val
 
 
 def verify_light_checkpoint(

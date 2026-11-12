@@ -84,6 +84,7 @@ def main(argv: list[str] | None = None) -> int:
         ledger_path=eff.ledger_path,
         max_wall_seconds=eff.max_wall_seconds,
         max_session_export_bytes=eff.max_session_export_bytes,
+        allow_recipe_change=eff.allow_recipe_change,
     )
     if res.get("status") != "PASS":
         return 1
