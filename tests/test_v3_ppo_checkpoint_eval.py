@@ -2050,3 +2050,78 @@ def test_continuation_recipe_change_refusal_allowed_history_and_optimizer_state(
             },
         },
     ]
+
+
+def test_evaluation_metrics_invariant_across_reward_recipes_except_episode_return() -> None:
+    """Confirm built-in eval length/death/kill/growth metrics do not depend on reward recipe."""
+    gcfg = GameV3Config(
+        arena_radius=55.0,
+        num_snakes=8,
+        ambient_food_density=0.03,
+        respawn_delay=6,
+    )
+    cfg_recipe_a = V3PPOConfig(
+        game_config=gcfg,
+        num_envs=4,
+        learner_slots=4,
+        net_size="S",
+        amp=False,
+        use_channels_last=False,
+        eval_envs=8,
+        eval_burnin_ticks=20,
+        eval_ticks=80,
+        eval_learner_slots=4,
+        eval_seed=424242,
+        reward_alive_length_coef=0.001,
+        reward_alive_const=0.0,
+        reward_length_delta_coef=0.1,
+        reward_kill_coef=0.5,
+        reward_death_penalty=1.0,
+        gamma=0.99,
+    )
+    cfg_recipe_b = V3PPOConfig(
+        game_config=gcfg,
+        num_envs=4,
+        learner_slots=4,
+        net_size="S",
+        amp=False,
+        use_channels_last=False,
+        eval_envs=8,
+        eval_burnin_ticks=20,
+        eval_ticks=80,
+        eval_learner_slots=4,
+        eval_seed=424242,
+        reward_alive_length_coef=0.0,
+        reward_alive_const=0.25,
+        reward_length_delta_coef=0.5,
+        reward_kill_coef=2.5,
+        reward_death_penalty=4.0,
+        gamma=0.997,
+        gae_lambda=0.98,
+        entropy_coef=0.002,
+    )
+
+    tr = V3PPOTrainer(cfg_recipe_a, device="cpu")
+    eval_a = evaluate_policy(tr.raw_model, cfg_recipe_a, device="cpu")
+    eval_b = evaluate_policy(tr.raw_model, cfg_recipe_b, device="cpu")
+
+    assert eval_a["aborted"] is False
+    assert eval_b["aborted"] is False
+    assert eval_a["combined"]["total_deaths"] > 0
+    assert eval_a["combined"]["mass_gained"] > 0
+
+    def _strip_recipe_dependent(block: dict[str, object]) -> dict[str, object]:
+        return {k: v for k, v in block.items() if k != "mean_completed_episode_return"}
+
+    assert _strip_recipe_dependent(eval_a["combined"]) == _strip_recipe_dependent(
+        eval_b["combined"]
+    )
+    for suite_key in ("vs_food_seeking", "vs_random_safe"):
+        assert _strip_recipe_dependent(eval_a["matchups"][suite_key]) == _strip_recipe_dependent(
+            eval_b["matchups"][suite_key]
+        )
+
+    assert (
+        eval_a["combined"]["mean_completed_episode_return"]
+        != eval_b["combined"]["mean_completed_episode_return"]
+    )
