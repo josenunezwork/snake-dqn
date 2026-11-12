@@ -23,6 +23,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Protocol
 
 from research.colab_cli import policy
+from research.colab_cli.accounting import budget_warning
 
 # Uploads travel through ContentsClient JSON/base64 PUTs, where smaller writes
 # are materially more reliable on a fresh VM.  Downloads do not have that
@@ -339,8 +340,20 @@ def _cleanup(
         )
         if renew:
             renew()
-    except Exception:
-        pass
+    except Exception as exc:
+        if getattr(cli, "exec_uncertain", False):
+            reason = (
+                cli.clear_uncertain_if_idle(deadline=deadline)
+                if hasattr(cli, "clear_uncertain_if_idle")
+                else "cli adapter lacks independent kernel_idle check"
+            )
+            if getattr(cli, "exec_uncertain", False):
+                detail = (
+                    f"{reason or 'cleanup left exec_uncertain'} "
+                    f"({type(exc).__name__}: {str(exc)[:240]})"
+                )
+                setattr(cli, "cleanup_uncertain_reason", detail)
+                budget_warning("TRANSFER_CLEANUP_UNCERTAIN", path=path, reason=detail)
 
 
 def _staging(remote: str, ident: str) -> tuple[str, str]:

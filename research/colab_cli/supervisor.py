@@ -297,6 +297,7 @@ class CLI:
     def __init__(self, binary: str, config: Path, session: str = "") -> None:
         self.binary, self.config, self.session = binary, config, session
         self.exec_uncertain = False
+        self.cleanup_uncertain_reason: str | None = None
         self.poll_recovery_endpoint: str | None = None
         self.exec_poll_recovery_seconds = policy.EXEC_POLL_RECOVERY_SECONDS
         self.cleanup_mode = False
@@ -719,6 +720,7 @@ class CLI:
                         # A first exec creates the kernel. After uncertainty,
                         # only the independent kernel GET permits another exec.
                         self.exec_uncertain = False
+                        self.cleanup_uncertain_reason = None
                         remaining = deadline - time.monotonic()
                         if remaining <= 0:
                             break
@@ -790,7 +792,12 @@ class CLI:
             "        _snake_os.fsync(_snake_handle.fileno())\n"
             "    _snake_os.replace(_snake_temporary,_snake_record)\n"
         )
-        return self.poll_rpc(guarded, timeout=timeout)
+        previous_mutating = getattr(self._control_context, "mutating_rpc", False)
+        self._control_context.mutating_rpc = True
+        try:
+            return self.poll_rpc(guarded, timeout=timeout)
+        finally:
+            self._control_context.mutating_rpc = previous_mutating
 
     def recovery_identity(self, timeout: float) -> None:
         """Recheck durable ownership and backend membership before retrying exec."""
@@ -819,7 +826,49 @@ class CLI:
         if len(sessions) > ACCOUNT_ASSIGNMENT_CAP:
             raise Refused("account-wide assignment cap exceeded during telemetry recovery")
 
-    def poll_rpc(self, code: str, timeout: float | None = None) -> Any:
+    def clear_uncertain_if_idle(self, *, deadline: float | None = None) -> str | None:
+        """Clear exec_uncertain after a swallowed idempotent cleanup iff kernel is idle."""
+        from research.colab_cli.cli_guard import kernel_idle
+
+        if not self.exec_uncertain:
+            self.cleanup_uncertain_reason = None
+            return None
+        control_deadline = getattr(self._control_context, "deadline", math.inf)
+        bound = min(
+            deadline if deadline is not None else math.inf,
+            control_deadline,
+            self.deadline if self.deadline is not None else math.inf,
+        )
+        available = bound - time.monotonic()
+        if available <= 0:
+            return "transfer/session deadline reached before cleanup idle check"
+        try:
+            if self.poll_recovery_endpoint and control_deadline == math.inf:
+                self.recovery_identity(min(policy.READ_SECONDS, available))
+                available = bound - time.monotonic()
+                if available <= 0:
+                    return "transfer/session deadline reached during cleanup identity check"
+            probe_cap = (
+                policy.STAGING_CONTROL_SECONDS
+                if control_deadline != math.inf
+                else policy.WARMUP_PROBE_SECONDS
+            )
+            with self.operation("recovery-idle"):
+                idle = kernel_idle(
+                    self.oauth_python,
+                    self.config,
+                    self.session,
+                    timeout=min(probe_cap, available),
+                )
+        except Exception as exc:
+            return f"cleanup idle check failed: {redact(str(exc))[-300:]}"
+        if idle and bound - time.monotonic() > 0:
+            self.exec_uncertain = False
+            self.cleanup_uncertain_reason = None
+            return None
+        return "kernel remained busy/unknown during cleanup idle check"
+
+    def poll_rpc(self, code: str, timeout: float | None = None, *, mutating: bool = False) -> Any:
         """Retry transient reads on an owned assignment inside a wall-clock window.
 
         Uncertain execs require fresh backend ownership and independent kernel-idle
@@ -829,6 +878,7 @@ class CLI:
         """
         from research.colab_cli.cli_guard import kernel_idle
 
+        is_mutating = mutating or getattr(self._control_context, "mutating_rpc", False)
         staging_deadline = getattr(self._control_context, "deadline", math.inf)
         extended = bool(self.poll_recovery_endpoint) and staging_deadline == math.inf
         allowance = self.exec_poll_recovery_seconds if extended else policy.TELEMETRY_SECONDS
@@ -854,9 +904,50 @@ class CLI:
                 raise Refused("deadline reached during telemetry recovery")
             return seconds
 
+        def recover_idle() -> None:
+            probe = 0
+            while True:
+                remaining()
+                idle = False
+                try:
+                    if extended:
+                        self.recovery_identity(min(policy.READ_SECONDS, remaining()))
+                    with self.operation("recovery-idle"):
+                        idle = kernel_idle(
+                            self.oauth_python,
+                            self.config,
+                            self.session,
+                            timeout=min(
+                                (
+                                    policy.STAGING_CONTROL_SECONDS
+                                    if staging_deadline != math.inf
+                                    else policy.READ_SECONDS
+                                ),
+                                remaining(),
+                            ),
+                        )
+                except Exception as failure:
+                    if not policy.transient_error(failure):
+                        raise
+                if idle:
+                    # An expired idle proof must never clear uncertainty.
+                    remaining()
+                    self.exec_uncertain = False
+                    self.cleanup_uncertain_reason = None
+                    return
+                probe += 1
+                if not extended and probe >= policy.ATTEMPTS:
+                    raise Refused("kernel remains busy/unknown after telemetry hiccup")
+                delay = policy.EXEC_POLL_BACKOFF_SECONDS[min(probe - 1, 4)] if extended else 2
+                time.sleep(min(delay, remaining()))
+
         attempt = 0
         while True:
             remaining()
+            if self.exec_uncertain and (
+                not is_mutating or self.cleanup_uncertain_reason is not None
+            ):
+                recover_idle()
             try:
                 rpc_seconds = (
                     self.staging_control_seconds()
@@ -876,40 +967,7 @@ class CLI:
                     remaining_seconds=max(0, deadline - time.monotonic()),
                     error=redact(str(exc))[-1000:],
                 )
-                probe = 0
-                while True:
-                    remaining()
-                    idle = False
-                    try:
-                        if extended:
-                            self.recovery_identity(min(policy.READ_SECONDS, remaining()))
-                        with self.operation("recovery-idle"):
-                            idle = kernel_idle(
-                                self.oauth_python,
-                                self.config,
-                                self.session,
-                                timeout=min(
-                                    (
-                                        policy.STAGING_CONTROL_SECONDS
-                                        if staging_deadline != math.inf
-                                        else policy.READ_SECONDS
-                                    ),
-                                    remaining(),
-                                ),
-                            )
-                    except Exception as failure:
-                        if not policy.transient_error(failure):
-                            raise
-                    if idle:
-                        # An expired idle proof must never clear uncertainty.
-                        remaining()
-                        self.exec_uncertain = False
-                        break
-                    probe += 1
-                    if not extended and probe >= policy.ATTEMPTS:
-                        raise Refused("kernel remains busy/unknown after telemetry hiccup")
-                    delay = policy.EXEC_POLL_BACKOFF_SECONDS[min(probe - 1, 4)] if extended else 2
-                    time.sleep(min(delay, remaining()))
+                recover_idle()
                 delay = (
                     policy.EXEC_POLL_BACKOFF_SECONDS[min(attempt - 1, 4)]
                     if extended
