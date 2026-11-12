@@ -74,6 +74,15 @@ From-scratch PPO self-play trainer, throughput/VRAM ruler, deterministic M-of-N 
   --packet /tmp/v3_ppo_a100_train_pkt
 ```
 
+## Configuration Precedence (`ppo` & `ruler`)
+
+`resolve_effective_train_config` (`python -m research.v3_ppo.ppo`) and `resolve_effective_ruler_config` (`python -m research.v3_ppo.ruler`) resolve configuration in strict highest-to-lowest order:
+
+1. **Explicit individual CLI flags** (`--num-envs`, `--lr`, `--amp`/`--no-amp`, `--compile`/`--no-compile`, `--channels-last`/`--no-channels-last`, `--fast-learner-ops`/`--no-fast-learner-ops`, etc.).
+2. **Explicit `--config-json` CLI argument** (keys present in the JSON object; `ppo` only).
+3. **Environment variables** (`V3_PPO_CONFIG_JSON`, overlaid by scalar `V3_PPO_*` and `SNAKE_DQN_DEVICE`).
+4. **Dataclass defaults** (`V3PPOConfig()` / `GameV3Config()`).
+
 ## Adding a Network Size Preset (e.g., `L`)
 
 All network size parameters live in the single `NET_PRESETS` registry (`NetPreset` in `research/v3_ppo/config.py`), which drives `EgoMultiScaleNetConfig.from_size`, CLI choices, memory estimation, checkpoint export caps, and ruler ordering. Adding an `"L"` preset is a single-entry addition in `NET_PRESETS` (plus widening the `NetSize = Literal["S", "M", "L"]` type alias) with:

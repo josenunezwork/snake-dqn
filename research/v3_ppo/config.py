@@ -595,6 +595,84 @@ class V3PPOConfig:
         return cls(game_config=game_cfg, **raw)
 
 
+RESUME_MUTABLE_CONFIG_KEYS: frozenset[str] = frozenset(
+    {
+        "total_updates",
+        "light_checkpoint_interval_sec",
+        "full_checkpoint_interval_sec",
+        "max_periodic_full_exports",
+        "light_resume_margin_minutes",
+        "checkpoint_shard_bytes",
+        "checkpoint_every_updates",
+        "full_checkpoint_every_updates",
+        "keep_full_checkpoints",
+        "keep_light_checkpoints",
+        "max_in_session_restarts",
+        "max_update_seconds",
+        "eval_every_minutes",
+        "eval_every_updates",
+        "eval_envs",
+        "eval_burnin_ticks",
+        "eval_ticks",
+        "eval_estimated_seconds",
+        "eval_learner_slots",
+        "eval_seed",
+        "eval_greedy",
+        "actor_chunk_learners",
+        "compile_model",
+        "fast_learner_ops",
+    }
+)
+
+
+def immutable_config_diff(
+    reference: V3PPOConfig,
+    candidate: V3PPOConfig,
+) -> dict[str, tuple[Any, Any]]:
+    """Return ``{key: (reference_val, candidate_val)}`` for mismatched resume-immutable keys."""
+    ref_dict = reference.to_dict()
+    cand_dict = candidate.to_dict()
+    diffs: dict[str, tuple[Any, Any]] = {}
+    for key in sorted(set(ref_dict) | set(cand_dict)):
+        if key in RESUME_MUTABLE_CONFIG_KEYS or key == "schema":
+            continue
+        if ref_dict.get(key) != cand_dict.get(key):
+            diffs[key] = (ref_dict.get(key), cand_dict.get(key))
+    return diffs
+
+
+def assert_resume_config_compatible(
+    reference: V3PPOConfig,
+    candidate: V3PPOConfig,
+    *,
+    context: str = "Checkpoint config mismatch",
+    reference_label: str = "ckpt",
+    candidate_label: str = "current",
+) -> None:
+    """Raise ``ValueError`` if ``candidate`` differs from ``reference`` on any immutable key."""
+    diffs = immutable_config_diff(reference, candidate)
+    if diffs:
+        key, (ref_val, cand_val) = next(iter(diffs.items()))
+        raise ValueError(
+            f"{context} on {key!r}: {reference_label}={ref_val!r} vs "
+            f"{candidate_label}={cand_val!r}"
+        )
+
+
+def parse_env_bool(env_name: str, raw: str | None) -> bool | None:
+    """Parse an optional boolean environment variable (`0/1/false/true`) or return ``None``."""
+    if raw is None or raw.strip() == "":
+        return None
+    norm = raw.strip().lower()
+    if norm in {"1", "true", "yes", "on"}:
+        return True
+    if norm in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(
+        f"Invalid boolean environment variable {env_name}={raw!r}; expected '0' or '1'"
+    )
+
+
 def estimate_sim_memory_bytes(game_cfg: GameV3Config, num_envs: int) -> dict[str, int]:
     """Estimate persistent and peak ``GameV3Sim`` memory in bytes for ``num_envs`` worlds.
 

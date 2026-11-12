@@ -10,7 +10,7 @@ import shutil
 import tempfile
 import time
 import traceback
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +40,7 @@ from research.v3_ppo.config import (
     estimate_training_memory,
     get_net_preset,
     obs_layout_from_game_config,
+    parse_env_bool,
 )
 from research.v3_ppo.eval import derive_world_seeds, evaluate_policy
 from research.v3_ppo.net import build_ego_multiscale_net
@@ -1354,10 +1355,14 @@ def _parse_nets_csv(raw: str) -> list[NetSize]:
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    """CLI parser for ``python -m research.v3_ppo.ruler``."""
+    """CLI parser for ``python -m research.v3_ppo.ruler``.
+
+    Optional overrides default to ``None`` so :func:`resolve_effective_ruler_config` is the
+    single source of precedence across CLI flags, environment variables, and defaults.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--device", type=str, default=os.environ.get("SNAKE_DQN_DEVICE", "cuda"))
+    parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--input-dir", type=Path, default=None)
     parser.add_argument("--ledger", type=Path, default=None)
 
@@ -1366,109 +1371,220 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--canary-arena-radius", type=float, default=120.0)
     parser.add_argument("--canary-num-snakes", type=int, default=12)
     parser.add_argument("--canary-rollout-len", type=int, default=4)
-    parser.add_argument(
-        "--canary-train-envs",
-        type=int,
-        default=(
-            int(os.environ["V3_PPO_CANARY_TRAIN_ENVS"])
-            if os.environ.get("V3_PPO_CANARY_TRAIN_ENVS")
-            else None
-        ),
-    )
+    parser.add_argument("--canary-train-envs", type=int, default=None)
 
-    parser.add_argument("--envs", type=str, default="128,256,512")
-    parser.add_argument("--nets", type=str, default="S,M")
-    parser.add_argument("--learners", type=str, default="24,8")
-    parser.add_argument("--arena-radius", type=float, default=600.0)
-    parser.add_argument("--num-snakes", type=int, default=24)
-    parser.add_argument("--burnin-ticks", type=int, default=60)
+    parser.add_argument("--envs", type=str, default=None)
+    parser.add_argument("--nets", type=str, default=None)
+    parser.add_argument("--learners", type=str, default=None)
+    parser.add_argument("--arena-radius", type=float, default=None)
+    parser.add_argument("--num-snakes", type=int, default=None)
+    parser.add_argument("--burnin-ticks", type=int, default=None)
     parser.add_argument("--warmup-ticks", type=int, default=4)
     parser.add_argument("--collect-ticks", type=int, default=24)
-    parser.add_argument("--warmup-updates", type=int, default=DEFAULT_RULER_WARMUP_UPDATES)
-    parser.add_argument("--timed-updates", type=int, default=DEFAULT_RULER_TIMED_UPDATES)
-    parser.add_argument("--rollout-len", type=int, default=DEFAULT_RULER_ROLLOUT_LEN)
-    parser.add_argument("--ppo-epochs", type=int, default=2)
+    parser.add_argument("--warmup-updates", type=int, default=None)
+    parser.add_argument("--timed-updates", type=int, default=None)
+    parser.add_argument("--rollout-len", type=int, default=None)
+    parser.add_argument("--ppo-epochs", type=int, default=None)
     parser.add_argument("--minibatch-size", type=int, default=None)
     parser.add_argument("--vram-budget-bytes", type=int, default=None)
-    parser.add_argument("--compile", action="store_true")
-    parser.add_argument("--include-fp32", action="store_true")
+
+    compile_group = parser.add_mutually_exclusive_group()
+    compile_group.add_argument("--compile", dest="compile", action="store_true", default=None)
+    compile_group.add_argument("--no-compile", dest="compile", action="store_false")
+
+    fp32_group = parser.add_mutually_exclusive_group()
+    fp32_group.add_argument(
+        "--include-fp32", dest="include_fp32", action="store_true", default=None
+    )
+    fp32_group.add_argument("--no-include-fp32", dest="include_fp32", action="store_false")
 
     amp_group = parser.add_mutually_exclusive_group()
-    amp_group.add_argument("--amp", dest="amp", action="store_true", default=True)
+    amp_group.add_argument("--amp", dest="amp", action="store_true", default=None)
     amp_group.add_argument("--no-amp", "--fp32", dest="amp", action="store_false")
 
     cl_group = parser.add_mutually_exclusive_group()
     cl_group.add_argument(
-        "--channels-last", dest="use_channels_last", action="store_true", default=True
+        "--channels-last", dest="use_channels_last", action="store_true", default=None
     )
     cl_group.add_argument("--no-channels-last", dest="use_channels_last", action="store_false")
 
     fast_group = parser.add_mutually_exclusive_group()
     fast_group.add_argument(
-        "--fast-learner-ops", dest="fast_learner_ops", action="store_true", default=True
+        "--fast-learner-ops", dest="fast_learner_ops", action="store_true", default=None
     )
     fast_group.add_argument("--no-fast-learner-ops", dest="fast_learner_ops", action="store_false")
 
-    parser.add_argument("--seed", type=int, default=20261111)
-    parser.add_argument(
-        "--max-wall-seconds",
-        type=float,
-        default=(
-            float(os.environ["V3_PPO_MAX_WALL_SECONDS"])
-            if os.environ.get("V3_PPO_MAX_WALL_SECONDS")
-            else None
-        ),
-    )
+    parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--max-wall-seconds", type=float, default=None)
     return parser
+
+
+def resolve_effective_ruler_config(
+    args: argparse.Namespace,
+    *,
+    environ: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    """Resolve effective canary/ruler configuration (`explicit CLI > env vars > defaults`)."""
+    env = os.environ if environ is None else environ
+    default_game = GameV3Config()
+    default_ppo = V3PPOConfig()
+
+    def _pick_bool(cli_val: bool | None, env_key: str, default_val: bool) -> bool:
+        if cli_val is not None:
+            return bool(cli_val)
+        env_val = parse_env_bool(env_key, env.get(env_key))
+        return default_val if env_val is None else env_val
+
+    eff_device = (
+        str(args.device) if args.device is not None else str(env.get("SNAKE_DQN_DEVICE") or "cuda")
+    )
+    eff_max_wall = (
+        float(args.max_wall_seconds)
+        if args.max_wall_seconds is not None
+        else (float(env["V3_PPO_MAX_WALL_SECONDS"]) if env.get("V3_PPO_MAX_WALL_SECONDS") else None)
+    )
+    eff_canary_train_envs = (
+        int(args.canary_train_envs)
+        if args.canary_train_envs is not None
+        else (int(env["V3_PPO_CANARY_TRAIN_ENVS"]) if env.get("V3_PPO_CANARY_TRAIN_ENVS") else None)
+    )
+    eff_envs_csv = (
+        args.envs
+        if args.envs is not None
+        else (env.get("V3_PPO_RULER_ENVS") or ",".join(str(x) for x in DEFAULT_RULER_ENVS))
+    )
+    eff_nets_csv = (
+        args.nets
+        if args.nets is not None
+        else (env.get("V3_PPO_RULER_NETS") or ",".join(DEFAULT_RULER_NETS))
+    )
+    eff_learners_csv = (
+        args.learners
+        if args.learners is not None
+        else (env.get("V3_PPO_RULER_LEARNERS") or ",".join(str(x) for x in DEFAULT_RULER_LEARNERS))
+    )
+    eff_arena_radius = (
+        float(args.arena_radius)
+        if args.arena_radius is not None
+        else (
+            float(env["V3_PPO_ARENA_RADIUS"])
+            if env.get("V3_PPO_ARENA_RADIUS")
+            else float(default_game.arena_radius)
+        )
+    )
+    eff_num_snakes = (
+        int(args.num_snakes)
+        if args.num_snakes is not None
+        else (
+            int(env["V3_PPO_NUM_SNAKES"])
+            if env.get("V3_PPO_NUM_SNAKES")
+            else int(default_game.num_snakes)
+        )
+    )
+    eff_burnin_ticks = (
+        int(args.burnin_ticks)
+        if args.burnin_ticks is not None
+        else (int(env["V3_PPO_BURNIN_TICKS"]) if env.get("V3_PPO_BURNIN_TICKS") else 60)
+    )
+    eff_warmup_updates = (
+        int(args.warmup_updates)
+        if args.warmup_updates is not None
+        else (
+            int(env["V3_PPO_RULER_WARMUP_UPDATES"])
+            if env.get("V3_PPO_RULER_WARMUP_UPDATES")
+            else DEFAULT_RULER_WARMUP_UPDATES
+        )
+    )
+    eff_timed_updates = (
+        int(args.timed_updates)
+        if args.timed_updates is not None
+        else (
+            int(env["V3_PPO_RULER_TIMED_UPDATES"])
+            if env.get("V3_PPO_RULER_TIMED_UPDATES")
+            else DEFAULT_RULER_TIMED_UPDATES
+        )
+    )
+    eff_rollout_len = (
+        int(args.rollout_len)
+        if args.rollout_len is not None
+        else (
+            int(env["V3_PPO_RULER_ROLLOUT_LEN"])
+            if env.get("V3_PPO_RULER_ROLLOUT_LEN")
+            else DEFAULT_RULER_ROLLOUT_LEN
+        )
+    )
+    eff_ppo_epochs = (
+        int(args.ppo_epochs) if args.ppo_epochs is not None else int(default_ppo.ppo_epochs)
+    )
+    eff_seed = int(args.seed) if args.seed is not None else int(default_ppo.seed)
+
+    eff_compile = _pick_bool(args.compile, "V3_PPO_COMPILE", bool(default_ppo.compile_model))
+    eff_fast_ops = _pick_bool(
+        args.fast_learner_ops, "V3_PPO_FAST_LEARNER_OPS", bool(default_ppo.fast_learner_ops)
+    )
+    eff_amp = _pick_bool(args.amp, "V3_PPO_AMP", bool(default_ppo.amp))
+    eff_channels_last = _pick_bool(
+        args.use_channels_last, "V3_PPO_CHANNELS_LAST", bool(default_ppo.use_channels_last)
+    )
+    eff_include_fp32 = _pick_bool(args.include_fp32, "V3_PPO_INCLUDE_FP32", False)
+
+    if bool(args.canary_suite):
+        return {
+            "mode": "canary",
+            "output_dir": Path(args.output_dir),
+            "device": eff_device,
+            "input_dir": Path(args.input_dir) if args.input_dir is not None else None,
+            "ledger_path": Path(args.ledger) if args.ledger is not None else None,
+            "max_wall_seconds": eff_max_wall,
+            "canary_envs": int(args.canary_envs),
+            "canary_arena_radius": float(args.canary_arena_radius),
+            "canary_num_snakes": int(args.canary_num_snakes),
+            "canary_rollout_len": int(args.canary_rollout_len),
+            "canary_train_envs": eff_canary_train_envs,
+            "compile_model": eff_compile,
+            "fast_learner_ops": eff_fast_ops,
+            "seed": eff_seed,
+        }
+
+    return {
+        "mode": "ruler",
+        "output_dir": Path(args.output_dir),
+        "device": eff_device,
+        "input_dir": Path(args.input_dir) if args.input_dir is not None else None,
+        "envs_list": _parse_int_csv(eff_envs_csv),
+        "net_sizes": _parse_nets_csv(eff_nets_csv),
+        "learners_list": _parse_int_csv(eff_learners_csv),
+        "arena_radius": eff_arena_radius,
+        "num_snakes": eff_num_snakes,
+        "burnin_ticks": eff_burnin_ticks,
+        "warmup_ticks": int(args.warmup_ticks),
+        "collect_ticks": int(args.collect_ticks),
+        "warmup_updates": eff_warmup_updates,
+        "timed_updates": eff_timed_updates,
+        "rollout_len": eff_rollout_len,
+        "ppo_epochs": eff_ppo_epochs,
+        "minibatch_size": args.minibatch_size,
+        "amp": eff_amp,
+        "use_channels_last": eff_channels_last,
+        "compile_model": eff_compile,
+        "fast_learner_ops": eff_fast_ops,
+        "include_fp32": eff_include_fp32,
+        "vram_budget_bytes": args.vram_budget_bytes,
+        "max_wall_seconds": eff_max_wall,
+        "seed": eff_seed,
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
     """CLI entrypoint; exits non-zero whenever terminal ``status != 'PASS'``."""
     args = build_arg_parser().parse_args(argv)
-    if args.canary_suite:
-        res = run_canary_suite(
-            output_dir=args.output_dir,
-            device=args.device,
-            input_dir=args.input_dir,
-            ledger_path=args.ledger,
-            max_wall_seconds=args.max_wall_seconds,
-            canary_envs=args.canary_envs,
-            canary_arena_radius=args.canary_arena_radius,
-            canary_num_snakes=args.canary_num_snakes,
-            canary_rollout_len=args.canary_rollout_len,
-            canary_train_envs=args.canary_train_envs,
-            compile_model=bool(args.compile),
-            fast_learner_ops=bool(args.fast_learner_ops),
-            seed=args.seed,
-        )
+    eff = resolve_effective_ruler_config(args)
+    mode = eff.pop("mode")
+    if mode == "canary":
+        res = run_canary_suite(**eff)
         return 0 if res.get("status") == "PASS" else 1
 
-    res = run_ruler(
-        output_dir=args.output_dir,
-        device=args.device,
-        input_dir=args.input_dir,
-        envs_list=_parse_int_csv(args.envs),
-        net_sizes=_parse_nets_csv(args.nets),
-        learners_list=_parse_int_csv(args.learners),
-        arena_radius=args.arena_radius,
-        num_snakes=args.num_snakes,
-        burnin_ticks=args.burnin_ticks,
-        warmup_ticks=args.warmup_ticks,
-        collect_ticks=args.collect_ticks,
-        warmup_updates=args.warmup_updates,
-        timed_updates=args.timed_updates,
-        rollout_len=args.rollout_len,
-        ppo_epochs=args.ppo_epochs,
-        minibatch_size=args.minibatch_size,
-        amp=bool(args.amp),
-        use_channels_last=bool(args.use_channels_last),
-        compile_model=bool(args.compile),
-        fast_learner_ops=bool(args.fast_learner_ops),
-        include_fp32=bool(args.include_fp32),
-        vram_budget_bytes=args.vram_budget_bytes,
-        max_wall_seconds=args.max_wall_seconds,
-        seed=args.seed,
-    )
+    res = run_ruler(**eff)
     return 0 if res.get("status") == "PASS" else 1
 
 

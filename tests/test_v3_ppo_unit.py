@@ -20,10 +20,13 @@ from research.v3_ppo.config import (
     DEFAULT_OBS_LAYOUT,
     NET_PRESETS,
     OBS_RASTER_BYTES_PER_STEP,
+    RESUME_MUTABLE_CONFIG_KEYS,
     V3PPOConfig,
+    assert_resume_config_compatible,
     estimate_rollout_buffer_bytes,
     estimate_training_memory,
     get_net_preset,
+    immutable_config_diff,
     obs_layout_from_game_config,
 )
 from research.v3_ppo.eval import compute_step_reward
@@ -41,6 +44,7 @@ from research.v3_ppo.ppo import (
 )
 from research.v3_ppo.ppo import build_arg_parser as ppo_arg_parser
 from research.v3_ppo.ppo import (
+    resolve_effective_train_config,
     verify_full_checkpoint_set,
     verify_light_checkpoint,
     write_create_only_artifact,
@@ -50,6 +54,7 @@ from research.v3_ppo.prepare import build_arg_parser as prepare_arg_parser
 from research.v3_ppo.prepare import prepare_v3_ppo_packet
 from research.v3_ppo.ruler import _parse_nets_csv
 from research.v3_ppo.ruler import build_arg_parser as ruler_arg_parser
+from research.v3_ppo.ruler import resolve_effective_ruler_config
 
 
 def test_network_sizes_flags_and_recurrent_seam() -> None:
@@ -837,3 +842,112 @@ def test_obs_layout_single_sourced_trainer_agreement_and_checkpoint_field(
     write_create_only_json(bad_idx, bad_idx_obj)
     with pytest.raises(ValueError, match="obs_layout"):
         verify_full_checkpoint_set(bad_idx)
+
+
+def test_config_precedence_and_resume_diff_helper() -> None:
+    """Verify CLI > --config-json > env > defaults precedence and single-sourced resume diff."""
+    parser = ppo_arg_parser()
+
+    # 1. Pure defaults when neither CLI overrides, --config-json, nor env vars are given
+    eff_default = resolve_effective_train_config(
+        parser.parse_args(["--output-dir", "/tmp/out"]),
+        environ={},
+    )
+    assert eff_default.cfg == V3PPOConfig()
+    assert eff_default.device == "cpu"
+    assert eff_default.max_wall_seconds is None
+    assert eff_default.max_session_export_bytes is None
+
+    # 2. Full 4-layer precedence: CLI flag > --config-json > env > defaults
+    env_vars = {
+        "SNAKE_DQN_DEVICE": "cuda:0",
+        "V3_PPO_CONFIG_JSON": json.dumps(
+            {"num_envs": 32, "lr": 1.0e-4, "rollout_len": 16, "amp": True}
+        ),
+        "V3_PPO_AMP": "0",
+        "V3_PPO_COMPILE": "1",
+        "V3_PPO_MAX_WALL_SECONDS": "1200",
+        "V3_PPO_MAX_SESSION_EXPORT_BYTES": "999999",
+    }
+    cli_json = json.dumps({"lr": 2.0e-4, "ppo_epochs": 4, "compile_model": False})
+    parsed = parser.parse_args(
+        [
+            "--output-dir",
+            "/tmp/out",
+            "--config-json",
+            cli_json,
+            "--ppo-epochs",
+            "6",
+            "--total-updates",
+            "42",
+            "--compile",
+            "--net-size",
+            "M",
+        ]
+    )
+    eff = resolve_effective_train_config(parsed, environ=env_vars)
+    assert eff.cfg.num_envs == 32  # from env V3_PPO_CONFIG_JSON
+    assert eff.cfg.rollout_len == 16  # from env V3_PPO_CONFIG_JSON
+    assert eff.cfg.amp is False  # env V3_PPO_AMP=0 overrode env JSON amp=True
+    assert eff.cfg.lr == pytest.approx(2.0e-4)  # --config-json overrode env JSON lr=1e-4
+    assert eff.cfg.ppo_epochs == 6  # CLI --ppo-epochs=6 overrode --config-json ppo_epochs=4
+    assert eff.cfg.total_updates == 42  # CLI --total-updates=42 overrode default 100
+    assert eff.cfg.compile_model is True  # CLI --compile overrode --config-json compile_model=False
+    assert eff.cfg.net_size == "M"  # CLI --net-size=M overrode default S
+    assert eff.cfg.resolved_minibatch_size == NET_PRESETS["M"].default_minibatch_size
+    assert eff.device == "cuda:0"
+    assert eff.max_wall_seconds == pytest.approx(1200.0)
+    assert eff.max_session_export_bytes == 999999
+
+    # 3. Unknown JSON keys and invalid boolean env vars fail loudly
+    with pytest.raises(ValueError, match="Unknown keys in --config-json"):
+        resolve_effective_train_config(
+            parser.parse_args(["--output-dir", "/tmp/o", "--config-json", '{"bogus_key": 1}']),
+            environ={},
+        )
+    with pytest.raises(ValueError, match="Invalid boolean environment variable V3_PPO_AMP"):
+        resolve_effective_train_config(
+            parser.parse_args(["--output-dir", "/tmp/o"]),
+            environ={"V3_PPO_AMP": "maybe"},
+        )
+
+    # 4. Ruler CLI > env > defaults
+    r_eff = resolve_effective_ruler_config(
+        ruler_arg_parser().parse_args(["--output-dir", "/tmp/r", "--envs", "64,128", "--no-amp"]),
+        environ={
+            "V3_PPO_RULER_ENVS": "256",
+            "V3_PPO_AMP": "1",
+            "V3_PPO_RULER_NETS": "M",
+            "SNAKE_DQN_DEVICE": "cpu",
+        },
+    )
+    assert r_eff["envs_list"] == [64, 128]
+    assert r_eff["amp"] is False
+    assert r_eff["net_sizes"] == ["M"]
+    assert r_eff["device"] == "cpu"
+
+    # 5. Single-sourced resume config diff
+    base = V3PPOConfig()
+    mutated = V3PPOConfig(
+        total_updates=500,
+        eval_every_minutes=15.0,
+        compile_model=True,
+        fast_learner_ops=False,
+    )
+    assert set(["total_updates", "eval_every_minutes", "compile_model", "fast_learner_ops"]) <= (
+        RESUME_MUTABLE_CONFIG_KEYS
+    )
+    assert immutable_config_diff(base, mutated) == {}
+    assert_resume_config_compatible(base, mutated)
+
+    incompat = V3PPOConfig(num_envs=64, lr=1.0e-3)
+    diffs = immutable_config_diff(base, incompat)
+    assert set(diffs.keys()) == {"lr", "num_envs"}
+    with pytest.raises(ValueError, match="Continuation checkpoint config mismatch on 'lr'"):
+        assert_resume_config_compatible(
+            base,
+            incompat,
+            context="Continuation checkpoint config mismatch",
+            reference_label="ckpt",
+            candidate_label="requested",
+        )

@@ -1031,3 +1031,217 @@ def test_canary_eval_resident_train_sim_combined_peak_and_prepare_eval_estimate_
     override_mf = json.loads(Path(train_override_pkt["manifest_path"]).read_text(encoding="utf-8"))
     override_cfg = json.loads(override_mf["env"]["V3_PPO_CONFIG_JSON"])
     assert override_cfg["eval_estimated_seconds"] == pytest.approx(110.0)
+
+
+def test_prepare_and_job_sh_effective_configs_match_e2865f93_baseline(tmp_path: Path) -> None:
+    """Prove canary/ruler/train packets produce identical effective runtime configs vs e2865f93."""
+    import os
+    import sys
+
+    baseline_root = tmp_path / "baseline_e2865f93"
+    baseline_root.mkdir(parents=True)
+    # Symlink shared read-only packages and extract e2865f93's `research/v3_ppo/`
+    (baseline_root / "src").symlink_to(ROOT / "src")
+    (baseline_root / "tools").symlink_to(ROOT / "tools")
+    (baseline_root / "research").mkdir()
+    for src_p in (ROOT / "research").iterdir():
+        if src_p.name != "v3_ppo":
+            (baseline_root / "research" / src_p.name).symlink_to(src_p)
+    archive = subprocess.run(
+        ["git", "-C", str(ROOT), "archive", "e2865f93", "research/v3_ppo"],
+        capture_output=True,
+        check=True,
+    )
+    subprocess.run(
+        ["tar", "-xf", "-", "-C", str(baseline_root)],
+        input=archive.stdout,
+        check=True,
+    )
+
+    probe_script = tmp_path / "probe_effective_packets.py"
+    probe_script.write_text(
+        """from __future__ import annotations
+import json, os, shutil, subprocess, sys
+from pathlib import Path
+
+repo_root = Path(sys.argv[1]).resolve()
+work_root = Path(sys.argv[2]).resolve()
+out_json = Path(sys.argv[3]).resolve()
+git_repo = Path(sys.argv[4]).resolve()
+sys.path.insert(0, str(repo_root))
+
+import torch
+import research.v3_ppo.ppo as ppo_mod
+import research.v3_ppo.prepare as prep_mod
+import research.v3_ppo.ruler as ruler_mod
+from research.v3_ppo.config import V3PPOConfig
+
+prep_mod.ROOT = git_repo
+
+def run_job_sh_and_capture(manifest_path: Path, pkt_dir: Path, run_dir: Path) -> dict:
+    mf = json.loads(manifest_path.read_text(encoding="utf-8"))
+    bin_dir = run_dir / "bin"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    cap_path = run_dir / "cap.json"
+    stub_py = bin_dir / "python"
+    stub_py.write_text(
+        "#!/usr/bin/env bash\\n"
+        f"{sys.executable} -c 'import json, os, sys; "
+        f"open({json.dumps(str(cap_path))}, \\"w\\").write(json.dumps({{"
+        "\\"argv\\": sys.argv[1:], "
+        "\\"env\\": {k: v for k, v in os.environ.items() "
+        "if k.startswith((\\"V3_PPO_\\", \\"SNAKE_\\"))}"
+        "}))' \\"$@\\"\\n",
+        encoding="utf-8",
+    )
+    stub_py.chmod(0o755)
+    cli_root = run_dir / "cli_root"
+    (cli_root / "output").mkdir(parents=True, exist_ok=True)
+    (cli_root / "work").mkdir(parents=True, exist_ok=True)
+    env = {
+        "PATH": f"{bin_dir}:{os.environ.get('PATH', '/usr/bin:/bin')}",
+        "HOME": os.environ.get("HOME", "/tmp"),
+        "COLAB_CLI_ROOT": str(cli_root),
+        "COLAB_INPUT_DIR": str(pkt_dir / "inputs"),
+    }
+    env.update({k: str(v) for k, v in mf["env"].items()})
+    subprocess.run(
+        ["bash", str(git_repo / "research" / "v3_ppo" / "job.sh")],
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    cap = json.loads(cap_path.read_text(encoding="utf-8"))
+    argv = cap["argv"]
+    saved_env = os.environ.copy()
+    captured_call: dict = {}
+    try:
+        for k in list(os.environ):
+            if k.startswith(("V3_PPO_", "SNAKE_")):
+                del os.environ[k]
+        os.environ.update(cap["env"])
+        if argv[:2] == ["-m", "research.v3_ppo.ppo"]:
+            orig_fn = ppo_mod.run_training_job
+            def _spy_train(**kw):
+                captured_call["entry"] = "run_training_job"
+                captured_call["cfg"] = kw["cfg"].to_dict()
+                captured_call["device"] = str(kw["device"])
+                captured_call["max_wall_seconds"] = kw["max_wall_seconds"]
+                captured_call["max_session_export_bytes"] = kw["max_session_export_bytes"]
+                return {"status": "PASS"}
+            ppo_mod.run_training_job = _spy_train
+            try:
+                assert ppo_mod.main(argv[2:]) == 0
+            finally:
+                ppo_mod.run_training_job = orig_fn
+        elif argv[:2] == ["-m", "research.v3_ppo.ruler"]:
+            orig_canary = ruler_mod.run_canary_suite
+            orig_ruler = ruler_mod.run_ruler
+            def _spy_canary(**kw):
+                captured_call["entry"] = "run_canary_suite"
+                captured_call["kwargs"] = {
+                    k: v for k, v in kw.items()
+                    if k not in {"output_dir", "input_dir", "ledger_path"}
+                }
+                return {"status": "PASS"}
+            def _spy_ruler(**kw):
+                captured_call["entry"] = "run_ruler"
+                captured_call["kwargs"] = {
+                    k: v for k, v in kw.items()
+                    if k not in {"output_dir", "input_dir"}
+                }
+                return {"status": "PASS"}
+            ruler_mod.run_canary_suite = _spy_canary
+            ruler_mod.run_ruler = _spy_ruler
+            try:
+                assert ruler_mod.main(argv[2:]) == 0
+            finally:
+                ruler_mod.run_canary_suite = orig_canary
+                ruler_mod.run_ruler = orig_ruler
+        else:
+            raise AssertionError(f"Unexpected argv: {argv}")
+    finally:
+        os.environ.clear()
+        os.environ.update(saved_env)
+    return captured_call
+
+results = {}
+s_canary = prep_mod.prepare_v3_ppo_packet(
+    work_root / "pkt_canary", mode="canary", gpu="L4",
+    output_dir=work_root / "out_canary", allow_unmerged_commit=True,
+)
+results["canary_l4"] = run_job_sh_and_capture(
+    Path(s_canary["manifest_path"]), Path(s_canary["packet_dir"]), work_root / "r_canary"
+)
+
+s_ruler = prep_mod.prepare_v3_ppo_packet(
+    work_root / "pkt_ruler", mode="ruler", gpu="A100",
+    ruler_nets="S,M", ruler_envs="512,1024", amp=False, use_channels_last=False,
+    compile_model=True, fast_learner_ops=False,
+    output_dir=work_root / "out_ruler",
+    allow_missing_canary_receipt=True, allow_unmerged_commit=True,
+)
+results["ruler_a100_custom"] = run_job_sh_and_capture(
+    Path(s_ruler["manifest_path"]), Path(s_ruler["packet_dir"]), work_root / "r_ruler"
+)
+
+s_train_s = prep_mod.prepare_v3_ppo_packet(
+    work_root / "pkt_train_s", mode="train", gpu="L4", net_size="S",
+    output_dir=work_root / "out_train_s",
+    allow_missing_canary_receipt=True, allow_unmerged_commit=True,
+)
+results["train_s_default"] = run_job_sh_and_capture(
+    Path(s_train_s["manifest_path"]), Path(s_train_s["packet_dir"]), work_root / "r_train_s"
+)
+
+s_train_m = prep_mod.prepare_v3_ppo_packet(
+    work_root / "pkt_train_m", mode="train", gpu="A100", net_size="M", num_envs=128,
+    compile_model=True, amp=False, use_channels_last=False, fast_learner_ops=False,
+    output_dir=work_root / "out_train_m",
+    allow_missing_canary_receipt=True, allow_unmerged_commit=True,
+)
+results["train_m_custom"] = run_job_sh_and_capture(
+    Path(s_train_m["manifest_path"]), Path(s_train_m["packet_dir"]), work_root / "r_train_m"
+)
+
+out_json.write_text(json.dumps(results, sort_keys=True), encoding="utf-8")
+""",
+        encoding="utf-8",
+    )
+
+    sub_env = {
+        **os.environ,
+        "OMP_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+    }
+    before_json = tmp_path / "before.json"
+    after_json = tmp_path / "after.json"
+    subprocess.run(
+        [
+            sys.executable,
+            str(probe_script),
+            str(baseline_root),
+            str(tmp_path / "w_before"),
+            str(before_json),
+            str(ROOT),
+        ],
+        env={**sub_env, "PYTHONPATH": str(baseline_root)},
+        check=True,
+    )
+    subprocess.run(
+        [
+            sys.executable,
+            str(probe_script),
+            str(ROOT),
+            str(tmp_path / "w_after"),
+            str(after_json),
+            str(ROOT),
+        ],
+        env={**sub_env, "PYTHONPATH": str(ROOT)},
+        check=True,
+    )
+    before = json.loads(before_json.read_text(encoding="utf-8"))
+    after = json.loads(after_json.read_text(encoding="utf-8"))
+    assert after == before

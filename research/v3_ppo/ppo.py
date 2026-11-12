@@ -14,7 +14,8 @@ import tempfile
 import time
 import traceback
 import zlib
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -34,20 +35,22 @@ from research.arena_ppo.runtime import (
     synchronize_device,
     verify_completed_artifact,
 )
-from research.game_v3.config import GameV3Config
 from research.game_v3.obs import LearnerIndex, allocate_obs_batch, build_obs
 from research.game_v3.sim import GameV3Sim
 from research.v3_ppo.buffer import Uint8RolloutBuffer, assert_obs_batch_matches_layout
 from research.v3_ppo.config import (
-    DEFAULT_CHECKPOINT_SHARD_BYTES,
     GPU_MAX_TOTAL_EXPORT_BYTES,
+    RESUME_MUTABLE_CONFIG_KEYS,
     V3_PPO_NAMESPACE,
     VALID_NET_SIZES,
+    VALID_OPPONENT_POLICIES,
     ObsLayout,
     V3PPOConfig,
+    assert_resume_config_compatible,
     estimate_training_memory,
     get_net_preset,
     obs_layout_from_game_config,
+    parse_env_bool,
 )
 from research.v3_ppo.eval import (
     compute_step_reward,
@@ -67,35 +70,7 @@ V3_PPO_SIM_SHARD_SCHEMA = "v3-ppo-sim-shard/v2"
 V3_PPO_TRAIN_RESULT_SCHEMA = "v3-ppo-train-result/v1"
 
 _INIT_ANCHOR_LIGHT_NAME = "light_u0000000_init.pt"
-
-_RESUME_MUTABLE_CONFIG_KEYS: frozenset[str] = frozenset(
-    {
-        "total_updates",
-        "light_checkpoint_interval_sec",
-        "full_checkpoint_interval_sec",
-        "max_periodic_full_exports",
-        "light_resume_margin_minutes",
-        "checkpoint_shard_bytes",
-        "checkpoint_every_updates",
-        "full_checkpoint_every_updates",
-        "keep_full_checkpoints",
-        "keep_light_checkpoints",
-        "max_in_session_restarts",
-        "max_update_seconds",
-        "eval_every_minutes",
-        "eval_every_updates",
-        "eval_envs",
-        "eval_burnin_ticks",
-        "eval_ticks",
-        "eval_estimated_seconds",
-        "eval_learner_slots",
-        "eval_seed",
-        "eval_greedy",
-        "actor_chunk_learners",
-        "compile_model",
-        "fast_learner_ops",
-    }
-)
+_RESUME_MUTABLE_CONFIG_KEYS = RESUME_MUTABLE_CONFIG_KEYS
 
 
 class StopRequestedError(RuntimeError):
@@ -1906,16 +1881,13 @@ class V3PPOTrainer:
         restore_rng: bool,
     ) -> None:
         ckpt_cfg = V3PPOConfig.from_dict(ckpt["config"])
-        curr_dict = self.cfg.to_dict()
-        ckpt_dict = ckpt_cfg.to_dict()
-        for key in set(curr_dict) | set(ckpt_dict):
-            if key in _RESUME_MUTABLE_CONFIG_KEYS or key == "schema":
-                continue
-            if curr_dict.get(key) != ckpt_dict.get(key):
-                raise ValueError(
-                    f"Checkpoint config mismatch on {key!r}: "
-                    f"ckpt={ckpt_dict.get(key)!r} vs current={curr_dict.get(key)!r}"
-                )
+        assert_resume_config_compatible(
+            ckpt_cfg,
+            self.cfg,
+            context="Checkpoint config mismatch",
+            reference_label="ckpt",
+            candidate_label="current",
+        )
 
         if ckpt.get("obs_layout") is not None:
             saved_layout = ObsLayout.from_dict(ckpt["obs_layout"])
@@ -2456,16 +2428,13 @@ def run_training_job(
     if _artifact_or_sidecar_exists(cfg_json_path):
         verify_completed_artifact(cfg_json_path)
         existing_cfg = V3PPOConfig.from_dict(json.loads(cfg_json_path.read_text(encoding="utf-8")))
-        ex_dict = existing_cfg.to_dict()
-        cur_dict = cfg.to_dict()
-        for k in set(ex_dict) | set(cur_dict):
-            if k in _RESUME_MUTABLE_CONFIG_KEYS or k == "schema":
-                continue
-            if ex_dict.get(k) != cur_dict.get(k):
-                raise ValueError(
-                    f"Existing config.json mismatch on immutable key {k!r}: "
-                    f"{ex_dict.get(k)!r} != {cur_dict.get(k)!r}"
-                )
+        assert_resume_config_compatible(
+            existing_cfg,
+            cfg,
+            context="Existing config.json mismatch on immutable key",
+            reference_label="existing",
+            candidate_label="current",
+        )
     else:
         write_create_only_json(cfg_json_path, cfg.to_dict())
 
@@ -3186,152 +3155,278 @@ def run_training_job(
     return json.loads((out / "train_result.json").read_text(encoding="utf-8"))
 
 
+@dataclass(frozen=True)
+class EffectiveTrainJobConfig:
+    """Resolved runtime arguments and ``V3PPOConfig`` for ``python -m research.v3_ppo.ppo``."""
+
+    cfg: V3PPOConfig
+    output_dir: Path
+    work_dir: Path | None
+    device: str
+    input_dir: Path | None
+    ledger_path: Path | None
+    max_wall_seconds: float | None
+    max_session_export_bytes: int | None
+
+
+def _merge_config_json_overlay(
+    cfg_dict: dict[str, Any],
+    raw_json_str: str,
+    *,
+    source_label: str,
+) -> None:
+    """Overlay parsed ``raw_json_str`` onto ``cfg_dict`` in-place, rejecting unknown keys."""
+    parsed = json.loads(raw_json_str)
+    if not isinstance(parsed, dict):
+        raise ValueError(f"{source_label} must decode to a JSON object, got {type(parsed)!r}")
+    valid_top_keys = set(cfg_dict.keys()) | {"schema"}
+    unknown_top = sorted(set(parsed.keys()) - valid_top_keys)
+    if unknown_top:
+        raise ValueError(f"Unknown keys in {source_label}: {unknown_top}")
+
+    prev_net_size = cfg_dict["net_size"]
+    for key, val in parsed.items():
+        if key == "schema":
+            continue
+        if key == "game_config":
+            if not isinstance(val, dict):
+                raise ValueError(
+                    f"{source_label}.game_config must be a JSON object, got {type(val)!r}"
+                )
+            valid_gc_keys = set(cfg_dict["game_config"].keys())
+            unknown_gc = sorted(set(val.keys()) - valid_gc_keys)
+            if unknown_gc:
+                raise ValueError(f"Unknown keys in {source_label}.game_config: {unknown_gc}")
+            merged_gc = dict(cfg_dict["game_config"])
+            merged_gc.update(val)
+            cfg_dict["game_config"] = merged_gc
+        else:
+            cfg_dict[key] = val
+    if "net_size" in parsed and parsed["net_size"] != prev_net_size:
+        if "minibatch_size" not in parsed:
+            cfg_dict["minibatch_size"] = None
+        if "actor_chunk_learners" not in parsed:
+            cfg_dict["actor_chunk_learners"] = None
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
-    """CLI parser for ``python -m research.v3_ppo.ppo``."""
+    """CLI parser for ``python -m research.v3_ppo.ppo``.
+
+    Optional overrides default to ``None`` so :func:`resolve_effective_train_config` is the
+    single source of precedence across CLI flags, ``--config-json``, environment variables,
+    and :class:`V3PPOConfig` defaults.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--work-dir", type=Path, default=None)
-    parser.add_argument("--device", type=str, default=os.environ.get("SNAKE_DQN_DEVICE", "cpu"))
+    parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--input-dir", type=Path, default=None)
     parser.add_argument("--ledger", type=Path, default=None)
-    parser.add_argument("--config-json", type=str, default=os.environ.get("V3_PPO_CONFIG_JSON"))
+    parser.add_argument("--config-json", type=str, default=None)
 
-    parser.add_argument("--num-envs", type=int, default=128)
-    parser.add_argument("--num-snakes", type=int, default=24)
-    parser.add_argument("--arena-radius", type=float, default=600.0)
+    parser.add_argument("--num-envs", type=int, default=None)
+    parser.add_argument("--num-snakes", type=int, default=None)
+    parser.add_argument("--arena-radius", type=float, default=None)
     parser.add_argument("--learner-slots", type=int, default=None)
     parser.add_argument(
         "--opponent-policy",
         type=str,
-        default="food_seeking",
-        choices=("food_seeking", "random_safe", "cardinal6_safe"),
+        default=None,
+        choices=VALID_OPPONENT_POLICIES,
     )
-    parser.add_argument("--net-size", type=str, default="S", choices=VALID_NET_SIZES)
-    parser.add_argument("--rollout-len", type=int, default=32)
-    parser.add_argument("--total-updates", type=int, default=100)
-    parser.add_argument("--ppo-epochs", type=int, default=2)
+    parser.add_argument("--net-size", type=str, default=None, choices=VALID_NET_SIZES)
+    parser.add_argument("--rollout-len", type=int, default=None)
+    parser.add_argument("--total-updates", type=int, default=None)
+    parser.add_argument("--ppo-epochs", type=int, default=None)
     parser.add_argument("--minibatch-size", type=int, default=None)
-    parser.add_argument("--lr", type=float, default=3.0e-4)
+    parser.add_argument("--lr", type=float, default=None)
     parser.add_argument(
         "--light-checkpoint-interval-sec",
         "--checkpoint-interval-sec",
         dest="light_checkpoint_interval_sec",
         type=float,
-        default=1800.0,
+        default=None,
     )
-    parser.add_argument("--full-checkpoint-interval-sec", type=float, default=7200.0)
-    parser.add_argument("--max-periodic-full-exports", type=int, default=3)
-    parser.add_argument("--light-resume-margin-minutes", type=float, default=45.0)
-    parser.add_argument(
-        "--checkpoint-shard-bytes",
-        type=int,
-        default=DEFAULT_CHECKPOINT_SHARD_BYTES,
-    )
-    parser.add_argument("--checkpoint-every-updates", type=int, default=0)
-    parser.add_argument("--full-checkpoint-every-updates", type=int, default=0)
-    parser.add_argument("--eval-every-minutes", type=float, default=60.0)
-    parser.add_argument("--eval-every-updates", type=int, default=0)
-    parser.add_argument("--eval-envs", type=int, default=192)
-    parser.add_argument("--eval-burnin-ticks", type=int, default=250)
-    parser.add_argument("--eval-ticks", type=int, default=2000)
-    parser.add_argument("--eval-estimated-seconds", type=float, default=95.0)
-    parser.add_argument("--seed", type=int, default=20261111)
-    parser.add_argument(
-        "--compile",
-        action="store_true",
-        default=os.environ.get("V3_PPO_COMPILE") == "1",
-    )
+    parser.add_argument("--full-checkpoint-interval-sec", type=float, default=None)
+    parser.add_argument("--max-periodic-full-exports", type=int, default=None)
+    parser.add_argument("--light-resume-margin-minutes", type=float, default=None)
+    parser.add_argument("--checkpoint-shard-bytes", type=int, default=None)
+    parser.add_argument("--checkpoint-every-updates", type=int, default=None)
+    parser.add_argument("--full-checkpoint-every-updates", type=int, default=None)
+    parser.add_argument("--eval-every-minutes", type=float, default=None)
+    parser.add_argument("--eval-every-updates", type=int, default=None)
+    parser.add_argument("--eval-envs", type=int, default=None)
+    parser.add_argument("--eval-burnin-ticks", type=int, default=None)
+    parser.add_argument("--eval-ticks", type=int, default=None)
+    parser.add_argument("--eval-estimated-seconds", type=float, default=None)
+    parser.add_argument("--seed", type=int, default=None)
+
+    compile_group = parser.add_mutually_exclusive_group()
+    compile_group.add_argument("--compile", dest="compile", action="store_true", default=None)
+    compile_group.add_argument("--no-compile", dest="compile", action="store_false")
 
     fast_group = parser.add_mutually_exclusive_group()
     fast_group.add_argument(
-        "--fast-learner-ops", dest="fast_learner_ops", action="store_true", default=True
+        "--fast-learner-ops", dest="fast_learner_ops", action="store_true", default=None
     )
     fast_group.add_argument("--no-fast-learner-ops", dest="fast_learner_ops", action="store_false")
 
     amp_group = parser.add_mutually_exclusive_group()
-    amp_group.add_argument("--amp", dest="amp", action="store_true", default=True)
+    amp_group.add_argument("--amp", dest="amp", action="store_true", default=None)
     amp_group.add_argument("--no-amp", "--fp32", dest="amp", action="store_false")
 
     cl_group = parser.add_mutually_exclusive_group()
     cl_group.add_argument(
-        "--channels-last", dest="use_channels_last", action="store_true", default=True
+        "--channels-last", dest="use_channels_last", action="store_true", default=None
     )
     cl_group.add_argument("--no-channels-last", dest="use_channels_last", action="store_false")
 
-    parser.add_argument(
-        "--max-wall-seconds",
-        type=float,
-        default=(
-            float(os.environ["V3_PPO_MAX_WALL_SECONDS"])
-            if os.environ.get("V3_PPO_MAX_WALL_SECONDS")
-            else None
-        ),
-    )
-    parser.add_argument(
-        "--max-session-export-bytes",
-        type=int,
-        default=(
-            int(os.environ["V3_PPO_MAX_SESSION_EXPORT_BYTES"])
-            if os.environ.get("V3_PPO_MAX_SESSION_EXPORT_BYTES")
-            else None
-        ),
-    )
+    parser.add_argument("--max-wall-seconds", type=float, default=None)
+    parser.add_argument("--max-session-export-bytes", type=int, default=None)
     return parser
+
+
+def resolve_effective_train_config(
+    args: argparse.Namespace,
+    *,
+    environ: Mapping[str, str] | None = None,
+) -> EffectiveTrainJobConfig:
+    """Resolve effective training configuration from CLI args, ``--config-json``, and env vars.
+
+    Precedence (highest to lowest):
+      1. Explicit individual CLI flags (``--num-envs``, ``--lr``, ``--amp``/``--no-amp``, etc.)
+      2. Explicit ``--config-json`` CLI flag (keys present in the JSON object)
+      3. Environment variables (``V3_PPO_CONFIG_JSON``, overlaid by scalar ``V3_PPO_*`` and
+         ``SNAKE_DQN_DEVICE``)
+      4. :class:`V3PPOConfig` / :class:`GameV3Config` dataclass defaults.
+    """
+    env = os.environ if environ is None else environ
+
+    # Layer 1: Dataclass defaults.
+    cfg_dict = V3PPOConfig().to_dict()
+    cfg_dict.pop("schema", None)
+
+    # Layer 2: Environment variables (`V3_PPO_CONFIG_JSON`, then scalar `V3_PPO_*`).
+    env_cfg_json = env.get("V3_PPO_CONFIG_JSON")
+    if env_cfg_json:
+        _merge_config_json_overlay(
+            cfg_dict,
+            env_cfg_json,
+            source_label="env:V3_PPO_CONFIG_JSON",
+        )
+    env_arena_radius = env.get("V3_PPO_ARENA_RADIUS")
+    if env_arena_radius:
+        cfg_dict["game_config"]["arena_radius"] = float(env_arena_radius)
+    env_num_snakes = env.get("V3_PPO_NUM_SNAKES")
+    if env_num_snakes:
+        cfg_dict["game_config"]["num_snakes"] = int(env_num_snakes)
+
+    for env_key, cfg_key in (
+        ("V3_PPO_COMPILE", "compile_model"),
+        ("V3_PPO_FAST_LEARNER_OPS", "fast_learner_ops"),
+        ("V3_PPO_AMP", "amp"),
+        ("V3_PPO_CHANNELS_LAST", "use_channels_last"),
+    ):
+        parsed_b = parse_env_bool(env_key, env.get(env_key))
+        if parsed_b is not None:
+            cfg_dict[cfg_key] = parsed_b
+
+    # Layer 3: Explicit `--config-json` CLI argument.
+    if args.config_json is not None:
+        _merge_config_json_overlay(
+            cfg_dict,
+            args.config_json,
+            source_label="--config-json",
+        )
+
+    # Layer 4: Explicit individual CLI flags.
+    if args.arena_radius is not None:
+        cfg_dict["game_config"]["arena_radius"] = float(args.arena_radius)
+    if args.num_snakes is not None:
+        cfg_dict["game_config"]["num_snakes"] = int(args.num_snakes)
+    if args.net_size is not None:
+        if args.net_size != cfg_dict["net_size"]:
+            if args.minibatch_size is None:
+                cfg_dict["minibatch_size"] = None
+            cfg_dict["actor_chunk_learners"] = None
+        cfg_dict["net_size"] = args.net_size
+
+    cli_scalar_overrides: tuple[tuple[str, str, Callable[[Any], Any]], ...] = (
+        ("num_envs", "num_envs", int),
+        ("learner_slots", "learner_slots", int),
+        ("opponent_policy", "opponent_policy", str),
+        ("rollout_len", "rollout_len", int),
+        ("total_updates", "total_updates", int),
+        ("ppo_epochs", "ppo_epochs", int),
+        ("minibatch_size", "minibatch_size", int),
+        ("lr", "lr", float),
+        ("light_checkpoint_interval_sec", "light_checkpoint_interval_sec", float),
+        ("full_checkpoint_interval_sec", "full_checkpoint_interval_sec", float),
+        ("max_periodic_full_exports", "max_periodic_full_exports", int),
+        ("light_resume_margin_minutes", "light_resume_margin_minutes", float),
+        ("checkpoint_shard_bytes", "checkpoint_shard_bytes", int),
+        ("checkpoint_every_updates", "checkpoint_every_updates", int),
+        ("full_checkpoint_every_updates", "full_checkpoint_every_updates", int),
+        ("eval_every_minutes", "eval_every_minutes", float),
+        ("eval_every_updates", "eval_every_updates", int),
+        ("eval_envs", "eval_envs", int),
+        ("eval_burnin_ticks", "eval_burnin_ticks", int),
+        ("eval_ticks", "eval_ticks", int),
+        ("eval_estimated_seconds", "eval_estimated_seconds", float),
+        ("seed", "seed", int),
+        ("compile", "compile_model", bool),
+        ("fast_learner_ops", "fast_learner_ops", bool),
+        ("amp", "amp", bool),
+        ("use_channels_last", "use_channels_last", bool),
+    )
+    for arg_attr, cfg_key, caster in cli_scalar_overrides:
+        val = getattr(args, arg_attr, None)
+        if val is not None:
+            cfg_dict[cfg_key] = caster(val)
+
+    eff_device = (
+        str(args.device) if args.device is not None else str(env.get("SNAKE_DQN_DEVICE") or "cpu")
+    )
+    eff_max_wall_seconds = (
+        float(args.max_wall_seconds)
+        if args.max_wall_seconds is not None
+        else (float(env["V3_PPO_MAX_WALL_SECONDS"]) if env.get("V3_PPO_MAX_WALL_SECONDS") else None)
+    )
+    eff_max_export_bytes = (
+        int(args.max_session_export_bytes)
+        if args.max_session_export_bytes is not None
+        else (
+            int(env["V3_PPO_MAX_SESSION_EXPORT_BYTES"])
+            if env.get("V3_PPO_MAX_SESSION_EXPORT_BYTES")
+            else None
+        )
+    )
+
+    return EffectiveTrainJobConfig(
+        cfg=V3PPOConfig.from_dict(cfg_dict),
+        output_dir=Path(args.output_dir),
+        work_dir=Path(args.work_dir) if args.work_dir is not None else None,
+        device=eff_device,
+        input_dir=Path(args.input_dir) if args.input_dir is not None else None,
+        ledger_path=Path(args.ledger) if args.ledger is not None else None,
+        max_wall_seconds=eff_max_wall_seconds,
+        max_session_export_bytes=eff_max_export_bytes,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
     """CLI entrypoint; exits non-zero whenever terminal ``status != 'PASS'``."""
     args = build_arg_parser().parse_args(argv)
-    if args.config_json:
-        raw_cfg = json.loads(args.config_json)
-        if args.compile:
-            raw_cfg["compile_model"] = True
-        cfg = V3PPOConfig.from_dict(raw_cfg)
-    else:
-        game_cfg = GameV3Config(
-            arena_radius=float(args.arena_radius),
-            num_snakes=int(args.num_snakes),
-        )
-        cfg = V3PPOConfig(
-            game_config=game_cfg,
-            num_envs=int(args.num_envs),
-            learner_slots=args.learner_slots,
-            opponent_policy=args.opponent_policy,
-            net_size=args.net_size,
-            amp=bool(args.amp),
-            use_channels_last=bool(args.use_channels_last),
-            compile_model=bool(args.compile),
-            fast_learner_ops=bool(args.fast_learner_ops),
-            rollout_len=int(args.rollout_len),
-            ppo_epochs=int(args.ppo_epochs),
-            minibatch_size=args.minibatch_size,
-            lr=float(args.lr),
-            total_updates=int(args.total_updates),
-            light_checkpoint_interval_sec=float(args.light_checkpoint_interval_sec),
-            full_checkpoint_interval_sec=float(args.full_checkpoint_interval_sec),
-            max_periodic_full_exports=int(args.max_periodic_full_exports),
-            light_resume_margin_minutes=float(args.light_resume_margin_minutes),
-            checkpoint_shard_bytes=int(args.checkpoint_shard_bytes),
-            checkpoint_every_updates=int(args.checkpoint_every_updates),
-            full_checkpoint_every_updates=int(args.full_checkpoint_every_updates),
-            eval_every_minutes=float(args.eval_every_minutes),
-            eval_every_updates=int(args.eval_every_updates),
-            eval_envs=int(args.eval_envs),
-            eval_burnin_ticks=int(args.eval_burnin_ticks),
-            eval_ticks=int(args.eval_ticks),
-            eval_estimated_seconds=float(args.eval_estimated_seconds),
-            seed=int(args.seed),
-        )
-
+    eff = resolve_effective_train_config(args)
     res = run_training_job(
-        cfg=cfg,
-        output_dir=args.output_dir,
-        work_dir=args.work_dir,
-        device=args.device,
-        input_dir=args.input_dir,
-        ledger_path=args.ledger,
-        max_wall_seconds=args.max_wall_seconds,
-        max_session_export_bytes=args.max_session_export_bytes,
+        cfg=eff.cfg,
+        output_dir=eff.output_dir,
+        work_dir=eff.work_dir,
+        device=eff.device,
+        input_dir=eff.input_dir,
+        ledger_path=eff.ledger_path,
+        max_wall_seconds=eff.max_wall_seconds,
+        max_session_export_bytes=eff.max_session_export_bytes,
     )
     if res.get("status") != "PASS":
         return 1

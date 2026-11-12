@@ -43,6 +43,7 @@ from research.v3_ppo.config import (
     NetSize,
     OpponentPolicy,
     V3PPOConfig,
+    assert_resume_config_compatible,
     default_train_envs_for_gpu,
     estimate_training_memory,
     get_net_preset,
@@ -50,7 +51,6 @@ from research.v3_ppo.config import (
     validate_memory_budget,
 )
 from research.v3_ppo.ppo import (
-    _RESUME_MUTABLE_CONFIG_KEYS,
     resolve_resume_checkpoint,
     write_create_only_artifact,
 )
@@ -893,16 +893,13 @@ def prepare_v3_ppo_packet(
             cfg_obj = V3PPOConfig.from_dict(cfg_dict)
 
             if staged_base_cfg is not None:
-                staged_dict = staged_base_cfg.to_dict()
-                curr_dict = cfg_obj.to_dict()
-                for key in sorted(set(staged_dict) | set(curr_dict)):
-                    if key in _RESUME_MUTABLE_CONFIG_KEYS or key == "schema":
-                        continue
-                    if staged_dict.get(key) != curr_dict.get(key):
-                        raise ValueError(
-                            f"Continuation checkpoint config mismatch on {key!r}: "
-                            f"ckpt={staged_dict.get(key)!r} vs requested={curr_dict.get(key)!r}"
-                        )
+                assert_resume_config_compatible(
+                    staged_base_cfg,
+                    cfg_obj,
+                    context="Continuation checkpoint config mismatch",
+                    reference_label="ckpt",
+                    candidate_label="requested",
+                )
 
             if expected_steps_per_sec is not None:
                 if (
