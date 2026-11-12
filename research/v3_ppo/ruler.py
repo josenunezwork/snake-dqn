@@ -1185,6 +1185,7 @@ def _canary_stage_train_and_resume(
             ppo_epochs=1,
             minibatch_size=max(8, int(canary_envs) * n_snakes),
             total_updates=1,
+            full_exports="periodic",
             full_checkpoint_every_updates=1,
             eval_every_minutes=0.0,
             eval_every_updates=1,

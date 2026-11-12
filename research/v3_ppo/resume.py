@@ -140,7 +140,7 @@ def choose_between_full_and_light(
         reason = "only_full_available"
     elif best_light is not None:
         chosen = best_light
-        reason = "no_valid_full_available"
+        reason = "only_light_available"
 
     if log_choice and chosen is not None:
         f_u_str = str(best_full["updates_completed"]) if best_full is not None else "none"

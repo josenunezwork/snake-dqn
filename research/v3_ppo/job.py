@@ -25,15 +25,20 @@ from research.v3_ppo.checkpoint_io import (
     verify_full_checkpoint_set,
 )
 from research.v3_ppo.config import (
+    DEFAULT_CHECKPOINT_SHARD_BYTES,
     GPU_MAX_TOTAL_EXPORT_BYTES,
+    NONE_MODE_MAX_TOTAL_EXPORT_BYTES,
     V3_PPO_NAMESPACE,
+    VALID_FULL_EXPORT_MODES,
     VALID_NET_SIZES,
     VALID_OPPONENT_POLICIES,
+    FullExportMode,
     V3PPOConfig,
     assert_resume_config_compatible,
     estimate_training_memory,
     get_net_preset,
     parse_env_bool,
+    resolve_full_export_settings,
 )
 from research.v3_ppo.exports import (
     RotatingCreateOnlyJSONLWriter,
@@ -164,11 +169,14 @@ def decide_checkpoint_actions(
     last_full_work_mono: float,
     published_periodic_fulls: int,
     max_periodic_full_exports: int,
+    full_exports: FullExportMode = "periodic",
 ) -> CheckpointScheduleDecision:
     """Decide which LIGHT/FULL checkpoints to write in ``work/`` and publish to ``output/``.
 
     ``due_light_export_time`` compares against ``last_light_export_mono`` (not
     ``last_light_work_mono``) so capped ``work/`` FULL saves never stretch periodic LIGHT exports.
+    ``save_work_full`` runs regardless of ``full_exports`` so VM ``work/`` FULL checkpoints remain
+    available for in-session restart even when ``full_exports == "none"``.
     """
     due_light_u = int(checkpoint_every_updates) > 0 and (
         int(updates_completed) % int(checkpoint_every_updates) == 0
@@ -189,9 +197,8 @@ def decide_checkpoint_actions(
         due_light_u or due_light_work_t or due_light_export_t or due_full_u or due_full_t
     )
     save_work_full = bool(due_full_u or due_full_t)
-    want_periodic_full = bool(
-        save_work_full and int(published_periodic_fulls) < max(0, int(max_periodic_full_exports))
-    )
+    eff_periodic_cap = max(0, int(max_periodic_full_exports)) if full_exports == "periodic" else 0
+    want_periodic_full = bool(save_work_full and int(published_periodic_fulls) < eff_periodic_cap)
     want_periodic_light = bool(due_light_export_t or due_light_u)
     return CheckpointScheduleDecision(
         due_light_updates=due_light_u,
@@ -214,18 +221,22 @@ def check_periodic_export_budget(
     last_measured_full_bytes: int | None,
     est_light_bytes: int,
     num_envs: int,
+    include_final_full_reserve: bool = True,
 ) -> tuple[bool, int]:
-    """Return ``(within_budget, projected_bytes)`` reserving room for a final boundary FULL."""
+    """Return ``(within_budget, projected_bytes)`` reserving room for final boundary export(s)."""
     if int(new_files_bytes) <= 0:
         return True, int(current_exported_bytes)
-    stop_reserve = (
-        int(last_measured_full_bytes)
-        if last_measured_full_bytes is not None
-        else min(
-            int(max_session_export_bytes) // 4,
-            int(est_light_bytes) + int(num_envs) * 16 * 1024 * 1024,
+    if not include_final_full_reserve:
+        stop_reserve = min(int(max_session_export_bytes) // 4, int(est_light_bytes))
+    else:
+        stop_reserve = (
+            int(last_measured_full_bytes)
+            if last_measured_full_bytes is not None
+            else min(
+                int(max_session_export_bytes) // 4,
+                int(est_light_bytes) + int(num_envs) * 16 * 1024 * 1024,
+            )
         )
-    )
     projected = int(current_exported_bytes) + int(new_files_bytes) + stop_reserve
     return bool(projected <= int(max_session_export_bytes)), projected
 
@@ -369,6 +380,8 @@ def _stage_init_job_dirs_and_config(
         eff_max_export_bytes = int(max_session_export_bytes)
     elif os.environ.get("V3_PPO_MAX_SESSION_EXPORT_BYTES"):
         eff_max_export_bytes = int(os.environ["V3_PPO_MAX_SESSION_EXPORT_BYTES"])
+    elif cfg.full_exports == "none":
+        eff_max_export_bytes = int(NONE_MODE_MAX_TOTAL_EXPORT_BYTES)
     else:
         eff_max_export_bytes = int(GPU_MAX_TOTAL_EXPORT_BYTES["L4"])
 
@@ -580,6 +593,7 @@ def _can_export_periodic_files(
         last_measured_full_bytes=state.last_measured_full_bytes,
         est_light_bytes=state.est_light_bytes,
         num_envs=int(state.cfg.num_envs),
+        include_final_full_reserve=bool(state.cfg.exports_final_full),
     )
     if not within_budget:
         print(
@@ -590,8 +604,19 @@ def _can_export_periodic_files(
     return within_budget
 
 
-def _stage_save_and_publish_checkpoints(state: _JobRunState, *, now_mono: float) -> None:
-    """Save due ``work/`` checkpoints, prune ``work/``, and publish periodic ``output/`` exports."""
+def _stage_save_and_publish_checkpoints(
+    state: _JobRunState,
+    *,
+    now_mono: float,
+    final_boundary: bool = False,
+) -> None:
+    """Save due ``work/`` checkpoints, prune ``work/``, and publish periodic ``output/`` exports.
+
+    When ``final_boundary`` is ``True`` (the loop is about to exit on ``completed``,
+    ``wall_clock_guard``, or ``stop_flag``), any coincidental periodic FULL build is deferred to
+    ``_stage_finalize_training_job`` so the final ``LIGHT`` checkpoint is always exported and
+    ``.complete`` before the final ``FULL`` shards start.
+    """
     tag = ckpt_tag(state.trainer.updates_completed, state.in_session_restarts)
     sched = decide_checkpoint_actions(
         updates_completed=state.trainer.updates_completed,
@@ -605,6 +630,7 @@ def _stage_save_and_publish_checkpoints(state: _JobRunState, *, now_mono: float)
         last_full_work_mono=state.last_full_work_mono,
         published_periodic_fulls=state.published_periodic_fulls,
         max_periodic_full_exports=int(state.cfg.max_periodic_full_exports),
+        full_exports=state.cfg.full_exports,
     )
 
     light_work_path = state.work_ckpts / f"light_{tag}.pt"
@@ -618,13 +644,19 @@ def _stage_save_and_publish_checkpoints(state: _JobRunState, *, now_mono: float)
 
     full_work_index: Path | None = None
     full_work_meta: dict[str, Any] | None = None
-    if sched.save_work_full:
+    if sched.save_work_full and not final_boundary:
         cand_idx = state.work_ckpts / f"full_{tag}.index.json"
         if not artifact_or_sidecar_exists(cand_idx):
+            work_shard_cap = (
+                max(int(state.cfg.checkpoint_shard_bytes), DEFAULT_CHECKPOINT_SHARD_BYTES)
+                if state.cfg.full_exports == "none"
+                else int(state.cfg.checkpoint_shard_bytes)
+            )
             full_work_index = state.trainer.save_full_checkpoint(
                 state.work_ckpts,
                 tag=tag,
                 light_path=light_work_path,
+                max_shard_bytes=work_shard_cap,
                 restart_generation=state.in_session_restarts,
             )
         else:
@@ -773,20 +805,21 @@ def _stage_finalize_training_job(
                 reason=state.stopped_reason,
                 counters=_counters_dict(state.trainer),
             )
-            stop_full = state.work_ckpts / f"full_{stop_tag}.index.json"
-            if not artifact_or_sidecar_exists(stop_full):
-                stop_full = state.trainer.save_full_checkpoint(
-                    state.work_ckpts,
-                    tag=stop_tag,
-                    light_path=stop_light,
-                    restart_generation=state.in_session_restarts,
+            if state.cfg.exports_final_full:
+                stop_full = state.work_ckpts / f"full_{stop_tag}.index.json"
+                if not artifact_or_sidecar_exists(stop_full):
+                    stop_full = state.trainer.save_full_checkpoint(
+                        state.work_ckpts,
+                        tag=stop_tag,
+                        light_path=stop_light,
+                        restart_generation=state.in_session_restarts,
+                    )
+                publish_checkpoint_to_output(
+                    stop_full,
+                    state.out_ckpts,
+                    reason=state.stopped_reason,
+                    counters=_counters_dict(state.trainer),
                 )
-            publish_checkpoint_to_output(
-                stop_full,
-                state.out_ckpts,
-                reason=state.stopped_reason,
-                counters=_counters_dict(state.trainer),
-            )
             prune_old_checkpoints(
                 state.work_ckpts,
                 keep_full=int(state.cfg.keep_full_checkpoints),
@@ -796,6 +829,12 @@ def _stage_finalize_training_job(
             _log_finally_warn("boundary_checkpoint", ck_exc)
         final_summary = _snapshot_clean_state(state.trainer)
     else:
+
+        def _rollback_export_target(cand: dict[str, Any]) -> Path:
+            if not state.cfg.exports_final_full and cand.get("kind") == "full":
+                return Path(cand["light_path"])
+            return Path(cand["path"])
+
         try:
             work_clean = resolve_resume_checkpoint(
                 state.work_ckpts,
@@ -804,10 +843,10 @@ def _stage_finalize_training_job(
                 light_resume_margin_minutes=float(state.cfg.light_resume_margin_minutes),
             )
             if work_clean is not None:
-                wb_path = Path(work_clean["path"])
-                if wb_path.name != INIT_ANCHOR_LIGHT_NAME:
+                wb_export_path = _rollback_export_target(work_clean)
+                if wb_export_path.name != INIT_ANCHOR_LIGHT_NAME:
                     publish_checkpoint_to_output(
-                        wb_path,
+                        wb_export_path,
                         state.out_ckpts,
                         reason=f"rollback_{state.stopped_reason}",
                         counters={
@@ -835,13 +874,14 @@ def _stage_finalize_training_job(
             )
             if clean_fallback is not None:
                 fb_path = Path(clean_fallback["path"])
+                fb_export_path = _rollback_export_target(clean_fallback)
                 if (
                     bool(clean_fallback.get("require_markers", False))
-                    and fb_path.resolve().parent != state.out_ckpts.resolve()
-                    and fb_path.name != INIT_ANCHOR_LIGHT_NAME
+                    and fb_export_path.resolve().parent != state.out_ckpts.resolve()
+                    and fb_export_path.name != INIT_ANCHOR_LIGHT_NAME
                 ):
                     publish_checkpoint_to_output(
-                        fb_path,
+                        fb_export_path,
                         state.out_ckpts,
                         reason=f"rollback_{state.stopped_reason}",
                         counters={
@@ -853,7 +893,7 @@ def _stage_finalize_training_job(
                                 clean_fallback.get("world_steps_collected", 0)
                             ),
                         },
-                        copy_only=(fb_path.resolve().parent != state.work_ckpts.resolve()),
+                        copy_only=(fb_export_path.resolve().parent != state.work_ckpts.resolve()),
                     )
                 final_summary["updates_completed"] = int(clean_fallback["updates_completed"])
                 final_summary["agent_steps_collected"] = int(
@@ -1110,7 +1150,15 @@ def run_training_job(
                     ),
                     flush=True,
                 )
-                _stage_save_and_publish_checkpoints(state, now_mono=now_mono)
+                _stage_save_and_publish_checkpoints(
+                    state,
+                    now_mono=now_mono,
+                    final_boundary=bool(
+                        stop_flag.stopped
+                        or state.wall_expired()
+                        or state.trainer.updates_completed >= int(cfg.total_updates)
+                    ),
+                )
 
         except Exception as exc:
             state.error_class = type(exc).__name__
@@ -1158,8 +1206,8 @@ def _merge_config_json_overlay(
     raw_json_str: str,
     *,
     source_label: str,
-) -> None:
-    """Overlay parsed ``raw_json_str`` onto ``cfg_dict`` in-place, rejecting unknown keys."""
+) -> set[str]:
+    """Overlay parsed ``raw_json_str`` onto ``cfg_dict`` in-place and return explicit top keys."""
     parsed = json.loads(raw_json_str)
     if not isinstance(parsed, dict):
         raise ValueError(f"{source_label} must decode to a JSON object, got {type(parsed)!r}")
@@ -1191,6 +1239,10 @@ def _merge_config_json_overlay(
             cfg_dict["minibatch_size"] = None
         if "actor_chunk_learners" not in parsed:
             cfg_dict["actor_chunk_learners"] = None
+    if "max_periodic_full_exports" in parsed and "full_exports" not in parsed:
+        mp_json = int(parsed["max_periodic_full_exports"])
+        cfg_dict["full_exports"] = "final" if mp_json == 0 else "periodic"
+    return set(parsed.keys())
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -1232,6 +1284,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=None,
     )
     parser.add_argument("--full-checkpoint-interval-sec", type=float, default=None)
+    parser.add_argument(
+        "--full-exports",
+        type=str,
+        default=None,
+        choices=VALID_FULL_EXPORT_MODES,
+        help="Simulator FULL checkpoint export mode: none (default), final, or periodic.",
+    )
     parser.add_argument("--max-periodic-full-exports", type=int, default=None)
     parser.add_argument("--light-resume-margin-minutes", type=float, default=None)
     parser.add_argument("--checkpoint-shard-bytes", type=int, default=None)
@@ -1342,7 +1401,6 @@ def resolve_effective_train_config(
         ("lr", "lr", float),
         ("light_checkpoint_interval_sec", "light_checkpoint_interval_sec", float),
         ("full_checkpoint_interval_sec", "full_checkpoint_interval_sec", float),
-        ("max_periodic_full_exports", "max_periodic_full_exports", int),
         ("light_resume_margin_minutes", "light_resume_margin_minutes", float),
         ("checkpoint_shard_bytes", "checkpoint_shard_bytes", int),
         ("checkpoint_every_updates", "checkpoint_every_updates", int),
@@ -1363,6 +1421,18 @@ def resolve_effective_train_config(
         val = getattr(args, arg_attr, None)
         if val is not None:
             cfg_dict[cfg_key] = caster(val)
+
+    cli_full_exports = getattr(args, "full_exports", None)
+    cli_max_periodic = getattr(args, "max_periodic_full_exports", None)
+    if cli_full_exports is not None or cli_max_periodic is not None:
+        eff_full_mode, eff_max_periodic = resolve_full_export_settings(
+            cli_full_exports,
+            cli_max_periodic,
+            default_full_exports=cfg_dict["full_exports"],
+            default_max_periodic=int(cfg_dict["max_periodic_full_exports"]),
+        )
+        cfg_dict["full_exports"] = eff_full_mode
+        cfg_dict["max_periodic_full_exports"] = eff_max_periodic
 
     eff_device = (
         str(args.device) if args.device is not None else str(env.get("SNAKE_DQN_DEVICE") or "cpu")

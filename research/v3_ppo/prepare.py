@@ -37,17 +37,23 @@ from research.v3_ppo.config import (
     GPU_VRAM_BUDGET_BYTES,
     MAX_SUPERVISOR_EXPORT_BYTES,
     V3_PPO_NAMESPACE,
+    VALID_FULL_EXPORT_MODES,
     VALID_NET_SIZES,
     VALID_OPPONENT_POLICIES,
+    FullExportMode,
     NetSize,
     OpponentPolicy,
     V3PPOConfig,
     assert_resume_config_compatible,
     default_train_envs_for_gpu,
+    estimate_train_wall_headroom,
+    estimate_train_wall_headroom_by_mode,
     estimate_training_memory,
     get_net_preset,
+    resolve_full_export_settings,
     validate_checkpoint_export_caps,
     validate_memory_budget,
+    validate_train_wall_headroom,
 )
 from research.v3_ppo.exports import write_create_only_artifact
 from research.v3_ppo.resume import resolve_resume_checkpoint
@@ -103,6 +109,7 @@ class PreparePacketOptions:
     fast_learner_ops: bool | None = None
     include_fp32: bool = False
     compile_model: bool = False
+    full_exports: FullExportMode | None = None
     max_periodic_full_exports: int | None = None
     light_resume_margin_minutes: float | None = None
     eval_estimated_seconds: float | None = None
@@ -163,6 +170,8 @@ class _SizedModePlan:
     train_cfg: V3PPOConfig | None = None
     training_plan: dict[str, Any] | None = None
     memory_estimate: dict[str, Any] | None = None
+    wall_headroom: dict[str, Any] | None = None
+    wall_headroom_by_mode: dict[FullExportMode, dict[str, Any]] | None = None
 
 
 @dataclass(frozen=True)
@@ -531,6 +540,8 @@ def _stage_validate_options(opts: PreparePacketOptions) -> _ValidatedPacketConte
         get_net_preset(opts.net_size)
     if opts.ruler_nets is not None:
         _parse_nets_csv(opts.ruler_nets)
+    if opts.full_exports is not None or opts.max_periodic_full_exports is not None:
+        resolve_full_export_settings(opts.full_exports, opts.max_periodic_full_exports)
     if opts.mode == "canary" and opts.canary_receipt is not None:
         raise ValueError("canary mode produces a canary receipt and cannot bind --canary-receipt")
     if (
@@ -796,6 +807,23 @@ def _size_ruler_mode(
     )
 
 
+def _resolve_measured_world_bytes(
+    opts: PreparePacketOptions,
+    cfg_obj: V3PPOConfig,
+) -> int | None:
+    """Resolve optional per-world packed checkpoint byte measurement from ``opts``."""
+    eff_world_bytes = opts.measured_packed_bytes_per_world
+    if eff_world_bytes is None and opts.measured_checkpoint_bytes is not None:
+        if int(opts.measured_checkpoint_bytes) < 1:
+            raise ValueError(
+                f"measured_checkpoint_bytes must be >= 1, got {opts.measured_checkpoint_bytes}"
+            )
+        eff_world_bytes = max(
+            1, int(math.ceil(int(opts.measured_checkpoint_bytes) / cfg_obj.num_envs))
+        )
+    return eff_world_bytes
+
+
 def _size_train_mode(
     opts: PreparePacketOptions,
     ctx: _ValidatedPacketContext,
@@ -808,8 +836,6 @@ def _size_train_mode(
     est_minutes = round(timeout_minutes / 2.0, 2)
     base_sec = est_minutes * 60.0
     eff_sec = timeout_minutes * 60.0
-    headroom_sec = min(480.0, max(60.0, eff_sec * 0.08))
-    max_wall_sec_int = int(max(30.0, eff_sec - headroom_sec))
 
     staged_base_cfg = ctx.prior.staged_base_cfg
     base_cfg = opts.ppo_config or staged_base_cfg or V3PPOConfig()
@@ -842,8 +868,17 @@ def _size_train_mode(
         cfg_dict["fast_learner_ops"] = bool(opts.fast_learner_ops)
     if opts.compile_model:
         cfg_dict["compile_model"] = True
-    if opts.max_periodic_full_exports is not None:
-        cfg_dict["max_periodic_full_exports"] = int(opts.max_periodic_full_exports)
+    default_full_mode: FullExportMode = (
+        opts.ppo_config.full_exports if opts.ppo_config is not None else "none"
+    )
+    eff_full_mode, eff_max_periodic = resolve_full_export_settings(
+        opts.full_exports,
+        opts.max_periodic_full_exports,
+        default_full_exports=default_full_mode,
+        default_max_periodic=int(base_cfg.max_periodic_full_exports),
+    )
+    cfg_dict["full_exports"] = eff_full_mode
+    cfg_dict["max_periodic_full_exports"] = eff_max_periodic
     if opts.light_resume_margin_minutes is not None:
         cfg_dict["light_resume_margin_minutes"] = float(opts.light_resume_margin_minutes)
 
@@ -872,6 +907,23 @@ def _size_train_mode(
             candidate_label="requested",
         )
 
+    memory_estimate = validate_memory_budget(cfg_obj, ctx.gpu_norm)
+
+    eff_world_bytes = _resolve_measured_world_bytes(opts, cfg_obj)
+    canary_eval_wall_sec = (
+        float(ctx.canary_eval_metrics["wall_seconds"])
+        if ctx.canary_eval_metrics is not None
+        else None
+    )
+    wall_headroom = estimate_train_wall_headroom(
+        cfg_obj,
+        gpu=ctx.gpu_norm,
+        session_seconds=eff_sec,
+        canary_eval_wall_seconds=canary_eval_wall_sec,
+        measured_packed_bytes_per_world=eff_world_bytes,
+    )
+    max_wall_sec_int = max(1, int(wall_headroom["max_wall_seconds"]))
+
     training_plan: dict[str, Any] | None = None
     if opts.expected_steps_per_sec is not None:
         if (
@@ -898,13 +950,6 @@ def _size_train_mode(
             expected_steps_per_sec=float(opts.expected_steps_per_sec),
             max_wall_seconds=float(max_wall_sec_int),
         )
-        print(
-            f"V3_PPO_PLAN {json.dumps(training_plan, sort_keys=True)}",
-            file=sys.stderr,
-            flush=True,
-        )
-
-    memory_estimate = validate_memory_budget(cfg_obj, ctx.gpu_norm)
 
     return _SizedModePlan(
         job_id=f"v3-ppo-train-{ctx.gpu_slug}-{opts.attempt}",
@@ -927,6 +972,7 @@ def _size_train_mode(
         train_cfg=cfg_obj,
         training_plan=training_plan,
         memory_estimate=memory_estimate,
+        wall_headroom=wall_headroom,
     )
 
 
@@ -963,15 +1009,7 @@ def _stage_export_caps(
 
     assert sized.train_cfg is not None
     cfg_obj = sized.train_cfg
-    eff_world_bytes = opts.measured_packed_bytes_per_world
-    if eff_world_bytes is None and opts.measured_checkpoint_bytes is not None:
-        if int(opts.measured_checkpoint_bytes) < 1:
-            raise ValueError(
-                f"measured_checkpoint_bytes must be >= 1, got {opts.measured_checkpoint_bytes}"
-            )
-        eff_world_bytes = max(
-            1, int(math.ceil(int(opts.measured_checkpoint_bytes) / cfg_obj.num_envs))
-        )
+    eff_world_bytes = _resolve_measured_world_bytes(opts, cfg_obj)
 
     if opts.ppo_config is None or not opts.explicit_total_updates:
         cfg_obj = replace(
@@ -1003,6 +1041,67 @@ def _stage_export_caps(
         measured_packed_bytes_per_world=eff_world_bytes,
     )
 
+    canary_eval_wall_sec = (
+        float(ctx.canary_eval_metrics["wall_seconds"])
+        if ctx.canary_eval_metrics is not None
+        else None
+    )
+    wall_headroom = validate_train_wall_headroom(
+        cfg_obj,
+        ctx.gpu_norm,
+        session_seconds=sized.eff_sec,
+        canary_eval_wall_seconds=canary_eval_wall_sec,
+        measured_packed_bytes_per_world=eff_world_bytes,
+    )
+    wall_headroom_by_mode = estimate_train_wall_headroom_by_mode(
+        cfg_obj,
+        gpu=ctx.gpu_norm,
+        session_seconds=sized.eff_sec,
+        canary_eval_wall_seconds=canary_eval_wall_sec,
+        measured_packed_bytes_per_world=eff_world_bytes,
+    )
+
+    if cfg_obj.full_exports == "periodic":
+        print(
+            "WARNING [V3_PPO_PERIODIC_FULL_EXPORTS]: --full-exports periodic is enabled! "
+            "Periodic simulator FULL exports have KILLED 8-hour L4 and A100 runs mid-training "
+            "on this Colab CLI transport by exhausting the Mac supervisor transfer-time cap "
+            "(UPLOAD_CAP), losing all training progress after the last LIGHT checkpoint. "
+            "Prefer the default --full-exports none (LIGHT checkpoints only; resumes cleanly "
+            "with fresh worlds) or --full-exports final.",
+            file=sys.stderr,
+            flush=True,
+        )
+    print(
+        f"V3_PPO_HEADROOM {json.dumps(wall_headroom, sort_keys=True)}",
+        file=sys.stderr,
+        flush=True,
+    )
+    print(
+        "V3_PPO_HEADROOM_BY_MODE "
+        + json.dumps(
+            {
+                m: {
+                    "headroom_seconds": round(float(d["headroom_seconds"]), 2),
+                    "headroom_minutes": d["headroom_minutes"],
+                    "max_wall_seconds": d["max_wall_seconds"],
+                    "final_export_bytes": d["final_export_bytes"],
+                    "fits_max_headroom_fraction": d["fits_max_headroom_fraction"],
+                }
+                for m, d in wall_headroom_by_mode.items()
+            },
+            sort_keys=True,
+        ),
+        file=sys.stderr,
+        flush=True,
+    )
+    if sized.training_plan is not None:
+        print(
+            f"V3_PPO_PLAN {json.dumps(sized.training_plan, sort_keys=True)}",
+            file=sys.stderr,
+            flush=True,
+        )
+
     extra_env = dict(sized.extra_env)
     extra_env["V3_PPO_AMP"] = "1" if bool(cfg_obj.amp) else "0"
     extra_env["V3_PPO_CHANNELS_LAST"] = "1" if bool(cfg_obj.use_channels_last) else "0"
@@ -1016,7 +1115,12 @@ def _stage_export_caps(
     extra_env["V3_PPO_CONFIG_JSON"] = json.dumps(cfg_obj.to_dict(), sort_keys=True)
 
     return _CappedModePlan(
-        sized=replace(sized, train_cfg=cfg_obj),
+        sized=replace(
+            sized,
+            train_cfg=cfg_obj,
+            wall_headroom=wall_headroom,
+            wall_headroom_by_mode=wall_headroom_by_mode,
+        ),
         extra_env=extra_env,
         max_export_bytes=int(checkpoint_export_caps["per_file_max_export_bytes"]),
         checkpoint_export_caps=checkpoint_export_caps,
@@ -1161,6 +1265,8 @@ def _stage_write_manifest(
             tech_envelope["canary_eval_peak_memory_bytes"] = int(
                 ctx.canary_eval_metrics["peak_memory_bytes"]
             )
+    if sized.wall_headroom is not None:
+        tech_envelope["wall_headroom"] = sized.wall_headroom
 
     manifest: dict[str, Any] = {
         "job_id": sized.job_id[:64],
@@ -1227,6 +1333,10 @@ def _stage_write_manifest(
         summary["memory_estimate"] = sized.memory_estimate
     if capped.checkpoint_export_caps is not None:
         summary["checkpoint_export_caps"] = capped.checkpoint_export_caps
+    if sized.wall_headroom is not None:
+        summary["wall_headroom"] = sized.wall_headroom
+    if sized.wall_headroom_by_mode is not None:
+        summary["wall_headroom_by_mode"] = sized.wall_headroom_by_mode
     if sized.training_plan is not None:
         summary["training_plan"] = sized.training_plan
     if ctx.canary_eval_metrics is not None:
@@ -1277,6 +1387,7 @@ def prepare_v3_ppo_packet(
     fast_learner_ops: bool | None = None,
     include_fp32: bool = False,
     compile_model: bool = False,
+    full_exports: FullExportMode | None = None,
     max_periodic_full_exports: int | None = None,
     light_resume_margin_minutes: float | None = None,
     eval_estimated_seconds: float | None = None,
@@ -1326,6 +1437,7 @@ def prepare_v3_ppo_packet(
         fast_learner_ops=fast_learner_ops,
         include_fp32=include_fp32,
         compile_model=compile_model,
+        full_exports=full_exports,
         max_periodic_full_exports=max_periodic_full_exports,
         light_resume_margin_minutes=light_resume_margin_minutes,
         eval_estimated_seconds=eval_estimated_seconds,
@@ -1400,6 +1512,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     parser.add_argument("--include-fp32", action="store_true")
     parser.add_argument("--compile", action="store_true")
+    parser.add_argument(
+        "--full-exports",
+        choices=VALID_FULL_EXPORT_MODES,
+        default=None,
+        help="Simulator FULL export policy for --mode train: none (default), final, or periodic.",
+    )
     parser.add_argument("--max-periodic-full-exports", type=int, default=None)
     parser.add_argument("--light-resume-margin-minutes", type=float, default=None)
     parser.add_argument("--eval-estimated-seconds", type=float, default=None)
@@ -1446,6 +1564,9 @@ def options_from_cli_args(
             raise ValueError("--ppo-config-json root must be a JSON object")
         explicit_total_updates = "total_updates" in raw_dict
         explicit_eval_estimated_seconds = "eval_estimated_seconds" in raw_dict
+        if "max_periodic_full_exports" in raw_dict and "full_exports" not in raw_dict:
+            mp_raw = int(raw_dict["max_periodic_full_exports"])
+            raw_dict = {**raw_dict, "full_exports": "final" if mp_raw == 0 else "periodic"}
         ppo_cfg = V3PPOConfig.from_dict(raw_dict)
 
     return PreparePacketOptions(
@@ -1474,6 +1595,7 @@ def options_from_cli_args(
         fast_learner_ops=args.fast_learner_ops,
         include_fp32=bool(args.include_fp32),
         compile_model=bool(args.compile),
+        full_exports=args.full_exports,
         max_periodic_full_exports=args.max_periodic_full_exports,
         light_resume_margin_minutes=args.light_resume_margin_minutes,
         eval_estimated_seconds=args.eval_estimated_seconds,

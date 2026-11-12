@@ -17,6 +17,7 @@ import pytest
 import torch
 
 import research.v3_ppo.eval as eval_mod
+import research.v3_ppo.exports as exports_mod
 import research.v3_ppo.job as job_mod
 import research.v3_ppo.ppo as ppo_mod
 import research.v3_ppo.trainer as trainer_mod
@@ -205,12 +206,16 @@ def test_corrupted_or_missing_shard_falls_back_to_older_full_or_light(
     assert best1["updates_completed"] == 1
 
     # 3. Remove a shard from `u=1` too -> zero complete FULL sets remain; falls back to newest LIGHT
-    #    (`light_u0000003.pt`, `u=3`) and logs world re-initialisation warning on load!
+    #    (`light_u0000003.pt`, `u=3`) with `reason=only_light_available` and logs informational
+    #    `"worlds reinitialised"` message on load (without error-like WARN/WARNING tags)!
     meta_u1["shard_paths"][0].unlink()
-    best2 = resolve_resume_checkpoint(ckpt_dir)
+    best2 = resolve_resume_checkpoint(ckpt_dir, log_choice=True)
+    choice_log = capsys.readouterr().out
     assert best2 is not None
     assert best2["kind"] == "light"
     assert best2["updates_completed"] == 3
+    assert "reason=only_light_available" in choice_log
+    assert "WARN" not in choice_log and "ERROR" not in choice_log
 
     fresh_trainer = V3PPOTrainer(cfg, device="cpu")
     fresh_trainer.episode_return_acc.fill_(99.0)
@@ -218,7 +223,9 @@ def test_corrupted_or_missing_shard_falls_back_to_older_full_or_light(
     captured2 = capsys.readouterr().out
     assert load_light["checkpoint_kind"] == "light"
     assert load_light["worlds_reinitialized"] is True
-    assert "V3_PPO_LIGHT_RESUME_WARNING" in captured2
+    assert "V3_PPO_LIGHT_RESUME " in captured2
+    assert "worlds reinitialised" in captured2
+    assert "WARNING" not in captured2 and "WARN_" not in captured2
     assert fresh_trainer.updates_completed == 3
     assert float(fresh_trainer.episode_return_acc.abs().sum().item()) == 0.0
 
@@ -525,6 +532,7 @@ def test_in_session_restart_recovers_from_checkpoint_and_stages_continuation(
     cfg_rec = V3PPOConfig.from_dict(
         {
             **_tiny_cfg(num_envs=2, total_updates=4, eval_every_updates=0).to_dict(),
+            "full_exports": "final",
             "checkpoint_every_updates": 2,
             "eval_every_minutes": 0.0001,  # also exercises wall-time eval cadence!
             "max_in_session_restarts": 2,
@@ -637,6 +645,7 @@ def test_unthrottled_light_exports_bounded_full_and_immutable_sha256(tmp_path: P
     cfg = V3PPOConfig.from_dict(
         {
             **_tiny_cfg(num_envs=2, total_updates=6, eval_every_updates=0).to_dict(),
+            "full_exports": "periodic",
             "light_checkpoint_interval_sec": 0.04,
             "full_checkpoint_interval_sec": 0.11,
             "max_periodic_full_exports": 1,
@@ -727,6 +736,7 @@ def test_in_session_restart_tags_generation_and_refuses_stale_light_on_full_save
     cfg_gen = V3PPOConfig.from_dict(
         {
             **_tiny_cfg(num_envs=2, total_updates=4, eval_every_updates=0).to_dict(),
+            "full_exports": "periodic",
             "checkpoint_every_updates": 1,
             "full_checkpoint_every_updates": 2,
             "light_resume_margin_minutes": 45.0,
@@ -930,7 +940,12 @@ def test_periodic_evaluation_runs_single_sim_pass_and_leaves_training_bit_identi
 
     monkeypatch.setattr(eval_mod, "GameV3Sim", _spy_eval_sim)
 
-    cfg_no_ev = _tiny_cfg(num_envs=2, total_updates=4, eval_every_updates=0, seed=90210)
+    cfg_no_ev = V3PPOConfig.from_dict(
+        {
+            **_tiny_cfg(num_envs=2, total_updates=4, eval_every_updates=0, seed=90210).to_dict(),
+            "full_exports": "final",
+        }
+    )
     cfg_with_ev = V3PPOConfig.from_dict(
         {
             **cfg_no_ev.to_dict(),
@@ -1096,6 +1111,7 @@ def test_light_exports_maintain_real_interval_after_periodic_full_cap_reached(
     cfg_cap = V3PPOConfig.from_dict(
         {
             **_tiny_cfg(num_envs=2, total_updates=20, eval_every_updates=0, seed=7331).to_dict(),
+            "full_exports": "periodic",
             "light_checkpoint_interval_sec": light_interval,
             "full_checkpoint_interval_sec": full_interval,
             "max_periodic_full_exports": 1,
@@ -1434,3 +1450,354 @@ Path(sys.argv[3]).write_text(
     for _ in range(k_updates):
         new_full.train_step()
     assert _snapshot_trainer_hashes(new_full) == golden["full"]
+
+
+def test_final_light_completes_in_output_before_final_full_shards_start(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Final `LIGHT` must be `.complete` in `output/` before final `FULL` shards start building."""
+    probe_cfg = _tiny_cfg(num_envs=4, total_updates=2, eval_every_updates=0)
+    probe_tr = V3PPOTrainer(probe_cfg, device="cpu")
+    probe_tr.train_step()
+    probe_idx = probe_tr.save_full_checkpoint(tmp_path / "probe_1shard", tag="u0000001")
+    one_shard_size = verify_full_checkpoint_set(probe_idx)["shard_paths"][0].stat().st_size
+    multi_shard_cap = one_shard_size - 1024
+
+    real_publish_sidecars = exports_mod._publish_sidecars_for_existing_payload
+    real_save_full = V3PPOTrainer.save_full_checkpoint
+    real_monotonic = job_mod.time.monotonic
+
+    for case_name, expected_reason, expected_tag, total_updates, full_every_u, max_wall_s in (
+        ("wall_guard_coincident_periodic_full", "wall_clock_guard", "u0000001", 4, 1, 20.0),
+        ("completed_multi_shard", "completed", "u0000002", 2, 0, None),
+    ):
+        case_root = tmp_path / case_name
+        out_dir = case_root / "out"
+        work_dir = case_root / "work"
+        out_ckpts = out_dir / "checkpoints"
+        work_ckpts = work_dir / "checkpoints"
+
+        completed_targets: list[Path] = []
+        full_save_calls: list[str] = []
+
+        def _spy_sidecars(
+            target: Path,
+            digest: str,
+            _sink: list[Path] = completed_targets,
+        ) -> None:
+            real_publish_sidecars(target, digest)
+            _sink.append(Path(target))
+
+        def _spy_save_full(
+            self_tr: V3PPOTrainer,
+            checkpoints_dir: Path,
+            *,
+            tag: str | None = None,
+            _exp_tag: str = expected_tag,
+            _out_ckpts: Path = out_ckpts,
+            _work_ckpts: Path = work_ckpts,
+            _calls: list[str] = full_save_calls,
+            **kwargs: object,
+        ) -> Path:
+            eff_tag = tag if tag is not None else f"u{self_tr.updates_completed:07d}"
+            _calls.append(eff_tag)
+            if eff_tag == _exp_tag:
+                out_light = _out_ckpts / f"light_{_exp_tag}.pt"
+                assert out_light.is_file(), f"Missing exported {out_light} before FULL shard build"
+                assert Path(f"{out_light}.sha256").is_file()
+                assert Path(f"{out_light}.complete").is_file()
+                verify_completed_artifact(out_light)
+                verify_light_checkpoint(out_light, require_markers=True)
+                assert list(_work_ckpts.glob(f"full_{_exp_tag}*")) == []
+                assert list(_out_ckpts.glob(f"full_{_exp_tag}*")) == []
+            return real_save_full(
+                self_tr,
+                checkpoints_dir,
+                tag=tag,
+                **kwargs,  # type: ignore[arg-type]
+            )
+
+        monkeypatch.setattr(exports_mod, "_publish_sidecars_for_existing_payload", _spy_sidecars)
+        monkeypatch.setattr(V3PPOTrainer, "save_full_checkpoint", _spy_save_full)
+
+        fake_clock = {"t": 1000.0}
+        if max_wall_s is not None:
+            monkeypatch.setattr(job_mod.time, "monotonic", lambda _fc=fake_clock: _fc["t"])
+        else:
+            monkeypatch.setattr(job_mod.time, "monotonic", real_monotonic)
+
+        def _step_hook(
+            _tr: V3PPOTrainer,
+            _next_u: int,
+            _fc: dict[str, float] = fake_clock,
+            _use_wall: bool = (max_wall_s is not None),
+        ) -> None:
+            if _use_wall:
+                _fc["t"] += 16.0
+
+        cfg_case = V3PPOConfig.from_dict(
+            {
+                **_tiny_cfg(
+                    num_envs=4,
+                    total_updates=total_updates,
+                    eval_every_updates=0,
+                    checkpoint_shard_bytes=multi_shard_cap,
+                ).to_dict(),
+                "full_exports": "periodic" if full_every_u > 0 else "final",
+                "checkpoint_every_updates": 0,
+                "full_checkpoint_every_updates": full_every_u,
+                "light_checkpoint_interval_sec": 3600.0,
+                "full_checkpoint_interval_sec": 7200.0,
+            }
+        )
+        res = run_training_job(
+            cfg=cfg_case,
+            output_dir=out_dir,
+            work_dir=work_dir,
+            device="cpu",
+            max_wall_seconds=max_wall_s,
+            step_hook=_step_hook,
+        )
+        assert res["status"] == "PASS"
+        assert res["stopped_reason"] == expected_reason
+        assert full_save_calls == [expected_tag]
+
+        full_meta = verify_full_checkpoint_set(
+            out_ckpts / f"full_{expected_tag}.index.json",
+            require_markers=True,
+        )
+        assert full_meta["num_shards"] >= 2
+
+        out_completed_names = [
+            p.name for p in completed_targets if p.resolve().parent == out_ckpts.resolve()
+        ]
+        light_pos = out_completed_names.index(f"light_{expected_tag}.pt")
+        shard_positions = [out_completed_names.index(sp.name) for sp in full_meta["shard_paths"]]
+        index_pos = out_completed_names.index(f"full_{expected_tag}.index.json")
+        assert all(
+            light_pos < s_pos for s_pos in shard_positions
+        ), f"Expected light_{expected_tag}.pt before shards in {out_completed_names}"
+        assert max(shard_positions) < index_pos
+
+        # Simulate supervisor timeout mid-FULL download (LIGHT + shard 0 arrived; shard 1 & index
+        # missing): final weights in `light_<tag>.pt` are already complete and resumable.
+        partial_dl = case_root / "partial_download"
+        partial_dl.mkdir(parents=True, exist_ok=True)
+        first_shard = full_meta["shard_paths"][0]
+        for base_file in (out_ckpts / f"light_{expected_tag}.pt", first_shard):
+            for suffix in ("", ".sha256", ".complete"):
+                src_f = Path(f"{base_file}{suffix}")
+                shutil.copy2(src_f, partial_dl / src_f.name)
+
+        resolved = resolve_resume_checkpoint(partial_dl, require_markers=True)
+        assert resolved is not None
+        assert resolved["kind"] == "light"
+        assert Path(resolved["path"]).name == f"light_{expected_tag}.pt"
+        assert resolved["updates_completed"] == res["updates_completed"]
+
+        reloaded = V3PPOTrainer(cfg_case, device="cpu")
+        loaded_meta = reloaded.load_checkpoint(Path(resolved["path"]))
+        assert loaded_meta["checkpoint_kind"] == "light"
+        assert reloaded.updates_completed == res["updates_completed"]
+
+
+def test_full_exports_modes_none_final_periodic_exported_filenames_and_work_restart(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify `none`, `final`, and `periodic` export exact expected filenames in tiny CPU runs."""
+    assert V3PPOConfig().full_exports == "none"
+
+    probe_cfg = _tiny_cfg(num_envs=4, total_updates=4, eval_every_updates=0)
+    probe_tr = V3PPOTrainer(probe_cfg, device="cpu")
+    for _ in range(4):
+        probe_tr.train_step()
+    probe_idx = probe_tr.save_full_checkpoint(tmp_path / "probe_modes", tag="u0000004")
+    one_shard_bytes = verify_full_checkpoint_set(probe_idx)["shard_paths"][0].stat().st_size
+    multi_shard_cap = one_shard_bytes - 1024
+
+    base_dict = {
+        **_tiny_cfg(
+            num_envs=4,
+            total_updates=4,
+            eval_every_updates=0,
+            checkpoint_shard_bytes=multi_shard_cap,
+        ).to_dict(),
+        "checkpoint_every_updates": 1,
+        "full_checkpoint_every_updates": 2,
+        "light_checkpoint_interval_sec": 3600.0,
+        "full_checkpoint_interval_sec": 7200.0,
+        "max_in_session_restarts": 1,
+    }
+
+    def _payload_names(ckpts_dir: Path) -> list[str]:
+        return sorted(
+            p.name
+            for p in ckpts_dir.iterdir()
+            if p.is_file() and not p.name.endswith((".sha256", ".complete", ".meta.json"))
+        )
+
+    # 1. `none` (default): NO periodic FULL and NO final FULL under `output/`, while `work/` FULL
+    #    checkpoints are still written and used by in-session restart without world re-init!
+    cfg_none = V3PPOConfig.from_dict({**base_dict, "full_exports": "none"})
+    out_none = tmp_path / "out_none"
+    work_none = tmp_path / "work_none"
+    fault_once = {"fired": False}
+
+    def _fault_at_u3_hook(_tr: V3PPOTrainer, next_u: int) -> None:
+        if next_u == 3 and not fault_once["fired"]:
+            fault_once["fired"] = True
+            raise RuntimeError("Transient fault at u=3 to verify work/ FULL restart in none mode")
+
+    capsys.readouterr()
+    res_none = run_training_job(
+        cfg=cfg_none,
+        output_dir=out_none,
+        work_dir=work_none,
+        device="cpu",
+        step_hook=_fault_at_u3_hook,
+    )
+    none_stdout = capsys.readouterr().out
+    assert res_none["status"] == "PASS"
+    assert res_none["in_session_restarts"] == 1
+    assert res_none["periodic_full_exports_published"] == 0
+    assert res_none["periodic_light_exports_published"] == 4
+    assert list(out_none.rglob("full_*")) == []
+    assert _payload_names(out_none / "checkpoints") == [
+        "latest_manifest.json",
+        "light_u0000001.pt",
+        "light_u0000002.pt",
+        "light_u0000003_r01.pt",
+        "light_u0000004_r01.pt",
+    ]
+    # `work/` FULL at u=2 WAS written and restored on in-session restart (mature worlds preserved!)
+    assert (work_none / "checkpoints" / "full_u0000002.index.json").is_file()
+    assert "V3_PPO_RESUME_CHOICE context=in_session_restart_1 chosen_kind=full" in none_stdout
+    assert "worlds reinitialised" not in none_stdout
+
+    # Also verify mid-update cooperative stop rollback in `none` mode NEVER exports `full_*`!
+    orig_ppo_upd = V3PPOTrainer.ppo_update
+
+    def _stop_mid_u3(self_tr: V3PPOTrainer, *, should_stop=None):  # type: ignore[no-untyped-def]
+        if self_tr.updates_completed == 2:
+            raise StopRequestedError("Cooperative stop mid-u3 after work/ saved full_u0000002")
+        return orig_ppo_upd(self_tr, should_stop=should_stop)
+
+    monkeypatch.setattr(V3PPOTrainer, "ppo_update", _stop_mid_u3)
+    out_none_stop = tmp_path / "out_none_stop"
+    res_none_stop = run_training_job(
+        cfg=cfg_none,
+        output_dir=out_none_stop,
+        work_dir=tmp_path / "work_none_stop",
+        device="cpu",
+    )
+    monkeypatch.setattr(V3PPOTrainer, "ppo_update", orig_ppo_upd)
+    assert res_none_stop["aborted_mid_update"] is True
+    assert res_none_stop["updates_completed"] == 2
+    assert list(out_none_stop.rglob("full_*")) == []
+    assert _payload_names(out_none_stop / "checkpoints") == [
+        "latest_manifest.json",
+        "light_u0000001.pt",
+        "light_u0000002.pt",
+    ]
+
+    # 2. `final`: zero periodic FULL under `output/`, and exactly ONE final FULL set completed
+    #    strictly after the final LIGHT (`light_u0000004.pt`).
+    real_sidecars = exports_mod._publish_sidecars_for_existing_payload
+    final_completion_order: list[str] = []
+    out_final = tmp_path / "out_final"
+    work_final = tmp_path / "work_final"
+
+    def _record_final_sidecars(target: Path, digest: str) -> None:
+        real_sidecars(target, digest)
+        if target.resolve().parent == (out_final / "checkpoints").resolve():
+            final_completion_order.append(target.name)
+
+    monkeypatch.setattr(
+        exports_mod, "_publish_sidecars_for_existing_payload", _record_final_sidecars
+    )
+    cfg_final = V3PPOConfig.from_dict({**base_dict, "full_exports": "final"})
+    res_final = run_training_job(
+        cfg=cfg_final,
+        output_dir=out_final,
+        work_dir=work_final,
+        device="cpu",
+    )
+    monkeypatch.setattr(exports_mod, "_publish_sidecars_for_existing_payload", real_sidecars)
+    assert res_final["status"] == "PASS"
+    assert res_final["periodic_full_exports_published"] == 0
+    assert res_final["periodic_light_exports_published"] == 4
+    assert (work_final / "checkpoints" / "full_u0000002.index.json").is_file()
+    assert list((out_final / "checkpoints").glob("full_u0000002*")) == []
+    final_full_indices = sorted(
+        p.name for p in (out_final / "checkpoints").glob("full_*.index.json")
+    )
+    assert final_full_indices == ["full_u0000004.index.json"]
+    final_meta = verify_full_checkpoint_set(
+        out_final / "checkpoints" / "full_u0000004.index.json", require_markers=True
+    )
+    assert final_meta["num_shards"] >= 2
+    expected_final_shards = [p.name for p in final_meta["shard_paths"]]
+    assert _payload_names(out_final / "checkpoints") == sorted(
+        [
+            "latest_manifest.json",
+            "light_u0000001.pt",
+            "light_u0000002.pt",
+            "light_u0000003.pt",
+            "light_u0000004.pt",
+            "full_u0000004.index.json",
+            *expected_final_shards,
+        ]
+    )
+    pos_final_light = final_completion_order.index("light_u0000004.pt")
+    pos_final_shards = [final_completion_order.index(s) for s in expected_final_shards]
+    pos_final_idx = final_completion_order.index("full_u0000004.index.json")
+    assert all(pos_final_light < p for p in pos_final_shards)
+    assert max(pos_final_shards) < pos_final_idx
+
+    # 3. `periodic`: periodic FULL (`u=2`) + final FULL (`u=4`) + all LIGHTs (`u=1..4`).
+    cfg_periodic = V3PPOConfig.from_dict(
+        {**base_dict, "full_exports": "periodic", "max_periodic_full_exports": 1}
+    )
+    out_periodic = tmp_path / "out_periodic"
+    work_periodic = tmp_path / "work_periodic"
+    res_periodic = run_training_job(
+        cfg=cfg_periodic,
+        output_dir=out_periodic,
+        work_dir=work_periodic,
+        device="cpu",
+    )
+    assert res_periodic["status"] == "PASS"
+    assert res_periodic["periodic_full_exports_published"] == 1
+    assert res_periodic["periodic_light_exports_published"] == 3
+    periodic_full_indices = sorted(
+        p.name for p in (out_periodic / "checkpoints").glob("full_*.index.json")
+    )
+    assert periodic_full_indices == ["full_u0000002.index.json", "full_u0000004.index.json"]
+    u2_shards = [
+        p.name
+        for p in verify_full_checkpoint_set(
+            out_periodic / "checkpoints" / "full_u0000002.index.json", require_markers=True
+        )["shard_paths"]
+    ]
+    u4_shards = [
+        p.name
+        for p in verify_full_checkpoint_set(
+            out_periodic / "checkpoints" / "full_u0000004.index.json", require_markers=True
+        )["shard_paths"]
+    ]
+    assert _payload_names(out_periodic / "checkpoints") == sorted(
+        [
+            "latest_manifest.json",
+            "light_u0000001.pt",
+            "light_u0000002.pt",
+            "light_u0000003.pt",
+            "light_u0000004.pt",
+            "full_u0000002.index.json",
+            "full_u0000004.index.json",
+            *u2_shards,
+            *u4_shards,
+        ]
+    )
