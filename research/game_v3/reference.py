@@ -9,7 +9,6 @@ segments and post-move points every tick, rather than incremental sequence grids
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 
 import numpy as np
@@ -17,17 +16,28 @@ import numpy as np
 from research.game_v3.config import (
     BOOST_ACCUM_ONE,
     BOOST_ACCUM_SHIFT,
+    CORPSE_GRID_MAX,
     FALLBACK_RING_SIZE,
+    FALLBACK_SNAKE_STRIDE,
+    FALLBACK_TICK_STRIDE,
     FP_HALF,
     FP_SHIFT,
+    INIT_FOOD_BATCH_SIZE,
+    INIT_SNAKE_CANDIDATES,
     NUM_ACTIONS,
     NUM_TURN_LEVELS,
     TRIG_HALF,
     TRIG_SHIFT,
     GameV3Config,
+    build_clear_offsets_np,
+    build_disc_offsets_np,
+    build_eat_offsets_np,
     build_fallback_spawns_np,
     build_length_tables_np,
     build_trig_tables_np,
+    food_wall_sq_fp,
+    init_food_num_batches,
+    spawn_wall_sq_fp,
 )
 from research.game_v3.rng import (
     PURPOSE_AMBIENT_FOOD,
@@ -38,8 +48,6 @@ from research.game_v3.rng import (
     rng_angle_idx_np,
     rng_int_np,
 )
-
-_CORPSE_GRID_MAX: int = 32767
 
 
 @dataclass
@@ -57,6 +65,42 @@ class ReferenceStepInfo:
     killer_id: np.ndarray
     kill_credit: np.ndarray
     life_age: np.ndarray
+
+
+@dataclass
+class _RefMovePhaseOut:
+    """Typed intermediate arrays emitted by :meth:`ReferenceWorld._phase_move`."""
+
+    old_seg: np.ndarray
+    old_ptr: np.ndarray
+    old_tail_cells: np.ndarray
+    new_theta: np.ndarray
+    cand_hx: np.ndarray
+    cand_hy: np.ndarray
+    new_accum: np.ndarray
+    boosting: np.ndarray
+    shed: np.ndarray
+    boost_drop_int: np.ndarray
+    emitted_pts_fp: list[list[tuple[int, int, int, int]]]
+    keep_old: np.ndarray
+    r_sq: np.ndarray
+
+
+@dataclass
+class _RefCollidePhaseOut:
+    """Typed intermediate arrays emitted by :meth:`ReferenceWorld._phase_collide`."""
+
+    died: np.ndarray
+    survives: np.ndarray
+    killer_id: np.ndarray
+    kill_credit: np.ndarray
+
+
+@dataclass
+class _RefEatPhaseOut:
+    """Typed intermediate arrays emitted by :meth:`ReferenceWorld._phase_eat`."""
+
+    mass_eaten: np.ndarray
 
 
 def _step_delta_fp_scalar(dist_fp: int, trig_q14: int) -> int:
@@ -82,51 +126,13 @@ class ReferenceWorld:
         self.tables = build_length_tables_np(self.cfg)
         self.fallback_spawns = build_fallback_spawns_np(self.cfg)
 
-        c = self.cfg.cell_size
-        max_r = int(math.floor(self.cfg.max_body_radius / c + 1e-12))
-        offsets: list[tuple[int, int, int]] = []
-        for dy in range(-max_r, max_r + 1):
-            for dx in range(-max_r, max_r + 1):
-                d2 = dx * dx + dy * dy
-                if d2 <= max_r * max_r:
-                    offsets.append((d2, dy, dx))
-        offsets.sort()
-        self._disc_d2 = np.array([o[0] for o in offsets], dtype=np.int32)
-        self._disc_dy = np.array([o[1] for o in offsets], dtype=np.int32)
-        self._disc_dx = np.array([o[2] for o in offsets], dtype=np.int32)
-
-        max_eat_r = int(math.ceil((self.cfg.food_pickup_mult * self.cfg.max_body_radius) / c)) + 1
-        eat_pts = [
-            (dx * dx + dy * dy, dy, dx)
-            for dy in range(-max_eat_r, max_eat_r + 1)
-            for dx in range(-max_eat_r, max_eat_r + 1)
-            if dx * dx + dy * dy <= max_eat_r * max_eat_r
-        ]
-        eat_pts.sort()
-        self._eat_dy = np.array([p[1] for p in eat_pts], dtype=np.int32)
-        self._eat_dx = np.array([p[2] for p in eat_pts], dtype=np.int32)
-
-        self._r_clear = max(
-            int(math.ceil(self.cfg.body_radius_f64(self.cfg.start_length) / c)) + 2,
-            self.cfg.respawn_clearance_cells,
-        )
-        clear_pts = [
-            (dx, dy)
-            for dy in range(-self._r_clear, self._r_clear + 1)
-            for dx in range(-self._r_clear, self._r_clear + 1)
-            if dx * dx + dy * dy <= self._r_clear * self._r_clear
-        ]
-        self._clear_dx = np.array([p[0] for p in clear_pts], dtype=np.int32)
-        self._clear_dy = np.array([p[1] for p in clear_pts], dtype=np.int32)
+        _, self._disc_d2, self._disc_dy, self._disc_dx = build_disc_offsets_np(self.cfg)
+        _, self._eat_dy, self._eat_dx = build_eat_offsets_np(self.cfg)
+        self._r_clear, self._clear_dx, self._clear_dy = build_clear_offsets_np(self.cfg)
 
         start_r_fp = int(self.tables["radius_fp"][self.cfg.start_length])
-        spawn_margin_fp = int(round((self.cfg.spawn_wall_margin / c) * (1 << FP_SHIFT)))
-        spawn_lim_fp = max(1 << FP_SHIFT, self.cfg.arena_radius_fp - start_r_fp - spawn_margin_fp)
-        self._spawn_wall_sq_fp = int(spawn_lim_fp) * int(spawn_lim_fp)
-
-        food_margin_fp = int(round((self.cfg.food_wall_margin / c) * (1 << FP_SHIFT)))
-        food_lim_fp = max(1 << FP_SHIFT, self.cfg.arena_radius_fp - food_margin_fp)
-        self._food_wall_sq_fp = int(food_lim_fp) * int(food_lim_fp)
+        self._spawn_wall_sq_fp = spawn_wall_sq_fp(self.cfg, start_r_fp)
+        self._food_wall_sq_fp = food_wall_sq_fp(self.cfg)
 
         # Mutable fixed-point single-world state arrays.
         max_len = self.cfg.max_length
@@ -162,6 +168,14 @@ class ReferenceWorld:
         self.ambient_grid = np.zeros((self.G, self.G), dtype=np.uint8)
         self.corpse_grid = np.zeros((self.G, self.G), dtype=np.int16)
         self.ambient_count: int = 0
+
+        # Cumulative integer mass conservation ledgers (mirroring GameV3Sim).
+        self.total_spawned_snake_mass: int = 0
+        self.total_spawned_ambient_mass: int = 0
+        self.total_corpse_decay_sink: int = 0
+        self.total_boost_decay_sink: int = 0
+        self.total_length_cap_sink: int = 0
+        self.total_truncation_sink: int = 0
 
         self.reset(seed=seed)
 
@@ -252,6 +266,7 @@ class ReferenceWorld:
             self.ambient_grid[y, x] = np.uint8(self.cfg.ambient_pellet_value)
             spawned += 1
         self.ambient_count += spawned
+        self.total_spawned_ambient_mass += spawned * int(self.cfg.ambient_pellet_value)
 
     def reset(self, seed: int | None = None) -> None:
         """Reset single reference world deterministically from ``seed``."""
@@ -265,6 +280,13 @@ class ReferenceWorld:
         self.corpse_grid.fill(0)
         self.ambient_count = 0
 
+        self.total_spawned_snake_mass = 0
+        self.total_spawned_ambient_mass = 0
+        self.total_corpse_decay_sink = 0
+        self.total_boost_decay_sink = 0
+        self.total_length_cap_sink = 0
+        self.total_truncation_sink = 0
+
         self.ring_pos.fill(0)
         self.ring_cell.fill(0)
         self.ring_r_sq.fill(0)
@@ -277,7 +299,7 @@ class ReferenceWorld:
         self.life_age.fill(0)
         self.truncated_pending.fill(False)
 
-        k_init = 32
+        k_init = INIT_SNAKE_CANDIDATES
         min_sep_sq = (2 * self._r_clear) * (2 * self._r_clear)
         placed_cells: list[tuple[int, int]] = []
         init_r_sq = int(self.tables["r_sq_cells"][self.cfg.start_length])
@@ -289,9 +311,9 @@ class ReferenceWorld:
             rng_th = rng_angle_idx_np(
                 self.seed, 0, PURPOSE_INIT_SNAKE, slots * 3 + 2, self.cfg.angle_steps
             )
-            fb_idxs = (i * 7 + np.arange(FALLBACK_RING_SIZE, dtype=np.int32)) & (
-                FALLBACK_RING_SIZE - 1
-            )
+            fb_idxs = (
+                i * FALLBACK_SNAKE_STRIDE + np.arange(FALLBACK_RING_SIZE, dtype=np.int32)
+            ) & (FALLBACK_RING_SIZE - 1)
             cand_gx = np.concatenate((rng_gx, self.fallback_spawns[fb_idxs, 0]))
             cand_gy = np.concatenate((rng_gy, self.fallback_spawns[fb_idxs, 1]))
             cand_th = np.concatenate((rng_th, self.fallback_spawns[fb_idxs, 2]))
@@ -328,6 +350,7 @@ class ReferenceWorld:
                 self.seg_count[i] = 0
                 self.respawn_timer[i] = self.cfg.respawn_delay
 
+        self.total_spawned_snake_mass = int(np.sum(self.alive)) * int(self.cfg.start_length)
         self._rebuild_occ_mask_and_grid()
 
         self.prev_alive.fill(False)
@@ -336,15 +359,16 @@ class ReferenceWorld:
         self.prev_theta[:] = self.theta
         self.prev_length[:] = self.length
 
-        init_batch = 128
-        num_batches = max(1, int(math.ceil(self.cfg.target_ambient_pellets * 2.0 / init_batch)) + 2)
+        num_batches = init_food_num_batches(self.cfg)
         for b in range(num_batches):
-            self._spawn_ambient_batch(PURPOSE_INIT_FOOD, 0, b * init_batch, init_batch)
+            self._spawn_ambient_batch(
+                PURPOSE_INIT_FOOD, 0, b * INIT_FOOD_BATCH_SIZE, INIT_FOOD_BATCH_SIZE
+            )
 
-    def step(
-        self, actions: np.ndarray, *, truncate: bool | np.ndarray = False
-    ) -> ReferenceStepInfo:
-        """Advance the single reference world by one tick."""
+    def _validate_step_inputs(
+        self, actions: np.ndarray, truncate: bool | np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray | None]:
+        """Validate ``actions`` and ``truncate``, returning clipped actions and optional mask."""
         act = np.clip(np.asarray(actions, dtype=np.int32), 0, NUM_ACTIONS - 1)
         if act.shape != (self.N,):
             raise ValueError(f"actions must have shape ({self.N},), got {act.shape}")
@@ -354,12 +378,13 @@ class ReferenceWorld:
                 raise ValueError(f"truncate must have shape ({self.N},), got {trunc_arr.shape}")
         else:
             trunc_arr = None
+        return act, trunc_arr
 
-        self.tick += 1
-
-        # Step 0: retire snakes truncated at the end of the previous tick.
+    def _phase_retire_truncated(self) -> None:
+        """Retire snakes flagged ``truncated_pending`` at the end of the previous tick (no corpse)."""
         for i in range(self.N):
             if self.truncated_pending[i] and self.alive[i]:
+                self.total_truncation_sink += int(self.length[i])
                 self.alive[i] = False
                 self.boosting[i] = False
                 self.length[i] = 0
@@ -371,13 +396,16 @@ class ReferenceWorld:
                 self.respawn_timer[i] = 1
         self.truncated_pending.fill(False)
 
+    def _phase_snapshot_prev(self) -> None:
+        """Snapshot pre-step head pose and pre-tick length (``ReferenceStepInfo.prev_length``)."""
         self.prev_alive[:] = self.alive
         self.prev_boosting[:] = self.boosting
         self.prev_head_pos[:] = self.head_pos
         self.prev_theta[:] = self.theta
         self.prev_length[:] = self.length
 
-        # ---------------- Step 1: move all ----------------
+    def _phase_move(self, act: np.ndarray) -> _RefMovePhaseOut:
+        """Steer, advance heads, emit sub-step points, shed boost mass, and compute retained bodies."""
         max_len = self.cfg.max_length
         angle_mask = self.cfg.angle_steps - 1
         old_seg = self.seg_count.copy()
@@ -438,6 +466,9 @@ class ReferenceWorld:
                     acc = int(self.boost_drop_fp_accum[i]) + self.cfg.boost_drop_fp_per_shed
                     boost_drop_int[i] = acc >> BOOST_ACCUM_SHIFT
                     self.boost_drop_fp_accum[i] = acc & (BOOST_ACCUM_ONE - 1)
+                    self.total_boost_decay_sink += int(self.cfg.boost_shed_mass) - int(
+                        boost_drop_int[i]
+                    )
 
         keep_old = np.zeros((self.N,), dtype=np.int32)
         r_sq = np.zeros((self.N,), dtype=np.int32)
@@ -449,7 +480,25 @@ class ReferenceWorld:
             keep_old[i] = max(0, target_seg - n_pts)
             r_sq[i] = int(self.tables["r_sq_cells"][min(max(int(self.length[i]), 0), max_len)])
 
-        # --------- Step 2: lay retained bodies + causal sub-step points (incl. dying) ---------
+        return _RefMovePhaseOut(
+            old_seg=old_seg,
+            old_ptr=old_ptr,
+            old_tail_cells=old_tail_cells,
+            new_theta=new_theta,
+            cand_hx=cand_hx,
+            cand_hy=cand_hy,
+            new_accum=new_accum,
+            boosting=boosting,
+            shed=shed,
+            boost_drop_int=boost_drop_int,
+            emitted_pts_fp=emitted_pts_fp,
+            keep_old=keep_old,
+            r_sq=r_sq,
+        )
+
+    def _phase_collide(self, move: _RefMovePhaseOut) -> _RefCollidePhaseOut:
+        """Build explicit causal bitmasks and test sub-step head discs against walls and enemies."""
+        max_len = self.cfg.max_length
         ret_mask = self._step_occ_mask
         ret_mask.fill(np.uint64(0))
         substep_masks = [np.zeros((self.G, self.G), dtype=np.uint64) for _ in range(self.max_pts)]
@@ -457,10 +506,10 @@ class ReferenceWorld:
             if not self.alive[j]:
                 continue
             bit_j = np.uint64(1) << np.uint64(j)
-            # Retained pre-move segments of snake j.
-            cnt_j = int(keep_old[j])
+            # Retained pre-move segments of snake j (including snakes that will die this tick).
+            cnt_j = int(move.keep_old[j])
             if cnt_j > 0:
-                ptr_j = int(old_ptr[j])
+                ptr_j = int(move.old_ptr[j])
                 idxs = (ptr_j - np.arange(cnt_j, dtype=np.int32)) % max_len
                 for slot_k in idxs:
                     gx_k, gy_k = int(self.ring_cell[j, slot_k, 0]), int(
@@ -469,11 +518,11 @@ class ReferenceWorld:
                     sx, sy = self._disc_cells(gx_k, gy_k, int(self.ring_r_sq[j, slot_k]))
                     ret_mask[sy, sx] |= bit_j
             # Post-move sub-step head points of snake j tagged by causal sub-step s_j.
-            pts_j = emitted_pts_fp[j]
+            pts_j = move.emitted_pts_fp[j]
             n_pts_j = len(pts_j)
             for k_j, (_px, _py, gx_p, gy_p) in enumerate(pts_j):
                 s_j = self.max_pts - n_pts_j + k_j
-                sx, sy = self._disc_cells(gx_p, gy_p, int(r_sq[j]))
+                sx, sy = self._disc_cells(gx_p, gy_p, int(move.r_sq[j]))
                 substep_masks[s_j][sy, sx] |= bit_j
 
         cum_substep_masks: list[np.ndarray] = []
@@ -482,7 +531,6 @@ class ReferenceWorld:
             running_mask = running_mask | substep_masks[s_idx]
             cum_substep_masks.append(running_mask.copy())
 
-        # ---------------- Step 3: test every head & apply all deaths at once ----------------
         died_wall = np.zeros((self.N,), dtype=bool)
         died_enemy = np.zeros((self.N,), dtype=bool)
         killer_id = np.full((self.N,), -1, dtype=np.int32)
@@ -495,7 +543,7 @@ class ReferenceWorld:
             self_bit = np.uint64(1) << np.uint64(i)
             enemy_bits_union = 0
 
-            pts_i = emitted_pts_fp[i]
+            pts_i = move.emitted_pts_fp[i]
             n_pts_i = len(pts_i)
             for k_i, (px, py, gx_p, gy_p) in enumerate(pts_i):
                 if not (0 <= gx_p < self.G and 0 <= gy_p < self.G) or (
@@ -503,7 +551,7 @@ class ReferenceWorld:
                 ):
                     died_wall[i] = True
                 s_i = self.max_pts - n_pts_i + k_i
-                sx, sy = self._disc_cells(gx_p, gy_p, int(r_sq[i]))
+                sx, sy = self._disc_cells(gx_p, gy_p, int(move.r_sq[i]))
                 if len(sx) > 0:
                     cell_or = int(np.bitwise_or.reduce(cum_substep_masks[s_i][sy, sx]))
                     enemy_bits_union |= cell_or & (~int(self_bit))
@@ -517,24 +565,32 @@ class ReferenceWorld:
         died = self.alive & (died_wall | died_enemy)
         survives = self.alive & (~died)
         kill_credit = np.array([int(np.sum(killer_id == j)) for j in range(self.N)], dtype=np.int32)
+        return _RefCollidePhaseOut(
+            died=died,
+            survives=survives,
+            killer_id=killer_id,
+            kill_credit=kill_credit,
+        )
 
-        # Apply survival updates and deaths simultaneously.
+    def _phase_apply_deaths(self, move: _RefMovePhaseOut, col: _RefCollidePhaseOut) -> None:
+        """Apply survival and death state updates simultaneously and rebuild occupancy grids."""
+        max_len = self.cfg.max_length
         for i in range(self.N):
-            if survives[i]:
-                self.head_pos[i] = (cand_hx[i], cand_hy[i])
-                self.theta[i] = new_theta[i]
-                self.dist_accum_fp[i] = new_accum[i]
-                self.boosting[i] = boosting[i]
-                pts = emitted_pts_fp[i]
+            if col.survives[i]:
+                self.head_pos[i] = (move.cand_hx[i], move.cand_hy[i])
+                self.theta[i] = move.new_theta[i]
+                self.dist_accum_fp[i] = move.new_accum[i]
+                self.boosting[i] = move.boosting[i]
+                pts = move.emitted_pts_fp[i]
                 for k, (px, py, gx_p, gy_p) in enumerate(pts):
-                    w_ptr = (int(old_ptr[i]) + k + 1) % max_len
+                    w_ptr = (int(move.old_ptr[i]) + k + 1) % max_len
                     self.ring_pos[i, w_ptr] = (px, py)
                     self.ring_cell[i, w_ptr] = (gx_p, gy_p)
-                    self.ring_r_sq[i, w_ptr] = r_sq[i]
-                self.head_ptr[i] = (int(old_ptr[i]) + len(pts)) % max_len
-                self.seg_count[i] = min(max_len, int(keep_old[i]) + len(pts))
+                    self.ring_r_sq[i, w_ptr] = move.r_sq[i]
+                self.head_ptr[i] = (int(move.old_ptr[i]) + len(pts)) % max_len
+                self.seg_count[i] = min(max_len, int(move.keep_old[i]) + len(pts))
                 self.life_age[i] += 1
-            elif died[i]:
+            elif col.died[i]:
                 self.alive[i] = False
                 self.boosting[i] = False
                 self.seg_count[i] = 0
@@ -546,12 +602,14 @@ class ReferenceWorld:
 
         self._rebuild_occ_mask_and_grid()
 
-        # ---------------- Step 4: food (lowest slot wins contested pellets; corpses after) --------
+    def _phase_eat(self, col: _RefCollidePhaseOut) -> _RefEatPhaseOut:
+        """Resolve surviving head food pickup with lowest-slot tie-breaking."""
+        max_len = self.cfg.max_length
         mass_eaten = np.zeros((self.N,), dtype=np.int32)
         # Iterate i = 0 .. N-1 in increasing slot order: first surviving snake to claim a pellet
-        # zeroes that cell immediately, giving identical lowest-slot tie-break!
+        # zeroes that cell immediately, giving identical lowest-slot tie-break.
         for i in range(self.N):
-            if not survives[i]:
+            if not col.survives[i]:
                 continue
             li = min(max(int(self.length[i]), 0), max_len)
             pr_sq_fp = int(self.tables["pickup_r_sq_fp"][li])
@@ -581,42 +639,59 @@ class ReferenceWorld:
             self.corpse_grid[sy, sx] = 0
             self.ambient_count -= eaten_cnt
             mass_eaten[i] = eaten_tot
-            self.length[i] = min(max_len, int(self.length[i]) + eaten_tot)
+            uncapped = int(self.length[i]) + eaten_tot
+            capped = min(max_len, uncapped)
+            self.total_length_cap_sink += max(0, uncapped - capped)
+            self.length[i] = capped
+        return _RefEatPhaseOut(mass_eaten=mass_eaten)
 
+    def _phase_deposit(self, move: _RefMovePhaseOut, col: _RefCollidePhaseOut) -> None:
+        """Deposit boost trail pellets and post-death corpse orbs, saturating at CORPSE_GRID_MAX.
+
+        Because existing ``corpse_grid`` values lie in ``[0, CORPSE_GRID_MAX]`` and all boost/corpse
+        additions are non-negative, sequential per-addition clamping ``min(M, min(M, c + a) + b)``
+        equals grouped clamping ``min(M, c + a + b)`` and accumulates identical saturation overflow.
+        """
+        max_len = self.cfg.max_length
         # Deposit boost trail pellets (saturated to int16 max).
         for i in range(self.N):
-            if shed[i] and boost_drop_int[i] > 0:
-                tx = min(max(int(old_tail_cells[i, 0]), 0), self.G - 1)
-                ty = min(max(int(old_tail_cells[i, 1]), 0), self.G - 1)
-                self.corpse_grid[ty, tx] = np.int16(
-                    min(_CORPSE_GRID_MAX, int(self.corpse_grid[ty, tx]) + int(boost_drop_int[i]))
-                )
+            if move.shed[i] and move.boost_drop_int[i] > 0:
+                tx = min(max(int(move.old_tail_cells[i, 0]), 0), self.G - 1)
+                ty = min(max(int(move.old_tail_cells[i, 1]), 0), self.G - 1)
+                raw_new = int(self.corpse_grid[ty, tx]) + int(move.boost_drop_int[i])
+                clamped = min(CORPSE_GRID_MAX, raw_new)
+                self.total_corpse_decay_sink += raw_new - clamped
+                self.corpse_grid[ty, tx] = np.int16(clamped)
 
         # Drop corpses AFTER deaths and eating (saturated to int16 max).
         for i in range(self.N):
-            if not died[i]:
+            if not col.died[i]:
                 continue
             dead_l = min(max(int(self.length[i]), 0), max_len)
             self.length[i] = 0
             c_mass = int(self.tables["corpse_mass"][dead_l])
+            self.total_corpse_decay_sink += dead_l - c_mass
             if c_mass <= 0:
                 continue
-            seg_n = max(1, int(old_seg[i]))
+            seg_n = max(1, int(move.old_seg[i]))
             p_cnt = min(c_mass, seg_n, self.cfg.corpse_max_pellets)
             denom = max(1, p_cnt - 1)
-            seg_span = max(0, int(old_seg[i]) - 1)
+            seg_span = max(0, int(move.old_seg[i]) - 1)
             base_val = c_mass // p_cnt
             rem_val = c_mass % p_cnt
             for k in range(p_cnt):
                 off = (k * seg_span) // denom
-                r_idx = (int(old_ptr[i]) - off) % max_len
+                r_idx = (int(move.old_ptr[i]) - off) % max_len
                 cx = min(max(int(self.ring_cell[i, r_idx, 0]), 0), self.G - 1)
                 cy = min(max(int(self.ring_cell[i, r_idx, 1]), 0), self.G - 1)
                 orb_add = base_val + (1 if k < rem_val else 0)
-                self.corpse_grid[cy, cx] = np.int16(
-                    min(_CORPSE_GRID_MAX, int(self.corpse_grid[cy, cx]) + orb_add)
-                )
+                raw_new = int(self.corpse_grid[cy, cx]) + orb_add
+                clamped = min(CORPSE_GRID_MAX, raw_new)
+                self.total_corpse_decay_sink += raw_new - clamped
+                self.corpse_grid[cy, cx] = np.int16(clamped)
 
+    def _phase_refill(self) -> None:
+        """Refill ambient pellets toward target density."""
         self._spawn_ambient_batch(
             PURPOSE_AMBIENT_FOOD,
             self.tick,
@@ -624,8 +699,9 @@ class ReferenceWorld:
             self.cfg.ambient_spawn_budget_per_tick,
         )
 
-        # ---------------- Step 5: respawn & episode hooks ----------------
-        was_dead_before = (~self.alive) & (~died)
+    def _phase_respawn(self, col: _RefCollidePhaseOut) -> np.ndarray:
+        """Advance respawn timers and evaluate/apply respawns for ready slots."""
+        was_dead_before = (~self.alive) & (~col.died)
         for i in range(self.N):
             if was_dead_before[i]:
                 self.respawn_timer[i] = max(0, int(self.respawn_timer[i]) - 1)
@@ -649,9 +725,11 @@ class ReferenceWorld:
             rth = rng_angle_idx_np(
                 self.seed, self.tick, PURPOSE_RESPAWN, slots * 3 + 2, self.cfg.angle_steps
             )
-            fb_idxs = (i * 7 + self.tick * 13 + np.arange(f_resp, dtype=np.int32) * fb_step) & (
-                FALLBACK_RING_SIZE - 1
-            )
+            fb_idxs = (
+                i * FALLBACK_SNAKE_STRIDE
+                + self.tick * FALLBACK_TICK_STRIDE
+                + np.arange(f_resp, dtype=np.int32) * fb_step
+            ) & (FALLBACK_RING_SIZE - 1)
             all_gx = np.concatenate((rgx, self.fallback_spawns[fb_idxs, 0]))
             all_gy = np.concatenate((rgy, self.fallback_spawns[fb_idxs, 1]))
             all_th = np.concatenate((rth, self.fallback_spawns[fb_idxs, 2]))
@@ -709,35 +787,67 @@ class ReferenceWorld:
             self.ring_r_sq[j, 0] = spawn_r_sq
             spawn_now[j] = True
 
+        self.total_spawned_snake_mass += int(np.sum(spawn_now)) * int(self.cfg.start_length)
         if np.any(spawn_now):
             self._rebuild_occ_mask_and_grid()
+        return spawn_now
 
+    def _phase_episode_signals(
+        self,
+        col: _RefCollidePhaseOut,
+        eat: _RefEatPhaseOut,
+        spawn_now: np.ndarray,
+        truncate: bool | np.ndarray,
+        trunc_arr: np.ndarray | None,
+    ) -> ReferenceStepInfo:
+        """Update episode lifecycle flags and build :class:`ReferenceStepInfo`."""
         self.life_start[:] = spawn_now
         if self.cfg.max_life_ticks > 0:
-            life_truncated = survives & (self.life_age >= self.cfg.max_life_ticks)
+            life_truncated = col.survives & (self.life_age >= self.cfg.max_life_ticks)
         else:
             life_truncated = np.zeros((self.N,), dtype=bool)
         self.truncated_pending[:] = life_truncated
 
         if trunc_arr is not None:
-            rollout_truncated = survives & trunc_arr
+            rollout_truncated = col.survives & trunc_arr
         elif truncate:
-            rollout_truncated = survives.copy()
+            rollout_truncated = col.survives.copy()
         else:
             rollout_truncated = np.zeros((self.N,), dtype=bool)
         truncated = life_truncated | rollout_truncated
-        in_respawn_delay = (~self.alive) & (~died)
+        in_respawn_delay = (~self.alive) & (~col.died)
 
         return ReferenceStepInfo(
             alive=self.alive.copy(),
             life_start=self.life_start.copy(),
-            died=died,
+            died=col.died,
             truncated=truncated,
             in_respawn_delay=in_respawn_delay,
             length=self.length.copy(),
             prev_length=self.prev_length.copy(),
-            mass_eaten=mass_eaten,
-            killer_id=killer_id,
-            kill_credit=kill_credit,
+            mass_eaten=eat.mass_eaten,
+            killer_id=col.killer_id,
+            kill_credit=col.kill_credit,
             life_age=self.life_age.copy(),
         )
+
+    def step(
+        self, actions: np.ndarray, *, truncate: bool | np.ndarray = False
+    ) -> ReferenceStepInfo:
+        """Advance the single reference world by one tick (phases aligned 1-for-1 with GameV3Sim)."""
+        act, trunc_arr = self._validate_step_inputs(actions, truncate)
+        self.tick += 1
+
+        self._phase_retire_truncated()
+        self._phase_snapshot_prev()
+
+        move = self._phase_move(act)
+        col = self._phase_collide(move)
+        self._phase_apply_deaths(move, col)
+
+        eat = self._phase_eat(col)
+        self._phase_deposit(move, col)
+        self._phase_refill()
+
+        spawn_now = self._phase_respawn(col)
+        return self._phase_episode_signals(col, eat, spawn_now, truncate, trunc_arr)

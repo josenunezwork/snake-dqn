@@ -14,7 +14,6 @@ from typing import Any
 import numpy as np
 import torch
 
-import research.game_v3.sim as sim_mod
 from research.arena_ppo.runtime import SignalStopFlag, write_create_only_json
 from research.game_v3.bench import (
     _atomic_write_json,
@@ -23,7 +22,7 @@ from research.game_v3.bench import (
     _tensor_bytes_of_sim_and_obs,
     benchmark_single_grid,
 )
-from research.game_v3.config import NUM_ACTIONS, GameV3Config
+from research.game_v3.config import NUM_ACTIONS, OCC_OWNER_BITS, GameV3Config
 from research.game_v3.obs import (
     NUM_RASTER_CHANNELS,
     NUM_SCALAR_FEATURES,
@@ -37,7 +36,7 @@ from research.game_v3.scripted import (
     food_seeking_actions,
     random_safe_actions,
 )
-from research.game_v3.sim import GameV3Sim
+from research.game_v3.sim import AUTO_REBASE_SUBTICK_THRESHOLD, STATE_FIELDS, GameV3Sim
 
 CUDA_CHECK_EXPORT_FILENAME: str = "cuda_check_result.json"
 CUDA_CHECK_REQUIRED_EXPORTS: tuple[str, ...] = (CUDA_CHECK_EXPORT_FILENAME,)
@@ -48,46 +47,8 @@ EARLY_GAME_MEMORY_NOTE: str = (
     "reflect early-game density)."
 )
 
-_PARITY_TENSOR_ATTRS: tuple[str, ...] = (
-    "seeds",
-    "world_ticks",
-    "head_pos",
-    "theta",
-    "alive",
-    "boosting",
-    "length",
-    "seg_count",
-    "head_ptr",
-    "oldest_active_subtick",
-    "dist_accum_fp",
-    "boost_ticks",
-    "boost_drop_fp_accum",
-    "respawn_timer",
-    "life_age",
-    "life_start",
-    "truncated_pending",
-    "prev_alive",
-    "prev_boosting",
-    "prev_head_pos",
-    "prev_theta",
-    "prev_length",
-    "occ_hi",
-    "occ_lo",
-    "occ_subtick_4x",
-    "occ_subtick_16x",
-    "ambient_grid",
-    "ambient_grid_4x",
-    "ambient_grid_16x",
-    "corpse_grid",
-    "corpse_grid_4x",
-    "corpse_grid_16x",
-    "ambient_count",
-    "total_spawned_snake_mass",
-    "total_spawned_ambient_mass",
-    "total_corpse_decay_sink",
-    "total_boost_decay_sink",
-    "total_length_cap_sink",
-    "total_truncation_sink",
+_PARITY_TENSOR_ATTRS: tuple[str, ...] = tuple(
+    field.name for field in STATE_FIELDS if not field.is_ring
 )
 
 _OutOfMemoryError: tuple[type[BaseException], ...] = (
@@ -310,6 +271,11 @@ def assert_device_equals_cpu_bitwise(
             f"{sim_dev.device} vs cpu _subtick_offset diverged at tick={tick}: "
             f"{sim_dev._subtick_offset} != {sim_cpu._subtick_offset}"
         )
+    if sim_dev.clean_step_streak != sim_cpu.clean_step_streak:
+        raise AssertionError(
+            f"{sim_dev.device} vs cpu clean_step_streak diverged at tick={tick}: "
+            f"{sim_dev.clean_step_streak} != {sim_cpu.clean_step_streak}"
+        )
     for attr in _PARITY_TENSOR_ATTRS:
         raw_d = getattr(sim_dev, attr)
         if raw_d.device != sim_dev.device:
@@ -390,7 +356,7 @@ def run_device_vs_cpu_parity(
 ) -> dict[str, Any]:
     """Run exact bitwise trajectory parity on ``device`` vs CPU across ``num_envs x num_ticks``.
 
-    Exercises automatic ``rebase_subticks`` (with ``AUTO_REBASE_SUBTICK_THRESHOLD`` patched down),
+    Exercises automatic ``rebase_subticks`` (via a lowered ``auto_rebase_threshold``),
     explicit ``rebase_subticks()``, ``reset_worlds()`` (including one triggering auto-rebase),
     and ``bool`` / ``(E,)`` / ``(E, N)`` ``truncate=`` masks.
     """
@@ -400,7 +366,6 @@ def run_device_vs_cpu_parity(
 
     prev_det = torch.are_deterministic_algorithms_enabled()
     prev_warn = torch.is_deterministic_algorithms_warn_only_enabled()
-    orig_rebase_thresh = sim_mod.AUTO_REBASE_SUBTICK_THRESHOLD
 
     eff_rebase_thresh: int | None = None
     if rebase_threshold is not None:
@@ -409,6 +374,9 @@ def run_device_vs_cpu_parity(
             if num_ticks >= 20
             else int(rebase_threshold)
         )
+    sim_rebase_thresh = (
+        eff_rebase_thresh if eff_rebase_thresh is not None else AUTO_REBASE_SUBTICK_THRESHOLD
+    )
 
     try:
         if deterministic_algorithms is not None:
@@ -418,9 +386,6 @@ def run_device_vs_cpu_parity(
                 torch.use_deterministic_algorithms(True, warn_only=(dev.type == "mps"))
             else:
                 torch.use_deterministic_algorithms(False)
-
-        if eff_rebase_thresh is not None:
-            sim_mod.AUTO_REBASE_SUBTICK_THRESHOLD = eff_rebase_thresh
 
         det_active = bool(torch.are_deterministic_algorithms_enabled())
         t0 = time.perf_counter()
@@ -438,8 +403,20 @@ def run_device_vs_cpu_parity(
             ambient_food_density=0.006,
         )
         seeds = [30_000 + e * 19 for e in range(num_envs)]
-        sim_dev = GameV3Sim(cfg, num_envs=num_envs, device=dev, seeds=seeds)
-        sim_cpu = GameV3Sim(cfg, num_envs=num_envs, device="cpu", seeds=seeds)
+        sim_dev = GameV3Sim(
+            cfg,
+            num_envs=num_envs,
+            device=dev,
+            seeds=seeds,
+            auto_rebase_threshold=sim_rebase_thresh,
+        )
+        sim_cpu = GameV3Sim(
+            cfg,
+            num_envs=num_envs,
+            device="cpu",
+            seeds=seeds,
+            auto_rebase_threshold=sim_rebase_thresh,
+        )
 
         k_learn = min(max(1, int(learner_slots)), num_snakes)
         mask_cpu = torch.tensor(
@@ -607,15 +584,19 @@ def run_device_vs_cpu_parity(
                 m_sel = int(wmask_cpu.sum().item())
                 sub_seeds = [120_000 + t * 17 + k for k in range(m_sel)]
                 off_before = sim_cpu._subtick_offset
-                saved_thresh = sim_mod.AUTO_REBASE_SUBTICK_THRESHOLD
+                saved_dev_thresh = sim_dev.auto_rebase_threshold
+                saved_cpu_thresh = sim_cpu.auto_rebase_threshold
                 try:
                     if eff_rebase_thresh is not None:
                         init_st = max(1, sim_cpu.max_pts * sim_cpu.tick + 1 - off_before)
-                        sim_mod.AUTO_REBASE_SUBTICK_THRESHOLD = max(4, init_st)
+                        forced_thresh = max(4, init_st)
+                        sim_dev.auto_rebase_threshold = forced_thresh
+                        sim_cpu.auto_rebase_threshold = forced_thresh
                     sim_dev.reset_worlds(wmask_cpu.to(dev), seeds=sub_seeds)
                     sim_cpu.reset_worlds(wmask_cpu, seeds=sub_seeds)
                 finally:
-                    sim_mod.AUTO_REBASE_SUBTICK_THRESHOLD = saved_thresh
+                    sim_dev.auto_rebase_threshold = saved_dev_thresh
+                    sim_cpu.auto_rebase_threshold = saved_cpu_thresh
                 if sim_cpu._subtick_offset > off_before:
                     rebase_events += 1
                 world_reset_events += 1
@@ -680,7 +661,6 @@ def run_device_vs_cpu_parity(
             "action_counts": [int(c) for c in action_counts.tolist()],
         }
     finally:
-        sim_mod.AUTO_REBASE_SUBTICK_THRESHOLD = orig_rebase_thresh
         if deterministic_algorithms is not None:
             torch.use_deterministic_algorithms(prev_det, warn_only=prev_warn)
 
@@ -689,7 +669,7 @@ def _advance_subticks_chunked_for_rebase(sim: GameV3Sim, delta: int = 4096) -> N
     """Advance stored positive subticks in-place over 8-world chunks so rebase shift > 0."""
     chunk = 8
     d_int = int(delta)
-    shift_6 = d_int << 6
+    shift_6 = d_int << OCC_OWNER_BITS
     sim.tick += d_int
     sim.oldest_active_subtick.add_(d_int)
     for e0 in range(0, sim.E, chunk):
@@ -1279,7 +1259,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--rebase-threshold",
         type=int,
         default=400,
-        help="Patched AUTO_REBASE_SUBTICK_THRESHOLD exercised during parity (default: 400).",
+        help="Simulator auto_rebase_threshold exercised during parity (default: 400).",
     )
     parser.add_argument("--bench-envs", type=_parse_int_list, default=[64, 256])
     parser.add_argument("--bench-snakes", type=_parse_int_list, default=[24, 64])

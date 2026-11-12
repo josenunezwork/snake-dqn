@@ -6,7 +6,14 @@ import math
 
 import torch
 
-from research.game_v3.config import FP_ONE, FP_SHIFT, NUM_TURN_LEVELS
+from research.game_v3.config import (
+    FP_ONE,
+    FP_SHIFT,
+    NUM_TURN_LEVELS,
+    decode_occ_owner_hi,
+    decode_occ_owner_lo,
+    decode_occ_subtick,
+)
 from research.game_v3.rng import PURPOSE_SCRIPTED, rng_int_torch
 from research.game_v3.sim import GameV3Sim, step_delta_fp_torch
 
@@ -57,21 +64,25 @@ def _evaluate_arc_safety_int(sim: GameV3Sim) -> torch.Tensor:
     flat = (gy_c * sim.G + gx_c).view(sim.E, -1)
 
     occ_hi = sim.occ_hi.view(sim.E, -1).gather(1, flat).view_as(gx)
-    ow_hi = occ_hi & 63
+    ow_hi = decode_occ_owner_hi(occ_hi)
     st_hi = sim.oldest_active_subtick.gather(
         1, ow_hi.clamp(0, sim.N - 1).to(torch.int64).view(sim.E, -1)
     ).view_as(gx)
     enemy_hi = (
-        (occ_hi >= 0) & (ow_hi != sim._snake_ids[:, :, None, None]) & ((occ_hi >> 6) >= st_hi)
+        (occ_hi >= 0)
+        & (ow_hi != sim._snake_ids[:, :, None, None])
+        & (decode_occ_subtick(occ_hi) >= st_hi)
     )
 
     occ_lo = sim.occ_lo.view(sim.E, -1).gather(1, flat).view_as(gx)
-    ow_lo = 63 - (occ_lo & 63)
+    ow_lo = decode_occ_owner_lo(occ_lo)
     st_lo = sim.oldest_active_subtick.gather(
         1, ow_lo.clamp(0, sim.N - 1).to(torch.int64).view(sim.E, -1)
     ).view_as(gx)
     enemy_lo = (
-        (occ_lo >= 0) & (ow_lo != sim._snake_ids[:, :, None, None]) & ((occ_lo >> 6) >= st_lo)
+        (occ_lo >= 0)
+        & (ow_lo != sim._snake_ids[:, :, None, None])
+        & (decode_occ_subtick(occ_lo) >= st_lo)
     )
 
     step_safe = in_arena & in_grid & (~(enemy_hi | enemy_lo))

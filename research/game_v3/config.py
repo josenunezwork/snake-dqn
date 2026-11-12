@@ -23,8 +23,77 @@ TRIG_HALF: int = 1 << (TRIG_SHIFT - 1)  # 8192
 BOOST_ACCUM_SHIFT: int = 10
 BOOST_ACCUM_ONE: int = 1 << BOOST_ACCUM_SHIFT  # 1024
 
+INV_FP_ONE_F32: float = float(np.float32(1.0 / FP_ONE))
+
 NUM_TURN_LEVELS: int = 5
 NUM_ACTIONS: int = 10  # 5 turn levels {-1, -0.5, 0, +0.5, +1} x {normal, boost}
+
+# Shared world-population, food-grid, fallback-spawn, and encoding constants:
+# - GameV3Config.__post_init__ enforces max_pickup_fp < MAX_FOOD_PICKUP_FP < FOOD_PICKUP_CLAMP_FP,
+#   and 2 * FOOD_PICKUP_CLAMP_FP**2 < 2**31 so int32 dx*dx + dy*dy in sim.py never overflows
+#   signed int32 while leaving every in-radius candidate untouched.
+INIT_SNAKE_CANDIDATES: int = 32
+INIT_FOOD_BATCH_SIZE: int = 128
+CORPSE_GRID_MAX: int = 32767
+MAX_FOOD_PICKUP_FP: int = 30_000
+FOOD_PICKUP_CLAMP_FP: int = 32_000
+
+FALLBACK_RING_SIZE: int = 64
+FALLBACK_SNAKE_STRIDE: int = 7
+FALLBACK_TICK_STRIDE: int = 13
+FALLBACK_INNER_RING_FRAC: float = 0.35
+FALLBACK_OUTER_RING_FRAC: float = 0.70
+FALLBACK_OUTER_ANGLE_OFFSET: float = 0.09817477
+
+SIZE_BUCKET_LOG_SCALE: float = 32.0
+SIZE_BUCKET_LEN_DIV: float = 4.0
+
+FOOD_LUT_MAX: int = 2048
+AMBIENT_FOOD_HALF_SAT: float = 1.0
+CORPSE_FOOD_HALF_SAT: float = 4.0
+
+SUPPORTED_OBS_SCALES: tuple[int, int, int] = (1, 4, 16)
+
+# 1x occupancy bit layout (signed int32):
+# - Empty sentinel is -1.
+# - Non-empty cells pack ``(subtick << OCC_OWNER_BITS) | owner_code`` where ``occ_hi``
+#   stores ``owner_code = slot_id`` and ``occ_lo`` stores ``OCC_OWNER_MASK - slot_id``.
+# - Non-negative signed int32 requires ``0 <= subtick <= MAX_OCC_SUBTICK``.
+OCC_OWNER_BITS: int = 6
+MAX_SNAKES: int = 1 << OCC_OWNER_BITS  # 64
+OCC_OWNER_MASK: int = MAX_SNAKES - 1  # 63
+OCC_SUBTICK_BITS: int = 31 - OCC_OWNER_BITS  # 25
+MAX_OCC_SUBTICK: int = (1 << OCC_SUBTICK_BITS) - 1  # 33,554,431
+
+
+def pack_occ_hi(subtick: Any, slot_id: Any) -> Any:
+    """Pack ``(subtick, slot_id)`` into signed ``int32`` ``occ_hi`` format."""
+    return (subtick << OCC_OWNER_BITS) | slot_id
+
+
+def pack_occ_lo(subtick: Any, slot_id: Any) -> Any:
+    """Pack ``(subtick, slot_id)`` into signed ``int32`` ``occ_lo`` format."""
+    return (subtick << OCC_OWNER_BITS) | (OCC_OWNER_MASK - slot_id)
+
+
+def decode_occ_owner_hi(packed: Any) -> Any:
+    """Decode ``slot_id`` from a non-negative ``occ_hi`` entry."""
+    return packed & OCC_OWNER_MASK
+
+
+def decode_occ_owner_lo(packed: Any) -> Any:
+    """Decode ``slot_id`` from a non-negative ``occ_lo`` entry."""
+    return OCC_OWNER_MASK - (packed & OCC_OWNER_MASK)
+
+
+def decode_occ_subtick(packed: Any) -> Any:
+    """Extract the packed subtick from a non-negative ``occ_hi`` or ``occ_lo`` entry."""
+    return packed >> OCC_OWNER_BITS
+
+
+def occ_entry_active(packed: Any, min_active_subtick: Any) -> Any:
+    """Return boolean mask where ``packed`` is non-empty and its subtick >= ``min_active_subtick``."""
+    return (packed >= 0) & ((packed >> OCC_OWNER_BITS) >= min_active_subtick)
 
 
 @dataclass(frozen=True)
@@ -87,8 +156,11 @@ class GameV3Config:
 
         if not (0.0 < self.arena_radius <= 2000.0):
             raise ValueError(f"arena_radius must be in (0, 2000], got {self.arena_radius}")
-        if not (6 <= self.num_snakes <= 64):
-            raise ValueError(f"num_snakes must be in [6, 64], got {self.num_snakes}")
+        if not (6 <= self.num_snakes <= MAX_SNAKES):
+            raise ValueError(
+                f"num_snakes must be in [6, {MAX_SNAKES}] (derived from {OCC_OWNER_BITS}-bit "
+                f"occupancy owner layout), got {self.num_snakes}"
+            )
         if self.cell_size <= 0.0:
             raise ValueError(f"cell_size must be positive, got {self.cell_size}")
         if self.start_length < 2:
@@ -143,7 +215,7 @@ class GameV3Config:
         max_pickup_fp = int(
             round((self.food_pickup_mult * self.max_body_radius / self.cell_size) * FP_ONE)
         )
-        if max_pickup_fp <= 0 or max_pickup_fp >= 30_000:
+        if max_pickup_fp <= 0 or max_pickup_fp >= MAX_FOOD_PICKUP_FP:
             raise ValueError(
                 "food_pickup_mult * max_body_radius exceeds safe local int32 squared-distance range"
             )
@@ -168,8 +240,11 @@ class GameV3Config:
             raise ValueError("obs_fine_size must be an even integer >= 8")
         if self.obs_coarse_size < 8 or self.obs_coarse_size % 2 != 0:
             raise ValueError("obs_coarse_size must be an even integer >= 8")
-        if len(self.obs_scales) != 3 or any(s < 1 for s in self.obs_scales):
-            raise ValueError(f"obs_scales must be 3 positive integers, got {self.obs_scales}")
+        if self.obs_scales != SUPPORTED_OBS_SCALES:
+            raise ValueError(
+                f"obs_scales must be {SUPPORTED_OBS_SCALES} (matching the fixed 1x/4x/16x "
+                f"occupancy and food pyramids), got {self.obs_scales}"
+            )
 
     @property
     def num_actions(self) -> int:
@@ -336,7 +411,15 @@ def build_length_tables_np(cfg: GameV3Config) -> dict[str, np.ndarray]:
         turn_deltas[length, 4] = -fq
 
         if length >= 1:
-            size_bucket[length] = min(255, max(1, int(round(32.0 * math.log2(1.0 + length / 4.0)))))
+            size_bucket[length] = min(
+                255,
+                max(
+                    1,
+                    int(
+                        round(SIZE_BUCKET_LOG_SCALE * math.log2(1.0 + length / SIZE_BUCKET_LEN_DIV))
+                    ),
+                ),
+            )
             len_log_f32[length] = np.float32(math.log2(1.0 + length) / denom_log)
         radius_norm_f32[length] = np.float32(r_fp / max_r_fp)
         turn_norm_f32[length] = np.float32(fq / start_q)
@@ -359,9 +442,6 @@ def build_length_tables_np(cfg: GameV3Config) -> dict[str, np.ndarray]:
     }
 
 
-FALLBACK_RING_SIZE: int = 64
-
-
 def build_fallback_spawns_np(cfg: GameV3Config) -> np.ndarray:
     """Build deterministic fallback spawn table ``(64, 3)`` of ``(gx, gy, angle_idx)`` in int32."""
     c = cfg.cell_size
@@ -373,9 +453,11 @@ def build_fallback_spawns_np(cfg: GameV3Config) -> np.ndarray:
     table = np.empty((FALLBACK_RING_SIZE, 3), dtype=np.int32)
     half_ring = FALLBACK_RING_SIZE // 2
     for idx in range(FALLBACK_RING_SIZE):
-        ring_frac = 0.35 if idx < half_ring else 0.70
+        ring_frac = FALLBACK_INNER_RING_FRAC if idx < half_ring else FALLBACK_OUTER_RING_FRAC
         k = idx % half_ring
-        ang = 2.0 * math.pi * k / half_ring + (0.09817477 if idx >= half_ring else 0.0)
+        ang = 2.0 * math.pi * k / half_ring + (
+            FALLBACK_OUTER_ANGLE_OFFSET if idx >= half_ring else 0.0
+        )
         r_cells = ring_frac * max_safe_r_cells
         gx = min(max(int(round(hg + r_cells * math.cos(ang))), 0), g_sz - 1)
         gy = min(max(int(round(hg + r_cells * math.sin(ang))), 0), g_sz - 1)
@@ -387,3 +469,86 @@ def build_fallback_spawns_np(cfg: GameV3Config) -> np.ndarray:
         table[idx, 1] = gy
         table[idx, 2] = inward_idx
     return table
+
+
+def build_disc_offsets_np(
+    cfg: GameV3Config,
+) -> tuple[int, np.ndarray, np.ndarray, np.ndarray]:
+    """Build sorted ``(max_r_cells, d2, dy, dx)`` body-disc cell offsets in ``int32``."""
+    max_r_cells = int(math.floor(cfg.max_body_radius / cfg.cell_size + 1e-12))
+    offsets: list[tuple[int, int, int]] = []
+    for dy in range(-max_r_cells, max_r_cells + 1):
+        for dx in range(-max_r_cells, max_r_cells + 1):
+            d2 = dx * dx + dy * dy
+            if d2 <= max_r_cells * max_r_cells:
+                offsets.append((d2, dy, dx))
+    offsets.sort()
+    disc_dist_sq = np.array([o[0] for o in offsets], dtype=np.int32)
+    disc_dy = np.array([o[1] for o in offsets], dtype=np.int32)
+    disc_dx = np.array([o[2] for o in offsets], dtype=np.int32)
+    return max_r_cells, disc_dist_sq, disc_dy, disc_dx
+
+
+def build_eat_offsets_np(cfg: GameV3Config) -> tuple[int, np.ndarray, np.ndarray]:
+    """Build sorted ``(max_eat_r_cells, dy, dx)`` candidate food-pickup cell offsets in ``int32``."""
+    max_eat_r_cells = (
+        int(math.ceil((cfg.food_pickup_mult * cfg.max_body_radius) / cfg.cell_size)) + 1
+    )
+    eat_offsets: list[tuple[int, int, int]] = []
+    for dy in range(-max_eat_r_cells, max_eat_r_cells + 1):
+        for dx in range(-max_eat_r_cells, max_eat_r_cells + 1):
+            d2 = dx * dx + dy * dy
+            if d2 <= max_eat_r_cells * max_eat_r_cells:
+                eat_offsets.append((d2, dy, dx))
+    eat_offsets.sort()
+    eat_dy = np.array([o[1] for o in eat_offsets], dtype=np.int32)
+    eat_dx = np.array([o[2] for o in eat_offsets], dtype=np.int32)
+    return max_eat_r_cells, eat_dy, eat_dx
+
+
+def build_clear_offsets_np(cfg: GameV3Config) -> tuple[int, np.ndarray, np.ndarray]:
+    """Build ``(r_clear, dx, dy)`` respawn clearance cell offsets in ``int32``."""
+    r_clear = max(
+        int(math.ceil(cfg.body_radius_f64(cfg.start_length) / cfg.cell_size)) + 2,
+        cfg.respawn_clearance_cells,
+    )
+    clear_offsets: list[tuple[int, int]] = []
+    for dy in range(-r_clear, r_clear + 1):
+        for dx in range(-r_clear, r_clear + 1):
+            if dx * dx + dy * dy <= r_clear * r_clear:
+                clear_offsets.append((dx, dy))
+    clear_dx = np.array([o[0] for o in clear_offsets], dtype=np.int32)
+    clear_dy = np.array([o[1] for o in clear_offsets], dtype=np.int32)
+    return r_clear, clear_dx, clear_dy
+
+
+def spawn_wall_sq_fp(cfg: GameV3Config, start_r_fp: int | None = None) -> int:
+    """Compute exact squared fixed-point arena limit for initial/respawn placement."""
+    if start_r_fp is None:
+        w64 = cfg.body_radius_f64(cfg.start_length)
+        start_r_fp = max(1, int(round((w64 / cfg.cell_size) * FP_ONE)))
+    spawn_margin_fp = int(round((cfg.spawn_wall_margin / cfg.cell_size) * FP_ONE))
+    spawn_lim_fp = max(FP_ONE, cfg.arena_radius_fp - int(start_r_fp) - spawn_margin_fp)
+    return int(spawn_lim_fp) * int(spawn_lim_fp)
+
+
+def food_wall_sq_fp(cfg: GameV3Config) -> int:
+    """Compute exact squared fixed-point arena limit for ambient food spawning."""
+    food_margin_fp = int(round((cfg.food_wall_margin / cfg.cell_size) * FP_ONE))
+    food_lim_fp = max(FP_ONE, cfg.arena_radius_fp - food_margin_fp)
+    return int(food_lim_fp) * int(food_lim_fp)
+
+
+def init_food_num_batches(cfg: GameV3Config) -> int:
+    """Return deterministic batch count for initial ambient-food population."""
+    return max(1, int(math.ceil(cfg.target_ambient_pellets * 2.0 / INIT_FOOD_BATCH_SIZE)) + 2)
+
+
+def build_food_luts_np() -> tuple[np.ndarray, np.ndarray]:
+    """Build exact ``uint8`` lookup tables ``(ambient_lut, corpse_lut)`` over ``0..FOOD_LUT_MAX``."""
+    amb_lut = np.empty(FOOD_LUT_MAX + 1, dtype=np.uint8)
+    cor_lut = np.empty(FOOD_LUT_MAX + 1, dtype=np.uint8)
+    for m in range(FOOD_LUT_MAX + 1):
+        amb_lut[m] = min(255, int(round(255.0 * m / (AMBIENT_FOOD_HALF_SAT + m))))
+        cor_lut[m] = min(255, int(round(255.0 * m / (CORPSE_FOOD_HALF_SAT + m))))
+    return amb_lut, cor_lut

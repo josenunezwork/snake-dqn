@@ -8,32 +8,22 @@ import numpy as np
 import pytest
 import torch
 
-from research.game_v3 import sim as sim_mod
 from research.game_v3.config import NUM_ACTIONS, GameV3Config
 from research.game_v3.obs import LearnerIndex, allocate_obs_batch, build_obs, build_obs_reference
 from research.game_v3.reference import ReferenceStepInfo, ReferenceWorld
 from research.game_v3.scripted import food_seeking_actions, random_safe_actions
-from research.game_v3.sim import GameV3Sim, StepInfo
+from research.game_v3.sim import STATE_FIELDS, GameV3Sim, StepInfo
 
-_SNAKE_STATE_FIELDS: tuple[str, ...] = (
-    "head_pos",
-    "theta",
-    "alive",
-    "boosting",
-    "length",
-    "seg_count",
-    "dist_accum_fp",
-    "boost_ticks",
-    "boost_drop_fp_accum",
-    "respawn_timer",
-    "life_age",
-    "life_start",
-    "truncated_pending",
-    "prev_alive",
-    "prev_boosting",
-    "prev_head_pos",
-    "prev_theta",
-    "prev_length",
+_SNAKE_STATE_FIELDS: tuple[str, ...] = tuple(
+    field.name for field in STATE_FIELDS if field.in_reference_snake
+)
+_MASS_LEDGER_FIELDS: tuple[str, ...] = (
+    "total_spawned_snake_mass",
+    "total_spawned_ambient_mass",
+    "total_corpse_decay_sink",
+    "total_boost_decay_sink",
+    "total_length_cap_sink",
+    "total_truncation_sink",
 )
 
 
@@ -101,6 +91,33 @@ def assert_full_state_and_obs_parity(
                 f"[{label}] sim.{grid_attr} diverged at tick={tick}, idx={tuple(diff)}: "
                 f"got={got_g[tuple(diff)]}, exp={exp_g[tuple(diff)]}"
             )
+
+    for ledger_attr in _MASS_LEDGER_FIELDS:
+        got_l = getattr(sim, ledger_attr).detach().cpu().numpy()
+        exp_l = np.array([getattr(r, ledger_attr) for r in refs], dtype=np.int64)
+        if not np.array_equal(got_l, exp_l):
+            diff = np.argwhere(got_l != exp_l)[0]
+            raise AssertionError(
+                f"[{label}] sim.{ledger_attr} diverged at tick={tick}, idx={tuple(diff)}: "
+                f"got={got_l[tuple(diff)]}, exp={exp_l[tuple(diff)]}"
+            )
+
+    for e, ref in enumerate(refs):
+        ref_snake_mass = int(np.sum(np.where(ref.alive, ref.length, 0), dtype=np.int64))
+        ref_amb_mass = int(np.sum(ref.ambient_grid, dtype=np.int64))
+        ref_cor_mass = int(np.sum(ref.corpse_grid, dtype=np.int64))
+        lhs = ref_snake_mass + ref_amb_mass + ref_cor_mass
+        rhs = (
+            ref.total_spawned_snake_mass
+            + ref.total_spawned_ambient_mass
+            - ref.total_corpse_decay_sink
+            - ref.total_boost_decay_sink
+            - ref.total_length_cap_sink
+            - ref.total_truncation_sink
+        )
+        assert (
+            lhs == rhs
+        ), f"[{label}] ref[{e}] mass conservation failed at tick={tick}: {lhs} != {rhs}"
 
     if check_rings:
         max_len = sim.cfg.max_length
@@ -317,7 +334,7 @@ def test_32_worlds_x_1000_ticks_n24_exact_bitwise_parity_cpu() -> None:
 
 
 def test_parity_large_snakes_all_body_radius_tiers() -> None:
-    """SMALLER 3a: Parity across large snakes exercising every distinct body-radius tier."""
+    """Parity across large snakes exercising every distinct body-radius tier."""
     cfg = GameV3Config(
         arena_radius=180.0,
         num_snakes=20,
@@ -361,6 +378,7 @@ def test_parity_large_snakes_all_body_radius_tiers() -> None:
                 sim.total_spawned_snake_mass[e] += delta
                 refs[e].length[i] = target_l
                 refs[e].prev_length[i] = target_l
+                refs[e].total_spawned_snake_mass += delta
                 if sim_mps is not None:
                     sim_mps.length[e, i] = target_l
                     sim_mps.prev_length[e, i] = target_l
@@ -403,7 +421,7 @@ def test_parity_large_snakes_all_body_radius_tiers() -> None:
 
 
 def test_parity_ring_wraparound_max_length_40_for_400_ticks() -> None:
-    """SMALLER 3b: Ring buffer wraparound parity with max_length=40 across 400 ticks."""
+    """Ring buffer wraparound parity with max_length=40 across 400 ticks."""
     cfg = GameV3Config(
         arena_radius=90.0,
         num_snakes=12,
@@ -456,7 +474,7 @@ def test_parity_ring_wraparound_max_length_40_for_400_ticks() -> None:
 
 
 def test_parity_default_r600_n24() -> None:
-    """SMALLER 3c: Bitwise parity at the exact default GameV3Config (R=600, N=24)."""
+    """Bitwise parity at the exact default GameV3Config (R=600, N=24)."""
     cfg = GameV3Config()
     assert cfg.arena_radius == 600.0 and cfg.num_snakes == 24
     num_envs = 2
@@ -516,7 +534,7 @@ def test_parity_default_r600_n24() -> None:
 
 
 def test_parity_truncate_masks_all_shapes_vs_reference() -> None:
-    """MINOR 1a: Parity vs ReferenceWorld for bool, (E,), and (E, N) truncate= masks."""
+    """Parity vs ReferenceWorld for bool, (E,), and (E, N) truncate= masks."""
     cfg = GameV3Config(
         arena_radius=100.0,
         num_snakes=16,
@@ -614,14 +632,12 @@ def test_parity_truncate_masks_all_shapes_vs_reference() -> None:
     assert total_rollout_truncs >= 100
 
 
-def test_parity_forced_rebases_and_repeated_reset_worlds_600_ticks_vs_reference(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """MINOR 1b: Parity vs ReferenceWorld across forced rebases + repeated reset_worlds (600 ticks).
+def test_parity_forced_rebases_and_repeated_reset_worlds_600_ticks_vs_reference() -> None:
+    """Parity vs ReferenceWorld across forced rebases and repeated reset_worlds (600 ticks).
 
     Exercises:
-      - Patched low ``AUTO_REBASE_SUBTICK_THRESHOLD = 96`` triggering repeated automatic rebases
-        during ``step()`` and inside ``reset_worlds()``, plus explicit ``rebase_subticks()`` calls;
+      - Low ``auto_rebase_threshold=96`` triggering repeated automatic rebases during
+        ``step()`` and inside ``reset_worlds()``, plus explicit ``rebase_subticks()`` calls;
       - 8 ``reset_worlds`` calls across 600 ticks (single-world, subset, alternating, all-world,
         and empty masks; ``seeds=None``, ``(E,)`` seeds, and ``(m_envs,)`` seeds) while un-reset
         worlds continue running across multiple rebases;
@@ -629,7 +645,6 @@ def test_parity_forced_rebases_and_repeated_reset_worlds_600_ticks_vs_reference(
         and ``truncate=`` masks, verifying full game state, ``StepInfo``, rings, disjoint surviving
         discs, and ``build_obs`` vs ``build_obs_reference``.
     """
-    monkeypatch.setattr(sim_mod, "AUTO_REBASE_SUBTICK_THRESHOLD", 96)
     cfg = GameV3Config(
         arena_radius=105.0,
         num_snakes=18,
@@ -640,10 +655,12 @@ def test_parity_forced_rebases_and_repeated_reset_worlds_600_ticks_vs_reference(
     num_envs = 8
     num_ticks = 600
     init_seeds = [8200 + e * 13 for e in range(num_envs)]
-    sim = GameV3Sim(cfg, num_envs=num_envs, device="cpu", seeds=init_seeds)
+    sim = GameV3Sim(
+        cfg, num_envs=num_envs, device="cpu", seeds=init_seeds, auto_rebase_threshold=96
+    )
     refs = [ReferenceWorld(cfg, seed=s) for s in init_seeds]
     sim_mps = (
-        GameV3Sim(cfg, num_envs=num_envs, device="mps", seeds=init_seeds)
+        GameV3Sim(cfg, num_envs=num_envs, device="mps", seeds=init_seeds, auto_rebase_threshold=96)
         if torch.backends.mps.is_available()
         else None
     )
@@ -767,15 +784,20 @@ def test_parity_forced_rebases_and_repeated_reset_worlds_600_ticks_vs_reference(
                     refs[e_idx] = ReferenceWorld(cfg, seed=sub_seeds[k])
             elif seed_mode == "force_reset_rebase":
                 sub_seeds = [90_000 + t * 41 + k for k in range(len(sel_envs))]
-                saved_th = sim_mod.AUTO_REBASE_SUBTICK_THRESHOLD
+                saved_th = sim.auto_rebase_threshold
                 try:
                     init_st = max(1, sim.max_pts * sim.tick + 1 - sim._subtick_offset)
-                    sim_mod.AUTO_REBASE_SUBTICK_THRESHOLD = max(4, init_st)
+                    forced_th = max(4, init_st)
+                    sim.auto_rebase_threshold = forced_th
+                    if sim_mps is not None:
+                        sim_mps.auto_rebase_threshold = forced_th
                     sim.reset_worlds(wmask, seeds=sub_seeds)
                     if sim_mps is not None:
                         sim_mps.reset_worlds(wmask.to("mps"), seeds=sub_seeds)
                 finally:
-                    sim_mod.AUTO_REBASE_SUBTICK_THRESHOLD = saved_th
+                    sim.auto_rebase_threshold = saved_th
+                    if sim_mps is not None:
+                        sim_mps.auto_rebase_threshold = saved_th
                 assert sim._subtick_offset > off_pre_reset
                 for k, e_idx in enumerate(sel_envs):
                     refs[e_idx] = ReferenceWorld(cfg, seed=sub_seeds[k])
@@ -832,3 +854,214 @@ def test_parity_forced_rebases_and_repeated_reset_worlds_600_ticks_vs_reference(
     assert total_deaths >= 150
     assert total_kills >= 25
     assert int(sim.total_boost_decay_sink.sum().item()) > 0
+
+
+def _sample_random_config(rng: np.random.Generator) -> GameV3Config:
+    """Draw a valid small-arena GameV3Config across diverse rule parameters."""
+    spawn_wall_margin = float(rng.integers(12, 24))
+    arena_radius = float(rng.integers(int(spawn_wall_margin) + 44, 145))
+    num_snakes = int(rng.integers(6, 49))
+    start_length = int(rng.integers(8, 17))
+    min_boost_length = int(start_length + rng.integers(0, 6))
+    max_length = int(rng.integers(max(min_boost_length + 14, 34), 96))
+    return GameV3Config(
+        arena_radius=arena_radius,
+        num_snakes=num_snakes,
+        start_length=start_length,
+        max_length=max_length,
+        turn_rate=float(rng.uniform(0.08, 0.22)),
+        turn_exponent=float(rng.uniform(0.12, 0.36)),
+        min_boost_length=min_boost_length,
+        boost_shed_ticks=int(rng.integers(2, 7)),
+        boost_shed_mass=int(rng.integers(1, 3)),
+        boost_drop_fraction=float(rng.choice([0.0, 0.25, 0.5, 0.75, 1.0])),
+        food_pickup_mult=float(rng.choice([1.25, 1.5, 1.75, 2.0])),
+        corpse_mass_fraction=float(rng.choice([0.35, 0.6, 0.7, 0.9])),
+        corpse_max_pellets=int(rng.integers(6, 28)),
+        ambient_food_density=float(rng.uniform(0.004, 0.022)),
+        ambient_pellet_value=int(rng.integers(1, 4)),
+        ambient_spawn_budget_per_tick=int(rng.integers(8, 48)),
+        respawn_delay=int(rng.integers(2, 8)),
+        respawn_candidates=int(rng.integers(4, 10)),
+        respawn_clearance_cells=int(rng.integers(3, 6)),
+        spawn_wall_margin=spawn_wall_margin,
+        max_life_ticks=int(rng.choice([0, 0, 35, 60])),
+    )
+
+
+def test_parity_randomized_configs_and_action_sequences() -> None:
+    """Bitwise parity across randomized GameV3Config instances and random action sequences."""
+    cfg_rng = np.random.default_rng(20261111)
+    configs = [_sample_random_config(cfg_rng) for _ in range(6)]
+    num_envs = 4
+    num_ticks = 100
+    has_mps = torch.backends.mps.is_available()
+
+    for cfg_idx, cfg in enumerate(configs):
+        seeds = [81000 + cfg_idx * 100 + e for e in range(num_envs)]
+        sim_cpu = GameV3Sim(
+            cfg,
+            num_envs=num_envs,
+            device="cpu",
+            seeds=seeds,
+            auto_rebase_threshold=96,
+        )
+        sim_gpu = (
+            GameV3Sim(
+                cfg,
+                num_envs=num_envs,
+                device="mps",
+                seeds=seeds,
+                auto_rebase_threshold=96,
+            )
+            if has_mps
+            else None
+        )
+        refs = [ReferenceWorld(cfg, seed=s) for s in seeds]
+
+        act_rng = np.random.default_rng(99000 + cfg_idx)
+        learner_mask = torch.from_numpy(act_rng.random((num_envs, cfg.num_snakes)) < 0.35)
+        if not bool(learner_mask.any().item()):
+            learner_mask[0, 0] = True
+
+        label_cpu = f"rand-cfg-{cfg_idx}-cpu"
+        label_gpu = f"rand-cfg-{cfg_idx}-mps"
+        assert_full_state_and_obs_parity(
+            sim_cpu,
+            refs,
+            0,
+            check_rings=True,
+            check_obs=True,
+            learner_mask=learner_mask,
+            label=label_cpu,
+        )
+        if sim_gpu is not None:
+            assert_full_state_and_obs_parity(
+                sim_gpu,
+                refs,
+                0,
+                check_rings=True,
+                check_obs=True,
+                learner_mask=learner_mask.to("mps"),
+                label=label_gpu,
+            )
+
+        for t in range(1, num_ticks + 1):
+            if t % 7 == 0:
+                act_cpu = food_seeking_actions(sim_cpu)
+                act_np = act_cpu.numpy()
+            else:
+                act_np = act_rng.integers(
+                    0, NUM_ACTIONS, size=(num_envs, cfg.num_snakes), dtype=np.int64
+                )
+                act_cpu = torch.from_numpy(act_np)
+
+            if t % 29 == 0:
+                w_trunc = act_rng.random((num_envs,)) < 0.5
+                trunc_cpu: bool | torch.Tensor = torch.from_numpy(w_trunc)
+                ref_truncs: list[bool] = [bool(w_trunc[e]) for e in range(num_envs)]
+            else:
+                trunc_cpu = False
+                ref_truncs = [False for _ in range(num_envs)]
+
+            info_cpu = sim_cpu.step(act_cpu, truncate=trunc_cpu)
+            ref_infos = [refs[e].step(act_np[e], truncate=ref_truncs[e]) for e in range(num_envs)]
+            assert_step_info_parity(info_cpu, ref_infos, t, label=label_cpu)
+
+            if sim_gpu is not None:
+                trunc_gpu = (
+                    trunc_cpu.to("mps") if isinstance(trunc_cpu, torch.Tensor) else trunc_cpu
+                )
+                info_gpu = sim_gpu.step(act_cpu.to("mps"), truncate=trunc_gpu)
+                assert_step_info_parity(info_gpu, ref_infos, t, label=label_gpu)
+
+            if t in (50, num_ticks):
+                assert_full_state_and_obs_parity(
+                    sim_cpu,
+                    refs,
+                    t,
+                    check_rings=True,
+                    check_obs=True,
+                    learner_mask=learner_mask,
+                    label=label_cpu,
+                )
+                if sim_gpu is not None:
+                    assert_full_state_and_obs_parity(
+                        sim_gpu,
+                        refs,
+                        t,
+                        check_rings=True,
+                        check_obs=True,
+                        learner_mask=learner_mask.to("mps"),
+                        label=label_gpu,
+                    )
+
+
+def test_parity_over_256_simultaneous_respawns_vs_reference() -> None:
+    """Bitwise parity vs ReferenceWorld when >256 snakes become ready to respawn on the same tick."""
+    cfg = GameV3Config(
+        arena_radius=72.0,
+        num_snakes=24,
+        respawn_delay=2,
+        max_life_ticks=1,
+        ambient_food_density=0.004,
+    )
+    num_envs = 256
+    seeds = [91000 + e for e in range(num_envs)]
+    sim_cpu = GameV3Sim(cfg, num_envs=num_envs, device="cpu", seeds=seeds)
+    sim_gpu = (
+        GameV3Sim(cfg, num_envs=num_envs, device="mps", seeds=seeds)
+        if torch.backends.mps.is_available()
+        else None
+    )
+    refs = [ReferenceWorld(cfg, seed=s) for s in seeds]
+
+    learner_mask = torch.zeros((num_envs, cfg.num_snakes), dtype=torch.bool)
+    for k in range(24):
+        learner_mask[(k * 11) % num_envs, k % cfg.num_snakes] = True
+
+    rng = np.random.default_rng(256024)
+    mass_respawn_ticks = 0
+    conflict_deferral_seen = False
+
+    for t in range(1, 7):
+        act_np = rng.integers(0, NUM_ACTIONS, size=(num_envs, cfg.num_snakes), dtype=np.int64)
+        act_cpu = torch.from_numpy(act_np)
+        info_cpu = sim_cpu.step(act_cpu)
+        ref_infos = [refs[e].step(act_np[e]) for e in range(num_envs)]
+        assert_step_info_parity(info_cpu, ref_infos, t, label="respawn-256x24-cpu")
+
+        if sim_gpu is not None:
+            info_gpu = sim_gpu.step(act_cpu.to("mps"))
+            assert_step_info_parity(info_gpu, ref_infos, t, label="respawn-256x24-mps")
+
+        spawned_this_tick = int(info_cpu.life_start.sum().item())
+        if spawned_this_tick > 256:
+            mass_respawn_ticks += 1
+        queued_at_zero = int(((~sim_cpu.alive) & (sim_cpu.respawn_timer == 0)).sum().item())
+        if spawned_this_tick > 256 and queued_at_zero > 0:
+            conflict_deferral_seen = True
+
+        if t in (2, 3, 6):
+            assert_full_state_and_obs_parity(
+                sim_cpu,
+                refs,
+                t,
+                check_rings=True,
+                check_obs=True,
+                learner_mask=learner_mask,
+                label="respawn-256x24-cpu",
+            )
+            if sim_gpu is not None:
+                assert_full_state_and_obs_parity(
+                    sim_gpu,
+                    refs,
+                    t,
+                    check_rings=True,
+                    check_obs=True,
+                    learner_mask=learner_mask.to("mps"),
+                    label="respawn-256x24-mps",
+                )
+
+    assert mass_respawn_ticks >= 3, f"Expected >=3 waves of >256 respawns, got {mass_respawn_ticks}"
+    assert conflict_deferral_seen, "Expected same-tick clearance conflicts among >256 ready slots"

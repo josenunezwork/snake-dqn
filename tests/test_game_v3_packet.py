@@ -469,7 +469,7 @@ def test_job_sh_executes_canary_end_to_end_and_cardinal6_uses_shape6_argmax(
 def test_cuda_check_non_oom_failure_writes_failed_status_and_wall_guard_survives(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Task B.1, B.2 & Task A: failed status + re-raise, 256-world plan/stage, wall guard."""
+    """Verify failed status + re-raise, 256-world rebase/reset stage, and wall-time guard."""
     # 1. Default plan includes 256-world R=600 rebase/reset stage and early-game memory note.
     plan = build_cuda_check_plan(
         device=torch.device("cuda"),
@@ -508,7 +508,7 @@ def test_cuda_check_non_oom_failure_writes_failed_status_and_wall_guard_survives
     assert rr_res["reset_worlds"]["max_memory_allocated_after_bytes"] > 0
     assert "early-game memory" in rr_res["memory_measurement_note"]
 
-    # 2. Task B.1: Non-OOM failure writes status="failed" + error text, then re-raises.
+    # 2. Non-OOM failure writes status="failed" + error text, then re-raises.
     def _boom_bench(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
         raise RuntimeError("synthetic non-OOM benchmark kernel bug")
 
@@ -569,3 +569,223 @@ def test_cuda_check_non_oom_failure_writes_failed_status_and_wall_guard_survives
     assert partial_payload["parity"]["passed"] is True
     assert partial_payload["parity_deterministic"] is None
     assert verify_completed_artifact(wall_export_dir / CUDA_CHECK_EXPORT_FILENAME)
+
+
+def _is_type_checking_guard(test_node: Any) -> bool:
+    import ast
+
+    if isinstance(test_node, ast.Name) and test_node.id == "TYPE_CHECKING":
+        return True
+    if (
+        isinstance(test_node, ast.Attribute)
+        and test_node.attr == "TYPE_CHECKING"
+        and isinstance(test_node.value, ast.Name)
+    ):
+        return True
+    return False
+
+
+def _iter_runtime_import_modules(
+    py_source: str,
+    current_pkg: str,
+    *,
+    include_function_bodies: bool = True,
+) -> list[str]:
+    """Extract imported module names from ``py_source`` outside ``if TYPE_CHECKING:``."""
+    import ast
+
+    tree = ast.parse(py_source)
+    found: list[str] = []
+
+    def _visit_nodes(nodes: list[ast.stmt]) -> None:
+        for stmt in nodes:
+            if isinstance(stmt, ast.If) and _is_type_checking_guard(stmt.test):
+                _visit_nodes(stmt.orelse)
+                continue
+            if not include_function_bodies and isinstance(
+                stmt, (ast.FunctionDef, ast.AsyncFunctionDef)
+            ):
+                continue
+            if isinstance(stmt, ast.Import):
+                for alias in stmt.names:
+                    found.append(alias.name)
+            elif isinstance(stmt, ast.ImportFrom):
+                base = stmt.module or ""
+                if stmt.level > 0:
+                    parts = current_pkg.split(".") if current_pkg else []
+                    keep = max(0, len(parts) - (stmt.level - 1))
+                    prefix = ".".join(parts[:keep])
+                    base = f"{prefix}.{base}" if (prefix and base) else (prefix or base)
+                if base:
+                    found.append(base)
+                    for alias in stmt.names:
+                        if alias.name != "*":
+                            found.append(f"{base}.{alias.name}")
+            for child_field in ("body", "orelse", "finalbody", "handlers"):
+                child = getattr(stmt, child_field, None)
+                if isinstance(child, list):
+                    for item in child:
+                        if isinstance(item, ast.ExceptHandler):
+                            _visit_nodes(item.body)
+                        elif isinstance(item, ast.stmt):
+                            _visit_nodes([item])
+
+    _visit_nodes(tree.body)
+    return found
+
+
+def _collect_unshipped_project_imports(
+    entrypoint_relpaths: tuple[str, ...],
+    shipped_relpaths: set[str],
+    repo_root: Path,
+    *,
+    extra_sources: dict[str, str] | None = None,
+) -> tuple[set[str], set[str]]:
+    """Walk transitive project imports of ``entrypoint_relpaths`` and find unshipped modules."""
+    project_roots = ("research", "src", "tools")
+    visited_files: set[str] = set()
+    missing_from_packet: set[str] = set()
+    queue: list[str] = list(entrypoint_relpaths)
+
+    def _resolve_module_to_relpaths(mod_name: str, is_symbol_candidate: bool) -> list[str]:
+        top = mod_name.split(".", 1)[0]
+        if top not in project_roots:
+            return []
+        parts = mod_name.split(".")
+        out: list[str] = []
+        # Every ancestor package __init__.py imported along the dotted path must be shipped.
+        for depth in range(1, len(parts)):
+            init_rel = "/".join(parts[:depth]) + "/__init__.py"
+            if (repo_root / init_rel).is_file():
+                out.append(init_rel)
+        mod_py = "/".join(parts) + ".py"
+        pkg_init = "/".join(parts) + "/__init__.py"
+        if extra_sources and mod_py in extra_sources:
+            out.append(mod_py)
+        elif (repo_root / mod_py).is_file():
+            out.append(mod_py)
+        elif (repo_root / pkg_init).is_file():
+            out.append(pkg_init)
+        elif not is_symbol_candidate:
+            out.append(mod_py)
+        return out
+
+    while queue:
+        rel = queue.pop()
+        if rel in visited_files:
+            continue
+        visited_files.add(rel)
+        if rel not in shipped_relpaths:
+            missing_from_packet.add(rel)
+        if extra_sources and rel in extra_sources:
+            src_text = extra_sources[rel]
+        else:
+            abs_p = repo_root / rel
+            if not abs_p.is_file():
+                missing_from_packet.add(rel)
+                continue
+            src_text = abs_p.read_text(encoding="utf-8")
+
+        rel_no_ext = rel[:-3] if rel.endswith(".py") else rel
+        mod_parts = rel_no_ext.split("/")
+        pkg_name = ".".join(mod_parts[:-1])
+        in_v3_family = rel.startswith(("research/game_v3/", "research/v3_ppo/"))
+        tree_imports = _iter_runtime_import_modules(
+            src_text,
+            pkg_name,
+            include_function_bodies=in_v3_family,
+        )
+        # Distinguish direct module imports from ``from pkg import symbol`` candidates.
+        for mod_cand in tree_imports:
+            # Check if parent module is already a .py file (meaning last segment is a symbol).
+            parent_parts = mod_cand.split(".")[:-1]
+            parent_py = "/".join(parent_parts) + ".py" if parent_parts else ""
+            is_sym = bool(parent_py and (repo_root / parent_py).is_file())
+            for resolved_rel in _resolve_module_to_relpaths(mod_cand, is_symbol_candidate=is_sym):
+                if resolved_rel not in visited_files:
+                    queue.append(resolved_rel)
+
+    return visited_files, missing_from_packet
+
+
+def test_job_entrypoints_import_only_shipped_packet_modules(tmp_path: Path) -> None:
+    """Walk transitive imports and verify isolated staged imports of job entry points."""
+    from research.game_v3.prepare import runtime_source_paths as game_v3_runtime_paths
+    from research.v3_ppo.prepare import runtime_source_paths as v3_ppo_runtime_paths
+
+    gv3_shipped = set(game_v3_runtime_paths("HEAD"))
+    gv3_visited, gv3_missing = _collect_unshipped_project_imports(
+        ("research/game_v3/cuda_check.py", "research/game_v3/bench.py"),
+        gv3_shipped,
+        ROOT,
+    )
+    assert "research/game_v3/sim.py" in gv3_visited
+    assert "research/game_v3/obs.py" in gv3_visited
+    assert (
+        not gv3_missing
+    ), f"game_v3 entry points import project modules missing from prepare.py: {sorted(gv3_missing)}"
+
+    ppo_shipped = set(v3_ppo_runtime_paths("HEAD"))
+    ppo_visited, ppo_missing = _collect_unshipped_project_imports(
+        ("research/v3_ppo/ppo.py", "research/v3_ppo/ruler.py"),
+        ppo_shipped,
+        ROOT,
+    )
+    assert "research/game_v3/sim.py" in ppo_visited
+    assert "research/v3_ppo/net.py" in ppo_visited
+    assert (
+        not ppo_missing
+    ), f"v3_ppo entry points import project modules missing from prepare.py: {sorted(ppo_missing)}"
+
+    # Also stage ONLY the shipped files into isolated temp directories and import entry points
+    # with PYTHONPATH restricted to the staged tree (no fallback to repo root).
+    for label, shipped_set, mods in (
+        ("game_v3", gv3_shipped, ("research.game_v3.cuda_check", "research.game_v3.bench")),
+        ("v3_ppo", ppo_shipped, ("research.v3_ppo.ppo", "research.v3_ppo.ruler")),
+    ):
+        stage_root = tmp_path / f"stage_{label}"
+        for rel in shipped_set:
+            src_p = ROOT / rel
+            dst_p = stage_root / rel
+            dst_p.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(src_p, dst_p)
+        check_code = (
+            "import sys; "
+            f"sys.path[:] = [{str(stage_root)!r}] + "
+            f"[p for p in sys.path if p and not p.startswith({str(ROOT)!r})]; "
+            + "; ".join(f"import {m}" for m in mods)
+            + "; bad = [m for k, m in sys.modules.items() "
+            "if k.startswith(('research.', 'src.', 'tools.')) "
+            "and getattr(m, '__file__', None) "
+            f"and not str(m.__file__).startswith({str(stage_root)!r})]; "
+            "assert not bad, bad"
+        )
+        subprocess.run(
+            [sys.executable, "-c", check_code],
+            cwd=stage_root,
+            check=True,
+        )
+
+    # Training modules (sim, obs, scripted, v3_ppo) must NOT import the ReferenceWorld oracle,
+    # while explicit package-level lookup of ReferenceWorld continues to work lazily.
+    isolation_code = (
+        "import sys; "
+        "import research.game_v3.sim, research.game_v3.obs, research.game_v3.scripted; "
+        "assert 'research.game_v3.reference' not in sys.modules, "
+        "'training-path modules eagerly imported research.game_v3.reference'; "
+        "from research.game_v3 import ReferenceStepInfo, ReferenceWorld; "
+        "assert 'research.game_v3.reference' in sys.modules; "
+        "assert ReferenceWorld is not None and ReferenceStepInfo is not None"
+    )
+    subprocess.run([sys.executable, "-c", isolation_code], cwd=ROOT, check=True)
+
+    # Self-check: prove the walker catches a newly added unshipped module import.
+    _, synthetic_missing = _collect_unshipped_project_imports(
+        ("research/game_v3/cuda_check.py",),
+        gv3_shipped,
+        ROOT,
+        extra_sources={
+            "research/game_v3/cuda_check.py": ("import research.game_v3.unshipped_new_module\n")
+        },
+    )
+    assert "research/game_v3/unshipped_new_module.py" in synthetic_missing

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -14,17 +13,39 @@ import torch
 from research.game_v3.config import (
     BOOST_ACCUM_ONE,
     BOOST_ACCUM_SHIFT,
+    CORPSE_GRID_MAX,
     FALLBACK_RING_SIZE,
+    FALLBACK_SNAKE_STRIDE,
+    FALLBACK_TICK_STRIDE,
+    FOOD_PICKUP_CLAMP_FP,
     FP_HALF,
     FP_SHIFT,
+    INIT_FOOD_BATCH_SIZE,
+    INIT_SNAKE_CANDIDATES,
+    MAX_OCC_SUBTICK,
+    MAX_SNAKES,
     NUM_ACTIONS,
     NUM_TURN_LEVELS,
+    OCC_OWNER_BITS,
+    OCC_OWNER_MASK,
+    OCC_SUBTICK_BITS,
     TRIG_HALF,
     TRIG_SHIFT,
     GameV3Config,
+    build_clear_offsets_np,
+    build_disc_offsets_np,
+    build_eat_offsets_np,
     build_fallback_spawns_np,
     build_length_tables_np,
     build_trig_tables_np,
+    decode_occ_owner_hi,
+    decode_occ_owner_lo,
+    food_wall_sq_fp,
+    init_food_num_batches,
+    occ_entry_active,
+    pack_occ_hi,
+    pack_occ_lo,
+    spawn_wall_sq_fp,
 )
 from research.game_v3.rng import (
     PURPOSE_AMBIENT_FOOD,
@@ -36,15 +57,9 @@ from research.game_v3.rng import (
     rng_int_torch,
 )
 
-_INIT_SNAKE_CANDIDATES: int = 32
-_INIT_FOOD_BATCH_SIZE: int = 128
 _REBASE_ENV_CHUNK: int = 8
 
-# Packed 1x occupancy grids store ``(subtick << 6) | slot_code`` in signed int32,
-# so non-negative packed values require ``0 <= subtick <= (1 << 25) - 1``.
-MAX_OCC_SUBTICK: int = (1 << 25) - 1  # 33,554,431
-AUTO_REBASE_SUBTICK_THRESHOLD: int = 1 << 24  # 16,777,216
-CORPSE_GRID_MAX: int = 32767
+AUTO_REBASE_SUBTICK_THRESHOLD: int = 1 << (OCC_SUBTICK_BITS - 1)  # 16,777,216
 
 
 @dataclass
@@ -103,6 +118,117 @@ class StepInfo:
         return self
 
 
+@dataclass(frozen=True)
+class StateField:
+    """Declarative specification for one simulator state tensor on :class:`GameV3Sim`."""
+
+    name: str
+    shape_kind: str
+    dtype: torch.dtype
+    reset_value: int | bool
+    saved: bool = True
+    reset_on_clear: bool = True
+    sharded_4x: bool = False
+    is_ring: bool = False
+    per_life: bool = False
+    prev_source: str | None = None
+    in_reference_snake: bool = False
+
+
+STATE_FIELDS: tuple[StateField, ...] = (
+    StateField("seeds", "E", torch.int64, 0, reset_on_clear=False),
+    StateField("world_ticks", "E", torch.int64, 0),
+    StateField("head_pos", "ES2", torch.int32, 0, in_reference_snake=True),
+    StateField("theta", "ES", torch.int32, 0, in_reference_snake=True),
+    StateField("alive", "ES", torch.bool, False, in_reference_snake=True),
+    StateField("boosting", "ES", torch.bool, False, per_life=True, in_reference_snake=True),
+    StateField("length", "ES", torch.int32, 0, in_reference_snake=True),
+    StateField("seg_count", "ES", torch.int32, 0, in_reference_snake=True),
+    StateField("head_ptr", "ES", torch.int32, 0),
+    StateField("oldest_active_subtick", "ES", torch.int32, 0),
+    StateField("dist_accum_fp", "ES", torch.int32, 0, per_life=True, in_reference_snake=True),
+    StateField("boost_ticks", "ES", torch.int32, 0, per_life=True, in_reference_snake=True),
+    StateField("boost_drop_fp_accum", "ES", torch.int32, 0, per_life=True, in_reference_snake=True),
+    StateField("respawn_timer", "ES", torch.int32, 0, in_reference_snake=True),
+    StateField("life_age", "ES", torch.int32, 0, per_life=True, in_reference_snake=True),
+    StateField("life_start", "ES", torch.bool, False, in_reference_snake=True),
+    StateField("truncated_pending", "ES", torch.bool, False, in_reference_snake=True),
+    StateField("ring_pos", "RING2", torch.int32, 0, is_ring=True),
+    StateField("ring_cell", "RING2", torch.int16, 0, is_ring=True),
+    StateField("ring_r_sq", "RING", torch.int16, 0, is_ring=True),
+    StateField("ring_subtick", "RING", torch.int32, 0, is_ring=True),
+    StateField("prev_alive", "ES", torch.bool, False, prev_source="alive", in_reference_snake=True),
+    StateField(
+        "prev_boosting", "ES", torch.bool, False, prev_source="boosting", in_reference_snake=True
+    ),
+    StateField(
+        "prev_head_pos", "ES2", torch.int32, 0, prev_source="head_pos", in_reference_snake=True
+    ),
+    StateField("prev_theta", "ES", torch.int32, 0, prev_source="theta", in_reference_snake=True),
+    StateField("prev_length", "ES", torch.int32, 0, prev_source="length", in_reference_snake=True),
+    StateField("occ_hi", "G1", torch.int32, -1),
+    StateField("occ_lo", "G1", torch.int32, -1),
+    StateField("occ_subtick_4x", "G4N", torch.int32, -1, sharded_4x=True),
+    StateField("occ_subtick_16x", "G16N", torch.int32, -1),
+    StateField("ambient_grid", "G1", torch.uint8, 0),
+    StateField("ambient_grid_4x", "G4", torch.int32, 0),
+    StateField("ambient_grid_16x", "G16", torch.int32, 0),
+    StateField("corpse_grid", "G1", torch.int16, 0),
+    StateField("corpse_grid_4x", "G4", torch.int32, 0),
+    StateField("corpse_grid_16x", "G16", torch.int32, 0),
+    StateField("ambient_count", "E", torch.int32, 0),
+    StateField("total_spawned_snake_mass", "E", torch.int64, 0),
+    StateField("total_spawned_ambient_mass", "E", torch.int64, 0),
+    StateField("total_corpse_decay_sink", "E", torch.int64, 0),
+    StateField("total_boost_decay_sink", "E", torch.int64, 0),
+    StateField("total_length_cap_sink", "E", torch.int64, 0),
+    StateField("total_truncation_sink", "E", torch.int64, 0),
+)
+
+_SAVED_STATE_FIELDS: tuple[StateField, ...] = tuple(f for f in STATE_FIELDS if f.saved)
+_SAVED_TENSOR_NAMES: frozenset[str] = frozenset(f.name for f in _SAVED_STATE_FIELDS)
+_CLEARABLE_STATE_FIELDS: tuple[StateField, ...] = tuple(f for f in STATE_FIELDS if f.reset_on_clear)
+_PER_LIFE_STATE_FIELDS: tuple[StateField, ...] = tuple(f for f in STATE_FIELDS if f.per_life)
+_STAGE3_SURVIVE_HANDLED_NAMES: frozenset[str] = frozenset({"boosting", "dist_accum_fp", "life_age"})
+_DEATH_ONLY_PER_LIFE_FIELDS: tuple[StateField, ...] = tuple(
+    f for f in _PER_LIFE_STATE_FIELDS if f.name not in _STAGE3_SURVIVE_HANDLED_NAMES
+)
+_PREV_SNAPSHOT_FIELDS: tuple[StateField, ...] = tuple(
+    f for f in STATE_FIELDS if f.prev_source is not None
+)
+_REQUIRED_STATE_DICT_KEYS: frozenset[str] = frozenset(
+    {"config", "num_envs", "tick", "subtick_offset", "tensors"}
+)
+_OPTIONAL_STATE_DICT_KEYS: frozenset[str] = frozenset({"clean_step_streak"})
+_ALL_STATE_DICT_KEYS: frozenset[str] = _REQUIRED_STATE_DICT_KEYS | _OPTIONAL_STATE_DICT_KEYS
+
+
+def state_field_shape(sim: GameV3Sim, shape_kind: str) -> tuple[int, ...]:
+    """Resolve a :class:`StateField` ``shape_kind`` against ``sim`` dimensions."""
+    max_len = int(sim.cfg.max_length)
+    if shape_kind == "E":
+        return (sim.E,)
+    if shape_kind == "ES":
+        return (sim.E, sim.N)
+    if shape_kind == "ES2":
+        return (sim.E, sim.N, 2)
+    if shape_kind == "RING":
+        return (sim.E, sim.N, max_len)
+    if shape_kind == "RING2":
+        return (sim.E, sim.N, max_len, 2)
+    if shape_kind == "G1":
+        return (sim.E, sim.G, sim.G)
+    if shape_kind == "G4":
+        return (sim.E, sim.G4, sim.G4)
+    if shape_kind == "G16":
+        return (sim.E, sim.G16, sim.G16)
+    if shape_kind == "G4N":
+        return (sim.E, sim.G4, sim.G4, sim.N)
+    if shape_kind == "G16N":
+        return (sim.E, sim.G16, sim.G16, sim.N)
+    raise ValueError(f"Unknown StateField shape_kind: {shape_kind!r}")
+
+
 def step_delta_fp_torch(dist_fp: torch.Tensor, trig_q14: torch.Tensor) -> torch.Tensor:
     """Compute symmetric nearest-integer fixed-point step ``round(dist_fp * trig_q14 / 2^14)``."""
     prod = dist_fp * trig_q14
@@ -113,23 +239,12 @@ def step_delta_fp_torch(dist_fp: torch.Tensor, trig_q14: torch.Tensor) -> torch.
 
 def _build_static_tables(cfg: GameV3Config, device: torch.device) -> dict[str, Any]:
     """Precompute shared integer trig, length, disc-overlap, pickup, and spawn tables."""
-    c = cfg.cell_size
     sin_np, cos_np = build_trig_tables_np(cfg.angle_steps)
     lt_np = build_length_tables_np(cfg)
     fb_np = build_fallback_spawns_np(cfg)
 
     r_sq_np = lt_np["r_sq_cells"]
-    max_r_cells = int(math.floor(cfg.max_body_radius / c + 1e-12))
-    offsets: list[tuple[int, int, int]] = []
-    for dy in range(-max_r_cells, max_r_cells + 1):
-        for dx in range(-max_r_cells, max_r_cells + 1):
-            d2 = dx * dx + dy * dy
-            if d2 <= max_r_cells * max_r_cells:
-                offsets.append((d2, dy, dx))
-    offsets.sort()
-    disc_dist_sq_np = np.array([o[0] for o in offsets], dtype=np.int32)
-    disc_dy_np = np.array([o[1] for o in offsets], dtype=np.int32)
-    disc_dx_np = np.array([o[2] for o in offsets], dtype=np.int32)
+    max_r_cells, disc_dist_sq_np, disc_dy_np, disc_dx_np = build_disc_offsets_np(cfg)
 
     # Compact radius-tier LUT for exact cell-disc intersection between post-move points.
     unique_r_sq = sorted({int(x) for x in r_sq_np.tolist()})
@@ -196,38 +311,12 @@ def _build_static_tables(cfg: GameV3Config, device: torch.device) -> dict[str, A
                     k16 = d16_idx_map[((ry + dy) >> 4, (rx + dx) >> 4)]
                     disc_16x_mask_np[ti, ry, rx, k16] = True
 
-    # Candidate cell stencil for exact integer squared-distance food pickup.
-    max_eat_r_cells = int(math.ceil((cfg.food_pickup_mult * cfg.max_body_radius) / c)) + 1
-    eat_offsets: list[tuple[int, int, int]] = []
-    for dy in range(-max_eat_r_cells, max_eat_r_cells + 1):
-        for dx in range(-max_eat_r_cells, max_eat_r_cells + 1):
-            d2 = dx * dx + dy * dy
-            if d2 <= max_eat_r_cells * max_eat_r_cells:
-                eat_offsets.append((d2, dy, dx))
-    eat_offsets.sort()
-    eat_dy_np = np.array([o[1] for o in eat_offsets], dtype=np.int32)
-    eat_dx_np = np.array([o[2] for o in eat_offsets], dtype=np.int32)
-
-    r_clear = max(
-        int(math.ceil(cfg.body_radius_f64(cfg.start_length) / c)) + 2,
-        cfg.respawn_clearance_cells,
-    )
-    clear_offsets: list[tuple[int, int]] = []
-    for dy in range(-r_clear, r_clear + 1):
-        for dx in range(-r_clear, r_clear + 1):
-            if dx * dx + dy * dy <= r_clear * r_clear:
-                clear_offsets.append((dx, dy))
-    clear_dx_np = np.array([o[0] for o in clear_offsets], dtype=np.int32)
-    clear_dy_np = np.array([o[1] for o in clear_offsets], dtype=np.int32)
+    max_eat_r_cells, eat_dy_np, eat_dx_np = build_eat_offsets_np(cfg)
+    r_clear, clear_dx_np, clear_dy_np = build_clear_offsets_np(cfg)
 
     start_r_fp = int(lt_np["radius_fp"][cfg.start_length])
-    spawn_margin_fp = int(round((cfg.spawn_wall_margin / c) * (1 << FP_SHIFT)))
-    spawn_lim_fp = max(1 << FP_SHIFT, cfg.arena_radius_fp - start_r_fp - spawn_margin_fp)
-    spawn_wall_sq_fp = int(spawn_lim_fp) * int(spawn_lim_fp)
-
-    food_margin_fp = int(round((cfg.food_wall_margin / c) * (1 << FP_SHIFT)))
-    food_lim_fp = max(1 << FP_SHIFT, cfg.arena_radius_fp - food_margin_fp)
-    food_wall_sq_fp = int(food_lim_fp) * int(food_lim_fp)
+    spawn_wall_sq = spawn_wall_sq_fp(cfg, start_r_fp)
+    food_wall_sq = food_wall_sq_fp(cfg)
 
     out: dict[str, Any] = {
         "sin_table": torch.as_tensor(sin_np, device=device),
@@ -252,12 +341,61 @@ def _build_static_tables(cfg: GameV3Config, device: torch.device) -> dict[str, A
         "max_diam": max_diam,
         "max_eat_r_cells": max_eat_r_cells,
         "r_clear": r_clear,
-        "spawn_wall_sq_fp": spawn_wall_sq_fp,
-        "food_wall_sq_fp": food_wall_sq_fp,
+        "spawn_wall_sq_fp": spawn_wall_sq,
+        "food_wall_sq_fp": food_wall_sq,
     }
     for k, arr in lt_np.items():
         out[k] = torch.as_tensor(arr, device=device)
     return out
+
+
+@dataclass
+class _MovePhaseOut:
+    """Typed intermediate tensors emitted by :meth:`GameV3Sim._phase_move`."""
+
+    new_theta: torch.Tensor
+    boosting: torch.Tensor
+    cand_hx: torch.Tensor
+    cand_hy: torch.Tensor
+    num_pts: torch.Tensor
+    new_accum: torch.Tensor
+    pt_valid: torch.Tensor
+    pt_x: torch.Tensor
+    pt_y: torch.Tensor
+    pt_gx: torch.Tensor
+    pt_gy: torch.Tensor
+    pt_subtick: torch.Tensor
+    old_seg: torch.Tensor
+    old_ptr: torch.Tensor
+    old_tail_gx: torch.Tensor
+    old_tail_gy: torch.Tensor
+    boost_drop_int: torch.Tensor
+    keep_old: torch.Tensor
+    pre_death_oldest_st: torch.Tensor
+    len_post_shed: torch.Tensor
+
+
+@dataclass
+class _CollidePhaseOut:
+    """Typed intermediate tensors emitted by :meth:`GameV3Sim._phase_collide`."""
+
+    len_idx_post_shed: torch.Tensor
+    r_sq: torch.Tensor
+    died: torch.Tensor
+    survives: torch.Tensor
+    killer_id: torch.Tensor
+    kill_credit: torch.Tensor
+
+
+@dataclass
+class _EatPhaseOut:
+    """Typed intermediate tensors emitted by :meth:`GameV3Sim._phase_eat`."""
+
+    mass_eaten: torch.Tensor
+    eaten_cor: torch.Tensor
+    flat4_eat: torch.Tensor
+    flat16_eat: torch.Tensor
+    len_post_eat: torch.Tensor
 
 
 class GameV3Sim:
@@ -277,10 +415,16 @@ class GameV3Sim:
         seeds: Sequence[int] | torch.Tensor | None = None,
         device: str | torch.device = "cpu",
         auto_rebase: bool = True,
+        auto_rebase_threshold: int = AUTO_REBASE_SUBTICK_THRESHOLD,
         debug_assert_invariants: bool = False,
     ) -> None:
         if num_envs < 1:
             raise ValueError(f"num_envs must be >= 1, got {num_envs}")
+        if not (1 <= int(auto_rebase_threshold) <= MAX_OCC_SUBTICK):
+            raise ValueError(
+                f"auto_rebase_threshold must be in [1, {MAX_OCC_SUBTICK}], "
+                f"got {auto_rebase_threshold}"
+            )
         self.cfg: GameV3Config = cfg if cfg is not None else GameV3Config()
         req_dev = torch.device(device)
         self.device: torch.device = (
@@ -291,6 +435,10 @@ class GameV3Sim:
         self.E: int = int(num_envs)
         self.N: int = int(self.cfg.num_snakes)
         self.G: int = self.cfg.grid_size
+        assert self.G * self.G < (1 << OCC_SUBTICK_BITS), (
+            f"G * G ({self.G * self.G}) must be < 2**{OCC_SUBTICK_BITS} so packed "
+            f"(cell_flat << {OCC_OWNER_BITS}) | slot_id food/deposit sort keys fit signed int32"
+        )
         self.G4: int = self.G // 4
         self.G16: int = self.G // 16
         self.half_grid: int = self.cfg.half_grid
@@ -377,52 +525,6 @@ class GameV3Sim:
         self._env_base_16x = env_idx * (self.G16 * self.G16)
 
         # Mutable fixed-point simulation state tensors (zero floating-point state).
-        es = (self.E, self.N)
-        max_len = self.cfg.max_length
-        self.seeds = torch.zeros((self.E,), dtype=torch.int64, device=self.device)
-        self.world_ticks = torch.zeros((self.E,), dtype=torch.int64, device=self.device)
-        self.tick: int = 0
-        self._subtick_offset: int = 0
-        self._clean_step_streak: int = 0
-        self.auto_rebase: bool = bool(auto_rebase)
-        self.debug_assert_invariants: bool = bool(debug_assert_invariants)
-
-        self.head_pos = torch.zeros((self.E, self.N, 2), dtype=torch.int32, device=self.device)
-        self.theta = torch.zeros(es, dtype=torch.int32, device=self.device)
-        self.alive = torch.zeros(es, dtype=torch.bool, device=self.device)
-        self.boosting = torch.zeros(es, dtype=torch.bool, device=self.device)
-        self.length = torch.zeros(es, dtype=torch.int32, device=self.device)
-        self.seg_count = torch.zeros(es, dtype=torch.int32, device=self.device)
-        self.head_ptr = torch.zeros(es, dtype=torch.int32, device=self.device)
-        self.oldest_active_subtick = torch.zeros(es, dtype=torch.int32, device=self.device)
-        self.dist_accum_fp = torch.zeros(es, dtype=torch.int32, device=self.device)
-        self.boost_ticks = torch.zeros(es, dtype=torch.int32, device=self.device)
-        self.boost_drop_fp_accum = torch.zeros(es, dtype=torch.int32, device=self.device)
-        self.respawn_timer = torch.zeros(es, dtype=torch.int32, device=self.device)
-        self.life_age = torch.zeros(es, dtype=torch.int32, device=self.device)
-        self.life_start = torch.zeros(es, dtype=torch.bool, device=self.device)
-        self.truncated_pending = torch.zeros(es, dtype=torch.bool, device=self.device)
-
-        self.ring_pos = torch.zeros(
-            (self.E, self.N, max_len, 2), dtype=torch.int32, device=self.device
-        )
-        self.ring_cell = torch.zeros(
-            (self.E, self.N, max_len, 2), dtype=torch.int16, device=self.device
-        )
-        self.ring_r_sq = torch.zeros(
-            (self.E, self.N, max_len), dtype=torch.int16, device=self.device
-        )
-        self.ring_subtick = torch.zeros(
-            (self.E, self.N, max_len), dtype=torch.int32, device=self.device
-        )
-
-        # Previous-tick head state for 2-frame head observation stacking.
-        self.prev_alive = torch.zeros(es, dtype=torch.bool, device=self.device)
-        self.prev_boosting = torch.zeros(es, dtype=torch.bool, device=self.device)
-        self.prev_head_pos = torch.zeros((self.E, self.N, 2), dtype=torch.int32, device=self.device)
-        self.prev_theta = torch.zeros(es, dtype=torch.int32, device=self.device)
-        self.prev_length = torch.zeros(es, dtype=torch.int32, device=self.device)
-
         # Order-independent dual-bound occupancy grids at 1x:
         # - occ_hi stores max((subtick << 6) | slot_id)
         # - occ_lo stores max((subtick << 6) | (63 - slot_id))
@@ -439,16 +541,16 @@ class GameV3Sim:
         #      oldest_active_subtick. Thus no grid cell ever has >= 2 active owners during
         #      gameplay (<= 1 active owner per cell), and occ_hi / occ_lo also keep
         #      synthetic multi-owner test placements order-independent without own-masking.
-        self.occ_hi = torch.full(
-            (self.E, self.G, self.G), -1, dtype=torch.int32, device=self.device
-        )
-        self.occ_lo = torch.full(
-            (self.E, self.G, self.G), -1, dtype=torch.int32, device=self.device
-        )
-        # Exact max-pooled coarse body occupancy pyramids: (E, G4, G4, N) & (E, G16, G16, N)
-        # stored N-last so ego-pixel index_select(0, ...) reads contiguous N-element vectors.
+        #
         # Shard occ_subtick_4x into <=256-env blocks so every tensor stays strictly < INT_MAX
         # elements on MPSGraph even at E >= 1024.
+        self.tick: int = 0
+        self._subtick_offset: int = 0
+        self._clean_step_streak: int = 0
+        self.auto_rebase: bool = bool(auto_rebase)
+        self.auto_rebase_threshold: int = int(auto_rebase_threshold)
+        self.debug_assert_invariants: bool = bool(debug_assert_invariants)
+
         max_per_env = max(1, self.G * self.G, self.G4 * self.G4 * self.N)
         self.env_block_size: int = min(256, max(1, ((1 << 31) - 1024) // max_per_env))
         self._env_block_1x: int = (
@@ -456,52 +558,8 @@ class GameV3Sim:
             if self.E * self.G * self.G < ((1 << 31) - 1024)
             else max(1, ((1 << 31) - 1024) // max(1, self.G * self.G))
         )
-        self._occ_4x_blocks: list[torch.Tensor] = [
-            torch.full(
-                (min(self.E, e0 + self.env_block_size) - e0, self.G4, self.G4, self.N),
-                -1,
-                dtype=torch.int32,
-                device=self.device,
-            )
-            for e0 in range(0, self.E, self.env_block_size)
-        ]
-        self.occ_subtick_16x = torch.full(
-            (self.E, self.G16, self.G16, self.N), -1, dtype=torch.int32, device=self.device
-        )
-
-        # Compact 1x food grids (ambient uint8 in [0, 255]; corpse int16 saturated to [0, 32767])
-        # paired with incremental int32 4x and 16x sum-pooled food pyramids.
-        self.ambient_grid = torch.zeros(
-            (self.E, self.G, self.G), dtype=torch.uint8, device=self.device
-        )
-        self.ambient_grid_4x = torch.zeros(
-            (self.E, self.G4, self.G4), dtype=torch.int32, device=self.device
-        )
-        self.ambient_grid_16x = torch.zeros(
-            (self.E, self.G16, self.G16), dtype=torch.int32, device=self.device
-        )
-        self.corpse_grid = torch.zeros(
-            (self.E, self.G, self.G), dtype=torch.int16, device=self.device
-        )
-        self.corpse_grid_4x = torch.zeros(
-            (self.E, self.G4, self.G4), dtype=torch.int32, device=self.device
-        )
-        self.corpse_grid_16x = torch.zeros(
-            (self.E, self.G16, self.G16), dtype=torch.int32, device=self.device
-        )
-        self.ambient_count = torch.zeros((self.E,), dtype=torch.int32, device=self.device)
-
-        # Exact integer mass-accounting ledgers per world (sources and sinks).
-        self.total_spawned_snake_mass = torch.zeros(
-            (self.E,), dtype=torch.int64, device=self.device
-        )
-        self.total_spawned_ambient_mass = torch.zeros(
-            (self.E,), dtype=torch.int64, device=self.device
-        )
-        self.total_corpse_decay_sink = torch.zeros((self.E,), dtype=torch.int64, device=self.device)
-        self.total_boost_decay_sink = torch.zeros((self.E,), dtype=torch.int64, device=self.device)
-        self.total_length_cap_sink = torch.zeros((self.E,), dtype=torch.int64, device=self.device)
-        self.total_truncation_sink = torch.zeros((self.E,), dtype=torch.int64, device=self.device)
+        self._occ_4x_blocks: list[torch.Tensor] = []
+        self._allocate_state_tensors()
 
         self._timing_enabled: bool = False
         self._stage_seconds: dict[str, float] = {
@@ -513,6 +571,46 @@ class GameV3Sim:
         }
 
         self.reset(seeds=seeds)
+
+    def _allocate_state_tensors(self) -> None:
+        """Allocate every registered state tensor (and sharded 4x occupancy blocks) from STATE_FIELDS."""
+        for field in STATE_FIELDS:
+            shape = state_field_shape(self, field.shape_kind)
+            if field.sharded_4x:
+                tail_shape = shape[1:]
+                self._occ_4x_blocks = [
+                    torch.full(
+                        (min(self.E, e0 + self.env_block_size) - e0, *tail_shape),
+                        field.reset_value,
+                        dtype=field.dtype,
+                        device=self.device,
+                    )
+                    for e0 in range(0, self.E, self.env_block_size)
+                ]
+            elif field.reset_value == 0 or field.reset_value is False:
+                setattr(
+                    self,
+                    field.name,
+                    torch.zeros(shape, dtype=field.dtype, device=self.device),
+                )
+            else:
+                setattr(
+                    self,
+                    field.name,
+                    torch.full(shape, field.reset_value, dtype=field.dtype, device=self.device),
+                )
+
+    @property
+    def clean_step_streak(self) -> int:
+        """Consecutive clean full-world steps since last world reset or state load."""
+        return self._clean_step_streak
+
+    @clean_step_streak.setter
+    def clean_step_streak(self, value: int) -> None:
+        val = int(value)
+        if val < 0:
+            raise ValueError(f"clean_step_streak must be >= 0, got {val}")
+        self._clean_step_streak = val
 
     @property
     def num_actions(self) -> int:
@@ -592,6 +690,19 @@ class GameV3Sim:
         flipped = (th_m + (int(self.cfg.angle_steps) >> 1)) & angle_mask
         return torch.where(outward_dot > 0, flipped, th_m)
 
+    def _decode_pair_active(
+        self,
+        val_hi: torch.Tensor,
+        val_lo: torch.Tensor,
+        old_src: torch.Tensor,
+    ) -> torch.Tensor:
+        """Return boolean mask true where either ``occ_hi`` or ``occ_lo`` has an active owner."""
+        ow_hi = decode_occ_owner_hi(val_hi).clamp(0, self.N - 1).to(torch.int64)
+        act_hi = occ_entry_active(val_hi, old_src.gather(1, ow_hi))
+        ow_lo = decode_occ_owner_lo(val_lo).clamp(0, self.N - 1).to(torch.int64)
+        act_lo = occ_entry_active(val_lo, old_src.gather(1, ow_lo))
+        return act_hi | act_lo
+
     def _is_cell_occupied(
         self, flat_idx: torch.Tensor, oldest_subtick: torch.Tensor
     ) -> torch.Tensor:
@@ -604,13 +715,8 @@ class GameV3Sim:
             lo_src = self.occ_lo if e_cnt == self.E else self.occ_lo[:e_cnt]
             old_src = oldest_subtick if e_cnt == self.E else oldest_subtick[:e_cnt]
             val_hi = hi_src.view(e_cnt, -1).gather(1, flat_2d)
-            ow_hi = (val_hi & 63).clamp(0, self.N - 1).to(torch.int64)
-            act_hi = (val_hi >= 0) & ((val_hi >> 6) >= old_src.gather(1, ow_hi))
-
             val_lo = lo_src.view(e_cnt, -1).gather(1, flat_2d)
-            ow_lo = (63 - (val_lo & 63)).clamp(0, self.N - 1).to(torch.int64)
-            act_lo = (val_lo >= 0) & ((val_lo >> 6) >= old_src.gather(1, ow_lo))
-            return (act_hi | act_lo).view_as(flat_idx)
+            return self._decode_pair_active(val_hi, val_lo, old_src).view_as(flat_idx)
 
         out_2d = torch.empty_like(flat_2d, dtype=torch.bool)
         for e0 in range(0, e_cnt, eb_1x):
@@ -619,13 +725,8 @@ class GameV3Sim:
             f_sub = flat_2d[e0:e1]
             old_sub = oldest_subtick[e0:e1]
             val_hi = self.occ_hi[e0:e1].view(eb, -1).gather(1, f_sub)
-            ow_hi = (val_hi & 63).clamp(0, self.N - 1).to(torch.int64)
-            act_hi = (val_hi >= 0) & ((val_hi >> 6) >= old_sub.gather(1, ow_hi))
-
             val_lo = self.occ_lo[e0:e1].view(eb, -1).gather(1, f_sub)
-            ow_lo = (63 - (val_lo & 63)).clamp(0, self.N - 1).to(torch.int64)
-            act_lo = (val_lo >= 0) & ((val_lo >> 6) >= old_sub.gather(1, ow_lo))
-            out_2d[e0:e1] = act_hi | act_lo
+            out_2d[e0:e1] = self._decode_pair_active(val_hi, val_lo, old_sub)
         return out_2d.view_as(flat_idx)
 
     def _is_cell_occupied_rows(
@@ -645,13 +746,8 @@ class GameV3Sim:
             g_idx = (row_envs[:, None] * g2 + flat_2d).reshape(-1)
             old_sub = oldest_subtick.index_select(0, row_envs)
             v_hi = self.occ_hi.view(-1).index_select(0, g_idx).view_as(flat_2d)
-            ow_hi = (v_hi & 63).clamp(0, self.N - 1).to(torch.int64)
-            act_hi = (v_hi >= 0) & ((v_hi >> 6) >= old_sub.gather(1, ow_hi))
-
             v_lo = self.occ_lo.view(-1).index_select(0, g_idx).view_as(flat_2d)
-            ow_lo = (63 - (v_lo & 63)).clamp(0, self.N - 1).to(torch.int64)
-            act_lo = (v_lo >= 0) & ((v_lo >> 6) >= old_sub.gather(1, ow_lo))
-            return (act_hi | act_lo).view_as(flat_idx)
+            return self._decode_pair_active(v_hi, v_lo, old_sub).view_as(flat_idx)
 
         out_2d = torch.zeros_like(flat_2d, dtype=torch.bool)
         for e0 in range(0, self.E, eb_1x):
@@ -664,16 +760,9 @@ class GameV3Sim:
             f_sub = flat_2d.index_select(0, rows)
             g_idx = (local_e[:, None] * g2 + f_sub).reshape(-1)
             old_sub = oldest_subtick.index_select(0, row_envs.index_select(0, rows))
-
             v_hi = self.occ_hi[e0:e1].view(-1).index_select(0, g_idx).view_as(f_sub)
-            ow_hi = (v_hi & 63).clamp(0, self.N - 1).to(torch.int64)
-            act_hi = (v_hi >= 0) & ((v_hi >> 6) >= old_sub.gather(1, ow_hi))
-
             v_lo = self.occ_lo[e0:e1].view(-1).index_select(0, g_idx).view_as(f_sub)
-            ow_lo = (63 - (v_lo & 63)).clamp(0, self.N - 1).to(torch.int64)
-            act_lo = (v_lo >= 0) & ((v_lo >> 6) >= old_sub.gather(1, ow_lo))
-
-            out_2d.index_copy_(0, rows, act_hi | act_lo)
+            out_2d.index_copy_(0, rows, self._decode_pair_active(v_hi, v_lo, old_sub))
         return out_2d.view_as(flat_idx)
 
     def _gather_1x_grid_chunked(self, grid: torch.Tensor, flat_idx: torch.Tensor) -> torch.Tensor:
@@ -775,6 +864,102 @@ class GameV3Sim:
                 )
                 sub_g[0:1] = torch.where(wrote0, val0, orig0)
 
+    @staticmethod
+    def _max_scatter_(
+        flat_grid: torch.Tensor,
+        idx: torch.Tensor,
+        cand: torch.Tensor,
+        valid: torch.Tensor,
+        zero_i32: torch.Tensor,
+    ) -> None:
+        """Order-independently update ``flat_grid[idx] = max(flat_grid[idx], cand)`` where ``valid``."""
+        cur = flat_grid.index_select(0, idx)
+        delta = torch.where(valid, torch.maximum(cur, cand) - cur, zero_i32)
+        flat_grid.index_put_((idx,), delta, accumulate=True)
+
+    def _stamp_rows(
+        self,
+        e0: int,
+        e1: int,
+        env_local: torch.Tensor,
+        gx: torch.Tensor,
+        gy: torch.Tensor,
+        r_sq: torch.Tensor | int,
+        tier: torch.Tensor,
+        sids: torch.Tensor,
+        sids_i64: torch.Tensor,
+        subtick: torch.Tensor | int,
+        act_mask: torch.Tensor | None,
+        zero_i32: torch.Tensor,
+        subtick_scalar: torch.Tensor | None = None,
+    ) -> None:
+        """Stamp 1D sparse rows ``(R,)`` or 2D block points ``(eb, S)`` into ``[e0:e1]``."""
+        full_env = e0 == 0 and e1 == self.E
+        env_exp = env_local[..., None]
+        act_exp = act_mask[..., None] if act_mask is not None else None
+
+        # 1. Fine 1x dual-bound grids (occ_hi & occ_lo).
+        sx = gx[..., None] + self._disc_dx
+        sy = gy[..., None] + self._disc_dy
+        r_bound = r_sq if isinstance(r_sq, int) else r_sq[..., None]
+        in_1x = (
+            (sx >= 0) & (sx < self.G) & (sy >= 0) & (sy < self.G) & (self._disc_dist_sq <= r_bound)
+        )
+        valid_1x = (act_exp & in_1x if act_exp is not None else in_1x).reshape(-1)
+        sx_c = sx.clamp(0, self.G - 1).to(torch.int64)
+        sy_c = sy.clamp(0, self.G - 1).to(torch.int64)
+        idx_1x = (env_exp * (self.G * self.G) + sy_c * self.G + sx_c).reshape(-1)
+
+        cand_hi = pack_occ_hi(subtick, sids)[..., None].expand_as(sx).reshape(-1)
+        cand_lo = pack_occ_lo(subtick, sids)[..., None].expand_as(sx).reshape(-1)
+        occ_hi_1d = (self.occ_hi if full_env else self.occ_hi[e0:e1]).view(-1)
+        occ_lo_1d = (self.occ_lo if full_env else self.occ_lo[e0:e1]).view(-1)
+        self._max_scatter_(occ_hi_1d, idx_1x, cand_hi, valid_1x, zero_i32)
+        self._max_scatter_(occ_lo_1d, idx_1x, cand_lo, valid_1x, zero_i32)
+
+        # 2. Deduplicated 4x max-pooled per-snake subtick pyramid (N-last).
+        mask_4x = self._disc_4x_mask[tier, (gy & 3).to(torch.int64), (gx & 3).to(torch.int64)]
+        gx4 = (gx >> 2)[..., None] + self._disc_4x_dx
+        gy4 = (gy >> 2)[..., None] + self._disc_4x_dy
+        in_4x = mask_4x & (gx4 >= 0) & (gx4 < self.G4) & (gy4 >= 0) & (gy4 < self.G4)
+        valid_4x = (act_exp & in_4x if act_exp is not None else in_4x).reshape(-1)
+        gx4_c = gx4.clamp(0, self.G4 - 1).to(torch.int64)
+        gy4_c = gy4.clamp(0, self.G4 - 1).to(torch.int64)
+        idx_4x = (
+            (env_exp * (self.G4 * self.G4) + gy4_c * self.G4 + gx4_c) * self.N + sids_i64[..., None]
+        ).reshape(-1)
+        if subtick_scalar is not None:
+            cand_st4 = subtick_scalar.expand_as(idx_4x)
+        else:
+            assert isinstance(subtick, torch.Tensor)
+            cand_st4 = subtick[..., None].expand_as(gx4).reshape(-1)
+        occ_4x_1d = (
+            self._occ_4x_blocks[0]
+            if (full_env and len(self._occ_4x_blocks) == 1)
+            else self.occ_4x_slice(e0, e1)
+        ).view(-1)
+        self._max_scatter_(occ_4x_1d, idx_4x, cand_st4, valid_4x, zero_i32)
+
+        # 3. Deduplicated 16x max-pooled per-snake subtick pyramid (N-last).
+        mask_16x = self._disc_16x_mask[tier, (gy & 15).to(torch.int64), (gx & 15).to(torch.int64)]
+        gx16 = (gx >> 4)[..., None] + self._disc_16x_dx
+        gy16 = (gy >> 4)[..., None] + self._disc_16x_dy
+        in_16x = mask_16x & (gx16 >= 0) & (gx16 < self.G16) & (gy16 >= 0) & (gy16 < self.G16)
+        valid_16x = (act_exp & in_16x if act_exp is not None else in_16x).reshape(-1)
+        gx16_c = gx16.clamp(0, self.G16 - 1).to(torch.int64)
+        gy16_c = gy16.clamp(0, self.G16 - 1).to(torch.int64)
+        idx_16x = (
+            (env_exp * (self.G16 * self.G16) + gy16_c * self.G16 + gx16_c) * self.N
+            + sids_i64[..., None]
+        ).reshape(-1)
+        if subtick_scalar is not None:
+            cand_st16 = subtick_scalar.expand_as(idx_16x)
+        else:
+            assert isinstance(subtick, torch.Tensor)
+            cand_st16 = subtick[..., None].expand_as(gx16).reshape(-1)
+        occ_16x_1d = (self.occ_subtick_16x if full_env else self.occ_subtick_16x[e0:e1]).view(-1)
+        self._max_scatter_(occ_16x_1d, idx_16x, cand_st16, valid_16x, zero_i32)
+
     def _stamp_sparse_points(
         self,
         env_rows: torch.Tensor,
@@ -794,106 +979,20 @@ class GameV3Sim:
         cand_st_scalar = torch.full((1,), subtick_val, dtype=torch.int32, device=self.device)
 
         if len(self._occ_4x_blocks) == 1 and self._env_block_1x == self.E:
-            le = env_rows
-            sids = slot_rows.to(torch.int32)
-            sids_i64 = slot_rows.to(torch.int64)
-            gxs = gx_s
-            gys = gy_s
-            act_col = (
-                active_rows[:, None]
-                if active_rows is not None
-                else torch.ones((int(le.shape[0]), 1), dtype=torch.bool, device=self.device)
-            )
-
-            sx = gxs[:, None] + self._disc_dx[None, :]
-            sy = gys[:, None] + self._disc_dy[None, :]
-            valid_1x = (
-                act_col
-                & (sx >= 0)
-                & (sx < self.G)
-                & (sy >= 0)
-                & (sy < self.G)
-                & (self._disc_dist_sq[None, :] <= r_sq_val)
-            ).reshape(-1)
-            sx_c = sx.clamp(0, self.G - 1).to(torch.int64)
-            sy_c = sy.clamp(0, self.G - 1).to(torch.int64)
-            idx_1x = (le[:, None] * (self.G * self.G) + sy_c * self.G + sx_c).reshape(-1)
-
-            st_shift = subtick_val << 6
-            cand_hi = ((st_shift | sids)[:, None].expand_as(sx)).reshape(-1)
-            cand_lo = ((st_shift | (63 - sids))[:, None].expand_as(sx)).reshape(-1)
-
-            occ_hi_1d = self.occ_hi.view(-1)
-            cur_hi = occ_hi_1d.index_select(0, idx_1x)
-            occ_hi_1d.index_put_(
-                (idx_1x,),
-                torch.where(valid_1x, torch.maximum(cur_hi, cand_hi) - cur_hi, z_i32),
-                accumulate=True,
-            )
-
-            occ_lo_1d = self.occ_lo.view(-1)
-            cur_lo = occ_lo_1d.index_select(0, idx_1x)
-            occ_lo_1d.index_put_(
-                (idx_1x,),
-                torch.where(valid_1x, torch.maximum(cur_lo, cand_lo) - cur_lo, z_i32),
-                accumulate=True,
-            )
-
-            mask_4x = self._disc_4x_mask[
-                tier_t, (gys & 3).to(torch.int64), (gxs & 3).to(torch.int64)
-            ]
-            gx4 = (gxs >> 2)[:, None] + self._disc_4x_dx[None, :]
-            gy4 = (gys >> 2)[:, None] + self._disc_4x_dy[None, :]
-            valid_4x = (
-                act_col & mask_4x & (gx4 >= 0) & (gx4 < self.G4) & (gy4 >= 0) & (gy4 < self.G4)
-            ).reshape(-1)
-            idx_4x = (
-                (
-                    le[:, None] * (self.G4 * self.G4)
-                    + gy4.clamp(0, self.G4 - 1).to(torch.int64) * self.G4
-                    + gx4.clamp(0, self.G4 - 1).to(torch.int64)
-                )
-                * self.N
-                + sids_i64[:, None]
-            ).reshape(-1)
-            cand_st4 = cand_st_scalar.expand_as(idx_4x)
-            occ_4x_1d = self._occ_4x_blocks[0].view(-1)
-            cur_4x = occ_4x_1d.index_select(0, idx_4x)
-            occ_4x_1d.index_put_(
-                (idx_4x,),
-                torch.where(valid_4x, torch.maximum(cur_4x, cand_st4) - cur_4x, z_i32),
-                accumulate=True,
-            )
-
-            mask_16x = self._disc_16x_mask[
-                tier_t, (gys & 15).to(torch.int64), (gxs & 15).to(torch.int64)
-            ]
-            gx16 = (gxs >> 4)[:, None] + self._disc_16x_dx[None, :]
-            gy16 = (gys >> 4)[:, None] + self._disc_16x_dy[None, :]
-            valid_16x = (
-                act_col
-                & mask_16x
-                & (gx16 >= 0)
-                & (gx16 < self.G16)
-                & (gy16 >= 0)
-                & (gy16 < self.G16)
-            ).reshape(-1)
-            idx_16x = (
-                (
-                    le[:, None] * (self.G16 * self.G16)
-                    + gy16.clamp(0, self.G16 - 1).to(torch.int64) * self.G16
-                    + gx16.clamp(0, self.G16 - 1).to(torch.int64)
-                )
-                * self.N
-                + sids_i64[:, None]
-            ).reshape(-1)
-            cand_st16 = cand_st_scalar.expand_as(idx_16x)
-            occ_16x_1d = self.occ_subtick_16x.view(-1)
-            cur_16x = occ_16x_1d.index_select(0, idx_16x)
-            occ_16x_1d.index_put_(
-                (idx_16x,),
-                torch.where(valid_16x, torch.maximum(cur_16x, cand_st16) - cur_16x, z_i32),
-                accumulate=True,
+            self._stamp_rows(
+                0,
+                self.E,
+                env_rows,
+                gx_s,
+                gy_s,
+                r_sq_val,
+                tier_t,
+                slot_rows.to(torch.int32),
+                slot_rows.to(torch.int64),
+                subtick_val,
+                active_rows,
+                z_i32,
+                subtick_scalar=cand_st_scalar,
             )
             return
 
@@ -905,98 +1004,21 @@ class GameV3Sim:
             rows = torch.where(in_b)[0]
             if int(rows.shape[0]) == 0:
                 continue
-            le = env_rows.index_select(0, rows) - e0
             sids = slot_rows.index_select(0, rows).to(torch.int32)
-            sids_i64 = sids.to(torch.int64)
-            gxs = gx_s.index_select(0, rows)
-            gys = gy_s.index_select(0, rows)
-
-            # 1x fine occupancy grids (occ_hi & occ_lo).
-            sx = gxs[:, None] + self._disc_dx[None, :]
-            sy = gys[:, None] + self._disc_dy[None, :]
-            valid_1x = (
-                (sx >= 0)
-                & (sx < self.G)
-                & (sy >= 0)
-                & (sy < self.G)
-                & (self._disc_dist_sq[None, :] <= r_sq_val)
-            ).reshape(-1)
-            sx_c = sx.clamp(0, self.G - 1).to(torch.int64)
-            sy_c = sy.clamp(0, self.G - 1).to(torch.int64)
-            idx_1x = (le[:, None] * (self.G * self.G) + sy_c * self.G + sx_c).reshape(-1)
-
-            st_shift = subtick_val << 6
-            cand_hi = ((st_shift | sids)[:, None].expand_as(sx)).reshape(-1)
-            cand_lo = ((st_shift | (63 - sids))[:, None].expand_as(sx)).reshape(-1)
-
-            occ_hi_1d = self.occ_hi[e0:e1].view(-1)
-            cur_hi = occ_hi_1d.index_select(0, idx_1x)
-            occ_hi_1d.index_put_(
-                (idx_1x,),
-                torch.where(valid_1x, torch.maximum(cur_hi, cand_hi) - cur_hi, z_i32),
-                accumulate=True,
-            )
-
-            occ_lo_1d = self.occ_lo[e0:e1].view(-1)
-            cur_lo = occ_lo_1d.index_select(0, idx_1x)
-            occ_lo_1d.index_put_(
-                (idx_1x,),
-                torch.where(valid_1x, torch.maximum(cur_lo, cand_lo) - cur_lo, z_i32),
-                accumulate=True,
-            )
-
-            # 4x coarse occupancy pyramid.
-            mask_4x = self._disc_4x_mask[
-                tier_t, (gys & 3).to(torch.int64), (gxs & 3).to(torch.int64)
-            ]
-            gx4 = (gxs >> 2)[:, None] + self._disc_4x_dx[None, :]
-            gy4 = (gys >> 2)[:, None] + self._disc_4x_dy[None, :]
-            valid_4x = (
-                mask_4x & (gx4 >= 0) & (gx4 < self.G4) & (gy4 >= 0) & (gy4 < self.G4)
-            ).reshape(-1)
-            idx_4x = (
-                (
-                    le[:, None] * (self.G4 * self.G4)
-                    + gy4.clamp(0, self.G4 - 1).to(torch.int64) * self.G4
-                    + gx4.clamp(0, self.G4 - 1).to(torch.int64)
-                )
-                * self.N
-                + sids_i64[:, None]
-            ).reshape(-1)
-            cand_st4 = cand_st_scalar.expand_as(idx_4x)
-            occ_4x_1d = self.occ_4x_slice(e0, e1).view(-1)
-            cur_4x = occ_4x_1d.index_select(0, idx_4x)
-            occ_4x_1d.index_put_(
-                (idx_4x,),
-                torch.where(valid_4x, torch.maximum(cur_4x, cand_st4) - cur_4x, z_i32),
-                accumulate=True,
-            )
-
-            # 16x coarse occupancy pyramid.
-            mask_16x = self._disc_16x_mask[
-                tier_t, (gys & 15).to(torch.int64), (gxs & 15).to(torch.int64)
-            ]
-            gx16 = (gxs >> 4)[:, None] + self._disc_16x_dx[None, :]
-            gy16 = (gys >> 4)[:, None] + self._disc_16x_dy[None, :]
-            valid_16x = (
-                mask_16x & (gx16 >= 0) & (gx16 < self.G16) & (gy16 >= 0) & (gy16 < self.G16)
-            ).reshape(-1)
-            idx_16x = (
-                (
-                    le[:, None] * (self.G16 * self.G16)
-                    + gy16.clamp(0, self.G16 - 1).to(torch.int64) * self.G16
-                    + gx16.clamp(0, self.G16 - 1).to(torch.int64)
-                )
-                * self.N
-                + sids_i64[:, None]
-            ).reshape(-1)
-            cand_st16 = cand_st_scalar.expand_as(idx_16x)
-            occ_16x_1d = self.occ_subtick_16x[e0:e1].view(-1)
-            cur_16x = occ_16x_1d.index_select(0, idx_16x)
-            occ_16x_1d.index_put_(
-                (idx_16x,),
-                torch.where(valid_16x, torch.maximum(cur_16x, cand_st16) - cur_16x, z_i32),
-                accumulate=True,
+            self._stamp_rows(
+                e0,
+                e1,
+                env_rows.index_select(0, rows) - e0,
+                gx_s.index_select(0, rows),
+                gy_s.index_select(0, rows),
+                r_sq_val,
+                tier_t,
+                sids,
+                sids.to(torch.int64),
+                subtick_val,
+                None,
+                z_i32,
+                subtick_scalar=cand_st_scalar,
             )
 
     def _stamp_slice_point(
@@ -1012,90 +1034,23 @@ class GameV3Sim:
     ) -> None:
         """Stamp one subpoint ``(eb, S)`` of pairwise-disjoint discs into ``[e0:e1]``."""
         eb = e1 - e0
-        env_local = torch.arange(eb, dtype=torch.int64, device=self.device)[:, None, None]
+        env_local = torch.arange(eb, dtype=torch.int64, device=self.device)[:, None]
         z_i32 = torch.zeros((1,), dtype=torch.int32, device=self.device)
-
-        # 1. Fine 1x dual-bound grids (occ_hi & occ_lo).
-        sx = gx_p[..., None] + self._disc_dx[None, None, :]
-        sy = gy_p[..., None] + self._disc_dy[None, None, :]
-        valid_1x = (
-            act_p[..., None]
-            & (sx >= 0)
-            & (sx < self.G)
-            & (sy >= 0)
-            & (sy < self.G)
-            & (self._disc_dist_sq[None, None, :] <= r_sq_p[..., None])
-        )
-        sx_c = sx.clamp(0, self.G - 1).to(torch.int64)
-        sy_c = sy.clamp(0, self.G - 1).to(torch.int64)
-        idx_1x = (env_local * (self.G * self.G) + sy_c * self.G + sx_c).reshape(-1)
-        valid_1x_flat = valid_1x.reshape(-1)
-
-        st_shift = (st_p << 6)[..., None]
-        sid_3d = slot_ids[..., None]
-        cand_hi = (st_shift | sid_3d).expand_as(sx).reshape(-1)
-        cand_lo = (st_shift | (63 - sid_3d)).expand_as(sx).reshape(-1)
-
-        occ_hi_1d = self.occ_hi[e0:e1].view(-1)
-        cur_hi = occ_hi_1d.index_select(0, idx_1x)
-        delta_hi = torch.where(valid_1x_flat, torch.maximum(cur_hi, cand_hi) - cur_hi, z_i32)
-        occ_hi_1d.index_put_((idx_1x,), delta_hi, accumulate=True)
-
-        occ_lo_1d = self.occ_lo[e0:e1].view(-1)
-        cur_lo = occ_lo_1d.index_select(0, idx_1x)
-        delta_lo = torch.where(valid_1x_flat, torch.maximum(cur_lo, cand_lo) - cur_lo, z_i32)
-        occ_lo_1d.index_put_((idx_1x,), delta_lo, accumulate=True)
-
-        # 2. Deduplicated 4x max-pooled per-snake subtick pyramid (N-last).
         tier = self._r_sq_to_tier[r_sq_p.clamp_min(0).to(torch.int64)]
-        mask_4x = self._disc_4x_mask[tier, (gy_p & 3).to(torch.int64), (gx_p & 3).to(torch.int64)]
-        gx4 = (gx_p >> 2)[..., None] + self._disc_4x_dx[None, None, :]
-        gy4 = (gy_p >> 2)[..., None] + self._disc_4x_dy[None, None, :]
-        valid_4x = (
-            act_p[..., None] & mask_4x & (gx4 >= 0) & (gx4 < self.G4) & (gy4 >= 0) & (gy4 < self.G4)
+        self._stamp_rows(
+            e0,
+            e1,
+            env_local,
+            gx_p,
+            gy_p,
+            r_sq_p,
+            tier,
+            slot_ids,
+            slot_ids.to(torch.int64),
+            st_p,
+            act_p,
+            z_i32,
         )
-        gx4_c = gx4.clamp(0, self.G4 - 1).to(torch.int64)
-        gy4_c = gy4.clamp(0, self.G4 - 1).to(torch.int64)
-        sid_i64 = sid_3d.to(torch.int64)
-        idx_4x = (
-            (env_local * (self.G4 * self.G4) + gy4_c * self.G4 + gx4_c) * self.N + sid_i64
-        ).reshape(-1)
-        cand_st4 = st_p[..., None].expand_as(gx4).reshape(-1)
-
-        occ_4x_1d = self.occ_4x_slice(e0, e1).view(-1)
-        cur_4x = occ_4x_1d.index_select(0, idx_4x)
-        delta_4x = torch.where(
-            valid_4x.reshape(-1), torch.maximum(cur_4x, cand_st4) - cur_4x, z_i32
-        )
-        occ_4x_1d.index_put_((idx_4x,), delta_4x, accumulate=True)
-
-        # 3. Deduplicated 16x max-pooled per-snake subtick pyramid (N-last).
-        mask_16x = self._disc_16x_mask[
-            tier, (gy_p & 15).to(torch.int64), (gx_p & 15).to(torch.int64)
-        ]
-        gx16 = (gx_p >> 4)[..., None] + self._disc_16x_dx[None, None, :]
-        gy16 = (gy_p >> 4)[..., None] + self._disc_16x_dy[None, None, :]
-        valid_16x = (
-            act_p[..., None]
-            & mask_16x
-            & (gx16 >= 0)
-            & (gx16 < self.G16)
-            & (gy16 >= 0)
-            & (gy16 < self.G16)
-        )
-        gx16_c = gx16.clamp(0, self.G16 - 1).to(torch.int64)
-        gy16_c = gy16.clamp(0, self.G16 - 1).to(torch.int64)
-        idx_16x = (
-            (env_local * (self.G16 * self.G16) + gy16_c * self.G16 + gx16_c) * self.N + sid_i64
-        ).reshape(-1)
-        cand_st16 = st_p[..., None].expand_as(gx16).reshape(-1)
-
-        occ_16x_1d = self.occ_subtick_16x[e0:e1].view(-1)
-        cur_16x = occ_16x_1d.index_select(0, idx_16x)
-        delta_16x = torch.where(
-            valid_16x.reshape(-1), torch.maximum(cur_16x, cand_st16) - cur_16x, z_i32
-        )
-        occ_16x_1d.index_put_((idx_16x,), delta_16x, accumulate=True)
 
     def _stamp_discs(
         self,
@@ -1225,18 +1180,19 @@ class GameV3Sim:
         self.oldest_active_subtick.masked_fill_(dead, new_sentinel)
         del dead
 
-        # 1x grids pack ``(st << 6) | code`` (0 <= code <= 63) or -1 in signed int32.
-        # For 1 <= shift_val < 2^25, ``shift_6 = shift_val << 6`` and ``exp_max_1x = shift_6 | 63``
-        # both fit in signed int32 (<= 2,147,483,647), and ``(g >= 0) & ((g >> 6) > shift_val)``
-        # holds iff ``g > exp_max_1x``. Filling expired cells (``g <= exp_max_1x``) with
-        # ``shift_6 - 1`` before ``sub_(shift_6)`` maps expired cells to -1 and active cells to
-        # ``((st - shift_val) << 6) | code`` with a single bool mask and zero int32 overflow.
-        if shift_val >= (1 << 25):
+        # 1x grids pack ``(st << OCC_OWNER_BITS) | code`` (0 <= code <= OCC_OWNER_MASK) or -1 in
+        # signed int32. For 1 <= shift_val < 2^OCC_SUBTICK_BITS, ``shift_6 = shift_val << OCC_OWNER_BITS``
+        # and ``exp_max_1x = shift_6 | OCC_OWNER_MASK`` both fit in signed int32, and
+        # ``(g >= 0) & ((g >> OCC_OWNER_BITS) > shift_val)`` holds iff ``g > exp_max_1x``.
+        # Filling expired cells (``g <= exp_max_1x``) with ``shift_6 - 1`` before ``sub_(shift_6)``
+        # maps expired cells to -1 and active cells to ``((st - shift_val) << OCC_OWNER_BITS) | code``
+        # with a single bool mask and zero int32 overflow.
+        if shift_val >= (1 << OCC_SUBTICK_BITS):
             self.occ_hi.fill_(-1)
             self.occ_lo.fill_(-1)
         else:
-            shift_6 = shift_val << 6
-            exp_max_1x = shift_6 | 63
+            shift_6 = shift_val << OCC_OWNER_BITS
+            exp_max_1x = shift_6 | OCC_OWNER_MASK
             pre_fill_1x = shift_6 - 1
             for e0 in range(0, self.E, _REBASE_ENV_CHUNK):
                 e1 = min(self.E, e0 + _REBASE_ENV_CHUNK)
@@ -1446,7 +1402,7 @@ class GameV3Sim:
         if m_envs == 0:
             return
 
-        k_init = _INIT_SNAKE_CANDIDATES
+        k_init = INIT_SNAKE_CANDIDATES
         slots = (
             torch.arange(self.N, dtype=torch.int64, device=self.device)[:, None] * k_init
             + torch.arange(k_init, dtype=torch.int64, device=self.device)[None, :]
@@ -1460,7 +1416,8 @@ class GameV3Sim:
         )
 
         fb_idx = (
-            torch.arange(self.N, dtype=torch.int64, device=self.device)[:, None] * 7
+            torch.arange(self.N, dtype=torch.int64, device=self.device)[:, None]
+            * FALLBACK_SNAKE_STRIDE
             + torch.arange(FALLBACK_RING_SIZE, dtype=torch.int64, device=self.device)[None, :]
         ) & (FALLBACK_RING_SIZE - 1)
         fb_sel = self._fallback_spawns[fb_idx][None, :, :, :].expand(
@@ -1608,16 +1565,13 @@ class GameV3Sim:
             self.prev_theta.index_copy_(0, env_ids, placed_th)
             self.prev_length.index_copy_(0, env_ids, len_init)
 
-        num_batches = max(
-            1,
-            int(math.ceil(self.cfg.target_ambient_pellets * 2.0 / _INIT_FOOD_BATCH_SIZE)) + 2,
-        )
+        num_batches = init_food_num_batches(self.cfg)
         for b in range(num_batches):
             self._spawn_ambient_batch(
                 PURPOSE_INIT_FOOD,
                 0,
-                b * _INIT_FOOD_BATCH_SIZE,
-                _INIT_FOOD_BATCH_SIZE,
+                b * INIT_FOOD_BATCH_SIZE,
+                INIT_FOOD_BATCH_SIZE,
                 env_ids=env_ids,
             )
 
@@ -1633,48 +1587,38 @@ class GameV3Sim:
             raise ValueError(f"seeds must have shape ({self.E},), got {tuple(seed_tensor.shape)}")
 
         self.seeds.copy_(seed_tensor)
-        self.world_ticks.zero_()
         self.tick = 0
         self._subtick_offset = 0
         self._clean_step_streak = 0
-
-        self.occ_hi.fill_(-1)
-        self.occ_lo.fill_(-1)
-        for blk in self._occ_4x_blocks:
-            blk.fill_(-1)
-        self.occ_subtick_16x.fill_(-1)
-
-        self.ambient_grid.zero_()
-        self.ambient_grid_4x.zero_()
-        self.ambient_grid_16x.zero_()
-        self.corpse_grid.zero_()
-        self.corpse_grid_4x.zero_()
-        self.corpse_grid_16x.zero_()
-        self.ambient_count.zero_()
-
-        self.total_spawned_snake_mass.zero_()
-        self.total_spawned_ambient_mass.zero_()
-        self.total_corpse_decay_sink.zero_()
-        self.total_boost_decay_sink.zero_()
-        self.total_length_cap_sink.zero_()
-        self.total_truncation_sink.zero_()
-
-        self.ring_pos.zero_()
-        self.ring_cell.zero_()
-        self.ring_r_sq.zero_()
-        self.ring_subtick.zero_()
-        self.dist_accum_fp.zero_()
-        self.boost_ticks.zero_()
-        self.boost_drop_fp_accum.zero_()
-        self.respawn_timer.zero_()
-        self.head_ptr.zero_()
-        self.boosting.fill_(False)
-        self.life_age.zero_()
-        self.truncated_pending.fill_(False)
+        self._clear_all_worlds()
 
         self._populate_initial_worlds(None, init_subtick=1)
         if self.debug_assert_invariants:
             self.assert_surviving_discs_disjoint()
+
+    def _clear_all_worlds(self) -> None:
+        """Reset all clearable registered state tensors across all worlds in-place."""
+        for field in _CLEARABLE_STATE_FIELDS:
+            if field.sharded_4x:
+                for blk in self._occ_4x_blocks:
+                    blk.fill_(field.reset_value)
+            elif field.reset_value == 0 and field.dtype != torch.bool:
+                getattr(self, field.name).zero_()
+            else:
+                getattr(self, field.name).fill_(field.reset_value)
+
+    def _clear_selected_worlds(self, env_ids: torch.Tensor) -> None:
+        """Reset all clearable registered state tensors on ``env_ids`` worlds in-place."""
+        for field in _CLEARABLE_STATE_FIELDS:
+            if field.sharded_4x:
+                for b_idx, blk in enumerate(self._occ_4x_blocks):
+                    e0 = b_idx * self.env_block_size
+                    e1 = e0 + int(blk.shape[0])
+                    in_blk = env_ids[(env_ids >= e0) & (env_ids < e1)] - e0
+                    if in_blk.numel() > 0:
+                        blk.index_fill_(0, in_blk, field.reset_value)
+            else:
+                getattr(self, field.name).index_fill_(0, env_ids, field.reset_value)
 
     def reset_worlds(
         self,
@@ -1714,7 +1658,7 @@ class GameV3Sim:
             return
 
         init_st = max(1, self.max_pts * self.tick + 1 - self._subtick_offset)
-        if self.auto_rebase and init_st + 1 >= AUTO_REBASE_SUBTICK_THRESHOLD:
+        if self.auto_rebase and init_st + 1 >= self.auto_rebase_threshold:
             self.rebase_subticks()
             init_st = max(1, self.max_pts * self.tick + 1 - self._subtick_offset)
         if init_st + 1 > MAX_OCC_SUBTICK:
@@ -1722,79 +1666,23 @@ class GameV3Sim:
                 f"reset_worlds subtick {init_st + 1} exceeds int32 limit {MAX_OCC_SUBTICK}"
             )
 
-        self.world_ticks.index_fill_(0, env_ids, 0)
-        self.occ_hi.index_fill_(0, env_ids, -1)
-        self.occ_lo.index_fill_(0, env_ids, -1)
-        for b_idx, blk in enumerate(self._occ_4x_blocks):
-            e0 = b_idx * self.env_block_size
-            e1 = e0 + int(blk.shape[0])
-            in_blk = env_ids[(env_ids >= e0) & (env_ids < e1)] - e0
-            if in_blk.numel() > 0:
-                blk.index_fill_(0, in_blk, -1)
-        self.occ_subtick_16x.index_fill_(0, env_ids, -1)
-
-        self.ambient_grid.index_fill_(0, env_ids, 0)
-        self.ambient_grid_4x.index_fill_(0, env_ids, 0)
-        self.ambient_grid_16x.index_fill_(0, env_ids, 0)
-        self.corpse_grid.index_fill_(0, env_ids, 0)
-        self.corpse_grid_4x.index_fill_(0, env_ids, 0)
-        self.corpse_grid_16x.index_fill_(0, env_ids, 0)
-        self.ambient_count.index_fill_(0, env_ids, 0)
-
-        self.total_spawned_snake_mass.index_fill_(0, env_ids, 0)
-        self.total_spawned_ambient_mass.index_fill_(0, env_ids, 0)
-        self.total_corpse_decay_sink.index_fill_(0, env_ids, 0)
-        self.total_boost_decay_sink.index_fill_(0, env_ids, 0)
-        self.total_length_cap_sink.index_fill_(0, env_ids, 0)
-        self.total_truncation_sink.index_fill_(0, env_ids, 0)
-
-        self.ring_pos.index_fill_(0, env_ids, 0)
-        self.ring_cell.index_fill_(0, env_ids, 0)
-        self.ring_r_sq.index_fill_(0, env_ids, 0)
-        self.ring_subtick.index_fill_(0, env_ids, 0)
-        self.dist_accum_fp.index_fill_(0, env_ids, 0)
-        self.boost_ticks.index_fill_(0, env_ids, 0)
-        self.boost_drop_fp_accum.index_fill_(0, env_ids, 0)
-        self.respawn_timer.index_fill_(0, env_ids, 0)
-        self.head_ptr.index_fill_(0, env_ids, 0)
-        self.boosting.index_fill_(0, env_ids, False)
-        self.life_age.index_fill_(0, env_ids, 0)
-        self.truncated_pending.index_fill_(0, env_ids, False)
+        self._clear_selected_worlds(env_ids)
 
         self._populate_initial_worlds(env_ids, init_subtick=init_st)
         if self.debug_assert_invariants:
             self.assert_surviving_discs_disjoint()
 
-    def step(
-        self,
-        actions: torch.Tensor,
-        *,
-        truncate: bool | torch.Tensor = False,
-    ) -> StepInfo:
-        """Advance all E worlds by one tick.
+    def _mark_stage_time(self, stage: str, t0: float) -> float:
+        """Synchronize device and accumulate elapsed seconds for ``stage`` since ``t0``."""
+        self._sync_device()
+        t1 = time.perf_counter()
+        self._stage_seconds[stage] += t1 - t0
+        return t1
 
-        Exact within-tick order (Rule 9):
-          0. Auto-rebase subticks if approaching ``AUTO_REBASE_SUBTICK_THRESHOLD`` and
-             verify on the host (0 sync) that packed ``int32`` occupancy cannot overflow;
-             retire any snakes flagged ``truncated_pending`` on the previous tick (when
-             ``cfg.max_life_ticks > 0``).
-          1. Move all alive snakes in fixed-point and emit distance-spaced body points
-             (one point per ``speed`` unit travelled; boost shedding & fractional drop).
-          2. Test every alive snake's sub-step head disc(s) against walls, all other
-             snakes' retained pre-move bodies, and causally ordered new points
-             (``s_j <= s_i``: head hitting body/head dies; simultaneous head-on kills
-             both; boosting ahead does not die when a follower hits its trailing point).
-          3. Apply all deaths at once; award multi-hit kill credit by a counter-based
-             RNG draw over all enemy hitters; stamp surviving snakes only (preserving the
-             ``<= 1`` active owner per cell invariant).
-          4. Resolve food eating on integer squared pickup distances (contested pellet
-             goes to lowest surviving slot via ``O(N K log(N K))`` key sort); drop boost
-             pellets and corpses AFTER deaths (saturating ``int16`` corpse cells at
-             ``32767``); refill ambient food.
-          5. Advance respawn timers and evaluate respawns ONLY for ready slots using
-             world-local ``world_ticks``, orienting spawn headings away from the wall;
-             emit episode hooks (including non-destructive rollout ``truncate``).
-        """
+    def _validate_step_inputs(
+        self, actions: torch.Tensor, truncate: bool | torch.Tensor
+    ) -> torch.Tensor | None:
+        """Validate ``actions`` and ``truncate`` shapes/devices and expand tensor masks."""
         if actions.shape != (self.E, self.N):
             raise ValueError(
                 f"actions must have shape ({self.E}, {self.N}), got {tuple(actions.shape)}"
@@ -1803,27 +1691,26 @@ class GameV3Sim:
             raise ValueError(f"actions device {actions.device} != sim device {self.device}")
 
         if isinstance(truncate, bool):
-            trunc_mask: torch.Tensor | None = None
-        else:
-            if truncate.dtype != torch.bool:
-                raise ValueError(f"truncate tensor must be bool, got {truncate.dtype}")
-            if truncate.device != self.device:
-                raise ValueError(f"truncate device {truncate.device} != sim device {self.device}")
-            if truncate.shape == (self.E,):
-                trunc_mask = truncate[:, None].expand(self.E, self.N)
-            elif truncate.shape == (self.E, self.N):
-                trunc_mask = truncate
-            else:
-                raise ValueError(
-                    f"truncate must have shape ({self.E},) or ({self.E}, {self.N}), "
-                    f"got {tuple(truncate.shape)}"
-                )
+            return None
+        if truncate.dtype != torch.bool:
+            raise ValueError(f"truncate tensor must be bool, got {truncate.dtype}")
+        if truncate.device != self.device:
+            raise ValueError(f"truncate device {truncate.device} != sim device {self.device}")
+        if truncate.shape == (self.E,):
+            return truncate[:, None].expand(self.E, self.N)
+        if truncate.shape == (self.E, self.N):
+            return truncate
+        raise ValueError(
+            f"truncate must have shape ({self.E},) or ({self.E}, {self.N}), "
+            f"got {tuple(truncate.shape)}"
+        )
 
-        # Host-side subtick overflow guard & automatic bitwise-neutral rebase (0 sync).
+    def _guard_subticks(self) -> tuple[int, int]:
+        """Run host-side subtick overflow guard and automatic rebase without device syncs."""
         next_tick = self.tick + 1
         prospective_base = self.max_pts * next_tick + 2 - self._subtick_offset
         prospective_max = prospective_base + self.max_pts + 1
-        if self.auto_rebase and prospective_max >= AUTO_REBASE_SUBTICK_THRESHOLD:
+        if self.auto_rebase and prospective_max >= self.auto_rebase_threshold:
             self.rebase_subticks(_sync_free_hint=True)
             prospective_base = self.max_pts * next_tick + 2 - self._subtick_offset
             prospective_max = prospective_base + self.max_pts + 1
@@ -1833,45 +1720,39 @@ class GameV3Sim:
                 f"packed int32 limit {MAX_OCC_SUBTICK}; call rebase_subticks() or enable "
                 f"auto_rebase=True."
             )
+        return next_tick, prospective_base
 
-        timed = self._timing_enabled
-        if timed:
-            self._sync_device()
-            t0 = time.perf_counter()
-
-        self.tick = next_tick
-        self.world_ticks = self.world_ticks + 1
-        self._clean_step_streak += 1
-        tick_base_subtick = prospective_base
-        expired_sentinel_st = tick_base_subtick + self.max_pts + 1
-
-        # Retire snakes truncated by max_life_ticks at the end of the previous tick (no corpse).
+    def _phase_retire_truncated(self, expired_sentinel_st: int) -> None:
+        """Retire snakes flagged ``truncated_pending`` at the end of the previous tick (no corpse)."""
         retire = self.truncated_pending & self.alive
         retire_mass = torch.where(retire, self.length, 0).to(torch.int64).sum(dim=1)
         self.total_truncation_sink = self.total_truncation_sink + retire_mass
         self.alive = self.alive & (~retire)
-        self.boosting = self.boosting & (~retire)
         self.length = torch.where(retire, 0, self.length)
         self.seg_count = torch.where(retire, 0, self.seg_count)
         self.oldest_active_subtick = torch.where(
             retire, expired_sentinel_st, self.oldest_active_subtick
         )
-        self.dist_accum_fp = torch.where(retire, 0, self.dist_accum_fp)
-        self.boost_ticks = torch.where(retire, 0, self.boost_ticks)
-        self.boost_drop_fp_accum = torch.where(retire, 0, self.boost_drop_fp_accum)
-        self.life_age = torch.where(retire, 0, self.life_age)
-        # Set timer=1 so Stage 5 decrements to 0 and immediately spawns a fresh life this tick.
+        for field in _PER_LIFE_STATE_FIELDS:
+            cur = getattr(self, field.name)
+            if field.dtype == torch.bool and field.reset_value is False:
+                setattr(self, field.name, cur & (~retire))
+            else:
+                setattr(self, field.name, torch.where(retire, field.reset_value, cur))
+        # Set timer=1 so _phase_respawn decrements to 0 and immediately spawns a fresh life.
         self.respawn_timer = torch.where(retire, 1, self.respawn_timer)
         self.truncated_pending.fill_(False)
 
-        # Snapshot pre-step head pose and pre-tick length (StepInfo.prev_length).
-        self.prev_alive.copy_(self.alive)
-        self.prev_boosting.copy_(self.boosting)
-        self.prev_head_pos.copy_(self.head_pos)
-        self.prev_theta.copy_(self.theta)
-        self.prev_length.copy_(self.length)
+    def _phase_snapshot_prev(self) -> None:
+        """Snapshot pre-step head pose and pre-tick length (``StepInfo.prev_length``)."""
+        for field in _PREV_SNAPSHOT_FIELDS:
+            assert field.prev_source is not None
+            getattr(self, field.name).copy_(getattr(self, field.prev_source))
 
-        # ---------------- Stage 1: move ----------------
+    def _phase_move(
+        self, actions: torch.Tensor, tick_base_subtick: int, expired_sentinel_st: int
+    ) -> _MovePhaseOut:
+        """Steer, advance heads, emit sub-step points, shed boost mass, and compute retained bodies."""
         act = actions.to(torch.int32).clamp(0, NUM_ACTIONS - 1)
         steer = act.remainder(NUM_TURN_LEVELS).to(torch.int64)
         want_boost = act >= NUM_TURN_LEVELS
@@ -1929,8 +1810,9 @@ class GameV3Sim:
         shed = boosting & (inc_boost >= int(self.cfg.boost_shed_ticks))
         self.boost_ticks = torch.where(shed, torch.zeros_like(inc_boost), inc_boost)
         shed_mass = int(self.cfg.boost_shed_mass)
-        len_post_shed = torch.where(shed, self.length - shed_mass, self.length)
-        self.length = torch.where(self.alive, len_post_shed, self.length)
+        len_from_shed = torch.where(shed, self.length - shed_mass, self.length)
+        len_post_shed = torch.where(self.alive, len_from_shed, self.length)
+        self.length = len_post_shed
 
         drop_fp_inc = int(self.cfg.boost_drop_fp_per_shed)
         acc_next = self.boost_drop_fp_accum + drop_fp_inc
@@ -1945,10 +1827,10 @@ class GameV3Sim:
             dim=1
         )
 
-        # Retained pre-move segment count (including snakes that will die in Stage 2).
+        # Retained pre-move segment count (including snakes that will die in _phase_collide).
         target_seg = torch.minimum(
             torch.full_like(old_seg, max_len),
-            torch.minimum(old_seg + num_pts, self.length),
+            torch.minimum(old_seg + num_pts, len_post_shed),
         )
         keep_old = (target_seg - num_pts).clamp_min(0)
         kept_tail_idx = (old_ptr - (keep_old - 1).clamp_min(0)).remainder(max_len).to(torch.int64)
@@ -1958,23 +1840,43 @@ class GameV3Sim:
             kept_tail_st,
             torch.full_like(kept_tail_st, expired_sentinel_st),
         )
+        return _MovePhaseOut(
+            new_theta=new_theta,
+            boosting=boosting,
+            cand_hx=cand_hx,
+            cand_hy=cand_hy,
+            num_pts=num_pts,
+            new_accum=new_accum,
+            pt_valid=pt_valid,
+            pt_x=pt_x,
+            pt_y=pt_y,
+            pt_gx=pt_gx,
+            pt_gy=pt_gy,
+            pt_subtick=pt_subtick,
+            old_seg=old_seg,
+            old_ptr=old_ptr,
+            old_tail_gx=old_tail_gx,
+            old_tail_gy=old_tail_gy,
+            boost_drop_int=boost_drop_int,
+            keep_old=keep_old,
+            pre_death_oldest_st=pre_death_oldest_st,
+            len_post_shed=len_post_shed,
+        )
 
-        if timed:
-            self._sync_device()
-            t1 = time.perf_counter()
-            self._stage_seconds["move"] += t1 - t0
-            t0 = t1
+    def _phase_collide(self, move: _MovePhaseOut) -> _CollidePhaseOut:
+        """Test sub-step head discs against walls, causal new points, and retained bodies."""
+        max_len = int(self.cfg.max_length)
+        len_idx_post_shed = move.len_post_shed.clamp(0, max_len).to(torch.int64)
+        r_sq = self._r_sq_table[len_idx_post_shed]
+        r_tier = self._r_tier_table[len_idx_post_shed]
+        wall_lim_sq = self._wall_limit_sq_fp_table[len_idx_post_shed]
 
-        # ---------------- Stage 2: causal sub-step head collision & RNG kill credit ------------
-        len_idx = self.length.clamp(0, max_len).to(torch.int64)
-        r_sq = self._r_sq_table[len_idx]
-        r_tier = self._r_tier_table[len_idx]
-        wall_lim_sq = self._wall_limit_sq_fp_table[len_idx]
-
-        in_grid_pt = (pt_gx >= 0) & (pt_gx < self.G) & (pt_gy >= 0) & (pt_gy < self.G)
-        pt_d_sq_fp = pt_x.to(torch.int64).square() + pt_y.to(torch.int64).square()
+        in_grid_pt = (
+            (move.pt_gx >= 0) & (move.pt_gx < self.G) & (move.pt_gy >= 0) & (move.pt_gy < self.G)
+        )
+        pt_d_sq_fp = move.pt_x.to(torch.int64).square() + move.pt_y.to(torch.int64).square()
         died_wall = self.alive & (
-            pt_valid & ((~in_grid_pt) | (pt_d_sq_fp >= wall_lim_sq[:, :, None]))
+            move.pt_valid & ((~in_grid_pt) | (pt_d_sq_fp >= wall_lim_sq[:, :, None]))
         ).any(dim=-1)
 
         # Causal sub-step head collision: emitted point k of snake i occurs at sub-step
@@ -1984,18 +1886,18 @@ class GameV3Sim:
         # - Simultaneous sub-step heads meeting (s_j == s_i) kills BOTH i and j (head-on rule).
         ti = r_tier[:, :, None].expand(-1, -1, self.N)
         tj = r_tier[:, None, :].expand(-1, self.N, -1)
-        base_substep = self.max_pts - num_pts
+        base_substep = self.max_pts - move.num_pts
         hit_post_pair = torch.zeros((self.E, self.N, self.N), dtype=torch.bool, device=self.device)
         for ki in range(self.max_pts):
-            vi = pt_valid[:, :, ki]
-            gxi = pt_gx[:, :, ki]
-            gyi = pt_gy[:, :, ki]
+            vi = move.pt_valid[:, :, ki]
+            gxi = move.pt_gx[:, :, ki]
+            gyi = move.pt_gy[:, :, ki]
             si = base_substep + ki
             for kj in range(self.max_pts):
-                vj = pt_valid[:, :, kj]
+                vj = move.pt_valid[:, :, kj]
                 sj = base_substep + kj
-                dgx = pt_gx[:, None, :, kj] - gxi[:, :, None]
-                dgy = pt_gy[:, None, :, kj] - gyi[:, :, None]
+                dgx = move.pt_gx[:, None, :, kj] - gxi[:, :, None]
+                dgy = move.pt_gy[:, None, :, kj] - gyi[:, :, None]
                 near = (
                     vi[:, :, None]
                     & vj[:, None, :]
@@ -2011,11 +1913,11 @@ class GameV3Sim:
                 hit_post_pair = hit_post_pair | (near & self._overlap_lut[ti, tj, dgx_idx, dgy_idx])
 
         # Geometric collision against all OTHER alive snakes' retained pre-move bodies (occ_hi/lo).
-        hx_k = pt_gx[..., None] + self._disc_dx[None, None, None, :]
-        hy_k = pt_gy[..., None] + self._disc_dy[None, None, None, :]
+        hx_k = move.pt_gx[..., None] + self._disc_dx[None, None, None, :]
+        hy_k = move.pt_gy[..., None] + self._disc_dy[None, None, None, :]
         in_b_k = (hx_k >= 0) & (hx_k < self.G) & (hy_k >= 0) & (hy_k < self.G)
         in_r_k = self._disc_dist_sq[None, None, None, :] <= r_sq[:, :, None, None]
-        valid_k = pt_valid[..., None] & in_b_k & in_r_k
+        valid_k = move.pt_valid[..., None] & in_b_k & in_r_k
 
         flat_k = (
             hy_k.clamp(0, self.G - 1).to(torch.int64) * self.G
@@ -2023,25 +1925,23 @@ class GameV3Sim:
         ).view(self.E, -1)
 
         occ_hi_k = self._gather_1x_grid_chunked(self.occ_hi, flat_k).view_as(hx_k)
-        ow_hi_k = occ_hi_k & 63
+        ow_hi_k = decode_occ_owner_hi(occ_hi_k)
         ow_hi_i64 = ow_hi_k.clamp(0, self.N - 1).to(torch.int64)
-        st_tail_hi = pre_death_oldest_st.gather(1, ow_hi_i64.view(self.E, -1)).view_as(hx_k)
+        st_tail_hi = move.pre_death_oldest_st.gather(1, ow_hi_i64.view(self.E, -1)).view_as(hx_k)
         hit_hi = (
             valid_k
-            & (occ_hi_k >= 0)
+            & occ_entry_active(occ_hi_k, st_tail_hi)
             & (ow_hi_k != self._snake_ids[:, :, None, None])
-            & ((occ_hi_k >> 6) >= st_tail_hi)
         )
 
         occ_lo_k = self._gather_1x_grid_chunked(self.occ_lo, flat_k).view_as(hx_k)
-        ow_lo_k = 63 - (occ_lo_k & 63)
+        ow_lo_k = decode_occ_owner_lo(occ_lo_k)
         ow_lo_i64 = ow_lo_k.clamp(0, self.N - 1).to(torch.int64)
-        st_tail_lo = pre_death_oldest_st.gather(1, ow_lo_i64.view(self.E, -1)).view_as(hx_k)
+        st_tail_lo = move.pre_death_oldest_st.gather(1, ow_lo_i64.view(self.E, -1)).view_as(hx_k)
         hit_lo = (
             valid_k
-            & (occ_lo_k >= 0)
+            & occ_entry_active(occ_lo_k, st_tail_lo)
             & (ow_lo_k != self._snake_ids[:, :, None, None])
-            & ((occ_lo_k >> 6) >= st_tail_lo)
         )
 
         en_cnt = self.E * self.N
@@ -2084,37 +1984,45 @@ class GameV3Sim:
             .to(torch.int32)
             .sum(dim=1, dtype=torch.int32)
         )
-
-        if timed:
-            self._sync_device()
-            t1 = time.perf_counter()
-            self._stage_seconds["collide"] += t1 - t0
-            t0 = t1
-
-        # ---------------- Stage 3: apply deaths & rasterise survivors ----------------
-        cand_pos = torch.stack((cand_hx, cand_hy), dim=-1)
-        self.head_pos = torch.where(survives[:, :, None], cand_pos, self.head_pos)
-        self.theta = torch.where(survives, new_theta, self.theta)
-        self.dist_accum_fp = torch.where(
-            survives, new_accum, torch.where(died, torch.zeros_like(new_accum), self.dist_accum_fp)
+        return _CollidePhaseOut(
+            len_idx_post_shed=len_idx_post_shed,
+            r_sq=r_sq,
+            died=died,
+            survives=survives,
+            killer_id=killer_id,
+            kill_credit=kill_credit,
         )
-        self.boosting = survives & boosting
 
-        surv_pt_valid = survives[:, :, None] & (self._pts_idx < num_pts[:, :, None])
+    def _phase_apply_deaths(
+        self, move: _MovePhaseOut, col: _CollidePhaseOut, expired_sentinel_st: int
+    ) -> None:
+        """Apply survival/death state updates simultaneously and stamp surviving body discs."""
+        max_len = int(self.cfg.max_length)
+        cand_pos = torch.stack((move.cand_hx, move.cand_hy), dim=-1)
+        self.head_pos = torch.where(col.survives[:, :, None], cand_pos, self.head_pos)
+        self.theta = torch.where(col.survives, move.new_theta, self.theta)
+        self.dist_accum_fp = torch.where(
+            col.survives,
+            move.new_accum,
+            torch.where(col.died, torch.zeros_like(move.new_accum), self.dist_accum_fp),
+        )
+        self.boosting = col.survives & move.boosting
+
+        surv_pt_valid = col.survives[:, :, None] & (self._pts_idx < move.num_pts[:, :, None])
         for k in range(self.max_pts):
             vk = surv_pt_valid[:, :, k]
-            w_ptr = (old_ptr + k + 1).remainder(max_len).to(torch.int64)
+            w_ptr = (move.old_ptr + k + 1).remainder(max_len).to(torch.int64)
             w_ptr_2 = w_ptr[:, :, None, None].expand(-1, -1, 1, 2)
 
             cur_rp = self.ring_pos.gather(2, w_ptr_2).squeeze(2)
-            new_rp = torch.stack((pt_x[:, :, k], pt_y[:, :, k]), dim=-1)
+            new_rp = torch.stack((move.pt_x[:, :, k], move.pt_y[:, :, k]), dim=-1)
             self.ring_pos.scatter_(
                 2, w_ptr_2, torch.where(vk[:, :, None], new_rp, cur_rp)[:, :, None, :]
             )
 
             cur_rc = self.ring_cell.gather(2, w_ptr_2).squeeze(2)
             new_rc = torch.stack(
-                (pt_gx[:, :, k].to(torch.int16), pt_gy[:, :, k].to(torch.int16)), dim=-1
+                (move.pt_gx[:, :, k].to(torch.int16), move.pt_gy[:, :, k].to(torch.int16)), dim=-1
             )
             self.ring_cell.scatter_(
                 2, w_ptr_2, torch.where(vk[:, :, None], new_rc, cur_rc)[:, :, None, :]
@@ -2123,19 +2031,21 @@ class GameV3Sim:
             w_ptr_1 = w_ptr[:, :, None]
             cur_rr = self.ring_r_sq.gather(2, w_ptr_1).squeeze(2)
             self.ring_r_sq.scatter_(
-                2, w_ptr_1, torch.where(vk, r_sq.to(torch.int16), cur_rr)[:, :, None]
+                2, w_ptr_1, torch.where(vk, col.r_sq.to(torch.int16), cur_rr)[:, :, None]
             )
             cur_rs = self.ring_subtick.gather(2, w_ptr_1).squeeze(2)
             self.ring_subtick.scatter_(
-                2, w_ptr_1, torch.where(vk, pt_subtick[:, :, k], cur_rs)[:, :, None]
+                2, w_ptr_1, torch.where(vk, move.pt_subtick[:, :, k], cur_rs)[:, :, None]
             )
 
-        new_ptr = (old_ptr + num_pts).remainder(max_len)
-        self.head_ptr = torch.where(survives, new_ptr, old_ptr)
+        new_ptr = (move.old_ptr + move.num_pts).remainder(max_len)
+        self.head_ptr = torch.where(col.survives, new_ptr, move.old_ptr)
 
-        new_seg = (keep_old + num_pts).clamp_max(max_len)
+        new_seg = (move.keep_old + move.num_pts).clamp_max(max_len)
         self.seg_count = torch.where(
-            survives, new_seg, torch.where(died, torch.zeros_like(old_seg), old_seg)
+            col.survives,
+            new_seg,
+            torch.where(col.died, torch.zeros_like(move.old_seg), move.old_seg),
         )
 
         surv_tail_idx = (
@@ -2143,50 +2053,49 @@ class GameV3Sim:
         )
         surv_oldest_st = self.ring_subtick.gather(2, surv_tail_idx[:, :, None]).squeeze(2)
         self.oldest_active_subtick = torch.where(
-            survives,
+            col.survives,
             surv_oldest_st,
             torch.where(
-                died,
+                col.died,
                 torch.full_like(self.oldest_active_subtick, expired_sentinel_st),
                 self.oldest_active_subtick,
             ),
         )
 
-        self.alive = survives
+        self.alive = col.survives
         self.life_age = torch.where(
-            survives,
+            col.survives,
             self.life_age + 1,
-            torch.where(died, torch.zeros_like(self.life_age), self.life_age),
+            torch.where(col.died, torch.zeros_like(self.life_age), self.life_age),
         )
         self.respawn_timer = torch.where(
-            died,
+            col.died,
             torch.full_like(self.respawn_timer, int(self.cfg.respawn_delay)),
             self.respawn_timer,
         )
-        self.boost_ticks = torch.where(died, torch.zeros_like(self.boost_ticks), self.boost_ticks)
-        self.boost_drop_fp_accum = torch.where(
-            died, torch.zeros_like(self.boost_drop_fp_accum), self.boost_drop_fp_accum
-        )
+        for field in _DEATH_ONLY_PER_LIFE_FIELDS:
+            cur = getattr(self, field.name)
+            fill = (
+                torch.zeros_like(cur)
+                if (field.reset_value == 0 or field.reset_value is False)
+                else torch.full_like(cur, field.reset_value)
+            )
+            setattr(self, field.name, torch.where(col.died, fill, cur))
 
-        # Stamp ONLY surviving snakes: because Stage 2 killed at least one snake in every
+        # Stamp ONLY surviving snakes: because _phase_collide killed at least one snake in every
         # overlapping pair (s_j <= s_i is a total order), surviving discs are pairwise disjoint.
         self._stamp_discs(
-            pt_gx,
-            pt_gy,
-            r_sq[:, :, None].expand_as(pt_gx),
+            move.pt_gx,
+            move.pt_gy,
+            col.r_sq[:, :, None].expand_as(move.pt_gx),
             surv_pt_valid,
-            pt_subtick,
+            move.pt_subtick,
             disjoint_slots=True,
         )
 
-        if timed:
-            self._sync_device()
-            t1 = time.perf_counter()
-            self._stage_seconds["rasterise"] += t1 - t0
-            t0 = t1
-
-        # --------- Stage 4: food (pickup -> boost drops -> corpses -> refill) ---------
-        # 4a. Surviving heads eat existing pellets within pickup_r_sq_fp; lowest slot wins ties.
+    def _phase_eat(self, move: _MovePhaseOut, col: _CollidePhaseOut) -> _EatPhaseOut:
+        """Resolve surviving head food pickup with lowest-slot tie-breaking."""
+        max_len = int(self.cfg.max_length)
         hgx = (self.head_pos[:, :, 0] >> FP_SHIFT) + self.half_grid
         hgy = (self.head_pos[:, :, 1] >> FP_SHIFT) + self.half_grid
         ex_k = hgx[:, :, None] + self._eat_dx[None, None, :]
@@ -2195,11 +2104,15 @@ class GameV3Sim:
 
         cx_fp = ((ex_k - self.half_grid) << FP_SHIFT) + FP_HALF
         cy_fp = ((ey_k - self.half_grid) << FP_SHIFT) + FP_HALF
-        dx_eat = (cx_fp - self.head_pos[:, :, 0, None]).clamp(-32000, 32000)
-        dy_eat = (cy_fp - self.head_pos[:, :, 1, None]).clamp(-32000, 32000)
-        pickup_r_sq = self._pickup_r_sq_fp_table[len_idx]
+        dx_eat = (cx_fp - self.head_pos[:, :, 0, None]).clamp(
+            -FOOD_PICKUP_CLAMP_FP, FOOD_PICKUP_CLAMP_FP
+        )
+        dy_eat = (cy_fp - self.head_pos[:, :, 1, None]).clamp(
+            -FOOD_PICKUP_CLAMP_FP, FOOD_PICKUP_CLAMP_FP
+        )
+        pickup_r_sq = self._pickup_r_sq_fp_table[col.len_idx_post_shed]
         can_eat_k = (
-            survives[:, :, None]
+            col.survives[:, :, None]
             & eat_in_b
             & ((dx_eat * dx_eat + dy_eat * dy_eat) <= pickup_r_sq[:, :, None])
         )
@@ -2213,26 +2126,20 @@ class GameV3Sim:
         raw_cor = self._gather_1x_grid_chunked(self.corpse_grid, flat_eat).to(torch.int32)
         can_eat_food_k = can_eat_k & ((raw_amb > 0) | (raw_cor > 0)).view_as(can_eat_k)
 
-        # O(E * N * K_eat * log(N * K_eat)) lowest-slot tie-break: all active keys
-        # ``(cell_flat << 6) | slot_id`` in a world are strictly distinct, so sorting
-        # places lowest slot first for every contested food cell with zero host syncs.
-        if self.G * self.G < (1 << 25):
-            sentinel_key = 0x7FFFFFFF
-            eat_key = torch.where(
-                can_eat_food_k,
-                (flat_eat_3d.to(torch.int32) << 6) | self._snake_ids[:, :, None],
-                sentinel_key,
-            ).view(self.E, -1)
-        else:
-            sentinel_key = 0x7FFFFFFFFFFFFFFF
-            eat_key = torch.where(
-                can_eat_food_k,
-                (flat_eat_3d << 6) | self._snake_ids_i64[:, :, None],
-                sentinel_key,
-            ).view(self.E, -1)
+        # O(E * N * K_eat * log(N * K_eat)) lowest-slot tie-break: G * G < 2**OCC_SUBTICK_BITS
+        # (asserted in __init__), so all active keys ``(cell_flat << OCC_OWNER_BITS) | slot_id``
+        # fit signed int32 and are strictly distinct within each world.
+        sentinel_key = 0x7FFFFFFF
+        eat_key = torch.where(
+            can_eat_food_k,
+            (flat_eat_3d.to(torch.int32) << OCC_OWNER_BITS) | self._snake_ids[:, :, None],
+            sentinel_key,
+        ).view(self.E, -1)
         sk, eat_perm = torch.sort(eat_key, dim=1)
         won_sorted = sk != sentinel_key
-        won_sorted[:, 1:] = won_sorted[:, 1:] & ((sk[:, 1:] >> 6) != (sk[:, :-1] >> 6))
+        won_sorted[:, 1:] = won_sorted[:, 1:] & (
+            (sk[:, 1:] >> OCC_OWNER_BITS) != (sk[:, :-1] >> OCC_OWNER_BITS)
+        )
         won_flat = torch.zeros_like(won_sorted)
         won_flat.scatter_(1, eat_perm, won_sorted)
 
@@ -2258,42 +2165,54 @@ class GameV3Sim:
         mass_eaten = (eaten_amb.view_as(ex_k) + eaten_cor.view_as(ex_k)).sum(
             dim=-1, dtype=torch.int32
         )
-        uncapped_len = self.length + mass_eaten
+        uncapped_len = move.len_post_shed + mass_eaten
         capped_len = uncapped_len.clamp_max(max_len)
         cap_overflow = (uncapped_len - capped_len).clamp_min(0)
         self.total_length_cap_sink = self.total_length_cap_sink + cap_overflow.to(torch.int64).sum(
             dim=1
         )
-        self.length = torch.where(survives, capped_len, self.length)
+        len_post_eat = torch.where(col.survives, capped_len, move.len_post_shed)
+        self.length = len_post_eat
+        return _EatPhaseOut(
+            mass_eaten=mass_eaten,
+            eaten_cor=eaten_cor,
+            flat4_eat=flat4_eat,
+            flat16_eat=flat16_eat,
+            len_post_eat=len_post_eat,
+        )
 
-        # 4b. Shed fractional boost trail pellets at pre-step tail cells.
-        tail_gx_c = old_tail_gx.clamp(0, self.G - 1)
-        tail_gy_c = old_tail_gy.clamp(0, self.G - 1)
+    def _phase_deposit(self, move: _MovePhaseOut, col: _CollidePhaseOut, eat: _EatPhaseOut) -> None:
+        """Deposit boost trail pellets and post-death corpse orbs, saturating at CORPSE_GRID_MAX."""
+        max_len = int(self.cfg.max_length)
+        tail_gx_c = move.old_tail_gx.clamp(0, self.G - 1)
+        tail_gy_c = move.old_tail_gy.clamp(0, self.G - 1)
         tail_flat = tail_gy_c * self.G + tail_gx_c
-        shed_val = boost_drop_int.to(torch.int32)
+        shed_val = move.boost_drop_int.to(torch.int32)
 
-        # 4c. Drop corpses AFTER deaths and eating; saturate 1x int16 cells at CORPSE_GRID_MAX.
-        dead_len = torch.where(died, self.length, 0)
+        dead_len = torch.where(col.died, eat.len_post_eat, 0)
         corpse_mass = self._corpse_mass_table[dead_len.clamp(0, max_len).to(torch.int64)]
         corpse_sink = dead_len - corpse_mass
         self.total_corpse_decay_sink = self.total_corpse_decay_sink + corpse_sink.to(
             torch.int64
         ).sum(dim=1)
-        self.length = torch.where(died, 0, self.length)
+        self.length = torch.where(col.died, 0, eat.len_post_eat)
 
         p_cnt = torch.minimum(
             corpse_mass,
             torch.minimum(
-                old_seg.clamp_min(1), torch.full_like(corpse_mass, int(self.cfg.corpse_max_pellets))
+                move.old_seg.clamp_min(1),
+                torch.full_like(corpse_mass, int(self.cfg.corpse_max_pellets)),
             ),
         )
         p_safe = p_cnt.clamp_min(1)
         k_idx = self._corpse_k
-        active_orb = died[:, :, None] & (corpse_mass[:, :, None] > 0) & (k_idx < p_cnt[:, :, None])
+        active_orb = (
+            col.died[:, :, None] & (corpse_mass[:, :, None] > 0) & (k_idx < p_cnt[:, :, None])
+        )
         denom = (p_safe - 1).clamp_min(1)[:, :, None]
-        seg_span = (old_seg - 1).clamp_min(0)[:, :, None]
+        seg_span = (move.old_seg - 1).clamp_min(0)[:, :, None]
         orb_offset = torch.div(k_idx * seg_span, denom, rounding_mode="floor")
-        orb_ring_idx = (old_ptr[:, :, None] - orb_offset).remainder(max_len).to(torch.int64)
+        orb_ring_idx = (move.old_ptr[:, :, None] - orb_offset).remainder(max_len).to(torch.int64)
         orb_cells = self.ring_cell.gather(2, orb_ring_idx[..., None].expand(-1, -1, -1, 2))
         orb_gx = orb_cells[..., 0].to(torch.int64).clamp(0, self.G - 1)
         orb_gy = orb_cells[..., 1].to(torch.int64).clamp(0, self.G - 1)
@@ -2309,11 +2228,8 @@ class GameV3Sim:
 
         dep_flat = torch.cat((tail_flat, orb_flat), dim=1)
         dep_val = torch.cat((shed_val, orb_val), dim=1)
-        if self.G * self.G < (1 << 31):
-            sort_cell_raw, dep_perm = torch.sort(dep_flat.to(torch.int32), dim=1)
-            sort_cell = sort_cell_raw.to(torch.int64)
-        else:
-            sort_cell, dep_perm = torch.sort(dep_flat, dim=1)
+        sort_cell_raw, dep_perm = torch.sort(dep_flat.to(torch.int32), dim=1)
+        sort_cell = sort_cell_raw.to(torch.int64)
         sort_add = dep_val.gather(1, dep_perm).to(torch.int64)
         pref = sort_add.cumsum(dim=1)
         is_first = torch.ones_like(sort_cell, dtype=torch.bool)
@@ -2344,13 +2260,16 @@ class GameV3Sim:
         dep_flat4 = (dep_gy >> 2) * self.G4 + (dep_gx >> 2)
         dep_flat16 = (dep_gy >> 4) * self.G16 + (dep_gx >> 4)
 
-        cor_delta_4x16x = torch.cat((-eaten_cor, eff_add), dim=1).reshape(-1)
-        cor_idx_4x = (self._env_base_4x + torch.cat((flat4_eat, dep_flat4), dim=1)).reshape(-1)
-        cor_idx_16x = (self._env_base_16x + torch.cat((flat16_eat, dep_flat16), dim=1)).reshape(-1)
+        cor_delta_4x16x = torch.cat((-eat.eaten_cor, eff_add), dim=1).reshape(-1)
+        cor_idx_4x = (self._env_base_4x + torch.cat((eat.flat4_eat, dep_flat4), dim=1)).reshape(-1)
+        cor_idx_16x = (self._env_base_16x + torch.cat((eat.flat16_eat, dep_flat16), dim=1)).reshape(
+            -1
+        )
         self.corpse_grid_4x.view(-1).index_put_((cor_idx_4x,), cor_delta_4x16x, accumulate=True)
         self.corpse_grid_16x.view(-1).index_put_((cor_idx_16x,), cor_delta_4x16x, accumulate=True)
 
-        # 4d. Refill ambient pellets toward target density using per-world world_ticks.
+    def _phase_refill(self) -> None:
+        """Refill ambient pellets toward target density using per-world ``world_ticks``."""
         self._spawn_ambient_batch(
             PURPOSE_AMBIENT_FOOD,
             self.world_ticks,
@@ -2358,14 +2277,9 @@ class GameV3Sim:
             self.cfg.ambient_spawn_budget_per_tick,
         )
 
-        if timed:
-            self._sync_device()
-            t1 = time.perf_counter()
-            self._stage_seconds["food"] += t1 - t0
-            t0 = t1
-
-        # ---------------- Stage 5: ready-only respawn & episode hooks ----------------
-        was_dead_before = (~self.alive) & (~died)
+    def _phase_respawn(self, col: _CollidePhaseOut, tick_base_subtick: int) -> torch.Tensor:
+        """Advance respawn timers and evaluate/apply respawns ONLY for ready slots."""
+        was_dead_before = (~self.alive) & (~col.died)
         self.respawn_timer = torch.where(
             was_dead_before,
             (self.respawn_timer - 1).clamp_min(0),
@@ -2382,218 +2296,294 @@ class GameV3Sim:
         r_cnt = int(raw_e.shape[0])
 
         spawn_now = torch.zeros((self.E, self.N), dtype=torch.bool, device=self.device)
-        if r_cnt > 0:
-            if self.device.type == "cpu":
-                b_cnt = r_cnt
+        if r_cnt == 0:
+            return spawn_now
+
+        if self.device.type == "cpu":
+            b_cnt = r_cnt
+            ready_e = raw_e
+            ready_i = raw_i
+            valid_b = torch.ones((b_cnt,), dtype=torch.bool, device=self.device)
+        else:
+            # Bucket to power-of-four row counts (16, 64, 256, ..., capped at E * N) so
+            # MPSGraph / CUDA caches a small set of static shapes instead of recompiling
+            # kernels whenever ready count fluctuates tick-to-tick.
+            b_cnt = 16
+            while b_cnt < r_cnt:
+                b_cnt <<= 2
+            b_cnt = min(b_cnt, max(r_cnt, self.E * self.N))
+            if b_cnt == r_cnt:
                 ready_e = raw_e
                 ready_i = raw_i
                 valid_b = torch.ones((b_cnt,), dtype=torch.bool, device=self.device)
             else:
-                # Bucket to power-of-two row counts (>= 16) so MPSGraph / CUDA caches static shapes
-                # instead of recompiling kernels whenever ready count fluctuates tick-to-tick.
-                b_cnt = 16
-                while b_cnt < r_cnt:
-                    b_cnt <<= 2
-                b_cnt = min(b_cnt, max(r_cnt, self.E * self.N))
-                if b_cnt == r_cnt:
-                    ready_e = raw_e
-                    ready_i = raw_i
-                    valid_b = torch.ones((b_cnt,), dtype=torch.bool, device=self.device)
-                else:
-                    pad = b_cnt - r_cnt
-                    z_pad = torch.zeros((pad,), dtype=torch.int64, device=self.device)
-                    ready_e = torch.cat((raw_e, z_pad), dim=0)
-                    ready_i = torch.cat((raw_i, z_pad), dim=0)
-                    valid_b = torch.arange(b_cnt, dtype=torch.int64, device=self.device) < r_cnt
+                pad = b_cnt - r_cnt
+                z_pad = torch.zeros((pad,), dtype=torch.int64, device=self.device)
+                ready_e = torch.cat((raw_e, z_pad), dim=0)
+                ready_i = torch.cat((raw_i, z_pad), dim=0)
+                valid_b = torch.arange(b_cnt, dtype=torch.int64, device=self.device) < r_cnt
 
-            r_seeds = self.seeds.index_select(0, ready_e)[:, None]
-            r_ticks = self.world_ticks.index_select(0, ready_e)[:, None]
-            k_resp = int(self.cfg.respawn_candidates)
-            k_offs = torch.arange(k_resp, dtype=torch.int64, device=self.device)[None, :]
-            r_slots = ready_i[:, None] * k_resp + k_offs
+        r_seeds = self.seeds.index_select(0, ready_e)[:, None]
+        r_ticks = self.world_ticks.index_select(0, ready_e)[:, None]
+        k_resp = int(self.cfg.respawn_candidates)
+        k_offs = torch.arange(k_resp, dtype=torch.int64, device=self.device)[None, :]
+        r_slots = ready_i[:, None] * k_resp + k_offs
 
-            rgx = rng_int_torch(r_seeds, r_ticks, PURPOSE_RESPAWN, r_slots * 3, self.G)
-            rgy = rng_int_torch(r_seeds, r_ticks, PURPOSE_RESPAWN, r_slots * 3 + 1, self.G)
-            rth = rng_angle_idx_torch(
-                r_seeds, r_ticks, PURPOSE_RESPAWN, r_slots * 3 + 2, self.cfg.angle_steps
-            )
+        rgx = rng_int_torch(r_seeds, r_ticks, PURPOSE_RESPAWN, r_slots * 3, self.G)
+        rgy = rng_int_torch(r_seeds, r_ticks, PURPOSE_RESPAWN, r_slots * 3 + 1, self.G)
+        rth = rng_angle_idx_torch(
+            r_seeds, r_ticks, PURPOSE_RESPAWN, r_slots * 3 + 2, self.cfg.angle_steps
+        )
 
-            fb_ring_idx = (
-                ready_i[:, None] * 7 + r_ticks * 13 + self._fb_f_offsets.reshape(1, -1)
-            ) & (FALLBACK_RING_SIZE - 1)
-            fb_cands = self._fallback_spawns[fb_ring_idx]
-            all_gx = torch.cat((rgx, fb_cands[..., 0]), dim=1)
-            all_gy = torch.cat((rgy, fb_cands[..., 1]), dim=1)
-            all_th_raw = torch.cat((rth, fb_cands[..., 2]), dim=1)
+        fb_ring_idx = (
+            ready_i[:, None] * FALLBACK_SNAKE_STRIDE
+            + r_ticks * FALLBACK_TICK_STRIDE
+            + self._fb_f_offsets.reshape(1, -1)
+        ) & (FALLBACK_RING_SIZE - 1)
+        fb_cands = self._fallback_spawns[fb_ring_idx]
+        all_gx = torch.cat((rgx, fb_cands[..., 0]), dim=1)
+        all_gy = torch.cat((rgy, fb_cands[..., 1]), dim=1)
+        all_th_raw = torch.cat((rth, fb_cands[..., 2]), dim=1)
 
-            r_in_wall = (
+        r_in_wall = (
+            valid_b[:, None]
+            & (all_gx >= 0)
+            & (all_gx < self.G)
+            & (all_gy >= 0)
+            & (all_gy < self.G)
+            & (self._cell_center_sq_fp(all_gx, all_gy) < self._spawn_wall_sq_fp)
+        )
+
+        cx_r = all_gx[..., None] + self._clear_dx[None, None, :]
+        cy_r = all_gy[..., None] + self._clear_dy[None, None, :]
+        c_in_grid = (cx_r >= 0) & (cx_r < self.G) & (cy_r >= 0) & (cy_r < self.G)
+        c_flat = cy_r.clamp(0, self.G - 1).to(torch.int64) * self.G + cx_r.clamp(0, self.G - 1).to(
+            torch.int64
+        )
+        c_busy = (~c_in_grid) | self._is_cell_occupied_rows(
+            ready_e, c_flat, self.oldest_active_subtick
+        )
+
+        cand_ok_r = r_in_wall & (~c_busy.any(dim=-1))
+        has_cand_r = valid_b & cand_ok_r.any(dim=-1)
+        best_m_r = cand_ok_r.to(torch.int32).argmax(dim=-1, keepdim=True)
+        sel_gx_r = torch.where(valid_b, all_gx.gather(1, best_m_r).squeeze(1), 0)
+        sel_gy_r = torch.where(valid_b, all_gy.gather(1, best_m_r).squeeze(1), 0)
+        sel_th_r = torch.where(
+            valid_b,
+            self._orient_spawn_heading_torch(
+                sel_gx_r, sel_gy_r, all_th_raw.gather(1, best_m_r).squeeze(1)
+            ),
+            0,
+        )
+
+        ready_lin = torch.where(valid_b, ready_e * self.N + ready_i, 0)
+        sel_gx = torch.zeros((self.E * self.N,), dtype=torch.int32, device=self.device)
+        sel_gy = torch.zeros((self.E * self.N,), dtype=torch.int32, device=self.device)
+        sel_th = torch.zeros((self.E * self.N,), dtype=torch.int32, device=self.device)
+        sel_gx.index_put_((ready_lin,), sel_gx_r, accumulate=True)
+        sel_gy.index_put_((ready_lin,), sel_gy_r, accumulate=True)
+        sel_th.index_put_((ready_lin,), sel_th_r, accumulate=True)
+        sel_gx = sel_gx.view(self.E, self.N)
+        sel_gy = sel_gy.view(self.E, self.N)
+        sel_th = sel_th.view(self.E, self.N)
+
+        min_sep_sq = (2 * self._r_clear) * (2 * self._r_clear)
+        if b_cnt <= 256:
+            rdx_r = sel_gx_r[:, None] - sel_gx_r[None, :]
+            rdy_r = sel_gy_r[:, None] - sel_gy_r[None, :]
+            conflict_r = (
                 valid_b[:, None]
-                & (all_gx >= 0)
-                & (all_gx < self.G)
-                & (all_gy >= 0)
-                & (all_gy < self.G)
-                & (self._cell_center_sq_fp(all_gx, all_gy) < self._spawn_wall_sq_fp)
-            )
+                & valid_b[None, :]
+                & (ready_e[:, None] == ready_e[None, :])
+                & (ready_i[:, None] > ready_i[None, :])
+                & has_cand_r[None, :]
+                & ((rdx_r * rdx_r + rdy_r * rdy_r) <= min_sep_sq)
+            ).any(dim=-1)
+            spawn_r = has_cand_r & (~conflict_r)
+            spawn_i32 = torch.zeros((self.E * self.N,), dtype=torch.int32, device=self.device)
+            spawn_i32.index_put_((ready_lin,), spawn_r.to(torch.int32), accumulate=True)
+            spawn_now = (spawn_i32 > 0).view(self.E, self.N)
+        else:
+            hc_i32 = torch.zeros((self.E * self.N,), dtype=torch.int32, device=self.device)
+            hc_i32.index_put_((ready_lin,), has_cand_r.to(torch.int32), accumulate=True)
+            has_cand = (hc_i32 > 0).view(self.E, self.N)
+            rdx = sel_gx[:, :, None] - sel_gx[:, None, :]
+            rdy = sel_gy[:, :, None] - sel_gy[:, None, :]
+            earlier_conflict = (
+                self._tril_nn & has_cand[:, None, :] & ((rdx * rdx + rdy * rdy) <= min_sep_sq)
+            ).any(dim=-1)
+            spawn_now = has_cand & (~earlier_conflict)
+            spawn_r = valid_b & spawn_now.view(-1).index_select(0, ready_lin)
 
-            cx_r = all_gx[..., None] + self._clear_dx[None, None, :]
-            cy_r = all_gy[..., None] + self._clear_dy[None, None, :]
-            c_in_grid = (cx_r >= 0) & (cx_r < self.G) & (cy_r >= 0) & (cy_r < self.G)
-            c_flat = cy_r.clamp(0, self.G - 1).to(torch.int64) * self.G + cx_r.clamp(
-                0, self.G - 1
-            ).to(torch.int64)
-            c_busy = (~c_in_grid) | self._is_cell_occupied_rows(
-                ready_e, c_flat, self.oldest_active_subtick
+        spawn_pos = self._cell_center_fp(sel_gx, sel_gy)
+        spawn_st = int(tick_base_subtick + self.max_pts - 1)
+        self.head_pos = torch.where(spawn_now[:, :, None], spawn_pos, self.head_pos)
+        self.theta = torch.where(spawn_now, sel_th, self.theta)
+        self.alive = self.alive | spawn_now
+        self.length = torch.where(
+            spawn_now,
+            torch.full_like(self.length, int(self.cfg.start_length)),
+            self.length,
+        )
+        self.seg_count = torch.where(spawn_now, torch.ones_like(self.seg_count), self.seg_count)
+        self.head_ptr = torch.where(spawn_now, torch.zeros_like(self.head_ptr), self.head_ptr)
+        self.oldest_active_subtick = torch.where(
+            spawn_now,
+            torch.full_like(self.oldest_active_subtick, spawn_st),
+            self.oldest_active_subtick,
+        )
+        for field in _PER_LIFE_STATE_FIELDS:
+            cur = getattr(self, field.name)
+            fill = (
+                torch.zeros_like(cur)
+                if (field.reset_value == 0 or field.reset_value is False)
+                else torch.full_like(cur, field.reset_value)
             )
+            setattr(self, field.name, torch.where(spawn_now, fill, cur))
 
-            cand_ok_r = r_in_wall & (~c_busy.any(dim=-1))
-            has_cand_r = valid_b & cand_ok_r.any(dim=-1)
-            best_m_r = cand_ok_r.to(torch.int32).argmax(dim=-1, keepdim=True)
-            sel_gx_r = torch.where(valid_b, all_gx.gather(1, best_m_r).squeeze(1), 0)
-            sel_gy_r = torch.where(valid_b, all_gy.gather(1, best_m_r).squeeze(1), 0)
-            sel_th_r = torch.where(
-                valid_b,
-                self._orient_spawn_heading_torch(
-                    sel_gx_r, sel_gy_r, all_th_raw.gather(1, best_m_r).squeeze(1)
-                ),
-                0,
-            )
+        spawn_r_sq_1d = self._r_sq_table[int(self.cfg.start_length)]
+        spawn_r_sq = spawn_r_sq_1d.expand(self.E, self.N)
+        spawn_cell_i16 = torch.stack((sel_gx.to(torch.int16), sel_gy.to(torch.int16)), dim=-1)
+        self.ring_pos[:, :, 0, :] = torch.where(
+            spawn_now[:, :, None], spawn_pos, self.ring_pos[:, :, 0, :]
+        )
+        self.ring_cell[:, :, 0, :] = torch.where(
+            spawn_now[:, :, None], spawn_cell_i16, self.ring_cell[:, :, 0, :]
+        )
+        self.ring_r_sq[:, :, 0] = torch.where(
+            spawn_now, spawn_r_sq.to(torch.int16), self.ring_r_sq[:, :, 0]
+        )
+        self.ring_subtick[:, :, 0] = torch.where(
+            spawn_now,
+            torch.full_like(self.oldest_active_subtick, spawn_st),
+            self.ring_subtick[:, :, 0],
+        )
 
-            ready_lin = torch.where(valid_b, ready_e * self.N + ready_i, 0)
-            sel_gx = torch.zeros((self.E * self.N,), dtype=torch.int32, device=self.device)
-            sel_gy = torch.zeros((self.E * self.N,), dtype=torch.int32, device=self.device)
-            sel_th = torch.zeros((self.E * self.N,), dtype=torch.int32, device=self.device)
-            sel_gx.index_put_((ready_lin,), sel_gx_r, accumulate=True)
-            sel_gy.index_put_((ready_lin,), sel_gy_r, accumulate=True)
-            sel_th.index_put_((ready_lin,), sel_th_r, accumulate=True)
-            sel_gx = sel_gx.view(self.E, self.N)
-            sel_gy = sel_gy.view(self.E, self.N)
-            sel_th = sel_th.view(self.E, self.N)
+        self._stamp_sparse_points(
+            ready_e,
+            ready_i,
+            sel_gx_r,
+            sel_gy_r,
+            self._start_r_sq_int,
+            spawn_st,
+            active_rows=spawn_r,
+        )
+        self.total_spawned_snake_mass = self.total_spawned_snake_mass + spawn_now.to(
+            torch.int64
+        ).sum(dim=1) * int(self.cfg.start_length)
+        return spawn_now
 
-            min_sep_sq = (2 * self._r_clear) * (2 * self._r_clear)
-            if b_cnt <= 256:
-                rdx_r = sel_gx_r[:, None] - sel_gx_r[None, :]
-                rdy_r = sel_gy_r[:, None] - sel_gy_r[None, :]
-                conflict_r = (
-                    valid_b[:, None]
-                    & valid_b[None, :]
-                    & (ready_e[:, None] == ready_e[None, :])
-                    & (ready_i[:, None] > ready_i[None, :])
-                    & has_cand_r[None, :]
-                    & ((rdx_r * rdx_r + rdy_r * rdy_r) <= min_sep_sq)
-                ).any(dim=-1)
-                spawn_r = has_cand_r & (~conflict_r)
-                spawn_i32 = torch.zeros((self.E * self.N,), dtype=torch.int32, device=self.device)
-                spawn_i32.index_put_((ready_lin,), spawn_r.to(torch.int32), accumulate=True)
-                spawn_now = (spawn_i32 > 0).view(self.E, self.N)
-            else:
-                hc_i32 = torch.zeros((self.E * self.N,), dtype=torch.int32, device=self.device)
-                hc_i32.index_put_((ready_lin,), has_cand_r.to(torch.int32), accumulate=True)
-                has_cand = (hc_i32 > 0).view(self.E, self.N)
-                rdx = sel_gx[:, :, None] - sel_gx[:, None, :]
-                rdy = sel_gy[:, :, None] - sel_gy[:, None, :]
-                earlier_conflict = (
-                    self._tril_nn & has_cand[:, None, :] & ((rdx * rdx + rdy * rdy) <= min_sep_sq)
-                ).any(dim=-1)
-                spawn_now = has_cand & (~earlier_conflict)
-                spawn_r = valid_b & spawn_now.view(-1).index_select(0, ready_lin)
-
-            spawn_pos = self._cell_center_fp(sel_gx, sel_gy)
-            spawn_st = int(tick_base_subtick + self.max_pts - 1)
-            self.head_pos = torch.where(spawn_now[:, :, None], spawn_pos, self.head_pos)
-            self.theta = torch.where(spawn_now, sel_th, self.theta)
-            self.alive = self.alive | spawn_now
-            self.boosting = torch.where(spawn_now, torch.zeros_like(self.boosting), self.boosting)
-            self.length = torch.where(
-                spawn_now,
-                torch.full_like(self.length, int(self.cfg.start_length)),
-                self.length,
-            )
-            self.seg_count = torch.where(spawn_now, torch.ones_like(self.seg_count), self.seg_count)
-            self.head_ptr = torch.where(spawn_now, torch.zeros_like(self.head_ptr), self.head_ptr)
-            self.oldest_active_subtick = torch.where(
-                spawn_now,
-                torch.full_like(self.oldest_active_subtick, spawn_st),
-                self.oldest_active_subtick,
-            )
-            self.dist_accum_fp = torch.where(
-                spawn_now, torch.zeros_like(self.dist_accum_fp), self.dist_accum_fp
-            )
-            self.boost_ticks = torch.where(
-                spawn_now, torch.zeros_like(self.boost_ticks), self.boost_ticks
-            )
-            self.boost_drop_fp_accum = torch.where(
-                spawn_now, torch.zeros_like(self.boost_drop_fp_accum), self.boost_drop_fp_accum
-            )
-            self.life_age = torch.where(spawn_now, torch.zeros_like(self.life_age), self.life_age)
-
-            spawn_r_sq_1d = self._r_sq_table[int(self.cfg.start_length)]
-            spawn_r_sq = spawn_r_sq_1d.expand(self.E, self.N)
-            spawn_cell_i16 = torch.stack((sel_gx.to(torch.int16), sel_gy.to(torch.int16)), dim=-1)
-            self.ring_pos[:, :, 0, :] = torch.where(
-                spawn_now[:, :, None], spawn_pos, self.ring_pos[:, :, 0, :]
-            )
-            self.ring_cell[:, :, 0, :] = torch.where(
-                spawn_now[:, :, None], spawn_cell_i16, self.ring_cell[:, :, 0, :]
-            )
-            self.ring_r_sq[:, :, 0] = torch.where(
-                spawn_now, spawn_r_sq.to(torch.int16), self.ring_r_sq[:, :, 0]
-            )
-            self.ring_subtick[:, :, 0] = torch.where(
-                spawn_now,
-                torch.full_like(self.oldest_active_subtick, spawn_st),
-                self.ring_subtick[:, :, 0],
-            )
-
-            self._stamp_sparse_points(
-                ready_e,
-                ready_i,
-                sel_gx_r,
-                sel_gy_r,
-                self._start_r_sq_int,
-                spawn_st,
-                active_rows=spawn_r,
-            )
-            self.total_spawned_snake_mass = self.total_spawned_snake_mass + spawn_now.to(
-                torch.int64
-            ).sum(dim=1) * int(self.cfg.start_length)
-
-        # Episode lifecycle signals (Rule 12).
+    def _phase_episode_signals(
+        self,
+        col: _CollidePhaseOut,
+        eat: _EatPhaseOut,
+        spawn_now: torch.Tensor,
+        truncate: bool | torch.Tensor,
+        trunc_mask: torch.Tensor | None,
+        *,
+        timed: bool = False,
+        t0: float = 0.0,
+    ) -> StepInfo:
+        """Update episode lifecycle flags, run optional invariant check, and build StepInfo."""
         self.life_start.copy_(spawn_now)
         if self.cfg.max_life_ticks > 0:
-            life_truncated = survives & (self.life_age >= int(self.cfg.max_life_ticks))
+            life_truncated = col.survives & (self.life_age >= int(self.cfg.max_life_ticks))
         else:
-            life_truncated = torch.zeros_like(survives)
+            life_truncated = torch.zeros_like(col.survives)
         self.truncated_pending.copy_(life_truncated)
 
         if trunc_mask is not None:
-            rollout_truncated = survives & trunc_mask
+            rollout_truncated = col.survives & trunc_mask
         elif truncate:
-            rollout_truncated = survives.clone()
+            rollout_truncated = col.survives.clone()
         else:
-            rollout_truncated = torch.zeros_like(survives)
+            rollout_truncated = torch.zeros_like(col.survives)
         truncated = life_truncated | rollout_truncated
-        in_respawn_delay = (~self.alive) & (~died)
+        in_respawn_delay = (~self.alive) & (~col.died)
 
         if self.debug_assert_invariants:
             self.assert_surviving_discs_disjoint()
 
         if timed:
-            self._sync_device()
-            t1 = time.perf_counter()
-            self._stage_seconds["respawn"] += t1 - t0
+            self._mark_stage_time("respawn", t0)
 
         return StepInfo(
             alive=self.alive.clone(),
             life_start=self.life_start.clone(),
-            died=died,
+            died=col.died,
             truncated=truncated,
             in_respawn_delay=in_respawn_delay,
             length=self.length.clone(),
             prev_length=self.prev_length.clone(),
-            mass_eaten=mass_eaten,
-            killer_id=killer_id,
-            kill_credit=kill_credit,
+            mass_eaten=eat.mass_eaten,
+            killer_id=col.killer_id,
+            kill_credit=col.kill_credit,
             life_age=self.life_age.clone(),
+        )
+
+    def step(
+        self,
+        actions: torch.Tensor,
+        *,
+        truncate: bool | torch.Tensor = False,
+    ) -> StepInfo:
+        """Advance all E worlds by one tick (phases aligned 1-for-1 with ReferenceWorld.step).
+
+        Shared within-tick phase order (Rule 9):
+          0. ``_guard_subticks`` + ``_phase_retire_truncated`` + ``_phase_snapshot_prev``:
+             verify/rebase packed subticks on the host (0 sync), retire any snakes flagged
+             ``truncated_pending`` at the end of tick ``t - 1``, and snapshot ``prev_*``.
+          1. ``_phase_move``: steer, advance heads, emit distance-spaced body points, shed
+             boost mass / accumulate fractional drops, and compute retained pre-move segments.
+          2. ``_phase_collide``: test sub-step head discs against walls, causally ordered new
+             points (``s_j <= s_i``), and retained enemy bodies; award RNG kill credit.
+          3. ``_phase_apply_deaths``: apply survival and death state updates simultaneously and
+             stamp surviving snakes into occupancy pyramids.
+          4. ``_phase_eat`` -> ``_phase_deposit`` -> ``_phase_refill``: resolve food pickup
+             (lowest slot wins ties), deposit boost pellets and post-death corpse orbs
+             (saturating ``int16`` cells at ``CORPSE_GRID_MAX``), and refill ambient food.
+          5. ``_phase_respawn`` + ``_phase_episode_signals``: decrement respawn timers, place
+             ready slots using world-local ``world_ticks``, and emit ``StepInfo``.
+        """
+        trunc_mask = self._validate_step_inputs(actions, truncate)
+        next_tick, tick_base_subtick = self._guard_subticks()
+
+        timed = self._timing_enabled
+        t0 = 0.0
+        if timed:
+            self._sync_device()
+            t0 = time.perf_counter()
+
+        self.tick = next_tick
+        self.world_ticks = self.world_ticks + 1
+        self._clean_step_streak += 1
+        expired_sentinel_st = tick_base_subtick + self.max_pts + 1
+
+        self._phase_retire_truncated(expired_sentinel_st)
+        self._phase_snapshot_prev()
+
+        move = self._phase_move(actions, tick_base_subtick, expired_sentinel_st)
+        if timed:
+            t0 = self._mark_stage_time("move", t0)
+
+        col = self._phase_collide(move)
+        if timed:
+            t0 = self._mark_stage_time("collide", t0)
+
+        self._phase_apply_deaths(move, col, expired_sentinel_st)
+        if timed:
+            t0 = self._mark_stage_time("rasterise", t0)
+
+        eat = self._phase_eat(move, col)
+        self._phase_deposit(move, col, eat)
+        self._phase_refill()
+        if timed:
+            t0 = self._mark_stage_time("food", t0)
+
+        spawn_now = self._phase_respawn(col, tick_base_subtick)
+        return self._phase_episode_signals(
+            col, eat, spawn_now, truncate, trunc_mask, timed=timed, t0=t0
         )
 
     def active_occupancy_grid(self) -> torch.Tensor:
@@ -2606,15 +2596,15 @@ class GameV3Sim:
             hi_sub = self.occ_hi[e0:e1]
             old_sub = self.oldest_active_subtick[e0:e1]
 
-            ow_lo = 63 - (lo_sub & 63)
+            ow_lo = decode_occ_owner_lo(lo_sub)
             ow_lo_i64 = ow_lo.clamp(0, self.N - 1).to(torch.int64)
             st_lo = old_sub.gather(1, ow_lo_i64.view(eb, -1)).view_as(lo_sub)
-            act_lo = (lo_sub >= 0) & ((lo_sub >> 6) >= st_lo)
+            act_lo = occ_entry_active(lo_sub, st_lo)
 
-            ow_hi = hi_sub & 63
+            ow_hi = decode_occ_owner_hi(hi_sub)
             ow_hi_i64 = ow_hi.clamp(0, self.N - 1).to(torch.int64)
             st_hi = old_sub.gather(1, ow_hi_i64.view(eb, -1)).view_as(hi_sub)
-            act_hi = (hi_sub >= 0) & ((hi_sub >> 6) >= st_hi)
+            act_hi = occ_entry_active(hi_sub, st_hi)
 
             full_n = torch.full_like(ow_lo, self.N)
             lowest = torch.minimum(
@@ -2630,90 +2620,84 @@ class GameV3Sim:
 
     def state_dict(self) -> dict[str, Any]:
         """Serialize full deterministic simulator state for checkpoint/resume."""
-        tensor_names = (
-            "seeds",
-            "world_ticks",
-            "head_pos",
-            "theta",
-            "alive",
-            "boosting",
-            "length",
-            "seg_count",
-            "head_ptr",
-            "oldest_active_subtick",
-            "dist_accum_fp",
-            "boost_ticks",
-            "boost_drop_fp_accum",
-            "respawn_timer",
-            "life_age",
-            "life_start",
-            "truncated_pending",
-            "ring_pos",
-            "ring_cell",
-            "ring_r_sq",
-            "ring_subtick",
-            "prev_alive",
-            "prev_boosting",
-            "prev_head_pos",
-            "prev_theta",
-            "prev_length",
-            "occ_hi",
-            "occ_lo",
-            "occ_subtick_4x",
-            "occ_subtick_16x",
-            "ambient_grid",
-            "ambient_grid_4x",
-            "ambient_grid_16x",
-            "corpse_grid",
-            "corpse_grid_4x",
-            "corpse_grid_16x",
-            "ambient_count",
-            "total_spawned_snake_mass",
-            "total_spawned_ambient_mass",
-            "total_corpse_decay_sink",
-            "total_boost_decay_sink",
-            "total_length_cap_sink",
-            "total_truncation_sink",
-        )
         tensors_out: dict[str, torch.Tensor] = {}
-        for name in tensor_names:
-            if name == "occ_subtick_4x":
+        for field in _SAVED_STATE_FIELDS:
+            if field.sharded_4x:
                 if len(self._occ_4x_blocks) == 1:
-                    tensors_out[name] = self._occ_4x_blocks[0].detach().cpu().clone()
+                    tensors_out[field.name] = self._occ_4x_blocks[0].detach().cpu().clone()
                 else:
-                    tensors_out[name] = torch.cat(
+                    tensors_out[field.name] = torch.cat(
                         [blk.detach().cpu() for blk in self._occ_4x_blocks], dim=0
                     )
             else:
-                tensors_out[name] = getattr(self, name).detach().cpu().clone()
+                tensors_out[field.name] = getattr(self, field.name).detach().cpu().clone()
         return {
             "config": self.cfg.to_dict(),
             "num_envs": self.E,
             "tick": self.tick,
             "subtick_offset": self._subtick_offset,
+            "clean_step_streak": self._clean_step_streak,
             "tensors": tensors_out,
         }
 
     def load_state_dict(self, state: dict[str, Any]) -> None:
-        """Restore deterministic simulator state in-place onto ``self.device``."""
+        """Strictly validate and restore deterministic simulator state onto ``self.device``."""
+        if not isinstance(state, dict):
+            raise TypeError(f"Expected dict for state_dict, got {type(state).__name__}")
+        top_keys = set(state.keys())
+        missing_top = _REQUIRED_STATE_DICT_KEYS - top_keys
+        if missing_top:
+            raise KeyError(f"Missing required state_dict keys: {sorted(missing_top)}")
+        unknown_top = top_keys - _ALL_STATE_DICT_KEYS
+        if unknown_top:
+            raise KeyError(f"Unknown state_dict keys: {sorted(unknown_top)}")
+
+        tensors = state["tensors"]
+        if not isinstance(tensors, dict):
+            raise TypeError(
+                f"Expected dict for state_dict['tensors'], got {type(tensors).__name__}"
+            )
+        tensor_keys = set(tensors.keys())
+        missing_tensors = _SAVED_TENSOR_NAMES - tensor_keys
+        if missing_tensors:
+            raise KeyError(f"Missing state_dict tensor keys: {sorted(missing_tensors)}")
+        unknown_tensors = tensor_keys - _SAVED_TENSOR_NAMES
+        if unknown_tensors:
+            raise KeyError(f"Unknown state_dict tensor keys: {sorted(unknown_tensors)}")
+
         loaded_cfg = GameV3Config.from_dict(state["config"])
         if loaded_cfg != self.cfg:
             raise ValueError("Checkpoint GameV3Config does not match simulator config")
         if int(state["num_envs"]) != self.E:
             raise ValueError(f"Checkpoint num_envs {state['num_envs']} != {self.E}")
+        streak = int(state.get("clean_step_streak", 0))
+        if streak < 0:
+            raise ValueError(f"Checkpoint clean_step_streak must be >= 0, got {streak}")
+
+        for field in _SAVED_STATE_FIELDS:
+            tensor = tensors[field.name]
+            if not isinstance(tensor, torch.Tensor):
+                raise TypeError(
+                    f"Checkpoint tensor {field.name!r} must be torch.Tensor, "
+                    f"got {type(tensor).__name__}"
+                )
+            exp_shape = state_field_shape(self, field.shape_kind)
+            if tuple(tensor.shape) != exp_shape:
+                raise ValueError(
+                    f"Checkpoint tensor {field.name!r} shape {tuple(tensor.shape)} != {exp_shape}"
+                )
+
         self.tick = int(state["tick"])
-        self._subtick_offset = int(state.get("subtick_offset", 0))
-        self._clean_step_streak = 0
-        tensors = state["tensors"]
-        if "world_ticks" not in tensors:
-            self.world_ticks.fill_(self.tick)
-        for name, tensor in tensors.items():
-            if name == "occ_subtick_4x":
+        self._subtick_offset = int(state["subtick_offset"])
+        self._clean_step_streak = streak
+        for field in _SAVED_STATE_FIELDS:
+            tensor = tensors[field.name]
+            if field.sharded_4x:
                 bs = self.env_block_size
                 for b_idx, blk in enumerate(self._occ_4x_blocks):
                     e0 = b_idx * bs
                     e1 = e0 + int(blk.shape[0])
                     blk.copy_(tensor[e0:e1].to(device=self.device, dtype=blk.dtype))
             else:
-                dst = getattr(self, name)
+                dst = getattr(self, field.name)
                 dst.copy_(tensor.to(device=self.device, dtype=dst.dtype))
