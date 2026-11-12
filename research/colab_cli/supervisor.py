@@ -317,20 +317,36 @@ class CLI:
         self._lease_stop = threading.Event()
         self._lease_thread: threading.Thread | None = None
 
+    def _cap_label(self) -> str:
+        return (
+            "download"
+            if getattr(self._control_context, "transfer_direction", "upload") == "download"
+            else "upload"
+        )
+
     def remaining_seconds(self, allowance: float, *, staging_control: bool = True) -> float:
         """Clip non-CLI helpers to the same first-cap-wins session clock."""
         staging_deadline = getattr(self._control_context, "deadline", math.inf)
+        transfer_direction = getattr(self._control_context, "transfer_direction", "upload")
         remaining = min(
             allowance,
             (
                 self.staging_control_seconds()
-                if staging_control and staging_deadline != math.inf
+                if staging_control
+                and staging_deadline != math.inf
+                and transfer_direction == "upload"
                 else math.inf
             ),
             staging_deadline - time.monotonic(),
             (self.deadline if self.deadline is not None else math.inf) - time.monotonic(),
         )
         if remaining <= 0:
+            if (
+                transfer_direction == "download"
+                and time.monotonic() >= staging_deadline
+                and (self.deadline is None or staging_deadline <= self.deadline)
+            ):
+                raise Refused("total download time cap reached before helper")
             raise Refused("whole-session deadline reached before helper")
         return remaining
 
@@ -346,8 +362,10 @@ class CLI:
     def staging_controls(self, deadline: float, *, source_delivery: bool = False) -> Iterator[None]:
         """Bound foreground staging without starving the independent lease thread."""
         previous = getattr(self._control_context, "deadline", math.inf)
+        previous_direction = getattr(self._control_context, "transfer_direction", "upload")
         previous_source = getattr(self._control_context, "source_delivery", False)
         self._control_context.deadline = min(previous, deadline)
+        self._control_context.transfer_direction = "upload"
         self._control_context.source_delivery = source_delivery
         try:
             if time.monotonic() >= self._control_context.deadline:
@@ -355,6 +373,25 @@ class CLI:
             yield
         finally:
             self._control_context.deadline = previous
+            self._control_context.transfer_direction = previous_direction
+            self._control_context.source_delivery = previous_source
+
+    @contextlib.contextmanager
+    def download_controls(self, deadline: float) -> Iterator[None]:
+        """Bound per-file downloads and route lease renewals through Contents PUT."""
+        previous = getattr(self._control_context, "deadline", math.inf)
+        previous_direction = getattr(self._control_context, "transfer_direction", "upload")
+        previous_source = getattr(self._control_context, "source_delivery", False)
+        self._control_context.deadline = min(previous, deadline)
+        self._control_context.transfer_direction = "download"
+        self._control_context.source_delivery = False
+        try:
+            if time.monotonic() >= self._control_context.deadline:
+                raise Refused("total download time cap reached before download control")
+            yield
+        finally:
+            self._control_context.deadline = previous
+            self._control_context.transfer_direction = previous_direction
             self._control_context.source_delivery = previous_source
 
     @contextlib.contextmanager
@@ -516,7 +553,7 @@ class CLI:
             timeout = min(timeout, deadline - time.monotonic())
             if timeout <= 0:
                 if time.monotonic() >= getattr(self._control_context, "deadline", math.inf):
-                    raise Refused("total upload time cap reached before CLI call")
+                    raise Refused(f"total {self._cap_label()} time cap reached before CLI call")
                 raise Refused("whole-session deadline reached before CLI call")
         env = {
             **os.environ,
@@ -636,13 +673,16 @@ class CLI:
         if self.exec_uncertain:
             raise Refused("previous exec uncertain/busy; refusing to resubmit to kernel")
         staging_deadline = getattr(self._control_context, "deadline", math.inf)
+        transfer_direction = getattr(self._control_context, "transfer_direction", "upload")
         if staging_deadline != math.inf:
             timeout = min(
-                timeout, self.staging_control_seconds(), staging_deadline - time.monotonic()
+                timeout,
+                self.staging_control_seconds() if transfer_direction == "upload" else math.inf,
+                staging_deadline - time.monotonic(),
             )
             completion_grace = 0
             if timeout <= 0:
-                raise Refused("total upload time cap reached before control RPC")
+                raise Refused(f"total {self._cap_label()} time cap reached before control RPC")
         nonce = "SNAKE_RPC_" + uuid.uuid4().hex
         wrapped = (
             "import json, traceback\ntry:\n"
@@ -880,7 +920,9 @@ class CLI:
 
         is_mutating = mutating or getattr(self._control_context, "mutating_rpc", False)
         staging_deadline = getattr(self._control_context, "deadline", math.inf)
-        extended = bool(self.poll_recovery_endpoint) and staging_deadline == math.inf
+        transfer_direction = getattr(self._control_context, "transfer_direction", "upload")
+        upload_staging = staging_deadline != math.inf and transfer_direction == "upload"
+        extended = bool(self.poll_recovery_endpoint) and not upload_staging
         allowance = self.exec_poll_recovery_seconds if extended else policy.TELEMETRY_SECONDS
         if timeout is not None:
             allowance = min(allowance, positive(timeout, "poll timeout"))
@@ -891,7 +933,7 @@ class CLI:
             (
                 time.monotonic()
                 + max(policy.STAGING_RECOVERY_SECONDS, self.staging_control_seconds())
-                if staging_deadline != math.inf
+                if upload_staging
                 else math.inf
             ),
         )
@@ -900,7 +942,9 @@ class CLI:
             seconds = deadline - time.monotonic()
             if seconds <= 0:
                 if time.monotonic() >= staging_deadline:
-                    raise Refused("total upload time cap reached during control recovery")
+                    raise Refused(
+                        f"total {self._cap_label()} time cap reached during control recovery"
+                    )
                 raise Refused("deadline reached during telemetry recovery")
             return seconds
 
@@ -920,7 +964,7 @@ class CLI:
                             timeout=min(
                                 (
                                     policy.STAGING_CONTROL_SECONDS
-                                    if staging_deadline != math.inf
+                                    if upload_staging
                                     else policy.READ_SECONDS
                                 ),
                                 remaining(),
@@ -950,9 +994,7 @@ class CLI:
                 recover_idle()
             try:
                 rpc_seconds = (
-                    self.staging_control_seconds()
-                    if staging_deadline != math.inf
-                    else policy.RPC_SECONDS
+                    self.staging_control_seconds() if upload_staging else policy.RPC_SECONDS
                 )
                 return self.rpc(code, min(rpc_seconds, remaining()), completion_grace=0)
             except (Refused, OSError, subprocess.SubprocessError) as exc:
@@ -1068,7 +1110,12 @@ def collect_exports(
 
 def export_file(cli: CLI, root: str, entry: dict[str, Any], output: Path, limit: int) -> None:
     """Download immutable data + digest + marker, verify, publish atomically."""
-    from research.colab_cli.transfers import TransferError, _contents_call, download_file
+    from research.colab_cli.transfers import (
+        TransferError,
+        _contents_call,
+        download_file,
+        transfer_timeout,
+    )
 
     rel = safe_relative(entry["path"])
     size = entry["size"]
@@ -1086,24 +1133,39 @@ def export_file(cli: CLI, root: str, entry: dict[str, Any], output: Path, limit:
         if not sidecar.is_file() or sidecar.read_text().split()[0] != digest:
             raise Refused("local export publication incomplete")
         return
-    with tempfile.TemporaryDirectory(dir=target.parent, prefix=".transfer-") as temp:
+    file_deadline = time.monotonic() + transfer_timeout(size)
+    download_scope = (
+        cli.download_controls(file_deadline)
+        if hasattr(cli, "download_controls")
+        else contextlib.nullcontext()
+    )
+    with (
+        download_scope,
+        tempfile.TemporaryDirectory(dir=target.parent, prefix=".transfer-") as temp,
+    ):
         data = Path(temp) / "data"
         marker = Path(temp) / "complete"
         sidecar = Path(temp) / "sha256"
         try:
             download_file(
-                cli, root + "/output/" + rel, data, size, renew=cli.renew, expected_sha256=digest
+                cli,
+                root + "/output/" + rel,
+                data,
+                size,
+                renew=cli.renew,
+                expected_sha256=digest,
+                deadline=file_deadline,
             )
+            for suffix, local in ((".sha256", sidecar), (".complete", marker)):
+                _contents_call(
+                    cli,
+                    ("download", "-s", cli.session, root + "/output/" + rel + suffix, str(local)),
+                    policy.READ_SECONDS,
+                    cli.renew,
+                    deadline=min(file_deadline, time.monotonic() + policy.READ_SECONDS),
+                )
         except TransferError as exc:
             raise Refused(f"download hash mismatch or transfer failure: {exc}") from exc
-        for suffix, local in ((".sha256", sidecar), (".complete", marker)):
-            _contents_call(
-                cli,
-                ("download", "-s", cli.session, root + "/output/" + rel + suffix, str(local)),
-                policy.READ_SECONDS,
-                cli.renew,
-                deadline=time.monotonic() + policy.READ_SECONDS,
-            )
         if data.stat().st_size != size or sha256(data) != digest:
             raise Refused("download hash mismatch; temporary export rejected")
         if sidecar.stat().st_size > 1024 or sidecar.read_text().split()[0] != digest:
