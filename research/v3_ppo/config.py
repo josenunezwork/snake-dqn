@@ -298,6 +298,9 @@ ASSUMED_STAGED_INPUT_UPLOAD_RATE_MBPS: float = 1.0  # 1.0 MB/s (1,000,000 B/s)
 ASSUMED_STAGED_INPUT_UPLOAD_RATE_BYTES_PER_SEC: float = (
     ASSUMED_STAGED_INPUT_UPLOAD_RATE_MBPS * 1_000_000.0
 )
+# Canary upload budget: Colab CLI transport caps canary uploads at 150 s; refusing > 100.0 s at
+# ASSUMED_STAGED_INPUT_UPLOAD_RATE_MBPS (1.0 MB/s) leaves 50 s margin for a hung upload call.
+CANARY_MAX_ESTIMATED_UPLOAD_SECONDS: float = 100.0
 ASSUMED_FINAL_EXPORT_DOWNLOAD_RATE_MBPS: float = 1.0  # 1.0 MB/s (1,000,000 B/s)
 ASSUMED_FINAL_EXPORT_DOWNLOAD_RATE_BYTES_PER_SEC: float = (
     ASSUMED_FINAL_EXPORT_DOWNLOAD_RATE_MBPS * 1_000_000.0
@@ -901,6 +904,47 @@ def _validate_recipe_field_value(field_name: str, value: Any, *, context: str) -
         raise ConfigTypeError(f"Invalid {context}: {exc}") from exc
     except ValueError as exc:
         raise ValueError(f"Invalid {context}: {exc}") from exc
+
+
+EVAL_POLICY_CONFIG_KEYS: tuple[str, ...] = (
+    # Compatibility, network construction, and inference execution fields
+    "net_size",
+    "amp",
+    "use_channels_last",
+    "fast_learner_ops",
+    "actor_chunk_learners",
+    # Full training setup and recipe fields for reporting
+    "num_envs",
+    "learner_slots",
+    "opponent_policy",
+    *RECIPE_OVERRIDE_KEYS,
+    "adam_eps",
+    "weight_decay",
+    "value_coef",
+    "max_grad_norm",
+    "normalize_advantages",
+    "seed",
+    "deterministic",
+)
+
+
+def extract_eval_policy_config_dict(cfg: V3PPOConfig) -> dict[str, Any]:
+    """Return the evaluator-minimal ``V3PPOConfig`` subset for policy-only checkpoints and reports.
+
+    Includes only the fields required by ``arena_eval`` to rebuild :class:`EgoMultiScaleNet` and
+    verify compatibility (``game_config``, ``net_size``, ``amp``, ``use_channels_last``,
+    ``fast_learner_ops``, ``actor_chunk_learners``) plus the full training recipe and lineage
+    fields used in evaluation reports, omitting operational checkpoint/schedule/periodic-eval keys.
+    """
+    out: dict[str, Any] = {
+        "schema": V3_PPO_SCHEMA,
+        "game_config": cfg.game_config.to_dict(),
+    }
+    for key in EVAL_POLICY_CONFIG_KEYS:
+        out[key] = getattr(cfg, key)
+    if cfg.recipe_change_history:
+        out["recipe_change_history"] = [dict(entry) for entry in cfg.recipe_change_history]
+    return out
 
 
 def extract_recipe_dict(cfg: V3PPOConfig) -> dict[str, Any]:

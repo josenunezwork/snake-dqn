@@ -57,6 +57,8 @@ from research.v3_ppo.arena_eval import (
 )
 from research.v3_ppo.config import (
     ASSUMED_STAGED_INPUT_UPLOAD_RATE_BYTES_PER_SEC,
+    ASSUMED_STAGED_INPUT_UPLOAD_RATE_MBPS,
+    CANARY_MAX_ESTIMATED_UPLOAD_SECONDS,
     GPU_VRAM_BUDGET_BYTES,
     MAX_SUPERVISOR_EXPORT_BYTES,
     OBS_BATCH_BYTES_PER_ROW,
@@ -165,7 +167,7 @@ class PreparePacketOptions:
     eval_max_pairs_per_batch: int | None = None
     assume_ms_per_tick: float | None = None
     eval_session_minutes: float = EVAL_DEFAULT_SESSION_MINUTES
-    eval_weights_only: str = "auto"  # "auto" | "true" | "false"
+    eval_weights_only: str = "true"  # "true" | "auto" | "false"
     output_dir: Path | None = None
     prior_output_dir: Path | None = None
     prior_kind: str = "auto"
@@ -1281,14 +1283,20 @@ def _resolve_eval_policy_specs(
             )
         ckpt_paths = [Path(p).resolve() for p in opts.eval_policies]
 
-    labels = resolve_unique_labels(ckpt_paths, opts.eval_labels)
+    if opts.eval_weights_only not in ("auto", "true", "false"):
+        raise ValueError(
+            f"eval_weights_only must be 'true', 'false', or 'auto', got {opts.eval_weights_only!r}"
+        )
+    if opts.eval_labels is not None:
+        resolve_unique_labels(ckpt_paths, opts.eval_labels)
 
-    # Structurally verify every checkpoint on Mac before staging and check game_config compatibility
-    policy_specs: list[dict[str, Any]] = []
+    # Structurally verify every checkpoint on Mac before staging, preserve original provenance,
+    # and check game_config/obs_layout compatibility.
+    loaded_records: list[dict[str, Any]] = []
     ref_game_dict: dict[str, Any] | None = None
     ref_layout_dict: dict[str, Any] | None = None
     raw_total_bytes = 0
-    for idx, (c_path, lbl) in enumerate(zip(ckpt_paths, labels)):
+    for c_path in ckpt_paths:
         payload, c_sha, c_size = _load_checkpoint_payload(c_path)
         c_cfg = V3PPOConfig.from_dict(payload["config"])
         c_layout = obs_layout_from_game_config(c_cfg.game_config).to_dict()
@@ -1300,32 +1308,40 @@ def _resolve_eval_policy_specs(
             ref_layout_dict = c_layout
         elif g_dict != ref_game_dict or c_layout != ref_layout_dict:
             raise ValueError(f"Incompatible game_config/obs_layout in {c_path} vs {ckpt_paths[0]}")
-        raw_total_bytes += int(c_size)
+        orig_path = str(payload.get("source_checkpoint_path") or c_path)
+        orig_sha = str(payload.get("source_checkpoint_sha256") or c_sha)
+        orig_size = int(payload.get("source_checkpoint_size_bytes") or c_size)
+        raw_total_bytes += orig_size
+        loaded_records.append(
+            {
+                "input_path": str(c_path),
+                "src_path": orig_path,
+                "src_sha256": orig_sha,
+                "raw_size_bytes": orig_size,
+                "net_size": c_cfg.net_size,
+                "game_config": g_dict,
+            }
+        )
+
+    labels = resolve_unique_labels(
+        [Path(rec["src_path"]) for rec in loaded_records],
+        opts.eval_labels,
+    )
+    policy_specs: list[dict[str, Any]] = []
+    for idx, (rec, lbl) in enumerate(zip(loaded_records, labels)):
         safe_slug = re.sub(r"[^A-Za-z0-9._-]+", "_", lbl).strip("_") or f"p{idx:02d}"
         policy_specs.append(
             {
                 "index": idx,
                 "label": lbl,
                 "safe_slug": safe_slug[:40],
-                "src_path": str(c_path),
-                "src_sha256": c_sha,
-                "raw_size_bytes": int(c_size),
-                "net_size": c_cfg.net_size,
-                "game_config": g_dict,
+                **rec,
             }
         )
 
     assert ref_game_dict is not None
     eval_game_cfg = GameV3Config.from_dict({**ref_game_dict, "max_life_ticks": 0})
-    use_weights_only = (
-        True
-        if opts.eval_weights_only == "true"
-        else (
-            False
-            if opts.eval_weights_only == "false"
-            else (raw_total_bytes > EVAL_RAW_UPLOAD_AUTO_STRIP_THRESHOLD_BYTES)
-        )
-    )
+    use_weights_only = opts.eval_weights_only != "false"
     return eff_eval_mode, policy_specs, eval_game_cfg, raw_total_bytes, use_weights_only
 
 
@@ -1941,16 +1957,17 @@ def _stage_inputs(
     if capped.sized.eval_policy_specs:
         eval_entries: list[dict[str, Any]] = []
         for sp in capped.sized.eval_policy_specs:
-            src_p = Path(sp["src_path"])
+            input_p = Path(sp.get("input_path") or sp["src_path"])
+            orig_p_str = str(sp["src_path"])
             ext = ".eval.pt" if sp["weights_only"] else ".pt"
             fname = f"policy_{int(sp['index']):02d}_{sp['safe_slug']}{ext}"
             rel_dest = f"policies/{fname}"
             dst_file = pkt_inputs_dir / "policies" / fname
             if sp["weights_only"]:
-                p_sha = write_weights_only_eval_bundle(src_p, dst_file)
+                p_sha = write_weights_only_eval_bundle(input_p, dst_file)
             else:
                 p_sha = write_create_only_artifact(
-                    dst_file, lambda tmp, src=src_p: shutil.copyfile(src, tmp)
+                    dst_file, lambda tmp, src=input_p: shutil.copyfile(src, tmp)
                 )
             p_size = int(dst_file.stat().st_size)
             inputs_list.append({"path": str(dst_file), "dest": rel_dest, "sha256": p_sha})
@@ -1961,7 +1978,7 @@ def _stage_inputs(
                     "relpath": rel_dest,
                     "sha256": p_sha,
                     "size_bytes": p_size,
-                    "source_checkpoint_path": str(src_p),
+                    "source_checkpoint_path": orig_p_str,
                     "source_checkpoint_sha256": str(sp["src_sha256"]),
                     "raw_checkpoint_size_bytes": int(sp["raw_size_bytes"]),
                     "weights_only": bool(sp["weights_only"]),
@@ -2083,6 +2100,72 @@ def _stage_inputs(
     )
 
 
+def _compute_canary_fitting_policies(
+    ledger: Mapping[str, Any],
+    eval_entries: Sequence[Mapping[str, Any]],
+    *,
+    non_policy_non_ledger_bytes: int,
+    max_upload_bytes: int,
+) -> tuple[int, int, int, int]:
+    """Return ``(fit_prefix_count, fit_prefix_bytes, fit_worst_case_count, max_policy_bytes)``."""
+
+    def _bytes_for_subset(chosen_entries: Sequence[Mapping[str, Any]]) -> int:
+        if not chosen_entries:
+            sub_ledger: dict[str, Any] = {
+                "schema": ledger["schema"],
+                "namespace": ledger["namespace"],
+                "unit_kind": "checkpoint",
+                "skip_verified": True,
+                "verified_units": [
+                    u
+                    for u in ledger.get("verified_units", [])
+                    if not str(u.get("unit_id", "")).startswith("policy:")
+                ],
+            }
+        else:
+            keep_ids = {f"policy:{int(e['index']):02d}" for e in chosen_entries}
+            sub_ledger = {
+                **ledger,
+                "eval_policies": list(chosen_entries),
+                "verified_units": [
+                    u
+                    for u in ledger.get("verified_units", [])
+                    if not str(u.get("unit_id", "")).startswith("policy:")
+                    or str(u.get("unit_id", "")) in keep_ids
+                ],
+            }
+        ledger_b = len((json.dumps(sub_ledger, indent=2, sort_keys=True) + "\n").encode("utf-8"))
+        pol_b = sum(int(e["size_bytes"]) for e in chosen_entries)
+        return int(pol_b + non_policy_non_ledger_bytes + ledger_b)
+
+    fit_prefix_k = 0
+    fit_prefix_b = _bytes_for_subset(())
+    for k in range(1, len(eval_entries) + 1):
+        cand_b = _bytes_for_subset(eval_entries[:k])
+        if cand_b <= max_upload_bytes:
+            fit_prefix_k = k
+            fit_prefix_b = cand_b
+        else:
+            break
+
+    if not eval_entries:
+        return 0, fit_prefix_b, 0, 0
+
+    max_pol_b = max(int(e["size_bytes"]) for e in eval_entries)
+    desc_entries = sorted(eval_entries, key=lambda e: int(e["size_bytes"]), reverse=True)
+    fit_worst_k = 0
+    for k in range(1, len(desc_entries) + 1):
+        ledger_and_other_b = _bytes_for_subset(desc_entries[:k]) - sum(
+            int(e["size_bytes"]) for e in desc_entries[:k]
+        )
+        worst_b = k * max_pol_b + ledger_and_other_b
+        if worst_b <= max_upload_bytes:
+            fit_worst_k = k
+        else:
+            break
+    return fit_prefix_k, fit_prefix_b, fit_worst_k, max_pol_b
+
+
 def _stage_write_manifest(
     opts: PreparePacketOptions,
     ctx: _ValidatedPacketContext,
@@ -2092,6 +2175,67 @@ def _stage_write_manifest(
 ) -> dict[str, Any]:
     """Stage 5: Build technical envelope, validate canary rules, write manifest, and summarize."""
     sized = capped.sized
+    staged_upload_file_count = len(staged.inputs_list)
+    staged_upload_bytes = sum(int(Path(inp["path"]).stat().st_size) for inp in staged.inputs_list)
+    est_upload_seconds = float(staged_upload_bytes) / float(
+        ASSUMED_STAGED_INPUT_UPLOAD_RATE_BYTES_PER_SEC
+    )
+    print(
+        f"V3_PPO_STAGED_UPLOAD bytes={staged_upload_bytes} "
+        f"mb={staged_upload_bytes / 1_000_000.0:.2f} "
+        f"files={staged_upload_file_count} "
+        f"est_upload_seconds={est_upload_seconds:.2f} "
+        f"assumed_rate_mbps={ASSUMED_STAGED_INPUT_UPLOAD_RATE_MBPS:.1f}",
+        file=sys.stderr,
+        flush=True,
+    )
+
+    if opts.mode == "canary" and est_upload_seconds > CANARY_MAX_ESTIMATED_UPLOAD_SECONDS:
+        max_canary_upload_bytes = int(
+            math.floor(
+                CANARY_MAX_ESTIMATED_UPLOAD_SECONDS * ASSUMED_STAGED_INPUT_UPLOAD_RATE_BYTES_PER_SEC
+            )
+        )
+        eval_entries = list(staged.ledger.get("eval_policies", []))
+        staged_pol_bytes = sum(int(e["size_bytes"]) for e in eval_entries)
+        ledger_input_bytes = sum(
+            int(Path(inp["path"]).stat().st_size)
+            for inp in staged.inputs_list
+            if inp.get("dest") == "verified-ledger.json"
+        )
+        non_pol_non_ledger = max(0, staged_upload_bytes - staged_pol_bytes - ledger_input_bytes)
+        fit_prefix_k, fit_prefix_b, fit_worst_k, max_pol_b = _compute_canary_fitting_policies(
+            staged.ledger,
+            eval_entries,
+            non_policy_non_ledger_bytes=non_pol_non_ledger,
+            max_upload_bytes=max_canary_upload_bytes,
+        )
+        fit_prefix_sec = float(fit_prefix_b) / float(ASSUMED_STAGED_INPUT_UPLOAD_RATE_BYTES_PER_SEC)
+        if eval_entries:
+            if fit_prefix_k == fit_worst_k:
+                fit_clause = (
+                    f"at most {fit_prefix_k} of the {len(eval_entries)} policies would fit "
+                    f"({fit_prefix_b:,} bytes, {fit_prefix_sec:.2f} s <= "
+                    f"{CANARY_MAX_ESTIMATED_UPLOAD_SECONDS:.1f} s)"
+                )
+            else:
+                fit_clause = (
+                    f"at most {fit_prefix_k} of the {len(eval_entries)} supplied policies in order "
+                    f"would fit ({fit_prefix_b:,} bytes, {fit_prefix_sec:.2f} s <= "
+                    f"{CANARY_MAX_ESTIMATED_UPLOAD_SECONDS:.1f} s; {fit_worst_k} policies at the "
+                    f"largest policy size of {max_pol_b:,} bytes)"
+                )
+        else:
+            fit_clause = "0 policies would fit"
+        raise ValueError(
+            f"Refusing canary packet: staged upload is {staged_upload_bytes:,} bytes "
+            f"({staged_upload_bytes / 1_000_000.0:.2f} MB across {staged_upload_file_count} files), "
+            f"estimated at {est_upload_seconds:.2f} s at "
+            f"ASSUMED_STAGED_INPUT_UPLOAD_RATE_MBPS={ASSUMED_STAGED_INPUT_UPLOAD_RATE_MBPS:.1f} MB/s, "
+            f"exceeding the {CANARY_MAX_ESTIMATED_UPLOAD_SECONDS:.1f} s canary upload cap "
+            "(leaving margin under the 150 s transport canary cap for one hung call); "
+            f"{fit_clause}."
+        )
     rate_uph = GPU_FORECAST_RATES_UPH[ctx.gpu_norm]
     unit_cap = math.ceil(((sized.timeout_minutes * rate_uph) / 60.0 - 1e-12) * 10000.0) / 10000.0
     tech_envelope: dict[str, Any] = {
@@ -2203,10 +2347,23 @@ def _stage_write_manifest(
         )
         summary["eval_plan"] = {
             **sized.eval_plan,
-            "staged_inputs_total_bytes": sum(
-                int(Path(inp["path"]).stat().st_size) for inp in staged.inputs_list
-            ),
+            "staged_inputs_total_bytes": staged_upload_bytes,
+            "staged_inputs_file_count": staged_upload_file_count,
             "staged_policies_bytes": staged_policy_bytes,
+            "assumed_upload_rate_mbps": ASSUMED_STAGED_INPUT_UPLOAD_RATE_MBPS,
+            "estimated_upload_seconds": round(est_upload_seconds, 2),
+        }
+    elif opts.mode == "canary" and sized.eval_policy_specs:
+        staged_policy_bytes = sum(
+            int(e["size_bytes"]) for e in staged.ledger.get("eval_policies", [])
+        )
+        summary["eval_canary_upload"] = {
+            "staged_inputs_total_bytes": staged_upload_bytes,
+            "staged_inputs_file_count": staged_upload_file_count,
+            "staged_policies_bytes": staged_policy_bytes,
+            "assumed_upload_rate_mbps": ASSUMED_STAGED_INPUT_UPLOAD_RATE_MBPS,
+            "estimated_upload_seconds": round(est_upload_seconds, 2),
+            "canary_max_estimated_upload_seconds": CANARY_MAX_ESTIMATED_UPLOAD_SECONDS,
         }
     return summary
 
@@ -2272,7 +2429,7 @@ def prepare_v3_ppo_packet(
     eval_max_pairs_per_batch: int | None = None,
     assume_ms_per_tick: float | None = None,
     eval_session_minutes: float = EVAL_DEFAULT_SESSION_MINUTES,
-    eval_weights_only: str = "auto",
+    eval_weights_only: str = "true",
     output_dir: Path | str | None = None,
     prior_output_dir: Path | str | None = None,
     prior_kind: str = "auto",
@@ -2495,8 +2652,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--eval-weights-only",
         choices=("auto", "true", "false"),
-        default="auto",
-        help="Strip optimizer state into weights-only eval inputs: auto (>150 MiB), true, or false.",
+        default="true",
+        help="Stage policy-only eval files (weights + eval/recipe config + provenance): true (default), auto, or false.",
     )
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--prior-output-dir", type=Path, default=None)

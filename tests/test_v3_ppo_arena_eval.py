@@ -14,15 +14,17 @@ import numpy as np
 import pytest
 import torch
 
+from research.arena_ppo.runtime import sha256_file
 from research.colab_cli import schema as colab_schema
 from research.colab_cli import supervisor as colab_supervisor
-from research.game_v3.config import FP_ONE, GameV3Config
+from research.game_v3.config import FP_ONE, NUM_ACTIONS, NUM_TURN_LEVELS, GameV3Config
 from research.game_v3.obs import allocate_obs_batch, build_obs
 from research.game_v3.sim import GameV3Sim
 from research.v3_ppo.arena_eval import (
     DEATH_CAUSE_NAMES,
     TURN_LEVEL_NAMES,
     V3_ARENA_EVAL_SCHEMA,
+    V3_POLICY_ONLY_CHECKPOINT_SCHEMA,
     act_policy_chunked,
 )
 from research.v3_ppo.arena_eval import build_arg_parser as build_eval_arg_parser
@@ -43,9 +45,20 @@ from research.v3_ppo.arena_eval import main as arena_eval_main
 from research.v3_ppo.arena_eval import (
     select_pairs_per_batch,
     validate_pair_unit_reuse,
+    write_policy_only_checkpoint,
     write_weights_only_eval_bundle,
 )
-from research.v3_ppo.config import V3PPOConfig
+from research.v3_ppo.checkpoint_io import V3_PPO_LIGHT_CHECKPOINT_SCHEMA
+from research.v3_ppo.config import (
+    ASSUMED_STAGED_INPUT_UPLOAD_RATE_MBPS,
+    CANARY_MAX_ESTIMATED_UPLOAD_SECONDS,
+    EVAL_POLICY_CONFIG_KEYS,
+    V3_PPO_NAMESPACE,
+    V3PPOConfig,
+    obs_layout_from_game_config,
+)
+from research.v3_ppo.exports import write_create_only_artifact
+from research.v3_ppo.net import EgoMultiScaleNet, EgoMultiScaleNetConfig
 from research.v3_ppo.prepare import (
     ROOT,
 )
@@ -1256,3 +1269,548 @@ def test_mps_batched_round_robin_smoke(tmp_path: Path) -> None:
     )
     assert len(rr["pairs"]) == 3
     assert len(rr["standings"]) == 3
+
+
+def _make_real_shaped_light_checkpoint(
+    out_dir: Path,
+    *,
+    run_slug: str,
+    update_num: int,
+    seed: int,
+) -> Path:
+    """Create a real-shaped default GameV3Config (R=600, N=24, 64/32/32 obs) LIGHT checkpoint."""
+    cfg = V3PPOConfig(
+        game_config=GameV3Config(),
+        num_envs=2,
+        learner_slots=24,
+        net_size="S",
+        rollout_len=2,
+        ppo_epochs=1,
+        minibatch_size=48,
+        actor_chunk_learners=24,
+        amp=False,
+        use_channels_last=True,
+        deterministic=True,
+        seed=seed,
+        entropy_coef=0.008,
+        reward_death_penalty=1.5,
+        eval_every_minutes=0.0,
+        eval_every_updates=0,
+        recipe_change_history=(
+            {"update": 0, "changed_fields": {"entropy_coef": {"old": 0.01, "new": 0.008}}},
+        ),
+    )
+    trainer = V3PPOTrainer(cfg, device="cpu")
+    trainer.train_step()
+    ckpt_path = (
+        out_dir
+        / f"v3-ppo-train-a100-{run_slug}"
+        / "output"
+        / "exports"
+        / "checkpoints"
+        / f"light_u{update_num:07d}.pt"
+    )
+    trainer.save_light_checkpoint(ckpt_path)
+    return ckpt_path
+
+
+def _normalize_summary_md_wall(md_text: str) -> str:
+    """Mask wall-clock seconds in ``summary.md`` for deterministic markdown comparison."""
+    import re as _re
+
+    return _re.sub(r"\*\*Wall:\*\* `[0-9.]+s`", "**Wall:** `<WALL>s`", md_text)
+
+
+def test_policy_only_round_trip_action_and_result_identity_real_shaped_cpu(
+    tmp_path: Path,
+) -> None:
+    """Real-shaped LIGHT vs policy-only files yield identical CPU actions and arena_eval results."""
+    light_a = _make_real_shaped_light_checkpoint(
+        tmp_path, run_slug="realshape-a", update_num=101, seed=7101
+    )
+    light_b = _make_real_shaped_light_checkpoint(
+        tmp_path, run_slug="realshape-b", update_num=202, seed=7202
+    )
+    sha_light_a = sha256_file(light_a)
+    sha_light_b = sha256_file(light_b)
+    size_light_a = int(light_a.stat().st_size)
+    size_light_b = int(light_b.stat().st_size)
+
+    po_a = tmp_path / "staged_po" / "policy_00.eval.pt"
+    po_b = tmp_path / "staged_po" / "policy_01.eval.pt"
+    sha_po_a = write_policy_only_checkpoint(light_a, po_a)
+    sha_po_b = write_policy_only_checkpoint(light_b, po_b)
+    assert po_a.stat().st_size < int(0.40 * size_light_a)
+
+    raw_light_payload = torch.load(light_a, map_location="cpu", weights_only=False)
+    po_payload = torch.load(po_a, map_location="cpu", weights_only=False)
+    assert po_payload["schema"] == V3_POLICY_ONLY_CHECKPOINT_SCHEMA
+    for forbidden in (
+        "optimizer_state_dict",
+        "grad_scaler_state_dict",
+        "rng_state",
+        "learner_mask",
+        "episode_return_acc",
+        "last_eval_metrics",
+        "sim_state_dict",
+    ):
+        assert forbidden not in po_payload
+
+    assert po_payload["source_checkpoint_path"] == str(light_a.resolve())
+    assert po_payload["source_checkpoint_sha256"] == sha_light_a
+    assert po_payload["source_checkpoint_size_bytes"] == size_light_a
+    assert po_payload["net_size"] == "S"
+    assert po_payload["obs_layout"] == obs_layout_from_game_config(GameV3Config()).to_dict()
+    assert po_payload["game_config"] == GameV3Config().to_dict()
+    assert po_payload["action_space"] == {
+        "num_actions": int(NUM_ACTIONS),
+        "num_turn_levels": int(NUM_TURN_LEVELS),
+    }
+    assert set(po_payload["config"].keys()) == {
+        "schema",
+        "game_config",
+        "recipe_change_history",
+        *EVAL_POLICY_CONFIG_KEYS,
+    }
+    assert "checkpoint_shard_bytes" not in po_payload["config"]
+    assert "keep_light_checkpoints" not in po_payload["config"]
+    assert po_payload["training_recipe"]["entropy_coef"] == 0.008
+    assert po_payload["recipe_overrides_from_default"]["reward_death_penalty"] == 1.5
+    assert po_payload["updates_completed"] == 1
+    assert po_payload["agent_steps_collected"] == 2 * 24 * 2
+
+    # Same dtype, channels_last memory format, and bit-identical weights
+    assert list(po_payload["model_state_dict"].keys()) == list(
+        raw_light_payload["model_state_dict"].keys()
+    )
+    for k, po_tensor in po_payload["model_state_dict"].items():
+        orig_tensor = raw_light_payload["model_state_dict"][k]
+        assert po_tensor.dtype == orig_tensor.dtype
+        assert po_tensor.is_contiguous(memory_format=torch.channels_last) == (
+            orig_tensor.is_contiguous(memory_format=torch.channels_last)
+        )
+        assert torch.equal(po_tensor, orig_tensor)
+
+    # 1. Direct action identity on real default-sized GameV3Sim (sampled & greedy)
+    pol_light = load_eval_policy(light_a, device="cpu")
+    pol_po = load_eval_policy(po_a, device="cpu")
+    sim = GameV3Sim(GameV3Config(), num_envs=2, device="cpu")
+    sim.reset()
+    obs = allocate_obs_batch(sim)
+    for step_idx in range(3):
+        build_obs(sim, out=obs)
+        s1 = obs.raster_s1.flatten(0, 1)
+        s4 = obs.raster_s4.flatten(0, 1)
+        s16 = obs.raster_s16.flatten(0, 1)
+        sc = obs.scalars.flatten(0, 1)
+        mk = obs.action_mask.flatten(0, 1)
+
+        act_g_light = act_policy_chunked(pol_light, s1, s4, s16, sc, mk, greedy=True)
+        act_g_po = act_policy_chunked(pol_po, s1, s4, s16, sc, mk, greedy=True)
+        assert torch.equal(act_g_light, act_g_po)
+
+        gen_l = torch.Generator(device="cpu").manual_seed(4242 + step_idx)
+        gen_p = torch.Generator(device="cpu").manual_seed(4242 + step_idx)
+        act_s_light = act_policy_chunked(
+            pol_light, s1, s4, s16, sc, mk, greedy=False, generator=gen_l
+        )
+        act_s_po = act_policy_chunked(pol_po, s1, s4, s16, sc, mk, greedy=False, generator=gen_p)
+        assert torch.equal(act_s_light, act_s_po)
+        sim.step(act_s_light.view(2, 24))
+
+    # 2. Local `arena_eval` CLI result identity (sampled & greedy, WITHOUT --labels)
+    for greedy_flag in (False, True):
+        tag = "greedy" if greedy_flag else "sampled"
+        out_l = tmp_path / f"cli_light_{tag}"
+        out_p = tmp_path / f"cli_po_{tag}"
+        extra = ["--greedy"] if greedy_flag else []
+        assert (
+            arena_eval_main(
+                [
+                    "--policies",
+                    str(light_a),
+                    str(light_b),
+                    "--num-envs",
+                    "2",
+                    "--burnin-ticks",
+                    "2",
+                    "--window-ticks",
+                    "6",
+                    "--mass-bin-ticks",
+                    "4",
+                    "--bootstrap-samples",
+                    "50",
+                    "--seed",
+                    "20261112",
+                    *extra,
+                    "--output-dir",
+                    str(out_l),
+                ]
+            )
+            == 0
+        )
+        assert (
+            arena_eval_main(
+                [
+                    "--policies",
+                    str(po_a),
+                    str(po_b),
+                    "--num-envs",
+                    "2",
+                    "--burnin-ticks",
+                    "2",
+                    "--window-ticks",
+                    "6",
+                    "--mass-bin-ticks",
+                    "4",
+                    "--bootstrap-samples",
+                    "50",
+                    "--seed",
+                    "20261112",
+                    *extra,
+                    "--output-dir",
+                    str(out_p),
+                ]
+            )
+            == 0
+        )
+
+        res_l = _strip_wall_times(
+            json.loads((out_l / "eval_result.json").read_text(encoding="utf-8"))
+        )
+        res_p = _strip_wall_times(
+            json.loads((out_p / "eval_result.json").read_text(encoding="utf-8"))
+        )
+        assert {k: v for k, v in res_p.items() if k != "policies"} == {
+            k: v for k, v in res_l.items() if k != "policies"
+        }
+        assert _normalize_summary_md_wall(
+            (out_p / "summary.md").read_text(encoding="utf-8")
+        ) == _normalize_summary_md_wall((out_l / "summary.md").read_text(encoding="utf-8"))
+
+        # Original checkpoint identity is preserved; policy_only_sha256 is additionally recorded
+        for idx, (orig_p, orig_sha, orig_sz, po_file, po_sha) in enumerate(
+            (
+                (light_a, sha_light_a, size_light_a, po_a, sha_po_a),
+                (light_b, sha_light_b, size_light_b, po_b, sha_po_b),
+            )
+        ):
+            prov_l = res_l["policies"][idx]
+            prov_p = res_p["policies"][idx]
+            assert prov_l["checkpoint_path"] == str(orig_p.resolve())
+            assert prov_p["checkpoint_path"] == str(orig_p.resolve())
+            assert prov_l["checkpoint_sha256"] == orig_sha
+            assert prov_p["checkpoint_sha256"] == orig_sha
+            assert prov_l["checkpoint_size_bytes"] == orig_sz
+            assert prov_p["checkpoint_size_bytes"] == orig_sz
+            assert prov_l["policy_only_sha256"] is None
+            assert prov_p["policy_only_sha256"] == po_sha
+            assert prov_p["loaded_path"] == str(po_file.resolve())
+            assert prov_p["loaded_sha256"] == po_sha
+            assert prov_p["loaded_size_bytes"] == int(po_file.stat().st_size)
+
+            loaded_only_keys = {
+                "loaded_path",
+                "loaded_sha256",
+                "loaded_size_bytes",
+                "policy_only_sha256",
+                "checkpoint_schema",
+            }
+            assert {k: v for k, v in prov_p.items() if k not in loaded_only_keys} == {
+                k: v for k, v in prov_l.items() if k not in loaded_only_keys
+            }
+
+
+def test_policy_only_deterministic_bytes_and_round_robin_original_hash_reuse(
+    tmp_path: Path,
+) -> None:
+    """Policy-only bytes are deterministic across processes and reuse pre-strip pair units."""
+    c0, _ = _make_tiny_light_checkpoint(
+        tmp_path, name="det_rr0", net_size="S", seed=501, arena_radius=60.0, num_snakes=6
+    )
+    c1, _ = _make_tiny_light_checkpoint(
+        tmp_path, name="det_rr1", net_size="S", seed=502, arena_radius=60.0, num_snakes=6
+    )
+    c2, _ = _make_tiny_light_checkpoint(
+        tmp_path, name="det_rr2", net_size="S", seed=503, arena_radius=60.0, num_snakes=6
+    )
+    c0_sha = sha256_file(c0)
+
+    # 1. Subprocess determinism across distinct PYTHONHASHSEED values and output paths
+    sub_out_1 = tmp_path / "sub1" / "policy_a.eval.pt"
+    sub_out_2 = tmp_path / "sub2" / "different_name.eval.pt"
+    for seed_str, dst_p in (("1", sub_out_1), ("987654321", sub_out_2)):
+        subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "from pathlib import Path; "
+                    "from research.v3_ppo.arena_eval import write_policy_only_checkpoint; "
+                    f"write_policy_only_checkpoint(Path({str(c0)!r}), Path({str(dst_p)!r}))"
+                ),
+            ],
+            cwd=str(ROOT),
+            env={
+                **os.environ,
+                "PYTHONHASHSEED": seed_str,
+                "OMP_NUM_THREADS": "1",
+                "MKL_NUM_THREADS": "1",
+                "OPENBLAS_NUM_THREADS": "1",
+                "PYTHONPATH": str(ROOT),
+            },
+            check=True,
+        )
+    assert sub_out_1.read_bytes() == sub_out_2.read_bytes()
+
+    # Re-staging an already-stripped policy-only file preserves ORIGINAL checkpoint provenance
+    restaged = tmp_path / "restaged" / "again.eval.pt"
+    restaged_sha = write_policy_only_checkpoint(sub_out_1, restaged)
+    assert restaged_sha == sha256_file(sub_out_1)
+    assert restaged.read_bytes() == sub_out_1.read_bytes()
+    restaged_pol = load_eval_policy(restaged, device="cpu")
+    assert restaged_pol.source_checkpoint_path == str(c0.resolve())
+    assert restaged_pol.source_checkpoint_sha256 == c0_sha
+    assert restaged_pol.checkpoint_size_bytes == int(c0.stat().st_size)
+
+    # 2. Pre-change pair unit produced from full LIGHT checkpoints is reused seamlessly by
+    #    default policy-only `prepare --mode eval` + `arena_eval` ledger execution!
+    out_light_rr = tmp_path / "rr_from_light"
+    assert (
+        arena_eval_main(
+            [
+                "--mode",
+                "round-robin",
+                "--policies",
+                str(c0),
+                str(c1),
+                str(c2),
+                "--num-envs",
+                "2",
+                "--burnin-ticks",
+                "4",
+                "--window-ticks",
+                "8",
+                "--seed",
+                "6161",
+                "--bootstrap-samples",
+                "80",
+                "--output-dir",
+                str(out_light_rr),
+            ]
+        )
+        == 0
+    )
+    rr_light = json.loads((out_light_rr / "eval_result.json").read_text(encoding="utf-8"))
+
+    prior_one_pair = tmp_path / "prior_light_pair"
+    (prior_one_pair / "pairs").mkdir(parents=True)
+    for ext in ("", ".sha256", ".complete"):
+        shutil.copy2(
+            out_light_rr / "pairs" / f"pair_00_01.json{ext}",
+            prior_one_pair / "pairs" / f"pair_00_01.json{ext}",
+        )
+
+    pkt_po_rr = tmp_path / "pkt_default_po_rr"
+    out_po_rr = tmp_path / "out_default_po_rr"
+    prep_summary = prepare_v3_ppo_packet(
+        pkt_po_rr,
+        commit="HEAD",
+        mode="eval",
+        gpu="L4",
+        eval_mode="round-robin",
+        eval_policies=[c0, c1, c2],
+        num_envs=2,
+        eval_burnin_ticks=4,
+        eval_window_ticks=8,
+        eval_seed=6161,
+        prior_output_dir=prior_one_pair,
+        assume_ms_per_tick=45.0,
+        allow_missing_canary_receipt=True,
+        output_dir=out_po_rr,
+        allow_unmerged_commit=True,
+    )
+    assert prep_summary["eval_plan"]["weights_only_staged"] is True
+    assert prep_summary["eval_plan"]["reused_pairs"] == 1
+    assert prep_summary["eval_plan"]["remaining_pairs"] == 2
+    staged_po_files = sorted((pkt_po_rr / "inputs" / "policies").glob("*.eval.pt"))
+    assert len(staged_po_files) == 3
+
+    assert (
+        arena_eval_main(
+            [
+                "--input-dir",
+                str(pkt_po_rr / "inputs"),
+                "--ledger",
+                str(pkt_po_rr / "inputs" / "verified-ledger.json"),
+                "--num-envs",
+                "2",
+                "--burnin-ticks",
+                "4",
+                "--window-ticks",
+                "8",
+                "--seed",
+                "6161",
+                "--bootstrap-samples",
+                "80",
+                "--output-dir",
+                str(out_po_rr),
+            ]
+        )
+        == 0
+    )
+    rr_po = json.loads((out_po_rr / "eval_result.json").read_text(encoding="utf-8"))
+    assert rr_po["reused_pair_units"] == ["pair_00_01"]
+    assert rr_po["standings"] == rr_light["standings"]
+    assert _strip_wall_times(rr_po["pairs"]) == _strip_wall_times(rr_light["pairs"])
+    for idx, orig_c in enumerate((c0, c1, c2)):
+        assert rr_po["policies"][idx]["checkpoint_sha256"] == sha256_file(orig_c)
+        assert rr_po["policies"][idx]["checkpoint_path"] == str(orig_c.resolve())
+        assert rr_po["policies"][idx]["policy_only_sha256"] == sha256_file(staged_po_files[idx])
+
+
+def _write_synthetic_light_checkpoint_fast(
+    dst_path: Path,
+    *,
+    net_size: str,
+    seed: int,
+) -> Path:
+    """Build a valid full-shaped S or M LIGHT checkpoint quickly without running PPO updates."""
+    torch.manual_seed(seed)
+    cfg = V3PPOConfig(
+        game_config=GameV3Config(),
+        net_size=net_size,  # type: ignore[arg-type]
+        seed=seed,
+    )
+    model = EgoMultiScaleNet(
+        EgoMultiScaleNetConfig.from_size(net_size, use_channels_last=True, use_bf16_autocast=False)  # type: ignore[arg-type]
+    )
+    payload = {
+        "schema": V3_PPO_LIGHT_CHECKPOINT_SCHEMA,
+        "namespace": V3_PPO_NAMESPACE,
+        "checkpoint_kind": "light",
+        "config": cfg.to_dict(),
+        "obs_layout": obs_layout_from_game_config(cfg.game_config).to_dict(),
+        "counters": {
+            "updates_completed": 100,
+            "world_steps_collected": 3200,
+            "agent_steps_collected": 76800,
+            "learner_steps_collected": 76800,
+        },
+        "updates_completed": 100,
+        "world_steps_collected": 3200,
+        "agent_steps_collected": 76800,
+        "learner_steps_collected": 76800,
+        "model_state_dict": model.state_dict(),
+        "optimizer_state_dict": {"state": {}, "param_groups": []},
+        "grad_scaler_state_dict": {},
+        "rng_state": {"python": None},
+    }
+    import io as _io
+
+    buf = _io.BytesIO()
+    torch.save(payload, buf)
+    write_create_only_artifact(dst_path, buf.getvalue())
+    return dst_path
+
+
+def test_prepare_upload_print_and_canary_100s_refusal_with_fitting_policy_count(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`prepare` prints staged upload stats at 1.0 MB/s and refuses canary uploads > 100 s."""
+    assert ASSUMED_STAGED_INPUT_UPLOAD_RATE_MBPS == 1.0
+    assert CANARY_MAX_ESTIMATED_UPLOAD_SECONDS == 100.0
+
+    # Build 1 base M and 1 base S checkpoint once, then copy to distinct run paths for speed
+    base_m = _write_synthetic_light_checkpoint_fast(
+        tmp_path / "base_m" / "light_u0000100.pt", net_size="M", seed=3100
+    )
+    base_s = _write_synthetic_light_checkpoint_fast(
+        tmp_path / "base_s" / "light_u0000100.pt", net_size="S", seed=3200
+    )
+    m_ckpts: list[Path] = []
+    s_ckpts: list[Path] = []
+    for i in range(6):
+        mp = tmp_path / f"v3-ppo-train-a100-m-{i:02d}" / "checkpoints" / "light_u0000100.pt"
+        mp.parent.mkdir(parents=True)
+        shutil.copyfile(base_m, mp)
+        m_ckpts.append(mp)
+
+        sp = tmp_path / f"v3-ppo-train-a100-s-{i:02d}" / "checkpoints" / "light_u0000100.pt"
+        sp.parent.mkdir(parents=True)
+        shutil.copyfile(base_s, sp)
+        s_ckpts.append(sp)
+
+    # 1. 6 medium policies (~118.47 MB across 7 files -> ~118.47 s > 100.0 s): canary REFUSED,
+    #    telling the operator that 5 policies fit, and cleaning up pkt_dir!
+    capsys.readouterr()
+    refused_canary_dir = tmp_path / "pkt_canary_6m_refused"
+    with pytest.raises(ValueError, match=r"at most 5 of the 6 policies would fit") as exc_info:
+        prepare_v3_ppo_packet(
+            refused_canary_dir,
+            commit="HEAD",
+            mode="canary",
+            gpu="L4",
+            eval_mode="round-robin",
+            eval_policies=m_ckpts,
+            output_dir=tmp_path / "out_canary_6m_refused",
+            allow_unmerged_commit=True,
+        )
+    err_refused = capsys.readouterr().err
+    assert not refused_canary_dir.exists()
+    assert "files=7" in err_refused
+    assert "assumed_rate_mbps=1.0" in err_refused
+    assert "100.0 s canary upload cap" in str(exc_info.value)
+    assert "150 s" in str(exc_info.value)
+    assert "ASSUMED_STAGED_INPUT_UPLOAD_RATE_MBPS=1.0 MB/s" in str(exc_info.value)
+
+    # 2. 5 medium policies (~98.73 MB across 6 files -> ~98.73 s <= 100.0 s): canary SUCCEEDS!
+    capsys.readouterr()
+    ok_canary_5m = prepare_v3_ppo_packet(
+        tmp_path / "pkt_canary_5m_ok",
+        commit="HEAD",
+        mode="canary",
+        gpu="L4",
+        eval_mode="round-robin",
+        eval_policies=m_ckpts[:5],
+        output_dir=tmp_path / "out_canary_5m_ok",
+        allow_unmerged_commit=True,
+    )
+    err_5m = capsys.readouterr().err
+    assert f"bytes={ok_canary_5m['eval_canary_upload']['staged_inputs_total_bytes']}" in err_5m
+    assert "files=6" in err_5m
+    assert ok_canary_5m["eval_canary_upload"]["estimated_upload_seconds"] <= 100.0
+
+    # 3. 3 small + 3 medium (~71.44 MB across 7 files -> ~71.44 s <= 100.0 s): canary SUCCEEDS!
+    capsys.readouterr()
+    ok_canary_mix = prepare_v3_ppo_packet(
+        tmp_path / "pkt_canary_3s3m_ok",
+        commit="HEAD",
+        mode="canary",
+        gpu="L4",
+        eval_mode="round-robin",
+        eval_policies=s_ckpts[:3] + m_ckpts[:3],
+        output_dir=tmp_path / "out_canary_3s3m_ok",
+        allow_unmerged_commit=True,
+    )
+    err_mix = capsys.readouterr().err
+    assert "files=7" in err_mix
+    assert ok_canary_mix["eval_canary_upload"]["estimated_upload_seconds"] <= 100.0
+
+    # 4. Heterogeneous overflow (3 small + 5 medium = 8 policies -> ~110.9 MB > 100.0 s):
+    #    reports both prefix fit (7 in supplied order) and largest-policy fit (5)!
+    with pytest.raises(
+        ValueError,
+        match=r"at most 7 of the 8 supplied policies in order would fit.*5 policies at the largest",
+    ):
+        prepare_v3_ppo_packet(
+            tmp_path / "pkt_canary_hetero_refused",
+            commit="HEAD",
+            mode="canary",
+            gpu="L4",
+            eval_mode="round-robin",
+            eval_policies=s_ckpts[:3] + m_ckpts[:5],
+            output_dir=tmp_path / "out_canary_hetero_refused",
+            allow_unmerged_commit=True,
+        )
