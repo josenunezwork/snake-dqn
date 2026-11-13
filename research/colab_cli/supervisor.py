@@ -313,6 +313,8 @@ class CLI:
         self.operation_records: list[dict[str, Any]] = []
         self._control_context = threading.local()
         self.verified_exports: dict[str, dict[str, Any]] = {}
+        self.periodic_export_failures: dict[str, int] = {}
+        self.periodic_export_stalled_cycles = 0
         self.warmup_seconds = 0.0
         self._lease_stop = threading.Event()
         self._lease_thread: threading.Thread | None = None
@@ -1087,46 +1089,245 @@ def _stop_verified(cli: CLI, endpoint: str) -> None:
     raise Refused(message)
 
 
+_PERMANENT_EXPORT_MARKERS = (
+    "kernel error despite cli exit zero",
+    "whole-session deadline reached",
+    "assignment identity changed",
+    "supervised assignment disappeared",
+    "account-wide assignment cap exceeded",
+    "previous exec uncertain/busy",
+    "download hash mismatch; temporary export rejected",
+    "download digest sidecar mismatch",
+    "invalid completion marker",
+    "immutable export changed",
+    "local export publication incomplete",
+    "immutable snapshot metadata changed",
+    "export exceeds bounded whole-file transfer limit",
+    "invalid export digest",
+)
+
+_TRANSIENT_EXPORT_MESSAGES = frozenset(
+    {
+        "deadline reached during telemetry recovery",
+        "kernel remains busy/unknown after telemetry hiccup",
+        "kernel completion not acknowledged (busy/error/timeout)",
+        "read retry budget exhausted",
+    }
+)
+
+
+def _cause_chain(exc: BaseException) -> list[BaseException]:
+    """Return exc followed by its explicit __cause__ chain without cycles."""
+    chain: list[BaseException] = []
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        chain.append(current)
+        seen.add(id(current))
+        current = current.__cause__
+    return chain
+
+
+def _is_deferrable_periodic_export_error(cli: CLI, exc: BaseException) -> bool:
+    """Return whether a mid-run export failure is a transient transfer/cap failure.
+
+    Integrity mismatches, schema/path/limit violations, remote Python kernel
+    errors, ownership/guard failures, and expired whole-session deadlines always
+    return False so they fail immediately.
+    """
+    from research.colab_cli.export_batches import ExportBatchError
+    from research.colab_cli.schema import SchemaError
+    from research.colab_cli.transfers import (
+        TransferError,
+        TransferIntegrityError,
+        TransferTimeoutError,
+    )
+
+    if cli.deadline is not None and time.monotonic() >= cli.deadline:
+        return False
+    chain = _cause_chain(exc)
+    for item in chain:
+        if isinstance(item, (TransferIntegrityError, SchemaError)):
+            return False
+        if isinstance(item, ExportBatchError) and not isinstance(item.__cause__, TransferError):
+            return False
+        lower = str(item).lower()
+        if any(marker in lower for marker in _PERMANENT_EXPORT_MARKERS):
+            return False
+    if any(isinstance(item, TransferTimeoutError) for item in chain):
+        return True
+    leaf = chain[-1]
+    message = str(leaf)
+    if message.startswith("total download time cap reached"):
+        return True
+    if message in _TRANSIENT_EXPORT_MESSAGES or re.fullmatch(
+        r"colab (?:download|upload|exec|sessions) operation budget exhausted", message
+    ):
+        return True
+    return policy.transient_poll_error(leaf, mutating=False)
+
+
+def _reconcile_periodic_export_uncertainty(cli: CLI, exc: BaseException) -> None:
+    """Clear or annotate exec_uncertain after a deferred mid-run export RPC timeout."""
+    if not getattr(cli, "exec_uncertain", False):
+        return
+    reason = (
+        cli.clear_uncertain_if_idle()
+        if hasattr(cli, "clear_uncertain_if_idle")
+        else "cli adapter lacks independent kernel_idle check"
+    )
+    if getattr(cli, "exec_uncertain", False):
+        detail = (
+            f"{reason or 'periodic export left exec_uncertain'} "
+            f"({type(exc).__name__}: {redact(str(exc))[:240]})"
+        )
+        cli.cleanup_uncertain_reason = detail
+
+
+def _verify_published_export(target: Path, size: int, digest: str) -> None:
+    """Validate an already-published local export payload, sidecar, and marker."""
+    if (
+        target.is_symlink()
+        or not target.is_file()
+        or target.stat().st_size != size
+        or sha256(target) != digest
+        or not Path(str(target) + ".complete").is_file()
+    ):
+        raise Refused("immutable export changed")
+    sidecar = Path(str(target) + ".sha256")
+    try:
+        fields = sidecar.read_text(encoding="utf-8").split() if sidecar.is_file() else []
+    except UnicodeDecodeError as exc:
+        raise Refused("local export publication incomplete") from exc
+    if not fields or fields[0] != digest:
+        raise Refused("local export publication incomplete")
+
+
 def collect_exports(
-    cli: CLI, root: str, inventory: list[dict[str, Any]], output: Path, limit: int
+    cli: CLI,
+    root: str,
+    inventory: list[dict[str, Any]],
+    output: Path,
+    limit: int,
+    *,
+    periodic: bool = False,
 ) -> None:
     """Collect new immutable exports without polling a cumulative inventory per file."""
     from research.colab_cli.export_batches import export_batch, small_batches
     from research.colab_cli.schema import validate_export_inventory
+    from research.colab_cli.transfers import transfer_timeout
 
     validate_export_inventory({}, inventory)
+    failures = getattr(cli, "periodic_export_failures", None)
+    if failures is None:
+        failures = {}
+        cli.periodic_export_failures = failures
+    if not hasattr(cli, "periodic_export_stalled_cycles"):
+        cli.periodic_export_stalled_cycles = 0
     pending = []
     for entry in inventory:
         if entry["size"] > limit:
             raise Refused("export exceeds bounded whole-file transfer limit")
+        rel = safe_relative(entry["path"])
+        target = output / "exports" / rel
         previous = cli.verified_exports.get(entry["path"])
         if previous is not None:
             if previous != entry:
                 raise Refused("immutable snapshot metadata changed")
+            if (
+                target.exists()
+                or target.is_symlink()
+                or Path(str(target) + ".complete").exists()
+                or Path(str(target) + ".sha256").exists()
+            ):
+                _verify_published_export(target, entry["size"], entry["sha256"])
             continue
-        if (output / "exports" / entry["path"]).exists():
+        if target.exists() or target.is_symlink():
             # Acceptance observers can prefetch into this output before the
             # main loop. Revalidate that exact triple once; unrelated observer
             # downloads (e.g. resume roundtrips) must not enter this job ledger.
             export_file(cli, root, entry, output, limit)
             cli.verified_exports[entry["path"]] = dict(entry)
+            failures.pop(entry["path"], None)
             continue
         pending.append(entry)
+    if not pending:
+        return
+
+    progressed = False
 
     def verified(entry: dict[str, Any]) -> None:
+        nonlocal progressed
         cli.verified_exports[entry["path"]] = dict(entry)
+        failures.pop(entry["path"], None)
+        progressed = True
 
     for batch in small_batches(pending):
-        if len(batch) > 1:
-            export_batch(cli, root, batch, output, limit, on_verified=verified)
-        else:
-            entry = batch[0]
-            export_file(cli, root, entry, output, limit)
-            verified(entry)
+        try:
+            if len(batch) > 1:
+                batch_deadline = (
+                    time.monotonic() + transfer_timeout(sum(item["size"] for item in batch))
+                    if periodic
+                    else None
+                )
+                export_batch(
+                    cli,
+                    root,
+                    batch,
+                    output,
+                    limit,
+                    on_verified=verified,
+                    deadline=batch_deadline,
+                )
+            else:
+                entry = batch[0]
+                export_file(cli, root, entry, output, limit)
+                verified(entry)
+        except Exception as exc:
+            if not periodic or not _is_deferrable_periodic_export_error(cli, exc):
+                raise
+            _reconcile_periodic_export_uncertainty(cli, exc)
+            uncollected = [item for item in batch if item["path"] not in cli.verified_exports]
+            if not uncollected:
+                raise
+            cli.periodic_export_stalled_cycles = (
+                0 if progressed else cli.periodic_export_stalled_cycles + 1
+            )
+            exhausted: dict[str, Any] | None = None
+            exhausted_attempt = 0
+            for item in uncollected:
+                attempt = failures.get(item["path"], 0) + 1
+                failures[item["path"]] = attempt
+                if (
+                    attempt >= policy.MAX_PERIODIC_EXPORT_ATTEMPTS
+                    or cli.periodic_export_stalled_cycles >= policy.MAX_PERIODIC_EXPORT_ATTEMPTS
+                ):
+                    if exhausted is None:
+                        exhausted = item
+                        exhausted_attempt = attempt
+                    continue
+                budget_warning(
+                    "PERIODIC_EXPORT_DEFERRED",
+                    path=item["path"],
+                    size=item["size"],
+                    attempt=attempt,
+                    max_attempts=policy.MAX_PERIODIC_EXPORT_ATTEMPTS,
+                    stalled_cycles=cli.periodic_export_stalled_cycles,
+                    reason=redact(str(exc))[-1000:],
+                )
+            if exhausted is not None:
+                detail = (
+                    f"periodic export deferral bound reached for {exhausted['path']} "
+                    f"(attempt {exhausted_attempt}/{policy.MAX_PERIODIC_EXPORT_ATTEMPTS}, "
+                    f"stalled_cycles {cli.periodic_export_stalled_cycles}): {exc}"
+                )
+                raise Refused(detail) from exc
+            return
         # Transfers already call this throttled maintenance callback. It must
         # never force a full state/log/inventory read for each completed file.
         if cli.renew:
             cli.renew()
+    cli.periodic_export_stalled_cycles = 0
 
 
 def export_file(cli: CLI, root: str, entry: dict[str, Any], output: Path, limit: int) -> None:
@@ -1147,12 +1348,8 @@ def export_file(cli: CLI, root: str, entry: dict[str, Any], output: Path, limit:
         raise Refused("invalid export digest")
     target = output / "exports" / rel
     target.parent.mkdir(parents=True, exist_ok=True)
-    if target.exists():
-        if sha256(target) != digest or not Path(str(target) + ".complete").is_file():
-            raise Refused("immutable export changed")
-        sidecar = Path(str(target) + ".sha256")
-        if not sidecar.is_file() or sidecar.read_text().split()[0] != digest:
-            raise Refused("local export publication incomplete")
+    if target.exists() or target.is_symlink():
+        _verify_published_export(target, size, digest)
         return
     file_deadline = time.monotonic() + transfer_timeout(size)
     download_scope = (
@@ -1189,7 +1386,11 @@ def export_file(cli: CLI, root: str, entry: dict[str, Any], output: Path, limit:
             raise Refused(f"download hash mismatch or transfer failure: {exc}") from exc
         if data.stat().st_size != size or sha256(data) != digest:
             raise Refused("download hash mismatch; temporary export rejected")
-        if sidecar.stat().st_size > 1024 or sidecar.read_text().split()[0] != digest:
+        try:
+            sidecar_fields = sidecar.read_text(encoding="utf-8").split()
+        except UnicodeDecodeError as exc:
+            raise Refused("download digest sidecar mismatch") from exc
+        if sidecar.stat().st_size > 1024 or not sidecar_fields or sidecar_fields[0] != digest:
             raise Refused("download digest sidecar mismatch")
         if marker.stat().st_size > 4096:
             raise Refused("invalid completion marker")
@@ -1291,6 +1492,8 @@ class Broker:
                 cli.call_records = []
                 cli.operation_records = []
                 cli.verified_exports = {}
+                cli.periodic_export_failures = {}
+                cli.periodic_export_stalled_cycles = 0
                 cli.warmup_seconds = 0.0
             cli.exec_poll_recovery_seconds = m.get(
                 "exec_poll_recovery_seconds", policy.EXEC_POLL_RECOVERY_SECONDS
@@ -1815,9 +2018,13 @@ class Broker:
             encoded_release = base64.b64encode(pinned["release.py"].read_bytes()).decode()
             credential_remote = f"/content/snake-cli-{generation}-release.json"
 
-            def upload_credential(deadline: float | None = None) -> None:
+            def upload_credential(
+                deadline: float | None = None,
+                credential: dict[str, Any] | None = None,
+            ) -> None:
                 with tempfile.NamedTemporaryFile("w", suffix=".json") as handle:
-                    value = {**cli.release_credential, "endpoint": spec["release_endpoint"]}
+                    source_credential = cli.release_credential if credential is None else credential
+                    value = {**source_credential, "endpoint": spec["release_endpoint"]}
                     json.dump(value, handle)
                     handle.flush()
                     from research.colab_cli.transfers import upload_contents
@@ -1876,20 +2083,21 @@ class Broker:
                     "",
                     safety_window_seconds=m["lease_seconds"] + cli.exec_poll_recovery_seconds + 300,
                 ):
-                    cli.release_credential = mint_release_credential(
+                    rotated_credential = mint_release_credential(
                         cli.oauth_python,
                         endpoint="",
                         min_valid_seconds=m["lease_seconds"] + cli.exec_poll_recovery_seconds + 300,
                         timeout=cli.remaining_seconds(150),
                     )
                     credential_deadline = time.monotonic() + cli.remaining_seconds(150)
-                    upload_credential(credential_deadline)
+                    upload_credential(credential_deadline, credential=rotated_credential)
                     cli.recoverable_rpc(
                         "from pathlib import Path\n"
                         f"p=Path({credential_remote!r})\np.chmod(0o600)\n"
                         f"p.replace(Path({root!r})/'release-credential.json')\n"
                         "result=True",
                     )
+                    cli.release_credential = rotated_credential
                 result = cli.renew_runtime_lease(root, generation, force=force)
                 self.renew_retained(cli, retained)
                 renewal["at"] = time.monotonic()
@@ -2216,7 +2424,14 @@ class Broker:
                 if state.get("terminal")
                 else state.get("exports", [])
             )
-            collect_exports(cli, root, inventory, output, m["max_export_bytes"])
+            collect_exports(
+                cli,
+                root,
+                inventory,
+                output,
+                m["max_export_bytes"],
+                periodic=not bool(terminal),
+            )
             if terminal:
                 from research.colab_cli.schema import SchemaError, validate_export_inventory
 

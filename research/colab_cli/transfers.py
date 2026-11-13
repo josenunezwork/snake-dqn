@@ -42,6 +42,14 @@ class TransferError(RuntimeError):
     """A transfer did not produce a verified immutable file."""
 
 
+class TransferIntegrityError(TransferError):
+    """Downloaded or staged bytes/metadata violated immutable digest or size invariants."""
+
+
+class TransferTimeoutError(TransferError):
+    """A transfer timed out or exhausted its transient ContentsClient retry budget."""
+
+
 class PreparedDownload:
     """Remote immutable split created while the kernel is known to be idle."""
 
@@ -112,6 +120,14 @@ def _observed_transfer(direction: str) -> Callable:
                     result = function(cli, *args, **kwargs)
                 record.update(status="verified", sha256=result)
                 return result
+            except TransferIntegrityError as exc:
+                raise TransferIntegrityError(
+                    f"{direction} {remote} called at {call_site}: {exc}"
+                ) from exc
+            except TransferTimeoutError as exc:
+                raise TransferTimeoutError(
+                    f"{direction} {remote} called at {call_site}: {exc}"
+                ) from exc
             except Exception as exc:
                 raise TransferError(f"{direction} {remote} called at {call_site}: {exc}") from exc
             finally:
@@ -153,7 +169,7 @@ def _bounded_timeout(
         return timeout
     remaining = deadline - time.monotonic()
     if remaining <= 0:
-        raise TransferError(f"total {direction} time cap reached at {call_site}")
+        raise TransferTimeoutError(f"total {direction} time cap reached at {call_site}")
     return min(timeout, remaining)
 
 
@@ -194,8 +210,13 @@ def _contents_call(
                 raise
             if attempt + 1 < CONTENTS_ATTEMPTS:
                 delay = policy.BACKOFF_SECONDS[attempt]
-                if deadline is not None:
-                    delay = min(delay, max(0, deadline - time.monotonic()))
+                session_deadline = getattr(cli, "deadline", None)
+                effective_deadline = min(
+                    deadline if deadline is not None else math.inf,
+                    session_deadline if session_deadline is not None else math.inf,
+                )
+                if effective_deadline != math.inf:
+                    delay = min(delay, max(0, effective_deadline - time.monotonic()))
                 if delay:
                     time.sleep(delay)
         else:
@@ -205,7 +226,7 @@ def _contents_call(
                 renew()
             return
     assert failure is not None
-    raise TransferError("ContentsClient transient retry budget exhausted") from failure
+    raise TransferTimeoutError("ContentsClient transient retry budget exhausted") from failure
 
 
 def _operation(cli: _CLI, tag: str) -> Any:
@@ -531,6 +552,8 @@ def upload_contents(cli: _CLI, local: Path, remote: str, *, deadline: float | No
             None,
             deadline=transfer_deadline,
         )
+    except TransferTimeoutError as exc:
+        raise TransferTimeoutError(f"control upload {remote} called at {call_site}: {exc}") from exc
     except Exception as exc:
         raise TransferError(f"control upload {remote} called at {call_site}: {exc}") from exc
 
@@ -546,9 +569,11 @@ def prepare_download(
 ) -> PreparedDownload:
     """Split an export while the kernel is idle, before long-running work begins."""
     if type(size) is not int or size <= DOWNLOAD_CHUNK_BYTES:
-        raise TransferError("prepare_download is only for files larger than a transfer chunk")
+        raise TransferIntegrityError(
+            "prepare_download is only for files larger than a transfer chunk"
+        )
     if expected_sha256 is None or len(expected_sha256) != 64:
-        raise TransferError("prepare_download requires immutable expected_sha256")
+        raise TransferIntegrityError("prepare_download requires immutable expected_sha256")
     parts, _ = _staging(remote, uuid.uuid4().hex)
     if renew:
         renew()
@@ -578,10 +603,10 @@ def prepare_download(
         or reply.get("size") != size
     ):
         _cleanup(cli, parts, renew, deadline=deadline, direction="download")
-        raise TransferError("kernel did not acknowledge immutable export split")
+        raise TransferIntegrityError("kernel did not acknowledge immutable export split")
     if reply.get("chunks") != count:
         _cleanup(cli, parts, renew, deadline=deadline, direction="download")
-        raise TransferError("kernel returned invalid export chunk count")
+        raise TransferIntegrityError("kernel returned invalid export chunk count")
     return PreparedDownload(parts, count, size, expected_sha256)
 
 
@@ -599,11 +624,11 @@ def download_file(
 ) -> str:
     """Chunk-download an immutable export, digest check it, and atomically publish."""
     if type(size) is not int or size < 0:
-        raise TransferError("download size must be a nonnegative integer")
+        raise TransferIntegrityError("download size must be a nonnegative integer")
     if expected_sha256 is None:
-        raise TransferError("download requires immutable expected_sha256")
+        raise TransferIntegrityError("download requires immutable expected_sha256")
     if len(expected_sha256) != 64 or any(c not in "0123456789abcdef" for c in expected_sha256):
-        raise TransferError("download expected_sha256 must be lowercase SHA-256")
+        raise TransferIntegrityError("download expected_sha256 must be lowercase SHA-256")
     local = Path(local)
     local.parent.mkdir(parents=True, exist_ok=True)
     transfer_deadline = time.monotonic() + transfer_timeout(size)
@@ -624,13 +649,15 @@ def download_file(
             )
             if local.stat().st_size != size or _digest(local) != expected_sha256:
                 local.unlink(missing_ok=True)
-                raise TransferError("download digest or size mismatch")
+                raise TransferIntegrityError("download digest or size mismatch")
             return expected_sha256
         plan = prepared or prepare_download(
             cli, remote, size, renew, expected_sha256=expected_sha256, deadline=deadline
         )
         if plan.size != size or plan.sha256 != expected_sha256:
-            raise TransferError("prepared download does not match immutable export inventory")
+            raise TransferIntegrityError(
+                "prepared download does not match immutable export inventory"
+            )
         try:
             with tempfile.NamedTemporaryFile(
                 dir=local.parent, prefix=".transfer-", delete=False
@@ -657,7 +684,7 @@ def download_file(
                         )
                         try:
                             if part.stat().st_size != expected_size:
-                                raise TransferError("downloaded chunk has unexpected size")
+                                raise TransferIntegrityError("downloaded chunk has unexpected size")
                             with part.open("rb") as source:
                                 while block := source.read(1024 * 1024):
                                     handle.write(block)
@@ -670,7 +697,7 @@ def download_file(
                     raise
             if temporary.stat().st_size != size or _digest(temporary) != expected_sha256:
                 temporary.unlink(missing_ok=True)
-                raise TransferError("download digest or size mismatch")
+                raise TransferIntegrityError("download digest or size mismatch")
             os.replace(temporary, local)
             return expected_sha256
         finally:

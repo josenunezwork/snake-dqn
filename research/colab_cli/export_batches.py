@@ -9,6 +9,7 @@ payload, SHA sidecar, and completion-marker bytes.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import os
 import re
@@ -291,6 +292,8 @@ def export_batch(
     output: Path,
     limit: int,
     on_verified: Callable[[dict[str, Any]], None] | None = None,
+    *,
+    deadline: float | None = None,
 ) -> None:
     """Recover one small batch and publish each verified immutable triple.
 
@@ -309,40 +312,47 @@ def export_batch(
     if not isinstance(root, str) or not root_path.is_absolute() or "/../" in root:
         raise ExportBatchError("unsafe remote batch root")
     archive = root.rstrip("/") + "/.snake-export-batch-" + uuid.uuid4().hex + ".zip"
-    reply = cli.recoverable_rpc(_batch_code(root.rstrip("/"), rows, archive))
-    if not isinstance(reply, dict) or reply.get("path") != archive:
-        raise ExportBatchError("remote batch archive acknowledgement is invalid")
-    archive_size, archive_digest = reply.get("size"), reply.get("sha256")
-    if (
-        type(archive_size) is not int
-        or not 0 <= archive_size <= MAX_ARCHIVE_BYTES
-        or not isinstance(archive_digest, str)
-        or not _DIGEST.fullmatch(archive_digest)
-    ):
-        raise ExportBatchError("remote batch archive metadata is invalid")
-    expected_members = sorted(
-        name
-        for row in rows
-        for name in (row["path"], row["path"] + ".sha256", row["path"] + ".complete")
+    download_scope = (
+        cli.download_controls(deadline)
+        if deadline is not None and hasattr(cli, "download_controls")
+        else contextlib.nullcontext()
     )
-    if reply.get("members") != expected_members:
-        raise ExportBatchError("remote batch archive inventory is invalid")
-    output = Path(output)
-    output.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(dir=output, prefix=".batch-download-") as temporary:
-        local_archive = Path(temporary) / "archive.zip"
-        try:
-            download_file(
-                cli,
-                archive,
-                local_archive,
-                archive_size,
-                renew=cli.renew,
-                expected_sha256=archive_digest,
-            )
-        except TransferError as exc:
-            raise ExportBatchError(f"batch archive download failed: {exc}") from exc
-        data = _read_archive(local_archive, rows)
+    with download_scope:
+        reply = cli.recoverable_rpc(_batch_code(root.rstrip("/"), rows, archive))
+        if not isinstance(reply, dict) or reply.get("path") != archive:
+            raise ExportBatchError("remote batch archive acknowledgement is invalid")
+        archive_size, archive_digest = reply.get("size"), reply.get("sha256")
+        if (
+            type(archive_size) is not int
+            or not 0 <= archive_size <= MAX_ARCHIVE_BYTES
+            or not isinstance(archive_digest, str)
+            or not _DIGEST.fullmatch(archive_digest)
+        ):
+            raise ExportBatchError("remote batch archive metadata is invalid")
+        expected_members = sorted(
+            name
+            for row in rows
+            for name in (row["path"], row["path"] + ".sha256", row["path"] + ".complete")
+        )
+        if reply.get("members") != expected_members:
+            raise ExportBatchError("remote batch archive inventory is invalid")
+        output = Path(output)
+        output.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=output, prefix=".batch-download-") as temporary:
+            local_archive = Path(temporary) / "archive.zip"
+            try:
+                download_file(
+                    cli,
+                    archive,
+                    local_archive,
+                    archive_size,
+                    renew=cli.renew,
+                    expected_sha256=archive_digest,
+                    deadline=deadline,
+                )
+            except TransferError as exc:
+                raise ExportBatchError(f"batch archive download failed: {exc}") from exc
+            data = _read_archive(local_archive, rows)
     for row in rows:
         _publish(_target(output, row["path"]), *data[row["path"]])
         if on_verified is not None:
