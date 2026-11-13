@@ -61,6 +61,30 @@ READ_ONLY_POLL_TRANSIENT_MARKERS = (
     "connection closed",
 )
 
+_HTTP_4XX_RE = re.compile(
+    r"(?:"
+    r"\bhttp(?:/\d(?:\.\d)?)?\s+4\d\d\b"
+    r"|\bhttp(?:status)?\s*error\b[^\n]{0,48}\b4\d\d\b"
+    r"|\b4\d\d\s+client\s+error\b"
+    r"|\bclient\s+error\b[^\n]{0,24}\b4\d\d\b"
+    r"|\b(?:status(?:[_\s]+code)?|response|returned\s+error)\s*[=:]?\s*4\d\d\b"
+    r"|(?<![:\w])4\d\d(?:\s*[:-])?\s+(?:"
+    r"bad request|unauthorized|payment required|forbidden|not found|method not allowed"
+    r"|not acceptable|proxy authentication|request timeout|conflict|gone|length required"
+    r"|precondition|payload too large|content too large|uri too long|unsupported media"
+    r"|range not satisfiable|expectation failed|misdirected|unprocessable|locked"
+    r"|failed dependency|too early|upgrade required|too many requests"
+    r"|access denied|permission denied"
+    r")\b"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def has_http_4xx(text: str) -> bool:
+    """Return whether diagnostic text reports an HTTP 4xx client error."""
+    return bool(_HTTP_4XX_RE.search(text))
+
 
 def _normalized_error_message(exc: BaseException) -> str:
     message = str(exc).lower()
@@ -79,6 +103,8 @@ def transient_error(exc: BaseException) -> bool:
     if isinstance(exc, (ConnectionError, TimeoutError, subprocess.TimeoutExpired)):
         return True
     message = _normalized_error_message(exc)
+    if has_http_4xx(message):
+        return False
     return bool(
         re.search(r"\b(?:500|502|503|504)\b", message)
         or any(

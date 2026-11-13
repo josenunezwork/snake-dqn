@@ -315,6 +315,7 @@ class CLI:
         self.verified_exports: dict[str, dict[str, Any]] = {}
         self.periodic_export_failures: dict[str, int] = {}
         self.periodic_export_stalled_cycles = 0
+        self._deferred_remote_cleanups: dict[str, list[str]] = {}
         self.warmup_seconds = 0.0
         self._lease_stop = threading.Event()
         self._lease_thread: threading.Thread | None = None
@@ -1129,11 +1130,11 @@ def _cause_chain(exc: BaseException) -> list[BaseException]:
 
 
 def _is_deferrable_periodic_export_error(cli: CLI, exc: BaseException) -> bool:
-    """Return whether a mid-run export failure is a transient transfer/cap failure.
+    """Return whether a mid-run export failure is a typed/subprocess transfer timeout.
 
-    Integrity mismatches, schema/path/limit violations, remote Python kernel
-    errors, ownership/guard failures, and expired whole-session deadlines always
-    return False so they fail immediately.
+    Integrity mismatches, schema/path/limit violations, HTTP 4xx responses,
+    local OS errors, remote Python kernel errors, ownership/guard failures, and
+    expired whole-session deadlines always return False so they fail at once.
     """
     from research.colab_cli.export_batches import ExportBatchError
     from research.colab_cli.schema import SchemaError
@@ -1147,24 +1148,27 @@ def _is_deferrable_periodic_export_error(cli: CLI, exc: BaseException) -> bool:
         return False
     chain = _cause_chain(exc)
     for item in chain:
-        if isinstance(item, (TransferIntegrityError, SchemaError)):
+        if isinstance(item, (TransferIntegrityError, SchemaError, OSError)):
             return False
         if isinstance(item, ExportBatchError) and not isinstance(item.__cause__, TransferError):
+            return False
+        if policy.has_http_4xx(str(item)):
             return False
         lower = str(item).lower()
         if any(marker in lower for marker in _PERMANENT_EXPORT_MARKERS):
             return False
-    if any(isinstance(item, TransferTimeoutError) for item in chain):
+    if any(isinstance(item, (TransferTimeoutError, subprocess.TimeoutExpired)) for item in chain):
         return True
     leaf = chain[-1]
     message = str(leaf)
     if message.startswith("total download time cap reached"):
         return True
-    if message in _TRANSIENT_EXPORT_MESSAGES or re.fullmatch(
-        r"colab (?:download|upload|exec|sessions) operation budget exhausted", message
-    ):
-        return True
-    return policy.transient_poll_error(leaf, mutating=False)
+    return bool(
+        message in _TRANSIENT_EXPORT_MESSAGES
+        or re.fullmatch(
+            r"colab (?:download|upload|exec|sessions) operation budget exhausted", message
+        )
+    )
 
 
 def _reconcile_periodic_export_uncertainty(cli: CLI, exc: BaseException) -> None:
@@ -1234,13 +1238,6 @@ def collect_exports(
         if previous is not None:
             if previous != entry:
                 raise Refused("immutable snapshot metadata changed")
-            if (
-                target.exists()
-                or target.is_symlink()
-                or Path(str(target) + ".complete").exists()
-                or Path(str(target) + ".sha256").exists()
-            ):
-                _verify_published_export(target, entry["size"], entry["sha256"])
             continue
         if target.exists() or target.is_symlink():
             # Acceptance observers can prefetch into this output before the
@@ -1494,6 +1491,7 @@ class Broker:
                 cli.verified_exports = {}
                 cli.periodic_export_failures = {}
                 cli.periodic_export_stalled_cycles = 0
+                cli._deferred_remote_cleanups = {}
                 cli.warmup_seconds = 0.0
             cli.exec_poll_recovery_seconds = m.get(
                 "exec_poll_recovery_seconds", policy.EXEC_POLL_RECOVERY_SECONDS

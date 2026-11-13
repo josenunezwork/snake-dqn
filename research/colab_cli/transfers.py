@@ -15,6 +15,8 @@ import inspect
 import json
 import math
 import os
+import re
+import subprocess
 import tempfile
 import time
 import uuid
@@ -36,6 +38,10 @@ CONTENTS_ATTEMPTS = 3
 UPLOAD_TOTAL_TIMEOUT_SECONDS = 5 * 60
 TRANSFER_MIN_TIMEOUT_SECONDS = 300
 TRANSFER_BYTES_PER_SECOND = 512 * 1024
+LEFTOVER_SWEEP_SECONDS = 30.0
+_SCRATCH_NAME_RE = re.compile(
+    r"^\.(?:snake-transfer-[0-9a-f]{32}(?:\.assembling)?|snake-export-batch-[0-9a-f]{32}\.zip)$"
+)
 
 
 class TransferError(RuntimeError):
@@ -152,9 +158,11 @@ def _is_retryable_contents_error(exc: BaseException) -> bool:
     ``CLI.call`` turns command failures into ``Refused`` strings, so importing
     its exception type here would create a dependency cycle.  Keep this narrow:
     only connection and timeout language emitted by requests/the CLI qualifies.
-    Authentication, path, quota, and kernel errors must fail on their first
-    observation.
+    Authentication, path, quota, local OS, and kernel errors must fail on their
+    first observation.
     """
+    if isinstance(exc, OSError) or policy.has_http_4xx(str(exc)):
+        return False
     return policy.transient_error(exc)
 
 
@@ -226,7 +234,9 @@ def _contents_call(
                 renew()
             return
     assert failure is not None
-    raise TransferTimeoutError("ContentsClient transient retry budget exhausted") from failure
+    if isinstance(failure, (subprocess.TimeoutExpired, TransferTimeoutError)):
+        raise TransferTimeoutError("ContentsClient transient retry budget exhausted") from failure
+    raise TransferError("ContentsClient transient retry budget exhausted") from failure
 
 
 def _operation(cli: _CLI, tag: str) -> Any:
@@ -295,9 +305,14 @@ import shutil
 from pathlib import Path
 spec = PAYLOAD
 path = Path(spec['path'])
-if not path.name.startswith('.snake-transfer-'):
+if not (
+    path.name.startswith('.snake-transfer-')
+    or (path.name.startswith('.snake-export-batch-') and path.name.endswith('.zip'))
+):
     raise RuntimeError('refusing non-transfer cleanup')
-if path.is_dir():
+if path.is_symlink():
+    path.unlink(missing_ok=True)
+elif path.is_dir():
     shutil.rmtree(path, ignore_errors=True)
 else:
     path.unlink(missing_ok=True)
@@ -357,6 +372,91 @@ def _verify_remote_file(
         raise TransferError("remote upload digest or size mismatch")
 
 
+def _is_remote_scratch_path(path: str) -> bool:
+    candidate = PurePosixPath(path)
+    return (
+        candidate.is_absolute()
+        and ".." not in candidate.parts
+        and bool(_SCRATCH_NAME_RE.fullmatch(candidate.name))
+    )
+
+
+def _leftover_map(cli: Any, *, create: bool = False) -> dict[str, list[str]] | None:
+    registry = getattr(cli, "_deferred_remote_cleanups", None)
+    if registry is None and create:
+        registry = {}
+        setattr(cli, "_deferred_remote_cleanups", registry)
+    return registry
+
+
+def record_remote_leftover(cli: Any, owner_key: str, scratch_path: str) -> None:
+    """Record a remote UUID scratch path so a later retry can sweep it if cleanup skips."""
+    if not owner_key or not _is_remote_scratch_path(scratch_path):
+        raise TransferIntegrityError(
+            f"refusing to track non-scratch cleanup path: {scratch_path!r}"
+        )
+    registry = _leftover_map(cli, create=True)
+    assert registry is not None
+    bucket = registry.setdefault(owner_key, [])
+    if scratch_path not in bucket:
+        bucket.append(scratch_path)
+
+
+def clear_remote_leftover(cli: Any, scratch_path: str) -> None:
+    """Drop a remote UUID scratch path once its removal has been acknowledged."""
+    registry = _leftover_map(cli, create=False)
+    if not registry:
+        return
+    empty_keys = []
+    for key, bucket in registry.items():
+        if scratch_path in bucket:
+            bucket.remove(scratch_path)
+        if not bucket:
+            empty_keys.append(key)
+    for key in empty_keys:
+        registry.pop(key, None)
+
+
+def pending_remote_leftovers(cli: Any, owner_key: str) -> list[str]:
+    """Return a copy of pending uncleaned scratch paths recorded for owner_key."""
+    registry = _leftover_map(cli, create=False)
+    if not registry:
+        return []
+    return list(registry.get(owner_key, ()))
+
+
+def sweep_remote_leftovers(
+    cli: _CLI,
+    owner_key: str,
+    renew: Callable[[], None] | None,
+    *,
+    deadline: float | None = None,
+    direction: str = "download",
+) -> None:
+    """Idempotently sweep recorded scratch paths from earlier failed tries in bounded time."""
+    pending = pending_remote_leftovers(cli, owner_key)
+    if not pending:
+        return
+    sweep_deadline = time.monotonic() + LEFTOVER_SWEEP_SECONDS
+    if deadline is not None:
+        sweep_deadline = min(deadline, sweep_deadline)
+    if time.monotonic() >= sweep_deadline:
+        return
+    if hasattr(cli, "download_controls") and direction == "download":
+        scope = cli.download_controls(sweep_deadline)
+    elif hasattr(cli, "staging_controls") and direction == "upload":
+        scope = cli.staging_controls(sweep_deadline)
+    else:
+        scope = contextlib.nullcontext()
+    with scope:
+        for scratch_path in pending:
+            if not _is_remote_scratch_path(scratch_path):
+                continue
+            if time.monotonic() >= sweep_deadline:
+                break
+            _cleanup(cli, scratch_path, renew, deadline=sweep_deadline, direction=direction)
+
+
 def _cleanup(
     cli: _CLI,
     path: str,
@@ -364,10 +464,10 @@ def _cleanup(
     *,
     deadline: float | None = None,
     direction: str = "upload",
-) -> None:
+) -> bool:
     try:
         if deadline is not None and time.monotonic() >= deadline:
-            return
+            return False
         if renew:
             renew()
         _rpc(
@@ -378,8 +478,10 @@ def _cleanup(
                 policy.TELEMETRY_SECONDS, deadline, f"REMOVE_TREE {path}", direction=direction
             ),
         )
+        clear_remote_leftover(cli, path)
         if renew:
             renew()
+        return True
     except Exception as exc:
         if getattr(cli, "exec_uncertain", False):
             reason = (
@@ -394,6 +496,7 @@ def _cleanup(
                 )
                 setattr(cli, "cleanup_uncertain_reason", detail)
                 budget_warning("TRANSFER_CLEANUP_UNCERTAIN", path=path, reason=detail)
+        return False
 
 
 def _staging(remote: str, ident: str) -> tuple[str, str]:
@@ -574,7 +677,9 @@ def prepare_download(
         )
     if expected_sha256 is None or len(expected_sha256) != 64:
         raise TransferIntegrityError("prepare_download requires immutable expected_sha256")
+    sweep_remote_leftovers(cli, remote, renew, deadline=deadline, direction="download")
     parts, _ = _staging(remote, uuid.uuid4().hex)
+    record_remote_leftover(cli, remote, parts)
     if renew:
         renew()
     reply = _rpc(
@@ -639,6 +744,8 @@ def download_file(
         else contextlib.nullcontext()
     )
     with download_scope:
+        if prepared is None:
+            sweep_remote_leftovers(cli, remote, renew, deadline=deadline, direction="download")
         if size <= DOWNLOAD_CHUNK_BYTES:
             _contents_call(
                 cli,

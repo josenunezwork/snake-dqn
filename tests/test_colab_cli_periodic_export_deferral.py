@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import subprocess
@@ -206,7 +207,7 @@ def test_broker_periodic_export_timeout_defers_then_collects_and_passes(
     [
         "payload_sha_mismatch",
         "sidecar_sha_mismatch",
-        "local_published_mutated",
+        "prefetched_local_mutated",
         "remote_meta_changed",
     ],
 )
@@ -216,7 +217,7 @@ def test_periodic_integrity_violations_refuse_immediately(
     capsys: pytest.CaptureFixture[str],
     violation: str,
 ) -> None:
-    """Digest/sidecar mismatches and mutated local exports refuse at once even mid-run."""
+    """Digest/sidecar mismatches, prefetched tampering, and changed metadata refuse at once."""
     now = [0.0]
     cli = _owned_cli(tmp_path, monkeypatch, now)
     cli.deadline = 3600.0
@@ -244,20 +245,28 @@ def test_periodic_integrity_violations_refuse_immediately(
     monkeypatch.setattr(supervisor.subprocess, "run", fake_run)
     out_dir = tmp_path / "out"
 
-    if violation in {"local_published_mutated", "remote_meta_changed"}:
+    if violation == "remote_meta_changed":
         supervisor.collect_exports(cli, root, [entry], out_dir, limit=1024 * 1024, periodic=True)
         published = out_dir / "exports" / rel
         assert published.read_bytes() == payload
-        if violation == "local_published_mutated":
-            published.write_bytes(b"locally-tampered-bytes")
-            expected_match = "immutable export changed"
-            next_inventory = [entry]
-        else:
-            expected_match = "immutable snapshot metadata changed"
-            next_inventory = [{**entry, "sha256": "0" * 64}]
-        with pytest.raises(supervisor.Refused, match=expected_match):
+        with pytest.raises(supervisor.Refused, match="immutable snapshot metadata changed"):
             supervisor.collect_exports(
-                cli, root, next_inventory, out_dir, limit=1024 * 1024, periodic=True
+                cli,
+                root,
+                [{**entry, "sha256": "0" * 64}],
+                out_dir,
+                limit=1024 * 1024,
+                periodic=True,
+            )
+    elif violation == "prefetched_local_mutated":
+        prefetched = out_dir / "exports" / rel
+        prefetched.parent.mkdir(parents=True, exist_ok=True)
+        prefetched.write_bytes(b"locally-tampered-bytes")
+        Path(str(prefetched) + ".sha256").write_text(f"{entry['sha256']}  {Path(rel).name}\n")
+        Path(str(prefetched) + ".complete").write_text("complete\n")
+        with pytest.raises(supervisor.Refused, match="immutable export changed"):
+            supervisor.collect_exports(
+                cli, root, [entry], out_dir, limit=1024 * 1024, periodic=True
             )
     else:
         expected_match = (
@@ -659,15 +668,436 @@ def test_periodic_small_export_batch_timeout_defers_and_recovers(
     assert cli.verified_exports == {}
     _assert_no_temp_or_partial(out_dir)
 
-    # Cycle 2: archive download succeeds -> both entries verified with sidecars.
+    # Cycle 2: archive download succeeds -> both entries verified with sidecars,
+    # and cycle 1's failed .snake-export-batch-*.zip was swept inline.
     fail_archive_download[0] = False
     supervisor.collect_exports(cli, root, entries, out_dir, limit=1024 * 1024, periodic=True)
     assert set(cli.verified_exports) == {
         "metrics/u0001.jsonl",
         "checkpoints/light_u0001.meta.json",
     }
+    remaining_archives = list((remote / root.lstrip("/")).glob(".snake-export-batch-*.zip"))
+    assert len(remaining_archives) == 1
+    assert cli._deferred_remote_cleanups == {}
     assert (out_dir / "exports/metrics/u0001.jsonl").read_bytes() == b'{"u":1}\n'
     assert (out_dir / "exports/metrics/u0001.jsonl.complete").is_file()
     assert (out_dir / "exports/checkpoints/light_u0001.meta.json").read_bytes() == b'{"u":1}'
     assert (out_dir / "exports/checkpoints/light_u0001.meta.json.complete").is_file()
     _assert_no_temp_or_partial(out_dir)
+
+
+@pytest.mark.parametrize(
+    ("phase", "stderr_text"),
+    [
+        (
+            "download",
+            (
+                "Traceback (most recent call last):\n"
+                '  File "/opt/colab/contents.py", line 403, in get_file\n'
+                "    resp = self.session.get(url, timeout=30)\n"
+                "requests.exceptions.HTTPError: 403 Client Error: Forbidden for url: "
+                "https://colab.research.google.com/api/contents\n"
+            ),
+        ),
+        (
+            "download",
+            (
+                "Traceback (most recent call last):\n"
+                '  File "/opt/colab/contents.py", line 188, in get\n'
+                "    return client.get(url, timeout=30.0)\n"
+                "httpx.HTTPStatusError: Client error '403 Forbidden' for url 'https://example'\n"
+            ),
+        ),
+        (
+            "exec",
+            (
+                "Traceback (most recent call last):\n"
+                '  File "/opt/colab/kernel.py", line 212, in execute\n'
+                "    resp = requests.get(url, timeout=30)\n"
+                "RuntimeError: HTTP 403 Forbidden\n"
+            ),
+        ),
+        (
+            "download",
+            (
+                "Traceback (most recent call last):\n"
+                "  resp = self.session.get(url, timeout=30)\n"
+                "RuntimeError: 503 Service Unavailable\n"
+            ),
+        ),
+    ],
+)
+def test_periodic_403_or_non_timeout_with_timeout_kwarg_in_traceback_refuses_immediately(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    phase: str,
+    stderr_text: str,
+) -> None:
+    """403 (and non-timeout HTTP errors) with get(url, timeout=30) in traceback refuse at once."""
+    now = [0.0]
+    cli = _owned_cli(tmp_path, monkeypatch, now)
+    cli.deadline = 3600.0
+    monkeypatch.setattr(cli, "_put_lease", lambda *_a, **_kw: None)
+    remote = tmp_path / "remote"
+    root = "/content/snake-cli/gen-403"
+    rel = "checkpoints/light_u0002004.pt"
+    payload = (
+        b"X" * (transfers.DOWNLOAD_CHUNK_BYTES + 64) if phase == "exec" else b"small-checkpoint"
+    )
+    entry = _write_remote_export(remote / root.lstrip("/") / "output", rel, payload)
+    calls: list[str] = []
+
+    def fake_run(argv: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+        cmd = argv[5]
+        calls.append(cmd)
+        if cmd == phase:
+            return subprocess.CompletedProcess(argv, 1, "", stderr_text)
+        if cmd == "download":
+            src = remote / argv[-2].lstrip("/")
+            Path(argv[-1]).write_bytes(src.read_bytes())
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        _, proc = _exec_wrapped_snippet(argv, remote_root=remote)
+        return proc
+
+    monkeypatch.setattr(supervisor.subprocess, "run", fake_run)
+    monkeypatch.setattr(cli_guard, "kernel_idle", lambda *_a, **_kw: True)
+    out_dir = tmp_path / "out"
+
+    with pytest.raises(supervisor.Refused):
+        supervisor.collect_exports(
+            cli, root, [entry], out_dir, limit=32 * 1024 * 1024, periodic=True
+        )
+
+    assert _deferred_warnings(capsys.readouterr().err) == []
+    if "403" in stderr_text:
+        assert calls.count(phase) == 1
+    assert cli.verified_exports == {}
+    _assert_no_temp_or_partial(out_dir)
+
+
+@pytest.mark.parametrize(
+    "local_error",
+    [
+        TimeoutError(errno.ETIMEDOUT, "local disk operation timed out"),
+        OSError(errno.EIO, "local filesystem input/output error"),
+        PermissionError(errno.EACCES, "local export permission denied"),
+    ],
+)
+def test_periodic_local_oserror_and_disk_timeout_refuse_immediately(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    local_error: OSError,
+) -> None:
+    """Local OSError (including TimeoutError subclass) refuses on cycle 1 without deferring."""
+    now = [0.0]
+    cli = _owned_cli(tmp_path, monkeypatch, now)
+    cli.deadline = 3600.0
+    monkeypatch.setattr(cli, "_put_lease", lambda *_a, **_kw: None)
+    remote = tmp_path / "remote"
+    root = "/content/snake-cli/gen-oserror"
+    entry = _write_remote_export(remote / root.lstrip("/") / "output", "ckpt.bin", b"data")
+    attempts = [0]
+
+    def failing_run(argv: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+        if argv[5] == "download":
+            attempts[0] += 1
+            raise local_error
+        _, proc = _exec_wrapped_snippet(argv, remote_root=remote)
+        return proc
+
+    monkeypatch.setattr(supervisor.subprocess, "run", failing_run)
+    out_dir = tmp_path / "out"
+
+    with pytest.raises(supervisor.Refused, match="download hash mismatch or transfer failure"):
+        supervisor.collect_exports(cli, root, [entry], out_dir, limit=1024 * 1024, periodic=True)
+
+    assert attempts[0] == 1
+    assert _deferred_warnings(capsys.readouterr().err) == []
+    _assert_no_temp_or_partial(out_dir)
+
+
+def test_periodic_cycle_does_not_read_bytes_of_already_verified_exports(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Already-verified exports are neither re-read nor re-hashed on later periodic polls."""
+    now = [0.0]
+    cli = _owned_cli(tmp_path, monkeypatch, now)
+    cli.deadline = 3600.0
+    monkeypatch.setattr(cli, "_put_lease", lambda *_a, **_kw: None)
+    remote = tmp_path / "remote"
+    root = "/content/snake-cli/gen-norehash"
+    remote_out = remote / root.lstrip("/") / "output"
+    first_rel = "checkpoints/light_u0001000.pt"
+    second_rel = "checkpoints/light_u0002000.pt"
+    terminal_rel = "checkpoints/final.pt"
+    entry1 = _write_remote_export(remote_out, first_rel, b"first-checkpoint-bytes")
+    entry2 = _write_remote_export(remote_out, second_rel, b"second-checkpoint-bytes")
+    entry3 = _write_remote_export(remote_out, terminal_rel, b"terminal-checkpoint-bytes")
+
+    def fake_run(argv: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+        if argv[5] == "download":
+            src = remote / argv[-2].lstrip("/")
+            Path(argv[-1]).write_bytes(src.read_bytes())
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        _, proc = _exec_wrapped_snippet(argv, remote_root=remote)
+        return proc
+
+    monkeypatch.setattr(supervisor.subprocess, "run", fake_run)
+    out_dir = tmp_path / "out"
+
+    # Poll 1: collect first_rel and verify it locally.
+    supervisor.collect_exports(cli, root, [entry1], out_dir, limit=1024 * 1024, periodic=True)
+    published_first = out_dir / "exports" / first_rel
+    assert published_first.read_bytes() == b"first-checkpoint-bytes"
+
+    # Forbid any byte read or sha256 call on published_first (and its sidecars) during Poll 2.
+    forbidden = {
+        published_first.resolve(),
+        Path(str(published_first) + ".sha256").resolve(),
+        Path(str(published_first) + ".complete").resolve(),
+    }
+    real_open = Path.open
+    real_sha256 = supervisor.sha256
+
+    def guarded_open(self: Path, *args: Any, **kwargs: Any) -> Any:
+        mode = args[0] if args else kwargs.get("mode", "r")
+        if "r" in str(mode) and self.exists() and self.resolve() in forbidden:
+            raise AssertionError(f"periodic poll re-read already-verified export: {self}")
+        return real_open(self, *args, **kwargs)
+
+    def guarded_sha256(path: Path) -> str:
+        if path.exists() and path.resolve() in forbidden:
+            raise AssertionError(f"periodic poll re-hashed already-verified export: {path}")
+        return real_sha256(path)
+
+    with monkeypatch.context() as poll2_guard:
+        poll2_guard.setattr(Path, "open", guarded_open)
+        poll2_guard.setattr(supervisor, "sha256", guarded_sha256)
+        supervisor.collect_exports(
+            cli, root, [entry1, entry2], out_dir, limit=1024 * 1024, periodic=True
+        )
+
+    assert (out_dir / "exports" / second_rel).read_bytes() == b"second-checkpoint-bytes"
+
+    # Touching/modifying an already-published local export mid-run must not abort the running job.
+    published_first.write_bytes(b"touched-locally-after-publish")
+    supervisor.collect_exports(
+        cli, root, [entry1, entry2], out_dir, limit=1024 * 1024, periodic=True
+    )
+
+    # Terminal collection (periodic=False) still performs full verification on uncollected exports.
+    supervisor.collect_exports(
+        cli, root, [entry1, entry2, entry3], out_dir, limit=1024 * 1024, periodic=False
+    )
+    assert (out_dir / "exports" / terminal_rel).read_bytes() == b"terminal-checkpoint-bytes"
+    assert _deferred_warnings(capsys.readouterr().err) == []
+
+
+def test_deferred_multichunk_leftover_swept_on_next_try_preserving_job_outputs(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Deferred multi-chunk download sweeps leftover .snake-transfer-* on retry safely."""
+    monkeypatch.setattr(transfers, "DOWNLOAD_CHUNK_BYTES", 512)
+    now = [0.0]
+    cli = _owned_cli(tmp_path, monkeypatch, now)
+    cli.deadline = 3600.0
+    monkeypatch.setattr(cli, "_put_lease", lambda *_a, **_kw: None)
+    remote = tmp_path / "remote"
+    root = "/content/snake-cli/gen-sweep"
+    remote_out = remote / root.lstrip("/") / "output"
+    rel = "checkpoints/light_u0002004.pt"
+    payload = b"M" * 1400  # 3 chunks at 512B
+    entry = _write_remote_export(remote_out, rel, payload)
+    # Sibling job output files that must NEVER be touched by cleanup sweeps.
+    in_progress_job_file = remote_out / "checkpoints/in_progress.tmp"
+    in_progress_job_file.write_bytes(b"live-job-writer-temp")
+    metrics_job_file = remote_out / "metrics/train.jsonl"
+    metrics_job_file.parent.mkdir(parents=True, exist_ok=True)
+    metrics_job_file.write_bytes(b'{"step": 100}\n')
+
+    cycle = [1]
+    rpc_events: list[tuple[int, str, str]] = []
+
+    def fake_run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        cmd = argv[5]
+        timeout = float(kwargs["timeout"])
+        if cmd == "download":
+            if cycle[0] == 1 and ".part" in argv[-2]:
+                # Exhaust the per-file 300s deadline so finally:_cleanup skips REMOVE_TREE.
+                now[0] += max(timeout, 305.0)
+                raise subprocess.TimeoutExpired(argv, timeout)
+            src = remote / argv[-2].lstrip("/")
+            Path(argv[-1]).write_bytes(src.read_bytes())
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        assert cmd == "exec"
+        script_text = Path(argv[argv.index("-f") + 1]).read_text()
+        for kind in ("SNAKE_TRANSFER_REMOVE_TREE", "SNAKE_TRANSFER_DOWNLOAD_SPLIT"):
+            if kind in script_text:
+                rpc_events.append((cycle[0], kind, script_text))
+        _, proc = _exec_wrapped_snippet(argv, remote_root=remote)
+        return proc
+
+    monkeypatch.setattr(supervisor.subprocess, "run", fake_run)
+    out_dir = tmp_path / "out"
+
+    # Cycle 1: DOWNLOAD_SPLIT creates .snake-transfer-<uuid1>, chunk download expires deadline,
+    # and _cleanup returns early leaving .snake-transfer-<uuid1> behind on remote disk.
+    supervisor.collect_exports(cli, root, [entry], out_dir, limit=1024 * 1024, periodic=True)
+    assert len(_deferred_warnings(capsys.readouterr().err)) == 1
+    leftover_dirs = list((remote_out / "checkpoints").glob(".snake-transfer-*"))
+    assert len(leftover_dirs) == 1
+    leftover_name = leftover_dirs[0].name
+
+    # Cycle 2: sweeps .snake-transfer-<uuid1> BEFORE splitting .snake-transfer-<uuid2>,
+    # then collects and cleans .snake-transfer-<uuid2>, leaving zero scratch dirs.
+    cycle[0] = 2
+    supervisor.collect_exports(cli, root, [entry], out_dir, limit=1024 * 1024, periodic=True)
+    cycle2_kinds = [kind for cyc, kind, _ in rpc_events if cyc == 2]
+    assert cycle2_kinds == [
+        "SNAKE_TRANSFER_REMOVE_TREE",
+        "SNAKE_TRANSFER_DOWNLOAD_SPLIT",
+        "SNAKE_TRANSFER_REMOVE_TREE",
+    ]
+    first_cycle2_script = next(script for cyc, _, script in rpc_events if cyc == 2)
+    assert leftover_name in first_cycle2_script
+    assert list((remote_out / "checkpoints").glob(".snake-transfer-*")) == []
+    assert cli._deferred_remote_cleanups == {}
+
+    # Job's own output files and verified local export are completely intact.
+    assert (remote_out / rel).read_bytes() == payload
+    assert Path(str(remote_out / rel) + ".sha256").is_file()
+    assert Path(str(remote_out / rel) + ".complete").is_file()
+    assert in_progress_job_file.read_bytes() == b"live-job-writer-temp"
+    assert metrics_job_file.read_bytes() == b'{"step": 100}\n'
+    assert (out_dir / "exports" / rel).read_bytes() == payload
+
+
+def test_deferred_batch_archive_swept_on_singleton_retry_with_bounded_time(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Failed batch archive is swept even when retried via singleton export_file in bounded time."""
+    now = [0.0]
+    cli = _owned_cli(tmp_path, monkeypatch, now)
+    cli.deadline = 3600.0
+    monkeypatch.setattr(cli, "_put_lease", lambda *_a, **_kw: None)
+    remote = tmp_path / "remote"
+    root = "/content/snake-cli/gen-batch-sweep"
+    local_root = remote / root.lstrip("/")
+    remote_out = local_root / "output"
+    entry_a = _write_remote_export(remote_out, "metrics/u0001.jsonl", b'{"u":1}\n')
+    entry_b = _write_remote_export(remote_out, "metrics/u0002.jsonl", b'{"u":2}\n')
+
+    fail_archive_download = [True]
+
+    def fake_run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        cmd = argv[5]
+        timeout = float(kwargs["timeout"])
+        if cmd == "download":
+            if fail_archive_download[0]:
+                now[0] += max(timeout, 305.0)
+                raise subprocess.TimeoutExpired(argv, timeout)
+            src = remote / argv[-2].lstrip("/")
+            Path(argv[-1]).write_bytes(src.read_bytes())
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        assert cmd == "exec"
+        script_path = Path(argv[argv.index("-f") + 1])
+        wrapped = script_path.read_text()
+        if "SNAKE_EXPORT_BATCH" in wrapped:
+            wrapped = wrapped.replace(
+                "'/content/.snake-rpc-", repr(str(remote / "content/.snake-rpc-"))[:-1]
+            )
+            (remote / "content").mkdir(parents=True, exist_ok=True)
+            wrapped = wrapped.replace(root, str(local_root))
+            wrapped = wrapped.replace(
+                "'path': str(archive)",
+                f"'path': str(archive).replace({str(local_root)!r}, {root!r}, 1)",
+            )
+            script_path.write_text(wrapped)
+            _, proc = _exec_wrapped_snippet(argv, remote_root=None)
+            return proc
+        _, proc = _exec_wrapped_snippet(argv, remote_root=remote)
+        return proc
+
+    monkeypatch.setattr(supervisor.subprocess, "run", fake_run)
+    out_dir = tmp_path / "out"
+
+    # Cycle 1: export_batch creates .snake-export-batch-<uuid>.zip, then archive download fails.
+    supervisor.collect_exports(
+        cli, root, [entry_a, entry_b], out_dir, limit=1024 * 1024, periodic=True
+    )
+    assert len(_deferred_warnings(capsys.readouterr().err)) == 2
+    assert len(list(local_root.glob(".snake-export-batch-*.zip"))) == 1
+
+    # Cycle 2: retry entry_a via singleton export_file -> sweeps failed batch zip via REMOVE_TREE.
+    fail_archive_download[0] = False
+    supervisor.collect_exports(cli, root, [entry_a], out_dir, limit=1024 * 1024, periodic=True)
+    assert list(local_root.glob(".snake-export-batch-*.zip")) == []
+    assert cli._deferred_remote_cleanups == {}
+    assert (out_dir / "exports/metrics/u0001.jsonl").read_bytes() == b'{"u":1}\n'
+    assert (remote_out / "metrics/u0001.jsonl").read_bytes() == b'{"u":1}\n'
+    assert (remote_out / "metrics/u0002.jsonl").read_bytes() == b'{"u":2}\n'
+
+
+def test_leftover_sweep_is_time_bounded_and_idempotent_when_already_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Hung leftover sweep consumes <= LEFTOVER_SWEEP_SECONDS and missing leftovers succeed."""
+    now = [0.0]
+    cli = _owned_cli(tmp_path, monkeypatch, now)
+    cli.deadline = 3600.0
+    monkeypatch.setattr(cli, "_put_lease", lambda *_a, **_kw: None)
+    monkeypatch.setattr(cli_guard, "kernel_idle", lambda *_a, **_kw: True)
+    remote = tmp_path / "remote"
+    root = "/content/snake-cli/gen-bounded-sweep"
+    remote_out = remote / root.lstrip("/") / "output"
+    rel = "checkpoints/light_u0002004.pt"
+    entry = _write_remote_export(remote_out, rel, b"checkpoint-bytes")
+    remote_path = f"{root}/output/{rel}"
+    missing_scratch = f"{root}/output/checkpoints/.snake-transfer-{'a' * 32}"
+
+    hang_cleanup = [True]
+
+    def fake_run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        cmd = argv[5]
+        timeout = float(kwargs["timeout"])
+        if cmd == "sessions":
+            return subprocess.CompletedProcess(
+                argv, 0, _sessions_stdout(cli.session, cli.poll_recovery_endpoint or "ep"), ""
+            )
+        if cmd == "download":
+            src = remote / argv[-2].lstrip("/")
+            Path(argv[-1]).write_bytes(src.read_bytes())
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        assert cmd == "exec"
+        script_text = Path(argv[argv.index("-f") + 1]).read_text()
+        if hang_cleanup[0] and "SNAKE_TRANSFER_REMOVE_TREE" in script_text:
+            now[0] += timeout
+            raise subprocess.TimeoutExpired(argv, timeout)
+        _, proc = _exec_wrapped_snippet(argv, remote_root=remote)
+        return proc
+
+    monkeypatch.setattr(supervisor.subprocess, "run", fake_run)
+    out_dir = tmp_path / "out"
+
+    # Try 1: hung leftover REMOVE_TREE is bounded to LEFTOVER_SWEEP_SECONDS (30s),
+    # leaving 270s of the 300s file window so the download itself still succeeds!
+    transfers.record_remote_leftover(cli, remote_path, missing_scratch)
+    supervisor.collect_exports(cli, root, [entry], out_dir, limit=1024 * 1024, periodic=True)
+    assert now[0] == pytest.approx(transfers.LEFTOVER_SWEEP_SECONDS, abs=5.0)
+    assert (out_dir / "exports" / rel).read_bytes() == b"checkpoint-bytes"
+    # Unacknowledged cleanup stays recorded for a later sweep.
+    assert transfers.pending_remote_leftovers(cli, remote_path) == [missing_scratch]
+
+    # Try 2: idempotent sweep succeeds even when missing_scratch does not exist remotely.
+    hang_cleanup[0] = False
+    transfers.sweep_remote_leftovers(cli, remote_path, cli.renew)
+    assert transfers.pending_remote_leftovers(cli, remote_path) == []
