@@ -33,6 +33,9 @@ from research.arena_ppo.prepare import (
 )
 from research.arena_ppo.runtime import sha256_file, verify_completed_artifact
 from research.colab_cli import canary as colab_canary
+from research.colab_cli import policy as colab_policy
+from research.colab_cli import transfer_policy as colab_transfer_policy
+from research.colab_cli import transfers as colab_transfers
 from research.game_v3.config import GameV3Config
 from research.v3_ppo.arena_eval import (
     DEFAULT_EVAL_SEED,
@@ -46,19 +49,25 @@ from research.v3_ppo.arena_eval import (
     DEFAULT_LONG_GAME_WORLD_AGE_BINS,
     EVAL_MODES,
     EVAL_REQUIRED_EXPORTS,
+    V3_EVAL_POLICY_BUNDLE_SCHEMA,
     _load_checkpoint_payload,
     build_pair_reuse_key,
     discover_round_robin_checkpoints,
     estimate_eval_memory,
+    extract_eval_policy_bundle_record,
+    pack_eval_policy_bundle_records,
     resolve_unique_labels,
     select_pairs_per_batch,
     validate_pair_unit_reuse,
+    write_eval_policy_bundle,
     write_weights_only_eval_bundle,
 )
 from research.v3_ppo.config import (
     ASSUMED_STAGED_INPUT_UPLOAD_RATE_BYTES_PER_SEC,
     ASSUMED_STAGED_INPUT_UPLOAD_RATE_MBPS,
     CANARY_MAX_ESTIMATED_UPLOAD_SECONDS,
+    EVAL_UPLOAD_CHUNK_RATE_BYTES_PER_SEC,
+    EVAL_UPLOAD_CONTROL_HANG_PROB,
     GPU_VRAM_BUDGET_BYTES,
     MAX_SUPERVISOR_EXPORT_BYTES,
     OBS_BATCH_BYTES_PER_ROW,
@@ -75,6 +84,7 @@ from research.v3_ppo.config import (
     build_recipe_change_record,
     check_minibatch_divisibility,
     default_train_envs_for_gpu,
+    estimate_eval_upload_time,
     estimate_sim_memory_bytes,
     estimate_train_wall_headroom,
     estimate_train_wall_headroom_by_mode,
@@ -1559,13 +1569,29 @@ def _size_eval_mode(
     batch_worlds = int(layout["batch_worlds"])
     memory_estimate: dict[str, Any] = layout["memory_estimate"]
 
-    est_staged_bytes = sum(
-        (
-            int(get_net_preset(sp["net_size"]).exact_param_count * 4 + 65536)
-            if use_weights_only
-            else int(sp["raw_size_bytes"])
+    est_staged_bytes = (
+        sum(
+            int(
+                math.ceil(
+                    get_net_preset(sp["net_size"]).exact_param_count
+                    * 4
+                    * (0.85 if use_weights_only else 0.90)
+                )
+            )
+            for sp in policy_specs
         )
-        for sp in policy_specs
+        + 4096
+    )
+    prior_pair_sizes = [int(p.stat().st_size) for p in ctx.prior.eval_pair_paths]
+    stage2_upload_est = estimate_eval_upload_time(
+        [est_staged_bytes, 4096, *prior_pair_sizes],
+        transfer_cap_seconds=float(colab_transfer_policy.DEFAULT_TRANSFER_SECONDS),
+        upload_chunk_bytes=int(colab_transfers.UPLOAD_CHUNK_BYTES),
+        staging_control_seconds=float(colab_policy.STAGING_CONTROL_SECONDS),
+        staging_recovery_seconds=float(colab_policy.STAGING_RECOVERY_SECONDS),
+        backoff_first_seconds=float(colab_policy.BACKOFF_SECONDS[0]),
+        control_hang_prob=float(EVAL_UPLOAD_CONTROL_HANG_PROB),
+        chunk_rate_bytes_per_sec=float(EVAL_UPLOAD_CHUNK_RATE_BYTES_PER_SEC),
     )
 
     if opts.assume_ms_per_tick is not None:
@@ -1624,9 +1650,7 @@ def _size_eval_mode(
     if session_cap_min <= 0 or not math.isfinite(session_cap_min):
         raise ValueError(f"eval_session_minutes must be finite and > 0, got {session_cap_min}")
 
-    upload_allowance_sec = float(est_staged_bytes) / float(
-        ASSUMED_STAGED_INPUT_UPLOAD_RATE_BYTES_PER_SEC
-    )
+    upload_allowance_sec = float(stage2_upload_est["estimated_upload_seconds"])
     setup_and_export_sec = 210.0 + upload_allowance_sec
     max_session_sec = session_cap_min * 60.0
     available_compute_sec = max_session_sec - setup_and_export_sec
@@ -1955,41 +1979,50 @@ def _stage_inputs(
     inputs_list: list[dict[str, str]] = []
 
     if capped.sized.eval_policy_specs:
+        bundle_rel_dest = "policies_bundle.eval.pt"
+        dst_bundle = pkt_inputs_dir / bundle_rel_dest
+        src_ckpt_paths = [
+            Path(sp.get("input_path") or sp["src_path"]) for sp in capped.sized.eval_policy_specs
+        ]
+        bundle_weights_only = all(bool(sp["weights_only"]) for sp in capped.sized.eval_policy_specs)
+        bundle_summary = write_eval_policy_bundle(
+            src_ckpt_paths,
+            dst_bundle,
+            weights_only=bundle_weights_only,
+        )
+        bundle_sha = str(bundle_summary["sha256"])
+        bundle_size = int(bundle_summary["size_bytes"])
+        inputs_list.append({"path": str(dst_bundle), "dest": bundle_rel_dest, "sha256": bundle_sha})
+        ledger["eval_policy_bundle"] = {
+            "schema": V3_EVAL_POLICY_BUNDLE_SCHEMA,
+            "relpath": bundle_rel_dest,
+            "sha256": bundle_sha,
+            "size_bytes": bundle_size,
+            "num_policies": len(capped.sized.eval_policy_specs),
+            "weights_only": bundle_weights_only,
+        }
+        ledger["verified_units"].append(
+            {
+                "unit_id": "policy_bundle",
+                "relpath": bundle_rel_dest,
+                "sha256": bundle_sha,
+                "size_bytes": bundle_size,
+            }
+        )
         eval_entries: list[dict[str, Any]] = []
-        for sp in capped.sized.eval_policy_specs:
-            input_p = Path(sp.get("input_path") or sp["src_path"])
-            orig_p_str = str(sp["src_path"])
-            ext = ".eval.pt" if sp["weights_only"] else ".pt"
-            fname = f"policy_{int(sp['index']):02d}_{sp['safe_slug']}{ext}"
-            rel_dest = f"policies/{fname}"
-            dst_file = pkt_inputs_dir / "policies" / fname
-            if sp["weights_only"]:
-                p_sha = write_weights_only_eval_bundle(input_p, dst_file)
-            else:
-                p_sha = write_create_only_artifact(
-                    dst_file, lambda tmp, src=input_p: shutil.copyfile(src, tmp)
-                )
-            p_size = int(dst_file.stat().st_size)
-            inputs_list.append({"path": str(dst_file), "dest": rel_dest, "sha256": p_sha})
+        for sp, pol_meta in zip(capped.sized.eval_policy_specs, bundle_summary["policies"]):
             eval_entries.append(
                 {
                     "index": int(sp["index"]),
                     "label": str(sp["label"]),
-                    "relpath": rel_dest,
-                    "sha256": p_sha,
-                    "size_bytes": p_size,
-                    "source_checkpoint_path": orig_p_str,
+                    "relpath": bundle_rel_dest,
+                    "bundle_policy_index": int(pol_meta["policy_index"]),
+                    "sha256": bundle_sha,
+                    "policy_sha256": str(pol_meta["policy_sha256"]),
+                    "source_checkpoint_path": str(sp["src_path"]),
                     "source_checkpoint_sha256": str(sp["src_sha256"]),
                     "raw_checkpoint_size_bytes": int(sp["raw_size_bytes"]),
                     "weights_only": bool(sp["weights_only"]),
-                }
-            )
-            ledger["verified_units"].append(
-                {
-                    "unit_id": f"policy:{int(sp['index']):02d}",
-                    "relpath": rel_dest,
-                    "sha256": p_sha,
-                    "size_bytes": p_size,
                 }
             )
         ledger["eval_policies"] = eval_entries
@@ -2100,70 +2133,145 @@ def _stage_inputs(
     )
 
 
-def _compute_canary_fitting_policies(
+def _estimate_eval_packet_upload(
+    file_sizes_bytes: Sequence[int],
+    *,
+    is_canary: bool,
+) -> dict[str, Any]:
+    """Estimate eval/canary upload time from staged file sizes & count via `colab_cli` caps."""
+    transfer_cap = (
+        float(colab_canary.MAX_UPLOAD_SECONDS)
+        if is_canary
+        else float(colab_transfer_policy.DEFAULT_TRANSFER_SECONDS)
+    )
+    return estimate_eval_upload_time(
+        file_sizes_bytes,
+        transfer_cap_seconds=transfer_cap,
+        upload_chunk_bytes=int(colab_transfers.UPLOAD_CHUNK_BYTES),
+        staging_control_seconds=float(colab_policy.STAGING_CONTROL_SECONDS),
+        staging_recovery_seconds=float(colab_policy.STAGING_RECOVERY_SECONDS),
+        backoff_first_seconds=float(colab_policy.BACKOFF_SECONDS[0]),
+        control_hang_prob=float(EVAL_UPLOAD_CONTROL_HANG_PROB),
+        chunk_rate_bytes_per_sec=float(EVAL_UPLOAD_CHUNK_RATE_BYTES_PER_SEC),
+    )
+
+
+def _compute_eval_bundle_fitting_policies(
     ledger: Mapping[str, Any],
+    eval_policy_specs: Sequence[Mapping[str, Any]],
     eval_entries: Sequence[Mapping[str, Any]],
     *,
-    non_policy_non_ledger_bytes: int,
-    max_upload_bytes: int,
-) -> tuple[int, int, int, int]:
-    """Return ``(fit_prefix_count, fit_prefix_bytes, fit_worst_case_count, max_policy_bytes)``."""
+    other_file_sizes: Sequence[int],
+    is_canary: bool,
+) -> tuple[int, dict[str, Any], int, int]:
+    """Return ``(fit_prefix_k, fit_prefix_est, fit_worst_k, max_policy_compressed_bytes)``."""
 
-    def _bytes_for_subset(chosen_entries: Sequence[Mapping[str, Any]]) -> int:
+    def _ledger_bytes_for_subset(
+        chosen_entries: Sequence[Mapping[str, Any]],
+        bundle_size_bytes: int,
+    ) -> int:
+        non_bundle_units = [
+            u
+            for u in ledger.get("verified_units", [])
+            if str(u.get("unit_id", "")) != "policy_bundle"
+            and not str(u.get("unit_id", "")).startswith("policy:")
+        ]
         if not chosen_entries:
             sub_ledger: dict[str, Any] = {
                 "schema": ledger["schema"],
                 "namespace": ledger["namespace"],
-                "unit_kind": "checkpoint",
+                "unit_kind": ledger["unit_kind"],
                 "skip_verified": True,
-                "verified_units": [
-                    u
-                    for u in ledger.get("verified_units", [])
-                    if not str(u.get("unit_id", "")).startswith("policy:")
-                ],
+                "verified_units": non_bundle_units,
             }
         else:
-            keep_ids = {f"policy:{int(e['index']):02d}" for e in chosen_entries}
+            dummy_sha = "0" * 64
+            sub_bundle = {
+                "schema": V3_EVAL_POLICY_BUNDLE_SCHEMA,
+                "relpath": "policies_bundle.eval.pt",
+                "sha256": dummy_sha,
+                "size_bytes": int(bundle_size_bytes),
+                "num_policies": len(chosen_entries),
+                "weights_only": all(bool(e.get("weights_only", True)) for e in chosen_entries),
+            }
             sub_ledger = {
                 **ledger,
-                "eval_policies": list(chosen_entries),
+                "eval_policy_bundle": sub_bundle,
+                "eval_policies": [
+                    {**dict(e), "bundle_policy_index": idx, "sha256": dummy_sha}
+                    for idx, e in enumerate(chosen_entries)
+                ],
                 "verified_units": [
-                    u
-                    for u in ledger.get("verified_units", [])
-                    if not str(u.get("unit_id", "")).startswith("policy:")
-                    or str(u.get("unit_id", "")) in keep_ids
+                    {
+                        "unit_id": "policy_bundle",
+                        "relpath": "policies_bundle.eval.pt",
+                        "sha256": dummy_sha,
+                        "size_bytes": int(bundle_size_bytes),
+                    },
+                    *non_bundle_units,
                 ],
             }
-        ledger_b = len((json.dumps(sub_ledger, indent=2, sort_keys=True) + "\n").encode("utf-8"))
-        pol_b = sum(int(e["size_bytes"]) for e in chosen_entries)
-        return int(pol_b + non_policy_non_ledger_bytes + ledger_b)
+        return len((json.dumps(sub_ledger, indent=2, sort_keys=True) + "\n").encode("utf-8"))
 
+    zero_ledger_b = _ledger_bytes_for_subset((), 0)
     fit_prefix_k = 0
-    fit_prefix_b = _bytes_for_subset(())
-    for k in range(1, len(eval_entries) + 1):
-        cand_b = _bytes_for_subset(eval_entries[:k])
-        if cand_b <= max_upload_bytes:
-            fit_prefix_k = k
-            fit_prefix_b = cand_b
-        else:
-            break
+    fit_prefix_est = _estimate_eval_packet_upload(
+        [zero_ledger_b, *other_file_sizes], is_canary=is_canary
+    )
+    if not eval_policy_specs:
+        return 0, fit_prefix_est, 0, 0
 
-    if not eval_entries:
-        return 0, fit_prefix_b, 0, 0
+    record_cache: dict[tuple[str, bool], Any] = {}
+    records: list[Any] = []
+    for sp in eval_policy_specs:
+        in_p = str(Path(sp.get("input_path") or sp["src_path"]).resolve())
+        wo = bool(sp["weights_only"])
+        key = (in_p, wo)
+        if key not in record_cache:
+            record_cache[key] = extract_eval_policy_bundle_record(Path(in_p), weights_only=wo)
+        records.append(record_cache[key])
 
-    max_pol_b = max(int(e["size_bytes"]) for e in eval_entries)
-    desc_entries = sorted(eval_entries, key=lambda e: int(e["size_bytes"]), reverse=True)
-    fit_worst_k = 0
-    for k in range(1, len(desc_entries) + 1):
-        ledger_and_other_b = _bytes_for_subset(desc_entries[:k]) - sum(
-            int(e["size_bytes"]) for e in desc_entries[:k]
+    lo, hi = 1, len(records)
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        sub_bytes, _ = pack_eval_policy_bundle_records(records[:mid])
+        sub_ledger_b = _ledger_bytes_for_subset(eval_entries[:mid], len(sub_bytes))
+        est_mid = _estimate_eval_packet_upload(
+            [len(sub_bytes), sub_ledger_b, *other_file_sizes], is_canary=is_canary
         )
-        worst_b = k * max_pol_b + ledger_and_other_b
-        if worst_b <= max_upload_bytes:
+        if bool(est_mid["fits_transfer_cap"]):
+            fit_prefix_k = mid
+            fit_prefix_est = est_mid
+            lo = mid + 1
+        else:
+            hi = mid - 1
+
+    standalone_by_pol_sha: dict[str, tuple[int, int, int]] = {}
+    for rec in records:
+        if rec.policy_sha256 not in standalone_by_pol_sha:
+            one_bytes, one_sum = pack_eval_policy_bundle_records([rec])
+            standalone_by_pol_sha[rec.policy_sha256] = (
+                int(one_sum["compressed_nbytes"]),
+                int(one_sum["header_nbytes"]),
+                len(one_bytes),
+            )
+    max_comp_b, max_hdr_b, max_single_bundle_b = max(
+        standalone_by_pol_sha.values(), key=lambda item: item[0]
+    )
+
+    fit_worst_k = 0
+    for k in range(1, len(records) + 1):
+        worst_bundle_b = 16 + k * max_hdr_b + k * max_comp_b
+        worst_ledger_b = _ledger_bytes_for_subset(eval_entries[:k], worst_bundle_b)
+        est_w = _estimate_eval_packet_upload(
+            [worst_bundle_b, worst_ledger_b, *other_file_sizes], is_canary=is_canary
+        )
+        if bool(est_w["fits_transfer_cap"]):
             fit_worst_k = k
         else:
             break
-    return fit_prefix_k, fit_prefix_b, fit_worst_k, max_pol_b
+
+    return fit_prefix_k, fit_prefix_est, fit_worst_k, max_single_bundle_b
 
 
 def _stage_write_manifest(
@@ -2175,67 +2283,107 @@ def _stage_write_manifest(
 ) -> dict[str, Any]:
     """Stage 5: Build technical envelope, validate canary rules, write manifest, and summarize."""
     sized = capped.sized
-    staged_upload_file_count = len(staged.inputs_list)
-    staged_upload_bytes = sum(int(Path(inp["path"]).stat().st_size) for inp in staged.inputs_list)
-    est_upload_seconds = float(staged_upload_bytes) / float(
-        ASSUMED_STAGED_INPUT_UPLOAD_RATE_BYTES_PER_SEC
+    staged_file_sizes = [int(Path(inp["path"]).stat().st_size) for inp in staged.inputs_list]
+    staged_upload_file_count = len(staged_file_sizes)
+    staged_upload_bytes = int(sum(staged_file_sizes))
+    is_eval_upload_packet = bool(
+        opts.mode == "eval" or (opts.mode == "canary" and sized.eval_policy_specs)
     )
-    print(
-        f"V3_PPO_STAGED_UPLOAD bytes={staged_upload_bytes} "
-        f"mb={staged_upload_bytes / 1_000_000.0:.2f} "
-        f"files={staged_upload_file_count} "
-        f"est_upload_seconds={est_upload_seconds:.2f} "
-        f"assumed_rate_mbps={ASSUMED_STAGED_INPUT_UPLOAD_RATE_MBPS:.1f}",
-        file=sys.stderr,
-        flush=True,
-    )
+    eval_upload_est: dict[str, Any] | None = None
 
-    if opts.mode == "canary" and est_upload_seconds > CANARY_MAX_ESTIMATED_UPLOAD_SECONDS:
-        max_canary_upload_bytes = int(
-            math.floor(
-                CANARY_MAX_ESTIMATED_UPLOAD_SECONDS * ASSUMED_STAGED_INPUT_UPLOAD_RATE_BYTES_PER_SEC
+    if is_eval_upload_packet:
+        eval_upload_est = _estimate_eval_packet_upload(
+            staged_file_sizes,
+            is_canary=(opts.mode == "canary"),
+        )
+        est_upload_seconds = float(eval_upload_est["estimated_upload_seconds"])
+        print(
+            f"V3_PPO_STAGED_UPLOAD bytes={staged_upload_bytes} "
+            f"mb={staged_upload_bytes / 1_000_000.0:.2f} "
+            f"files={staged_upload_file_count} "
+            f"small_files={eval_upload_est['small_file_count']} "
+            f"chunked_files={eval_upload_est['chunked_file_count']} "
+            f"control_calls={eval_upload_est['staging_control_calls']} "
+            f"clean_seconds={eval_upload_est['clean_transfer_seconds']:.2f} "
+            f"hang_allowance_seconds={eval_upload_est['hang_allowance_seconds']:.2f} "
+            f"est_upload_seconds={est_upload_seconds:.2f} "
+            f"cap_seconds={eval_upload_est['transfer_cap_seconds']:.1f} "
+            f"chunk_rate_mbps={eval_upload_est['chunk_rate_mbps']:.2f}",
+            file=sys.stderr,
+            flush=True,
+        )
+        if not bool(eval_upload_est["fits_transfer_cap"]):
+            eval_entries = list(staged.ledger.get("eval_policies", []))
+            other_sizes = [
+                int(Path(inp["path"]).stat().st_size)
+                for inp in staged.inputs_list
+                if inp.get("dest") not in {"policies_bundle.eval.pt", "verified-ledger.json"}
+            ]
+            fit_prefix_k, fit_prefix_est, fit_worst_k, max_pol_b = (
+                _compute_eval_bundle_fitting_policies(
+                    staged.ledger,
+                    sized.eval_policy_specs,
+                    eval_entries,
+                    other_file_sizes=other_sizes,
+                    is_canary=(opts.mode == "canary"),
+                )
             )
-        )
-        eval_entries = list(staged.ledger.get("eval_policies", []))
-        staged_pol_bytes = sum(int(e["size_bytes"]) for e in eval_entries)
-        ledger_input_bytes = sum(
-            int(Path(inp["path"]).stat().st_size)
-            for inp in staged.inputs_list
-            if inp.get("dest") == "verified-ledger.json"
-        )
-        non_pol_non_ledger = max(0, staged_upload_bytes - staged_pol_bytes - ledger_input_bytes)
-        fit_prefix_k, fit_prefix_b, fit_worst_k, max_pol_b = _compute_canary_fitting_policies(
-            staged.ledger,
-            eval_entries,
-            non_policy_non_ledger_bytes=non_pol_non_ledger,
-            max_upload_bytes=max_canary_upload_bytes,
-        )
-        fit_prefix_sec = float(fit_prefix_b) / float(ASSUMED_STAGED_INPUT_UPLOAD_RATE_BYTES_PER_SEC)
-        if eval_entries:
-            if fit_prefix_k == fit_worst_k:
-                fit_clause = (
-                    f"at most {fit_prefix_k} of the {len(eval_entries)} policies would fit "
-                    f"({fit_prefix_b:,} bytes, {fit_prefix_sec:.2f} s <= "
-                    f"{CANARY_MAX_ESTIMATED_UPLOAD_SECONDS:.1f} s)"
-                )
+            cap_sec = float(eval_upload_est["transfer_cap_seconds"])
+            fit_b = int(fit_prefix_est["total_bytes"])
+            fit_f = int(fit_prefix_est["file_count"])
+            fit_s = float(fit_prefix_est["estimated_upload_seconds"])
+            if eval_entries:
+                if fit_prefix_k == fit_worst_k:
+                    fit_clause = (
+                        f"at most {fit_prefix_k} of the {len(eval_entries)} policies would fit "
+                        f"({fit_b:,} bytes across {fit_f} files, {fit_s:.2f} s <= {cap_sec:.1f} s)"
+                    )
+                else:
+                    fit_clause = (
+                        f"at most {fit_prefix_k} of the {len(eval_entries)} supplied policies in "
+                        f"order would fit ({fit_b:,} bytes across {fit_f} files, "
+                        f"{fit_s:.2f} s <= {cap_sec:.1f} s; {fit_worst_k} policies at the largest "
+                        f"policy compressed size of {max_pol_b:,} bytes)"
+                    )
             else:
-                fit_clause = (
-                    f"at most {fit_prefix_k} of the {len(eval_entries)} supplied policies in order "
-                    f"would fit ({fit_prefix_b:,} bytes, {fit_prefix_sec:.2f} s <= "
-                    f"{CANARY_MAX_ESTIMATED_UPLOAD_SECONDS:.1f} s; {fit_worst_k} policies at the "
-                    f"largest policy size of {max_pol_b:,} bytes)"
-                )
-        else:
-            fit_clause = "0 policies would fit"
-        raise ValueError(
-            f"Refusing canary packet: staged upload is {staged_upload_bytes:,} bytes "
-            f"({staged_upload_bytes / 1_000_000.0:.2f} MB across {staged_upload_file_count} files), "
-            f"estimated at {est_upload_seconds:.2f} s at "
-            f"ASSUMED_STAGED_INPUT_UPLOAD_RATE_MBPS={ASSUMED_STAGED_INPUT_UPLOAD_RATE_MBPS:.1f} MB/s, "
-            f"exceeding the {CANARY_MAX_ESTIMATED_UPLOAD_SECONDS:.1f} s canary upload cap "
-            "(leaving margin under the 150 s transport canary cap for one hung call); "
-            f"{fit_clause}."
+                fit_clause = "0 policies would fit"
+            pkt_label = "canary" if opts.mode == "canary" else "eval"
+            raise ValueError(
+                f"Refusing {pkt_label} packet: staged upload is {staged_upload_bytes:,} bytes "
+                f"({staged_upload_bytes / 1_000_000.0:.2f} MB across {staged_upload_file_count} "
+                f"files: {eval_upload_est['small_file_count']} <=2MiB + "
+                f"{eval_upload_est['chunked_file_count']} >2MiB, "
+                f"{eval_upload_est['staging_control_calls']} staging control calls), "
+                f"estimated at {est_upload_seconds:.2f} s "
+                f"(clean {eval_upload_est['clean_transfer_seconds']:.2f} s at "
+                f"{eval_upload_est['chunk_rate_mbps']:.2f} MB/s + "
+                f"hang allowance {eval_upload_est['hang_allowance_seconds']:.2f} s at "
+                f"p_hang={eval_upload_est['control_hang_prob']:.3f}), "
+                f"exceeding the {cap_sec:.1f} s Colab CLI transfer cap; "
+                f"{fit_clause}."
+            )
+    else:
+        est_upload_seconds = float(staged_upload_bytes) / float(
+            ASSUMED_STAGED_INPUT_UPLOAD_RATE_BYTES_PER_SEC
         )
+        print(
+            f"V3_PPO_STAGED_UPLOAD bytes={staged_upload_bytes} "
+            f"mb={staged_upload_bytes / 1_000_000.0:.2f} "
+            f"files={staged_upload_file_count} "
+            f"est_upload_seconds={est_upload_seconds:.2f} "
+            f"assumed_rate_mbps={ASSUMED_STAGED_INPUT_UPLOAD_RATE_MBPS:.1f}",
+            file=sys.stderr,
+            flush=True,
+        )
+        if opts.mode == "canary" and est_upload_seconds > CANARY_MAX_ESTIMATED_UPLOAD_SECONDS:
+            raise ValueError(
+                f"Refusing canary packet: staged upload is {staged_upload_bytes:,} bytes "
+                f"({staged_upload_bytes / 1_000_000.0:.2f} MB across {staged_upload_file_count} files), "
+                f"estimated at {est_upload_seconds:.2f} s at "
+                f"ASSUMED_STAGED_INPUT_UPLOAD_RATE_MBPS={ASSUMED_STAGED_INPUT_UPLOAD_RATE_MBPS:.1f} MB/s, "
+                f"exceeding the {CANARY_MAX_ESTIMATED_UPLOAD_SECONDS:.1f} s canary upload cap "
+                "(leaving margin under the 150 s transport canary cap for one hung call)."
+            )
     rate_uph = GPU_FORECAST_RATES_UPH[ctx.gpu_norm]
     unit_cap = math.ceil(((sized.timeout_minutes * rate_uph) / 60.0 - 1e-12) * 10000.0) / 10000.0
     tech_envelope: dict[str, Any] = {
@@ -2342,28 +2490,41 @@ def _stage_write_manifest(
         summary["allow_recipe_change"] = True
         summary["recipe_change"] = sized.recipe_change
     if sized.eval_plan is not None:
-        staged_policy_bytes = sum(
-            int(e["size_bytes"]) for e in staged.ledger.get("eval_policies", [])
-        )
+        assert eval_upload_est is not None
+        bundle_info = staged.ledger.get("eval_policy_bundle") or {}
+        staged_policy_bytes = int(bundle_info.get("size_bytes", 0))
         summary["eval_plan"] = {
             **sized.eval_plan,
             "staged_inputs_total_bytes": staged_upload_bytes,
             "staged_inputs_file_count": staged_upload_file_count,
             "staged_policies_bytes": staged_policy_bytes,
-            "assumed_upload_rate_mbps": ASSUMED_STAGED_INPUT_UPLOAD_RATE_MBPS,
+            "small_file_count": int(eval_upload_est["small_file_count"]),
+            "chunked_file_count": int(eval_upload_est["chunked_file_count"]),
+            "staging_control_calls": int(eval_upload_est["staging_control_calls"]),
+            "clean_transfer_seconds": round(float(eval_upload_est["clean_transfer_seconds"]), 2),
+            "hang_allowance_seconds": round(float(eval_upload_est["hang_allowance_seconds"]), 2),
             "estimated_upload_seconds": round(est_upload_seconds, 2),
+            "transfer_cap_seconds": float(eval_upload_est["transfer_cap_seconds"]),
+            "chunk_rate_mbps": float(eval_upload_est["chunk_rate_mbps"]),
+            "control_hang_prob": float(eval_upload_est["control_hang_prob"]),
         }
     elif opts.mode == "canary" and sized.eval_policy_specs:
-        staged_policy_bytes = sum(
-            int(e["size_bytes"]) for e in staged.ledger.get("eval_policies", [])
-        )
+        assert eval_upload_est is not None
+        bundle_info = staged.ledger.get("eval_policy_bundle") or {}
+        staged_policy_bytes = int(bundle_info.get("size_bytes", 0))
         summary["eval_canary_upload"] = {
             "staged_inputs_total_bytes": staged_upload_bytes,
             "staged_inputs_file_count": staged_upload_file_count,
             "staged_policies_bytes": staged_policy_bytes,
-            "assumed_upload_rate_mbps": ASSUMED_STAGED_INPUT_UPLOAD_RATE_MBPS,
+            "small_file_count": int(eval_upload_est["small_file_count"]),
+            "chunked_file_count": int(eval_upload_est["chunked_file_count"]),
+            "staging_control_calls": int(eval_upload_est["staging_control_calls"]),
+            "clean_transfer_seconds": round(float(eval_upload_est["clean_transfer_seconds"]), 2),
+            "hang_allowance_seconds": round(float(eval_upload_est["hang_allowance_seconds"]), 2),
             "estimated_upload_seconds": round(est_upload_seconds, 2),
-            "canary_max_estimated_upload_seconds": CANARY_MAX_ESTIMATED_UPLOAD_SECONDS,
+            "transfer_cap_seconds": float(eval_upload_est["transfer_cap_seconds"]),
+            "chunk_rate_mbps": float(eval_upload_est["chunk_rate_mbps"]),
+            "control_hang_prob": float(eval_upload_est["control_hang_prob"]),
         }
     return summary
 
