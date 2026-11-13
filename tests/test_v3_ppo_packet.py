@@ -3062,3 +3062,130 @@ def test_prepare_minibatch_remainder_warning_and_25pct_drop_refusal(
             allow_unmerged_commit=True,
         )
     assert not refused_pkt.exists()
+
+
+def test_train_canary_ruler_and_light_continuation_packets_byte_identical_vs_185d6b8d(
+    tmp_path: Path,
+) -> None:
+    """Prove train, train-canary, ruler, and training LIGHT continuation are byte-identical vs 185d6b8d."""
+    baseline_root = _materialize_baseline_root(tmp_path, "185d6b8d")
+
+    # Build a real prior LIGHT checkpoint (with optimizer + scaler + RNG) for training continuation
+    prior_root = tmp_path / "prior_train_run"
+    prior_ckpt_dir = prior_root / "exports" / "checkpoints"
+    prior_cfg = V3PPOConfig(
+        game_config=GameV3Config(arena_radius=300.0, num_snakes=6),
+        num_envs=2,
+        learner_slots=6,
+        net_size="S",
+        amp=False,
+        use_channels_last=False,
+        rollout_len=4,
+        ppo_epochs=1,
+        minibatch_size=8,
+        total_updates=1,
+    )
+    trainer = V3PPOTrainer(prior_cfg, device="cpu")
+    trainer.train_step()
+    prior_light_path = prior_ckpt_dir / "light_u0000001.pt"
+    trainer.save_light_checkpoint(prior_light_path)
+
+    byte_script = tmp_path / "byte_check_185d6b8d.py"
+    byte_script.write_text(
+        """from __future__ import annotations
+import base64, json, shutil, sys
+from pathlib import Path
+
+repo_root = Path(sys.argv[1]).resolve()
+shared_pkt_root = Path(sys.argv[2]).resolve()
+out_json = Path(sys.argv[3]).resolve()
+git_repo = Path(sys.argv[4]).resolve()
+prior_dir = Path(sys.argv[5]).resolve()
+sys.path.insert(0, str(repo_root))
+
+import research.colab_cli.canary as _canary_mod
+import research.v3_ppo.prepare as prep_mod
+prep_mod.ROOT = git_repo
+_orig_exec_id = _canary_mod.executable_identity
+_canary_mod.executable_identity = lambda repo, commit=None: _orig_exec_id(
+    repo, commit or "185d6b8d"
+)
+
+if shared_pkt_root.exists():
+    shutil.rmtree(shared_pkt_root)
+shared_pkt_root.mkdir(parents=True)
+
+cases = {
+    "canary_l4": dict(mode="canary", gpu="L4"),
+    "canary_cont_l4": dict(mode="canary", gpu="L4", prior_output_dir=prior_dir),
+    "ruler_a100": dict(mode="ruler", gpu="A100", allow_missing_canary_receipt=True),
+    "train_l4": dict(mode="train", gpu="L4", hours=4.0, allow_missing_canary_receipt=True),
+    "train_cont_l4": dict(
+        mode="train", gpu="L4", hours=4.0, prior_output_dir=prior_dir,
+        allow_missing_canary_receipt=True,
+    ),
+}
+
+snapshots = {}
+for name, kw in cases.items():
+    pkt_dir = shared_pkt_root / f"pkt_{name}"
+    out_dir = shared_pkt_root / f"out_{name}"
+    summary = prep_mod.prepare_v3_ppo_packet(
+        pkt_dir,
+        commit="185d6b8d",
+        output_dir=out_dir,
+        allow_unmerged_commit=True,
+        **kw,
+    )
+    files_b64 = {}
+    for p in sorted(pkt_dir.rglob("*")):
+        if p.is_file():
+            files_b64[p.relative_to(pkt_dir).as_posix()] = base64.b64encode(
+                p.read_bytes()
+            ).decode("ascii")
+    snapshots[name] = {
+        "summary_json": json.dumps(summary, indent=2, sort_keys=True),
+        "files_b64": files_b64,
+    }
+
+out_json.write_text(json.dumps(snapshots, sort_keys=True), encoding="utf-8")
+""",
+        encoding="utf-8",
+    )
+
+    sub_env = {
+        **os.environ,
+        "OMP_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+    }
+    shared_root = tmp_path / "shared_185d6b8d_pkts"
+    before_json = tmp_path / "snap_185d6b8d.json"
+    after_json = tmp_path / "snap_head_185d6b8d.json"
+    for root_arg, snap_out in ((baseline_root, before_json), (ROOT, after_json)):
+        subprocess.run(
+            [
+                sys.executable,
+                str(byte_script),
+                str(root_arg),
+                str(shared_root),
+                str(snap_out),
+                str(ROOT),
+                str(prior_root),
+            ],
+            env={**sub_env, "PYTHONPATH": str(root_arg)},
+            check=True,
+        )
+
+    snap_before = json.loads(before_json.read_text(encoding="utf-8"))
+    snap_after = json.loads(after_json.read_text(encoding="utf-8"))
+    assert snap_after == snap_before
+
+    # Verify training continuation staged the full LIGHT checkpoint (with optimizer_state_dict intact)
+    import torch as _torch
+
+    staged_cont_ckpt = shared_root / "pkt_train_cont_l4" / "inputs" / "light_u0000001.pt"
+    assert staged_cont_ckpt.read_bytes() == prior_light_path.read_bytes()
+    cont_payload = _torch.load(staged_cont_ckpt, map_location="cpu", weights_only=False)
+    assert "optimizer_state_dict" in cont_payload
+    assert len(cont_payload["optimizer_state_dict"]["state"]) > 0

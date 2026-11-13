@@ -16,7 +16,7 @@ import re
 import subprocess
 import time
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -57,6 +57,7 @@ from research.v3_ppo.config import (
     default_actor_chunk_learners,
     estimate_actor_chunk_temp_bytes,
     estimate_sim_memory_bytes,
+    extract_eval_policy_config_dict,
     extract_recipe_dict,
     get_net_preset,
     obs_layout_from_game_config,
@@ -76,6 +77,19 @@ ROOT = Path(__file__).resolve().parents[2]
 V3_ARENA_EVAL_SCHEMA = "v3-ppo-arena-eval/v1"
 V3_ARENA_EVAL_PAIR_SCHEMA = "v3-ppo-arena-eval-pair/v1"
 V3_WEIGHTS_ONLY_EVAL_BUNDLE_SCHEMA = "v3-ppo-eval-weights-bundle/v1"
+V3_POLICY_ONLY_CHECKPOINT_SCHEMA = V3_WEIGHTS_ONLY_EVAL_BUNDLE_SCHEMA
+
+_FORBIDDEN_POLICY_ONLY_KEYS: frozenset[str] = frozenset(
+    {
+        "optimizer_state_dict",
+        "grad_scaler_state_dict",
+        "rng_state",
+        "learner_mask",
+        "episode_return_acc",
+        "last_eval_metrics",
+        "sim_state_dict",
+    }
+)
 
 EVAL_MODES: tuple[str, ...] = ("head-to-head", "round-robin", "long-game")
 EVAL_REQUIRED_EXPORTS: tuple[str, ...] = ("eval_result.json", "summary.md")
@@ -143,10 +157,12 @@ class LoadedEvalPolicy:
     checkpoint_sha256: str
     source_checkpoint_sha256: str
     checkpoint_size_bytes: int
+    loaded_size_bytes: int
     checkpoint_schema: str
     net_size: NetSize
     parameter_count: int
     updates_completed: int
+    world_steps_collected: int
     agent_steps_collected: int
     learner_steps_collected: int
     actor_chunk_learners: int
@@ -159,18 +175,22 @@ class LoadedEvalPolicy:
 
     def provenance_dict(self, *, policy_index: int) -> dict[str, Any]:
         """Serialize immutable policy provenance for result JSON exports."""
+        is_policy_only = self.checkpoint_schema == V3_WEIGHTS_ONLY_EVAL_BUNDLE_SCHEMA
         return {
             "policy_index": int(policy_index),
             "label": self.label,
             "checkpoint_path": self.source_checkpoint_path,
             "loaded_path": str(self.checkpoint_path),
             "checkpoint_sha256": self.source_checkpoint_sha256,
+            "policy_only_sha256": self.checkpoint_sha256 if is_policy_only else None,
             "loaded_sha256": self.checkpoint_sha256,
             "checkpoint_size_bytes": int(self.checkpoint_size_bytes),
+            "loaded_size_bytes": int(self.loaded_size_bytes),
             "checkpoint_schema": self.checkpoint_schema,
             "net_size": self.net_size,
             "parameter_count": int(self.parameter_count),
             "updates_completed": int(self.updates_completed),
+            "world_steps_collected": int(self.world_steps_collected),
             "agent_steps_collected": int(self.agent_steps_collected),
             "learner_steps_collected": int(self.learner_steps_collected),
             "obs_layout": self.obs_layout.to_dict(),
@@ -202,7 +222,7 @@ def resolve_code_commit() -> str:
 
 def _default_policy_label(path: Path) -> str:
     """Build a compact human-readable label from a checkpoint path."""
-    stem = path.stem
+    stem = path.name[: -len(".eval.pt")] if path.name.endswith(".eval.pt") else path.stem
     m_upd = re.search(r"u0*(\d+)", stem)
     upd_tag = f"u{m_upd.group(1)}" if m_upd else stem
     parts = path.parts
@@ -281,9 +301,38 @@ def _load_checkpoint_payload(path: Path) -> tuple[dict[str, Any], str, int]:
                 if req not in payload:
                     raise ValueError(f"LIGHT checkpoint {resolved} missing key {req!r}")
     elif schema == V3_WEIGHTS_ONLY_EVAL_BUNDLE_SCHEMA:
-        for req in ("config", "model_state_dict"):
+        for req in (
+            "config",
+            "model_state_dict",
+            "source_checkpoint_path",
+            "source_checkpoint_sha256",
+            "source_checkpoint_size_bytes",
+        ):
             if req not in payload:
-                raise ValueError(f"Eval bundle {resolved} missing key {req!r}")
+                raise ValueError(f"Policy-only eval bundle {resolved} missing key {req!r}")
+        forbidden_present = sorted(_FORBIDDEN_POLICY_ONLY_KEYS.intersection(payload.keys()))
+        if forbidden_present:
+            raise ValueError(
+                f"Policy-only eval bundle {resolved} contains non-inference training state: "
+                f"{forbidden_present}"
+            )
+        src_p_val = payload.get("source_checkpoint_path")
+        src_sha_val = payload.get("source_checkpoint_sha256")
+        src_sz_val = payload.get("source_checkpoint_size_bytes")
+        if not isinstance(src_p_val, str) or not src_p_val.strip():
+            raise ValueError(
+                f"Policy-only eval bundle {resolved} requires non-empty source_checkpoint_path"
+            )
+        if not isinstance(src_sha_val, str) or not re.fullmatch(r"[0-9a-f]{64}", src_sha_val):
+            raise ValueError(
+                f"Policy-only eval bundle {resolved} requires 64-hex source_checkpoint_sha256, "
+                f"got {src_sha_val!r}"
+            )
+        if isinstance(src_sz_val, bool) or not isinstance(src_sz_val, int) or src_sz_val < 1:
+            raise ValueError(
+                f"Policy-only eval bundle {resolved} requires int source_checkpoint_size_bytes >= 1, "
+                f"got {src_sz_val!r}"
+            )
     else:
         raise ValueError(
             f"Unsupported checkpoint schema {schema!r} in {resolved}; expected "
@@ -293,46 +342,117 @@ def _load_checkpoint_payload(path: Path) -> tuple[dict[str, Any], str, int]:
 
 
 def write_weights_only_eval_bundle(src_light_ckpt: Path, dst_path: Path) -> str:
-    """Create a compact weights-only eval bundle preserving source provenance and sha256."""
-    payload, src_sha, src_size = _load_checkpoint_payload(src_light_ckpt)
+    """Create a deterministic policy-only eval checkpoint preserving original provenance & sha256."""
+    payload, loaded_sha, loaded_size = _load_checkpoint_payload(src_light_ckpt)
     raw_cfg = payload["config"]
+    if not isinstance(raw_cfg, Mapping):
+        raise ValueError(f"Checkpoint {src_light_ckpt} 'config' must be a mapping")
     ckpt_cfg = V3PPOConfig.from_dict(raw_cfg)
-    obs_layout_dict = (
-        payload["obs_layout"]
-        if payload.get("obs_layout") is not None
-        else obs_layout_from_game_config(ckpt_cfg.game_config).to_dict()
+    expected_layout = obs_layout_from_game_config(ckpt_cfg.game_config)
+    if payload.get("obs_layout") is not None:
+        parsed_layout = ObsLayout.from_dict(payload["obs_layout"])
+        if parsed_layout != expected_layout:
+            raise ValueError(
+                f"Checkpoint {src_light_ckpt} obs_layout {parsed_layout.to_dict()} disagrees with "
+                f"game_config layout {expected_layout.to_dict()}"
+            )
+    obs_layout_dict = expected_layout.to_dict()
+
+    # Preserve ORIGINAL checkpoint provenance even when re-staging an existing policy-only file.
+    src_ckpt_path = str(payload.get("source_checkpoint_path") or Path(src_light_ckpt).resolve())
+    src_ckpt_sha = str(payload.get("source_checkpoint_sha256") or loaded_sha)
+    src_ckpt_size = int(payload.get("source_checkpoint_size_bytes") or loaded_size)
+    src_ckpt_schema = str(
+        payload.get("source_checkpoint_schema")
+        or payload.get("schema", V3_PPO_LIGHT_CHECKPOINT_SCHEMA)
     )
+
+    # Validate model_state_dict against EgoMultiScaleNet and clone only inference weights/buffers
+    # on CPU in canonical key order (preserving exact dtype and channels_last memory format).
+    raw_sd = payload["model_state_dict"]
+    if not isinstance(raw_sd, Mapping):
+        raise ValueError(f"Checkpoint {src_light_ckpt} model_state_dict must be a mapping")
+    ref_net = EgoMultiScaleNet(
+        EgoMultiScaleNetConfig.from_size(
+            ckpt_cfg.net_size,
+            use_channels_last=bool(ckpt_cfg.use_channels_last),
+            use_bf16_autocast=False,
+            fast_preprocess=bool(ckpt_cfg.fast_learner_ops),
+        )
+    )
+    ref_sd = ref_net.state_dict()
+    ref_keys = list(ref_sd.keys())
+    missing_keys = sorted(set(ref_keys) - set(raw_sd.keys()))
+    unexpected_keys = sorted(set(raw_sd.keys()) - set(ref_keys))
+    if missing_keys or unexpected_keys:
+        raise ValueError(
+            f"Checkpoint {src_light_ckpt} model_state_dict mismatch vs "
+            f"EgoMultiScaleNet({ckpt_cfg.net_size}): "
+            f"missing={missing_keys}, unexpected={unexpected_keys}"
+        )
+    clean_state_dict: dict[str, torch.Tensor] = {}
+    for key in ref_keys:
+        val = raw_sd[key]
+        if not isinstance(val, torch.Tensor):
+            raise ValueError(f"model_state_dict[{key!r}] must be a Tensor, got {type(val)!r}")
+        if tuple(val.shape) != tuple(ref_sd[key].shape):
+            raise ValueError(
+                f"model_state_dict[{key!r}] shape {tuple(val.shape)} != "
+                f"expected {tuple(ref_sd[key].shape)}"
+            )
+        clean_state_dict[key] = val.detach().cpu().clone(memory_format=torch.preserve_format)
+
     counters = payload.get("counters") if isinstance(payload.get("counters"), Mapping) else {}
+    updates_completed = int(counters.get("updates_completed", payload.get("updates_completed", 0)))
+    world_steps_collected = int(
+        counters.get("world_steps_collected", payload.get("world_steps_collected", 0))
+    )
+    agent_steps_collected = int(
+        counters.get("agent_steps_collected", payload.get("agent_steps_collected", 0))
+    )
+    learner_steps_collected = int(
+        counters.get("learner_steps_collected", payload.get("learner_steps_collected", 0))
+    )
+    canonical_counters: dict[str, int] = {
+        "updates_completed": updates_completed,
+        "world_steps_collected": world_steps_collected,
+        "agent_steps_collected": agent_steps_collected,
+        "learner_steps_collected": learner_steps_collected,
+    }
+    eval_cfg_dict = extract_eval_policy_config_dict(ckpt_cfg)
+    action_space_dict: dict[str, int] = {
+        "num_actions": int(ckpt_cfg.game_config.num_actions),
+        "num_turn_levels": int(NUM_TURN_LEVELS),
+    }
+
     bundle: dict[str, Any] = {
         "schema": V3_WEIGHTS_ONLY_EVAL_BUNDLE_SCHEMA,
-        "namespace": payload.get("namespace", V3_PPO_NAMESPACE),
-        "source_checkpoint_path": str(Path(src_light_ckpt).resolve()),
-        "source_checkpoint_sha256": src_sha,
-        "source_checkpoint_size_bytes": int(src_size),
-        "source_checkpoint_schema": str(payload.get("schema", V3_PPO_LIGHT_CHECKPOINT_SCHEMA)),
-        "config": raw_cfg,
-        "obs_layout": obs_layout_dict,
+        "namespace": str(payload.get("namespace", V3_PPO_NAMESPACE)),
+        "source_checkpoint_path": src_ckpt_path,
+        "source_checkpoint_sha256": src_ckpt_sha,
+        "source_checkpoint_size_bytes": src_ckpt_size,
+        "source_checkpoint_schema": src_ckpt_schema,
         "net_size": str(ckpt_cfg.net_size),
-        "counters": dict(counters),
-        "updates_completed": int(
-            counters.get("updates_completed", payload.get("updates_completed", 0))
-        ),
-        "world_steps_collected": int(
-            counters.get("world_steps_collected", payload.get("world_steps_collected", 0))
-        ),
-        "agent_steps_collected": int(
-            counters.get("agent_steps_collected", payload.get("agent_steps_collected", 0))
-        ),
-        "learner_steps_collected": int(
-            counters.get("learner_steps_collected", payload.get("learner_steps_collected", 0))
-        ),
-        "model_state_dict": payload["model_state_dict"],
+        "obs_layout": obs_layout_dict,
+        "game_config": ckpt_cfg.game_config.to_dict(),
+        "action_space": action_space_dict,
+        "config": eval_cfg_dict,
+        "training_recipe": extract_recipe_dict(ckpt_cfg),
+        "recipe_overrides_from_default": recipe_overrides_from_default(ckpt_cfg),
+        "recipe_change_history": [dict(x) for x in ckpt_cfg.recipe_change_history],
+        "counters": canonical_counters,
+        "updates_completed": updates_completed,
+        "world_steps_collected": world_steps_collected,
+        "agent_steps_collected": agent_steps_collected,
+        "learner_steps_collected": learner_steps_collected,
+        "model_state_dict": clean_state_dict,
     }
-    if "recipe_change_history" in payload:
-        bundle["recipe_change_history"] = payload["recipe_change_history"]
     buf = io.BytesIO()
     torch.save(bundle, buf)
     return write_create_only_artifact(dst_path, buf.getvalue())
+
+
+write_policy_only_checkpoint = write_weights_only_eval_bundle
 
 
 def load_eval_policy(
@@ -345,7 +465,7 @@ def load_eval_policy(
     fast_learner_ops: bool | None = None,
     compile_model: bool = False,
 ) -> LoadedEvalPolicy:
-    """Load a LIGHT checkpoint using the exact trainer network configuration and weights."""
+    """Load a LIGHT checkpoint or policy-only file using the exact trainer network and weights."""
     dev = normalize_device(device)
     ensure_cuda_initialized(dev)
     path = Path(checkpoint_path).resolve()
@@ -355,6 +475,25 @@ def load_eval_policy(
     if not isinstance(raw_cfg, Mapping):
         raise ValueError(f"Checkpoint {path} 'config' must be a mapping")
     ckpt_cfg = V3PPOConfig.from_dict(raw_cfg)
+    if payload.get("net_size") is not None and str(payload["net_size"]) != str(ckpt_cfg.net_size):
+        raise ValueError(
+            f"Checkpoint {path} net_size {payload['net_size']!r} disagrees with "
+            f"config.net_size {ckpt_cfg.net_size!r}"
+        )
+    if payload.get("game_config") is not None:
+        top_game = GameV3Config.from_dict(payload["game_config"])
+        if top_game.to_dict() != ckpt_cfg.game_config.to_dict():
+            raise ValueError(f"Checkpoint {path} game_config disagrees with config.game_config")
+    if payload.get("action_space") is not None:
+        expected_action_space = {
+            "num_actions": int(ckpt_cfg.game_config.num_actions),
+            "num_turn_levels": int(NUM_TURN_LEVELS),
+        }
+        if dict(payload["action_space"]) != expected_action_space:
+            raise ValueError(
+                f"Checkpoint {path} action_space {payload['action_space']!r} disagrees with "
+                f"expected {expected_action_space!r}"
+            )
     expected_layout = obs_layout_from_game_config(ckpt_cfg.game_config)
     if payload.get("obs_layout") is not None:
         obs_layout = ObsLayout.from_dict(payload["obs_layout"])
@@ -403,6 +542,9 @@ def load_eval_policy(
 
     counters = payload.get("counters") if isinstance(payload.get("counters"), Mapping) else {}
     updates_completed = int(counters.get("updates_completed", payload.get("updates_completed", 0)))
+    world_steps_collected = int(
+        counters.get("world_steps_collected", payload.get("world_steps_collected", 0))
+    )
     agent_steps_collected = int(
         counters.get("agent_steps_collected", payload.get("agent_steps_collected", 0))
     )
@@ -417,16 +559,18 @@ def load_eval_policy(
         checkpoint_sha256=loaded_sha,
         source_checkpoint_sha256=src_sha,
         checkpoint_size_bytes=src_size,
+        loaded_size_bytes=int(size_bytes),
         checkpoint_schema=str(payload.get("schema", "")),
         net_size=ckpt_cfg.net_size,
         parameter_count=int(model.parameter_count()),
         updates_completed=updates_completed,
+        world_steps_collected=world_steps_collected,
         agent_steps_collected=agent_steps_collected,
         learner_steps_collected=learner_steps_collected,
         actor_chunk_learners=int(actor_chunk),
         obs_layout=obs_layout,
         ckpt_config=ckpt_cfg,
-        training_config_dict=dict(raw_cfg),
+        training_config_dict=extract_eval_policy_config_dict(ckpt_cfg),
         training_recipe=extract_recipe_dict(ckpt_cfg),
         recipe_overrides=recipe_overrides_from_default(ckpt_cfg),
         model=model,
@@ -1959,7 +2103,7 @@ def discover_round_robin_checkpoints(
             direct_lights = sorted(
                 c.resolve()
                 for c in p.glob("light_*.pt")
-                if ".sim_shard_" not in c.name and c.is_file()
+                if ".sim_shard_" not in c.name and not c.name.endswith(".eval.pt") and c.is_file()
             )
             if direct_lights:
                 if latest_per_run:
@@ -1982,7 +2126,9 @@ def discover_round_robin_checkpoints(
                         lights = sorted(
                             c.resolve()
                             for c in ckpt_dir.glob("light_*.pt")
-                            if ".sim_shard_" not in c.name and c.is_file()
+                            if ".sim_shard_" not in c.name
+                            and not c.name.endswith(".eval.pt")
+                            and c.is_file()
                         )
                         if lights:
                             found_nested = True
@@ -3631,24 +3777,29 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         ckpt_paths = [Path(p).resolve() for p in raw_pols]
 
-    eff_labels = resolve_unique_labels(
-        ckpt_paths, args.labels if args.labels is not None else ledger_labels
-    )
+    explicit_labels = args.labels if args.labels is not None else ledger_labels
+    if explicit_labels is not None:
+        resolve_unique_labels(ckpt_paths, explicit_labels)
     dev = normalize_device(args.device)
     ensure_cuda_initialized(dev)
 
-    loaded_policies = [
+    raw_policies = [
         load_eval_policy(
             p,
             device=dev,
-            label=lbl,
+            label=None,
             amp=args.amp,
             use_channels_last=args.use_channels_last,
             fast_learner_ops=args.fast_learner_ops,
             compile_model=bool(args.compile),
         )
-        for p, lbl in zip(ckpt_paths, eff_labels)
+        for p in ckpt_paths
     ]
+    eff_labels = resolve_unique_labels(
+        [Path(pol.source_checkpoint_path) for pol in raw_policies],
+        explicit_labels,
+    )
+    loaded_policies = [replace(pol, label=lbl) for pol, lbl in zip(raw_policies, eff_labels)]
 
     main_started = time.perf_counter()
     with SignalStopFlag() as stop_flag:
