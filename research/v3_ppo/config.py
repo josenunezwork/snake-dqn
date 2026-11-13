@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field, fields, replace
 from pathlib import Path
 from typing import Any, Literal
@@ -301,6 +301,104 @@ ASSUMED_STAGED_INPUT_UPLOAD_RATE_BYTES_PER_SEC: float = (
 # Canary upload budget: Colab CLI transport caps canary uploads at 150 s; refusing > 100.0 s at
 # ASSUMED_STAGED_INPUT_UPLOAD_RATE_MBPS (1.0 MB/s) leaves 50 s margin for a hung upload call.
 CANARY_MAX_ESTIMATED_UPLOAD_SECONDS: float = 100.0
+
+# Eval & eval-canary upload-time model (`prepare --mode eval` and `prepare --mode canary` with eval
+# policies). Mirrors the transport caps in `research/colab_cli/{policy,transfer_policy,canary,transfers}.py`
+# (`prepare.py` passes the live constants read from `research/colab_cli/` directly):
+#   - `DEFAULT_TRANSFER_SECONDS = MAX_UPLOAD_SECONDS = 150.0` s (`transfer_policy.py`, `canary.py`)
+#   - `UPLOAD_CHUNK_BYTES = 2 MiB` (`transfers.py`; files <= 2 MiB use 1 `PUT` + 1 `VERIFY_FILE`
+#     `exec`, files > 2 MiB use 2-worker 2 MiB chunk `PUT`s + 2 `exec`s: `CREATE_DIR` & `UPLOAD_ASSEMBLE`)
+#   - `STAGING_CONTROL_SECONDS = 30.0` s, `BACKOFF_SECONDS = (2.0, 5.0)`,
+#     `STAGING_RECOVERY_SECONDS = 120.0` s (`policy.py`)
+#   - `supervisor.py` counts 2 fixed runtime files (`bootstrap.sh`, `source.py` -> 2 `VERIFY_FILE`
+#     `exec`s, ~6.0 s clean) plus every staged input inside `transfer_seconds`.
+#   - Measured on 2026-11-12 Colab CLI logs/receipts: ~8.5% (`p_hang = 0.085`) of `colab exec`
+#     staging control calls hang (`30.0 s` timeout + `2.0 s` backoff + `~18.0 s` idle-helper probe
+#     & retry = `50.0 s` per hung call, bounded by `STAGING_RECOVERY_SECONDS = 120.0 s`), while
+#     2-worker `ContentsClient` chunk `PUT`s sustain `1.30 MB/s` (`59.33 MB` in `45.34 s`, `83.87 MB`
+#     in `57.84 s`). Packet must survive 1 base hung control call (`50.0 s`) plus expected hang cost
+#     across all `C = 2 + F_small + 2 * F_chunked` control calls (`0.085 * 50.0 * C = 4.25 * C` s).
+EVAL_UPLOAD_CAP_SECONDS: float = 150.0
+EVAL_UPLOAD_CHUNK_BYTES: int = 2 * 1024 * 1024
+EVAL_UPLOAD_STAGING_CONTROL_SECONDS: float = 30.0
+EVAL_UPLOAD_STAGING_RECOVERY_SECONDS: float = 120.0
+EVAL_UPLOAD_CONTROL_BACKOFF_SECONDS: tuple[float, ...] = (2.0, 5.0)
+EVAL_UPLOAD_CONTROL_IDLE_RETRY_SECONDS: float = 18.0
+EVAL_UPLOAD_CONTROL_HANG_PROB: float = 0.085
+EVAL_UPLOAD_RUNTIME_FIXED_CONTROL_CALLS: int = 2
+EVAL_UPLOAD_RUNTIME_FIXED_SECONDS: float = 6.0
+EVAL_UPLOAD_SMALL_FILE_CONTROL_SECONDS: float = 3.0
+EVAL_UPLOAD_CHUNKED_FILE_CONTROL_SECONDS: float = 5.0
+EVAL_UPLOAD_CHUNK_RATE_MBPS: float = 1.3
+EVAL_UPLOAD_CHUNK_RATE_BYTES_PER_SEC: float = EVAL_UPLOAD_CHUNK_RATE_MBPS * 1_000_000.0
+
+
+def estimate_eval_upload_time(
+    file_sizes_bytes: Sequence[int],
+    *,
+    transfer_cap_seconds: float = EVAL_UPLOAD_CAP_SECONDS,
+    upload_chunk_bytes: int = EVAL_UPLOAD_CHUNK_BYTES,
+    staging_control_seconds: float = EVAL_UPLOAD_STAGING_CONTROL_SECONDS,
+    staging_recovery_seconds: float = EVAL_UPLOAD_STAGING_RECOVERY_SECONDS,
+    backoff_first_seconds: float = EVAL_UPLOAD_CONTROL_BACKOFF_SECONDS[0],
+    control_hang_prob: float = EVAL_UPLOAD_CONTROL_HANG_PROB,
+    chunk_rate_bytes_per_sec: float = EVAL_UPLOAD_CHUNK_RATE_BYTES_PER_SEC,
+) -> dict[str, Any]:
+    """Estimate Colab CLI staging upload seconds from staged file sizes AND file count."""
+    sizes = [int(sz) for sz in file_sizes_bytes]
+    if any(sz < 0 for sz in sizes):
+        raise ValueError(f"file_sizes_bytes must be non-negative, got {sizes}")
+    if upload_chunk_bytes < 1:
+        raise ValueError(f"upload_chunk_bytes must be >= 1, got {upload_chunk_bytes}")
+    if chunk_rate_bytes_per_sec <= 0.0 or not math.isfinite(chunk_rate_bytes_per_sec):
+        raise ValueError(
+            f"chunk_rate_bytes_per_sec must be finite and > 0, got {chunk_rate_bytes_per_sec}"
+        )
+    if transfer_cap_seconds <= 0.0 or not math.isfinite(transfer_cap_seconds):
+        raise ValueError(f"transfer_cap_seconds must be finite and > 0, got {transfer_cap_seconds}")
+
+    total_bytes = int(sum(sizes))
+    file_count = len(sizes)
+    small_file_count = sum(1 for sz in sizes if sz <= upload_chunk_bytes)
+    chunked_file_count = file_count - small_file_count
+    staging_control_calls = int(
+        EVAL_UPLOAD_RUNTIME_FIXED_CONTROL_CALLS + small_file_count + 2 * chunked_file_count
+    )
+    clean_transfer_seconds = (
+        float(EVAL_UPLOAD_RUNTIME_FIXED_SECONDS)
+        + float(EVAL_UPLOAD_SMALL_FILE_CONTROL_SECONDS) * float(small_file_count)
+        + float(EVAL_UPLOAD_CHUNKED_FILE_CONTROL_SECONDS) * float(chunked_file_count)
+        + float(total_bytes) / float(chunk_rate_bytes_per_sec)
+    )
+    single_hang_seconds = min(
+        float(staging_recovery_seconds),
+        float(staging_control_seconds)
+        + float(backoff_first_seconds)
+        + float(EVAL_UPLOAD_CONTROL_IDLE_RETRY_SECONDS),
+    )
+    expected_hang_seconds = float(control_hang_prob) * single_hang_seconds * staging_control_calls
+    hang_allowance_seconds = single_hang_seconds + expected_hang_seconds
+    estimated_upload_seconds = clean_transfer_seconds + hang_allowance_seconds
+    cap_sec = float(transfer_cap_seconds)
+    return {
+        "total_bytes": total_bytes,
+        "file_count": file_count,
+        "small_file_count": small_file_count,
+        "chunked_file_count": chunked_file_count,
+        "staging_control_calls": staging_control_calls,
+        "clean_transfer_seconds": clean_transfer_seconds,
+        "single_hang_seconds": single_hang_seconds,
+        "expected_hang_seconds": expected_hang_seconds,
+        "hang_allowance_seconds": hang_allowance_seconds,
+        "estimated_upload_seconds": estimated_upload_seconds,
+        "transfer_cap_seconds": cap_sec,
+        "headroom_seconds": cap_sec - estimated_upload_seconds,
+        "fits_transfer_cap": bool(estimated_upload_seconds <= cap_sec),
+        "chunk_rate_mbps": float(chunk_rate_bytes_per_sec) / 1_000_000.0,
+        "control_hang_prob": float(control_hang_prob),
+    }
+
+
 ASSUMED_FINAL_EXPORT_DOWNLOAD_RATE_MBPS: float = 1.0  # 1.0 MB/s (1,000,000 B/s)
 ASSUMED_FINAL_EXPORT_DOWNLOAD_RATE_BYTES_PER_SEC: float = (
     ASSUMED_FINAL_EXPORT_DOWNLOAD_RATE_MBPS * 1_000_000.0

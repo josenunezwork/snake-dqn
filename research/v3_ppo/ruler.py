@@ -1523,7 +1523,7 @@ def _canary_stage_eval_smoke(
         evaluate_long_game,
         evaluate_round_robin,
         format_eval_markdown,
-        load_eval_policy,
+        load_staged_ledger_policies,
         resolve_staged_ledger_inputs,
         select_pairs_per_batch,
         validate_compatible_policies,
@@ -1597,18 +1597,16 @@ def _canary_stage_eval_smoke(
     actual_timed_ticks = int(timed_burnin + timed_window)
 
     _cleanup_device_memory(resolved_dev)
-    loaded_policies = [
-        load_eval_policy(
-            p_path,
-            device=resolved_dev,
-            label=(policy_labels[idx] if policy_labels is not None else None),
-            amp=amp_override,
-            use_channels_last=cl_override,
-            fast_learner_ops=fast_override,
-            compile_model=compile_eval,
-        )
-        for idx, p_path in enumerate(policy_paths)
-    ]
+    loaded_policies, verified_pairs = load_staged_ledger_policies(
+        Path(input_dir),
+        Path(ledger_path),
+        device=resolved_dev,
+        explicit_labels=policy_labels,
+        amp=amp_override,
+        use_channels_last=cl_override,
+        fast_learner_ops=fast_override,
+        compile_model=compile_eval,
+    )
     eval_game_cfg = validate_compatible_policies(loaded_policies)
 
     with SignalStopFlag() as smoke_stop_flag:

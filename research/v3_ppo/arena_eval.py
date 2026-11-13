@@ -8,13 +8,16 @@ policy observes and acts identically to :class:`research.v3_ppo.trainer.V3PPOTra
 from __future__ import annotations
 
 import argparse
+import hashlib
 import io
 import json
 import math
 import os
 import re
+import struct
 import subprocess
 import time
+import zlib
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -78,6 +81,10 @@ V3_ARENA_EVAL_SCHEMA = "v3-ppo-arena-eval/v1"
 V3_ARENA_EVAL_PAIR_SCHEMA = "v3-ppo-arena-eval-pair/v1"
 V3_WEIGHTS_ONLY_EVAL_BUNDLE_SCHEMA = "v3-ppo-eval-weights-bundle/v1"
 V3_POLICY_ONLY_CHECKPOINT_SCHEMA = V3_WEIGHTS_ONLY_EVAL_BUNDLE_SCHEMA
+V3_EVAL_POLICY_BUNDLE_SCHEMA = "v3-ppo-eval-policy-bundle/v1"
+_EVAL_POLICY_BUNDLE_MAGIC = b"V3EPBV01"
+_EVAL_POLICY_BUNDLE_COMPRESSION = "rot1_byteplane_zlib"
+_VALUE_HEAD_PREFIX = "value_head."
 
 _FORBIDDEN_POLICY_ONLY_KEYS: frozenset[str] = frozenset(
     {
@@ -172,17 +179,26 @@ class LoadedEvalPolicy:
     training_recipe: dict[str, Any]
     recipe_overrides: dict[str, Any]
     model: EgoMultiScaleNet
+    policy_only_sha256: str | None = None
 
     def provenance_dict(self, *, policy_index: int) -> dict[str, Any]:
         """Serialize immutable policy provenance for result JSON exports."""
-        is_policy_only = self.checkpoint_schema == V3_WEIGHTS_ONLY_EVAL_BUNDLE_SCHEMA
+        eff_policy_only_sha = (
+            self.policy_only_sha256
+            if self.policy_only_sha256 is not None
+            else (
+                self.checkpoint_sha256
+                if self.checkpoint_schema == V3_WEIGHTS_ONLY_EVAL_BUNDLE_SCHEMA
+                else None
+            )
+        )
         return {
             "policy_index": int(policy_index),
             "label": self.label,
             "checkpoint_path": self.source_checkpoint_path,
             "loaded_path": str(self.checkpoint_path),
             "checkpoint_sha256": self.source_checkpoint_sha256,
-            "policy_only_sha256": self.checkpoint_sha256 if is_policy_only else None,
+            "policy_only_sha256": eff_policy_only_sha,
             "loaded_sha256": self.checkpoint_sha256,
             "checkpoint_size_bytes": int(self.checkpoint_size_bytes),
             "loaded_size_bytes": int(self.loaded_size_bytes),
@@ -454,58 +470,779 @@ def write_weights_only_eval_bundle(src_light_ckpt: Path, dst_path: Path) -> str:
 
 write_policy_only_checkpoint = write_weights_only_eval_bundle
 
+_BUNDLE_TORCH_DTYPES: dict[str, tuple[torch.dtype, np.dtype[Any] | None]] = {
+    "float32": (torch.float32, np.dtype("<f4")),
+    "float64": (torch.float64, np.dtype("<f8")),
+    "float16": (torch.float16, np.dtype("<f2")),
+    "bfloat16": (torch.bfloat16, None),
+    "int64": (torch.int64, np.dtype("<i8")),
+    "int32": (torch.int32, np.dtype("<i4")),
+    "int16": (torch.int16, np.dtype("<i2")),
+    "int8": (torch.int8, np.dtype("i1")),
+    "uint8": (torch.uint8, np.dtype("u1")),
+    "bool": (torch.bool, np.dtype("?")),
+}
+_TORCH_DTYPE_TO_BUNDLE_NAME: dict[torch.dtype, str] = {
+    td: name for name, (td, _) in _BUNDLE_TORCH_DTYPES.items()
+}
 
-def load_eval_policy(
-    checkpoint_path: str | Path,
+
+@dataclass(frozen=True)
+class _PreparedPolicyBundleRecord:
+    """In-memory validated policy metadata and byte-plane slices for bundle assembly."""
+
+    namespace: str
+    weights_only: bool
+    source_checkpoint_path: str
+    source_checkpoint_sha256: str
+    source_checkpoint_size_bytes: int
+    source_checkpoint_schema: str
+    net_size: str
+    obs_layout: dict[str, Any]
+    game_config: dict[str, Any]
+    action_space: dict[str, int]
+    config: dict[str, Any]
+    training_recipe: dict[str, Any]
+    recipe_overrides_from_default: dict[str, Any]
+    recipe_change_history: list[dict[str, Any]]
+    counters: dict[str, int]
+    policy_sha256: str
+    tensors: list[dict[str, Any]]
+    exp_chunks: list[bytes]
+    mant_chunks: list[bytes]
+
+
+def _canonical_json_bytes(obj: Any) -> bytes:
+    """Serialize ``obj`` to canonical deterministic ASCII JSON bytes."""
+    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("ascii")
+
+
+def _is_eval_policy_bundle_file(path: Path) -> bool:
+    """Return True if ``path`` starts with the multi-policy eval bundle magic bytes."""
+    try:
+        with Path(path).open("rb") as fh:
+            return fh.read(len(_EVAL_POLICY_BUNDLE_MAGIC)) == _EVAL_POLICY_BUNDLE_MAGIC
+    except OSError:
+        return False
+
+
+def _policy_bundle_identity_doc(
     *,
-    device: torch.device | str = "cpu",
-    label: str | None = None,
-    amp: bool | None = None,
-    use_channels_last: bool | None = None,
-    fast_learner_ops: bool | None = None,
-    compile_model: bool = False,
-) -> LoadedEvalPolicy:
-    """Load a LIGHT checkpoint or policy-only file using the exact trainer network and weights."""
-    dev = normalize_device(device)
-    ensure_cuda_initialized(dev)
-    path = Path(checkpoint_path).resolve()
-    payload, loaded_sha, size_bytes = _load_checkpoint_payload(path)
+    namespace: str,
+    weights_only: bool,
+    source_checkpoint_path: str,
+    source_checkpoint_sha256: str,
+    source_checkpoint_size_bytes: int,
+    source_checkpoint_schema: str,
+    net_size: str,
+    obs_layout: Mapping[str, Any],
+    game_config: Mapping[str, Any],
+    action_space: Mapping[str, Any],
+    config: Mapping[str, Any],
+    training_recipe: Mapping[str, Any],
+    recipe_overrides_from_default: Mapping[str, Any],
+    recipe_change_history: Sequence[Mapping[str, Any]],
+    counters: Mapping[str, Any],
+    tensors: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Build the canonical per-policy identity dict hashed into ``policy_sha256``."""
+    return {
+        "schema": V3_EVAL_POLICY_BUNDLE_SCHEMA,
+        "namespace": str(namespace),
+        "weights_only": bool(weights_only),
+        "source_checkpoint_path": str(source_checkpoint_path),
+        "source_checkpoint_sha256": str(source_checkpoint_sha256),
+        "source_checkpoint_size_bytes": int(source_checkpoint_size_bytes),
+        "source_checkpoint_schema": str(source_checkpoint_schema),
+        "net_size": str(net_size),
+        "obs_layout": dict(obs_layout),
+        "game_config": dict(game_config),
+        "action_space": {str(k): int(v) for k, v in action_space.items()},
+        "config": dict(config),
+        "training_recipe": dict(training_recipe),
+        "recipe_overrides_from_default": dict(recipe_overrides_from_default),
+        "recipe_change_history": [dict(x) for x in recipe_change_history],
+        "counters": {str(k): int(v) for k, v in counters.items()},
+        "tensors": [
+            {
+                "name": str(t["name"]),
+                "dtype": str(t["dtype"]),
+                "shape": [int(d) for d in t["shape"]],
+                "channels_last": bool(t["channels_last"]),
+                "numel": int(t["numel"]),
+                "encoding": str(t["encoding"]),
+            }
+            for t in tensors
+        ],
+    }
 
+
+def _encode_tensor_for_bundle(
+    name: str,
+    tensor: torch.Tensor,
+) -> tuple[dict[str, Any], bytes, bytes, bytes]:
+    """Encode CPU tensor into ``(meta, raw_le_bytes, exp_plane_bytes, mant_or_raw_bytes)``."""
+    dtype_name = _TORCH_DTYPE_TO_BUNDLE_NAME.get(tensor.dtype)
+    if dtype_name is None:
+        raise ValueError(f"Unsupported tensor dtype {tensor.dtype} for {name!r}")
+    shape = [int(d) for d in tensor.shape]
+    numel = int(tensor.numel())
+    is_cl = bool(tensor.ndim == 4 and tensor.is_contiguous(memory_format=torch.channels_last))
+    if is_cl:
+        flat_t = (
+            tensor.detach()
+            .cpu()
+            .contiguous(memory_format=torch.channels_last)
+            .permute(0, 2, 3, 1)
+            .contiguous()
+            .reshape(-1)
+        )
+    else:
+        flat_t = tensor.detach().cpu().contiguous().reshape(-1)
+
+    if dtype_name == "float32":
+        arr_le = flat_t.numpy().astype("<f4", copy=False)
+        raw_le_bytes = arr_le.tobytes()
+        if numel == 0:
+            exp_bytes = b""
+            mant_bytes = b""
+        else:
+            u32 = arr_le.view("<u4")
+            u32_rot = (u32 << np.uint32(1)) | (u32 >> np.uint32(31))
+            planes = np.ascontiguousarray(
+                u32_rot.astype("<u4", copy=False).view(np.uint8).reshape(numel, 4).T
+            )
+            exp_bytes = planes[3].tobytes()
+            mant_bytes = planes[:3].tobytes()
+        encoding = "rot1_byteplane"
+    elif dtype_name == "bfloat16":
+        u16_le = flat_t.view(torch.uint16).numpy().astype("<u2", copy=False)
+        raw_le_bytes = u16_le.tobytes()
+        exp_bytes = b""
+        mant_bytes = raw_le_bytes
+        encoding = "raw_le"
+    else:
+        _, np_dt = _BUNDLE_TORCH_DTYPES[dtype_name]
+        assert np_dt is not None
+        arr_le = flat_t.numpy().astype(np_dt, copy=False)
+        raw_le_bytes = arr_le.tobytes()
+        exp_bytes = b""
+        mant_bytes = raw_le_bytes
+        encoding = "raw_le"
+
+    t_meta: dict[str, Any] = {
+        "name": str(name),
+        "dtype": dtype_name,
+        "shape": shape,
+        "channels_last": is_cl,
+        "numel": numel,
+        "encoding": encoding,
+    }
+    return t_meta, raw_le_bytes, exp_bytes, mant_bytes
+
+
+def _decode_tensor_from_bundle(
+    t_meta: Mapping[str, Any],
+    exp_section: memoryview,
+    mant_section: memoryview,
+) -> tuple[torch.Tensor, bytes]:
+    """Decode a bundle tensor slice back to an exact CPU :class:`torch.Tensor` and ``raw_le_bytes``."""
+    dtype_name = str(t_meta["dtype"])
+    if dtype_name not in _BUNDLE_TORCH_DTYPES:
+        raise ValueError(f"Unsupported bundle tensor dtype {dtype_name!r}")
+    shape = [int(d) for d in t_meta["shape"]]
+    numel = int(t_meta["numel"])
+    expected_numel = math.prod(shape) if shape else 1
+    if numel != expected_numel:
+        raise ValueError(
+            f"Bundle tensor {t_meta.get('name')!r} numel={numel} != prod(shape={shape})={expected_numel}"
+        )
+    is_cl = bool(t_meta["channels_last"])
+    encoding = str(t_meta["encoding"])
+    exp_off = int(t_meta["exp_offset"])
+    exp_nb = int(t_meta["exp_nbytes"])
+    mant_off = int(t_meta["mant_offset"])
+    mant_nb = int(t_meta["mant_nbytes"])
+    if exp_off < 0 or exp_nb < 0 or exp_off + exp_nb > len(exp_section):
+        raise ValueError(f"Bundle tensor {t_meta.get('name')!r} exp slice out of bounds")
+    if mant_off < 0 or mant_nb < 0 or mant_off + mant_nb > len(mant_section):
+        raise ValueError(f"Bundle tensor {t_meta.get('name')!r} mant slice out of bounds")
+
+    exp_mv = exp_section[exp_off : exp_off + exp_nb]
+    mant_mv = mant_section[mant_off : mant_off + mant_nb]
+
+    if dtype_name == "float32" and encoding == "rot1_byteplane":
+        if exp_nb != numel or mant_nb != 3 * numel:
+            raise ValueError(
+                f"Bundle float32 tensor {t_meta.get('name')!r} invalid byteplane sizes "
+                f"({exp_nb}, {mant_nb}) for numel={numel}"
+            )
+        if numel == 0:
+            arr_le = np.empty((0,), dtype="<f4")
+            raw_le_bytes = b""
+        else:
+            planes = np.empty((4, numel), dtype=np.uint8)
+            planes[:3, :] = np.frombuffer(mant_mv, dtype=np.uint8).reshape(3, numel)
+            planes[3, :] = np.frombuffer(exp_mv, dtype=np.uint8)
+            u32_rot = np.ascontiguousarray(planes.T).view("<u4").reshape(-1)
+            u32 = (u32_rot >> np.uint32(1)) | ((u32_rot & np.uint32(1)) << np.uint32(31))
+            arr_le = u32.astype("<u4", copy=False).view("<f4")
+            raw_le_bytes = arr_le.tobytes()
+        native_f32 = arr_le.astype(np.float32, copy=True)
+        flat_t = torch.from_numpy(native_f32)
+    elif encoding == "raw_le":
+        if exp_nb != 0:
+            raise ValueError(f"Bundle raw_le tensor {t_meta.get('name')!r} must have exp_nbytes=0")
+        raw_le_bytes = bytes(mant_mv)
+        if dtype_name == "bfloat16":
+            if mant_nb != 2 * numel:
+                raise ValueError(f"Invalid bfloat16 byte count {mant_nb} for numel={numel}")
+            u16_native = np.frombuffer(raw_le_bytes, dtype="<u2").astype(np.uint16, copy=True)
+            flat_t = torch.from_numpy(u16_native).view(torch.bfloat16)
+        else:
+            torch_dt, np_dt = _BUNDLE_TORCH_DTYPES[dtype_name]
+            assert np_dt is not None
+            if mant_nb != numel * np_dt.itemsize:
+                raise ValueError(f"Invalid {dtype_name} byte count {mant_nb} for numel={numel}")
+            arr_native = np.frombuffer(raw_le_bytes, dtype=np_dt).astype(
+                np_dt.newbyteorder("="), copy=True
+            )
+            flat_t = torch.from_numpy(arr_native).to(dtype=torch_dt)
+    else:
+        raise ValueError(
+            f"Unsupported bundle tensor encoding {encoding!r} for dtype {dtype_name!r}"
+        )
+
+    if is_cl:
+        if len(shape) != 4:
+            raise ValueError(f"channels_last tensor {t_meta.get('name')!r} must be 4D, got {shape}")
+        n_dim, c_dim, h_dim, w_dim = shape
+        out_t = (
+            flat_t.reshape(n_dim, h_dim, w_dim, c_dim)
+            .permute(0, 3, 1, 2)
+            .contiguous(memory_format=torch.channels_last)
+        )
+    else:
+        out_t = flat_t.reshape(shape).contiguous()
+    return out_t, raw_le_bytes
+
+
+def extract_eval_policy_bundle_record(
+    src_ckpt: Path,
+    *,
+    weights_only: bool = True,
+) -> _PreparedPolicyBundleRecord:
+    """Validate one checkpoint and extract its canonical provenance and lossless byte-planes."""
+    payload, loaded_sha, loaded_size = _load_checkpoint_payload(src_ckpt)
     raw_cfg = payload["config"]
     if not isinstance(raw_cfg, Mapping):
-        raise ValueError(f"Checkpoint {path} 'config' must be a mapping")
+        raise ValueError(f"Checkpoint {src_ckpt} 'config' must be a mapping")
     ckpt_cfg = V3PPOConfig.from_dict(raw_cfg)
-    if payload.get("net_size") is not None and str(payload["net_size"]) != str(ckpt_cfg.net_size):
+    expected_layout = obs_layout_from_game_config(ckpt_cfg.game_config)
+    if payload.get("obs_layout") is not None:
+        parsed_layout = ObsLayout.from_dict(payload["obs_layout"])
+        if parsed_layout != expected_layout:
+            raise ValueError(
+                f"Checkpoint {src_ckpt} obs_layout {parsed_layout.to_dict()} disagrees with "
+                f"game_config layout {expected_layout.to_dict()}"
+            )
+    obs_layout_dict = expected_layout.to_dict()
+
+    src_ckpt_path = str(payload.get("source_checkpoint_path") or Path(src_ckpt).resolve())
+    src_ckpt_sha = str(payload.get("source_checkpoint_sha256") or loaded_sha)
+    src_ckpt_size = int(payload.get("source_checkpoint_size_bytes") or loaded_size)
+    src_ckpt_schema = str(
+        payload.get("source_checkpoint_schema")
+        or payload.get("schema", V3_PPO_LIGHT_CHECKPOINT_SCHEMA)
+    )
+
+    raw_sd = payload["model_state_dict"]
+    if not isinstance(raw_sd, Mapping):
+        raise ValueError(f"Checkpoint {src_ckpt} model_state_dict must be a mapping")
+    ref_net = EgoMultiScaleNet(
+        EgoMultiScaleNetConfig.from_size(
+            ckpt_cfg.net_size,
+            use_channels_last=bool(ckpt_cfg.use_channels_last),
+            use_bf16_autocast=False,
+            fast_preprocess=bool(ckpt_cfg.fast_learner_ops),
+        )
+    )
+    ref_sd = ref_net.state_dict()
+    ref_keys = list(ref_sd.keys())
+    actor_keys = [k for k in ref_keys if not k.startswith(_VALUE_HEAD_PREFIX)]
+    unexpected_keys = sorted(set(raw_sd.keys()) - set(ref_keys))
+    required_keys = actor_keys if weights_only else ref_keys
+    missing_keys = sorted(set(required_keys) - set(raw_sd.keys()))
+    if missing_keys or unexpected_keys:
         raise ValueError(
-            f"Checkpoint {path} net_size {payload['net_size']!r} disagrees with "
+            f"Checkpoint {src_ckpt} model_state_dict mismatch vs "
+            f"EgoMultiScaleNet({ckpt_cfg.net_size}): "
+            f"missing={missing_keys}, unexpected={unexpected_keys}"
+        )
+
+    keep_keys = actor_keys if weights_only else ref_keys
+    tensor_metas: list[dict[str, Any]] = []
+    raw_le_list: list[bytes] = []
+    exp_chunks: list[bytes] = []
+    mant_chunks: list[bytes] = []
+    for key in keep_keys:
+        val = raw_sd[key]
+        if not isinstance(val, torch.Tensor):
+            raise ValueError(f"model_state_dict[{key!r}] must be a Tensor, got {type(val)!r}")
+        if tuple(val.shape) != tuple(ref_sd[key].shape):
+            raise ValueError(
+                f"model_state_dict[{key!r}] shape {tuple(val.shape)} != "
+                f"expected {tuple(ref_sd[key].shape)}"
+            )
+        t_meta, raw_le, exp_b, mant_b = _encode_tensor_for_bundle(key, val)
+        tensor_metas.append(t_meta)
+        raw_le_list.append(raw_le)
+        exp_chunks.append(exp_b)
+        mant_chunks.append(mant_b)
+
+    counters = payload.get("counters") if isinstance(payload.get("counters"), Mapping) else {}
+    updates_completed = int(counters.get("updates_completed", payload.get("updates_completed", 0)))
+    world_steps_collected = int(
+        counters.get("world_steps_collected", payload.get("world_steps_collected", 0))
+    )
+    agent_steps_collected = int(
+        counters.get("agent_steps_collected", payload.get("agent_steps_collected", 0))
+    )
+    learner_steps_collected = int(
+        counters.get("learner_steps_collected", payload.get("learner_steps_collected", 0))
+    )
+    canonical_counters: dict[str, int] = {
+        "updates_completed": updates_completed,
+        "world_steps_collected": world_steps_collected,
+        "agent_steps_collected": agent_steps_collected,
+        "learner_steps_collected": learner_steps_collected,
+    }
+    eval_cfg_dict = extract_eval_policy_config_dict(ckpt_cfg)
+    action_space_dict: dict[str, int] = {
+        "num_actions": int(ckpt_cfg.game_config.num_actions),
+        "num_turn_levels": int(NUM_TURN_LEVELS),
+    }
+    namespace = str(payload.get("namespace", V3_PPO_NAMESPACE))
+    training_recipe_dict = extract_recipe_dict(ckpt_cfg)
+    recipe_overrides_dict = recipe_overrides_from_default(ckpt_cfg)
+    recipe_history_list = [dict(x) for x in ckpt_cfg.recipe_change_history]
+
+    id_doc = _policy_bundle_identity_doc(
+        namespace=namespace,
+        weights_only=bool(weights_only),
+        source_checkpoint_path=src_ckpt_path,
+        source_checkpoint_sha256=src_ckpt_sha,
+        source_checkpoint_size_bytes=src_ckpt_size,
+        source_checkpoint_schema=src_ckpt_schema,
+        net_size=str(ckpt_cfg.net_size),
+        obs_layout=obs_layout_dict,
+        game_config=ckpt_cfg.game_config.to_dict(),
+        action_space=action_space_dict,
+        config=eval_cfg_dict,
+        training_recipe=training_recipe_dict,
+        recipe_overrides_from_default=recipe_overrides_dict,
+        recipe_change_history=recipe_history_list,
+        counters=canonical_counters,
+        tensors=tensor_metas,
+    )
+    pol_hasher = hashlib.sha256()
+    pol_hasher.update(_canonical_json_bytes(id_doc))
+    for raw_le in raw_le_list:
+        pol_hasher.update(raw_le)
+    policy_sha256 = pol_hasher.hexdigest()
+
+    return _PreparedPolicyBundleRecord(
+        namespace=namespace,
+        weights_only=bool(weights_only),
+        source_checkpoint_path=src_ckpt_path,
+        source_checkpoint_sha256=src_ckpt_sha,
+        source_checkpoint_size_bytes=src_ckpt_size,
+        source_checkpoint_schema=src_ckpt_schema,
+        net_size=str(ckpt_cfg.net_size),
+        obs_layout=obs_layout_dict,
+        game_config=ckpt_cfg.game_config.to_dict(),
+        action_space=action_space_dict,
+        config=eval_cfg_dict,
+        training_recipe=training_recipe_dict,
+        recipe_overrides_from_default=recipe_overrides_dict,
+        recipe_change_history=recipe_history_list,
+        counters=canonical_counters,
+        policy_sha256=policy_sha256,
+        tensors=tensor_metas,
+        exp_chunks=exp_chunks,
+        mant_chunks=mant_chunks,
+    )
+
+
+def pack_eval_policy_bundle_records(
+    records: Sequence[_PreparedPolicyBundleRecord],
+    *,
+    compress_level: int = 9,
+) -> tuple[bytes, dict[str, Any]]:
+    """Pack validated policy records into deterministic single-file bundle bytes and metadata."""
+    if not records:
+        raise ValueError("write_eval_policy_bundle requires at least 1 policy")
+    if not (1 <= int(compress_level) <= 9):
+        raise ValueError(f"compress_level must be in 1..9, got {compress_level}")
+
+    namespace = records[0].namespace
+    all_exp_parts: list[bytes] = []
+    all_mant_parts: list[bytes] = []
+    exp_cursor = 0
+    mant_cursor = 0
+    header_policies: list[dict[str, Any]] = []
+
+    for pol_idx, rec in enumerate(records):
+        if rec.namespace != namespace:
+            raise ValueError(
+                f"Bundle policy[{pol_idx}] namespace {rec.namespace!r} != {namespace!r}"
+            )
+        pol_tensors: list[dict[str, Any]] = []
+        for t_meta, exp_b, mant_b in zip(rec.tensors, rec.exp_chunks, rec.mant_chunks):
+            exp_nb = len(exp_b)
+            mant_nb = len(mant_b)
+            pol_tensors.append(
+                {
+                    **t_meta,
+                    "exp_offset": exp_cursor,
+                    "exp_nbytes": exp_nb,
+                    "mant_offset": mant_cursor,
+                    "mant_nbytes": mant_nb,
+                }
+            )
+            exp_cursor += exp_nb
+            mant_cursor += mant_nb
+            all_exp_parts.append(exp_b)
+            all_mant_parts.append(mant_b)
+
+        header_policies.append(
+            {
+                "policy_index": int(pol_idx),
+                "policy_sha256": rec.policy_sha256,
+                "weights_only": bool(rec.weights_only),
+                "source_checkpoint_path": rec.source_checkpoint_path,
+                "source_checkpoint_sha256": rec.source_checkpoint_sha256,
+                "source_checkpoint_size_bytes": int(rec.source_checkpoint_size_bytes),
+                "source_checkpoint_schema": rec.source_checkpoint_schema,
+                "net_size": rec.net_size,
+                "obs_layout": rec.obs_layout,
+                "game_config": rec.game_config,
+                "action_space": rec.action_space,
+                "config": rec.config,
+                "training_recipe": rec.training_recipe,
+                "recipe_overrides_from_default": rec.recipe_overrides_from_default,
+                "recipe_change_history": rec.recipe_change_history,
+                "counters": rec.counters,
+                "updates_completed": int(rec.counters["updates_completed"]),
+                "world_steps_collected": int(rec.counters["world_steps_collected"]),
+                "agent_steps_collected": int(rec.counters["agent_steps_collected"]),
+                "learner_steps_collected": int(rec.counters["learner_steps_collected"]),
+                "tensors": pol_tensors,
+            }
+        )
+
+    exp_blob = b"".join(all_exp_parts)
+    mant_blob = b"".join(all_mant_parts)
+    uncompressed_blob = exp_blob + mant_blob
+    uncompressed_sha = hashlib.sha256(uncompressed_blob).hexdigest()
+    compressed_blob = zlib.compress(uncompressed_blob, level=int(compress_level))
+    compressed_sha = hashlib.sha256(compressed_blob).hexdigest()
+
+    header_dict: dict[str, Any] = {
+        "schema": V3_EVAL_POLICY_BUNDLE_SCHEMA,
+        "namespace": namespace,
+        "compression": _EVAL_POLICY_BUNDLE_COMPRESSION,
+        "num_policies": len(header_policies),
+        "exp_section_nbytes": len(exp_blob),
+        "mant_section_nbytes": len(mant_blob),
+        "uncompressed_nbytes": len(uncompressed_blob),
+        "uncompressed_sha256": uncompressed_sha,
+        "compressed_nbytes": len(compressed_blob),
+        "compressed_sha256": compressed_sha,
+        "policies": header_policies,
+    }
+    header_bytes = _canonical_json_bytes(header_dict)
+    bundle_bytes = (
+        _EVAL_POLICY_BUNDLE_MAGIC
+        + struct.pack("<Q", len(header_bytes))
+        + header_bytes
+        + compressed_blob
+    )
+    bundle_sha = hashlib.sha256(bundle_bytes).hexdigest()
+    summary = {
+        "schema": V3_EVAL_POLICY_BUNDLE_SCHEMA,
+        "sha256": bundle_sha,
+        "size_bytes": len(bundle_bytes),
+        "header_nbytes": len(header_bytes),
+        "uncompressed_nbytes": len(uncompressed_blob),
+        "compressed_nbytes": len(compressed_blob),
+        "num_policies": len(header_policies),
+        "policies": [
+            {
+                "policy_index": int(p["policy_index"]),
+                "policy_sha256": str(p["policy_sha256"]),
+                "source_checkpoint_path": str(p["source_checkpoint_path"]),
+                "source_checkpoint_sha256": str(p["source_checkpoint_sha256"]),
+                "source_checkpoint_size_bytes": int(p["source_checkpoint_size_bytes"]),
+                "weights_only": bool(p["weights_only"]),
+                "net_size": str(p["net_size"]),
+            }
+            for p in header_policies
+        ],
+    }
+    return bundle_bytes, summary
+
+
+def write_eval_policy_bundle(
+    checkpoint_paths: Sequence[str | Path],
+    dst_path: str | Path,
+    *,
+    weights_only: bool = True,
+    compress_level: int = 9,
+) -> dict[str, Any]:
+    """Write a deterministic single-file multi-policy eval bundle and return its hash summary."""
+    if not checkpoint_paths:
+        raise ValueError("write_eval_policy_bundle requires at least 1 checkpoint path")
+    records = [
+        extract_eval_policy_bundle_record(Path(p), weights_only=weights_only)
+        for p in checkpoint_paths
+    ]
+    bundle_bytes, summary = pack_eval_policy_bundle_records(records, compress_level=compress_level)
+    written_sha = write_create_only_artifact(Path(dst_path), bundle_bytes)
+    assert written_sha == summary["sha256"]
+    return summary
+
+
+def _unpack_and_verify_eval_policy_bundle(
+    bundle_path: Path,
+    *,
+    expected_bundle_sha256: str | None = None,
+    expected_policies: Sequence[Mapping[str, Any]] | None = None,
+) -> tuple[dict[str, Any], list[dict[str, torch.Tensor]], str, int]:
+    """Read, decompress, and verify bundle + per-policy SHA-256 hashes on CPU."""
+    resolved = Path(bundle_path).resolve()
+    if not resolved.is_file():
+        raise FileNotFoundError(f"Eval policy bundle not found: {resolved}")
+    sidecar = Path(f"{resolved}.sha256")
+    complete = Path(f"{resolved}.complete")
+    if sidecar.is_file() and complete.is_file():
+        bundle_sha = verify_completed_artifact(resolved)
+    else:
+        bundle_sha = sha256_file(resolved)
+    if expected_bundle_sha256 is not None and bundle_sha != str(expected_bundle_sha256):
+        raise ValueError(
+            f"Eval policy bundle {resolved} sha256 mismatch: {bundle_sha} != {expected_bundle_sha256}"
+        )
+
+    raw_bytes = resolved.read_bytes()
+    bundle_size = len(raw_bytes)
+    prefix_len = len(_EVAL_POLICY_BUNDLE_MAGIC) + 8
+    if (
+        bundle_size < prefix_len
+        or raw_bytes[: len(_EVAL_POLICY_BUNDLE_MAGIC)] != _EVAL_POLICY_BUNDLE_MAGIC
+    ):
+        raise ValueError(f"File {resolved} is not a valid {V3_EVAL_POLICY_BUNDLE_SCHEMA} bundle")
+    (header_len,) = struct.unpack("<Q", raw_bytes[len(_EVAL_POLICY_BUNDLE_MAGIC) : prefix_len])
+    header_end = prefix_len + int(header_len)
+    if header_len < 2 or header_end > bundle_size:
+        raise ValueError(f"Eval policy bundle {resolved} has invalid header length {header_len}")
+
+    header = json.loads(raw_bytes[prefix_len:header_end].decode("utf-8"))
+    if not isinstance(header, dict) or header.get("schema") != V3_EVAL_POLICY_BUNDLE_SCHEMA:
+        raise ValueError(
+            f"Eval policy bundle {resolved} schema mismatch: {header.get('schema') if isinstance(header, dict) else type(header)!r}"
+        )
+    if header.get("namespace") != V3_PPO_NAMESPACE:
+        raise ValueError(
+            f"Foreign eval policy bundle namespace {header.get('namespace')!r} != {V3_PPO_NAMESPACE!r}"
+        )
+    if header.get("compression") != _EVAL_POLICY_BUNDLE_COMPRESSION:
+        raise ValueError(
+            f"Unsupported eval policy bundle compression {header.get('compression')!r}"
+        )
+
+    compressed = raw_bytes[header_end:]
+    if len(compressed) != int(header.get("compressed_nbytes", -1)):
+        raise ValueError(f"Eval policy bundle {resolved} compressed byte length mismatch")
+    if hashlib.sha256(compressed).hexdigest() != str(header.get("compressed_sha256", "")):
+        raise ValueError(f"Eval policy bundle {resolved} compressed payload sha256 mismatch")
+
+    uncompressed = zlib.decompress(compressed)
+    if len(uncompressed) != int(header.get("uncompressed_nbytes", -1)):
+        raise ValueError(f"Eval policy bundle {resolved} uncompressed byte length mismatch")
+    if hashlib.sha256(uncompressed).hexdigest() != str(header.get("uncompressed_sha256", "")):
+        raise ValueError(f"Eval policy bundle {resolved} uncompressed payload sha256 mismatch")
+
+    exp_nbytes = int(header.get("exp_section_nbytes", -1))
+    mant_nbytes = int(header.get("mant_section_nbytes", -1))
+    if exp_nbytes < 0 or mant_nbytes < 0 or exp_nbytes + mant_nbytes != len(uncompressed):
+        raise ValueError(f"Eval policy bundle {resolved} invalid exp/mant section sizes")
+    mv = memoryview(uncompressed)
+    exp_section = mv[:exp_nbytes]
+    mant_section = mv[exp_nbytes:]
+
+    raw_policies = header.get("policies")
+    if not isinstance(raw_policies, list) or not raw_policies:
+        raise ValueError(f"Eval policy bundle {resolved} must contain at least 1 policy")
+    if len(raw_policies) != int(header.get("num_policies", -1)):
+        raise ValueError(f"Eval policy bundle {resolved} num_policies mismatch")
+    if expected_policies is not None and len(expected_policies) != len(raw_policies):
+        raise ValueError(
+            f"Eval policy bundle {resolved} policy count {len(raw_policies)} != "
+            f"ledger policy count {len(expected_policies)}"
+        )
+
+    state_dicts: list[dict[str, torch.Tensor]] = []
+    for idx, pol_rec in enumerate(raw_policies):
+        if not isinstance(pol_rec, Mapping):
+            raise ValueError(f"Eval policy bundle {resolved} policy[{idx}] must be a mapping")
+        if int(pol_rec.get("policy_index", -1)) != idx:
+            raise ValueError(f"Eval policy bundle {resolved} policy[{idx}] index mismatch")
+        forbidden = sorted(_FORBIDDEN_POLICY_ONLY_KEYS.intersection(pol_rec.keys()))
+        if forbidden:
+            raise ValueError(
+                f"Eval policy bundle {resolved} policy[{idx}] contains forbidden state: {forbidden}"
+            )
+        src_p = pol_rec.get("source_checkpoint_path")
+        src_sha = pol_rec.get("source_checkpoint_sha256")
+        src_sz = pol_rec.get("source_checkpoint_size_bytes")
+        pol_sha = pol_rec.get("policy_sha256")
+        if not isinstance(src_p, str) or not src_p.strip():
+            raise ValueError(
+                f"Eval policy bundle {resolved} policy[{idx}] invalid source_checkpoint_path"
+            )
+        if not isinstance(src_sha, str) or not re.fullmatch(r"[0-9a-f]{64}", src_sha):
+            raise ValueError(
+                f"Eval policy bundle {resolved} policy[{idx}] invalid source_checkpoint_sha256"
+            )
+        if not isinstance(pol_sha, str) or not re.fullmatch(r"[0-9a-f]{64}", pol_sha):
+            raise ValueError(f"Eval policy bundle {resolved} policy[{idx}] invalid policy_sha256")
+        if isinstance(src_sz, bool) or not isinstance(src_sz, int) or src_sz < 1:
+            raise ValueError(
+                f"Eval policy bundle {resolved} policy[{idx}] invalid source_checkpoint_size_bytes"
+            )
+
+        tensors_meta = pol_rec.get("tensors")
+        if not isinstance(tensors_meta, list) or not tensors_meta:
+            raise ValueError(f"Eval policy bundle {resolved} policy[{idx}] missing tensors")
+
+        id_doc = _policy_bundle_identity_doc(
+            namespace=str(header["namespace"]),
+            weights_only=bool(pol_rec["weights_only"]),
+            source_checkpoint_path=src_p,
+            source_checkpoint_sha256=src_sha,
+            source_checkpoint_size_bytes=src_sz,
+            source_checkpoint_schema=str(pol_rec["source_checkpoint_schema"]),
+            net_size=str(pol_rec["net_size"]),
+            obs_layout=pol_rec["obs_layout"],
+            game_config=pol_rec["game_config"],
+            action_space=pol_rec["action_space"],
+            config=pol_rec["config"],
+            training_recipe=pol_rec["training_recipe"],
+            recipe_overrides_from_default=pol_rec["recipe_overrides_from_default"],
+            recipe_change_history=pol_rec["recipe_change_history"],
+            counters=pol_rec["counters"],
+            tensors=tensors_meta,
+        )
+        hasher = hashlib.sha256()
+        hasher.update(_canonical_json_bytes(id_doc))
+        sd: dict[str, torch.Tensor] = {}
+        for t_meta in tensors_meta:
+            t_name = str(t_meta["name"])
+            tensor, raw_le = _decode_tensor_from_bundle(t_meta, exp_section, mant_section)
+            hasher.update(raw_le)
+            sd[t_name] = tensor
+        computed_pol_sha = hasher.hexdigest()
+        if computed_pol_sha != pol_sha:
+            raise ValueError(
+                f"Eval policy bundle {resolved} policy[{idx}] sha256 mismatch: "
+                f"{computed_pol_sha} != {pol_sha}"
+            )
+
+        if expected_policies is not None:
+            exp_entry = expected_policies[idx]
+            if (
+                exp_entry.get("policy_sha256") is not None
+                and str(exp_entry["policy_sha256"]) != pol_sha
+            ):
+                raise ValueError(
+                    f"Ledger policy[{idx}] policy_sha256 mismatch: "
+                    f"{pol_sha} != {exp_entry['policy_sha256']}"
+                )
+            if str(exp_entry.get("source_checkpoint_sha256", "")) != src_sha:
+                raise ValueError(
+                    f"Ledger policy[{idx}] source_checkpoint_sha256 mismatch: "
+                    f"{src_sha} != {exp_entry.get('source_checkpoint_sha256')}"
+                )
+            if (
+                exp_entry.get("source_checkpoint_path") is not None
+                and str(exp_entry["source_checkpoint_path"]) != src_p
+            ):
+                raise ValueError(
+                    f"Ledger policy[{idx}] source_checkpoint_path mismatch: "
+                    f"{src_p!r} != {exp_entry['source_checkpoint_path']!r}"
+                )
+
+        state_dicts.append(sd)
+
+    return header, state_dicts, bundle_sha, bundle_size
+
+
+def _instantiate_loaded_eval_policy_from_record(
+    *,
+    pol_rec: Mapping[str, Any],
+    state_dict: Mapping[str, torch.Tensor],
+    loaded_path: Path,
+    loaded_sha256: str,
+    loaded_size_bytes: int,
+    checkpoint_schema: str,
+    policy_only_sha256: str | None,
+    device: torch.device,
+    label: str | None,
+    amp: bool | None,
+    use_channels_last: bool | None,
+    fast_learner_ops: bool | None,
+    compile_model: bool,
+    allow_missing_value_head: bool,
+) -> LoadedEvalPolicy:
+    """Validate policy config/shapes, load weights onto ``device``, and return ``LoadedEvalPolicy``."""
+    raw_cfg = pol_rec["config"]
+    if not isinstance(raw_cfg, Mapping):
+        raise ValueError(f"Checkpoint {loaded_path} 'config' must be a mapping")
+    ckpt_cfg = V3PPOConfig.from_dict(raw_cfg)
+    if pol_rec.get("net_size") is not None and str(pol_rec["net_size"]) != str(ckpt_cfg.net_size):
+        raise ValueError(
+            f"Checkpoint {loaded_path} net_size {pol_rec['net_size']!r} disagrees with "
             f"config.net_size {ckpt_cfg.net_size!r}"
         )
-    if payload.get("game_config") is not None:
-        top_game = GameV3Config.from_dict(payload["game_config"])
+    if pol_rec.get("game_config") is not None:
+        top_game = GameV3Config.from_dict(pol_rec["game_config"])
         if top_game.to_dict() != ckpt_cfg.game_config.to_dict():
-            raise ValueError(f"Checkpoint {path} game_config disagrees with config.game_config")
-    if payload.get("action_space") is not None:
+            raise ValueError(
+                f"Checkpoint {loaded_path} game_config disagrees with config.game_config"
+            )
+    if pol_rec.get("action_space") is not None:
         expected_action_space = {
             "num_actions": int(ckpt_cfg.game_config.num_actions),
             "num_turn_levels": int(NUM_TURN_LEVELS),
         }
-        if dict(payload["action_space"]) != expected_action_space:
+        if dict(pol_rec["action_space"]) != expected_action_space:
             raise ValueError(
-                f"Checkpoint {path} action_space {payload['action_space']!r} disagrees with "
+                f"Checkpoint {loaded_path} action_space {pol_rec['action_space']!r} disagrees with "
                 f"expected {expected_action_space!r}"
             )
     expected_layout = obs_layout_from_game_config(ckpt_cfg.game_config)
-    if payload.get("obs_layout") is not None:
-        obs_layout = ObsLayout.from_dict(payload["obs_layout"])
+    if pol_rec.get("obs_layout") is not None:
+        obs_layout = ObsLayout.from_dict(pol_rec["obs_layout"])
         if obs_layout != expected_layout:
             raise ValueError(
-                f"Checkpoint {path} obs_layout {obs_layout.to_dict()} disagrees with "
+                f"Checkpoint {loaded_path} obs_layout {obs_layout.to_dict()} disagrees with "
                 f"game_config layout {expected_layout.to_dict()}"
             )
     else:
         obs_layout = expected_layout
 
-    eff_amp = (bool(ckpt_cfg.amp) if amp is None else bool(amp)) and dev.type == "cuda"
+    eff_amp = (bool(ckpt_cfg.amp) if amp is None else bool(amp)) and device.type == "cuda"
     eff_cl = (
         bool(ckpt_cfg.use_channels_last) if use_channels_last is None else bool(use_channels_last)
     )
@@ -519,9 +1256,18 @@ def load_eval_policy(
         use_bf16_autocast=eff_amp,
         fast_preprocess=eff_fast,
     )
-    model = EgoMultiScaleNet(net_cfg).to(dev)
+    model = EgoMultiScaleNet(net_cfg).to(device)
     model.validate_obs_layout(obs_layout)
-    model.load_state_dict(payload["model_state_dict"], strict=True)
+    if allow_missing_value_head:
+        incompat = model.load_state_dict(state_dict, strict=False)
+        bad_missing = [k for k in incompat.missing_keys if not k.startswith(_VALUE_HEAD_PREFIX)]
+        if bad_missing or incompat.unexpected_keys:
+            raise ValueError(
+                f"Eval policy bundle {loaded_path} state_dict mismatch: "
+                f"missing={bad_missing}, unexpected={incompat.unexpected_keys}"
+            )
+    else:
+        model.load_state_dict(state_dict, strict=True)
     model.eval()
     for param in model.parameters():
         param.requires_grad_(False)
@@ -533,34 +1279,34 @@ def load_eval_policy(
         if ckpt_cfg.actor_chunk_learners is not None
         else default_actor_chunk_learners(ckpt_cfg.net_size)
     )
-    src_path = str(payload.get("source_checkpoint_path") or path)
-    src_sha = str(payload.get("source_checkpoint_sha256") or loaded_sha)
-    src_size = int(payload.get("source_checkpoint_size_bytes") or size_bytes)
+    src_path = str(pol_rec.get("source_checkpoint_path") or loaded_path)
+    src_sha = str(pol_rec.get("source_checkpoint_sha256") or loaded_sha256)
+    src_size = int(pol_rec.get("source_checkpoint_size_bytes") or loaded_size_bytes)
     resolved_label = (label.strip() if label is not None else "") or _default_policy_label(
         Path(src_path)
     )
 
-    counters = payload.get("counters") if isinstance(payload.get("counters"), Mapping) else {}
-    updates_completed = int(counters.get("updates_completed", payload.get("updates_completed", 0)))
+    counters = pol_rec.get("counters") if isinstance(pol_rec.get("counters"), Mapping) else {}
+    updates_completed = int(counters.get("updates_completed", pol_rec.get("updates_completed", 0)))
     world_steps_collected = int(
-        counters.get("world_steps_collected", payload.get("world_steps_collected", 0))
+        counters.get("world_steps_collected", pol_rec.get("world_steps_collected", 0))
     )
     agent_steps_collected = int(
-        counters.get("agent_steps_collected", payload.get("agent_steps_collected", 0))
+        counters.get("agent_steps_collected", pol_rec.get("agent_steps_collected", 0))
     )
     learner_steps_collected = int(
-        counters.get("learner_steps_collected", payload.get("learner_steps_collected", 0))
+        counters.get("learner_steps_collected", pol_rec.get("learner_steps_collected", 0))
     )
 
     return LoadedEvalPolicy(
         label=resolved_label,
-        checkpoint_path=path,
+        checkpoint_path=loaded_path,
         source_checkpoint_path=src_path,
-        checkpoint_sha256=loaded_sha,
+        checkpoint_sha256=loaded_sha256,
         source_checkpoint_sha256=src_sha,
         checkpoint_size_bytes=src_size,
-        loaded_size_bytes=int(size_bytes),
-        checkpoint_schema=str(payload.get("schema", "")),
+        loaded_size_bytes=int(loaded_size_bytes),
+        checkpoint_schema=checkpoint_schema,
         net_size=ckpt_cfg.net_size,
         parameter_count=int(model.parameter_count()),
         updates_completed=updates_completed,
@@ -574,6 +1320,121 @@ def load_eval_policy(
         training_recipe=extract_recipe_dict(ckpt_cfg),
         recipe_overrides=recipe_overrides_from_default(ckpt_cfg),
         model=model,
+        policy_only_sha256=policy_only_sha256,
+    )
+
+
+def load_eval_policy_bundle(
+    bundle_path: str | Path,
+    *,
+    device: torch.device | str = "cpu",
+    labels: Sequence[str | None] | None = None,
+    expected_bundle_sha256: str | None = None,
+    expected_policies: Sequence[Mapping[str, Any]] | None = None,
+    amp: bool | None = None,
+    use_channels_last: bool | None = None,
+    fast_learner_ops: bool | None = None,
+    compile_model: bool = False,
+) -> list[LoadedEvalPolicy]:
+    """Verify bundle + per-policy hashes on load and instantiate all ``LoadedEvalPolicy`` models."""
+    dev = normalize_device(device)
+    ensure_cuda_initialized(dev)
+    resolved = Path(bundle_path).resolve()
+    header, state_dicts, bundle_sha, bundle_size = _unpack_and_verify_eval_policy_bundle(
+        resolved,
+        expected_bundle_sha256=expected_bundle_sha256,
+        expected_policies=expected_policies,
+    )
+    raw_policies = header["policies"]
+    if labels is not None and len(labels) != len(raw_policies):
+        raise ValueError(
+            f"labels length ({len(labels)}) must match bundle policy count ({len(raw_policies)})"
+        )
+    loaded: list[LoadedEvalPolicy] = []
+    for idx, (pol_rec, sd) in enumerate(zip(raw_policies, state_dicts)):
+        lbl = labels[idx] if labels is not None else None
+        loaded.append(
+            _instantiate_loaded_eval_policy_from_record(
+                pol_rec=pol_rec,
+                state_dict=sd,
+                loaded_path=resolved,
+                loaded_sha256=bundle_sha,
+                loaded_size_bytes=bundle_size,
+                checkpoint_schema=V3_EVAL_POLICY_BUNDLE_SCHEMA,
+                policy_only_sha256=str(pol_rec["policy_sha256"]),
+                device=dev,
+                label=lbl,
+                amp=amp,
+                use_channels_last=use_channels_last,
+                fast_learner_ops=fast_learner_ops,
+                compile_model=compile_model,
+                allow_missing_value_head=bool(pol_rec.get("weights_only", True)),
+            )
+        )
+    return loaded
+
+
+def load_eval_policy(
+    checkpoint_path: str | Path,
+    *,
+    device: torch.device | str = "cpu",
+    label: str | None = None,
+    amp: bool | None = None,
+    use_channels_last: bool | None = None,
+    fast_learner_ops: bool | None = None,
+    compile_model: bool = False,
+    policy_index: int | None = None,
+) -> LoadedEvalPolicy:
+    """Load a LIGHT checkpoint, policy-only file, or multi-policy bundle entry."""
+    dev = normalize_device(device)
+    ensure_cuda_initialized(dev)
+    path = Path(checkpoint_path).resolve()
+    if _is_eval_policy_bundle_file(path):
+        pols = load_eval_policy_bundle(
+            path,
+            device=dev,
+            amp=amp,
+            use_channels_last=use_channels_last,
+            fast_learner_ops=fast_learner_ops,
+            compile_model=compile_model,
+        )
+        if policy_index is None:
+            if len(pols) != 1:
+                raise ValueError(
+                    f"Eval policy bundle {path} contains {len(pols)} policies; pass policy_index "
+                    "or use load_eval_policy_bundle()"
+                )
+            chosen = pols[0]
+        else:
+            if not (0 <= int(policy_index) < len(pols)):
+                raise ValueError(
+                    f"policy_index={policy_index} out of range for bundle {path} ({len(pols)} policies)"
+                )
+            chosen = pols[int(policy_index)]
+        if label is not None and label.strip():
+            chosen = replace(chosen, label=label.strip())
+        return chosen
+
+    payload, loaded_sha, size_bytes = _load_checkpoint_payload(path)
+    return _instantiate_loaded_eval_policy_from_record(
+        pol_rec=payload,
+        state_dict=payload["model_state_dict"],
+        loaded_path=path,
+        loaded_sha256=loaded_sha,
+        loaded_size_bytes=size_bytes,
+        checkpoint_schema=str(payload.get("schema", "")),
+        policy_only_sha256=(
+            loaded_sha
+            if str(payload.get("schema", "")) == V3_WEIGHTS_ONLY_EVAL_BUNDLE_SCHEMA
+            else None
+        ),
+        device=dev,
+        label=label,
+        amp=amp,
+        use_channels_last=use_channels_last,
+        fast_learner_ops=fast_learner_ops,
+        compile_model=compile_model,
+        allow_missing_value_head=False,
     )
 
 
@@ -3440,6 +4301,26 @@ def _parse_positive_int_csv(raw: str, flag_name: str) -> tuple[int, ...]:
     return vals
 
 
+def _resolve_verified_pair_units(
+    input_dir: Path,
+    ledger: Mapping[str, Any],
+) -> dict[str, Path]:
+    """Verify completed ``pair:*`` JSON units declared in ``ledger``."""
+    verified_pairs: dict[str, Path] = {}
+    for unit in ledger.get("verified_units", []):
+        uid = str(unit.get("unit_id", ""))
+        if uid.startswith("pair:"):
+            pair_name = uid[len("pair:") :]
+            u_file = Path(input_dir) / str(unit["relpath"])
+            if not u_file.is_file():
+                raise FileNotFoundError(f"Verified pair unit missing at {u_file}")
+            actual_sha = sha256_file(u_file)
+            if actual_sha != str(unit["sha256"]):
+                raise ValueError(f"Verified pair {uid} sha256 mismatch")
+            verified_pairs[pair_name] = u_file
+    return verified_pairs
+
+
 def resolve_staged_ledger_inputs(
     input_dir: Path,
     ledger_path: Path,
@@ -3452,38 +4333,108 @@ def resolve_staged_ledger_inputs(
         )
     policy_paths: list[Path] = []
     policy_labels: list[str] = []
-    verified_pairs: dict[str, Path] = {}
+    eval_entries = list(ledger.get("eval_policies", []))
+    bundle_entry = ledger.get("eval_policy_bundle")
 
-    for entry in ledger.get("eval_policies", []):
-        rel = str(entry["relpath"])
-        p_file = Path(input_dir) / rel
-        if not p_file.is_file():
-            raise FileNotFoundError(f"Staged eval policy missing at {p_file}")
-        actual_sha = sha256_file(p_file)
-        if actual_sha != str(entry["sha256"]):
-            raise ValueError(
-                f"Staged eval policy sha256 mismatch for {rel}: {actual_sha} != {entry['sha256']}"
-            )
-        policy_paths.append(p_file)
-        if entry.get("label"):
-            policy_labels.append(str(entry["label"]))
+    if isinstance(bundle_entry, Mapping):
+        rel = str(bundle_entry["relpath"])
+        b_file = Path(input_dir) / rel
+        if not b_file.is_file():
+            raise FileNotFoundError(f"Staged eval policy bundle missing at {b_file}")
+        _unpack_and_verify_eval_policy_bundle(
+            b_file,
+            expected_bundle_sha256=str(bundle_entry["sha256"]),
+            expected_policies=eval_entries,
+        )
+        for entry in eval_entries:
+            policy_paths.append(b_file)
+            if entry.get("label"):
+                policy_labels.append(str(entry["label"]))
+    else:
+        for entry in eval_entries:
+            rel = str(entry["relpath"])
+            p_file = Path(input_dir) / rel
+            if not p_file.is_file():
+                raise FileNotFoundError(f"Staged eval policy missing at {p_file}")
+            actual_sha = sha256_file(p_file)
+            if actual_sha != str(entry["sha256"]):
+                raise ValueError(
+                    f"Staged eval policy sha256 mismatch for {rel}: {actual_sha} != {entry['sha256']}"
+                )
+            policy_paths.append(p_file)
+            if entry.get("label"):
+                policy_labels.append(str(entry["label"]))
 
-    for unit in ledger.get("verified_units", []):
-        uid = str(unit.get("unit_id", ""))
-        if uid.startswith("pair:"):
-            pair_name = uid[len("pair:") :]
-            u_file = Path(input_dir) / str(unit["relpath"])
-            if not u_file.is_file():
-                raise FileNotFoundError(f"Verified pair unit missing at {u_file}")
-            actual_sha = sha256_file(u_file)
-            if actual_sha != str(unit["sha256"]):
-                raise ValueError(f"Verified pair {uid} sha256 mismatch")
-            verified_pairs[pair_name] = u_file
-
+    verified_pairs = _resolve_verified_pair_units(Path(input_dir), ledger)
     resolved_labels = (
         policy_labels if len(policy_labels) == len(policy_paths) and policy_labels else None
     )
     return policy_paths, resolved_labels, verified_pairs
+
+
+def load_staged_ledger_policies(
+    input_dir: Path,
+    ledger_path: Path,
+    *,
+    device: torch.device | str = "cpu",
+    explicit_labels: Sequence[str] | None = None,
+    amp: bool | None = None,
+    use_channels_last: bool | None = None,
+    fast_learner_ops: bool | None = None,
+    compile_model: bool = False,
+) -> tuple[list[LoadedEvalPolicy], dict[str, Path]]:
+    """Verify and load all staged policies (single-file bundle or legacy files) from ``ledger``."""
+    ledger = json.loads(Path(ledger_path).read_text(encoding="utf-8"))
+    if ledger.get("namespace") != V3_PPO_NAMESPACE:
+        raise ValueError(
+            f"Foreign verified ledger namespace {ledger.get('namespace')!r} != {V3_PPO_NAMESPACE!r}"
+        )
+    eval_entries = list(ledger.get("eval_policies", []))
+    bundle_entry = ledger.get("eval_policy_bundle")
+    ledger_labels_raw = [str(e["label"]) for e in eval_entries if e.get("label")]
+    ledger_labels = (
+        ledger_labels_raw
+        if len(ledger_labels_raw) == len(eval_entries) and ledger_labels_raw
+        else None
+    )
+    chosen_labels = explicit_labels if explicit_labels is not None else ledger_labels
+
+    if isinstance(bundle_entry, Mapping):
+        b_file = Path(input_dir) / str(bundle_entry["relpath"])
+        if not b_file.is_file():
+            raise FileNotFoundError(f"Staged eval policy bundle missing at {b_file}")
+        raw_policies = load_eval_policy_bundle(
+            b_file,
+            device=device,
+            expected_bundle_sha256=str(bundle_entry["sha256"]),
+            expected_policies=eval_entries,
+            amp=amp,
+            use_channels_last=use_channels_last,
+            fast_learner_ops=fast_learner_ops,
+            compile_model=compile_model,
+        )
+    else:
+        policy_paths, _, _ = resolve_staged_ledger_inputs(Path(input_dir), Path(ledger_path))
+        raw_policies = [
+            load_eval_policy(
+                p_path,
+                device=device,
+                label=None,
+                amp=amp,
+                use_channels_last=use_channels_last,
+                fast_learner_ops=fast_learner_ops,
+                compile_model=compile_model,
+            )
+            for p_path in policy_paths
+        ]
+
+    eff_labels = resolve_unique_labels(
+        [Path(pol.source_checkpoint_path) for pol in raw_policies],
+        chosen_labels,
+    )
+    loaded = [replace(pol, label=lbl) for pol, lbl in zip(raw_policies, eff_labels)]
+    verified_pairs = _resolve_verified_pair_units(Path(input_dir), ledger)
+    return loaded, verified_pairs
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -3783,23 +4734,57 @@ def main(argv: Sequence[str] | None = None) -> int:
     dev = normalize_device(args.device)
     ensure_cuda_initialized(dev)
 
-    raw_policies = [
-        load_eval_policy(
-            p,
+    use_ledger_policies = (
+        args.ledger is not None
+        and args.round_robin is None
+        and args.policies is None
+        and args.policy is None
+        and bool(ledger_paths)
+    )
+    if use_ledger_policies:
+        assert args.input_dir is not None and args.ledger is not None
+        loaded_policies, verified_pairs = load_staged_ledger_policies(
+            args.input_dir,
+            args.ledger,
             device=dev,
-            label=None,
+            explicit_labels=args.labels,
             amp=args.amp,
             use_channels_last=args.use_channels_last,
             fast_learner_ops=args.fast_learner_ops,
             compile_model=bool(args.compile),
         )
-        for p in ckpt_paths
-    ]
-    eff_labels = resolve_unique_labels(
-        [Path(pol.source_checkpoint_path) for pol in raw_policies],
-        explicit_labels,
-    )
-    loaded_policies = [replace(pol, label=lbl) for pol, lbl in zip(raw_policies, eff_labels)]
+    elif len(ckpt_paths) == 1 and _is_eval_policy_bundle_file(ckpt_paths[0]):
+        raw_policies = load_eval_policy_bundle(
+            ckpt_paths[0],
+            device=dev,
+            amp=args.amp,
+            use_channels_last=args.use_channels_last,
+            fast_learner_ops=args.fast_learner_ops,
+            compile_model=bool(args.compile),
+        )
+        eff_labels = resolve_unique_labels(
+            [Path(pol.source_checkpoint_path) for pol in raw_policies],
+            explicit_labels,
+        )
+        loaded_policies = [replace(pol, label=lbl) for pol, lbl in zip(raw_policies, eff_labels)]
+    else:
+        raw_policies = [
+            load_eval_policy(
+                p,
+                device=dev,
+                label=None,
+                amp=args.amp,
+                use_channels_last=args.use_channels_last,
+                fast_learner_ops=args.fast_learner_ops,
+                compile_model=bool(args.compile),
+            )
+            for p in ckpt_paths
+        ]
+        eff_labels = resolve_unique_labels(
+            [Path(pol.source_checkpoint_path) for pol in raw_policies],
+            explicit_labels,
+        )
+        loaded_policies = [replace(pol, label=lbl) for pol, lbl in zip(raw_policies, eff_labels)]
 
     main_started = time.perf_counter()
     with SignalStopFlag() as stop_flag:
