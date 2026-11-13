@@ -43,6 +43,12 @@ WARMUP_PROBE_SECONDS = 30.0
 WARMUP_INTERVAL_SECONDS = 5.0
 ATTEMPTS = 3
 BACKOFF_SECONDS = (2.0, 5.0)
+# ~8.5% of colab exec calls hang; two 120s hangs in one 300s export window occur
+# on ~0.7-1% of multi-chunk periodic downloads. Deferring up to 3 consecutive
+# failed cycles (refusing on attempt 4, <= 4 * 300s = 1200s == EXEC_POLL_RECOVERY_SECONDS)
+# reduces i.i.d. false aborts below 1e-7 while still catching dead links within 20 min.
+MAX_PERIODIC_EXPORT_DEFERRALS = 3
+MAX_PERIODIC_EXPORT_ATTEMPTS = MAX_PERIODIC_EXPORT_DEFERRALS + 1
 READ_COMMANDS = frozenset({"version", "whoami", "sessions", "usage", "url"})
 
 

@@ -9,6 +9,7 @@ payload, SHA sidecar, and completion-marker bytes.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import os
 import re
@@ -19,7 +20,14 @@ import zipfile
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Protocol, Sequence
 
-from research.colab_cli.transfers import TransferError, download_file
+from research.colab_cli.transfers import (
+    TransferError,
+    clear_remote_leftover,
+    download_file,
+    pending_remote_leftovers,
+    record_remote_leftover,
+    sweep_remote_leftovers,
+)
 
 MAX_BATCH_ENTRIES = 64
 MAX_BATCH_PAYLOAD_BYTES = 4 * 1024 * 1024
@@ -117,16 +125,22 @@ def small_batches(
     return result
 
 
-def _batch_code(root: str, entries: list[dict[str, Any]], archive: str) -> str:
+def _batch_code(
+    root: str,
+    entries: list[dict[str, Any]],
+    archive: str,
+    cleanup_archives: Sequence[str] = (),
+) -> str:
     """Produce the self-contained, single-use remote archive operation."""
     spec = {
         "root": root,
         "entries": entries,
         "archive": archive,
         "archive_limit": MAX_ARCHIVE_BYTES,
+        "cleanup_archives": list(cleanup_archives),
     }
     return """# SNAKE_EXPORT_BATCH
-import hashlib, os, stat, zipfile
+import hashlib, os, re, stat, zipfile
 from pathlib import Path, PurePosixPath
 spec = PAYLOAD
 root = Path(spec['root'])
@@ -137,6 +151,12 @@ root_real = root.resolve(strict=True)
 output = root / 'output'
 if output.is_symlink() or not output.is_dir() or not output.resolve().is_relative_to(root_real):
     raise RuntimeError('unsafe export output root')
+for old_name in spec.get('cleanup_archives', ()):
+    if not re.fullmatch(r'\\.snake-export-batch-[0-9a-f]{32}\\.zip', str(old_name)):
+        raise RuntimeError('refusing non-batch archive cleanup')
+    old_archive = root / str(old_name)
+    if old_archive != archive and old_archive.parent == root:
+        old_archive.unlink(missing_ok=True)
 written = set()
 with zipfile.ZipFile(archive, 'x', compression=zipfile.ZIP_STORED, allowZip64=False) as out:
     for entry in spec['entries']:
@@ -291,6 +311,8 @@ def export_batch(
     output: Path,
     limit: int,
     on_verified: Callable[[dict[str, Any]], None] | None = None,
+    *,
+    deadline: float | None = None,
 ) -> None:
     """Recover one small batch and publish each verified immutable triple.
 
@@ -308,41 +330,78 @@ def export_batch(
     root_path = PurePosixPath(root)
     if not isinstance(root, str) or not root_path.is_absolute() or "/../" in root:
         raise ExportBatchError("unsafe remote batch root")
-    archive = root.rstrip("/") + "/.snake-export-batch-" + uuid.uuid4().hex + ".zip"
-    reply = cli.recoverable_rpc(_batch_code(root.rstrip("/"), rows, archive))
-    if not isinstance(reply, dict) or reply.get("path") != archive:
-        raise ExportBatchError("remote batch archive acknowledgement is invalid")
-    archive_size, archive_digest = reply.get("size"), reply.get("sha256")
-    if (
-        type(archive_size) is not int
-        or not 0 <= archive_size <= MAX_ARCHIVE_BYTES
-        or not isinstance(archive_digest, str)
-        or not _DIGEST.fullmatch(archive_digest)
-    ):
-        raise ExportBatchError("remote batch archive metadata is invalid")
-    expected_members = sorted(
-        name
-        for row in rows
-        for name in (row["path"], row["path"] + ".sha256", row["path"] + ".complete")
-    )
-    if reply.get("members") != expected_members:
-        raise ExportBatchError("remote batch archive inventory is invalid")
-    output = Path(output)
-    output.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(dir=output, prefix=".batch-download-") as temporary:
-        local_archive = Path(temporary) / "archive.zip"
-        try:
-            download_file(
+    clean_root = root.rstrip("/")
+    member_keys = [f"{clean_root}/output/{row['path']}" for row in rows]
+    cleanup_archives: list[str] = []
+    for key in dict.fromkeys(member_keys):
+        needs_sweep = False
+        for item in pending_remote_leftovers(cli, key):
+            candidate = PurePosixPath(item)
+            if (
+                str(candidate.parent) == clean_root
+                and candidate.name.startswith(".snake-export-batch-")
+                and candidate.name.endswith(".zip")
+            ):
+                if item not in cleanup_archives:
+                    cleanup_archives.append(item)
+            else:
+                needs_sweep = True
+        if needs_sweep:
+            sweep_remote_leftovers(
                 cli,
-                archive,
-                local_archive,
-                archive_size,
-                renew=cli.renew,
-                expected_sha256=archive_digest,
+                key,
+                getattr(cli, "renew", None),
+                deadline=deadline,
+                direction="download",
             )
-        except TransferError as exc:
-            raise ExportBatchError(f"batch archive download failed: {exc}") from exc
-        data = _read_archive(local_archive, rows)
+    archive = clean_root + "/.snake-export-batch-" + uuid.uuid4().hex + ".zip"
+    cleanup_names = [PurePosixPath(path).name for path in cleanup_archives]
+    download_scope = (
+        cli.download_controls(deadline)
+        if deadline is not None and hasattr(cli, "download_controls")
+        else contextlib.nullcontext()
+    )
+    with download_scope:
+        for key in member_keys:
+            record_remote_leftover(cli, key, archive)
+        reply = cli.recoverable_rpc(_batch_code(clean_root, rows, archive, cleanup_names))
+        for old_archive in cleanup_archives:
+            clear_remote_leftover(cli, old_archive)
+        if not isinstance(reply, dict) or reply.get("path") != archive:
+            raise ExportBatchError("remote batch archive acknowledgement is invalid")
+        archive_size, archive_digest = reply.get("size"), reply.get("sha256")
+        if (
+            type(archive_size) is not int
+            or not 0 <= archive_size <= MAX_ARCHIVE_BYTES
+            or not isinstance(archive_digest, str)
+            or not _DIGEST.fullmatch(archive_digest)
+        ):
+            raise ExportBatchError("remote batch archive metadata is invalid")
+        expected_members = sorted(
+            name
+            for row in rows
+            for name in (row["path"], row["path"] + ".sha256", row["path"] + ".complete")
+        )
+        if reply.get("members") != expected_members:
+            raise ExportBatchError("remote batch archive inventory is invalid")
+        output = Path(output)
+        output.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=output, prefix=".batch-download-") as temporary:
+            local_archive = Path(temporary) / "archive.zip"
+            try:
+                download_file(
+                    cli,
+                    archive,
+                    local_archive,
+                    archive_size,
+                    renew=cli.renew,
+                    expected_sha256=archive_digest,
+                    deadline=deadline,
+                )
+            except TransferError as exc:
+                raise ExportBatchError(f"batch archive download failed: {exc}") from exc
+            data = _read_archive(local_archive, rows)
+        clear_remote_leftover(cli, archive)
     for row in rows:
         _publish(_target(output, row["path"]), *data[row["path"]])
         if on_verified is not None:

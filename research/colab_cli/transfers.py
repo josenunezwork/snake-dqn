@@ -15,7 +15,10 @@ import inspect
 import json
 import math
 import os
+import re
+import subprocess
 import tempfile
+import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, wait
@@ -36,10 +39,22 @@ CONTENTS_ATTEMPTS = 3
 UPLOAD_TOTAL_TIMEOUT_SECONDS = 5 * 60
 TRANSFER_MIN_TIMEOUT_SECONDS = 300
 TRANSFER_BYTES_PER_SECOND = 512 * 1024
+LEFTOVER_SWEEP_SECONDS = 30.0
+_SCRATCH_NAME_RE = re.compile(
+    r"^\.(?:snake-transfer-[0-9a-f]{32}(?:\.assembling)?|snake-export-batch-[0-9a-f]{32}\.zip)$"
+)
 
 
 class TransferError(RuntimeError):
     """A transfer did not produce a verified immutable file."""
+
+
+class TransferIntegrityError(TransferError):
+    """Downloaded or staged bytes/metadata violated immutable digest or size invariants."""
+
+
+class TransferTimeoutError(TransferError):
+    """A transfer timed out or exhausted its transient ContentsClient retry budget."""
 
 
 class PreparedDownload:
@@ -112,6 +127,14 @@ def _observed_transfer(direction: str) -> Callable:
                     result = function(cli, *args, **kwargs)
                 record.update(status="verified", sha256=result)
                 return result
+            except TransferIntegrityError as exc:
+                raise TransferIntegrityError(
+                    f"{direction} {remote} called at {call_site}: {exc}"
+                ) from exc
+            except TransferTimeoutError as exc:
+                raise TransferTimeoutError(
+                    f"{direction} {remote} called at {call_site}: {exc}"
+                ) from exc
             except Exception as exc:
                 raise TransferError(f"{direction} {remote} called at {call_site}: {exc}") from exc
             finally:
@@ -153,7 +176,7 @@ def _bounded_timeout(
         return timeout
     remaining = deadline - time.monotonic()
     if remaining <= 0:
-        raise TransferError(f"total {direction} time cap reached at {call_site}")
+        raise TransferTimeoutError(f"total {direction} time cap reached at {call_site}")
     return min(timeout, remaining)
 
 
@@ -194,8 +217,13 @@ def _contents_call(
                 raise
             if attempt + 1 < CONTENTS_ATTEMPTS:
                 delay = policy.BACKOFF_SECONDS[attempt]
-                if deadline is not None:
-                    delay = min(delay, max(0, deadline - time.monotonic()))
+                session_deadline = getattr(cli, "deadline", None)
+                effective_deadline = min(
+                    deadline if deadline is not None else math.inf,
+                    session_deadline if session_deadline is not None else math.inf,
+                )
+                if effective_deadline != math.inf:
+                    delay = min(delay, max(0, effective_deadline - time.monotonic()))
                 if delay:
                     time.sleep(delay)
         else:
@@ -205,6 +233,8 @@ def _contents_call(
                 renew()
             return
     assert failure is not None
+    if isinstance(failure, (subprocess.TimeoutExpired, TransferTimeoutError)):
+        raise TransferTimeoutError("ContentsClient transient retry budget exhausted") from failure
     raise TransferError("ContentsClient transient retry budget exhausted") from failure
 
 
@@ -274,9 +304,14 @@ import shutil
 from pathlib import Path
 spec = PAYLOAD
 path = Path(spec['path'])
-if not path.name.startswith('.snake-transfer-'):
+if not (
+    path.name.startswith('.snake-transfer-')
+    or (path.name.startswith('.snake-export-batch-') and path.name.endswith('.zip'))
+):
     raise RuntimeError('refusing non-transfer cleanup')
-if path.is_dir():
+if path.is_symlink():
+    path.unlink(missing_ok=True)
+elif path.is_dir():
     shutil.rmtree(path, ignore_errors=True)
 else:
     path.unlink(missing_ok=True)
@@ -336,6 +371,108 @@ def _verify_remote_file(
         raise TransferError("remote upload digest or size mismatch")
 
 
+def _is_remote_scratch_path(path: str) -> bool:
+    candidate = PurePosixPath(path)
+    return (
+        candidate.is_absolute()
+        and ".." not in candidate.parts
+        and bool(_SCRATCH_NAME_RE.fullmatch(candidate.name))
+    )
+
+
+_LEFTOVER_LOCK_INIT = threading.Lock()
+
+
+def _leftover_lock(cli: Any) -> threading.Lock:
+    lock = getattr(cli, "_deferred_remote_cleanups_lock", None)
+    if lock is None:
+        with _LEFTOVER_LOCK_INIT:
+            lock = getattr(cli, "_deferred_remote_cleanups_lock", None)
+            if lock is None:
+                lock = threading.Lock()
+                setattr(cli, "_deferred_remote_cleanups_lock", lock)
+    return lock
+
+
+def _leftover_map(cli: Any, *, create: bool = False) -> dict[str, list[str]] | None:
+    registry = getattr(cli, "_deferred_remote_cleanups", None)
+    if registry is None and create:
+        registry = {}
+        setattr(cli, "_deferred_remote_cleanups", registry)
+    return registry
+
+
+def record_remote_leftover(cli: Any, owner_key: str, scratch_path: str) -> None:
+    """Record a remote UUID scratch path so a later retry can sweep it if cleanup skips."""
+    if not owner_key or not _is_remote_scratch_path(scratch_path):
+        raise TransferIntegrityError(
+            f"refusing to track non-scratch cleanup path: {scratch_path!r}"
+        )
+    with _leftover_lock(cli):
+        registry = _leftover_map(cli, create=True)
+        assert registry is not None
+        bucket = registry.setdefault(owner_key, [])
+        if scratch_path not in bucket:
+            bucket.append(scratch_path)
+
+
+def clear_remote_leftover(cli: Any, scratch_path: str) -> None:
+    """Drop a remote UUID scratch path once its removal has been acknowledged."""
+    with _leftover_lock(cli):
+        registry = _leftover_map(cli, create=False)
+        if not registry:
+            return
+        empty_keys = []
+        for key, bucket in registry.items():
+            if scratch_path in bucket:
+                bucket.remove(scratch_path)
+            if not bucket:
+                empty_keys.append(key)
+        for key in empty_keys:
+            registry.pop(key, None)
+
+
+def pending_remote_leftovers(cli: Any, owner_key: str) -> list[str]:
+    """Return a copy of pending uncleaned scratch paths recorded for owner_key."""
+    with _leftover_lock(cli):
+        registry = _leftover_map(cli, create=False)
+        if not registry:
+            return []
+        return list(registry.get(owner_key, ()))
+
+
+def sweep_remote_leftovers(
+    cli: _CLI,
+    owner_key: str,
+    renew: Callable[[], None] | None,
+    *,
+    deadline: float | None = None,
+    direction: str = "download",
+) -> None:
+    """Idempotently sweep recorded scratch paths from earlier failed tries in bounded time."""
+    pending = pending_remote_leftovers(cli, owner_key)
+    if not pending:
+        return
+    sweep_deadline = time.monotonic() + LEFTOVER_SWEEP_SECONDS
+    if deadline is not None:
+        sweep_deadline = min(deadline, sweep_deadline)
+    if time.monotonic() >= sweep_deadline:
+        return
+    if hasattr(cli, "download_controls") and direction == "download":
+        scope = cli.download_controls(sweep_deadline)
+    elif hasattr(cli, "staging_controls") and direction == "upload":
+        scope = cli.staging_controls(sweep_deadline)
+    else:
+        scope = contextlib.nullcontext()
+    with scope:
+        for scratch_path in pending:
+            if not _is_remote_scratch_path(scratch_path):
+                continue
+            if time.monotonic() >= sweep_deadline:
+                break
+            _cleanup(cli, scratch_path, renew, deadline=sweep_deadline, direction=direction)
+
+
 def _cleanup(
     cli: _CLI,
     path: str,
@@ -343,10 +480,10 @@ def _cleanup(
     *,
     deadline: float | None = None,
     direction: str = "upload",
-) -> None:
+) -> bool:
     try:
         if deadline is not None and time.monotonic() >= deadline:
-            return
+            return False
         if renew:
             renew()
         _rpc(
@@ -357,8 +494,10 @@ def _cleanup(
                 policy.TELEMETRY_SECONDS, deadline, f"REMOVE_TREE {path}", direction=direction
             ),
         )
+        clear_remote_leftover(cli, path)
         if renew:
             renew()
+        return True
     except Exception as exc:
         if getattr(cli, "exec_uncertain", False):
             reason = (
@@ -373,6 +512,7 @@ def _cleanup(
                 )
                 setattr(cli, "cleanup_uncertain_reason", detail)
                 budget_warning("TRANSFER_CLEANUP_UNCERTAIN", path=path, reason=detail)
+        return False
 
 
 def _staging(remote: str, ident: str) -> tuple[str, str]:
@@ -531,6 +671,8 @@ def upload_contents(cli: _CLI, local: Path, remote: str, *, deadline: float | No
             None,
             deadline=transfer_deadline,
         )
+    except TransferTimeoutError as exc:
+        raise TransferTimeoutError(f"control upload {remote} called at {call_site}: {exc}") from exc
     except Exception as exc:
         raise TransferError(f"control upload {remote} called at {call_site}: {exc}") from exc
 
@@ -546,10 +688,14 @@ def prepare_download(
 ) -> PreparedDownload:
     """Split an export while the kernel is idle, before long-running work begins."""
     if type(size) is not int or size <= DOWNLOAD_CHUNK_BYTES:
-        raise TransferError("prepare_download is only for files larger than a transfer chunk")
+        raise TransferIntegrityError(
+            "prepare_download is only for files larger than a transfer chunk"
+        )
     if expected_sha256 is None or len(expected_sha256) != 64:
-        raise TransferError("prepare_download requires immutable expected_sha256")
+        raise TransferIntegrityError("prepare_download requires immutable expected_sha256")
+    sweep_remote_leftovers(cli, remote, renew, deadline=deadline, direction="download")
     parts, _ = _staging(remote, uuid.uuid4().hex)
+    record_remote_leftover(cli, remote, parts)
     if renew:
         renew()
     reply = _rpc(
@@ -578,10 +724,10 @@ def prepare_download(
         or reply.get("size") != size
     ):
         _cleanup(cli, parts, renew, deadline=deadline, direction="download")
-        raise TransferError("kernel did not acknowledge immutable export split")
+        raise TransferIntegrityError("kernel did not acknowledge immutable export split")
     if reply.get("chunks") != count:
         _cleanup(cli, parts, renew, deadline=deadline, direction="download")
-        raise TransferError("kernel returned invalid export chunk count")
+        raise TransferIntegrityError("kernel returned invalid export chunk count")
     return PreparedDownload(parts, count, size, expected_sha256)
 
 
@@ -599,11 +745,11 @@ def download_file(
 ) -> str:
     """Chunk-download an immutable export, digest check it, and atomically publish."""
     if type(size) is not int or size < 0:
-        raise TransferError("download size must be a nonnegative integer")
+        raise TransferIntegrityError("download size must be a nonnegative integer")
     if expected_sha256 is None:
-        raise TransferError("download requires immutable expected_sha256")
+        raise TransferIntegrityError("download requires immutable expected_sha256")
     if len(expected_sha256) != 64 or any(c not in "0123456789abcdef" for c in expected_sha256):
-        raise TransferError("download expected_sha256 must be lowercase SHA-256")
+        raise TransferIntegrityError("download expected_sha256 must be lowercase SHA-256")
     local = Path(local)
     local.parent.mkdir(parents=True, exist_ok=True)
     transfer_deadline = time.monotonic() + transfer_timeout(size)
@@ -614,6 +760,8 @@ def download_file(
         else contextlib.nullcontext()
     )
     with download_scope:
+        if prepared is None:
+            sweep_remote_leftovers(cli, remote, renew, deadline=deadline, direction="download")
         if size <= DOWNLOAD_CHUNK_BYTES:
             _contents_call(
                 cli,
@@ -624,13 +772,15 @@ def download_file(
             )
             if local.stat().st_size != size or _digest(local) != expected_sha256:
                 local.unlink(missing_ok=True)
-                raise TransferError("download digest or size mismatch")
+                raise TransferIntegrityError("download digest or size mismatch")
             return expected_sha256
         plan = prepared or prepare_download(
             cli, remote, size, renew, expected_sha256=expected_sha256, deadline=deadline
         )
         if plan.size != size or plan.sha256 != expected_sha256:
-            raise TransferError("prepared download does not match immutable export inventory")
+            raise TransferIntegrityError(
+                "prepared download does not match immutable export inventory"
+            )
         try:
             with tempfile.NamedTemporaryFile(
                 dir=local.parent, prefix=".transfer-", delete=False
@@ -657,7 +807,7 @@ def download_file(
                         )
                         try:
                             if part.stat().st_size != expected_size:
-                                raise TransferError("downloaded chunk has unexpected size")
+                                raise TransferIntegrityError("downloaded chunk has unexpected size")
                             with part.open("rb") as source:
                                 while block := source.read(1024 * 1024):
                                     handle.write(block)
@@ -670,7 +820,7 @@ def download_file(
                     raise
             if temporary.stat().st_size != size or _digest(temporary) != expected_sha256:
                 temporary.unlink(missing_ok=True)
-                raise TransferError("download digest or size mismatch")
+                raise TransferIntegrityError("download digest or size mismatch")
             os.replace(temporary, local)
             return expected_sha256
         finally:
