@@ -316,6 +316,7 @@ class CLI:
         self.periodic_export_failures: dict[str, int] = {}
         self.periodic_export_stalled_cycles = 0
         self._deferred_remote_cleanups: dict[str, list[str]] = {}
+        self._deferred_remote_cleanups_lock = threading.Lock()
         self.warmup_seconds = 0.0
         self._lease_stop = threading.Event()
         self._lease_thread: threading.Thread | None = None
@@ -959,14 +960,16 @@ class CLI:
             ),
         )
 
+        last_exc: BaseException | None = None
+
         def remaining() -> float:
             seconds = deadline - time.monotonic()
             if seconds <= 0:
                 if time.monotonic() >= staging_deadline:
                     raise Refused(
                         f"total {self._cap_label()} time cap reached during control recovery"
-                    )
-                raise Refused("deadline reached during telemetry recovery")
+                    ) from last_exc
+                raise Refused("deadline reached during telemetry recovery") from last_exc
             return seconds
 
         def recover_idle() -> None:
@@ -1025,6 +1028,7 @@ class CLI:
                     exc, mutating=is_mutating
                 ):
                     raise
+                last_exc = exc
                 attempt += 1
                 remaining()
                 if not extended and attempt >= policy.ATTEMPTS:
@@ -1129,12 +1133,31 @@ def _cause_chain(exc: BaseException) -> list[BaseException]:
     return chain
 
 
+_NON_RETRYABLE_HTTP_4XX_RE = re.compile(
+    r"(?:"
+    r"\bhttp(?:/\d(?:\.\d)?)?\s+(?:40[0-79]|4[1-9]\d)\b"
+    r"|\bhttp(?:status)?\s*error\s*:?\s*(?:40[0-79]|4[1-9]\d)\b"
+    r"|\bhttp\s+status(?:\s+code)?\s*[=:]?\s*(?:40[0-79]|4[1-9]\d)\b"
+    r"|\b(?:40[0-79]|4[1-9]\d)\s+client\s+error\b"
+    r"|\bclient\s+error\s+['\"]?(?:40[0-79]|4[1-9]\d)\b"
+    r"|^(?:(?!websocket)[^\n])*\bstatus_code\s*=\s*(?:40[0-79]|4[1-9]\d)\b"
+    r")",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def _has_non_retryable_http_4xx(text: str) -> bool:
+    """Match non-408 HTTP 4xx response statuses without matching arbitrary 3-digit numbers."""
+    return bool(_NON_RETRYABLE_HTTP_4XX_RE.search(text))
+
+
 def _is_deferrable_periodic_export_error(cli: CLI, exc: BaseException) -> bool:
     """Return whether a mid-run export failure is a typed/subprocess transfer timeout.
 
-    Integrity mismatches, schema/path/limit violations, HTTP 4xx responses,
-    local OS errors, remote Python kernel errors, ownership/guard failures, and
-    expired whole-session deadlines always return False so they fail at once.
+    Integrity mismatches, schema/path/limit violations, non-408 HTTP 4xx
+    responses, local OS errors, remote Python kernel errors, ownership/guard
+    failures, and expired whole-session deadlines always return False so they
+    fail at once.
     """
     from research.colab_cli.export_batches import ExportBatchError
     from research.colab_cli.schema import SchemaError
@@ -1152,23 +1175,22 @@ def _is_deferrable_periodic_export_error(cli: CLI, exc: BaseException) -> bool:
             return False
         if isinstance(item, ExportBatchError) and not isinstance(item.__cause__, TransferError):
             return False
-        if policy.has_http_4xx(str(item)):
+        if _has_non_retryable_http_4xx(str(item)):
             return False
         lower = str(item).lower()
         if any(marker in lower for marker in _PERMANENT_EXPORT_MARKERS):
             return False
     if any(isinstance(item, (TransferTimeoutError, subprocess.TimeoutExpired)) for item in chain):
         return True
-    leaf = chain[-1]
-    message = str(leaf)
-    if message.startswith("total download time cap reached"):
-        return True
-    return bool(
-        message in _TRANSIENT_EXPORT_MESSAGES
-        or re.fullmatch(
+    for item in chain:
+        message = str(item)
+        if message.startswith("total download time cap reached"):
+            return True
+        if message in _TRANSIENT_EXPORT_MESSAGES or re.fullmatch(
             r"colab (?:download|upload|exec|sessions) operation budget exhausted", message
-        )
-    )
+        ):
+            return True
+    return False
 
 
 def _reconcile_periodic_export_uncertainty(cli: CLI, exc: BaseException) -> None:

@@ -18,6 +18,7 @@ import os
 import re
 import subprocess
 import tempfile
+import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, wait
@@ -158,11 +159,9 @@ def _is_retryable_contents_error(exc: BaseException) -> bool:
     ``CLI.call`` turns command failures into ``Refused`` strings, so importing
     its exception type here would create a dependency cycle.  Keep this narrow:
     only connection and timeout language emitted by requests/the CLI qualifies.
-    Authentication, path, quota, local OS, and kernel errors must fail on their
-    first observation.
+    Authentication, path, quota, and kernel errors must fail on their first
+    observation.
     """
-    if isinstance(exc, OSError) or policy.has_http_4xx(str(exc)):
-        return False
     return policy.transient_error(exc)
 
 
@@ -381,6 +380,20 @@ def _is_remote_scratch_path(path: str) -> bool:
     )
 
 
+_LEFTOVER_LOCK_INIT = threading.Lock()
+
+
+def _leftover_lock(cli: Any) -> threading.Lock:
+    lock = getattr(cli, "_deferred_remote_cleanups_lock", None)
+    if lock is None:
+        with _LEFTOVER_LOCK_INIT:
+            lock = getattr(cli, "_deferred_remote_cleanups_lock", None)
+            if lock is None:
+                lock = threading.Lock()
+                setattr(cli, "_deferred_remote_cleanups_lock", lock)
+    return lock
+
+
 def _leftover_map(cli: Any, *, create: bool = False) -> dict[str, list[str]] | None:
     registry = getattr(cli, "_deferred_remote_cleanups", None)
     if registry is None and create:
@@ -395,34 +408,37 @@ def record_remote_leftover(cli: Any, owner_key: str, scratch_path: str) -> None:
         raise TransferIntegrityError(
             f"refusing to track non-scratch cleanup path: {scratch_path!r}"
         )
-    registry = _leftover_map(cli, create=True)
-    assert registry is not None
-    bucket = registry.setdefault(owner_key, [])
-    if scratch_path not in bucket:
-        bucket.append(scratch_path)
+    with _leftover_lock(cli):
+        registry = _leftover_map(cli, create=True)
+        assert registry is not None
+        bucket = registry.setdefault(owner_key, [])
+        if scratch_path not in bucket:
+            bucket.append(scratch_path)
 
 
 def clear_remote_leftover(cli: Any, scratch_path: str) -> None:
     """Drop a remote UUID scratch path once its removal has been acknowledged."""
-    registry = _leftover_map(cli, create=False)
-    if not registry:
-        return
-    empty_keys = []
-    for key, bucket in registry.items():
-        if scratch_path in bucket:
-            bucket.remove(scratch_path)
-        if not bucket:
-            empty_keys.append(key)
-    for key in empty_keys:
-        registry.pop(key, None)
+    with _leftover_lock(cli):
+        registry = _leftover_map(cli, create=False)
+        if not registry:
+            return
+        empty_keys = []
+        for key, bucket in registry.items():
+            if scratch_path in bucket:
+                bucket.remove(scratch_path)
+            if not bucket:
+                empty_keys.append(key)
+        for key in empty_keys:
+            registry.pop(key, None)
 
 
 def pending_remote_leftovers(cli: Any, owner_key: str) -> list[str]:
     """Return a copy of pending uncleaned scratch paths recorded for owner_key."""
-    registry = _leftover_map(cli, create=False)
-    if not registry:
-        return []
-    return list(registry.get(owner_key, ()))
+    with _leftover_lock(cli):
+        registry = _leftover_map(cli, create=False)
+        if not registry:
+            return []
+        return list(registry.get(owner_key, ()))
 
 
 def sweep_remote_leftovers(

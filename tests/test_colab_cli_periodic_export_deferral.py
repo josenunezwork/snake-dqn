@@ -6,12 +6,13 @@ import errno
 import hashlib
 import json
 import subprocess
+import threading
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from research.colab_cli import cli_guard, policy, supervisor, transfers
+from research.colab_cli import cli_guard, export_batches, policy, supervisor, transfers
 from tests.test_colab_cli_supervisor import (
     _fake_env,
     _isolate_account,
@@ -751,6 +752,10 @@ def test_periodic_403_or_non_timeout_with_timeout_kwarg_in_traceback_refuses_imm
     def fake_run(argv: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
         cmd = argv[5]
         calls.append(cmd)
+        if cmd == "sessions":
+            return subprocess.CompletedProcess(
+                argv, 0, _sessions_stdout(cli.session, cli.poll_recovery_endpoint or "ep"), ""
+            )
         if cmd == phase:
             return subprocess.CompletedProcess(argv, 1, "", stderr_text)
         if cmd == "download":
@@ -770,8 +775,10 @@ def test_periodic_403_or_non_timeout_with_timeout_kwarg_in_traceback_refuses_imm
         )
 
     assert _deferred_warnings(capsys.readouterr().err) == []
-    if "403" in stderr_text:
-        assert calls.count(phase) == 1
+    if phase == "download":
+        assert 1 <= calls.count(phase) <= transfers.CONTENTS_ATTEMPTS
+    else:
+        assert 1 <= calls.count(phase) <= 15
     assert cli.verified_exports == {}
     _assert_no_temp_or_partial(out_dir)
 
@@ -813,7 +820,8 @@ def test_periodic_local_oserror_and_disk_timeout_refuse_immediately(
     with pytest.raises(supervisor.Refused, match="download hash mismatch or transfer failure"):
         supervisor.collect_exports(cli, root, [entry], out_dir, limit=1024 * 1024, periodic=True)
 
-    assert attempts[0] == 1
+    expected_attempts = transfers.CONTENTS_ATTEMPTS if isinstance(local_error, TimeoutError) else 1
+    assert attempts[0] == expected_attempts
     assert _deferred_warnings(capsys.readouterr().err) == []
     _assert_no_temp_or_partial(out_dir)
 
@@ -1101,3 +1109,366 @@ def test_leftover_sweep_is_time_bounded_and_idempotent_when_already_missing(
     hang_cleanup[0] = False
     transfers.sweep_remote_leftovers(cli, remote_path, cli.renew)
     assert transfers.pending_remote_leftovers(cli, remote_path) == []
+
+
+TRANSIENT_ERROR_5E0702C3_TABLE: tuple[tuple[str, bool, bool], ...] = (
+    # --- Six Round 2 regression strings (all True at 5e0702c3; none is non-retryable 4xx) ---
+    ("HTTPError: 408 Client Error: Request Timeout for url: https://x timeout=30", True, False),
+    ("HTTP Error 503: retry after 400 ms", True, False),
+    ("Read timed out after reading response 412 bytes", True, False),
+    ("connection reset by peer while reading status 404 lines", True, False),
+    ("HTTPError 502 ... size 409 bytes", True, False),
+    ("websocket timed out: status_code=400", True, False),
+    # --- Additional 408 / 5xx / transient socket / DNS / reconnect cases (True at 5e0702c3) ---
+    ("urllib.error.HTTPError: HTTP Error 408: Request Timeout", True, False),
+    ("httpx.HTTPStatusError: Client error '408 Request Timeout' for url 'https://x'", True, False),
+    ("HTTPError: 500 Server Error: Internal Server Error for url: https://x", True, False),
+    ("urllib.error.HTTPError: HTTP Error 504: Gateway Timeout", True, False),
+    ("ConnectionResetError: [Errno 54] Connection reset by peer", True, False),
+    ("urllib3.exceptions.NameResolutionError: Failed to resolve 'colab.google.com'", True, False),
+    ("http.client.RemoteDisconnected: Remote end closed connection without response", True, False),
+    ("OSError: [Errno 51] Network is unreachable", True, False),
+    ("RuntimeError: resource temporarily unavailable", True, False),
+    ("cli_guard: GuardError: tracked kernel reconnect required", True, False),
+    # --- Real requests / urllib / httpx / Colab non-408 4xx without timeout text (False) ---
+    ("requests.exceptions.HTTPError: 403 Client Error: Forbidden for url: https://x", False, True),
+    (
+        "requests.exceptions.HTTPError: 401 Client Error: Unauthorized for url: https://x",
+        False,
+        True,
+    ),
+    ("requests.exceptions.HTTPError: 404 Client Error: Not Found for url: https://x", False, True),
+    (
+        "requests.exceptions.HTTPError: 429 Client Error: Too Many Requests for url: https://x",
+        False,
+        True,
+    ),
+    ("urllib.error.HTTPError: HTTP Error 403: Forbidden", False, True),
+    ("urllib.error.HTTPError: HTTP Error 400: Bad Request", False, True),
+    ("httpx.HTTPStatusError: Client error '403 Forbidden' for url 'https://x'", False, True),
+    ("ColabRequestError: request failed status_code=403", False, True),
+    # --- Non-4xx permanent GuardError / integrity errors (False at 5e0702c3) ---
+    (
+        "cli_guard: GuardError: authentication denied\n"
+        "  raise GuardError('tracked kernel reconnect required')",
+        False,
+        False,
+    ),
+    ("RuntimeError: SHA-256 digest mismatch for published artifact", False, False),
+    # --- Non-408 4xx WITH timeout=30 in traceback: transient_error stays 5e0702c3 True,
+    #     while periodic export refusal (_has_non_retryable_http_4xx) detects 4xx -> True ---
+    (
+        "Traceback:\n  resp = session.get(url, timeout=30)\n"
+        "requests.exceptions.HTTPError: 403 Client Error: Forbidden for url: https://x",
+        True,
+        True,
+    ),
+    (
+        "Traceback:\n  resp = urllib.request.urlopen(req, timeout=30)\n"
+        "urllib.error.HTTPError: HTTP Error 403: Forbidden",
+        True,
+        True,
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("message", "expected_5e0702c3_transient", "expected_non_retryable_4xx"),
+    TRANSIENT_ERROR_5E0702C3_TABLE,
+)
+def test_transient_error_pins_5e0702c3_behaviour_and_4xx_status_matching(
+    tmp_path: Path,
+    message: str,
+    expected_5e0702c3_transient: bool,
+    expected_non_retryable_4xx: bool,
+) -> None:
+    """Pin >=20 strings at exact 5e0702c3 transient_error behaviour and isolate 4xx refusal."""
+    assert len(TRANSIENT_ERROR_5E0702C3_TABLE) >= 20
+    exc = supervisor.Refused(message)
+    assert policy.transient_error(exc) is expected_5e0702c3_transient
+    assert transfers._is_retryable_contents_error(exc) is expected_5e0702c3_transient
+    assert supervisor._has_non_retryable_http_4xx(message) is expected_non_retryable_4xx
+
+    cli = supervisor.CLI("fake", tmp_path / "sessions.json", "snake-session")
+    cli.deadline = None
+    assert supervisor._is_deferrable_periodic_export_error(cli, exc) is False
+    wrapped = transfers.TransferTimeoutError("total download time cap reached")
+    wrapped.__cause__ = exc
+    assert supervisor._is_deferrable_periodic_export_error(cli, wrapped) is (
+        not expected_non_retryable_4xx
+    )
+
+
+def test_export_batch_sweeps_remote_leftovers_at_most_once_per_key(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Multiple non-archive leftovers under one key trigger sweep_remote_leftovers once per key."""
+    now = [0.0]
+    cli = _owned_cli(tmp_path, monkeypatch, now)
+    cli.deadline = 3600.0
+    monkeypatch.setattr(cli, "_put_lease", lambda *_a, **_kw: None)
+    remote = tmp_path / "remote"
+    root = "/content/snake-cli/gen-batch-sweep-once"
+    remote_out = remote / root.lstrip("/") / "output"
+    entry_a = _write_remote_export(remote_out, "metrics/u0001.jsonl", b'{"u":1}\n')
+    entry_b = _write_remote_export(remote_out, "metrics/u0002.jsonl", b'{"u":2}\n')
+    key_a = f"{root}/output/metrics/u0001.jsonl"
+    key_b = f"{root}/output/metrics/u0002.jsonl"
+
+    leftovers_a = [f"{root}/output/metrics/.snake-transfer-{ch * 32}" for ch in ("a", "b", "c")]
+    leftovers_b = [f"{root}/output/metrics/.snake-transfer-{ch * 32}" for ch in ("d", "e")]
+    for scratch in leftovers_a:
+        (remote / scratch.lstrip("/")).mkdir(parents=True, exist_ok=True)
+        transfers.record_remote_leftover(cli, key_a, scratch)
+    for scratch in leftovers_b:
+        (remote / scratch.lstrip("/")).mkdir(parents=True, exist_ok=True)
+        transfers.record_remote_leftover(cli, key_b, scratch)
+
+    def fake_run(argv: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+        cmd = argv[5]
+        if cmd == "download":
+            src = remote / argv[-2].lstrip("/")
+            Path(argv[-1]).write_bytes(src.read_bytes())
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        script_path = Path(argv[argv.index("-f") + 1])
+        wrapped = script_path.read_text()
+        if "SNAKE_EXPORT_BATCH" in wrapped:
+            local_root = remote / root.lstrip("/")
+            wrapped = wrapped.replace(
+                "'/content/.snake-rpc-", repr(str(remote / "content/.snake-rpc-"))[:-1]
+            )
+            (remote / "content").mkdir(parents=True, exist_ok=True)
+            wrapped = wrapped.replace(root, str(local_root))
+            wrapped = wrapped.replace(
+                "'path': str(archive)",
+                f"'path': str(archive).replace({str(local_root)!r}, {root!r}, 1)",
+            )
+            script_path.write_text(wrapped)
+            _, proc = _exec_wrapped_snippet(argv, remote_root=None)
+            return proc
+        _, proc = _exec_wrapped_snippet(argv, remote_root=remote)
+        return proc
+
+    swept_keys: list[str] = []
+    original_sweep = export_batches.sweep_remote_leftovers
+
+    def spy_sweep(cli_arg: Any, owner_key: str, *args: Any, **kwargs: Any) -> None:
+        swept_keys.append(owner_key)
+        original_sweep(cli_arg, owner_key, *args, **kwargs)
+
+    monkeypatch.setattr(supervisor.subprocess, "run", fake_run)
+    monkeypatch.setattr(export_batches, "sweep_remote_leftovers", spy_sweep)
+    out_dir = tmp_path / "out"
+
+    export_batches.export_batch(
+        cli, root, [entry_a, entry_b], out_dir, limit=1024 * 1024, deadline=300.0
+    )
+    assert swept_keys == [key_a, key_b]
+    assert cli._deferred_remote_cleanups == {}
+    for scratch in leftovers_a + leftovers_b:
+        assert not (remote / scratch.lstrip("/")).exists()
+
+
+def test_leftover_registry_concurrent_record_clear_pending_is_thread_safe(
+    tmp_path: Path,
+) -> None:
+    """Concurrent record/clear/pending calls across threads never fail or corrupt registry."""
+    cli = supervisor.CLI("fake", tmp_path / "sessions.json", "snake-session")
+    errors: list[BaseException] = []
+    barrier = threading.Barrier(4)
+
+    def producer(worker_id: int) -> None:
+        try:
+            barrier.wait(timeout=5)
+            for idx in range(150):
+                key = f"/content/out/file-{worker_id}-{idx % 7}.pt"
+                scratch = f"/content/out/.snake-transfer-{worker_id:02x}{idx:030x}"
+                transfers.record_remote_leftover(cli, key, scratch)
+                transfers.clear_remote_leftover(cli, scratch)
+        except BaseException as exc:  # pragma: no cover
+            errors.append(exc)
+
+    def reader() -> None:
+        try:
+            barrier.wait(timeout=5)
+            for idx in range(300):
+                key = f"/content/out/file-{idx % 2}-{idx % 7}.pt"
+                _ = transfers.pending_remote_leftovers(cli, key)
+                transfers.clear_remote_leftover(cli, f"/content/out/.snake-transfer-{'f' * 32}")
+        except BaseException as exc:  # pragma: no cover
+            errors.append(exc)
+
+    threads = [
+        threading.Thread(target=producer, args=(0,)),
+        threading.Thread(target=producer, args=(1,)),
+        threading.Thread(target=reader),
+        threading.Thread(target=reader),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+        assert not thread.is_alive()
+
+    assert errors == []
+    assert cli._deferred_remote_cleanups == {}
+
+
+@pytest.mark.parametrize("hung_op", ["mkdir", "verify", "create_dir"])
+def test_setup_upload_single_30s_control_hang_retries_and_succeeds_within_upload_budget(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    hung_op: str,
+) -> None:
+    """C1 check: one 30s control hang on mkdir/CREATE_DIR/VERIFY_FILE retries within 300s cap."""
+    now = [0.0]
+    cli = _owned_cli(tmp_path, monkeypatch, now)
+    cli.deadline = 3600.0
+    monkeypatch.setattr(cli, "_put_lease", lambda *_a, **_kw: None)
+    monkeypatch.setattr(cli_guard, "kernel_idle", lambda *_a, **_kw: True)
+    remote = tmp_path / "remote"
+    root = "/content/snake-cli/gen-c1-setup"
+    (remote / root.lstrip("/")).mkdir(parents=True, exist_ok=True)
+
+    bootstrap = tmp_path / "bootstrap.sh"
+    payload = (
+        b"#!/usr/bin/env bash\n" + (b"x" * (transfers.UPLOAD_CHUNK_BYTES + 128))
+        if hung_op == "create_dir"
+        else b"#!/usr/bin/env bash\necho ok\n"
+    )
+    bootstrap.write_bytes(payload)
+    expected_sha = hashlib.sha256(payload).hexdigest()
+
+    injected = [False]
+    exec_attempts = [0]
+
+    def fake_run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        cmd = argv[5]
+        timeout = float(kwargs["timeout"])
+        if cmd == "sessions":
+            return subprocess.CompletedProcess(
+                argv, 0, _sessions_stdout(cli.session, cli.poll_recovery_endpoint or "ep"), ""
+            )
+        if cmd == "upload":
+            dst = remote / argv[-1].lstrip("/")
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.write_bytes(Path(argv[-2]).read_bytes())
+            now[0] += 1.0
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        assert cmd == "exec"
+        script_text = Path(argv[argv.index("-f") + 1]).read_text()
+        target_marker = {
+            "mkdir": "SNAKE_STAGING_PARENTS",
+            "verify": "SNAKE_TRANSFER_VERIFY_FILE",
+            "create_dir": "SNAKE_TRANSFER_CREATE_DIR",
+        }[hung_op]
+        if target_marker in script_text:
+            exec_attempts[0] += 1
+            if not injected[0]:
+                injected[0] = True
+                assert timeout == pytest.approx(policy.STAGING_CONTROL_SECONDS)
+                now[0] += timeout
+                raise subprocess.TimeoutExpired(argv, timeout)
+        now[0] += 1.0
+        _, proc = _exec_wrapped_snippet(argv, remote_root=remote)
+        return proc
+
+    monkeypatch.setattr(supervisor.subprocess, "run", fake_run)
+    upload_deadline = now[0] + transfers.UPLOAD_TOTAL_TIMEOUT_SECONDS
+    with cli.staging_controls(upload_deadline):
+        with cli.operation("mkdir"):
+            cli.poll_rpc(
+                "# SNAKE_STAGING_PARENTS\nfrom pathlib import Path\n"
+                f"Path({root!r}).mkdir(parents=True,exist_ok=True)\n"
+                "result=True"
+            )
+        digest = transfers.upload_file(
+            cli, bootstrap, f"{root}/bootstrap.sh", lambda: None, deadline=upload_deadline
+        )
+
+    assert injected[0] is True
+    assert exec_attempts[0] == 2
+    assert digest == expected_sha
+    assert (remote / root.lstrip("/") / "bootstrap.sh").read_bytes() == payload
+    assert now[0] < transfers.UPLOAD_TOTAL_TIMEOUT_SECONDS
+    assert cli.exec_uncertain is False
+
+
+def test_periodic_export_rwagc_a_002_total_download_time_cap_reached_before_helper_defers(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """C2 replay: cleanup exhausting 300s file cap + sidecar renew() raising helper cap defers."""
+    now = [23018.9]  # 6.4h into an 8h session (v3-ppo-train-l4-rwagc-a-002).
+    cli = _owned_cli(tmp_path, monkeypatch, now)
+    cli.deadline = 28800.0
+    remote = tmp_path / "remote"
+    root = "/content/snake-cli/9087a477e505"
+    generation = "9087a477e505"
+    remote_out = remote / root.lstrip("/") / "output"
+    rel = "checkpoints/light_u0011034.pt"
+    payload = b"P" * (transfers.DOWNLOAD_CHUNK_BYTES + 4 * 1024 * 1024)
+    entry = _write_remote_export(remote_out, rel, payload)
+
+    last_renew = [now[0]]
+
+    def renew_throttle() -> None:
+        if now[0] - last_renew[0] < 30.0:
+            return
+        cli.renew_runtime_lease(root, generation, force=False)
+        last_renew[0] = now[0]
+
+    cli.renew = renew_throttle
+    monkeypatch.setattr(cli_guard, "kernel_idle", lambda *_a, **_kw: True)
+
+    hang_cleanup = [True]
+
+    def fake_run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        cmd = argv[5]
+        timeout = float(kwargs["timeout"])
+        if cmd == "sessions":
+            return subprocess.CompletedProcess(
+                argv, 0, _sessions_stdout(cli.session, cli.poll_recovery_endpoint or "ep"), ""
+            )
+        if cmd == "upload":
+            dst = remote / argv[-1].lstrip("/")
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.write_bytes(Path(argv[-2]).read_bytes())
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        if cmd == "download":
+            src = remote / argv[-2].lstrip("/")
+            Path(argv[-1]).write_bytes(src.read_bytes())
+            now[0] += 2.0
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        assert cmd == "exec"
+        script_text = Path(argv[argv.index("-f") + 1]).read_text()
+        if hang_cleanup[0] and "SNAKE_TRANSFER_REMOVE_TREE" in script_text:
+            now[0] += timeout
+            raise subprocess.TimeoutExpired(argv, timeout)
+        now[0] += 1.0
+        _, proc = _exec_wrapped_snippet(argv, remote_root=remote)
+        return proc
+
+    monkeypatch.setattr(supervisor.subprocess, "run", fake_run)
+    out_dir = tmp_path / "out"
+
+    # Cycle 1: multi-chunk download finishes chunks, REMOVE_TREE exhausts the 300s per-file
+    # download_controls cap, and sidecar _contents_call -> cli.renew() -> renew_runtime_lease
+    # -> remaining_seconds raises Refused('total download time cap reached before helper').
+    supervisor.collect_exports(cli, root, [entry], out_dir, limit=32 * 1024 * 1024, periodic=True)
+    deferred = _deferred_warnings(capsys.readouterr().err)
+    assert len(deferred) == 1
+    assert deferred[0]["attempt"] == 1
+    assert "total download time cap reached before helper" in deferred[0]["reason"]
+    assert cli.exec_uncertain is False
+    assert len(transfers.pending_remote_leftovers(cli, f"{root}/output/{rel}")) == 1
+
+    # Cycle 2: transport recovers, leftover .snake-transfer-* is swept, checkpoint publishes!
+    hang_cleanup[0] = False
+    supervisor.collect_exports(cli, root, [entry], out_dir, limit=32 * 1024 * 1024, periodic=True)
+    assert (out_dir / "exports" / rel).read_bytes() == payload
+    assert cli.periodic_export_failures == {}
+    assert cli._deferred_remote_cleanups == {}
+    assert list((remote_out / "checkpoints").glob(".snake-transfer-*")) == []

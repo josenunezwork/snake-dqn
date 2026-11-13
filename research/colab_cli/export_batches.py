@@ -333,7 +333,8 @@ def export_batch(
     clean_root = root.rstrip("/")
     member_keys = [f"{clean_root}/output/{row['path']}" for row in rows]
     cleanup_archives: list[str] = []
-    for key in member_keys:
+    for key in dict.fromkeys(member_keys):
+        needs_sweep = False
         for item in pending_remote_leftovers(cli, key):
             candidate = PurePosixPath(item)
             if (
@@ -344,13 +345,15 @@ def export_batch(
                 if item not in cleanup_archives:
                     cleanup_archives.append(item)
             else:
-                sweep_remote_leftovers(
-                    cli,
-                    key,
-                    getattr(cli, "renew", None),
-                    deadline=deadline,
-                    direction="download",
-                )
+                needs_sweep = True
+        if needs_sweep:
+            sweep_remote_leftovers(
+                cli,
+                key,
+                getattr(cli, "renew", None),
+                deadline=deadline,
+                direction="download",
+            )
     archive = clean_root + "/.snake-export-batch-" + uuid.uuid4().hex + ".zip"
     cleanup_names = [PurePosixPath(path).name for path in cleanup_archives]
     download_scope = (
