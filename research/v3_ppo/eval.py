@@ -23,10 +23,11 @@ from research.game_v3.scripted import (
     random_safe_actions,
 )
 from research.game_v3.sim import GameV3Sim, StepInfo
-from research.v3_ppo.config import OpponentPolicy, V3PPOConfig
+from research.v3_ppo.config import DEFAULT_TRAIN_EVAL_OPPONENTS, OpponentPolicy, V3PPOConfig
 from research.v3_ppo.net import EgoMultiScaleNet
+from research.v3_ppo.scripted_opponents import cut_off_actions, head_evader_actions
 
-DEFAULT_EVAL_OPPONENTS: tuple[OpponentPolicy, ...] = ("food_seeking", "random_safe")
+DEFAULT_EVAL_OPPONENTS: tuple[OpponentPolicy, ...] = DEFAULT_TRAIN_EVAL_OPPONENTS
 _EVAL_EVENT_FLUSH_TICKS: int = 256
 
 
@@ -63,6 +64,10 @@ def scripted_opponent_actions(sim: GameV3Sim, policy_kind: OpponentPolicy) -> to
         return random_safe_actions(sim)
     if policy_kind == "cardinal6_safe":
         return cardinal6_safe_actions(sim)
+    if policy_kind == "head_evader":
+        return head_evader_actions(sim)
+    if policy_kind == "cut_off":
+        return cut_off_actions(sim)
     raise ValueError(f"Unsupported opponent_policy {policy_kind!r}")
 
 
@@ -612,7 +617,7 @@ def evaluate_policy(
     cfg: V3PPOConfig,
     *,
     device: str | torch.device = "cpu",
-    opponents: Sequence[OpponentPolicy] = DEFAULT_EVAL_OPPONENTS,
+    opponents: Sequence[OpponentPolicy] | None = None,
     eval_envs: int | None = None,
     eval_burnin_ticks: int | None = None,
     eval_ticks: int | None = None,
@@ -625,11 +630,13 @@ def evaluate_policy(
     """Run single-pass deterministic burn-in + window M-of-N evaluation across ``opponents``.
 
     Runs all opponent matchups simultaneously in ONE :class:`GameV3Sim` pass (`eval_envs`
-    partitioned evenly across ``opponents``: half vs ``food_seeking``, half vs ``random_safe``),
-    polls ``should_stop`` every ``poll_interval_ticks`` to abort cleanly (`aborted: True`), and
-    preserves global RNG states so periodic evaluation leaves training trajectories bit-identical.
+    partitioned evenly across ``opponents``: half vs ``food_seeking``, half vs ``random_safe``
+    at default), polls ``should_stop`` every ``poll_interval_ticks`` to abort cleanly
+    (`aborted: True`), and preserves global RNG states so periodic evaluation leaves training
+    trajectories bit-identical.
     """
     resolved_dev = normalize_device(device)
+    eff_opponents = tuple(cfg.eval_opponents if opponents is None else opponents)
     eff_envs = int(cfg.eval_envs if eval_envs is None else eval_envs)
     eff_burnin = int(cfg.eval_burnin_ticks if eval_burnin_ticks is None else eval_burnin_ticks)
     eff_ticks = int(cfg.eval_ticks if eval_ticks is None else eval_ticks)
@@ -648,7 +655,7 @@ def evaluate_policy(
             raw_suites, ticks_done, total_envs, matchup_envs, peak_bytes = _run_single_pass_eval(
                 cfg=cfg,
                 device=resolved_dev,
-                opponents=opponents,
+                opponents=eff_opponents,
                 eval_envs=eff_envs,
                 eval_burnin_ticks=eff_burnin,
                 eval_ticks=eff_ticks,
@@ -683,7 +690,9 @@ def evaluate_policy(
             "peak_memory_mib": peak_mib,
         }
 
-    by_opponent = {f"vs_{opp}": raw.summary for opp, raw in zip(opponents, raw_suites, strict=True)}
+    by_opponent = {
+        f"vs_{opp}": raw.summary for opp, raw in zip(eff_opponents, raw_suites, strict=True)
+    }
     combined = _combine_matchups(raw_suites)
     return {
         "aborted": False,

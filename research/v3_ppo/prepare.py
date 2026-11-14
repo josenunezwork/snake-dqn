@@ -37,6 +37,17 @@ from research.colab_cli import policy as colab_policy
 from research.colab_cli import transfer_policy as colab_transfer_policy
 from research.colab_cli import transfers as colab_transfers
 from research.game_v3.config import GameV3Config
+from research.v3_ppo.anchor_eval import (
+    DEFAULT_ANCHOR_BURNIN_TICKS,
+    DEFAULT_ANCHOR_LEARNER_SLOTS,
+    DEFAULT_ANCHOR_NUM_ENVS,
+    DEFAULT_ANCHOR_SCRIPTED_OPPONENTS,
+    DEFAULT_ANCHOR_WINDOW_TICKS,
+    build_anchor_candidate_reuse_key,
+    candidate_unit_id,
+    parse_anchor_scripted_opponents,
+    validate_anchor_candidate_unit_reuse,
+)
 from research.v3_ppo.arena_eval import (
     DEFAULT_EVAL_SEED,
     DEFAULT_H2H_BURNIN_TICKS,
@@ -52,6 +63,7 @@ from research.v3_ppo.arena_eval import (
     V3_EVAL_POLICY_BUNDLE_SCHEMA,
     _load_checkpoint_payload,
     build_pair_reuse_key,
+    discover_eval_checkpoints,
     discover_round_robin_checkpoints,
     estimate_eval_memory,
     extract_eval_policy_bundle_record,
@@ -66,6 +78,7 @@ from research.v3_ppo.config import (
     ASSUMED_STAGED_INPUT_UPLOAD_RATE_BYTES_PER_SEC,
     ASSUMED_STAGED_INPUT_UPLOAD_RATE_MBPS,
     CANARY_MAX_ESTIMATED_UPLOAD_SECONDS,
+    DEFAULT_TRAIN_EVAL_OPPONENTS,
     EVAL_UPLOAD_CHUNK_RATE_BYTES_PER_SEC,
     EVAL_UPLOAD_CONTROL_HANG_PROB,
     GPU_VRAM_BUDGET_BYTES,
@@ -94,6 +107,7 @@ from research.v3_ppo.config import (
     get_net_preset,
     merge_and_append_recipe_history,
     obs_layout_from_game_config,
+    parse_opponent_policies,
     parse_recipe_overrides,
     resolve_full_export_settings,
     validate_checkpoint_export_caps,
@@ -163,10 +177,19 @@ class PreparePacketOptions:
     max_periodic_full_exports: int | None = None
     light_resume_margin_minutes: float | None = None
     eval_estimated_seconds: float | None = None
+    eval_every_minutes: float | None = None
+    eval_every_updates: int | None = None
+    eval_envs: int | None = None
+    eval_ticks: int | None = None
+    eval_opponents: str | None = None
     eval_mode: str | None = None
     eval_policies: tuple[Path, ...] = ()
     eval_round_robin: tuple[Path, ...] = ()
+    eval_candidates: tuple[Path, ...] = ()
+    eval_references: tuple[Path, ...] = ()
     eval_labels: tuple[str, ...] | None = None
+    eval_reference_labels: tuple[str, ...] | None = None
+    anchor_scripted: str | None = None
     eval_burnin_ticks: int | None = None
     eval_window_ticks: int | None = None
     eval_mass_bin_ticks: int = DEFAULT_H2H_MASS_BIN_TICKS
@@ -197,14 +220,15 @@ class PreparePacketOptions:
 
 @dataclass(frozen=True)
 class _PriorSpec:
-    """Resolved prior continuation artifact (checkpoint set, ruler cells, or eval pairs)."""
+    """Resolved prior continuation artifact (checkpoint, ruler cells, eval pairs, or anchor candidates)."""
 
-    kind: str  # "none" | "checkpoint" | "ruler_cells" | "eval_pairs"
+    kind: str  # "none" | "checkpoint" | "ruler_cells" | "eval_pairs" | "eval_candidates"
     prior_dir: Path | None = None
     chosen_checkpoint: dict[str, Any] | None = None
     staged_base_cfg: V3PPOConfig | None = None
     ruler_cell_paths: tuple[Path, ...] = ()
     eval_pair_paths: tuple[Path, ...] = ()
+    eval_candidate_paths: tuple[Path, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -247,6 +271,8 @@ class _SizedModePlan:
     minibatch_remainder: dict[str, Any] | None = None
     eval_plan: dict[str, Any] | None = None
     eval_policy_specs: tuple[dict[str, Any], ...] = ()
+    anchor_ledger_spec: dict[str, Any] | None = None
+    anchor_capacity: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -289,6 +315,7 @@ def runtime_source_paths(commit: str) -> list[str]:
     }
     v3_ppo_names = {
         "__init__.py",
+        "anchor_eval.py",
         "arena_eval.py",
         "buffer.py",
         "checkpoint_io.py",
@@ -302,6 +329,7 @@ def runtime_source_paths(commit: str) -> list[str]:
         "requirements.txt",
         "resume.py",
         "ruler.py",
+        "scripted_opponents.py",
         "trainer.py",
     }
     tracked = sorted(
@@ -332,7 +360,11 @@ def runtime_source_paths(commit: str) -> list[str]:
             )
         )
     ]
-    core_v3_ppo_names = v3_ppo_names - {"arena_eval.py"}
+    core_v3_ppo_names = v3_ppo_names - {
+        "anchor_eval.py",
+        "arena_eval.py",
+        "scripted_opponents.py",
+    }
     required_relpaths = (
         "research/arena_ppo/__init__.py",
         "research/arena_ppo/runtime.py",
@@ -469,6 +501,33 @@ def _find_verified_prior_eval_pairs(prior_dir: Path) -> list[Path]:
     return []
 
 
+def _find_verified_prior_eval_candidates(prior_dir: Path) -> list[Path]:
+    """Locate verified ``candidates/cand_*.json`` anchor artifacts under ``prior_dir``."""
+    search_roots = [prior_dir]
+    if (prior_dir / "exports").is_dir():
+        search_roots.append(prior_dir / "exports")
+
+    for root_cand in search_roots:
+        cands_sub = root_cand / "candidates"
+        if not cands_sub.is_dir():
+            continue
+        found: list[Path] = []
+        for cand_json in sorted(cands_sub.glob("cand_*.json")):
+            if not (
+                Path(f"{cand_json}.complete").is_file() and Path(f"{cand_json}.sha256").is_file()
+            ):
+                continue
+            verify_completed_artifact(cand_json)
+            parsed = json.loads(cand_json.read_text(encoding="utf-8"))
+            cand_ns = parsed.get("namespace") if isinstance(parsed, dict) else None
+            if cand_ns not in (None, V3_PPO_NAMESPACE):
+                raise ValueError(f"Foreign anchor candidate namespace at {cand_json}")
+            found.append(cand_json)
+        if found:
+            return found
+    return []
+
+
 def _detect_prior_kind(prior_output_dir: Path) -> str:
     prior_dir = Path(prior_output_dir).resolve()
     if not prior_dir.is_dir():
@@ -476,10 +535,11 @@ def _detect_prior_kind(prior_output_dir: Path) -> str:
     has_ckpt = _resolve_verified_prior_checkpoint(prior_dir) is not None
     has_cells = bool(_find_verified_prior_cells(prior_dir))
     has_pairs = bool(_find_verified_prior_eval_pairs(prior_dir))
-    if sum(bool(x) for x in (has_ckpt, has_cells, has_pairs)) > 1:
+    has_cands = bool(_find_verified_prior_eval_candidates(prior_dir))
+    if sum(bool(x) for x in (has_ckpt, has_cells, has_pairs, has_cands)) > 1:
         raise ValueError(
             f"Ambiguous prior_output_dir {prior_dir} contains multiple artifact kinds; "
-            "pass explicit --prior-kind checkpoint, ruler_cells, or eval_pairs."
+            "pass explicit --prior-kind checkpoint, ruler_cells, eval_pairs, or eval_candidates."
         )
     if has_ckpt:
         return "checkpoint"
@@ -487,8 +547,11 @@ def _detect_prior_kind(prior_output_dir: Path) -> str:
         return "ruler_cells"
     if has_pairs:
         return "eval_pairs"
+    if has_cands:
+        return "eval_candidates"
     raise FileNotFoundError(
-        f"No verified V3 PPO checkpoints, ruler cells/*.json, or eval pairs/*.json found under {prior_dir}"
+        f"No verified V3 PPO checkpoints, ruler cells/*.json, eval pairs/*.json, or "
+        f"candidates/*.json found under {prior_dir}"
     )
 
 
@@ -497,14 +560,22 @@ def _resolve_prior_spec(opts: PreparePacketOptions) -> _PriorSpec:
     if opts.prior_output_dir is None:
         return _PriorSpec(kind="none")
 
-    if opts.prior_kind not in ("auto", "checkpoint", "ruler_cells", "eval_pairs"):
+    if opts.prior_kind not in (
+        "auto",
+        "checkpoint",
+        "ruler_cells",
+        "eval_pairs",
+        "eval_candidates",
+    ):
         raise ValueError(f"Unsupported prior_kind={opts.prior_kind!r}")
     if opts.mode == "train" and opts.prior_kind not in ("auto", "checkpoint"):
         raise ValueError("mode='train' requires prior_kind in {'auto', 'checkpoint'}")
     if opts.mode == "ruler" and opts.prior_kind not in ("auto", "ruler_cells"):
         raise ValueError("mode='ruler' requires prior_kind in {'auto', 'ruler_cells'}")
-    if opts.mode == "eval" and opts.prior_kind not in ("auto", "eval_pairs"):
-        raise ValueError("mode='eval' requires prior_kind in {'auto', 'eval_pairs'}")
+    if opts.mode == "eval" and opts.prior_kind not in ("auto", "eval_pairs", "eval_candidates"):
+        raise ValueError(
+            "mode='eval' requires prior_kind in {'auto', 'eval_pairs', 'eval_candidates'}"
+        )
 
     prior_dir = Path(opts.prior_output_dir).resolve()
     if not prior_dir.is_dir():
@@ -517,9 +588,24 @@ def _resolve_prior_spec(opts: PreparePacketOptions) -> _PriorSpec:
         elif opts.mode == "ruler":
             eff_prior_kind = "ruler_cells"
         elif opts.mode == "eval":
-            eff_prior_kind = "eval_pairs"
+            if opts.eval_mode == "anchor" or bool(opts.eval_candidates):
+                eff_prior_kind = "eval_candidates"
+            else:
+                eff_prior_kind = "eval_pairs"
         else:
             eff_prior_kind = _detect_prior_kind(prior_dir)
+
+    if eff_prior_kind == "eval_candidates":
+        found_cands = _find_verified_prior_eval_candidates(prior_dir)
+        if not found_cands:
+            raise FileNotFoundError(
+                f"No verified V3 PPO anchor candidates/cand_*.json found under {prior_dir}"
+            )
+        return _PriorSpec(
+            kind="eval_candidates",
+            prior_dir=prior_dir,
+            eval_candidate_paths=tuple(found_cands),
+        )
 
     if eff_prior_kind == "eval_pairs":
         found_pairs = _find_verified_prior_eval_pairs(prior_dir)
@@ -753,13 +839,41 @@ def _stage_validate_options(opts: PreparePacketOptions) -> _ValidatedPacketConte
         )
 
     source_paths = runtime_source_paths(resolved_commit)
-    has_eval_inputs = bool(opts.eval_policies or opts.eval_round_robin)
+    has_eval_inputs = bool(opts.eval_policies or opts.eval_round_robin or opts.eval_candidates)
     if (
         opts.mode == "eval" or (opts.mode == "canary" and has_eval_inputs)
     ) and "research/v3_ppo/arena_eval.py" not in source_paths:
         raise ValueError(
             f"Pinned commit {resolved_commit} is missing research/v3_ppo/arena_eval.py "
             "required for --mode eval"
+        )
+    is_anchor_req = opts.eval_mode == "anchor" or bool(opts.eval_candidates)
+    if is_anchor_req and "research/v3_ppo/anchor_eval.py" not in source_paths:
+        raise ValueError(
+            f"Pinned commit {resolved_commit} is missing research/v3_ppo/anchor_eval.py "
+            "required for --eval-mode anchor"
+        )
+    wants_harder_scripted = (
+        opts.opponent_policy in ("head_evader", "cut_off")
+        or (
+            opts.eval_opponents is not None
+            and any(
+                op in ("head_evader", "cut_off")
+                for op in parse_opponent_policies(opts.eval_opponents)
+            )
+        )
+        or (
+            is_anchor_req
+            and any(
+                op in ("head_evader", "cut_off")
+                for op in parse_anchor_scripted_opponents(opts.anchor_scripted)
+            )
+        )
+    )
+    if wants_harder_scripted and "research/v3_ppo/scripted_opponents.py" not in source_paths:
+        raise ValueError(
+            f"Pinned commit {resolved_commit} is missing research/v3_ppo/scripted_opponents.py "
+            "required for head_evader / cut_off scripted opponents"
         )
 
     gpu_slug = gpu_norm.lower()
@@ -842,7 +956,9 @@ def _size_canary_mode(
     required_exports = list(CANARY_REQUIRED_EXPORTS)
     eval_policy_specs: tuple[dict[str, Any], ...] = ()
     memory_estimate: dict[str, Any] | None = None
-    if opts.eval_policies or opts.eval_round_robin:
+    anchor_ledger_spec: dict[str, Any] | None = None
+    anchor_capacity: dict[str, Any] | None = None
+    if opts.eval_policies or opts.eval_round_robin or opts.eval_candidates:
         layout = _resolve_and_validate_eval_layout(opts, ctx)
         policy_specs = layout["policy_specs"]
         use_weights_only = bool(layout["use_weights_only"])
@@ -856,6 +972,8 @@ def _size_canary_mode(
         extra_env["V3_PPO_CHANNELS_LAST"] = "1" if eff_cl else "0"
         if opts.learner_slots is not None:
             extra_env["V3_PPO_EVAL_LEARNER_SLOTS"] = str(int(opts.learner_slots))
+        elif eff_eval_mode == "anchor":
+            extra_env["V3_PPO_EVAL_LEARNER_SLOTS"] = str(int(layout["eff_learner_slots"]))
         if opts.opponent_policy is not None:
             extra_env["V3_PPO_EVAL_OPPONENT_POLICY"] = str(opts.opponent_policy)
         if opts.eval_greedy:
@@ -867,6 +985,27 @@ def _size_canary_mode(
                 extra_env["V3_PPO_EVAL_MAX_PAIRS_PER_BATCH"] = str(
                     int(layout["eff_pairs_per_batch"])
                 )
+        elif eff_eval_mode == "anchor":
+            anchor_ledger_spec = dict(layout["anchor_ledger_spec"])
+            scripted_ops = anchor_ledger_spec["scripted_opponents"]
+            extra_env["V3_PPO_ANCHOR_SCRIPTED"] = ",".join(scripted_ops) if scripted_ops else "none"
+            anchor_capacity = _compute_anchor_capacity_summary(
+                gpu_norm=ctx.gpu_norm,
+                candidate_net_sizes=layout["candidate_net_sizes"],
+                reference_net_sizes=layout["reference_net_sizes"],
+                scripted_opponents=tuple(scripted_ops),
+                eff_envs=int(layout["eff_envs"]),
+                eff_learner_slots=int(layout["eff_learner_slots"]),
+                eff_burnin=int(layout["eff_burnin"]),
+                eff_window=int(layout["eff_window"]),
+                n_snakes=int(layout["n_snakes"]),
+                use_weights_only=use_weights_only,
+                session_cap_min=float(opts.eval_session_minutes),
+                measured_or_assumed_ms_per_tick=None,
+                prior_unit_sizes=[int(p.stat().st_size) for p in ctx.prior.eval_candidate_paths],
+                is_canary=True,
+            )
+            _print_anchor_capacity_stderr(anchor_capacity)
         required_exports = [*CANARY_REQUIRED_EXPORTS, *EVAL_REQUIRED_EXPORTS]
         eval_policy_specs = tuple({**sp, "weights_only": use_weights_only} for sp in policy_specs)
         memory_estimate = dict(layout["memory_estimate"])
@@ -892,6 +1031,8 @@ def _size_canary_mode(
         canary_block=ctx.canary_block,
         memory_estimate=memory_estimate,
         eval_policy_specs=eval_policy_specs,
+        anchor_ledger_spec=anchor_ledger_spec,
+        anchor_capacity=anchor_capacity,
     )
 
 
@@ -1054,6 +1195,37 @@ def _resolve_measured_world_bytes(
     return eff_world_bytes
 
 
+def _train_eval_cost_scale_vs_default(cfg_obj: V3PPOConfig) -> float:
+    """Return exact 1.0 for default train eval settings, else proportional wall-time multiplier."""
+    if (
+        int(cfg_obj.eval_envs) == 192
+        and int(cfg_obj.eval_burnin_ticks) == 250
+        and int(cfg_obj.eval_ticks) == 2000
+        and tuple(cfg_obj.eval_opponents) == DEFAULT_TRAIN_EVAL_OPPONENTS
+    ):
+        return 1.0
+    env_ratio = float(cfg_obj.eval_envs) / 192.0
+    tick_ratio = float(int(cfg_obj.eval_burnin_ticks) + int(cfg_obj.eval_ticks)) / 2250.0
+    opp_weights = [
+        1.15 if op in ("cut_off", "head_evader") else 1.0 for op in cfg_obj.eval_opponents
+    ]
+    opp_ratio = float(sum(opp_weights)) / 2.0
+    return max(0.05, env_ratio * tick_ratio * opp_ratio)
+
+
+def _scale_train_canary_eval_wall_seconds(
+    cfg_obj: V3PPOConfig,
+    raw_canary_eval_wall: float | None,
+) -> float | None:
+    """Scale measured default-eval canary wall time when train eval settings are customized."""
+    if raw_canary_eval_wall is None:
+        return None
+    scale = _train_eval_cost_scale_vs_default(cfg_obj)
+    if scale == 1.0:
+        return float(raw_canary_eval_wall)
+    return round(float(raw_canary_eval_wall) * scale, 4)
+
+
 def _size_train_mode(
     opts: PreparePacketOptions,
     ctx: _ValidatedPacketContext,
@@ -1089,6 +1261,10 @@ def _size_train_mode(
     elif not caller_overrode_eval_est and ctx.canary_eval_metrics is not None:
         eff_eval_est = float(ctx.canary_eval_metrics["wall_seconds"])
 
+    eff_train_eval_ticks = (
+        opts.eval_ticks if opts.eval_ticks is not None else opts.eval_window_ticks
+    )
+
     eff_train = resolve_effective_train_config(
         argparse.Namespace(
             output_dir=ctx.out_path,
@@ -1117,11 +1293,12 @@ def _size_train_mode(
             checkpoint_shard_bytes=None,
             checkpoint_every_updates=None,
             full_checkpoint_every_updates=None,
-            eval_every_minutes=None,
-            eval_every_updates=None,
-            eval_envs=None,
-            eval_burnin_ticks=None,
-            eval_ticks=None,
+            eval_every_minutes=opts.eval_every_minutes,
+            eval_every_updates=opts.eval_every_updates,
+            eval_envs=opts.eval_envs,
+            eval_burnin_ticks=opts.eval_burnin_ticks,
+            eval_ticks=eff_train_eval_ticks,
+            eval_opponents=opts.eval_opponents,
             eval_estimated_seconds=eff_eval_est,
             seed=None,
             compile=(True if opts.compile_model else None),
@@ -1138,6 +1315,12 @@ def _size_train_mode(
         forbid_recipe_scalar_conflict=True,
     )
     cfg_obj = eff_train.cfg
+    eval_scale = _train_eval_cost_scale_vs_default(cfg_obj)
+    if eval_scale != 1.0 and not caller_overrode_eval_est:
+        cfg_obj = replace(
+            cfg_obj,
+            eval_estimated_seconds=round(float(cfg_obj.eval_estimated_seconds) * eval_scale, 2),
+        )
 
     recipe_change_rec: dict[str, Any] | None = None
     if staged_base_cfg is not None:
@@ -1170,10 +1353,13 @@ def _size_train_mode(
     minibatch_remainder = check_minibatch_divisibility(cfg_obj)
 
     eff_world_bytes = _resolve_measured_world_bytes(opts, cfg_obj)
-    canary_eval_wall_sec = (
-        float(ctx.canary_eval_metrics["wall_seconds"])
-        if ctx.canary_eval_metrics is not None
-        else None
+    canary_eval_wall_sec = _scale_train_canary_eval_wall_seconds(
+        cfg_obj,
+        (
+            float(ctx.canary_eval_metrics["wall_seconds"])
+            if ctx.canary_eval_metrics is not None
+            else None
+        ),
     )
     staged_input_bytes = (
         int(ctx.prior.chosen_checkpoint["size_bytes"])
@@ -1245,9 +1431,50 @@ def _size_train_mode(
     )
 
 
+def _load_and_validate_checkpoint_records(
+    ckpt_paths: Sequence[Path],
+    *,
+    ref_game_dict: dict[str, Any] | None = None,
+    ref_layout_dict: dict[str, Any] | None = None,
+    ref_first_path: Path | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None, dict[str, Any] | None]:
+    """Load and structurally verify checkpoint records on Mac while checking game/obs compatibility."""
+    records: list[dict[str, Any]] = []
+    cur_game_dict = ref_game_dict
+    cur_layout_dict = ref_layout_dict
+    first_p = ref_first_path
+    for c_path in ckpt_paths:
+        payload, c_sha, c_size = _load_checkpoint_payload(c_path)
+        c_cfg = V3PPOConfig.from_dict(payload["config"])
+        c_layout = obs_layout_from_game_config(c_cfg.game_config).to_dict()
+        if payload.get("obs_layout") is not None and payload["obs_layout"] != c_layout:
+            raise ValueError(f"Checkpoint {c_path} obs_layout does not match its game_config")
+        g_dict = c_cfg.game_config.to_dict()
+        if cur_game_dict is None:
+            cur_game_dict = g_dict
+            cur_layout_dict = c_layout
+            first_p = c_path
+        elif g_dict != cur_game_dict or c_layout != cur_layout_dict:
+            raise ValueError(f"Incompatible game_config/obs_layout in {c_path} vs {first_p}")
+        orig_path = str(payload.get("source_checkpoint_path") or c_path)
+        orig_sha = str(payload.get("source_checkpoint_sha256") or c_sha)
+        orig_size = int(payload.get("source_checkpoint_size_bytes") or c_size)
+        records.append(
+            {
+                "input_path": str(c_path),
+                "src_path": orig_path,
+                "src_sha256": orig_sha,
+                "raw_size_bytes": orig_size,
+                "net_size": c_cfg.net_size,
+                "game_config": g_dict,
+            }
+        )
+    return records, cur_game_dict, cur_layout_dict
+
+
 def _resolve_eval_policy_specs(
     opts: PreparePacketOptions,
-) -> tuple[str, list[dict[str, Any]], GameV3Config, int, bool]:
+) -> tuple[str, list[dict[str, Any]], GameV3Config, int, bool, dict[str, Any] | None]:
     """Validate and resolve eval mode, checkpoint metadata, game_config, and weights-only flag."""
     if opts.eval_weights_only not in ("auto", "true", "false"):
         raise ValueError(
@@ -1259,7 +1486,9 @@ def _resolve_eval_policy_specs(
         raise ValueError(f"eval_mode must be one of {EVAL_MODES}, got {eff_eval_mode!r}")
 
     if eff_eval_mode is None:
-        if opts.eval_round_robin:
+        if opts.eval_candidates:
+            eff_eval_mode = "anchor"
+        elif opts.eval_round_robin:
             eff_eval_mode = "round-robin"
         elif len(opts.eval_policies) == 1:
             eff_eval_mode = "long-game"
@@ -1267,9 +1496,107 @@ def _resolve_eval_policy_specs(
             eff_eval_mode = "head-to-head"
         else:
             raise ValueError(
-                "--mode eval requires --eval-policies (1 for long-game, 2..6 for head-to-head) "
-                "or --eval-round-robin DIR_OR_LIST"
+                "--mode eval requires --eval-policies (1 for long-game, 2..6 for head-to-head), "
+                "--eval-round-robin DIR_OR_LIST, or --candidates DIR_OR_LIST"
             )
+
+    use_weights_only = opts.eval_weights_only != "false"
+
+    if eff_eval_mode == "anchor":
+        cand_sources = opts.eval_candidates if opts.eval_candidates else opts.eval_policies
+        if not cand_sources:
+            raise ValueError("--eval-mode anchor requires --candidates DIR_OR_LIST")
+        cand_paths = discover_eval_checkpoints(cand_sources, min_checkpoints=1)
+        ref_paths = (
+            discover_eval_checkpoints(opts.eval_references, min_checkpoints=0)
+            if opts.eval_references
+            else []
+        )
+        scripted_ops = parse_anchor_scripted_opponents(opts.anchor_scripted)
+        if opts.eval_labels is not None:
+            resolve_unique_labels(cand_paths, opts.eval_labels)
+        if opts.eval_reference_labels is not None and ref_paths:
+            resolve_unique_labels(ref_paths, opts.eval_reference_labels)
+
+        cand_records, ref_game_dict, ref_layout_dict = _load_and_validate_checkpoint_records(
+            cand_paths
+        )
+        ref_records, ref_game_dict, ref_layout_dict = _load_and_validate_checkpoint_records(
+            ref_paths,
+            ref_game_dict=ref_game_dict,
+            ref_layout_dict=ref_layout_dict,
+            ref_first_path=cand_paths[0],
+        )
+        cand_labels = resolve_unique_labels(
+            [Path(rec["src_path"]) for rec in cand_records],
+            opts.eval_labels,
+        )
+        ref_labels = (
+            resolve_unique_labels(
+                [Path(rec["src_path"]) for rec in ref_records],
+                opts.eval_reference_labels,
+            )
+            if ref_records
+            else []
+        )
+
+        # Deduplicate bundle entries by original checkpoint SHA-256 (candidates first, then refs).
+        bundle_idx_by_sha: dict[str, int] = {}
+        unique_records: list[dict[str, Any]] = []
+        unique_default_labels: list[str] = []
+        cand_bundle_indices: list[int] = []
+        ref_bundle_indices: list[int] = []
+        for rec, lbl in zip(cand_records, cand_labels):
+            sha = str(rec["src_sha256"])
+            if sha not in bundle_idx_by_sha:
+                bundle_idx_by_sha[sha] = len(unique_records)
+                unique_records.append(rec)
+                unique_default_labels.append(lbl)
+            cand_bundle_indices.append(bundle_idx_by_sha[sha])
+        for rec, lbl in zip(ref_records, ref_labels):
+            sha = str(rec["src_sha256"])
+            if sha not in bundle_idx_by_sha:
+                bundle_idx_by_sha[sha] = len(unique_records)
+                unique_records.append(rec)
+                unique_default_labels.append(lbl)
+            ref_bundle_indices.append(bundle_idx_by_sha[sha])
+
+        bundle_labels = resolve_unique_labels(
+            [Path(rec["src_path"]) for rec in unique_records],
+            None,
+        )
+        policy_specs: list[dict[str, Any]] = []
+        raw_total_bytes = 0
+        for idx, (rec, lbl) in enumerate(zip(unique_records, bundle_labels)):
+            raw_total_bytes += int(rec["raw_size_bytes"])
+            safe_slug = re.sub(r"[^A-Za-z0-9._-]+", "_", lbl).strip("_") or f"p{idx:02d}"
+            policy_specs.append(
+                {
+                    "index": idx,
+                    "label": lbl,
+                    "safe_slug": safe_slug[:40],
+                    **rec,
+                }
+            )
+        assert ref_game_dict is not None
+        eval_game_cfg = GameV3Config.from_dict({**ref_game_dict, "max_life_ticks": 0})
+        anchor_meta = {
+            "candidate_records": cand_records,
+            "reference_records": ref_records,
+            "candidate_labels": cand_labels,
+            "reference_labels": ref_labels,
+            "candidate_bundle_indices": cand_bundle_indices,
+            "reference_bundle_indices": ref_bundle_indices,
+            "scripted_opponents": list(scripted_ops),
+        }
+        return (
+            eff_eval_mode,
+            policy_specs,
+            eval_game_cfg,
+            raw_total_bytes,
+            use_weights_only,
+            anchor_meta,
+        )
 
     if eff_eval_mode == "round-robin":
         sources = opts.eval_round_robin if opts.eval_round_robin else opts.eval_policies
@@ -1293,51 +1620,16 @@ def _resolve_eval_policy_specs(
             )
         ckpt_paths = [Path(p).resolve() for p in opts.eval_policies]
 
-    if opts.eval_weights_only not in ("auto", "true", "false"):
-        raise ValueError(
-            f"eval_weights_only must be 'true', 'false', or 'auto', got {opts.eval_weights_only!r}"
-        )
     if opts.eval_labels is not None:
         resolve_unique_labels(ckpt_paths, opts.eval_labels)
 
-    # Structurally verify every checkpoint on Mac before staging, preserve original provenance,
-    # and check game_config/obs_layout compatibility.
-    loaded_records: list[dict[str, Any]] = []
-    ref_game_dict: dict[str, Any] | None = None
-    ref_layout_dict: dict[str, Any] | None = None
-    raw_total_bytes = 0
-    for c_path in ckpt_paths:
-        payload, c_sha, c_size = _load_checkpoint_payload(c_path)
-        c_cfg = V3PPOConfig.from_dict(payload["config"])
-        c_layout = obs_layout_from_game_config(c_cfg.game_config).to_dict()
-        if payload.get("obs_layout") is not None and payload["obs_layout"] != c_layout:
-            raise ValueError(f"Checkpoint {c_path} obs_layout does not match its game_config")
-        g_dict = c_cfg.game_config.to_dict()
-        if ref_game_dict is None:
-            ref_game_dict = g_dict
-            ref_layout_dict = c_layout
-        elif g_dict != ref_game_dict or c_layout != ref_layout_dict:
-            raise ValueError(f"Incompatible game_config/obs_layout in {c_path} vs {ckpt_paths[0]}")
-        orig_path = str(payload.get("source_checkpoint_path") or c_path)
-        orig_sha = str(payload.get("source_checkpoint_sha256") or c_sha)
-        orig_size = int(payload.get("source_checkpoint_size_bytes") or c_size)
-        raw_total_bytes += orig_size
-        loaded_records.append(
-            {
-                "input_path": str(c_path),
-                "src_path": orig_path,
-                "src_sha256": orig_sha,
-                "raw_size_bytes": orig_size,
-                "net_size": c_cfg.net_size,
-                "game_config": g_dict,
-            }
-        )
-
+    loaded_records, ref_game_dict, _ = _load_and_validate_checkpoint_records(ckpt_paths)
+    raw_total_bytes = sum(int(rec["raw_size_bytes"]) for rec in loaded_records)
     labels = resolve_unique_labels(
         [Path(rec["src_path"]) for rec in loaded_records],
         opts.eval_labels,
     )
-    policy_specs: list[dict[str, Any]] = []
+    policy_specs = []
     for idx, (rec, lbl) in enumerate(zip(loaded_records, labels)):
         safe_slug = re.sub(r"[^A-Za-z0-9._-]+", "_", lbl).strip("_") or f"p{idx:02d}"
         policy_specs.append(
@@ -1351,25 +1643,359 @@ def _resolve_eval_policy_specs(
 
     assert ref_game_dict is not None
     eval_game_cfg = GameV3Config.from_dict({**ref_game_dict, "max_life_ticks": 0})
-    use_weights_only = opts.eval_weights_only != "false"
-    return eff_eval_mode, policy_specs, eval_game_cfg, raw_total_bytes, use_weights_only
+    return eff_eval_mode, policy_specs, eval_game_cfg, raw_total_bytes, use_weights_only, None
+
+
+def _estimate_anchor_ms_per_tick(
+    gpu_norm: str,
+    *,
+    num_envs: int,
+    num_snakes: int,
+    learner_slots: int,
+    cand_net_size: NetSize,
+    ref_net_sizes: Sequence[NetSize],
+    scripted_opponents: Sequence[OpponentPolicy],
+) -> float:
+    """Calibrated GPU per-tick estimate for anchor evaluation (anchored to L4/A100 canary logs)."""
+    gpu_scale_map = {"L4": 1.00, "A100": 0.48, "H100": 0.30}
+    gpu_scale = float(gpu_scale_map.get(str(gpu_norm).strip().upper(), 1.00))
+    row_ms_map: dict[str, float] = {"S": 0.040, "M": 0.088, "L": 0.165}
+
+    e_cnt = max(1, int(num_envs))
+    n_cnt = max(1, int(num_snakes))
+    ls_cnt = max(1, min(n_cnt, int(learner_slots)))
+    opp_seats = max(0, n_cnt - ls_cnt)
+    num_opp_types = len(ref_net_sizes) + len(scripted_opponents)
+
+    cand_rows = float(e_cnt * ls_cnt)
+    cand_ms = cand_rows * row_ms_map[str(cand_net_size)]
+
+    ref_ms = 0.0
+    if opp_seats > 0 and num_opp_types > 0 and ref_net_sizes:
+        seats_per_opp = float(opp_seats) / float(num_opp_types)
+        for r_net in ref_net_sizes:
+            ref_ms += float(e_cnt) * seats_per_opp * row_ms_map[str(r_net)]
+
+    has_hard_scripted = any(op in ("cut_off", "head_evader") for op in scripted_opponents)
+    world_sim_ms = float(e_cnt) * (0.45 if has_hard_scripted else 0.32)
+    launch_ms = 6.0
+    return round(gpu_scale * (launch_ms + world_sim_ms + cand_ms + ref_ms), 4)
+
+
+def _est_compressed_policy_bytes(net_size: NetSize, *, use_weights_only: bool) -> int:
+    """Conservative compressed bundle byte estimate for one policy of ``net_size``."""
+    return int(
+        math.ceil(
+            get_net_preset(net_size).exact_param_count * 4 * (0.85 if use_weights_only else 0.90)
+        )
+    )
+
+
+def _count_fitting_anchor_candidates(
+    *,
+    cand_net_sizes_seq: Sequence[NetSize],
+    fallback_cand_net: NetSize,
+    ref_net_sizes: Sequence[NetSize],
+    use_weights_only: bool,
+    ms_per_tick: float,
+    ticks_per_cand: int,
+    safety_factor: float,
+    session_cap_min: float,
+    transfer_cap_sec: float,
+    prior_unit_sizes: Sequence[int] = (),
+    max_probe: int = 128,
+) -> dict[str, Any]:
+    """Compute how many candidates fit ``session_cap_min`` and ``transfer_cap_sec``."""
+    ref_bundle_b = sum(
+        _est_compressed_policy_bytes(rn, use_weights_only=use_weights_only) for rn in ref_net_sizes
+    )
+    cand_sec = float(ticks_per_cand) * (float(ms_per_tick) / 1000.0) * float(safety_factor)
+    max_session_sec = float(session_cap_min) * 60.0
+
+    fit_session_k = 0
+    fit_upload_k = 0
+    fit_both_k = 0
+    cand_bundle_b = 0
+    for k in range(1, max_probe + 1):
+        c_net = (
+            cand_net_sizes_seq[k - 1] if (k - 1) < len(cand_net_sizes_seq) else fallback_cand_net
+        )
+        cand_bundle_b += _est_compressed_policy_bytes(c_net, use_weights_only=use_weights_only)
+        bundle_b = 4096 + ref_bundle_b + cand_bundle_b
+        ledger_b = 4096 + 320 * (len(ref_net_sizes) + k)
+        up_est = estimate_eval_upload_time(
+            [bundle_b, ledger_b, *prior_unit_sizes],
+            transfer_cap_seconds=float(transfer_cap_sec),
+            upload_chunk_bytes=int(colab_transfers.UPLOAD_CHUNK_BYTES),
+            staging_control_seconds=float(colab_policy.STAGING_CONTROL_SECONDS),
+            staging_recovery_seconds=float(colab_policy.STAGING_RECOVERY_SECONDS),
+            backoff_first_seconds=float(colab_policy.BACKOFF_SECONDS[0]),
+            control_hang_prob=float(EVAL_UPLOAD_CONTROL_HANG_PROB),
+            chunk_rate_bytes_per_sec=float(EVAL_UPLOAD_CHUNK_RATE_BYTES_PER_SEC),
+        )
+        up_sec = float(up_est["estimated_upload_seconds"])
+        tot_sec = 210.0 + up_sec + float(k) * cand_sec
+        fits_sess = tot_sec <= max_session_sec
+        fits_up = bool(up_est["fits_transfer_cap"])
+        if fits_sess:
+            fit_session_k = k
+        if fits_up:
+            fit_upload_k = k
+        if fits_sess and fits_up:
+            fit_both_k = k
+        if not fits_sess and not fits_up:
+            break
+
+    return {
+        "ms_per_tick": round(float(ms_per_tick), 4),
+        "seconds_per_candidate_with_margin": round(cand_sec, 2),
+        "fit_session_cap": int(fit_session_k),
+        "fit_upload_cap": int(fit_upload_k),
+        "fit_effective": int(fit_both_k),
+    }
+
+
+def _compute_anchor_capacity_summary(
+    *,
+    gpu_norm: str,
+    candidate_net_sizes: Sequence[NetSize],
+    reference_net_sizes: Sequence[NetSize],
+    scripted_opponents: Sequence[OpponentPolicy],
+    eff_envs: int,
+    eff_learner_slots: int,
+    eff_burnin: int,
+    eff_window: int,
+    n_snakes: int,
+    use_weights_only: bool,
+    session_cap_min: float,
+    measured_or_assumed_ms_per_tick: float | None,
+    prior_unit_sizes: Sequence[int],
+    is_canary: bool,
+) -> dict[str, Any]:
+    """Compute candidate capacity for the packet AND for all-small / all-medium lists at defaults."""
+    transfer_cap = (
+        float(colab_canary.MAX_UPLOAD_SECONDS)
+        if is_canary
+        else float(colab_transfer_policy.DEFAULT_TRANSFER_SECONDS)
+    )
+    safety_factor = float(EVAL_TIMING_SAFETY_FACTOR)
+    worst_cand_net: NetSize = (
+        max(candidate_net_sizes, key=lambda sz: get_net_preset(sz).exact_param_count)
+        if candidate_net_sizes
+        else "S"
+    )
+    pkt_ms = (
+        float(measured_or_assumed_ms_per_tick)
+        if measured_or_assumed_ms_per_tick is not None
+        else _estimate_anchor_ms_per_tick(
+            gpu_norm,
+            num_envs=eff_envs,
+            num_snakes=n_snakes,
+            learner_slots=eff_learner_slots,
+            cand_net_size=worst_cand_net,
+            ref_net_sizes=reference_net_sizes,
+            scripted_opponents=scripted_opponents,
+        )
+    )
+    packet_cap = _count_fitting_anchor_candidates(
+        cand_net_sizes_seq=candidate_net_sizes,
+        fallback_cand_net=worst_cand_net,
+        ref_net_sizes=reference_net_sizes,
+        use_weights_only=use_weights_only,
+        ms_per_tick=pkt_ms,
+        ticks_per_cand=int(eff_burnin + eff_window),
+        safety_factor=safety_factor,
+        session_cap_min=session_cap_min,
+        transfer_cap_sec=transfer_cap,
+        prior_unit_sizes=prior_unit_sizes,
+    )
+
+    def_ticks = int(DEFAULT_ANCHOR_BURNIN_TICKS + DEFAULT_ANCHOR_WINDOW_TICKS)
+    def_envs = int(DEFAULT_ANCHOR_NUM_ENVS)
+    def_ls = int(DEFAULT_ANCHOR_LEARNER_SLOTS)
+    def_session_min = float(EVAL_DEFAULT_SESSION_MINUTES)
+    def_scripted = DEFAULT_ANCHOR_SCRIPTED_OPPONENTS
+
+    # All-small & all-medium at defaults against current references AND homogeneous 2-ref pool.
+    s_with_cur_refs_ms = _estimate_anchor_ms_per_tick(
+        gpu_norm,
+        num_envs=def_envs,
+        num_snakes=n_snakes,
+        learner_slots=def_ls,
+        cand_net_size="S",
+        ref_net_sizes=reference_net_sizes,
+        scripted_opponents=scripted_opponents,
+    )
+    m_with_cur_refs_ms = _estimate_anchor_ms_per_tick(
+        gpu_norm,
+        num_envs=def_envs,
+        num_snakes=n_snakes,
+        learner_slots=def_ls,
+        cand_net_size="M",
+        ref_net_sizes=reference_net_sizes,
+        scripted_opponents=scripted_opponents,
+    )
+    # If caller/canary provided a measured ms/tick at default envs/ls, anchor the S/M delta to it!
+    if (
+        measured_or_assumed_ms_per_tick is not None
+        and eff_envs == def_envs
+        and eff_learner_slots == def_ls
+    ):
+        model_base = _estimate_anchor_ms_per_tick(
+            gpu_norm,
+            num_envs=def_envs,
+            num_snakes=n_snakes,
+            learner_slots=def_ls,
+            cand_net_size=worst_cand_net,
+            ref_net_sizes=reference_net_sizes,
+            scripted_opponents=scripted_opponents,
+        )
+        delta_from_model = float(measured_or_assumed_ms_per_tick) - model_base
+        s_with_cur_refs_ms = max(1.0, round(s_with_cur_refs_ms + delta_from_model, 4))
+        m_with_cur_refs_ms = max(1.0, round(m_with_cur_refs_ms + delta_from_model, 4))
+
+    all_small_with_refs = _count_fitting_anchor_candidates(
+        cand_net_sizes_seq=(),
+        fallback_cand_net="S",
+        ref_net_sizes=reference_net_sizes,
+        use_weights_only=True,
+        ms_per_tick=s_with_cur_refs_ms,
+        ticks_per_cand=def_ticks,
+        safety_factor=safety_factor,
+        session_cap_min=def_session_min,
+        transfer_cap_sec=float(colab_transfer_policy.DEFAULT_TRANSFER_SECONDS),
+    )
+    all_medium_with_refs = _count_fitting_anchor_candidates(
+        cand_net_sizes_seq=(),
+        fallback_cand_net="M",
+        ref_net_sizes=reference_net_sizes,
+        use_weights_only=True,
+        ms_per_tick=m_with_cur_refs_ms,
+        ticks_per_cand=def_ticks,
+        safety_factor=safety_factor,
+        session_cap_min=def_session_min,
+        transfer_cap_sec=float(colab_transfer_policy.DEFAULT_TRANSFER_SECONDS),
+    )
+
+    pure_s_ms = _estimate_anchor_ms_per_tick(
+        gpu_norm,
+        num_envs=def_envs,
+        num_snakes=n_snakes,
+        learner_slots=def_ls,
+        cand_net_size="S",
+        ref_net_sizes=("S", "S"),
+        scripted_opponents=def_scripted,
+    )
+    pure_m_ms = _estimate_anchor_ms_per_tick(
+        gpu_norm,
+        num_envs=def_envs,
+        num_snakes=n_snakes,
+        learner_slots=def_ls,
+        cand_net_size="M",
+        ref_net_sizes=("M", "M"),
+        scripted_opponents=def_scripted,
+    )
+    all_small_homogeneous = _count_fitting_anchor_candidates(
+        cand_net_sizes_seq=(),
+        fallback_cand_net="S",
+        ref_net_sizes=("S", "S"),
+        use_weights_only=True,
+        ms_per_tick=pure_s_ms,
+        ticks_per_cand=def_ticks,
+        safety_factor=safety_factor,
+        session_cap_min=def_session_min,
+        transfer_cap_sec=float(colab_transfer_policy.DEFAULT_TRANSFER_SECONDS),
+    )
+    all_medium_homogeneous = _count_fitting_anchor_candidates(
+        cand_net_sizes_seq=(),
+        fallback_cand_net="M",
+        ref_net_sizes=("M", "M"),
+        use_weights_only=True,
+        ms_per_tick=pure_m_ms,
+        ticks_per_cand=def_ticks,
+        safety_factor=safety_factor,
+        session_cap_min=def_session_min,
+        transfer_cap_sec=float(colab_transfer_policy.DEFAULT_TRANSFER_SECONDS),
+    )
+
+    return {
+        "gpu": gpu_norm,
+        "defaults": {
+            "num_envs": def_envs,
+            "learner_slots": def_ls,
+            "burnin_ticks": int(DEFAULT_ANCHOR_BURNIN_TICKS),
+            "window_ticks": int(DEFAULT_ANCHOR_WINDOW_TICKS),
+            "ticks_per_candidate": def_ticks,
+            "session_cap_minutes": def_session_min,
+            "transfer_cap_seconds": float(colab_transfer_policy.DEFAULT_TRANSFER_SECONDS),
+        },
+        "packet": packet_cap,
+        "all_small_at_defaults_with_current_references": all_small_with_refs,
+        "all_medium_at_defaults_with_current_references": all_medium_with_refs,
+        "all_small_at_defaults_with_2S_references": all_small_homogeneous,
+        "all_medium_at_defaults_with_2M_references": all_medium_homogeneous,
+    }
+
+
+def _print_anchor_capacity_stderr(cap: Mapping[str, Any]) -> None:
+    """Print mandatory all-small and all-medium default anchor capacity report to stderr."""
+    defs = cap["defaults"]
+    pkt = cap["packet"]
+    s_cur = cap["all_small_at_defaults_with_current_references"]
+    m_cur = cap["all_medium_at_defaults_with_current_references"]
+    s_hom = cap["all_small_at_defaults_with_2S_references"]
+    m_hom = cap["all_medium_at_defaults_with_2M_references"]
+    print(
+        f"V3_PPO_ANCHOR_CAPACITY gpu={cap['gpu']} "
+        f"defaults(envs={defs['num_envs']},burnin={defs['burnin_ticks']},"
+        f"window={defs['window_ticks']},session={defs['session_cap_minutes']:.1f}m,"
+        f"upload_cap={defs['transfer_cap_seconds']:.1f}s): "
+        f"packet_fits={pkt['fit_effective']} "
+        f"(60m_session_cap={pkt['fit_session_cap']}, upload_cap={pkt['fit_upload_cap']}); "
+        f"all_small_at_defaults={s_cur['fit_effective']} with_current_refs "
+        f"(60m={s_cur['fit_session_cap']}, upload={s_cur['fit_upload_cap']}) / "
+        f"{s_hom['fit_effective']} with_2S_refs "
+        f"(60m={s_hom['fit_session_cap']}, upload={s_hom['fit_upload_cap']}); "
+        f"all_medium_at_defaults={m_cur['fit_effective']} with_current_refs "
+        f"(60m={m_cur['fit_session_cap']}, upload={m_cur['fit_upload_cap']}) / "
+        f"{m_hom['fit_effective']} with_2M_refs "
+        f"(60m={m_hom['fit_session_cap']}, upload={m_hom['fit_upload_cap']})",
+        file=sys.stderr,
+        flush=True,
+    )
 
 
 def _resolve_and_validate_eval_layout(
     opts: PreparePacketOptions,
     ctx: _ValidatedPacketContext,
 ) -> dict[str, Any]:
-    """Validate eval divisibility, prior pair reuse keys, VRAM budget, and batch layout."""
+    """Validate eval divisibility, prior unit reuse keys, VRAM budget, and batch layout."""
     (
         eff_eval_mode,
         policy_specs,
         eval_game_cfg,
         raw_total_bytes,
         use_weights_only,
+        anchor_meta,
     ) = _resolve_eval_policy_specs(opts)
     n_snakes = int(eval_game_cfg.num_snakes)
 
-    if eff_eval_mode == "long-game":
+    if eff_eval_mode == "anchor":
+        eff_envs = DEFAULT_ANCHOR_NUM_ENVS if opts.num_envs is None else int(opts.num_envs)
+        eff_burnin = (
+            DEFAULT_ANCHOR_BURNIN_TICKS
+            if opts.eval_burnin_ticks is None
+            else int(opts.eval_burnin_ticks)
+        )
+        eff_window = (
+            DEFAULT_ANCHOR_WINDOW_TICKS
+            if opts.eval_window_ticks is None
+            else int(opts.eval_window_ticks)
+        )
+        eff_learner_slots = (
+            DEFAULT_ANCHOR_LEARNER_SLOTS if opts.learner_slots is None else int(opts.learner_slots)
+        )
+    elif eff_eval_mode == "long-game":
         eff_envs = DEFAULT_LONG_GAME_NUM_ENVS if opts.num_envs is None else int(opts.num_envs)
         eff_burnin = (
             DEFAULT_LONG_GAME_BURNIN_TICKS
@@ -1381,6 +2007,7 @@ def _resolve_and_validate_eval_layout(
             if opts.eval_window_ticks is None
             else int(opts.eval_window_ticks)
         )
+        eff_learner_slots = n_snakes if opts.learner_slots is None else int(opts.learner_slots)
     else:
         eff_envs = DEFAULT_H2H_NUM_ENVS if opts.num_envs is None else int(opts.num_envs)
         eff_burnin = (
@@ -1393,6 +2020,7 @@ def _resolve_and_validate_eval_layout(
             if opts.eval_window_ticks is None
             else int(opts.eval_window_ticks)
         )
+        eff_learner_slots = n_snakes if opts.learner_slots is None else int(opts.learner_slots)
 
     if eff_envs < 1:
         raise ValueError(f"eval num_envs must be >= 1, got {eff_envs}")
@@ -1400,6 +2028,20 @@ def _resolve_and_validate_eval_layout(
         raise ValueError(f"eval burnin_ticks must be >= 0, got {eff_burnin}")
     if eff_window < 6:
         raise ValueError(f"eval window_ticks must be >= 6, got {eff_window}")
+
+    if eff_eval_mode == "anchor":
+        assert anchor_meta is not None
+        if not (1 <= eff_learner_slots <= n_snakes):
+            raise ValueError(
+                f"anchor learner_slots must be in [1, {n_snakes}], got {eff_learner_slots}"
+            )
+        ref_records = anchor_meta["reference_records"]
+        scripted_ops = anchor_meta["scripted_opponents"]
+        if eff_learner_slots < n_snakes and (len(ref_records) + len(scripted_ops)) < 1:
+            raise ValueError(
+                f"anchor mode with learner_slots={eff_learner_slots} < {n_snakes} requires "
+                "at least one reference checkpoint or scripted opponent"
+            )
 
     if eff_eval_mode == "head-to-head" and eff_envs % len(policy_specs) != 0:
         raise ValueError(
@@ -1443,10 +2085,51 @@ def _resolve_and_validate_eval_layout(
             parsed_pair = json.loads(pair_json.read_text(encoding="utf-8"))
             validate_pair_unit_reuse(uid, parsed_pair, expected_rk)
 
+    if ctx.prior.kind == "eval_candidates":
+        if eff_eval_mode != "anchor":
+            raise ValueError(
+                f"prior eval_candidates continuation is only supported in anchor mode, "
+                f"got {eff_eval_mode!r}"
+            )
+        assert anchor_meta is not None
+        cand_records = anchor_meta["candidate_records"]
+        ref_records = anchor_meta["reference_records"]
+        scripted_ops = anchor_meta["scripted_opponents"]
+        valid_cands = {
+            candidate_unit_id(str(rec["src_sha256"])): str(rec["src_sha256"])
+            for rec in cand_records
+        }
+        ref_shas = [str(rec["src_sha256"]) for rec in ref_records]
+        for cand_json in ctx.prior.eval_candidate_paths:
+            uid = cand_json.stem
+            if uid not in valid_cands:
+                raise ValueError(
+                    f"Prior anchor candidate artifact {cand_json} ({uid!r}) does not belong to "
+                    f"{len(cand_records)}-candidate anchor allocation"
+                )
+            expected_rk = build_anchor_candidate_reuse_key(
+                arena_radius=float(eval_game_cfg.arena_radius),
+                num_envs=eff_envs,
+                num_snakes=n_snakes,
+                learner_slots=eff_learner_slots,
+                burnin_ticks=eff_burnin,
+                window_ticks=eff_window,
+                greedy=bool(opts.eval_greedy),
+                seed=int(opts.eval_seed),
+                candidate_sha256=valid_cands[uid],
+                reference_sha256s=ref_shas,
+                scripted_opponents=scripted_ops,
+            )
+            parsed_cand = json.loads(cand_json.read_text(encoding="utf-8"))
+            validate_anchor_candidate_unit_reuse(uid, parsed_cand, expected_rk)
+
     budget_bytes = int(GPU_VRAM_BUDGET_BYTES[ctx.gpu_norm])
     net_sizes: list[NetSize] = [sp["net_size"] for sp in policy_specs]
     eff_amp = True if opts.amp is None else bool(opts.amp)
     vram_max_ppb: int | None = None
+    anchor_ledger_spec: dict[str, Any] | None = None
+    cand_net_sizes: list[NetSize] = []
+    ref_net_sizes: list[NetSize] = []
 
     if eff_eval_mode == "round-robin":
         reused_pair_ids = {p.stem for p in ctx.prior.eval_pair_paths}
@@ -1497,6 +2180,50 @@ def _resolve_and_validate_eval_layout(
                 int(math.ceil(remaining_pairs / eff_pairs_per_batch)) if remaining_pairs > 0 else 0
             )
             batch_worlds = eff_pairs_per_batch * eff_envs
+    elif eff_eval_mode == "anchor":
+        assert anchor_meta is not None
+        cand_records = anchor_meta["candidate_records"]
+        ref_records = anchor_meta["reference_records"]
+        cand_net_sizes = [rec["net_size"] for rec in cand_records]
+        ref_net_sizes = [rec["net_size"] for rec in ref_records]
+        reused_cand_ids = {p.stem for p in ctx.prior.eval_candidate_paths}
+        total_pairs = len(cand_records)
+        remaining_pairs = sum(
+            1
+            for rec in cand_records
+            if candidate_unit_id(str(rec["src_sha256"])) not in reused_cand_ids
+        )
+        eff_pairs_per_batch = 1
+        num_batches = remaining_pairs
+        batch_worlds = eff_envs
+        mem_est = estimate_eval_memory(
+            game_cfg=eval_game_cfg,
+            net_sizes=net_sizes,
+            eval_mode="anchor",
+            num_envs_per_match=eff_envs,
+            pairs_per_batch=1,
+            learner_slots=eff_learner_slots,
+            num_reference_policies=len(ref_records),
+            num_scripted_opponents=len(anchor_meta["scripted_opponents"]),
+            amp=eff_amp,
+            gpu=ctx.gpu_norm,
+        )
+        if int(mem_est["estimated_peak_bytes"]) > budget_bytes:
+            raise ValueError(
+                f"Refusing eval packet on {ctx.gpu_norm}: estimated peak VRAM "
+                f"{int(mem_est['estimated_peak_bytes']) / 1e9:.2f} GB exceeds "
+                f"{budget_bytes / 1e9:.2f} GB budget."
+            )
+        anchor_ledger_spec = {
+            "candidate_bundle_indices": list(anchor_meta["candidate_bundle_indices"]),
+            "reference_bundle_indices": list(anchor_meta["reference_bundle_indices"]),
+            "candidate_labels": list(anchor_meta["candidate_labels"]),
+            "reference_labels": list(anchor_meta["reference_labels"]),
+            "candidate_sha256s": [str(r["src_sha256"]) for r in cand_records],
+            "reference_sha256s": [str(r["src_sha256"]) for r in ref_records],
+            "scripted_opponents": list(anchor_meta["scripted_opponents"]),
+            "learner_slots": int(eff_learner_slots),
+        }
     else:
         total_pairs = 1
         remaining_pairs = 1
@@ -1537,6 +2264,7 @@ def _resolve_and_validate_eval_layout(
         "raw_total_bytes": raw_total_bytes,
         "use_weights_only": use_weights_only,
         "eff_envs": eff_envs,
+        "eff_learner_slots": eff_learner_slots,
         "eff_burnin": eff_burnin,
         "eff_window": eff_window,
         "total_pairs": total_pairs,
@@ -1545,6 +2273,9 @@ def _resolve_and_validate_eval_layout(
         "num_batches": num_batches,
         "batch_worlds": batch_worlds,
         "memory_estimate": memory_estimate,
+        "anchor_ledger_spec": anchor_ledger_spec,
+        "candidate_net_sizes": cand_net_sizes,
+        "reference_net_sizes": ref_net_sizes,
     }
 
 
@@ -1552,7 +2283,7 @@ def _size_eval_mode(
     opts: PreparePacketOptions,
     ctx: _ValidatedPacketContext,
 ) -> _SizedModePlan:
-    """Resolve and validate standalone policy evaluation packet (`head-to-head`, `round-robin`, `long-game`)."""
+    """Resolve and validate standalone policy evaluation packet (`round-robin`, `anchor`, etc.)."""
     layout = _resolve_and_validate_eval_layout(opts, ctx)
     eff_eval_mode = str(layout["eff_eval_mode"])
     policy_specs: list[dict[str, Any]] = layout["policy_specs"]
@@ -1560,6 +2291,7 @@ def _size_eval_mode(
     raw_total_bytes = int(layout["raw_total_bytes"])
     use_weights_only = bool(layout["use_weights_only"])
     eff_envs = int(layout["eff_envs"])
+    eff_learner_slots = int(layout["eff_learner_slots"])
     eff_burnin = int(layout["eff_burnin"])
     eff_window = int(layout["eff_window"])
     total_pairs = int(layout["total_pairs"])
@@ -1568,6 +2300,7 @@ def _size_eval_mode(
     num_batches = int(layout["num_batches"])
     batch_worlds = int(layout["batch_worlds"])
     memory_estimate: dict[str, Any] = layout["memory_estimate"]
+    anchor_ledger_spec: dict[str, Any] | None = layout["anchor_ledger_spec"]
 
     est_staged_bytes = (
         sum(
@@ -1582,9 +2315,11 @@ def _size_eval_mode(
         )
         + 4096
     )
-    prior_pair_sizes = [int(p.stat().st_size) for p in ctx.prior.eval_pair_paths]
+    prior_unit_sizes = [
+        int(p.stat().st_size) for p in (*ctx.prior.eval_pair_paths, *ctx.prior.eval_candidate_paths)
+    ]
     stage2_upload_est = estimate_eval_upload_time(
-        [est_staged_bytes, 4096, *prior_pair_sizes],
+        [est_staged_bytes, 4096, *prior_unit_sizes],
         transfer_cap_seconds=float(colab_transfer_policy.DEFAULT_TRANSFER_SECONDS),
         upload_chunk_bytes=int(colab_transfers.UPLOAD_CHUNK_BYTES),
         staging_control_seconds=float(colab_policy.STAGING_CONTROL_SECONDS),
@@ -1630,12 +2365,55 @@ def _size_eval_mode(
             )
         base_ms_per_tick = float(smoke["ms_per_tick"])
         timing_source = "canary_measured"
+    elif eff_eval_mode == "anchor" and opts.allow_missing_canary_receipt:
+        assert anchor_ledger_spec is not None
+        cand_nets: list[NetSize] = layout["candidate_net_sizes"]
+        worst_c_net: NetSize = (
+            max(cand_nets, key=lambda sz: get_net_preset(sz).exact_param_count)
+            if cand_nets
+            else "S"
+        )
+        base_ms_per_tick = _estimate_anchor_ms_per_tick(
+            ctx.gpu_norm,
+            num_envs=eff_envs,
+            num_snakes=n_snakes,
+            learner_slots=eff_learner_slots,
+            cand_net_size=worst_c_net,
+            ref_net_sizes=layout["reference_net_sizes"],
+            scripted_opponents=anchor_ledger_spec["scripted_opponents"],
+        )
+        timing_source = "calibrated_gpu_model"
     else:
         raise ValueError(
             "--mode eval requires a bound canary receipt containing eval_canary_smoke.ms_per_tick "
             "(prepared with --mode canary and the target eval policies/world count), or explicit "
             "--assume-ms-per-tick <MS>."
         )
+
+    session_cap_min = float(opts.eval_session_minutes)
+    if session_cap_min <= 0 or not math.isfinite(session_cap_min):
+        raise ValueError(f"eval_session_minutes must be finite and > 0, got {session_cap_min}")
+
+    anchor_capacity: dict[str, Any] | None = None
+    if eff_eval_mode == "anchor":
+        assert anchor_ledger_spec is not None
+        anchor_capacity = _compute_anchor_capacity_summary(
+            gpu_norm=ctx.gpu_norm,
+            candidate_net_sizes=layout["candidate_net_sizes"],
+            reference_net_sizes=layout["reference_net_sizes"],
+            scripted_opponents=tuple(anchor_ledger_spec["scripted_opponents"]),
+            eff_envs=eff_envs,
+            eff_learner_slots=eff_learner_slots,
+            eff_burnin=eff_burnin,
+            eff_window=eff_window,
+            n_snakes=n_snakes,
+            use_weights_only=use_weights_only,
+            session_cap_min=session_cap_min,
+            measured_or_assumed_ms_per_tick=base_ms_per_tick,
+            prior_unit_sizes=prior_unit_sizes,
+            is_canary=False,
+        )
+        _print_anchor_capacity_stderr(anchor_capacity)
 
     ticks_per_match = int(eff_burnin + eff_window)
     ticks_per_batch = ticks_per_match
@@ -1645,10 +2423,6 @@ def _size_eval_mode(
     effective_ms_per_tick = base_ms_per_tick * safety_factor
     raw_compute_sec = float(total_sim_ticks) * (base_ms_per_tick / 1000.0)
     est_compute_sec = raw_compute_sec * safety_factor
-
-    session_cap_min = float(opts.eval_session_minutes)
-    if session_cap_min <= 0 or not math.isfinite(session_cap_min):
-        raise ValueError(f"eval_session_minutes must be finite and > 0, got {session_cap_min}")
 
     upload_allowance_sec = float(stage2_upload_est["estimated_upload_seconds"])
     setup_and_export_sec = 210.0 + upload_allowance_sec
@@ -1663,6 +2437,21 @@ def _size_eval_mode(
         f"{session_cap_min:.2f} min session cap"
     )
     if est_compute_sec > available_compute_sec:
+        if eff_eval_mode == "anchor" and anchor_capacity is not None:
+            pkt_cap = anchor_capacity["packet"]
+            s_cap = anchor_capacity["all_small_at_defaults_with_current_references"]
+            m_cap = anchor_capacity["all_medium_at_defaults_with_current_references"]
+            raise ValueError(
+                f"Refusing anchor eval packet ({total_pairs} candidates, "
+                f"{remaining_pairs} pending, worlds={batch_worlds}, {sizing_arithmetic}): "
+                f"estimated {ctx.gpu_norm} compute {est_compute_sec / 60.0:.1f} min + "
+                f"staging/teardown {setup_and_export_sec / 60.0:.1f} min exceeds "
+                f"{session_cap_min:.1f} min session cap; at most {pkt_cap['fit_session_cap']} "
+                f"candidates fit {session_cap_min:.1f} min ({pkt_cap['fit_effective']} also "
+                f"fitting the {colab_transfer_policy.DEFAULT_TRANSFER_SECONDS:.1f} s upload cap; "
+                f"all-small at defaults fits {s_cap['fit_effective']}, "
+                f"all-medium at defaults fits {m_cap['fit_effective']})."
+            )
         raise ValueError(
             f"Refusing eval packet ({eff_eval_mode}, {len(policy_specs)} policies, "
             f"batch_worlds={batch_worlds}, {sizing_arithmetic}): estimated {ctx.gpu_norm} compute "
@@ -1697,6 +2486,8 @@ def _size_eval_mode(
     }
     if opts.learner_slots is not None:
         extra_env["V3_PPO_EVAL_LEARNER_SLOTS"] = str(int(opts.learner_slots))
+    elif eff_eval_mode == "anchor":
+        extra_env["V3_PPO_EVAL_LEARNER_SLOTS"] = str(eff_learner_slots)
     if opts.opponent_policy is not None:
         extra_env["V3_PPO_EVAL_OPPONENT_POLICY"] = str(opts.opponent_policy)
     if opts.eval_greedy:
@@ -1706,6 +2497,10 @@ def _size_eval_mode(
             extra_env["V3_PPO_EVAL_SEQUENTIAL_PAIRS"] = "1"
         else:
             extra_env["V3_PPO_EVAL_MAX_PAIRS_PER_BATCH"] = str(eff_pairs_per_batch)
+    elif eff_eval_mode == "anchor":
+        assert anchor_ledger_spec is not None
+        scripted_ops = anchor_ledger_spec["scripted_opponents"]
+        extra_env["V3_PPO_ANCHOR_SCRIPTED"] = ",".join(scripted_ops) if scripted_ops else "none"
     if opts.compile_model:
         extra_env["V3_PPO_COMPILE"] = "1"
     if not eff_fast:
@@ -1743,6 +2538,15 @@ def _size_eval_mode(
         "weights_only_staged": use_weights_only,
         "session_cap_minutes": session_cap_min,
     }
+    if anchor_ledger_spec is not None:
+        eval_plan["num_candidates"] = len(anchor_ledger_spec["candidate_bundle_indices"])
+        eval_plan["reused_candidates"] = total_pairs - remaining_pairs
+        eval_plan["remaining_candidates"] = remaining_pairs
+        eval_plan["num_reference_policies"] = len(anchor_ledger_spec["reference_bundle_indices"])
+        eval_plan["scripted_opponents"] = list(anchor_ledger_spec["scripted_opponents"])
+        eval_plan["learner_slots"] = eff_learner_slots
+    if anchor_capacity is not None:
+        eval_plan["anchor_capacity"] = anchor_capacity
     if ctx.canary_eval_smoke is not None:
         eval_plan["canary_eval_smoke"] = dict(ctx.canary_eval_smoke)
 
@@ -1767,6 +2571,8 @@ def _size_eval_mode(
         memory_estimate=memory_estimate,
         eval_plan=eval_plan,
         eval_policy_specs=tuple({**sp, "weights_only": use_weights_only} for sp in policy_specs),
+        anchor_ledger_spec=anchor_ledger_spec,
+        anchor_capacity=anchor_capacity,
     )
 
 
@@ -1843,10 +2649,13 @@ def _stage_export_caps(
         measured_packed_bytes_per_world=eff_world_bytes,
     )
 
-    canary_eval_wall_sec = (
-        float(ctx.canary_eval_metrics["wall_seconds"])
-        if ctx.canary_eval_metrics is not None
-        else None
+    canary_eval_wall_sec = _scale_train_canary_eval_wall_seconds(
+        cfg_obj,
+        (
+            float(ctx.canary_eval_metrics["wall_seconds"])
+            if ctx.canary_eval_metrics is not None
+            else None
+        ),
     )
     staged_input_bytes = (
         int(ctx.prior.chosen_checkpoint["size_bytes"])
@@ -2026,8 +2835,26 @@ def _stage_inputs(
                 }
             )
         ledger["eval_policies"] = eval_entries
+        if capped.sized.anchor_ledger_spec is not None:
+            ledger["anchor_eval"] = dict(capped.sized.anchor_ledger_spec)
 
-    if ctx.prior.kind == "eval_pairs":
+    if ctx.prior.kind == "eval_candidates":
+        for cand_json in ctx.prior.eval_candidate_paths:
+            rel_dest = f"candidates/{cand_json.name}"
+            dst_file = pkt_inputs_dir / "candidates" / cand_json.name
+            c_sha = write_create_only_artifact(
+                dst_file, lambda tmp, src=cand_json: shutil.copyfile(src, tmp)
+            )
+            inputs_list.append({"path": str(dst_file), "dest": rel_dest, "sha256": c_sha})
+            ledger["verified_units"].append(
+                {
+                    "unit_id": f"cand:{cand_json.stem}",
+                    "relpath": rel_dest,
+                    "sha256": c_sha,
+                    "size_bytes": int(dst_file.stat().st_size),
+                }
+            )
+    elif ctx.prior.kind == "eval_pairs":
         for pair_json in ctx.prior.eval_pair_paths:
             rel_dest = f"pairs/{pair_json.name}"
             dst_file = pkt_inputs_dir / "pairs" / pair_json.name
@@ -2526,6 +3353,10 @@ def _stage_write_manifest(
             "chunk_rate_mbps": float(eval_upload_est["chunk_rate_mbps"]),
             "control_hang_prob": float(eval_upload_est["control_hang_prob"]),
         }
+        if sized.anchor_capacity is not None:
+            summary["eval_canary_upload"]["anchor_capacity"] = sized.anchor_capacity
+    if sized.anchor_capacity is not None:
+        summary["anchor_capacity"] = sized.anchor_capacity
     return summary
 
 
@@ -2576,10 +3407,19 @@ def prepare_v3_ppo_packet(
     max_periodic_full_exports: int | None = None,
     light_resume_margin_minutes: float | None = None,
     eval_estimated_seconds: float | None = None,
+    eval_every_minutes: float | None = None,
+    eval_every_updates: int | None = None,
+    eval_envs: int | None = None,
+    eval_ticks: int | None = None,
+    eval_opponents: str | None = None,
     eval_mode: str | None = None,
     eval_policies: Sequence[Path | str] = (),
     eval_round_robin: Sequence[Path | str] = (),
+    eval_candidates: Sequence[Path | str] = (),
+    eval_references: Sequence[Path | str] = (),
     eval_labels: Sequence[str] | None = None,
+    eval_reference_labels: Sequence[str] | None = None,
+    anchor_scripted: str | None = None,
     eval_burnin_ticks: int | None = None,
     eval_window_ticks: int | None = None,
     eval_mass_bin_ticks: int = DEFAULT_H2H_MASS_BIN_TICKS,
@@ -2644,10 +3484,21 @@ def prepare_v3_ppo_packet(
         max_periodic_full_exports=max_periodic_full_exports,
         light_resume_margin_minutes=light_resume_margin_minutes,
         eval_estimated_seconds=eval_estimated_seconds,
+        eval_every_minutes=eval_every_minutes,
+        eval_every_updates=eval_every_updates,
+        eval_envs=eval_envs,
+        eval_ticks=eval_ticks,
+        eval_opponents=eval_opponents,
         eval_mode=eval_mode,
         eval_policies=tuple(Path(p) for p in eval_policies),
         eval_round_robin=tuple(Path(p) for p in eval_round_robin),
+        eval_candidates=tuple(Path(p) for p in eval_candidates),
+        eval_references=tuple(Path(p) for p in eval_references),
         eval_labels=tuple(eval_labels) if eval_labels is not None else None,
+        eval_reference_labels=(
+            tuple(eval_reference_labels) if eval_reference_labels is not None else None
+        ),
+        anchor_scripted=anchor_scripted,
         eval_burnin_ticks=eval_burnin_ticks,
         eval_window_ticks=eval_window_ticks,
         eval_mass_bin_ticks=eval_mass_bin_ticks,
@@ -2742,6 +3593,39 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-periodic-full-exports", type=int, default=None)
     parser.add_argument("--light-resume-margin-minutes", type=float, default=None)
     parser.add_argument("--eval-estimated-seconds", type=float, default=None)
+    parser.add_argument(
+        "--eval-every-minutes",
+        type=float,
+        default=None,
+        help="Wall-clock interval in minutes between in-training evaluations for --mode train.",
+    )
+    parser.add_argument(
+        "--eval-every-updates",
+        type=int,
+        default=None,
+        help="Optional PPO update cadence for in-training evaluations in --mode train.",
+    )
+    parser.add_argument(
+        "--eval-envs",
+        type=int,
+        default=None,
+        help="Parallel world count for in-training evaluations in --mode train (default: 192).",
+    )
+    parser.add_argument(
+        "--eval-ticks",
+        type=int,
+        default=None,
+        help="Measurement window ticks per opponent in --mode train (default: 2000).",
+    )
+    parser.add_argument(
+        "--eval-opponents",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated scripted opponent policies for --mode train in-training eval "
+            "(default unchanged: food_seeking,random_safe)."
+        ),
+    )
     parser.add_argument("--eval-mode", choices=EVAL_MODES, default=None)
     parser.add_argument(
         "--eval-policies",
@@ -2762,7 +3646,49 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Directory, .txt/.json list, or checkpoints for --mode eval round-robin.",
     )
     parser.add_argument(
+        "--candidates",
+        "--eval-candidates",
+        dest="eval_candidates",
+        nargs="+",
+        type=Path,
+        default=None,
+        help="Candidate checkpoint list file, directory, or checkpoints for --eval-mode anchor.",
+    )
+    parser.add_argument(
+        "--references",
+        "--eval-references",
+        dest="eval_references",
+        nargs="*",
+        type=Path,
+        default=None,
+        help=(
+            "Frozen reference checkpoint list file, directory, or checkpoints "
+            "for --eval-mode anchor."
+        ),
+    )
+    parser.add_argument(
         "--eval-labels", "--labels", dest="eval_labels", nargs="+", type=str, default=None
+    )
+    parser.add_argument(
+        "--reference-labels",
+        "--eval-reference-labels",
+        dest="eval_reference_labels",
+        nargs="+",
+        type=str,
+        default=None,
+        help="Optional unique display labels matching --references in anchor mode.",
+    )
+    parser.add_argument(
+        "--anchor-scripted",
+        "--eval-scripted-opponents",
+        "--scripted-opponents",
+        dest="anchor_scripted",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated scripted opponent policies for --eval-mode anchor "
+            "(default: cut_off,head_evader; pass 'none' for neural-only reference pool)."
+        ),
     )
     parser.add_argument(
         "--eval-burnin-ticks", "--burnin-ticks", dest="eval_burnin_ticks", type=int, default=None
@@ -2819,7 +3745,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--prior-output-dir", type=Path, default=None)
     parser.add_argument(
-        "--prior-kind", choices=("auto", "checkpoint", "ruler_cells", "eval_pairs"), default="auto"
+        "--prior-kind",
+        choices=("auto", "checkpoint", "ruler_cells", "eval_pairs", "eval_candidates"),
+        default="auto",
     )
     parser.add_argument("--canary-receipt", type=Path, default=None)
     parser.add_argument("--allow-missing-canary-receipt", action="store_true")
@@ -2914,10 +3842,21 @@ def options_from_cli_args(
         max_periodic_full_exports=args.max_periodic_full_exports,
         light_resume_margin_minutes=args.light_resume_margin_minutes,
         eval_estimated_seconds=args.eval_estimated_seconds,
+        eval_every_minutes=args.eval_every_minutes,
+        eval_every_updates=args.eval_every_updates,
+        eval_envs=args.eval_envs,
+        eval_ticks=args.eval_ticks,
+        eval_opponents=args.eval_opponents,
         eval_mode=args.eval_mode,
         eval_policies=tuple(args.eval_policies or ()),
         eval_round_robin=tuple(args.eval_round_robin or ()),
+        eval_candidates=tuple(args.eval_candidates or ()),
+        eval_references=tuple(args.eval_references or ()),
         eval_labels=tuple(args.eval_labels) if args.eval_labels is not None else None,
+        eval_reference_labels=(
+            tuple(args.eval_reference_labels) if args.eval_reference_labels is not None else None
+        ),
+        anchor_scripted=args.anchor_scripted,
         eval_burnin_ticks=args.eval_burnin_ticks,
         eval_window_ticks=args.eval_window_ticks,
         eval_mass_bin_ticks=args.eval_mass_bin_ticks,

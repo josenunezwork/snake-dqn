@@ -102,12 +102,62 @@ def get_net_preset(size: str) -> NetPreset:
     return preset
 
 
-OpponentPolicy = Literal["food_seeking", "random_safe", "cardinal6_safe"]
+OpponentPolicy = Literal[
+    "food_seeking",
+    "random_safe",
+    "cardinal6_safe",
+    "head_evader",
+    "cut_off",
+]
 VALID_OPPONENT_POLICIES: tuple[OpponentPolicy, ...] = (
     "food_seeking",
     "random_safe",
     "cardinal6_safe",
+    "head_evader",
+    "cut_off",
 )
+DEFAULT_TRAIN_EVAL_OPPONENTS: tuple[OpponentPolicy, ...] = ("food_seeking", "random_safe")
+
+
+def parse_opponent_policies(
+    value: str | Sequence[str],
+    *,
+    field_name: str = "eval_opponents",
+    allow_empty: bool = False,
+) -> tuple[OpponentPolicy, ...]:
+    """Parse and validate a CSV string or sequence of :data:`VALID_OPPONENT_POLICIES`."""
+    if isinstance(value, str):
+        stripped = value.strip()
+        if allow_empty and stripped.lower() in {"", "none"}:
+            return ()
+        raw_items: list[Any] = [tok.strip() for tok in stripped.split(",") if tok.strip()]
+    elif isinstance(value, (list, tuple)):
+        raw_items = list(value)
+    else:
+        raise ConfigTypeError(
+            f"{field_name} must be a comma-separated string or list/tuple of strings, "
+            f"got {type(value)!r}"
+        )
+
+    if not raw_items and not allow_empty:
+        raise ValueError(f"{field_name} must contain at least 1 opponent policy")
+
+    out: list[OpponentPolicy] = []
+    seen: set[str] = set()
+    for idx, item in enumerate(raw_items):
+        if not isinstance(item, str):
+            raise ConfigTypeError(f"{field_name}[{idx}] must be a str, got {type(item)!r}")
+        tok = item.strip()
+        if tok not in VALID_OPPONENT_POLICIES:
+            raise ValueError(
+                f"{field_name}[{idx}] must be one of {VALID_OPPONENT_POLICIES}, got {item!r}"
+            )
+        if tok in seen:
+            raise ValueError(f"Duplicate opponent policy {tok!r} in {field_name}: {raw_items}")
+        seen.add(tok)
+        out.append(tok)  # type: ignore[arg-type]
+    return tuple(out)
+
 
 FullExportMode = Literal["none", "final", "periodic"]
 VALID_FULL_EXPORT_MODES: tuple[FullExportMode, ...] = ("none", "final", "periodic")
@@ -593,6 +643,7 @@ class V3PPOConfig:
     eval_learner_slots: int | None = None
     eval_seed: int = 20261112
     eval_greedy: bool = False
+    eval_opponents: tuple[OpponentPolicy, ...] = DEFAULT_TRAIN_EVAL_OPPONENTS
 
     seed: int = 20261111
     deterministic: bool = False
@@ -634,6 +685,10 @@ class V3PPOConfig:
             sv = getattr(self, str_name)
             if not isinstance(sv, str):
                 raise ConfigTypeError(f"{str_name} must be a str, got {sv!r}")
+        norm_eval_opponents = parse_opponent_policies(
+            self.eval_opponents, field_name="eval_opponents", allow_empty=False
+        )
+        object.__setattr__(self, "eval_opponents", norm_eval_opponents)
         if not isinstance(self.recipe_change_history, (list, tuple)):
             raise ConfigTypeError(
                 "recipe_change_history must be a list or tuple, "
@@ -916,6 +971,10 @@ class V3PPOConfig:
             out["recipe_change_history"] = [dict(entry) for entry in self.recipe_change_history]
         else:
             out.pop("recipe_change_history", None)
+        if tuple(self.eval_opponents) != DEFAULT_TRAIN_EVAL_OPPONENTS:
+            out["eval_opponents"] = list(self.eval_opponents)
+        else:
+            out.pop("eval_opponents", None)
         return out
 
     @classmethod
@@ -1232,6 +1291,7 @@ RESUME_MUTABLE_CONFIG_KEYS: frozenset[str] = frozenset(
         "eval_learner_slots",
         "eval_seed",
         "eval_greedy",
+        "eval_opponents",
         "actor_chunk_learners",
         "compile_model",
         "fast_learner_ops",

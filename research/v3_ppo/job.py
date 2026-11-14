@@ -1385,6 +1385,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--eval-envs", type=int, default=None)
     parser.add_argument("--eval-burnin-ticks", type=int, default=None)
     parser.add_argument("--eval-ticks", type=int, default=None)
+    parser.add_argument(
+        "--eval-opponents",
+        type=str,
+        default=None,
+        help="Comma-separated scripted opponents for periodic in-training eval (e.g. cut_off,head_evader).",
+    )
     parser.add_argument("--eval-estimated-seconds", type=float, default=None)
     parser.add_argument("--seed", type=int, default=None)
 
@@ -1521,6 +1527,7 @@ def resolve_effective_train_config(
         ("eval_envs", "eval_envs", int),
         ("eval_burnin_ticks", "eval_burnin_ticks", int),
         ("eval_ticks", "eval_ticks", int),
+        ("eval_opponents", "eval_opponents", str),
         ("eval_estimated_seconds", "eval_estimated_seconds", float),
         ("seed", "seed", int),
         ("compile", "compile_model", bool),

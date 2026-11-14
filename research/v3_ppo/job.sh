@@ -164,6 +164,9 @@ elif [ "$MODE" = "eval" ]; then
   if [ -n "${V3_PPO_EVAL_OPPONENT_POLICY:-}" ]; then
     EVAL_ARGS+=(--opponent-policy "$V3_PPO_EVAL_OPPONENT_POLICY")
   fi
+  if [ -n "${V3_PPO_ANCHOR_SCRIPTED:-}" ]; then
+    EVAL_ARGS+=(--anchor-scripted "$V3_PPO_ANCHOR_SCRIPTED")
+  fi
   if [ -n "${V3_PPO_EVAL_WORLD_AGE_BINS:-}" ]; then
     EVAL_ARGS+=(--num-world-age-bins "$V3_PPO_EVAL_WORLD_AGE_BINS")
   fi
