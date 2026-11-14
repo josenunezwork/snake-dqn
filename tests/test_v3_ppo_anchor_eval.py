@@ -8,6 +8,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pytest
 import torch
 
@@ -25,12 +26,12 @@ from research.v3_ppo.anchor_eval import (
     DEFAULT_ANCHOR_SCRIPTED_OPPONENTS,
     DEFAULT_ANCHOR_WINDOW_TICKS,
     V3_ANCHOR_EVAL_SCHEMA,
+    _summarize_single_anchor_candidate,
     build_anchor_seat_assignment,
     candidate_unit_id,
     evaluate_anchor,
     format_anchor_markdown,
     parse_anchor_scripted_opponents,
-    wilson_binomial_ci95,
 )
 from research.v3_ppo.arena_eval import (
     load_eval_policy,
@@ -45,7 +46,11 @@ from research.v3_ppo.config import (
 from research.v3_ppo.eval import _SimWorldSlice, evaluate_policy
 from research.v3_ppo.job import build_arg_parser as build_train_arg_parser
 from research.v3_ppo.job import resolve_effective_train_config
-from research.v3_ppo.prepare import ROOT, prepare_v3_ppo_packet
+from research.v3_ppo.prepare import (
+    ROOT,
+    _train_eval_cost_scale_vs_default,
+    prepare_v3_ppo_packet,
+)
 from research.v3_ppo.scripted_opponents import cut_off_actions, head_evader_actions
 from tests.test_v3_ppo_arena_eval import (
     _make_tiny_light_checkpoint,
@@ -169,17 +174,19 @@ def test_anchor_eval_cpu_determinism_and_candidate_independence(tmp_path: Path) 
     pol_z = load_eval_policy(ckpt_z, label="cand_z", device="cpu")
     ref_s = load_eval_policy(ckpt_ref_s, label="ref_s", device="cpu")
     ref_m = load_eval_policy(ckpt_ref_m, label="ref_m", device="cpu")
+    y_orig_sha = sha256_file(ckpt_y)
     x_orig_sha = sha256_file(ckpt_x)
+    z_orig_sha = sha256_file(ckpt_z)
 
-    # Evaluate X alone twice with the same seed (stochastic sampling) -> bit-identical
+    # Evaluate X alone twice with the same seed (stochastic sampling) over 50+300 ticks -> identical
     solo_1 = evaluate_anchor(
         [pol_x],
         [ref_s, ref_m],
         scripted_opponents=("cut_off", "head_evader"),
         num_envs=3,
         learner_slots=2,
-        burnin_ticks=8,
-        window_ticks=24,
+        burnin_ticks=50,
+        window_ticks=300,
         greedy=False,
         seed=20261113,
         bootstrap_samples=200,
@@ -190,61 +197,174 @@ def test_anchor_eval_cpu_determinism_and_candidate_independence(tmp_path: Path) 
         scripted_opponents=("cut_off", "head_evader"),
         num_envs=3,
         learner_slots=2,
-        burnin_ticks=8,
-        window_ticks=24,
+        burnin_ticks=50,
+        window_ticks=300,
         greedy=False,
         seed=20261113,
         bootstrap_samples=200,
     )
-    assert solo_1["schema"] == V3_ANCHOR_EVAL_SCHEMA
-    assert x_orig_sha in solo_1["results_by_sha256"]
-    assert _strip_anchor_nondeterministic_fields(
-        solo_1["results_by_sha256"][x_orig_sha]
-    ) == _strip_anchor_nondeterministic_fields(solo_2["results_by_sha256"][x_orig_sha])
-
-    # Evaluate [Y, X, Z] together (including mixed S and M nets) -> X's result is BIT-IDENTICAL!
-    batch_res = evaluate_anchor(
-        [pol_y, pol_x, pol_z],
+    solo_diff_seed = evaluate_anchor(
+        [pol_x],
         [ref_s, ref_m],
         scripted_opponents=("cut_off", "head_evader"),
         num_envs=3,
         learner_slots=2,
-        burnin_ticks=8,
-        window_ticks=24,
+        burnin_ticks=50,
+        window_ticks=300,
+        greedy=False,
+        seed=20261114,
+        bootstrap_samples=200,
+    )
+    assert solo_1["schema"] == V3_ANCHOR_EVAL_SCHEMA
+    assert x_orig_sha in solo_1["results_by_sha256"]
+    stripped_solo_1 = _strip_anchor_nondeterministic_fields(solo_1["results_by_sha256"][x_orig_sha])
+    stripped_solo_2 = _strip_anchor_nondeterministic_fields(solo_2["results_by_sha256"][x_orig_sha])
+    stripped_diff_seed = _strip_anchor_nondeterministic_fields(
+        solo_diff_seed["results_by_sha256"][x_orig_sha]
+    )
+    assert stripped_solo_1 == stripped_solo_2
+    assert stripped_solo_1 != stripped_diff_seed
+    assert (
+        solo_1["results_by_sha256"][x_orig_sha]["metrics"]["time_averaged_length"],
+        solo_1["results_by_sha256"][x_orig_sha]["metrics"]["acted_agent_steps"],
+    ) != (
+        solo_diff_seed["results_by_sha256"][x_orig_sha]["metrics"]["time_averaged_length"],
+        solo_diff_seed["results_by_sha256"][x_orig_sha]["metrics"]["acted_agent_steps"],
+    )
+
+    # Evaluate [Z, Y, X] in reverse order -> all 3 candidates differ AND X is bit-identical to solo!
+    batch_res = evaluate_anchor(
+        [pol_z, pol_y, pol_x],
+        [ref_s, ref_m],
+        scripted_opponents=("cut_off", "head_evader"),
+        num_envs=3,
+        learner_slots=2,
+        burnin_ticks=50,
+        window_ticks=300,
         greedy=False,
         seed=20261113,
         bootstrap_samples=200,
     )
-    assert set(batch_res["results_by_sha256"].keys()) == {
-        sha256_file(ckpt_y),
-        x_orig_sha,
-        sha256_file(ckpt_z),
-    }
-    assert _strip_anchor_nondeterministic_fields(
-        batch_res["results_by_sha256"][x_orig_sha]
-    ) == _strip_anchor_nondeterministic_fields(solo_1["results_by_sha256"][x_orig_sha])
+    assert set(batch_res["results_by_sha256"].keys()) == {y_orig_sha, x_orig_sha, z_orig_sha}
+    stripped_x = _strip_anchor_nondeterministic_fields(batch_res["results_by_sha256"][x_orig_sha])
+    stripped_y = _strip_anchor_nondeterministic_fields(batch_res["results_by_sha256"][y_orig_sha])
+    stripped_z = _strip_anchor_nondeterministic_fields(batch_res["results_by_sha256"][z_orig_sha])
+    assert stripped_x != stripped_y
+    assert stripped_x != stripped_z
+    assert stripped_y != stripped_z
+    assert (
+        stripped_x["metrics"]["time_averaged_length"]
+        != stripped_y["metrics"]["time_averaged_length"]
+    )
+    assert (
+        stripped_x["metrics"]["time_averaged_length"]
+        != stripped_z["metrics"]["time_averaged_length"]
+    )
+    assert (
+        stripped_y["metrics"]["time_averaged_length"]
+        != stripped_z["metrics"]["time_averaged_length"]
+    )
+    assert stripped_x == stripped_solo_1
 
-    # Check metric conservation & CI bounds for every candidate
+    def _collect_all_keys(obj: Any) -> set[str]:
+        found: set[str] = set()
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                found.add(str(k))
+                found |= _collect_all_keys(v)
+        elif isinstance(obj, list):
+            for item in obj:
+                found |= _collect_all_keys(item)
+        return found
+
+    all_keys = _collect_all_keys(batch_res)
+    assert not any("binomial" in k for k in all_keys)
+    assert not any("final_survivor" in k or "final_survival" in k for k in all_keys)
+
+    # Check metric conservation, friendly-fire exclusion, (K+0.5)/(D+0.5), and CI bounds
     for cand_row in batch_res["candidates"]:
         m = cand_row["metrics"]
         opp_deaths = sum(int(o["candidate_deaths_from"]) for o in cand_row["by_opponent"])
         ff_deaths = int(cand_row["non_opponent_deaths"]["candidate_friendly_fire"]["deaths"])
         wall_deaths = int(cand_row["non_opponent_deaths"]["wall"]["deaths"])
+        assert opp_deaths == int(m["deaths_by_opponent"]) == int(m["kill_death_ratio_deaths"])
+        assert ff_deaths == int(m["friendly_fire_deaths_and_kills"])
         assert opp_deaths + ff_deaths + wall_deaths == int(m["deaths"])
 
         opp_kills = sum(int(o["candidate_kills_against"]) for o in cand_row["by_opponent"])
         ff_kills = int(cand_row["non_opponent_deaths"]["candidate_friendly_fire"]["kills"])
-        assert opp_kills + ff_kills == int(m["kills"])
+        assert ff_kills == ff_deaths
+        assert opp_kills == int(m["kills"]) == int(m["kill_death_ratio_kills"])
+        assert m["kill_death_ratio"] == round((opp_kills + 0.5) / (opp_deaths + 0.5), 4)
+
+        for opp_row in cand_row["by_opponent"]:
+            ok = int(opp_row["candidate_kills_against"])
+            od = int(opp_row["candidate_deaths_from"])
+            assert opp_row["kill_death_ratio_kills"] == ok
+            assert opp_row["kill_death_ratio_deaths"] == od
+            assert opp_row["kill_death_ratio"] == round((ok + 0.5) / (od + 0.5), 4)
 
         lo_len, hi_len = m["time_averaged_length_ci95"]
         assert lo_len <= m["time_averaged_length"] <= hi_len
-        lo_surv, hi_surv = m["final_survival_rate_binomial_ci95"]
-        assert 0.0 <= lo_surv <= m["final_survival_rate"] <= hi_surv <= 1.0
+        lo_alive, hi_alive = m["alive_at_end_rate_ci95"]
+        assert 0.0 <= lo_alive <= m["alive_at_end_rate"] <= hi_alive <= 1.0
+        lo_alen, hi_alen = m["alive_at_end_length_ci95"]
+        assert lo_alen <= m["alive_at_end_length"] <= hi_alen
 
-    w_lo, w_hi = wilson_binomial_ci95(6, 10)
-    assert 0.25 < w_lo < 0.6 < w_hi < 0.90
+    # Direct synthetic check for (K+0.5)/(D+0.5) when D > 0 (point & bootstrap) + FF exclusion
+    kill_mat_syn = np.zeros((2, 2, 3), dtype=np.int64)
+    # World 0: 2 kills vs opp, 1 death from opp, 3 friendly-fire, 2 wall
+    kill_mat_syn[0, 1, 0] = 2
+    kill_mat_syn[0, 0, 1] = 1
+    kill_mat_syn[0, 0, 0] = 3
+    kill_mat_syn[0, 0, 2] = 2
+    # World 1: 1 kill vs opp, 1 death from opp, 1 friendly-fire, 3 wall
+    kill_mat_syn[1, 1, 0] = 1
+    kill_mat_syn[1, 0, 1] = 1
+    kill_mat_syn[1, 0, 0] = 1
+    kill_mat_syn[1, 0, 2] = 3
+    syn_summary = _summarize_single_anchor_candidate(
+        candidate=pol_x,
+        references=[],
+        scripted_opponents=("cut_off",),
+        game_cfg=GameV3Config(arena_radius=75.0, num_snakes=6),
+        num_envs=2,
+        learner_slots=2,
+        burnin_ticks=0,
+        window_ticks=100,
+        greedy=True,
+        seed=42,
+        bootstrap_samples=500,
+        wall_seconds=0.1,
+        seats_per_world_np=np.array([[2, 4], [2, 4]], dtype=np.int64),
+        acted_np=np.array([[200, 400], [200, 400]], dtype=np.int64),
+        surv_ticks_np=np.array([[194, 398], [195, 399]], dtype=np.int64),
+        surv_len_np=np.array([[2200, 4400], [2100, 4300]], dtype=np.int64),
+        deaths_np=np.array([[6, 2], [5, 1]], dtype=np.int64),
+        kills_np=np.array([[2, 1], [1, 1]], dtype=np.int64),
+        alive_at_end_np=np.array([[2, 4], [1, 4]], dtype=np.int64),
+        final_mass_np=np.array([[28, 48], [15, 44]], dtype=np.int64),
+        kill_mat_np=kill_mat_syn,
+    )
+    sm = syn_summary["metrics"]
+    assert sm["kills"] == 3
+    assert sm["deaths_by_opponent"] == 2
+    assert sm["friendly_fire_deaths_and_kills"] == 4
+    assert sm["wall_deaths"] == 5
+    assert sm["deaths"] == 11
+    assert sm["kill_death_ratio_kills"] == 3
+    assert sm["kill_death_ratio_deaths"] == 2
+    assert sm["kill_death_ratio"] == 1.4  # (3+0.5)/(2+0.5)=1.4, NOT unsmoothed 3/2=1.5
+    assert sm["kill_death_ratio_ci95"] == [1.0, 1.8]  # bootstrap (4+0.5)/(2+0.5)=1.8, NOT 4/2=2.0
+    assert sm["alive_at_end"] == 3
+    assert sm["alive_at_end_length"] == round(43.0 / 3.0, 4)
+
     md = format_anchor_markdown(batch_res)
     assert "Anchor Evaluation Report" in md
+    assert "Alive at End" in md
+    assert "Length of Seats Alive at End [95% CI]" in md
+    assert "Final Surv" not in md
+    assert "binomial" not in md.lower()
     assert "`cand_x`" in md
     assert "`ref_m`" in md
 
@@ -569,6 +689,13 @@ def test_prepare_anchor_capacity_print_60min_refusal_and_canary_binding(
 def test_train_eval_config_defaults_unchanged_and_custom_prepare(tmp_path: Path) -> None:
     """Default V3PPOConfig omits `eval_opponents`, legacy loads, and `prepare` sets harder eval."""
     default_cfg = V3PPOConfig()
+    assert _train_eval_cost_scale_vs_default(default_cfg) == 1.0
+    custom_base = V3PPOConfig(eval_envs=96, eval_burnin_ticks=100, eval_ticks=900)
+    assert _train_eval_cost_scale_vs_default(custom_base, default_cfg=custom_base) == 1.0
+    doubled_base = V3PPOConfig(eval_envs=192, eval_burnin_ticks=200, eval_ticks=1800)
+    assert _train_eval_cost_scale_vs_default(
+        doubled_base, default_cfg=custom_base
+    ) == pytest.approx(4.0)
     assert (
         default_cfg.eval_opponents
         == DEFAULT_TRAIN_EVAL_OPPONENTS

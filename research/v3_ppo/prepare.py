@@ -78,7 +78,6 @@ from research.v3_ppo.config import (
     ASSUMED_STAGED_INPUT_UPLOAD_RATE_BYTES_PER_SEC,
     ASSUMED_STAGED_INPUT_UPLOAD_RATE_MBPS,
     CANARY_MAX_ESTIMATED_UPLOAD_SECONDS,
-    DEFAULT_TRAIN_EVAL_OPPONENTS,
     EVAL_UPLOAD_CHUNK_RATE_BYTES_PER_SEC,
     EVAL_UPLOAD_CONTROL_HANG_PROB,
     GPU_VRAM_BUDGET_BYTES,
@@ -1195,21 +1194,38 @@ def _resolve_measured_world_bytes(
     return eff_world_bytes
 
 
-def _train_eval_cost_scale_vs_default(cfg_obj: V3PPOConfig) -> float:
+_DEFAULT_TRAIN_EVAL_CFG: V3PPOConfig = V3PPOConfig()
+
+
+def _train_eval_cost_scale_vs_default(
+    cfg_obj: V3PPOConfig,
+    *,
+    default_cfg: V3PPOConfig = _DEFAULT_TRAIN_EVAL_CFG,
+) -> float:
     """Return exact 1.0 for default train eval settings, else proportional wall-time multiplier."""
+    default_envs = int(default_cfg.eval_envs)
+    default_burnin = int(default_cfg.eval_burnin_ticks)
+    default_ticks = int(default_cfg.eval_ticks)
+    default_opponents = tuple(default_cfg.eval_opponents)
     if (
-        int(cfg_obj.eval_envs) == 192
-        and int(cfg_obj.eval_burnin_ticks) == 250
-        and int(cfg_obj.eval_ticks) == 2000
-        and tuple(cfg_obj.eval_opponents) == DEFAULT_TRAIN_EVAL_OPPONENTS
+        int(cfg_obj.eval_envs) == default_envs
+        and int(cfg_obj.eval_burnin_ticks) == default_burnin
+        and int(cfg_obj.eval_ticks) == default_ticks
+        and tuple(cfg_obj.eval_opponents) == default_opponents
     ):
         return 1.0
-    env_ratio = float(cfg_obj.eval_envs) / 192.0
-    tick_ratio = float(int(cfg_obj.eval_burnin_ticks) + int(cfg_obj.eval_ticks)) / 2250.0
+    env_ratio = float(cfg_obj.eval_envs) / float(max(1, default_envs))
+    default_total_ticks = float(max(1, default_burnin + default_ticks))
+    tick_ratio = (
+        float(int(cfg_obj.eval_burnin_ticks) + int(cfg_obj.eval_ticks)) / default_total_ticks
+    )
     opp_weights = [
         1.15 if op in ("cut_off", "head_evader") else 1.0 for op in cfg_obj.eval_opponents
     ]
-    opp_ratio = float(sum(opp_weights)) / 2.0
+    default_opp_weights = [
+        1.15 if op in ("cut_off", "head_evader") else 1.0 for op in default_opponents
+    ]
+    opp_ratio = float(sum(opp_weights)) / float(max(1e-9, sum(default_opp_weights)))
     return max(0.05, env_ratio * tick_ratio * opp_ratio)
 
 

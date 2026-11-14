@@ -12,7 +12,6 @@ candidates are evaluated in the same packet.
 from __future__ import annotations
 
 import json
-import math
 import re
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -278,30 +277,6 @@ def build_anchor_seat_assignment(
     return torch.as_tensor(role_grid, dtype=torch.int64, device=device)
 
 
-def wilson_binomial_ci95(
-    successes: int,
-    trials: int,
-    *,
-    scale: float = 1.0,
-    decimals: int = 6,
-) -> list[float]:
-    """Compute exact 95% Wilson score binomial confidence interval ``[low, high] * scale``."""
-    n = int(trials)
-    k = int(successes)
-    if n <= 0:
-        return [0.0, 0.0]
-    k = max(0, min(n, k))
-    z = 1.959963984540054
-    z2 = z * z
-    p = float(k) / float(n)
-    denom = 1.0 + z2 / float(n)
-    center = (p + z2 / (2.0 * float(n))) / denom
-    half = (z / denom) * math.sqrt((p * (1.0 - p) / float(n)) + (z2 / (4.0 * float(n) * float(n))))
-    lo = max(0.0, center - half) * float(scale)
-    hi = min(1.0, center + half) * float(scale)
-    return [round(lo, decimals), round(hi, decimals)]
-
-
 def _bootstrap_world_ratio_ci(
     num_w: np.ndarray,
     den_w: np.ndarray,
@@ -309,17 +284,17 @@ def _bootstrap_world_ratio_ci(
     bs_idx: np.ndarray | None,
     scale: float = 1.0,
     zero_den_default: float = 0.0,
-    bs_smooth_num: float = 0.0,
-    bs_smooth_den: float = 0.0,
+    smooth_num: float = 0.0,
+    smooth_den: float = 0.0,
     decimals: int = 6,
 ) -> tuple[float, list[float]]:
-    """Compute pooled ratio ``scale * sum(num_w) / sum(den_w)`` and 95% world-bootstrap CI."""
-    tot_num = float(num_w.sum())
-    tot_den = float(den_w.sum())
+    """Compute pooled ratio ``scale * (sum(num_w) + smooth_num) / (sum(den_w) + smooth_den)``
+    and its 95% world-bootstrap CI.
+    """
+    tot_num = float(num_w.sum()) + float(smooth_num)
+    tot_den = float(den_w.sum()) + float(smooth_den)
     if tot_den > 0.0:
         pt = float(scale) * (tot_num / tot_den)
-    elif bs_smooth_den > 0.0:
-        pt = float(scale) * ((tot_num + bs_smooth_num) / bs_smooth_den)
     else:
         pt = float(zero_den_default)
 
@@ -327,20 +302,13 @@ def _bootstrap_world_ratio_ci(
     if bs_idx is None or int(num_w.shape[0]) <= 1:
         return pt_r, [pt_r, pt_r]
 
-    bs_n = num_w[bs_idx].sum(axis=1).astype(np.float64)
-    bs_d = den_w[bs_idx].sum(axis=1).astype(np.float64)
-    if bs_smooth_den > 0.0:
-        bs_val = float(scale) * np.where(
-            bs_d > 0.0,
-            bs_n / np.maximum(bs_d, 1e-12),
-            (bs_n + bs_smooth_num) / (bs_d + bs_smooth_den),
-        )
-    else:
-        bs_val = np.where(
-            bs_d > 0.0,
-            float(scale) * (bs_n / np.maximum(bs_d, 1e-12)),
-            float(zero_den_default),
-        )
+    bs_n = num_w[bs_idx].sum(axis=1).astype(np.float64) + float(smooth_num)
+    bs_d = den_w[bs_idx].sum(axis=1).astype(np.float64) + float(smooth_den)
+    bs_val = np.where(
+        bs_d > 0.0,
+        float(scale) * (bs_n / np.maximum(bs_d, 1e-12)),
+        float(zero_den_default),
+    )
     lo, hi = np.percentile(bs_val, [2.5, 97.5])
     return pt_r, [round(float(lo), decimals), round(float(hi), decimals)]
 
@@ -572,14 +540,11 @@ def evaluate_single_anchor_candidate(
                     torch.where(survived_es, info.length.to(torch.int64), zeros_en_i64),
                 )
                 deaths_wr.scatter_add_(1, seat_role, died_es.to(torch.int64))
-                kills_wr.scatter_add_(
-                    1,
-                    seat_role,
-                    torch.where(acted_es, info.kill_credit.to(torch.int64), zeros_en_i64),
-                )
 
                 ks = info.killer_id
                 killer_role = seat_role.gather(1, ks.clamp(0, n_cnt - 1).to(torch.int64))
+                non_friendly_kill = died_es & (ks >= 0) & (killer_role != seat_role)
+                kills_wr.scatter_add_(1, killer_role, non_friendly_kill.to(torch.int64))
                 killer_col = torch.where(
                     ks >= 0,
                     killer_role,
@@ -595,9 +560,9 @@ def evaluate_single_anchor_candidate(
                 )
 
         end_alive = sim.alive & (~sim.truncated_pending)
-        final_survivors_wr = torch.zeros((e_cnt, num_roles), dtype=torch.int64, device=dev)
+        alive_at_end_wr = torch.zeros((e_cnt, num_roles), dtype=torch.int64, device=dev)
         final_mass_wr = torch.zeros((e_cnt, num_roles), dtype=torch.int64, device=dev)
-        final_survivors_wr.scatter_add_(1, seat_role, end_alive.to(torch.int64))
+        alive_at_end_wr.scatter_add_(1, seat_role, end_alive.to(torch.int64))
         final_mass_wr.scatter_add_(
             1,
             seat_role,
@@ -612,7 +577,7 @@ def evaluate_single_anchor_candidate(
     surv_len_np = survived_len_sum_wr.cpu().numpy()
     deaths_np = deaths_wr.cpu().numpy()
     kills_np = kills_wr.cpu().numpy()
-    final_surv_np = final_survivors_wr.cpu().numpy()
+    alive_at_end_np = alive_at_end_wr.cpu().numpy()
     final_mass_np = final_mass_wr.cpu().numpy()
     kill_mat_np = kill_mat_1d.view(e_cnt, num_roles, kill_cols).cpu().numpy()
 
@@ -635,7 +600,7 @@ def evaluate_single_anchor_candidate(
         surv_len_np=surv_len_np,
         deaths_np=deaths_np,
         kills_np=kills_np,
-        final_surv_np=final_surv_np,
+        alive_at_end_np=alive_at_end_np,
         final_mass_np=final_mass_np,
         kill_mat_np=kill_mat_np,
     )
@@ -661,11 +626,11 @@ def _summarize_single_anchor_candidate(
     surv_len_np: np.ndarray,
     deaths_np: np.ndarray,
     kills_np: np.ndarray,
-    final_surv_np: np.ndarray,
+    alive_at_end_np: np.ndarray,
     final_mass_np: np.ndarray,
     kill_mat_np: np.ndarray,
 ) -> dict[str, Any]:
-    """Compute world-bootstrap and Wilson binomial CIs plus per-opponent kill/death attribution."""
+    """Compute world-bootstrap CIs and per-opponent kill/death attribution."""
     e_cnt = int(num_envs)
     n_bs = max(0, int(bootstrap_samples))
     if e_cnt > 1 and n_bs > 0:
@@ -676,12 +641,16 @@ def _summarize_single_anchor_candidate(
     else:
         bs_idx = None
 
+    opp_descs = _build_opponent_descriptors(references, scripted_opponents)
+    num_roles = 1 + len(opp_descs)
+
     c_acted_w = acted_np[:, 0]
     c_surv_ticks_w = surv_ticks_np[:, 0]
     c_surv_len_w = surv_len_np[:, 0]
     c_deaths_w = deaths_np[:, 0]
-    c_kills_w = kills_np[:, 0]
-    c_final_surv_w = final_surv_np[:, 0]
+    c_opp_kills_w = kill_mat_np[:, 1:num_roles, 0].sum(axis=1)
+    c_opp_deaths_w = kill_mat_np[:, 0, 1:num_roles].sum(axis=1)
+    c_alive_end_w = alive_at_end_np[:, 0]
     c_final_mass_w = final_mass_np[:, 0]
     c_seats_w = seats_per_world_np[:, 0]
 
@@ -691,8 +660,9 @@ def _summarize_single_anchor_candidate(
     tot_acted = int(c_acted_w.sum())
     tot_surv_ticks = int(c_surv_ticks_w.sum())
     tot_deaths = int(c_deaths_w.sum())
-    tot_kills = int(c_kills_w.sum())
-    tot_final_surv = int(c_final_surv_w.sum())
+    tot_opp_deaths = int(c_opp_deaths_w.sum())
+    tot_opp_kills = int(c_opp_kills_w.sum())
+    tot_alive_end = int(c_alive_end_w.sum())
     tot_cand_seats = int(c_seats_w.sum())
 
     time_avg_len, time_avg_len_ci = _bootstrap_world_ratio_ci(
@@ -702,20 +672,19 @@ def _summarize_single_anchor_candidate(
         zero_den_default=float(game_cfg.start_length),
         decimals=4,
     )
-    final_surv_len, final_surv_len_ci = _bootstrap_world_ratio_ci(
+    alive_end_len, alive_end_len_ci = _bootstrap_world_ratio_ci(
         c_final_mass_w,
-        c_final_surv_w,
+        c_alive_end_w,
         bs_idx=bs_idx,
         zero_den_default=0.0,
         decimals=4,
     )
-    final_surv_rate, final_surv_rate_ci = _bootstrap_world_ratio_ci(
-        c_final_surv_w,
+    alive_end_rate, alive_end_rate_ci = _bootstrap_world_ratio_ci(
+        c_alive_end_w,
         c_seats_w,
         bs_idx=bs_idx,
         decimals=6,
     )
-    final_surv_rate_binom_ci = wilson_binomial_ci95(tot_final_surv, tot_cand_seats, decimals=6)
 
     deaths_per_1k, deaths_per_1k_ci = _bootstrap_world_ratio_ci(
         c_deaths_w,
@@ -724,23 +693,28 @@ def _summarize_single_anchor_candidate(
         scale=1000.0,
         decimals=4,
     )
-    deaths_per_1k_binom_ci = wilson_binomial_ci95(tot_deaths, tot_acted, scale=1000.0, decimals=4)
-
-    kills_per_1k, kills_per_1k_ci = _bootstrap_world_ratio_ci(
-        c_kills_w,
+    opp_deaths_per_1k, opp_deaths_per_1k_ci = _bootstrap_world_ratio_ci(
+        c_opp_deaths_w,
         c_acted_w,
         bs_idx=bs_idx,
         scale=1000.0,
         decimals=4,
     )
-    kills_per_1k_binom_ci = wilson_binomial_ci95(tot_kills, tot_acted, scale=1000.0, decimals=4)
+
+    kills_per_1k, kills_per_1k_ci = _bootstrap_world_ratio_ci(
+        c_opp_kills_w,
+        c_acted_w,
+        bs_idx=bs_idx,
+        scale=1000.0,
+        decimals=4,
+    )
 
     kd_ratio, kd_ratio_ci = _bootstrap_world_ratio_ci(
-        c_kills_w,
-        c_deaths_w,
+        c_opp_kills_w,
+        c_opp_deaths_w,
         bs_idx=bs_idx,
-        bs_smooth_num=0.5,
-        bs_smooth_den=0.5,
+        smooth_num=0.5,
+        smooth_den=0.5,
         decimals=4,
     )
 
@@ -759,7 +733,6 @@ def _summarize_single_anchor_candidate(
         decimals=6,
     )
 
-    opp_descs = _build_opponent_descriptors(references, scripted_opponents)
     by_opponent_list: list[dict[str, Any]] = []
     by_opponent_map: dict[str, dict[str, Any]] = {}
 
@@ -790,8 +763,8 @@ def _summarize_single_anchor_candidate(
             kills_vs_w,
             deaths_from_w,
             bs_idx=bs_idx,
-            bs_smooth_num=0.5,
-            bs_smooth_den=0.5,
+            smooth_num=0.5,
+            smooth_den=0.5,
             decimals=4,
         )
         kill_share_vs, kill_share_vs_ci = _bootstrap_world_ratio_ci(
@@ -801,11 +774,6 @@ def _summarize_single_anchor_candidate(
             zero_den_default=0.5,
             decimals=6,
         )
-        kill_share_vs_binom_ci = (
-            wilson_binomial_ci95(k_vs, k_vs + d_from, decimals=6)
-            if (k_vs + d_from) > 0
-            else [0.5, 0.5]
-        )
 
         opp_len, opp_len_ci = _bootstrap_world_ratio_ci(
             surv_len_np[:, r_id],
@@ -814,9 +782,9 @@ def _summarize_single_anchor_candidate(
             zero_den_default=float(game_cfg.start_length),
             decimals=4,
         )
-        opp_final_surv_len, _ = _bootstrap_world_ratio_ci(
+        opp_alive_end_len, _ = _bootstrap_world_ratio_ci(
             final_mass_np[:, r_id],
-            final_surv_np[:, r_id],
+            alive_at_end_np[:, r_id],
             bs_idx=bs_idx,
             zero_den_default=0.0,
             decimals=4,
@@ -854,12 +822,13 @@ def _summarize_single_anchor_candidate(
             "candidate_deaths_per_1k_ci95": d_from_1k_ci,
             "kill_death_ratio": kd_vs,
             "kill_death_ratio_ci95": kd_vs_ci,
+            "kill_death_ratio_kills": k_vs,
+            "kill_death_ratio_deaths": d_from,
             "combat_kill_share": kill_share_vs,
             "combat_kill_share_ci95": kill_share_vs_ci,
-            "combat_kill_share_binomial_ci95": kill_share_vs_binom_ci,
             "opponent_time_averaged_length": opp_len,
             "opponent_time_averaged_length_ci95": opp_len_ci,
-            "opponent_final_survivor_length": opp_final_surv_len,
+            "opponent_alive_at_end_length": opp_alive_end_len,
             "opponent_final_arena_mass_share": opp_end_share,
             "opponent_final_arena_mass_share_ci95": opp_end_share_ci,
             "opponent_deaths_per_1k_agent_steps": opp_d_1k,
@@ -868,7 +837,6 @@ def _summarize_single_anchor_candidate(
         by_opponent_list.append(opp_entry)
         by_opponent_map[str(desc["opponent_key"])] = opp_entry
 
-    num_roles = 1 + len(opp_descs)
     friendly_deaths_w = kill_mat_np[:, 0, 0]
     wall_deaths_w = kill_mat_np[:, 0, num_roles]
     friendly_d = int(friendly_deaths_w.sum())
@@ -894,23 +862,25 @@ def _summarize_single_anchor_candidate(
         "survived_agent_steps": tot_surv_ticks,
         "time_averaged_length": time_avg_len,
         "time_averaged_length_ci95": time_avg_len_ci,
-        "final_survivor_length": final_surv_len,
-        "final_survivor_length_ci95": final_surv_len_ci,
-        "final_survivors": tot_final_surv,
+        "alive_at_end_length": alive_end_len,
+        "alive_at_end_length_ci95": alive_end_len_ci,
+        "alive_at_end": tot_alive_end,
         "candidate_seats_total": tot_cand_seats,
-        "final_survival_rate": final_surv_rate,
-        "final_survival_rate_ci95": final_surv_rate_ci,
-        "final_survival_rate_binomial_ci95": final_surv_rate_binom_ci,
+        "alive_at_end_rate": alive_end_rate,
+        "alive_at_end_rate_ci95": alive_end_rate_ci,
         "deaths": tot_deaths,
         "deaths_per_1k_agent_steps": deaths_per_1k,
         "deaths_per_1k_ci95": deaths_per_1k_ci,
-        "deaths_per_1k_binomial_ci95": deaths_per_1k_binom_ci,
-        "kills": tot_kills,
+        "deaths_by_opponent": tot_opp_deaths,
+        "deaths_by_opponent_per_1k_agent_steps": opp_deaths_per_1k,
+        "deaths_by_opponent_per_1k_ci95": opp_deaths_per_1k_ci,
+        "kills": tot_opp_kills,
         "kills_per_1k_agent_steps": kills_per_1k,
         "kills_per_1k_ci95": kills_per_1k_ci,
-        "kills_per_1k_binomial_ci95": kills_per_1k_binom_ci,
         "kill_death_ratio": kd_ratio,
         "kill_death_ratio_ci95": kd_ratio_ci,
+        "kill_death_ratio_kills": tot_opp_kills,
+        "kill_death_ratio_deaths": tot_opp_deaths,
         "final_arena_mass_share": final_mass_share,
         "final_arena_mass_share_ci95": final_mass_share_ci,
         "window_arena_mass_share": window_mass_share,
@@ -956,8 +926,9 @@ def _summarize_single_anchor_candidate(
             "survived_agent_steps": [int(x) for x in c_surv_ticks_w.tolist()],
             "survived_length_sum": [int(x) for x in c_surv_len_w.tolist()],
             "deaths": [int(x) for x in c_deaths_w.tolist()],
-            "kills": [int(x) for x in c_kills_w.tolist()],
-            "final_survivors": [int(x) for x in c_final_surv_w.tolist()],
+            "deaths_by_opponent": [int(x) for x in c_opp_deaths_w.tolist()],
+            "kills": [int(x) for x in c_opp_kills_w.tolist()],
+            "alive_at_end": [int(x) for x in c_alive_end_w.tolist()],
             "final_candidate_mass": [int(x) for x in c_final_mass_w.tolist()],
             "final_arena_mass": [int(x) for x in final_arena_mass_w.tolist()],
         },
@@ -1157,18 +1128,27 @@ def evaluate_anchor(
             "agent_steps_collected": row["agent_steps_collected"],
             "time_averaged_length": row["metrics"]["time_averaged_length"],
             "time_averaged_length_ci95": row["metrics"]["time_averaged_length_ci95"],
-            "final_survivor_length": row["metrics"]["final_survivor_length"],
-            "final_survivor_length_ci95": row["metrics"]["final_survivor_length_ci95"],
-            "final_survivors": row["metrics"]["final_survivors"],
+            "alive_at_end": row["metrics"]["alive_at_end"],
             "candidate_seats_total": row["metrics"]["candidate_seats_total"],
+            "alive_at_end_rate": row["metrics"]["alive_at_end_rate"],
+            "alive_at_end_rate_ci95": row["metrics"]["alive_at_end_rate_ci95"],
+            "alive_at_end_length": row["metrics"]["alive_at_end_length"],
+            "alive_at_end_length_ci95": row["metrics"]["alive_at_end_length_ci95"],
             "deaths": row["metrics"]["deaths"],
             "deaths_per_1k_agent_steps": row["metrics"]["deaths_per_1k_agent_steps"],
             "deaths_per_1k_ci95": row["metrics"]["deaths_per_1k_ci95"],
+            "deaths_by_opponent": row["metrics"]["deaths_by_opponent"],
+            "deaths_by_opponent_per_1k_agent_steps": row["metrics"][
+                "deaths_by_opponent_per_1k_agent_steps"
+            ],
+            "deaths_by_opponent_per_1k_ci95": row["metrics"]["deaths_by_opponent_per_1k_ci95"],
             "kills": row["metrics"]["kills"],
             "kills_per_1k_agent_steps": row["metrics"]["kills_per_1k_agent_steps"],
             "kills_per_1k_ci95": row["metrics"]["kills_per_1k_ci95"],
             "kill_death_ratio": row["metrics"]["kill_death_ratio"],
             "kill_death_ratio_ci95": row["metrics"]["kill_death_ratio_ci95"],
+            "kill_death_ratio_kills": row["metrics"]["kill_death_ratio_kills"],
+            "kill_death_ratio_deaths": row["metrics"]["kill_death_ratio_deaths"],
             "final_arena_mass_share": row["metrics"]["final_arena_mass_share"],
             "final_arena_mass_share_ci95": row["metrics"]["final_arena_mass_share_ci95"],
         }
@@ -1255,31 +1235,38 @@ def format_anchor_markdown(result: Mapping[str, Any]) -> str:
         "",
         (
             "| Candidate | Orig SHA256 | Net | Time-Avg Len [95% CI] | "
-            "Final Surv Len [95% CI] (Surv) | Deaths/1k [95% CI] | Kills/1k [95% CI] | "
-            "K/D [95% CI] | End Mass Share [95% CI] |"
+            "Alive at End | Length of Seats Alive at End [95% CI] | "
+            "Total Deaths/1k [95% CI] | Deaths by Opp/1k [95% CI] | Kills/1k [95% CI] | "
+            "K/D [95% CI] (K/D) | End Mass Share [95% CI] |"
         ),
-        "| :--- | :--- | :---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| :--- | :--- | :---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
 
     for c in result.get("candidates", []):
         m = c["metrics"]
         sha12 = str(c["checkpoint_sha256"])[:12]
         tl_ci = m["time_averaged_length_ci95"]
-        fl_ci = m["final_survivor_length_ci95"]
+        al_ci = m["alive_at_end_length_ci95"]
         d_ci = m["deaths_per_1k_ci95"]
+        do_ci = m["deaths_by_opponent_per_1k_ci95"]
         k_ci = m["kills_per_1k_ci95"]
         kd_ci = m["kill_death_ratio_ci95"]
         ms_ci = m["final_arena_mass_share_ci95"]
         d_rate = m["deaths_per_1k_agent_steps"]
+        do_rate = m["deaths_by_opponent_per_1k_agent_steps"]
         k_rate = m["kills_per_1k_agent_steps"]
+        kd_k = m["kill_death_ratio_kills"]
+        kd_d = m["kill_death_ratio_deaths"]
         lines.append(
             f"| `{c['label']}` | `{sha12}` | {c['net_size']} | "
             f"{m['time_averaged_length']:.2f} [{tl_ci[0]:.2f}, {tl_ci[1]:.2f}] | "
-            f"{m['final_survivor_length']:.2f} [{fl_ci[0]:.2f}, {fl_ci[1]:.2f}] "
-            f"({m['final_survivors']}/{m['candidate_seats_total']}) | "
+            f"{m['alive_at_end']}/{m['candidate_seats_total']} "
+            f"({100.0 * m['alive_at_end_rate']:.1f}%) | "
+            f"{m['alive_at_end_length']:.2f} [{al_ci[0]:.2f}, {al_ci[1]:.2f}] | "
             f"{d_rate:.3f} [{d_ci[0]:.3f}, {d_ci[1]:.3f}] ({m['deaths']}) | "
+            f"{do_rate:.3f} [{do_ci[0]:.3f}, {do_ci[1]:.3f}] ({m['deaths_by_opponent']}) | "
             f"{k_rate:.3f} [{k_ci[0]:.3f}, {k_ci[1]:.3f}] ({m['kills']}) | "
-            f"{m['kill_death_ratio']:.2f} [{kd_ci[0]:.2f}, {kd_ci[1]:.2f}] | "
+            f"{m['kill_death_ratio']:.2f} [{kd_ci[0]:.2f}, {kd_ci[1]:.2f}] ({kd_k}/{kd_d}) | "
             f"{100.0 * m['final_arena_mass_share']:.2f}% "
             f"[{100.0 * ms_ci[0]:.2f}%, {100.0 * ms_ci[1]:.2f}%] |"
         )
@@ -1309,7 +1296,8 @@ def format_anchor_markdown(result: Mapping[str, Any]) -> str:
                 f"| `{c['label']}` | `{opp['label']}` | {opp['kind']} | "
                 f"{ok_cnt} ({ok_1k:.3f} [{k_ci[0]:.3f}, {k_ci[1]:.3f}]) | "
                 f"{od_cnt} ({od_1k:.3f} [{d_ci[0]:.3f}, {d_ci[1]:.3f}]) | "
-                f"{opp['kill_death_ratio']:.2f} [{kd_ci[0]:.2f}, {kd_ci[1]:.2f}] | "
+                f"{opp['kill_death_ratio']:.2f} [{kd_ci[0]:.2f}, {kd_ci[1]:.2f}] "
+                f"({ok_cnt}/{od_cnt}) | "
                 f"{100.0 * opp['opponent_final_arena_mass_share']:.2f}% |"
             )
         non_opp = c.get("non_opponent_deaths", {})
@@ -1322,7 +1310,7 @@ def format_anchor_markdown(result: Mapping[str, Any]) -> str:
                 f"| `{c['label']}` | `candidate_friendly_fire` | friendly | "
                 f"{ff['kills']} ({ff_1k:.3f} [{ff_ci[0]:.3f}, {ff_ci[1]:.3f}]) | "
                 f"{ff['deaths']} ({ff_1k:.3f} [{ff_ci[0]:.3f}, {ff_ci[1]:.3f}]) | "
-                f"1.00 [1.00, 1.00] | — |"
+                f"1.00 [1.00, 1.00] ({ff['kills']}/{ff['deaths']}) | — |"
             )
         if wl:
             wl_ci = wl["deaths_per_1k_ci95"]
@@ -1331,7 +1319,7 @@ def format_anchor_markdown(result: Mapping[str, Any]) -> str:
                 f"| `{c['label']}` | `wall` | boundary | "
                 f"0 (0.000 [0.000, 0.000]) | "
                 f"{wl['deaths']} ({wl_1k:.3f} [{wl_ci[0]:.3f}, {wl_ci[1]:.3f}]) | "
-                f"0.00 [0.00, 0.00] | — |"
+                f"— | — |"
             )
 
     return "\n".join(lines) + "\n"
