@@ -1467,10 +1467,10 @@ def _canary_stage_default_eval_benchmark(
         "eval_ticks": int(default_eval_res["eval_ticks"]),
         "eval_learner_slots": int(default_eval_res["eval_learner_slots"]),
         "vs_food_seeking_completed_lives": int(
-            default_eval_res["matchups"]["vs_food_seeking"]["completed_lives"]
+            default_eval_res["matchups"].get("vs_food_seeking", {}).get("completed_lives", 0)
         ),
         "vs_random_safe_completed_lives": int(
-            default_eval_res["matchups"]["vs_random_safe"]["completed_lives"]
+            default_eval_res["matchups"].get("vs_random_safe", {}).get("completed_lives", 0)
         ),
         "aborted": False,
     }
@@ -1539,6 +1539,8 @@ def _canary_stage_eval_smoke(
     raw_mode = env_map.get("V3_PPO_EVAL_MODE")
     if raw_mode:
         eval_mode = str(raw_mode)
+    elif isinstance(ledger_obj.get("anchor_eval"), Mapping):
+        eval_mode = "anchor"
     elif len(policy_paths) == 1:
         eval_mode = "long-game"
     elif len(policy_paths) > 6 or bool(verified_pairs):
@@ -1562,7 +1564,14 @@ def _canary_stage_eval_smoke(
         if env_map.get("V3_PPO_EVAL_MAX_PAIRS_PER_BATCH")
         else None
     )
-    default_envs = DEFAULT_LONG_GAME_NUM_ENVS if eval_mode == "long-game" else DEFAULT_H2H_NUM_ENVS
+    if eval_mode == "long-game":
+        default_envs = DEFAULT_LONG_GAME_NUM_ENVS
+    elif eval_mode == "anchor":
+        from research.v3_ppo.anchor_eval import DEFAULT_ANCHOR_NUM_ENVS
+
+        default_envs = DEFAULT_ANCHOR_NUM_ENVS
+    else:
+        default_envs = DEFAULT_H2H_NUM_ENVS
     eff_envs = (
         int(env_map["V3_PPO_EVAL_NUM_ENVS"])
         if env_map.get("V3_PPO_EVAL_NUM_ENVS")
@@ -1621,6 +1630,7 @@ def _canary_stage_eval_smoke(
         batched_flag = False
         pairs_in_timed_batch = 1
         timed_worlds = int(eff_envs)
+        timed_candidate_net: str | None = None
 
         if eval_mode == "round-robin":
             all_pairs = [
@@ -1776,6 +1786,91 @@ def _canary_stage_eval_smoke(
                         shutil.rmtree(tmp_rr_dir, ignore_errors=True)
                 else:
                     eval_res = batch_h2h[0]
+        elif eval_mode == "anchor":
+            from research.v3_ppo.anchor_eval import (
+                DEFAULT_ANCHOR_LEARNER_SLOTS,
+                candidate_unit_id,
+                evaluate_anchor,
+                parse_anchor_scripted_opponents,
+            )
+            from research.v3_ppo.arena_eval import load_staged_ledger_anchor_inputs
+
+            (
+                anchor_cands,
+                anchor_refs,
+                anchor_scripted,
+                ledger_ls,
+                verified_cands,
+            ) = load_staged_ledger_anchor_inputs(
+                Path(input_dir),
+                Path(ledger_path),
+                device=resolved_dev,
+                amp=amp_override,
+                use_channels_last=cl_override,
+                fast_learner_ops=fast_override,
+                compile_model=compile_eval,
+            )
+            if env_map.get("V3_PPO_ANCHOR_SCRIPTED"):
+                anchor_scripted = parse_anchor_scripted_opponents(env_map["V3_PPO_ANCHOR_SCRIPTED"])
+            eff_anchor_ls = (
+                int(learner_slots)
+                if learner_slots is not None
+                else (
+                    int(ledger_ls) if ledger_ls is not None else int(DEFAULT_ANCHOR_LEARNER_SLOTS)
+                )
+            )
+            pending_cands = [
+                c
+                for c in anchor_cands
+                if candidate_unit_id(c.source_checkpoint_sha256) not in verified_cands
+            ]
+            if not pending_cands:
+                pending_cands = anchor_cands[:1]
+
+            # Warm up one short game for each distinct candidate net size present.
+            seen_warmup_nets: set[str] = set()
+            for w_cand in anchor_cands:
+                if w_cand.net_size in seen_warmup_nets:
+                    continue
+                seen_warmup_nets.add(w_cand.net_size)
+                _ = evaluate_anchor(
+                    [w_cand],
+                    anchor_refs,
+                    scripted_opponents=anchor_scripted,
+                    num_envs=eff_envs,
+                    learner_slots=eff_anchor_ls,
+                    burnin_ticks=0,
+                    window_ticks=warmup_window,
+                    greedy=greedy,
+                    seed=seed,
+                    bootstrap_samples=10,
+                    should_stop=_smoke_should_stop,
+                )
+
+            # Time the largest pending candidate (so mixed S+M lists bound worst-case ms/tick).
+            timed_cand = max(pending_cands, key=lambda c: int(c.parameter_count))
+            timed_candidate_net = str(timed_cand.net_size)
+            synchronize_device(resolved_dev)
+            _reset_peak_memory(resolved_dev)
+            t0 = time.perf_counter()
+            eval_res = evaluate_anchor(
+                [timed_cand],
+                anchor_refs,
+                scripted_opponents=anchor_scripted,
+                num_envs=eff_envs,
+                learner_slots=eff_anchor_ls,
+                burnin_ticks=timed_burnin,
+                window_ticks=timed_window,
+                greedy=greedy,
+                seed=seed,
+                bootstrap_samples=20,
+                should_stop=_smoke_should_stop,
+            )
+            synchronize_device(resolved_dev)
+            timed_wall_sec = max(1.0e-9, time.perf_counter() - t0)
+            if bool(eval_res.get("aborted", False)):
+                raise RuntimeError("Canary anchor smoke aborted")
+            del anchor_cands, anchor_refs
         elif eval_mode == "long-game":
             _ = evaluate_long_game(
                 loaded_policies[0],
@@ -1869,7 +1964,7 @@ def _canary_stage_eval_smoke(
         verify_completed_artifact(out / rel)
     del loaded_policies
     _cleanup_device_memory(resolved_dev)
-    return {
+    smoke_out: dict[str, Any] = {
         "smoke_mode": eval_mode,
         "batched_pairs": bool(batched_flag),
         "num_staged_policies": len(policy_paths),
@@ -1884,6 +1979,9 @@ def _canary_stage_eval_smoke(
         "peak_memory_bytes": int(smoke_peak_bytes),
         "peak_memory_mib": smoke_peak_mib,
     }
+    if timed_candidate_net is not None:
+        smoke_out["timed_candidate_net_size"] = timed_candidate_net
+    return smoke_out
 
 
 def run_canary_suite(

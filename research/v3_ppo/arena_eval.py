@@ -98,7 +98,7 @@ _FORBIDDEN_POLICY_ONLY_KEYS: frozenset[str] = frozenset(
     }
 )
 
-EVAL_MODES: tuple[str, ...] = ("head-to-head", "round-robin", "long-game")
+EVAL_MODES: tuple[str, ...] = ("head-to-head", "round-robin", "long-game", "anchor")
 EVAL_REQUIRED_EXPORTS: tuple[str, ...] = ("eval_result.json", "summary.md")
 PAIR_REUSE_KEY_FIELDS: tuple[str, ...] = (
     "num_envs",
@@ -1468,6 +1468,8 @@ def estimate_eval_memory(
     num_envs_per_match: int,
     pairs_per_batch: int = 1,
     learner_slots: int | None = None,
+    num_reference_policies: int | None = None,
+    num_scripted_opponents: int | None = None,
     amp: bool = True,
     gpu: str | None = None,
 ) -> dict[str, Any]:
@@ -1485,11 +1487,29 @@ def estimate_eval_memory(
     layout = obs_layout_from_game_config(game_cfg)
 
     sim_mem = estimate_sim_memory_bytes(game_cfg, total_worlds)
-    obs_rows_per_world = (
-        n_snakes
-        if (eval_mode != "long-game" or learner_slots is None)
-        else max(1, min(n_snakes, int(learner_slots)))
-    )
+    if eval_mode == "anchor":
+        m_cand = max(1, min(n_snakes, int(learner_slots or 8)))
+        n_refs = max(0, int(num_reference_policies or 0))
+        n_scr = max(0, int(num_scripted_opponents or 0))
+        tot_opps = n_refs + n_scr
+        if tot_opps > 0 and (
+            num_reference_policies is not None or num_scripted_opponents is not None
+        ):
+            opp_seats = max(0, n_snakes - m_cand)
+            max_seats_per_opp = int(math.ceil(opp_seats / float(tot_opps)))
+            obs_rows_per_world = min(n_snakes, m_cand + n_refs * max_seats_per_opp)
+            max_pol_rows = total_worlds * max(m_cand, max_seats_per_opp if n_refs > 0 else 1)
+        else:
+            obs_rows_per_world = n_snakes
+            max_pol_rows = total_worlds * max(m_cand, max(1, n_snakes - m_cand))
+    else:
+        obs_rows_per_world = (
+            n_snakes
+            if (eval_mode != "long-game" or learner_slots is None)
+            else max(1, min(n_snakes, int(learner_slots)))
+        )
+        max_pol_rows = 0
+
     total_obs_rows = total_worlds * obs_rows_per_world
     obs_batch_bytes = total_obs_rows * int(layout.obs_batch_bytes_per_row)
 
@@ -1499,6 +1519,8 @@ def estimate_eval_memory(
 
     if eval_mode == "long-game":
         max_pol_rows = total_obs_rows
+    elif eval_mode == "anchor":
+        pass
     elif eval_mode == "head-to-head":
         max_pol_rows = int(math.ceil(total_obs_rows / float(max(1, len(net_sizes)))))
     else:
@@ -2933,6 +2955,7 @@ def discover_round_robin_checkpoints(
     sources: Sequence[str | Path],
     *,
     latest_per_run: bool = False,
+    min_checkpoints: int = 2,
 ) -> list[Path]:
     """Resolve checkpoint paths from files, directories, or `.txt`/`.json` manifests."""
     discovered: list[Path] = []
@@ -3015,11 +3038,29 @@ def discover_round_robin_checkpoints(
         if c not in seen:
             seen.add(c)
             deduped.append(c)
-    if len(deduped) < 2:
+    if len(deduped) < int(min_checkpoints):
+        if int(min_checkpoints) == 2:
+            raise ValueError(
+                f"Round-robin requires at least 2 checkpoints, discovered {len(deduped)} from {sources}"
+            )
         raise ValueError(
-            f"Round-robin requires at least 2 checkpoints, discovered {len(deduped)} from {sources}"
+            f"Expected at least {int(min_checkpoints)} checkpoint(s), discovered {len(deduped)} from {sources}"
         )
     return deduped
+
+
+def discover_eval_checkpoints(
+    sources: Sequence[str | Path],
+    *,
+    latest_per_run: bool = False,
+    min_checkpoints: int = 1,
+) -> list[Path]:
+    """Resolve `>= min_checkpoints` checkpoints from files, directories, or `.txt`/`.json` lists."""
+    return discover_round_robin_checkpoints(
+        sources,
+        latest_per_run=latest_per_run,
+        min_checkpoints=min_checkpoints,
+    )
 
 
 def evaluate_round_robin(
@@ -4029,6 +4070,10 @@ def _format_measured_spread_bullet(pairs: Sequence[Mapping[str, Any]]) -> str | 
 def format_eval_markdown(result: Mapping[str, Any]) -> str:
     """Format an ``arena_eval`` result dictionary into human-readable GitHub Markdown tables."""
     mode = str(result.get("mode", ""))
+    if mode == "anchor":
+        from research.v3_ppo.anchor_eval import format_anchor_markdown
+
+        return format_anchor_markdown(result)
     cfg = result.get("eval_config", {})
     tp = result.get("throughput", {})
     lines: list[str] = [
@@ -4437,20 +4482,139 @@ def load_staged_ledger_policies(
     return loaded, verified_pairs
 
 
+def _resolve_verified_candidate_units(
+    input_dir: Path,
+    ledger: Mapping[str, Any],
+) -> dict[str, Path]:
+    """Verify completed ``cand:*`` JSON units declared in ``ledger``."""
+    verified_cands: dict[str, Path] = {}
+    for unit in ledger.get("verified_units", []):
+        uid = str(unit.get("unit_id", ""))
+        if uid.startswith("cand:"):
+            cand_name = uid[len("cand:") :]
+            u_file = Path(input_dir) / str(unit["relpath"])
+            if not u_file.is_file():
+                raise FileNotFoundError(f"Verified anchor candidate unit missing at {u_file}")
+            actual_sha = sha256_file(u_file)
+            if actual_sha != str(unit["sha256"]):
+                raise ValueError(f"Verified anchor candidate {uid} sha256 mismatch")
+            verified_cands[cand_name] = u_file
+    return verified_cands
+
+
+def load_staged_ledger_anchor_inputs(
+    input_dir: Path,
+    ledger_path: Path,
+    *,
+    device: torch.device | str = "cpu",
+    explicit_candidate_labels: Sequence[str] | None = None,
+    explicit_reference_labels: Sequence[str] | None = None,
+    amp: bool | None = None,
+    use_channels_last: bool | None = None,
+    fast_learner_ops: bool | None = None,
+    compile_model: bool = False,
+) -> tuple[
+    list[LoadedEvalPolicy],
+    list[LoadedEvalPolicy],
+    tuple[OpponentPolicy, ...],
+    int | None,
+    dict[str, Path],
+]:
+    """Load candidates, references, scripted opponents, and verified units for anchor mode."""
+    from research.v3_ppo.anchor_eval import parse_anchor_scripted_opponents
+
+    ledger = json.loads(Path(ledger_path).read_text(encoding="utf-8"))
+    if ledger.get("namespace") != V3_PPO_NAMESPACE:
+        raise ValueError(
+            f"Foreign verified ledger namespace {ledger.get('namespace')!r} != {V3_PPO_NAMESPACE!r}"
+        )
+    anchor_spec = ledger.get("anchor_eval")
+    if not isinstance(anchor_spec, Mapping):
+        raise ValueError(f"Verified ledger {ledger_path} missing 'anchor_eval' metadata block")
+
+    loaded_all, _ = load_staged_ledger_policies(
+        input_dir,
+        ledger_path,
+        device=device,
+        explicit_labels=None,
+        amp=amp,
+        use_channels_last=use_channels_last,
+        fast_learner_ops=fast_learner_ops,
+        compile_model=compile_model,
+    )
+    cand_indices = [int(i) for i in anchor_spec.get("candidate_bundle_indices", [])]
+    ref_indices = [int(i) for i in anchor_spec.get("reference_bundle_indices", [])]
+    if not cand_indices:
+        raise ValueError(f"anchor_eval in {ledger_path} must declare >= 1 candidate_bundle_indices")
+
+    raw_cands = [loaded_all[i] for i in cand_indices]
+    raw_refs = [loaded_all[i] for i in ref_indices]
+
+    ledger_cand_labels = anchor_spec.get("candidate_labels")
+    chosen_cand_labels = (
+        explicit_candidate_labels
+        if explicit_candidate_labels is not None
+        else (
+            [str(x) for x in ledger_cand_labels]
+            if isinstance(ledger_cand_labels, Sequence)
+            and not isinstance(ledger_cand_labels, (str, bytes))
+            and len(ledger_cand_labels) == len(raw_cands)
+            else None
+        )
+    )
+    eff_cand_labels = resolve_unique_labels(
+        [Path(pol.source_checkpoint_path) for pol in raw_cands],
+        chosen_cand_labels,
+    )
+    candidates = [replace(pol, label=lbl) for pol, lbl in zip(raw_cands, eff_cand_labels)]
+
+    if raw_refs:
+        ledger_ref_labels = anchor_spec.get("reference_labels")
+        chosen_ref_labels = (
+            explicit_reference_labels
+            if explicit_reference_labels is not None
+            else (
+                [str(x) for x in ledger_ref_labels]
+                if isinstance(ledger_ref_labels, Sequence)
+                and not isinstance(ledger_ref_labels, (str, bytes))
+                and len(ledger_ref_labels) == len(raw_refs)
+                else None
+            )
+        )
+        eff_ref_labels = resolve_unique_labels(
+            [Path(pol.source_checkpoint_path) for pol in raw_refs],
+            chosen_ref_labels,
+        )
+        references = [replace(pol, label=lbl) for pol, lbl in zip(raw_refs, eff_ref_labels)]
+    else:
+        references = []
+
+    raw_scripted = anchor_spec.get("scripted_opponents")
+    scripted = parse_anchor_scripted_opponents(raw_scripted)
+    raw_ls = anchor_spec.get("learner_slots")
+    learner_slots = int(raw_ls) if raw_ls is not None else None
+    verified_cands = _resolve_verified_candidate_units(Path(input_dir), ledger)
+    return candidates, references, scripted, learner_slots, verified_cands
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     """Build CLI parser for ``python -m research.v3_ppo.arena_eval``."""
     parser = argparse.ArgumentParser(
         prog="python -m research.v3_ppo.arena_eval",
         description=(
             "Standalone Game V3.1 policy evaluation: 2..6 policy head-to-head, "
-            "all-pairs round-robin with Bradley-Terry Elo, and mature long-game diagnostics."
+            "all-pairs round-robin with Bradley-Terry Elo, anchor evaluation against a fixed "
+            "reference pool, and mature long-game diagnostics."
         ),
     )
     parser.add_argument(
         "--mode",
         choices=EVAL_MODES,
         default=None,
-        help="Evaluation mode (auto-inferred from --policies / --round-robin / --long-game if omitted).",
+        help=(
+            "Evaluation mode (auto-inferred from --candidates / --policies / --round-robin / "
+            "--long-game if omitted)."
+        ),
     )
     parser.add_argument(
         "--policies",
@@ -4474,6 +4638,40 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Directory, .txt/.json checkpoint list, or checkpoint paths for all-pairs round-robin.",
     )
     parser.add_argument(
+        "--candidates",
+        nargs="+",
+        type=Path,
+        default=None,
+        metavar="DIR_OR_LIST",
+        help="Directory, .txt/.json checkpoint list, or checkpoint paths for --mode anchor.",
+    )
+    parser.add_argument(
+        "--references",
+        nargs="*",
+        type=Path,
+        default=None,
+        metavar="DIR_OR_LIST",
+        help="Directory, .txt/.json checkpoint list, or checkpoint paths for frozen anchor references.",
+    )
+    parser.add_argument(
+        "--reference-labels",
+        nargs="+",
+        type=str,
+        default=None,
+        help="Optional unique display labels matching --references in anchor mode.",
+    )
+    parser.add_argument(
+        "--anchor-scripted",
+        "--scripted-opponents",
+        dest="anchor_scripted",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated scripted opponent policies for anchor mode "
+            "(default: cut_off,head_evader; pass 'none' for neural-only reference pool)."
+        ),
+    )
+    parser.add_argument(
         "--long-game",
         action="store_true",
         help="Run single-policy mature long-game evaluation.",
@@ -4483,19 +4681,19 @@ def build_arg_parser() -> argparse.ArgumentParser:
         nargs="+",
         type=str,
         default=None,
-        help="Optional unique display labels matching the supplied policies.",
+        help="Optional unique display labels matching the supplied policies (or --candidates).",
     )
     parser.add_argument(
         "--latest-per-run",
         action="store_true",
-        help="When --round-robin scans a checkpoint folder, pick only the latest light_u*.pt.",
+        help="When scanning a checkpoint folder, pick only the latest light_u*.pt.",
     )
     parser.add_argument(
         "--num-envs",
         type=int,
         default=None,
         help=(
-            f"Number of parallel worlds (default: {DEFAULT_H2H_NUM_ENVS} for head-to-head/round-robin, "
+            f"Number of parallel worlds (default: {DEFAULT_H2H_NUM_ENVS} for head-to-head/round-robin/anchor, "
             f"{DEFAULT_LONG_GAME_NUM_ENVS} for long-game)."
         ),
     )
@@ -4506,7 +4704,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help=(
             f"World maturation burn-in ticks before measurement window "
             f"(default: {DEFAULT_H2H_BURNIN_TICKS} for head-to-head/round-robin, "
-            f"{DEFAULT_LONG_GAME_BURNIN_TICKS} for long-game)."
+            f"1500 for anchor, {DEFAULT_LONG_GAME_BURNIN_TICKS} for long-game)."
         ),
     )
     parser.add_argument(
@@ -4516,7 +4714,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help=(
             f"Post-burn-in measurement window ticks "
             f"(default: {DEFAULT_H2H_WINDOW_TICKS} for head-to-head/round-robin, "
-            f"{DEFAULT_LONG_GAME_WINDOW_TICKS} for long-game)."
+            f"6000 for anchor, {DEFAULT_LONG_GAME_WINDOW_TICKS} for long-game)."
         ),
     )
     parser.add_argument(
@@ -4529,7 +4727,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--learner-slots",
         type=int,
         default=None,
-        help="Number of policy seats (1..24) in long-game; defaults to all 24 seats.",
+        help="Number of candidate/learner seats (1..24): defaults to 8 in anchor and 24 in long-game.",
+    )
+    parser.add_argument(
+        "--arena-radius",
+        type=float,
+        default=None,
+        help="Optional arena radius override in anchor mode for quick local evaluations.",
     )
     parser.add_argument(
         "--opponent-policy",
@@ -4635,7 +4839,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--ledger",
         type=Path,
         default=None,
-        help="Colab CLI verified-ledger.json binding staged checkpoints and completed pair units.",
+        help="Colab CLI verified-ledger.json binding staged checkpoints and completed units.",
     )
     parser.add_argument(
         "--max-wall-seconds",
@@ -4647,7 +4851,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--output-dir",
         type=Path,
         default=None,
-        help="Create-only directory for eval_result.json, summary.md (and pairs/*.json).",
+        help="Create-only directory for eval_result.json, summary.md (and pairs/ or candidates/*.json).",
     )
     parser.add_argument(
         "--json-out",
@@ -4666,9 +4870,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     verified_pairs: dict[str, Path] = {}
     ledger_paths: list[Path] = []
     ledger_labels: list[str] | None = None
+    ledger_has_anchor = False
     if args.ledger is not None:
         if args.input_dir is None:
             parser.error("--ledger requires --input-dir")
+        ledger_raw = json.loads(Path(args.ledger).read_text(encoding="utf-8"))
+        ledger_has_anchor = isinstance(ledger_raw, Mapping) and isinstance(
+            ledger_raw.get("anchor_eval"), Mapping
+        )
         ledger_paths, ledger_labels, verified_pairs = resolve_staged_ledger_inputs(
             args.input_dir, args.ledger
         )
@@ -4676,7 +4885,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     # Infer mode and checkpoint paths cleanly
     mode = args.mode
     if mode is None:
-        if args.round_robin is not None:
+        if args.candidates is not None or ledger_has_anchor:
+            mode = "anchor"
+        elif args.round_robin is not None:
             mode = "round-robin"
         elif args.long_game or args.policy is not None:
             mode = "long-game"
@@ -4691,184 +4902,305 @@ def main(argv: Sequence[str] | None = None) -> int:
                 mode = "head-to-head"
         else:
             parser.error(
-                "Specify --policies A.pt B.pt [...], --round-robin DIR_OR_LIST, or --long-game --policy A.pt"
+                "Specify --candidates LIST [--references LIST], --policies A.pt B.pt [...], "
+                "--round-robin DIR_OR_LIST, or --long-game --policy A.pt"
             )
 
-    if mode == "round-robin":
-        if args.round_robin is not None:
-            ckpt_paths = discover_round_robin_checkpoints(
-                args.round_robin, latest_per_run=bool(args.latest_per_run)
-            )
-        elif args.policies is not None:
-            ckpt_paths = discover_round_robin_checkpoints(
-                args.policies, latest_per_run=bool(args.latest_per_run)
-            )
-        elif ledger_paths:
-            ckpt_paths = ledger_paths
-        else:
-            parser.error("--mode round-robin requires --round-robin or --policies")
-    elif mode == "long-game":
-        if args.policy is not None and args.policies is not None:
-            parser.error("Pass either --policy or --policies (not both) for long-game")
-        if args.policy is not None:
-            ckpt_paths = [Path(args.policy).resolve()]
-        elif args.policies is not None:
-            if len(args.policies) != 1:
-                parser.error(f"long-game expects exactly 1 policy, got {len(args.policies)}")
-            ckpt_paths = [Path(args.policies[0]).resolve()]
-        elif len(ledger_paths) == 1:
-            ckpt_paths = ledger_paths
-        else:
-            parser.error("long-game requires --policy PATH.pt")
-    else:
-        raw_pols = args.policies if args.policies is not None else ledger_paths
-        if not raw_pols or not (2 <= len(raw_pols) <= 6):
-            parser.error(
-                f"head-to-head requires 2 to 6 checkpoints via --policies, got {0 if not raw_pols else len(raw_pols)}"
-            )
-        ckpt_paths = [Path(p).resolve() for p in raw_pols]
-
-    explicit_labels = args.labels if args.labels is not None else ledger_labels
-    if explicit_labels is not None:
-        resolve_unique_labels(ckpt_paths, explicit_labels)
     dev = normalize_device(args.device)
     ensure_cuda_initialized(dev)
 
-    use_ledger_policies = (
-        args.ledger is not None
-        and args.round_robin is None
-        and args.policies is None
-        and args.policy is None
-        and bool(ledger_paths)
-    )
-    if use_ledger_policies:
-        assert args.input_dir is not None and args.ledger is not None
-        loaded_policies, verified_pairs = load_staged_ledger_policies(
-            args.input_dir,
-            args.ledger,
-            device=dev,
-            explicit_labels=args.labels,
-            amp=args.amp,
-            use_channels_last=args.use_channels_last,
-            fast_learner_ops=args.fast_learner_ops,
-            compile_model=bool(args.compile),
+    if mode == "anchor":
+        from research.v3_ppo.anchor_eval import (
+            DEFAULT_ANCHOR_BURNIN_TICKS,
+            DEFAULT_ANCHOR_LEARNER_SLOTS,
+            DEFAULT_ANCHOR_NUM_ENVS,
+            DEFAULT_ANCHOR_WINDOW_TICKS,
+            evaluate_anchor,
+            parse_anchor_scripted_opponents,
         )
-    elif len(ckpt_paths) == 1 and _is_eval_policy_bundle_file(ckpt_paths[0]):
-        raw_policies = load_eval_policy_bundle(
-            ckpt_paths[0],
-            device=dev,
-            amp=args.amp,
-            use_channels_last=args.use_channels_last,
-            fast_learner_ops=args.fast_learner_ops,
-            compile_model=bool(args.compile),
-        )
-        eff_labels = resolve_unique_labels(
-            [Path(pol.source_checkpoint_path) for pol in raw_policies],
-            explicit_labels,
-        )
-        loaded_policies = [replace(pol, label=lbl) for pol, lbl in zip(raw_policies, eff_labels)]
-    else:
-        raw_policies = [
-            load_eval_policy(
-                p,
+
+        verified_candidates: dict[str, Path] = {}
+        ledger_ls: int | None = None
+        if args.ledger is not None and args.candidates is None and args.references is None:
+            assert args.input_dir is not None
+            (
+                anchor_cands,
+                anchor_refs,
+                anchor_scripted,
+                ledger_ls,
+                verified_candidates,
+            ) = load_staged_ledger_anchor_inputs(
+                args.input_dir,
+                args.ledger,
                 device=dev,
-                label=None,
+                explicit_candidate_labels=args.labels,
+                explicit_reference_labels=args.reference_labels,
                 amp=args.amp,
                 use_channels_last=args.use_channels_last,
                 fast_learner_ops=args.fast_learner_ops,
                 compile_model=bool(args.compile),
             )
-            for p in ckpt_paths
-        ]
-        eff_labels = resolve_unique_labels(
-            [Path(pol.source_checkpoint_path) for pol in raw_policies],
-            explicit_labels,
-        )
-        loaded_policies = [replace(pol, label=lbl) for pol, lbl in zip(raw_policies, eff_labels)]
-
-    main_started = time.perf_counter()
-    with SignalStopFlag() as stop_flag:
-
-        def _coop_stop() -> bool:
-            if stop_flag.stopped:
-                return True
-            if args.max_wall_seconds is not None:
-                return (time.perf_counter() - main_started) >= float(args.max_wall_seconds)
-            return False
-
-        if mode == "head-to-head":
-            result = evaluate_head_to_head(
-                loaded_policies,
-                num_envs=DEFAULT_H2H_NUM_ENVS if args.num_envs is None else int(args.num_envs),
-                burnin_ticks=(
-                    DEFAULT_H2H_BURNIN_TICKS
-                    if args.burnin_ticks is None
-                    else int(args.burnin_ticks)
-                ),
-                window_ticks=(
-                    DEFAULT_H2H_WINDOW_TICKS
-                    if args.window_ticks is None
-                    else int(args.window_ticks)
-                ),
-                mass_bin_ticks=int(args.mass_bin_ticks),
-                greedy=bool(args.greedy),
-                seed=int(args.seed),
-                bootstrap_samples=int(args.bootstrap_samples),
-                should_stop=_coop_stop,
+            if args.anchor_scripted is not None:
+                anchor_scripted = parse_anchor_scripted_opponents(args.anchor_scripted)
+        else:
+            cand_sources = args.candidates if args.candidates is not None else args.policies
+            if not cand_sources:
+                parser.error("--mode anchor requires --candidates DIR_OR_LIST")
+            cand_paths = discover_eval_checkpoints(
+                cand_sources, latest_per_run=bool(args.latest_per_run), min_checkpoints=1
             )
-        elif mode == "round-robin":
-            result = evaluate_round_robin(
-                loaded_policies,
-                num_envs=DEFAULT_H2H_NUM_ENVS if args.num_envs is None else int(args.num_envs),
+            ref_paths = (
+                discover_eval_checkpoints(
+                    args.references, latest_per_run=bool(args.latest_per_run), min_checkpoints=0
+                )
+                if args.references
+                else []
+            )
+            if args.labels is not None:
+                resolve_unique_labels(cand_paths, args.labels)
+            if args.reference_labels is not None and ref_paths:
+                resolve_unique_labels(ref_paths, args.reference_labels)
+
+            loaded_by_resolved: dict[Path, LoadedEvalPolicy] = {}
+            for p_cand in [*cand_paths, *ref_paths]:
+                rp = Path(p_cand).resolve()
+                if rp not in loaded_by_resolved:
+                    loaded_by_resolved[rp] = load_eval_policy(
+                        rp,
+                        device=dev,
+                        label=None,
+                        amp=args.amp,
+                        use_channels_last=args.use_channels_last,
+                        fast_learner_ops=args.fast_learner_ops,
+                        compile_model=bool(args.compile),
+                    )
+            raw_cands = [loaded_by_resolved[Path(p).resolve()] for p in cand_paths]
+            cand_lbls = resolve_unique_labels(
+                [Path(pol.source_checkpoint_path) for pol in raw_cands],
+                args.labels,
+            )
+            anchor_cands = [replace(pol, label=lbl) for pol, lbl in zip(raw_cands, cand_lbls)]
+
+            if ref_paths:
+                raw_refs = [loaded_by_resolved[Path(p).resolve()] for p in ref_paths]
+                ref_lbls = resolve_unique_labels(
+                    [Path(pol.source_checkpoint_path) for pol in raw_refs],
+                    args.reference_labels,
+                )
+                anchor_refs = [replace(pol, label=lbl) for pol, lbl in zip(raw_refs, ref_lbls)]
+            else:
+                anchor_refs = []
+            anchor_scripted = parse_anchor_scripted_opponents(args.anchor_scripted)
+
+        eff_anchor_ls = (
+            int(args.learner_slots)
+            if args.learner_slots is not None
+            else (int(ledger_ls) if ledger_ls is not None else int(DEFAULT_ANCHOR_LEARNER_SLOTS))
+        )
+        with SignalStopFlag() as stop_flag:
+            result = evaluate_anchor(
+                anchor_cands,
+                anchor_refs,
+                scripted_opponents=anchor_scripted,
+                num_envs=DEFAULT_ANCHOR_NUM_ENVS if args.num_envs is None else int(args.num_envs),
+                learner_slots=eff_anchor_ls,
                 burnin_ticks=(
-                    DEFAULT_H2H_BURNIN_TICKS
+                    DEFAULT_ANCHOR_BURNIN_TICKS
                     if args.burnin_ticks is None
                     else int(args.burnin_ticks)
                 ),
                 window_ticks=(
-                    DEFAULT_H2H_WINDOW_TICKS
+                    DEFAULT_ANCHOR_WINDOW_TICKS
                     if args.window_ticks is None
                     else int(args.window_ticks)
                 ),
-                mass_bin_ticks=int(args.mass_bin_ticks),
                 greedy=bool(args.greedy),
                 seed=int(args.seed),
                 bootstrap_samples=int(args.bootstrap_samples),
-                bt_prior_wins=float(args.bt_prior),
-                batched=bool(args.batched_pairs),
-                max_pairs_per_batch=args.max_pairs_per_batch,
+                arena_radius=args.arena_radius,
                 output_dir=args.output_dir,
-                verified_pair_paths=verified_pairs,
+                verified_candidate_paths=verified_candidates,
                 max_wall_seconds=args.max_wall_seconds,
                 should_stop=lambda: stop_flag.stopped,
             )
+    else:
+        if mode == "round-robin":
+            if args.round_robin is not None:
+                ckpt_paths = discover_round_robin_checkpoints(
+                    args.round_robin, latest_per_run=bool(args.latest_per_run)
+                )
+            elif args.policies is not None:
+                ckpt_paths = discover_round_robin_checkpoints(
+                    args.policies, latest_per_run=bool(args.latest_per_run)
+                )
+            elif ledger_paths:
+                ckpt_paths = ledger_paths
+            else:
+                parser.error("--mode round-robin requires --round-robin or --policies")
+        elif mode == "long-game":
+            if args.policy is not None and args.policies is not None:
+                parser.error("Pass either --policy or --policies (not both) for long-game")
+            if args.policy is not None:
+                ckpt_paths = [Path(args.policy).resolve()]
+            elif args.policies is not None:
+                if len(args.policies) != 1:
+                    parser.error(f"long-game expects exactly 1 policy, got {len(args.policies)}")
+                ckpt_paths = [Path(args.policies[0]).resolve()]
+            elif len(ledger_paths) == 1:
+                ckpt_paths = ledger_paths
+            else:
+                parser.error("long-game requires --policy PATH.pt")
         else:
-            l_edges = _parse_positive_int_csv(args.life_age_edges, "--life-age-edges")
-            v_edges = _parse_positive_int_csv(args.victim_length_edges, "--victim-length-edges")
-            result = evaluate_long_game(
-                loaded_policies[0],
-                num_envs=(
-                    DEFAULT_LONG_GAME_NUM_ENVS if args.num_envs is None else int(args.num_envs)
-                ),
-                burnin_ticks=(
-                    DEFAULT_LONG_GAME_BURNIN_TICKS
-                    if args.burnin_ticks is None
-                    else int(args.burnin_ticks)
-                ),
-                window_ticks=(
-                    DEFAULT_LONG_GAME_WINDOW_TICKS
-                    if args.window_ticks is None
-                    else int(args.window_ticks)
-                ),
-                learner_slots=args.learner_slots,
-                opponent_policy=args.opponent_policy,
-                num_world_age_bins=int(args.num_world_age_bins),
-                life_age_edges=l_edges,
-                victim_length_edges=v_edges,
-                greedy=bool(args.greedy),
-                seed=int(args.seed),
-                should_stop=_coop_stop,
+            raw_pols = args.policies if args.policies is not None else ledger_paths
+            if not raw_pols or not (2 <= len(raw_pols) <= 6):
+                parser.error(
+                    f"head-to-head requires 2 to 6 checkpoints via --policies, got {0 if not raw_pols else len(raw_pols)}"
+                )
+            ckpt_paths = [Path(p).resolve() for p in raw_pols]
+
+        explicit_labels = args.labels if args.labels is not None else ledger_labels
+        if explicit_labels is not None:
+            resolve_unique_labels(ckpt_paths, explicit_labels)
+
+        use_ledger_policies = (
+            args.ledger is not None
+            and args.round_robin is None
+            and args.policies is None
+            and args.policy is None
+            and bool(ledger_paths)
+        )
+        if use_ledger_policies:
+            assert args.input_dir is not None and args.ledger is not None
+            loaded_policies, verified_pairs = load_staged_ledger_policies(
+                args.input_dir,
+                args.ledger,
+                device=dev,
+                explicit_labels=args.labels,
+                amp=args.amp,
+                use_channels_last=args.use_channels_last,
+                fast_learner_ops=args.fast_learner_ops,
+                compile_model=bool(args.compile),
             )
+        elif len(ckpt_paths) == 1 and _is_eval_policy_bundle_file(ckpt_paths[0]):
+            raw_policies = load_eval_policy_bundle(
+                ckpt_paths[0],
+                device=dev,
+                amp=args.amp,
+                use_channels_last=args.use_channels_last,
+                fast_learner_ops=args.fast_learner_ops,
+                compile_model=bool(args.compile),
+            )
+            eff_labels = resolve_unique_labels(
+                [Path(pol.source_checkpoint_path) for pol in raw_policies],
+                explicit_labels,
+            )
+            loaded_policies = [
+                replace(pol, label=lbl) for pol, lbl in zip(raw_policies, eff_labels)
+            ]
+        else:
+            raw_policies = [
+                load_eval_policy(
+                    p,
+                    device=dev,
+                    label=None,
+                    amp=args.amp,
+                    use_channels_last=args.use_channels_last,
+                    fast_learner_ops=args.fast_learner_ops,
+                    compile_model=bool(args.compile),
+                )
+                for p in ckpt_paths
+            ]
+            eff_labels = resolve_unique_labels(
+                [Path(pol.source_checkpoint_path) for pol in raw_policies],
+                explicit_labels,
+            )
+            loaded_policies = [
+                replace(pol, label=lbl) for pol, lbl in zip(raw_policies, eff_labels)
+            ]
+
+        main_started = time.perf_counter()
+        with SignalStopFlag() as stop_flag:
+
+            def _coop_stop() -> bool:
+                if stop_flag.stopped:
+                    return True
+                if args.max_wall_seconds is not None:
+                    return (time.perf_counter() - main_started) >= float(args.max_wall_seconds)
+                return False
+
+            if mode == "head-to-head":
+                result = evaluate_head_to_head(
+                    loaded_policies,
+                    num_envs=DEFAULT_H2H_NUM_ENVS if args.num_envs is None else int(args.num_envs),
+                    burnin_ticks=(
+                        DEFAULT_H2H_BURNIN_TICKS
+                        if args.burnin_ticks is None
+                        else int(args.burnin_ticks)
+                    ),
+                    window_ticks=(
+                        DEFAULT_H2H_WINDOW_TICKS
+                        if args.window_ticks is None
+                        else int(args.window_ticks)
+                    ),
+                    mass_bin_ticks=int(args.mass_bin_ticks),
+                    greedy=bool(args.greedy),
+                    seed=int(args.seed),
+                    bootstrap_samples=int(args.bootstrap_samples),
+                    should_stop=_coop_stop,
+                )
+            elif mode == "round-robin":
+                result = evaluate_round_robin(
+                    loaded_policies,
+                    num_envs=DEFAULT_H2H_NUM_ENVS if args.num_envs is None else int(args.num_envs),
+                    burnin_ticks=(
+                        DEFAULT_H2H_BURNIN_TICKS
+                        if args.burnin_ticks is None
+                        else int(args.burnin_ticks)
+                    ),
+                    window_ticks=(
+                        DEFAULT_H2H_WINDOW_TICKS
+                        if args.window_ticks is None
+                        else int(args.window_ticks)
+                    ),
+                    mass_bin_ticks=int(args.mass_bin_ticks),
+                    greedy=bool(args.greedy),
+                    seed=int(args.seed),
+                    bootstrap_samples=int(args.bootstrap_samples),
+                    bt_prior_wins=float(args.bt_prior),
+                    batched=bool(args.batched_pairs),
+                    max_pairs_per_batch=args.max_pairs_per_batch,
+                    output_dir=args.output_dir,
+                    verified_pair_paths=verified_pairs,
+                    max_wall_seconds=args.max_wall_seconds,
+                    should_stop=lambda: stop_flag.stopped,
+                )
+            else:
+                l_edges = _parse_positive_int_csv(args.life_age_edges, "--life-age-edges")
+                v_edges = _parse_positive_int_csv(args.victim_length_edges, "--victim-length-edges")
+                result = evaluate_long_game(
+                    loaded_policies[0],
+                    num_envs=(
+                        DEFAULT_LONG_GAME_NUM_ENVS if args.num_envs is None else int(args.num_envs)
+                    ),
+                    burnin_ticks=(
+                        DEFAULT_LONG_GAME_BURNIN_TICKS
+                        if args.burnin_ticks is None
+                        else int(args.burnin_ticks)
+                    ),
+                    window_ticks=(
+                        DEFAULT_LONG_GAME_WINDOW_TICKS
+                        if args.window_ticks is None
+                        else int(args.window_ticks)
+                    ),
+                    learner_slots=args.learner_slots,
+                    opponent_policy=args.opponent_policy,
+                    num_world_age_bins=int(args.num_world_age_bins),
+                    life_age_edges=l_edges,
+                    victim_length_edges=v_edges,
+                    greedy=bool(args.greedy),
+                    seed=int(args.seed),
+                    should_stop=_coop_stop,
+                )
 
     md_text = format_eval_markdown(result)
     if args.output_dir is not None:
